@@ -1,0 +1,79 @@
+[project]
+name = "derisk-ext"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "csunny", email = "cfqcsunny@gmail.com" }
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">= 3.10"
+
+dependencies = [
+    "derisk>=0.1.0",
+    "pymysql",
+]
+
+[project.urls]
+Homepage = "https://github.com/derisk-ai/DERISK"
+Documentation = "http://docs.derisk.cn/docs/overview"
+Repository = "https://github.com/derisk-ai/DERISK.git"
+Issues = "https://github.com/derisk-ai/DERISK/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.optional-dependencies]
+rag = [
+    "spacy==3.7",
+    "markdown",
+    "bs4",
+    "python-pptx",
+    "python-docx",
+    "pypdf",
+    "pdfplumber",
+    "sentence-transformers",
+]
+graph_rag = [
+    # For visualization in code
+    "networkx",
+    "dbgpt-tugraph-plugins>=0.1.1",
+    "neo4j"
+]
+datasource_mysql = [
+    # mysqlclient 2.2.x have pkg-config issue on 3.10+
+    # If you want to install psycopg2 and mysqlclient in ubuntu, you should install
+    # libpq-dev and libmysqlclient-dev first.
+    "mysqlclient==2.1.0",
+]
+
+storage_milvus = ["pymilvus"]
+storage_chromadb = [
+    "onnxruntime>=1.14.1,<=1.18.1",
+    "chromadb>=0.4.22"
+    ]
+storage_elasticsearch = ["elasticsearch"]
+storage_obvector = ["pyobvector"]
+
+proxy_tongyi = [
+    # For tongyi proxy embedding model
+    "dashscope"
+]
+
+[tool.uv]
+managed = true
+dev-dependencies = [
+    "pytest>=8.3.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/derisk_ext"]
+exclude = [
+    "src/derisk_ext/**/tests",
+    "src/derisk_ext/**/tests/*",
+    "src/derisk_ext/tests",
+    "src/derisk_ext/tests/*",
+    "src/derisk_ext/**/examples",
+    "src/derisk_ext/**/examples/*"
+]

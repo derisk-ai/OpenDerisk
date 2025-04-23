@@ -1,0 +1,79 @@
+[project]
+name = "derisk-mono"
+version = "0.1.0"
+description = """DERISK is an experimental open-source project that uses localized GPT \
+large models to interact with your data and environment. With this solution, you can be\
+ assured that there is no risk of data leakage, and your data is 100% private and secure.\
+"""
+authors = [
+    { name = "csunny", email = "cfqcsunny@gmail.com" }
+]
+
+readme = "README.md"
+requires-python = ">= 3.10"
+
+[tool.uv.sources]
+derisk = { workspace = true }
+derisk-client = { workspace = true }
+derisk-ext = { workspace = true }
+derisk-serve = { workspace = true }
+derisk-app = { workspace = true }
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
+
+[tool.uv.workspace]
+members = [
+    "packages/derisk-app",
+    "packages/derisk-client",
+    "packages/derisk-core",
+    "packages/derisk-ext",
+    "packages/derisk-serve",
+]
+
+
+[tool.uv]
+managed = true
+dev-dependencies = [
+    "pip",
+    "tomli>=2.0.2",
+    "tomli-w>=1.1.0",
+    "pytest>=7.0.0",
+    "pytest_asyncio",
+    "twine",
+    "ruff>=0.9.1",
+    "pytest-mock>=3.14.0",
+    "asynctest>=0.13.0",
+    "pytest-integration>=0.2.3",
+    "pytest-recording>=0.13.2",
+    "pytest-cov>=6.0.0",
+    "jupyter",
+    "mypy>=1.15.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["packages"]
+addopts = ["--import-mode=importlib", ]
+python_files = ["test_*.py", "*_test.py"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.format]
+# Format docstrings
+docstring-code-format = true
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.ruff.lint]
+# Enable: eror check, import order
+select = ["E", "F", "I"]
+
+[tool.ruff.isort]
+# Specify the local modules (first-party)
+known-first-party = ["derisk", "derisk_client", "derisk_ext", "derisk_serve", "derisk_app"]

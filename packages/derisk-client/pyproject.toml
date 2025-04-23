@@ -1,0 +1,37 @@
+[project]
+name = "derisk-client"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "csunny", email = "cfqcsunny@gmail.com" }
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">= 3.10"
+
+dependencies = ["derisk-serve"]
+
+[project.urls]
+Homepage = "https://github.com/derisk-ai/DERISK"
+Documentation = "http://docs.derisk.cn/docs/overview"
+Repository = "https://github.com/derisk-ai/DERISK.git"
+Issues = "https://github.com/derisk-ai/DERISK/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+managed = true
+dev-dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/derisk_client"]
+exclude = [
+    "src/derisk_client/**/tests",
+    "src/derisk_client/**/tests/*",
+    "src/derisk_client/tests",
+    "src/derisk_client/tests/*",
+    "src/derisk_client/**/examples",
+    "src/derisk_client/**/examples/*"
+]
