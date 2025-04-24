@@ -48,7 +48,9 @@ uv sync --all-packages --frozen \
 --extra "base" \
 --extra "proxy_openai" \
 --extra "rag" \
---extra "storage_chromadb"
+--extra "storage_chromadb" \
+--extra "client" \
+--index-url=https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 #### Start
