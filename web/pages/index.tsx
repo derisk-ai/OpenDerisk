@@ -30,6 +30,7 @@ const HomePang = () => {
             {t('homeTitle')}
           </span>
         </div>
+        <div className='text-l px-5 mt-6 font-thin text-center'>{t('homeTip')}</div>
         <div className='flex flex-col mt-6 w-full' style={{ width: '900px' }}>
           <ChatInput
             input={input}
@@ -54,7 +55,6 @@ const HomePang = () => {
             )}
           />
         </div>
-        <div className='text-xl px-5 mt-6 font-serif font-thin text-center'>{t('homeTip')}</div>
       </div>
     </div>
   );

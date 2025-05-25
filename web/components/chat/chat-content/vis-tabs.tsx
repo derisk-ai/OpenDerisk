@@ -1,7 +1,8 @@
+import { findParentElementByClassName } from '@/utils/dom';
 import { EVENTS, ee } from '@/utils/event-emitter';
 import { GPTVis } from '@antv/gpt-vis';
 import { Tabs } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import markdownComponents, { markdownPlugins, preprocessLaTeX } from './config';
 
 export type VisTabsData = {
@@ -27,10 +28,44 @@ export function VisTabs({ data }: { data: VisTabsData[] }) {
   // Currently, the last tab is active by default.
   const [activeKey, setActiveKey] = useState(getLastActiveKey(data));
   const [isUserActive, setIsUserActive] = useState(false);
+  const [isAutoSroll, setIsAutoSroll] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * When the user scrolls to the bottom of the tab content, we will automatically scroll to the bottom of the tab content.
+   */
+  function handleScroll() {
+    if (!scrollRef.current) return;
+    const container = findParentElementByClassName(scrollRef.current, 'overflow-y-auto');
+    if (!container) return;
+
+    const scrollTop = container.scrollTop;
+    const scrollHeight = container.scrollHeight;
+    const clientHeight = container.clientHeight;
+    const buffer = 10; // Small buffer for better UX
+
+    const isAtBottom = scrollTop + clientHeight >= scrollHeight - buffer;
+
+    setIsAutoSroll(isAtBottom);
+  }
 
   useEffect(() => {
     if (!isUserActive) {
       setActiveKey(getLastActiveKey(data));
+    }
+
+    if (isAutoSroll && !isUserActive) {
+      // If the user is not actively switching tabs, we will scroll to the bottom of the tab content automatically
+      if (scrollRef.current) {
+        // Ensure the parent node is scrollable
+        const scrollContainer = findParentElementByClassName(scrollRef.current, 'overflow-y-auto');
+        if (scrollContainer) {
+          // Scroll to the bottom of the parent node
+          scrollContainer.scrollTo({
+            top: scrollContainer.scrollHeight,
+          });
+        }
+      }
     }
   }, [data]);
 
@@ -38,6 +73,13 @@ export function VisTabs({ data }: { data: VisTabsData[] }) {
     ee.on(EVENTS.TASK_CLICK, (data: any) => {
       setTabActiveByUser(data.taskId);
     });
+
+    if (scrollRef.current) {
+      const scrollContainer = findParentElementByClassName(scrollRef.current, 'overflow-y-auto');
+      if (scrollContainer) {
+        scrollContainer.addEventListener('scroll', handleScroll);
+      }
+    }
   }, []);
 
   /**
@@ -48,7 +90,6 @@ export function VisTabs({ data }: { data: VisTabsData[] }) {
    * This is used to determine whether to reset the active tab when new data arrives.
    */
   function setTabActiveByUser(key: string) {
-    console.log('setTabActiveByUser', key, getLastActiveKey(data));
     if (key === getLastActiveKey(data)) {
       setIsUserActive(false);
     } else {
@@ -85,7 +126,7 @@ export function VisTabs({ data }: { data: VisTabsData[] }) {
   }
 
   return (
-    <div className='flex pl-2'>
+    <div className='flex pl-2' ref={scrollRef}>
       <Tabs className='w-full' activeKey={activeKey} items={getTabItems()} size='small' onChange={setTabActiveByUser} />
     </div>
   );

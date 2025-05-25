@@ -255,8 +255,8 @@ const ChatContent: React.FC<{
                     </div>
                     <ChatInputPanel />
                   </div>
-                  <div className='flex flex-col w-3/5 pl-2 h-full overflow-y-auto'>
-                    <GPTVis className='overflow-y-auto' components={markdownComponents} {...markdownPlugins}>
+                  <div className='flex flex-col w-3/5 pl-2 h-full'>
+                    <GPTVis className='h-full overflow-y-auto' components={markdownComponents} {...markdownPlugins}>
                       {preprocessLaTeX(formatMarkdownValForAgent(right))}
                     </GPTVis>
                   </div>
