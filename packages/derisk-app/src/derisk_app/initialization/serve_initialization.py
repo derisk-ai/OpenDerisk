@@ -21,7 +21,6 @@ def scan_serve_configs():
         "derisk_serve.datasource",
         "derisk_serve.feedback",
         "derisk_serve.file",
-        "derisk_serve.flow",
         "derisk_serve.model",
         "derisk_serve.prompt",
         "derisk_serve.rag",
