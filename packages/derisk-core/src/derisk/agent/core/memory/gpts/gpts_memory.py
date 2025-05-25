@@ -167,6 +167,7 @@ class GptsMemory:
         ## merge messages
         messages = self._merge_messages(messages)
         plans = await self.get_plans(conv_id=conv_id)
+
         ## 消息可视化布局转换
         vis_view = await self._vis_converter.final_view(
             messages=messages,
@@ -196,7 +197,6 @@ class GptsMemory:
         messages = self._merge_messages(messages)
 
         plans = await self.get_plans(conv_id=conv_id)
-
         ## 消息可视化布局转换
         vis_view = await self._vis_converter.visualization(
             messages=messages,
@@ -335,25 +335,25 @@ class GptsMemory:
         )
 
     async def update_plan(self, conv_id: str, plan: GptsPlan):
+        logger.info(f"update_plan:{conv_id},{plan}")
         """Update plans."""
         plans: List[GptsPlan] = await self.get_plans(conv_id)
+        new_plans = []
         for item in plans:
-            if item.task_uid == item.task_uid:
+            if item.task_uid == plan.task_uid:
                 item.state = plan.state
                 item.retry_times = plan.retry_times
                 item.agent_model = plan.agent_model
                 item.result = plan.result
-
+            new_plans.append(item)
             await blocking_func_to_async(
                 self._executor, self.plans_memory.update_task, conv_id, plan.sub_task_id, plan.state, plan.retry_times,
                 model=plan.agent_model, result=plan.result
             )
+            logger.info(f"update_plan {conv_id}:{item.task_uid} sucess！")
+        self.plans_cache[conv_id] = new_plans
 
     async def get_plans(self, conv_id: str) -> List[GptsPlan]:
         """Get plans by conv_id."""
         plans = self.plans_cache[conv_id]
-        if not plans:
-            plans = await blocking_func_to_async(
-                self._executor, self.plans_memory.get_by_conv_id, conv_id
-            )
         return plans

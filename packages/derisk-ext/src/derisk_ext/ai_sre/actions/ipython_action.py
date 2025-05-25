@@ -128,10 +128,10 @@ class IpythonAction(Action[None]):
                 logger.debug(f"Execution Result:\n{result}")
                 logger.debug(f"Execution finished. Time cost: {t2 - t1}")
 
-                answer = self.summary_action(llm_client, llm_model, agent_history, code_blocks[0][1], result,
-                                                   agent_context=agent_context)
-                logger.debug(f"Brief Answer:\n{answer}")
-                content = conclusion.format(answer=answer, result=result)
+                # answer = self.summary_action(llm_client, llm_model, agent_history, code_blocks[0][1], result,
+                #                                    agent_context=agent_context)
+                # logger.debug(f"Brief Answer:\n{answer}")
+                content = conclusion.format(answer="", result=result)
                 exit_success = True
 
             else:
