@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type, Union
 
 from derisk._private.pydantic import Field
 from derisk.agent import (
@@ -11,13 +12,15 @@ from derisk.agent import (
     ProfileConfig,
     Resource,
     ResourceType,
+    StructuredAgentMemoryFragment,
 )
 from derisk.agent.core.role import AgentRunMode
-from derisk.agent.resource import BaseTool, ToolPack
+from derisk.agent.resource import BaseTool, ResourcePack, ToolPack
 from derisk.agent.util.react_parser import ReActOutputParser
 from derisk.util.configure import DynConfig
 
-from .actions.react_action import ReActAction
+from ...core import ModelMessageRoleType
+from .actions.react_action import ReActAction, Terminate
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +66,13 @@ Please Solve this task:
 Please answer in the same language as the user's question.
 The current time is: {{ now_time }}.
 """
-_REACT_USER_TEMPLATE = """\
-{% if most_recent_memories %}\
-Most recent message:
-{{ most_recent_memories }}
-{% endif %}\
 
-{% if question %}\
-Question: {{ question }}
-{% endif %}
-"""
+# Not needed additional user prompt template
+_REACT_USER_TEMPLATE = """"""
 
 
 _REACT_WRITE_MEMORY_TEMPLATE = """\
+{% if question %}Question: {{ question }} {% endif %}
 {% if thought %}Thought: {{ thought }} {% endif %}
 {% if action %}Action: {{ action }} {% endif %}
 {% if action_input %}Action Input: {{ action_input }} {% endif %}
@@ -91,17 +88,17 @@ class ReActAgent(ConversableAgent):
         name=DynConfig(
             "ReAct",
             category="agent",
-            key="dbgpt_agent_expand_plugin_assistant_agent_name",
+            key="derisk_agent_expand_plugin_assistant_agent_name",
         ),
         role=DynConfig(
             "ReActToolMaster",
             category="agent",
-            key="dbgpt_agent_expand_plugin_assistant_agent_role",
+            key="derisk_agent_expand_plugin_assistant_agent_role",
         ),
         goal=DynConfig(
             _REACT_DEFAULT_GOAL,
             category="agent",
-            key="dbgpt_agent_expand_plugin_assistant_agent_goal",
+            key="derisk_agent_expand_plugin_assistant_agent_goal",
         ),
         system_prompt_template=_REACT_SYSTEM_TEMPLATE,
         user_prompt_template=_REACT_USER_TEMPLATE,
@@ -113,14 +110,14 @@ class ReActAgent(ConversableAgent):
         """Init indicator AssistantAgent."""
         super().__init__(**kwargs)
 
-        self._init_actions([ReActAction])
+        self._init_actions([ReActAction, Terminate])
 
     async def _a_init_reply_message(
         self,
         received_message: AgentMessage,
         rely_messages: Optional[List[AgentMessage]] = None,
     ) -> AgentMessage:
-        reply_message = super()._init_reply_message(received_message, rely_messages)
+        reply_message = await super().init_reply_message(received_message, rely_messages)
 
         tool_packs = ToolPack.from_resource(self.resource)
         action_space = []
@@ -149,6 +146,36 @@ class ReActAgent(ConversableAgent):
             "action_space_simple_desc": "\n".join(action_space_simple_desc),
         }
         return reply_message
+
+    async def preload_resource(self) -> None:
+        await super().preload_resource()
+        self._check_and_add_terminate()
+
+    def _check_and_add_terminate(self):
+        if not self.resource:
+            return
+        _is_has_terminal = False
+
+        def _has_terminal(r: Resource):
+            nonlocal _is_has_terminal
+            if r.type() == ResourceType.Tool and isinstance(r, Terminate):
+                _is_has_terminal = True
+            return r
+
+        _has_add_terminal = False
+
+        def _add_terminate(r: Resource):
+            nonlocal _has_add_terminal
+            if not _has_add_terminal and isinstance(r, ResourcePack):
+                terminal = Terminate()
+                r._resources[terminal.name] = terminal
+                _has_add_terminal = True
+            return r
+
+        self.resource.apply(apply_func=_has_terminal)
+        if not _is_has_terminal:
+            # Add terminal action to the resource
+            self.resource.apply(apply_pack_func=_add_terminate)
 
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""
@@ -198,7 +225,10 @@ class ReActAgent(ConversableAgent):
             steps = self.parser.parse(message_content)
             err_msg = None
             if not steps:
-                err_msg = "No correct response found."
+                err_msg = (
+                    "No correct response found. Please check your response, which must"
+                    " be in the format indicated in the system prompt."
+                )
             elif len(steps) != 1:
                 err_msg = "Only one action is allowed each time."
             if err_msg:
@@ -216,52 +246,72 @@ class ReActAgent(ConversableAgent):
         )
         return action_output
 
-    async def write_memories(
+    @property
+    def memory_fragment_class(self) -> Type[AgentMemoryFragment]:
+        """Return the memory fragment class."""
+        return StructuredAgentMemoryFragment
+
+    async def read_memories(
         self,
-        question: str,
-        ai_message: str,
-        action_output: Optional[ActionOutput] = None,
-        check_pass: bool = True,
-        check_fail_reason: Optional[str] = None,
-    ) -> AgentMemoryFragment:
-        """Write the memories to the memory.
+        observation: str,
+    ) -> Union[str, List["AgentMessage"]]:
+        memories = await self.memory.read(observation)
+        not_json_memories = []
+        messages = []
+        structured_memories = []
+        for m in memories:
+            if m.raw_observation:
+                try:
+                    mem_dict = json.loads(m.raw_observation)
+                    if isinstance(mem_dict, dict):
+                        structured_memories.append(mem_dict)
+                    elif isinstance(mem_dict, list):
+                        structured_memories.extend(mem_dict)
+                    else:
+                        raise ValueError("Invalid memory format.")
+                except Exception:
+                    not_json_memories.append(m.raw_observation)
 
-        We suggest you to override this method to save the conversation to memory
-        according to your needs.
+        for mem_dict in structured_memories:
+            question = mem_dict.get("question")
+            thought = mem_dict.get("thought")
+            action = mem_dict.get("action")
+            action_input = mem_dict.get("action_input")
+            observation = mem_dict.get("observation")
+            if question:
+                messages.append(
+                    AgentMessage(
+                        content=f"Question: {question}",
+                        role=ModelMessageRoleType.HUMAN,
+                    )
+                )
+            ai_content = []
+            if thought:
+                ai_content.append(f"Thought: {thought}")
+            if action:
+                ai_content.append(f"Action: {action}")
+            if action_input:
+                ai_content.append(f"Action Input: {action_input}")
+            messages.append(
+                AgentMessage(
+                    content="\n".join(ai_content),
+                    role=ModelMessageRoleType.AI,
+                )
+            )
 
-        Args:
-            question(str): The question received.
-            ai_message(str): The AI message, LLM output.
-            action_output(ActionOutput): The action output.
-            check_pass(bool): Whether the check pass.
-            check_fail_reason(str): The check fail reason.
+            if observation:
+                messages.append(
+                    AgentMessage(
+                        content=f"Observation: {observation}",
+                        role=ModelMessageRoleType.HUMAN,
+                    )
+                )
 
-        Returns:
-            AgentMemoryFragment: The memory fragment created.
-        """
-        if not action_output:
-            raise ValueError("Action output is required to save to memory.")
-
-        mem_thoughts = action_output.thoughts or ai_message
-        action = action_output.action
-        action_input = action_output.action_input
-        observation = check_fail_reason or action_output.observations
-
-        memory_map = {
-            "thought": mem_thoughts,
-            "action": action,
-            "observation": observation,
-        }
-        if action_input:
-            memory_map["action_input"] = action_input
-
-        write_memory_template = self.write_memory_template
-        memory_content = self._render_template(write_memory_template, **memory_map)
-        fragment = AgentMemoryFragment(memory_content)
-        await self.memory.write(fragment)
-        action_output.memory_fragments = {
-            "memory": fragment.raw_observation,
-            "id": fragment.id,
-            "importance": fragment.importance,
-        }
-        return fragment
+        if not messages and not_json_memories:
+            messages.append(
+                AgentMessage(
+                    content="\n".join(not_json_memories),
+                    role=ModelMessageRoleType.HUMAN,
+                )
+            )
+        return messages

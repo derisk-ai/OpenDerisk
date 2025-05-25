@@ -160,7 +160,7 @@ def test_nested_config():
         "service": {
             "web": {
                 "host": "127.0.0.1",
-                "port": 6666,
+                "port": 5670,
                 "database": {"type": "sqlite", "path": "db.sqlite3"},
             },
             "model": {
@@ -175,7 +175,7 @@ def test_nested_config():
     service_config = config_manager.parse_config(ServiceConfig, "service")
 
     assert service_config.web.host == "127.0.0.1"
-    assert service_config.web.port == 6666
+    assert service_config.web.port == 5670
     assert service_config.web.database.type == "sqlite"
     assert service_config.web.database.path == "db.sqlite3"
     assert service_config.model.controller.port == 8000
@@ -226,7 +226,7 @@ encrypt_key = "your_secret_key"
 
 [service.web]
 host = "127.0.0.1"
-port = 6666
+port = 5670
 
 [service.web.database]
 type = "sqlite"
@@ -305,7 +305,7 @@ inference_type = "proxyllm"
 
     # verify web service configuration
     assert root_config.service.web.host == "127.0.0.1"
-    assert root_config.service.web.port == 6666
+    assert root_config.service.web.port == 5670
     assert root_config.service.web.database.type == "sqlite"
 
     # Verify model service configuration

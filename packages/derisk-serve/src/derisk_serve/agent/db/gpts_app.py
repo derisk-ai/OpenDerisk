@@ -25,6 +25,7 @@ from derisk._private.pydantic import (
     model_validator,
 )
 from derisk.agent.core.plan import AWELTeamContext
+from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.resource.base import AgentResource, ResourceType
 from derisk.storage.metadata import BaseDao, Model
@@ -61,7 +62,7 @@ class GptsAppDetail(BaseModel):
     resources: Optional[list[AgentResource]] = None
     prompt_template: Optional[str] = None
     llm_strategy: Optional[str] = None
-    llm_strategy_value: Optional[str] = None
+    llm_strategy_value: Union[Optional[str], Optional[List[Any]]] = None
     created_at: datetime = datetime.now()
     updated_at: datetime = datetime.now()
 
@@ -132,7 +133,9 @@ class GptsApp(BaseModel):
     team_mode: Optional[str] = None
     language: Optional[str] = None
     team_context: Optional[
-        Union[str, AutoTeamContext, AWELTeamContext, NativeTeamContext]
+        Union[
+            str, AutoTeamContext, SingleAgentContext, AWELTeamContext, NativeTeamContext
+        ]
     ] = None
     user_code: Optional[str] = None
     sys_code: Optional[str] = None
@@ -152,8 +155,8 @@ class GptsApp(BaseModel):
     admins: List[str] = Field(default_factory=list)
 
     # By default, keep the last two rounds of conversation records as the context
-    keep_start_rounds: int = 0
-    keep_end_rounds: int = 0
+    keep_start_rounds: int = 1
+    keep_end_rounds: int = 1
 
     def to_dict(self):
         return {k: self._serialize(v) for k, v in self.__dict__.items()}
@@ -179,6 +182,7 @@ class GptsApp(BaseModel):
             team_context=d.get("team_context", None),
             user_code=d.get("user_code", None),
             sys_code=d.get("sys_code", None),
+            icon=d.get("icon", None),
             is_collected=d.get("is_collected", None),
             created_at=d.get("created_at", None),
             updated_at=d.get("updated_at", None),
@@ -329,7 +333,7 @@ class GptsAppEntity(Model):
         Text,
         nullable=True,
         comment="The execution logic and team member content that teams with different"
-        " working modes rely on",
+                " working modes rely on",
     )
 
     user_code = Column(String(255), nullable=True, comment="user code")
@@ -412,10 +416,10 @@ class GptsAppDetailEntity(Model):
 
 class UserRecentAppsDao(BaseDao):
     def query(
-        self,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
-        app_code: Optional[str] = None,
+            self,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
+            app_code: Optional[str] = None,
     ):
         with self.session() as session:
             recent_app_qry = session.query(UserRecentAppsEntity)
@@ -450,10 +454,10 @@ class UserRecentAppsDao(BaseDao):
             return apps
 
     def upsert(
-        self,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
-        app_code: Optional[str] = None,
+            self,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
+            app_code: Optional[str] = None,
     ):
         with self.session() as session:
             try:
@@ -504,10 +508,10 @@ class UserRecentAppsDao(BaseDao):
 
 class GptsAppCollectionDao(BaseDao):
     def collect(
-        self,
-        app_code: str,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
+            self,
+            app_code: str,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
     ):
         with self.session() as session:
             app_qry = session.query(GptsAppCollectionEntity)
@@ -528,10 +532,10 @@ class GptsAppCollectionDao(BaseDao):
             session.add(app_entity)
 
     def uncollect(
-        self,
-        app_code: str,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
+            self,
+            app_code: str,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
     ):
         with self.session() as session:
             app_qry = session.query(GptsAppCollectionEntity)
@@ -579,6 +583,7 @@ class GptsAppDao(BaseDao):
                         "language": app_info.language,
                         "app_describe": app_info.app_describe,
                         "team_mode": app_info.team_mode,
+                        "team_context": app_info.team_context,
                         "user_code": app_info.user_code,
                         "sys_code": app_info.sys_code,
                         "created_at": app_info.created_at,
@@ -676,6 +681,24 @@ class GptsAppDao(BaseDao):
             for app_info in results:
                 app_details = app_details_group.get(app_info.app_code, [])
                 recommend_questions = app_question_group.get(app_info.app_code, [])
+                if ((app_info.team_mode and app_info.team_mode == "auto_plan"
+                     and app_info.team_context and app_info.team_context.find("reasoning_engine") > 0)):
+                    team_context = json.loads(str(app_info.team_context))
+                    app_detail = GptsAppDetailEntity()
+                    app_detail.agent_describe = None
+                    app_detail.agent_name = "ReasoningPlanner"
+                    app_detail.agent_role = "ReasoningPlanner"
+                    app_detail.app_code = app_info.app_code
+                    app_detail.app_name = app_info.app_name
+                    app_detail.created_at = app_info.created_at
+                    app_detail.llm_strategy = team_context["llm_strategy"]
+                    app_detail.llm_strategy_value = json.dumps(team_context["llm_strategy_value"], ensure_ascii=False)
+                    app_detail.node_id = app_info.app_code
+                    app_detail.prompt_template = None
+                    app_detail.resources = json.dumps(team_context["resources"], ensure_ascii=False)
+                    app_detail.type = None
+                    app_detail.updated_at = app_info.updated_at
+                    app_details = [app_detail]
                 try:
                     apps.append(
                         GptsApp.from_dict(
@@ -707,16 +730,33 @@ class GptsAppDao(BaseDao):
             app_resp.total_page = (total_count + query.page_size - 1) // query.page_size
             return app_resp
 
+
+    def get_gpts_apps_by_knowledge_id(self, knowledge_id: Optional[str] = None):
+        session = self.get_raw_session()
+        try:
+            apps = session.query(GptsAppEntity)
+            if knowledge_id is not None:
+                apps = apps.filter(GptsAppEntity.team_context.like("%" + knowledge_id + "%"))
+
+            apps = apps.order_by(GptsAppEntity.id.asc())
+
+            results = apps.all()
+            return results
+
+        finally:
+            session.close()
+
+
     def _entity_to_app_dict(
-        self,
-        app_info: GptsAppEntity,
-        app_details: List[GptsAppDetailEntity],
-        hot_app_map: dict = None,
-        app_collects: List[str] = [],
-        parse_llm_strategy: bool = False,
-        owner_name: str = None,
-        owner_avatar_url: str = None,
-        recommend_questions: List[RecommendQuestionEntity] = None,
+            self,
+            app_info: GptsAppEntity,
+            app_details: List[GptsAppDetailEntity],
+            hot_app_map: dict = None,
+            app_collects: List[str] = [],
+            parse_llm_strategy: bool = False,
+            owner_name: str = None,
+            owner_avatar_url: str = None,
+            recommend_questions: List[RecommendQuestionEntity] = None,
     ):
         return {
             "app_code": app_info.app_code,
@@ -728,6 +768,7 @@ class GptsAppDao(BaseDao):
                 app_info.team_mode, app_info.team_context
             ),
             "user_code": app_info.user_code,
+            "icon": app_info.icon,
             "sys_code": app_info.sys_code,
             "is_collected": "true" if app_info.app_code in app_collects else "false",
             "created_at": app_info.created_at,
@@ -879,10 +920,10 @@ class GptsAppDao(BaseDao):
                 return app_info
 
     def delete(
-        self,
-        app_code: str,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
+            self,
+            app_code: str,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
     ):
         """
         To delete the application, you also need to delete the corresponding plug-ins
@@ -995,12 +1036,23 @@ class GptsAppDao(BaseDao):
             app_qry = app_qry.filter(GptsAppEntity.app_code == gpts_app.app_code)
             app_entity = app_qry.one()
 
+            is_reasoning_agent: bool = len(gpts_app.details) == 1 and gpts_app.details[0].agent_name == "ReasoningPlanner"
+            if is_reasoning_agent:
+                app_entity.team_context = json.dumps(AutoTeamContext(
+                    can_ask_user=True,
+                    llm_strategy=gpts_app.details[0].llm_strategy,
+                    llm_strategy_value=gpts_app.details[0].llm_strategy_value.split(","),
+                    prompt_template=None,
+                    resources=gpts_app.details[0].resources,
+                    teamleader="ReasoningPlanner",
+                ).to_dict(), ensure_ascii=False)
+            else:
+                app_entity.team_context = _parse_team_context(gpts_app.team_context)
             app_entity.app_name = gpts_app.app_name
             app_entity.app_describe = gpts_app.app_describe
             app_entity.language = gpts_app.language
             app_entity.team_mode = gpts_app.team_mode
             app_entity.icon = gpts_app.icon
-            app_entity.team_context = _parse_team_context(gpts_app.team_context)
             app_entity.param_need = json.dumps(gpts_app.param_need)
             app_entity.keep_start_rounds = gpts_app.keep_start_rounds
             app_entity.keep_end_rounds = gpts_app.keep_end_rounds
@@ -1010,35 +1062,35 @@ class GptsAppDao(BaseDao):
                 GptsAppDetailEntity.app_code == gpts_app.app_code
             )
             old_details.delete()
-            session.commit()
 
             app_details = []
-            for item in gpts_app.details:
-                resource_dicts = [resource.to_dict() for resource in item.resources]
-                app_details.append(
-                    GptsAppDetailEntity(
-                        app_code=gpts_app.app_code,
-                        app_name=gpts_app.app_name,
-                        agent_name=item.agent_name,
-                        type="agent",
-                        agent_role=item.agent_role
-                        if item.agent_role
-                        else item.agent_name,
-                        agent_describe=item.agent_describe,
-                        node_id=str(uuid.uuid1()),
-                        resources=json.dumps(resource_dicts, ensure_ascii=False),
-                        prompt_template=item.prompt_template,
-                        llm_strategy=item.llm_strategy,
-                        llm_strategy_value=(
-                            None
-                            if item.llm_strategy_value is None
-                            else json.dumps(tuple(item.llm_strategy_value.split(",")))
-                        ),
-                        created_at=item.created_at,
-                        updated_at=item.updated_at,
+            if not is_reasoning_agent:
+                for item in gpts_app.details:
+                    resource_dicts = [resource.to_dict() for resource in item.resources]
+                    app_details.append(
+                        GptsAppDetailEntity(
+                            app_code=gpts_app.app_code,
+                            app_name=gpts_app.app_name,
+                            agent_name=item.agent_name,
+                            type=item.type,
+                            agent_role=item.agent_role
+                            if item.agent_role
+                            else item.agent_name,
+                            agent_describe=item.agent_describe,
+                            node_id=str(uuid.uuid1()),
+                            resources=json.dumps(resource_dicts, ensure_ascii=False),
+                            prompt_template=item.prompt_template,
+                            llm_strategy=item.llm_strategy,
+                            llm_strategy_value=(
+                                None
+                                if item.llm_strategy_value is None
+                                else json.dumps(tuple(item.llm_strategy_value.split(",")))
+                            ),
+                            created_at=item.created_at,
+                            updated_at=item.updated_at,
+                        )
                     )
-                )
-            session.add_all(app_details)
+                session.add_all(app_details)
 
             old_questions = session.query(RecommendQuestionEntity).filter(
                 RecommendQuestionEntity.app_code == gpts_app.app_code
@@ -1093,10 +1145,10 @@ class GptsAppDao(BaseDao):
             return entity.admins
 
     def publish(
-        self,
-        app_code: str,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
+            self,
+            app_code: str,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
     ):
         """
         To publish the application so that other users and access it.
@@ -1116,10 +1168,10 @@ class GptsAppDao(BaseDao):
                 app_collect_qry.delete()
 
     def unpublish(
-        self,
-        app_code: str,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
+            self,
+            app_code: str,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
     ):
         """
         To publish the application so that other users and access it.
@@ -1169,7 +1221,7 @@ class GptsAppDao(BaseDao):
             chat_scene="chat_with_db_execute",
             scene_name="Chat Data",
             scene_describe="Have a conversation with your private data through natural"
-            " language",
+                           " language",
             param_title="",
             show_disable=False,
         )
@@ -1177,7 +1229,7 @@ class GptsAppDao(BaseDao):
             chat_scene="chat_dashboard",
             scene_name="Chat Dashboard",
             scene_describe="Provide you with professional data analysis reports through"
-            " natural language",
+                           " natural language",
             param_title="",
             show_disable=False,
         )
@@ -1336,30 +1388,50 @@ class GptsAppDao(BaseDao):
 
 
 def _parse_team_context(
-    team_context: Optional[
-        Union[str, AutoTeamContext, AWELTeamContext, NativeTeamContext]
-    ] = None,
+        team_context: Optional[
+            Union[
+                str, AutoTeamContext, SingleAgentContext, AWELTeamContext, NativeTeamContext
+            ]
+        ] = None,
 ):
     """
     parse team_context to str
     """
     if (
-        isinstance(team_context, AWELTeamContext)
-        or isinstance(team_context, NativeTeamContext)
-        or isinstance(team_context, AutoTeamContext)
+            isinstance(team_context, AWELTeamContext)
+            or isinstance(team_context, NativeTeamContext)
+            or isinstance(team_context, AutoTeamContext)
+            or isinstance(team_context, SingleAgentContext)
     ):
         return model_to_json(team_context)
     return team_context
 
 
 def _load_team_context(
-    team_mode: str = None, team_context: str = None
-) -> Union[str, AWELTeamContext, NativeTeamContext, AutoTeamContext]:
+        team_mode: str = None, team_context: str = None
+) -> Union[
+    str, AWELTeamContext, SingleAgentContext, NativeTeamContext, AutoTeamContext
+]:
     """
     load team_context to str or AWELTeamContext
     """
     if team_mode is not None:
         match team_mode:
+            case TeamMode.SINGLE_AGENT.value:
+                try:
+                    if team_context:
+                        single_agent_ctx = SingleAgentContext(
+                            **json.loads(team_context)
+                        )
+                        return single_agent_ctx
+                    else:
+                        return None
+                except Exception as ex:
+                    logger.warning(
+                        f"_load_team_context error, team_mode={team_mode}, "
+                        f"team_context={team_context}, {ex}"
+                    )
+                    return None
             case TeamMode.AWEL_LAYOUT.value:
                 try:
                     if team_context:
@@ -1375,7 +1447,16 @@ def _load_team_context(
             case TeamMode.AUTO_PLAN.value:
                 try:
                     if team_context:
-                        auto_team_ctx = AutoTeamContext(**json.loads(team_context))
+                        context_obj = json.loads(team_context)
+                        if "resources" in context_obj:
+                            resource = context_obj["resources"]
+                            if isinstance(resource, str):
+                                resource_obj = json.loads(context_obj["resources"])
+                            else:
+                                resource_obj = resource
+                            context_obj["resources"] = resource_obj
+
+                        auto_team_ctx = AutoTeamContext(**context_obj)
                         return auto_team_ctx
                     else:
                         return None
@@ -1413,7 +1494,26 @@ def native_app_params():
             {"type": AppParamType.MaxNewTokens.value, "value": None},
         ],
     }
-   
+    chat_with_db_qa = {
+        "chat_scene": ChatScene.ChatWithDbQA.value(),
+        "scene_name": ChatScene.ChatWithDbQA.scene_name(),
+        "param_need": [
+            {"type": AppParamType.Resource.value, "value": ResourceType.DB.value},
+            {"type": AppParamType.Model.value, "value": None},
+            {"type": AppParamType.Temperature.value, "value": None},
+            {"type": AppParamType.MaxNewTokens.value, "value": None},
+        ],
+    }
+    chat_with_db_execute = {
+        "chat_scene": ChatScene.ChatWithDbExecute.value(),
+        "scene_name": ChatScene.ChatWithDbExecute.scene_name(),
+        "param_need": [
+            {"type": AppParamType.Resource.value, "value": ResourceType.DB.value},
+            {"type": AppParamType.Model.value, "value": None},
+            {"type": AppParamType.Temperature.value, "value": None},
+            {"type": AppParamType.MaxNewTokens.value, "value": None},
+        ],
+    }
     chat_knowledge = {
         "chat_scene": ChatScene.ChatKnowledge.value(),
         "scene_name": ChatScene.ChatKnowledge.scene_name(),
@@ -1427,7 +1527,16 @@ def native_app_params():
             {"type": AppParamType.MaxNewTokens.value, "value": None},
         ],
     }
-  
+    chat_dashboard = {
+        "chat_scene": ChatScene.ChatDashboard.value(),
+        "scene_name": ChatScene.ChatDashboard.scene_name(),
+        "param_need": [
+            {"type": AppParamType.Resource.value, "value": ResourceType.DB.value},
+            {"type": AppParamType.Model.value, "value": None},
+            {"type": AppParamType.Temperature.value, "value": None},
+            {"type": AppParamType.MaxNewTokens.value, "value": None},
+        ],
+    }
     chat_normal = {
         "chat_scene": ChatScene.ChatNormal.value(),
         "scene_name": ChatScene.ChatNormal.scene_name(),
@@ -1439,7 +1548,10 @@ def native_app_params():
     }
     return [
         chat_excel,
+        chat_with_db_qa,
+        chat_with_db_execute,
         chat_knowledge,
+        chat_dashboard,
         chat_normal,
     ]
 
@@ -1452,6 +1564,9 @@ def adapt_native_app_model(dialogue: ConversationVo):
         if dialogue.chat_mode not in [
             ChatScene.ChatKnowledge.value(),
             ChatScene.ChatExcel.value(),
+            ChatScene.ChatWithDbQA.value(),
+            ChatScene.ChatWithDbExecute.value(),
+            ChatScene.ChatDashboard.value(),
             ChatScene.ChatNormal.value,
         ]:
             return dialogue
@@ -1483,8 +1598,8 @@ def adapt_native_app_model(dialogue: ConversationVo):
                         )
                         dialogue.chat_mode = app_info.team_context.chat_scene
                     elif (
-                        app_info.app_code == ChatScene.ChatKnowledge.value()
-                        and not dialogue.select_param.isdigit()
+                            app_info.app_code == ChatScene.ChatKnowledge.value()
+                            and not dialogue.select_param.isdigit()
                     ):
                         from derisk_app.knowledge.service import (
                             KnowledgeService,
@@ -1515,3 +1630,41 @@ class AppParamType(Enum):
     Temperature = "temperature"
     MaxNewTokens = "max_new_tokens"
     PromptTemplate = "prompt_template"
+
+
+class TransferSseRequest(BaseModel):
+    all: Optional[bool] = False
+    app_code_list: Optional[List[str]] = None
+    source: Optional[str] = None
+    faas_function_pre: Optional[str] = None
+    uri: Optional[str] = None
+
+
+class AllowToolsRequest(BaseModel):
+    app_code: str
+    mcp_server: str
+    allow_tools: List[str]
+
+
+def mcp_address(source: str, mcp_server: str, uri: str, faas_function_pre: Optional[str] = None):
+    if mcp_server == 'mcp-linglongcopilot':
+        return None
+    if source.lower() == 'df':
+        return {
+            "name": mcp_server,
+            "mcp_servers": f"{uri}/mcp/sse?server_name={mcp_server}"
+        }
+    elif source.lower() == 'faas':
+        def to_camel_case(text):
+            words = text.replace('-', ' ').replace('_', ' ').split()
+            return words[0] + ''.join(word.capitalize() for word in words[1:])
+
+        return {
+            "name": mcp_server,
+            "mcp_servers": f"{uri}/sse",
+            "headers": json.dumps({
+                "x-mcp-server-code": f"{faas_function_pre}.{to_camel_case(mcp_server)}"
+            })
+        }
+    else:
+        return None

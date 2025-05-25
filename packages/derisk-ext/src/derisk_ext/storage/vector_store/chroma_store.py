@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Union
 
@@ -89,6 +90,7 @@ class ChromaStore(VectorStoreBase):
         embedding_fn: Optional[Embeddings] = None,
         chroma_client: Optional["PersistentClient"] = None,  # type: ignore # noqa
         collection_metadata: Optional[dict] = None,
+        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Create a ChromaStore instance.
 
@@ -99,7 +101,7 @@ class ChromaStore(VectorStoreBase):
             chroma_client(PersistentClient): chroma client.
             collection_metadata(dict): collection metadata.
         """
-        super().__init__()
+        super().__init__(executor)
         self._vector_store_config = vector_store_config
         try:
             from chromadb import PersistentClient, Settings

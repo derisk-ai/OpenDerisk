@@ -52,8 +52,8 @@ class ServeConfig(BaseServeConfig):
         default=None, metadata={"help": _("The host of the file server")}
     )
     port: Optional[int] = field(
-        default=6666,
-        metadata={"help": _("The port of the file server, default is 6666")},
+        default=5670,
+        metadata={"help": _("The port of the file server, default is 5670")},
     )
     download_chunk_size: Optional[int] = field(
         default=1024 * 1024,
@@ -88,7 +88,7 @@ class ServeConfig(BaseServeConfig):
             from derisk.util.net_utils import _get_ip_address
 
             file_server_host = _get_ip_address()
-        file_server_port = self.port or 6666
+        file_server_port = self.port or 5670
         return f"{file_server_host}:{file_server_port}"
 
     def get_local_storage_path(self) -> str:

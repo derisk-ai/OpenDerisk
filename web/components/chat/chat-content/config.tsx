@@ -1,5 +1,6 @@
 import { AutoChart, BackEndChartType, getChartType } from '@/components/chart';
 import { formatSql } from '@/utils';
+import { safeJsonParse } from '@/utils/json';
 import { LinkOutlined, ReadOutlined, SyncOutlined } from '@ant-design/icons';
 import { Datum } from '@antv/ava';
 import { GPTVis, withDefaultChartCode } from '@antv/gpt-vis';
@@ -23,6 +24,8 @@ import VisCode from './vis-code';
 import VisConvertError from './vis-convert-error';
 import VisDashboard from './vis-dashboard';
 import VisPlugin from './vis-plugin';
+import { VisTabs, VisTabsData } from './vis-tabs';
+import { VisTasks, VisTasksData } from './vis-tasks';
 import { VisThinking } from './vis-thinking';
 
 type MarkdownComponent = Parameters<typeof GPTVis>['0']['components'];
@@ -111,6 +114,26 @@ const codeComponents = {
         try {
           const data = JSON.parse(content) as Parameters<typeof AgentMessages>[0]['data'];
           return <AgentMessages data={data} />;
+        } catch {
+          return <CodePreview language={lang} code={content} />;
+        }
+      },
+      'vis-tabs': ({ className, children }) => {
+        const content = String(children);
+        const lang = className?.replace('language-', '') || 'javascript';
+        try {
+          const data = safeJsonParse<VisTabsData[]>(content, []);
+          return <VisTabs data={data} />;
+        } catch {
+          return <CodePreview language={lang} code={content} />;
+        }
+      },
+      'vis-tasks': ({ className, children }) => {
+        const content = String(children);
+        const lang = className?.replace('language-', '') || 'javascript';
+        try {
+          const data = safeJsonParse<VisTasksData[]>(content, []);
+          return <VisTasks data={data} />;
         } catch {
           return <CodePreview language={lang} code={content} />;
         }

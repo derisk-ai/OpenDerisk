@@ -46,6 +46,8 @@ class ConnectorManager(BaseComponent):
         """
         from derisk.datasource.rdbms.base import RDBMSConnector  # noqa: F401
         from derisk_ext.datasource.conn_tugraph import TuGraphConnector  # noqa: F401
+      
+     
         from derisk_ext.datasource.rdbms.conn_mysql import MySQLConnector  # noqa: F401
         from derisk_ext.datasource.rdbms.conn_oceanbase import (  # noqa: F401
             OceanBaseConnector,
@@ -53,10 +55,10 @@ class ConnectorManager(BaseComponent):
         from derisk_ext.datasource.rdbms.conn_sqlite import (
             SQLiteConnector,  # noqa: F401
         )
-      
         from derisk_ext.datasource.rdbms.dialect.oceanbase.ob_dialect import (  # noqa: F401
             OBDialect,
         )
+
         from .connect_config_db import ConnectConfigEntity  # noqa: F401
 
     def before_start(self):

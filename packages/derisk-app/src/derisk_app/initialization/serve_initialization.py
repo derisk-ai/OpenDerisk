@@ -28,6 +28,7 @@ def scan_serve_configs():
         "derisk_serve.model",
         "derisk_serve.prompt",
         "derisk_serve.rag",
+        "derisk_serve.mcp",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
@@ -129,22 +130,6 @@ def register_serve_apps(
     )
     # ################################ Conversation Serve Register End ################
 
-    # ################################ AWEL Flow Serve Register Begin #################
-    from derisk_serve.flow.serve import Serve as FlowServe
-
-    # Register serve app
-    system_app.register(
-        FlowServe,
-        config=get_config(
-            serve_configs,
-            FlowServe.name,
-            derisk_serve.flow.serve.ServeConfig,
-            encrypt_key=app_config.system.encrypt_key,
-            api_keys=global_api_keys,
-        ),
-    )
-
-    # ################################ AWEL Flow Serve Register End ###################
 
     # ################################ Rag Serve Register Begin #######################
 
@@ -207,6 +192,7 @@ def register_serve_apps(
     )
     # ################################ Chat Feedback Register End #####################
 
+
     # ################################ File Serve Register Begin ######################
 
     from derisk.configs.model_config import FILE_SERVER_LOCAL_STORAGE_PATH
@@ -229,25 +215,6 @@ def register_serve_apps(
 
     # ################################ File Serve Register End ########################
 
-    # ################################ Evaluate Serve Register Begin ##################
-    from derisk_serve.evaluate.serve import Serve as EvaluateServe
-
-    rag_config = app_config.rag
-    llm_configs = app_config.models
-    # Register serve Evaluate
-    system_app.register(
-        EvaluateServe,
-        config=get_config(
-            serve_configs,
-            EvaluateServe.name,
-            derisk_serve.evaluate.serve.ServeConfig,
-            embedding_model=llm_configs.default_embedding,
-            similarity_top_k=rag_config.similarity_top_k,
-            api_keys=global_api_keys,
-        ),
-    )
-    # ################################ Evaluate Serve Register End ####################
-
 
     # ################################ Model Serve Register Begin #####################
     from derisk_serve.model.serve import Serve as ModelServe
@@ -263,3 +230,18 @@ def register_serve_apps(
             api_keys=global_api_keys,
         ),
     )
+    # ################################ Model Serve Register End #####################
+    # ################################ MCP Serve Register Begin #####################
+    from derisk_serve.mcp.serve import Serve as MCPServe
+
+    # Register serve model
+    system_app.register(
+        MCPServe,
+        config=get_config(
+            serve_configs,
+            MCPServe.name,
+            derisk_serve.mcp.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    # ################################ MCP Serve Register End   #####################

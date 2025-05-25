@@ -18,6 +18,7 @@ class RetrieverStrategy(str, Enum):
     """
 
     EMBEDDING = "embedding"
+    SEMANTIC = "semantic"
     GRAPH = "graph"
     KEYWORD = "keyword"
     HYBRID = "hybrid"

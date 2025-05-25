@@ -15,7 +15,7 @@ interface Tprops {
 }
 const MenuList = (props: Tprops) => {
   const { value, isStow = false } = props;
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(true);
 
   const handleClick = () => {

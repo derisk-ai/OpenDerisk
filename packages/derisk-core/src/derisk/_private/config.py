@@ -23,7 +23,7 @@ class Config(metaclass=Singleton):
 
         # Gradio language version: en, zh
         self.LANGUAGE = os.getenv("LANGUAGE", "en")
-        self.DERISK_WEBSERVER_PORT = int(os.getenv("DERISK_WEBSERVER_PORT", 6666))
+        self.DERISK_WEBSERVER_PORT = int(os.getenv("DERISK_WEBSERVER_PORT", 5670))
 
         self.debug_mode = False
         self.skip_reprompt = False

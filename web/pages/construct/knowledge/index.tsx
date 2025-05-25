@@ -127,7 +127,16 @@ const Knowledge = () => {
   return (
     <Spin spinning={loading}>
       <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto'>
-  
+        {/* <Button
+            type="primary"
+            className="flex items-center"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setIsAddShow(true);
+            }}
+          >
+            Create
+          </Button> */}
         <div className='flex justify-between items-center mb-6'>
           <div className='flex items-center gap-4'>
             <Input
@@ -142,7 +151,7 @@ const Knowledge = () => {
 
           <div className='flex items-center gap-4'>
             <Button
-              className='border-none bg-button-gradient'
+              className='border-none text-white bg-button-gradient'
               icon={<PlusOutlined />}
               onClick={() => {
                 setIsAddShow(true);

@@ -16,6 +16,7 @@ from derisk.model.cluster import WorkerManagerFactory
 from derisk.rag.knowledge.base import KnowledgeType
 from derisk.rag.retriever.rerank import RerankEmbeddingsRanker
 from derisk.util.executor_utils import ExecutorFactory, blocking_func_to_async
+from derisk.util.string_utils import remove_trailing_punctuation
 from derisk.util.tracer import root_tracer, trace
 from derisk_app.knowledge.request.request import (
     ChunkQueryRequest,
@@ -109,31 +110,7 @@ class KnowledgeService:
         space_id = knowledge_space_dao.create_knowledge_space(request)
         return space_id
 
-    def create_knowledge_document(self, space, request: KnowledgeDocumentRequest):
-        """create knowledge document
-        Args:
-           - request: KnowledgeDocumentRequest
-        """
-        query = KnowledgeDocumentEntity(doc_name=request.doc_name, space=space)
-        documents = knowledge_document_dao.get_knowledge_documents(query)
-        if len(documents) > 0:
-            raise Exception(f"document name:{request.doc_name} have already named")
-        doc_id = str(uuid.uuid4())
-        document = KnowledgeDocumentEntity(
-            doc_name=request.doc_name,
-            knowledge_id=space.knowledge_id,
-            doc_id=doc_id,
-            doc_type=request.doc_type,
-            space=space,
-            chunk_size=0,
-            status=SyncStatus.TODO.name,
-            content=request.content,
-            result="",
-        )
-        id = knowledge_document_dao.create_knowledge_document(document)
-        if id is None:
-            raise Exception(f"create document failed, {request.doc_name}")
-        return id
+
 
     def get_knowledge_space(self, request: KnowledgeSpaceRequest):
         """get knowledge space
@@ -143,6 +120,7 @@ class KnowledgeService:
         query = KnowledgeSpaceEntity(
             id=request.id,
             name=request.name,
+            knowledge_id=request.knowledge_id,
             storage_type=request.storage_type,
             owner=request.owner,
         )
@@ -160,6 +138,7 @@ class KnowledgeService:
             res.domain_type = space.domain_type
             res.desc = space.desc
             res.owner = space.owner
+            res.knowledge_id = space.knowledge_id
             res.gmt_created = space.gmt_created
             res.gmt_modified = space.gmt_modified
             res.context = space.context
@@ -464,7 +443,8 @@ class KnowledgeService:
             # delete vector by ids
             storage_connector.delete_by_ids(vector_ids)
         # delete chunks
-        document_chunk_dao.raw_delete(documents[0].id)
+        document_chunk_dao.raw_delete(documents[0].doc_id)
+
         # delete document
         return str(knowledge_document_dao.raw_delete(document_query))
 

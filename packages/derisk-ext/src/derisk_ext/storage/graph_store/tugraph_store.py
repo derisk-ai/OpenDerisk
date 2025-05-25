@@ -39,7 +39,7 @@ class TuGraphStoreConfig(GraphStoreConfig):
         },
     )
     password: str = field(
-        default="admin",
+        default="73@TuGraph",
         metadata={
             "description": "login password",
         },

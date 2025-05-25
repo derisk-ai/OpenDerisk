@@ -3,12 +3,13 @@ import logging
 import traceback
 import asyncio
 from asyncio import Queue
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional, Union, Type
 
 from derisk.core import LLMClient, ModelRequestContext, ModelOutput
 from derisk.core.interface.output_parser import BaseOutputParser
 from derisk.util.error_types import LLMChatError
 from derisk.util.tracer import root_tracer
+from derisk.vis import Vis
 
 from ..llm.llm import _build_model_request
 
@@ -32,20 +33,24 @@ class AIWrapper:
     }
 
     def __init__(
-        self, llm_client: LLMClient, output_parser: Optional[BaseOutputParser] = None
+            self,
+            llm_client: LLMClient,
+            output_parser: Optional[BaseOutputParser] = None,
+            thinking_render: Optional[Type[Vis]] = None,
     ):
         """Create an AIWrapper instance."""
         self.llm_echo = False
         self.model_cache_enable = False
         self._llm_client = llm_client
+        self._thinking_render = thinking_render
         self._output_parser = output_parser or BaseOutputParser(is_stream_out=False)
 
     @classmethod
     def instantiate(
-        cls,
-        template: Optional[Union[str, Callable]] = None,
-        context: Optional[Dict] = None,
-        allow_format_str_template: Optional[bool] = False,
+            cls,
+            template: Optional[Union[str, Callable]] = None,
+            context: Optional[Dict] = None,
+            allow_format_str_template: Optional[bool] = False,
     ):
         """Instantiate the template with the context."""
         if not context or template is None:
@@ -124,17 +129,8 @@ class AIWrapper:
         full_config = {**config}
         # separate the config into create_config and extra_kwargs
         create_config, extra_kwargs = self._separate_create_config(full_config)
-
-        # construct the create params
         params = self._construct_create_params(create_config, extra_kwargs)
-        # get the cache_seed, filter_func and context
-        cache_seed = extra_kwargs.get("cache_seed", 66)
-        filter_func = extra_kwargs.get("filter_func")
-        context = extra_kwargs.get("context")
         llm_model = extra_kwargs.get("llm_model")
-        # memory = extra_kwargs.get("memory", None)
-        # conv_id = extra_kwargs.get("conv_id", None)
-        # sender = extra_kwargs.get("sender", None)
         stream_out = extra_kwargs.get("stream_out", True)
 
         async for out in self._completions_create(llm_model, params, stream_out):
@@ -162,7 +158,12 @@ class AIWrapper:
             "temperature": float(params.get("temperature")),
             "max_new_tokens": int(params.get("max_new_tokens")),
             "echo": self.llm_echo,
+            "trace_id": params.get("trace_id", None),
+            "rpc_id": params.get("rpc_id", None),
         }
+        # messages_prompt = '\n'.join(item['content'] for item in payload['messages'])
+        # await self._llm_client.count_token(llm_model, messages_prompt)
+        logger.info(f"Model:{llm_model},token count:none")
         logger.info(f"Request: \n{payload}")
         span = root_tracer.start_span(
             "Agent.llm_client.no_streaming_call",
@@ -177,19 +178,24 @@ class AIWrapper:
             from datetime import datetime
 
             start_time = datetime.now()
-            first_chunk = True
             if stream_out:
                 async for output in self._llm_client.generate_stream(
-                    model_request.copy()
+                        model_request.copy()
                 ):  # type: ignore
-                    model_output = output
-                    content = (model_output.gen_text_with_thinking(),)
-                    if first_chunk:
-                        if not content or len(content) <= 0:
-                            continue
+                    model_output: ModelOutput = output
+                    # 恢复模型调用异常，触发后续的模型兜底策略
+                    # 恢复模型调用异常，触发后续的模型兜底策略
+                    if model_output.error_code != 0:
+                        raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+
+                    parsed_output = model_output.gen_text_and_thinking()
+
+                    think_blank = not parsed_output[0] or len(parsed_output[0]) <= 0
+                    content_blank = not parsed_output[1] or len(parsed_output[1]) <= 0
+                    if think_blank and content_blank:
+                        continue
                     first_chunk = False
-                    parsed_output = model_output.gen_text_with_thinking()
-                    parsed_output = parsed_output.strip().replace("\\n", "\n")
+
                     if first_chunk:
                         end_time = datetime.now()
                         logger.info(
@@ -199,19 +205,21 @@ class AIWrapper:
                     yield parsed_output
             else:
                 model_output = await self._llm_client.generate(model_request.copy())  # type: ignore
-                parsed_output = model_output.gen_text_with_thinking()
-                parsed_output = parsed_output.strip().replace("\\n", "\n")
+                # 恢复模型调用异常，触发后续的模型兜底策略
+                if model_output.error_code != 0:
+                    raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+                parsed_output = model_output.gen_text_and_thinking()
+                # parsed_output = parsed_output.strip().replace("\\n", "\n")
                 end_time = datetime.now()
                 logger.info(
                     f"LLM no stream generate cost:{end_time - start_time} "
                     f"seconds. output is {parsed_output}"
                 )
                 yield parsed_output
-
+        except LLMChatError:
+            raise
         except Exception as e:
-            logger.error(
-                f"Call LLMClient error, {str(e)}, detail: {traceback.format_exc()}"
-            )
-            raise LLMChatError(original_exception=e) from e
+            logger.exception(f"Call LLMClient error, detail: {str(e)}")
+            raise ValueError(f"LLM Request Exception!{str(e)}")
         finally:
             span.end()

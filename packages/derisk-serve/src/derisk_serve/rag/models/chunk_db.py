@@ -7,6 +7,7 @@ from derisk._private.pydantic import model_to_dict
 from derisk.storage.metadata import BaseDao, Model
 from derisk.storage.metadata._base_dao import QUERY_SPEC, REQ, RES
 from derisk_serve.rag.api.schemas import ChunkServeRequest, ChunkServeResponse
+from derisk_serve.rag.models.document_db import KnowledgeDocumentEntity
 
 
 class DocumentChunkEntity(Model):
@@ -24,6 +25,7 @@ class DocumentChunkEntity(Model):
     vector_id = Column(String(100))
     full_text_id = Column(String(100))
     meta_data = Column(Text)
+    tags = Column(Text)
     gmt_created = Column(DateTime, name="gmt_create")
     gmt_modified = Column(DateTime)
 
@@ -33,6 +35,7 @@ class DocumentChunkEntity(Model):
             f"doc_type='{self.doc_type}', "
             f"document_id='{self.document_id}', content='{self.content}', "
             f"questions='{self.questions}', meta_data='{self.meta_data}', "
+            f"tags='{self.tags}',"
             f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
         )
 
@@ -45,6 +48,7 @@ class DocumentChunkEntity(Model):
             "content": self.content,
             "questions": self.questions,
             "meta_data": self.meta_data,
+            "tags": self.tags,
             "gmt_created": self.gmt_created,
             "gmt_modified": self.gmt_modified,
         }
@@ -79,9 +83,17 @@ class DocumentChunkDao(BaseDao):
         document_chunks = session.query(DocumentChunkEntity)
         if query.id is not None:
             document_chunks = document_chunks.filter(DocumentChunkEntity.id == query.id)
-        if query.document_id is not None:
+        if query.doc_id is not None:
             document_chunks = document_chunks.filter(
-                DocumentChunkEntity.document_id == query.document_id
+                DocumentChunkEntity.doc_id == query.doc_id
+            )
+        if query.chunk_id is not None:
+            document_chunks = document_chunks.filter(
+                DocumentChunkEntity.chunk_id == query.chunk_id
+            )
+        if query.knowledge_id is not None:
+            document_chunks = document_chunks.filter(
+                DocumentChunkEntity.knowledge_id == query.knowledge_id
             )
         if query.doc_type is not None:
             document_chunks = document_chunks.filter(
@@ -194,15 +206,15 @@ class DocumentChunkDao(BaseDao):
         session.close()
         return count
 
-    def raw_delete(self, document_id: int):
+    def raw_delete(self, doc_id: str):
         session = self.get_raw_session()
-        if document_id is None:
-            raise Exception("document_id is None")
-        query = DocumentChunkEntity(document_id=document_id)
+        if doc_id is None:
+            raise Exception("doc_id is None")
+        query = DocumentChunkEntity(doc_id=doc_id)
         knowledge_documents = session.query(DocumentChunkEntity)
-        if query.document_id is not None:
+        if query.doc_id is not None:
             chunks = knowledge_documents.filter(
-                DocumentChunkEntity.document_id == query.document_id
+                DocumentChunkEntity.doc_id == query.doc_id
             )
         chunks.delete()
         session.commit()
@@ -236,6 +248,7 @@ class DocumentChunkDao(BaseDao):
         """
         return ChunkServeRequest(
             id=entity.id,
+            chunk_id=entity.chunk_id,
             doc_name=entity.doc_name,
             doc_type=entity.doc_type,
             document_id=entity.document_id,
@@ -265,6 +278,8 @@ class DocumentChunkDao(BaseDao):
             content=entity.content,
             questions=entity.questions,
             meta_data=entity.meta_data,
+            chunk_id=entity.chunk_id,
+            tags=entity.tags,
             gmt_created=gmt_created_str,
             gmt_modified=gmt_modified_str,
         )
@@ -285,3 +300,40 @@ class DocumentChunkDao(BaseDao):
         )
         entity = DocumentChunkEntity(**response_dict)
         return entity
+
+    def get_all_chunk_meta_info_by_knowledge_ids(self, knowledge_ids: List[str]):
+        session = self.get_raw_session()
+        document_chunks = session.query(DocumentChunkEntity.meta_data)
+
+        document_chunks = document_chunks.join(
+            KnowledgeDocumentEntity,
+            KnowledgeDocumentEntity.doc_id == DocumentChunkEntity.doc_id,
+        )
+        document_chunks = document_chunks.filter(
+            KnowledgeDocumentEntity.knowledge_id.in_(knowledge_ids)
+        )
+
+        result = document_chunks.all()
+        session.close()
+
+        return result
+
+    def get_chunks_by_knowledge_id(self, knowledge_id: str, status: str):
+        session = self.get_raw_session()
+        document_chunks = session.query(DocumentChunkEntity)
+
+        document_chunks = document_chunks.join(
+            KnowledgeDocumentEntity,
+            KnowledgeDocumentEntity.doc_id == DocumentChunkEntity.doc_id,
+        )
+        document_chunks = document_chunks.filter(
+            KnowledgeDocumentEntity.knowledge_id == knowledge_id
+        )
+        document_chunks = document_chunks.filter(
+            KnowledgeDocumentEntity.status == status
+        )
+
+        result = document_chunks.all()
+        session.close()
+
+        return result

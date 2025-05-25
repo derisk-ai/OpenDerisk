@@ -88,6 +88,7 @@ class ComponentType(str, Enum):
     MODEL_CACHE_MANAGER = "derisk_model_cache_manager"
     PLUGIN_HUB = "derisk_plugin_hub"
     MULTI_AGENTS = "derisk_multi_agents"
+    ASYNC_AGENT_CHAT = "derisk_async_agent_chat"
     EXECUTOR_DEFAULT = "derisk_thread_pool_default"
     TRACER = "derisk_tracer"
     TRACER_SPAN_STORAGE = "derisk_tracer_span_storage"
@@ -101,6 +102,8 @@ class ComponentType(str, Enum):
     RESOURCE_MANAGER = "derisk_resource_manager"
     VARIABLES_PROVIDER = "derisk_variables_provider"
     FILE_STORAGE_CLIENT = "derisk_file_storage_client"
+    VIS_CONVERTER_PACKAGE = "vis_converter_package"
+    REASONING_MANAGER = "derisk_reasoning_manager"
 
 
 _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
@@ -277,6 +280,7 @@ class SystemApp(LifeCycle):
 
     async def async_on_init(self):
         """Asynchronously invoke the on_init hooks for all registered components."""
+        logger.info("Start to invoke on_init hooks for all components.")
 
         copied_view = {k: v for k, v in self.components.items()}
         tasks = [v.async_on_init() for _, v in copied_view.items()]

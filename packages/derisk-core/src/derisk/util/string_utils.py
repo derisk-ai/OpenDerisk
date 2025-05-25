@@ -14,6 +14,14 @@ def contains_chinese(text):
     """Check if the text contains Chinese characters."""
     return re.search(r"[\u4e00-\u9fa5]", text) is not None
 
+def is_number(s: str) -> bool:
+    """
+    判断字符串是否为数字
+    :param s:
+    :return:
+    """
+    # 找到第一个不是数字的字符
+    return False if not s or next((c for c in s if c > '9' or c < '0'), None) else True
 
 def is_number_chinese(text):
     ### Determine whether the string is numbers and Chinese

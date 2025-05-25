@@ -1,5 +1,6 @@
 """Module for ChunkManager."""
 
+import json
 from enum import Enum
 from typing import Any, List, Optional
 
@@ -118,6 +119,31 @@ class ChunkParameters(BaseModel):
         default=None,
         description="enable chunk merge by chunk_size.",
     )
+    max_split_chunk_size: int = Field(
+        default=3072,
+        description="max_split_chunk_size.",
+    )
+    header_level: str = Field(
+        default="##",
+        description="header level.",
+    )
+
+
+class ChunkParametersEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ChunkParameters):
+            return {
+                "chunk_overlap": obj.chunk_overlap,
+                "chunk_size": obj.chunk_size,
+                "chunk_strategy": obj.chunk_strategy,
+                "enable_merge": obj.enable_merge,
+                "separator": obj.separator,
+                "splitter_type": obj.splitter_type.value,
+                "text_splitter": obj.text_splitter,
+                "max_split_chunk_size": obj.max_split_chunk_size,
+                "header_level": obj.header_level,
+            }
+        return super().default(obj)
 
 
 class ChunkManager:
@@ -216,4 +242,6 @@ class ChunkManager:
             chunk_overlap=self._chunk_parameters.chunk_overlap,
             separator=self._chunk_parameters.separator,
             enable_merge=self._chunk_parameters.enable_merge,
+            header_level=self._chunk_parameters.header_level,
+            max_split_chunk_size=self._chunk_parameters.max_split_chunk_size,
         )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional
 
@@ -195,6 +196,7 @@ class MilvusStore(VectorStoreBase):
         vector_store_config: MilvusVectorConfig,
         name: Optional[str],
         embedding_fn: Optional[Embeddings] = None,
+        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Create a MilvusStore instance.
 
@@ -202,7 +204,7 @@ class MilvusStore(VectorStoreBase):
             vector_store_config (MilvusVectorConfig): MilvusStore config.
             refer to https://milvus.io/docs/v2.0.x/manage_connection.md
         """
-        super().__init__()
+        super().__init__(executor)
         self._vector_store_config = vector_store_config
 
         try:

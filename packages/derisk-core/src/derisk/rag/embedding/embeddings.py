@@ -13,7 +13,7 @@ from derisk.core.interface.parameter import EmbeddingDeployModelParameters
 from derisk.model.adapter.base import register_embedding_adapter
 from derisk.model.adapter.embed_metadata import (
     EMBED_COMMON_HF_BGE_MODELS,
-    EMBED_COMMON_HF_JINA_MODELS
+    EMBED_COMMON_HF_JINA_MODELS,
 )
 from derisk.util.i18n_utils import _
 from derisk.util.tracer import DERISK_TRACER_SPAN_ID, root_tracer

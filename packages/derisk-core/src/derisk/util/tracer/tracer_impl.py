@@ -21,6 +21,7 @@ from derisk.util.tracer.base import (
     TracerContext,
 )
 from derisk.util.tracer.span_storage import MemorySpanStorage
+from derisk_serve.rag.tracer.rag_flow_span import RagFlowSpanStorage
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +335,9 @@ def initialize_tracer(
 
     storage_container = SpanStorageContainer(system_app)
     tracer_filename = resolve_root_path(tracer_filename)
+    print("tracer_filename: ", tracer_filename)
     storage_container.append_storage(FileSpanStorage(tracer_filename))
+    storage_container.append_storage(RagFlowSpanStorage(tracer_filename))
     if tracer_parameters and tracer_parameters.exporter == "telemetry":
         from derisk.util.tracer.opentelemetry import OpenTelemetrySpanStorage
 

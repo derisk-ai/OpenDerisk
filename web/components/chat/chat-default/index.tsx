@@ -6,6 +6,7 @@ import ChatInput from '@/new-components/chat/input/ChatInput';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils';
 import { useRequest } from 'ahooks';
 import { ConfigProvider, Segmented, SegmentedProps } from 'antd';
+import { t } from 'i18next';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { useContext, useEffect, useState } from 'react';
@@ -74,6 +75,17 @@ function Default() {
     getAppListFn();
   }, [activeKey, getAppListFn]);
 
+  const items: SegmentedProps['options'] = [
+    {
+      value: 'recommend',
+      label: t('recommend_apps'),
+    },
+    {
+      value: 'used',
+      label: t('used_apps'),
+    },
+  ];
+
   // 获取推荐问题
   const { data: helps } = useRequest(async () => {
     const [, res] = await apiInterceptors(getRecommendQuestions());
@@ -96,6 +108,35 @@ function Default() {
     >
       <div className='px-28 py-10 h-full flex flex-col justify-between'>
         <div>
+          <div className='flex justify-between'>
+            <Segmented
+              className='backdrop-filter h-10 backdrop-blur-lg bg-white bg-opacity-30 border border-white rounded-lg shadow p-1 dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60'
+              options={items}
+              value={activeKey}
+              onChange={value => {
+                setActiveKey(value as string);
+              }}
+            />
+            <span className='flex items-center text-gray-500 gap-1 dark:text-slate-300'>
+              <span>没有心仪的应用？去</span>
+              <span
+                className='flex items-center cursor-pointer'
+                onClick={() => {
+                  router.push('/');
+                }}
+              >
+                <Image
+                  key='image_explore'
+                  src={'/pictures/explore_active.png'}
+                  alt='construct_image'
+                  width={24}
+                  height={24}
+                />
+                <span className='text-default'>探索广场</span>
+              </span>
+              <span>发现更多</span>
+            </span>
+          </div>
           <TabContent apps={apps?.app_list || []} loading={loading} refresh={refresh} />
           {helps && helps.length > 0 && (
             <div>

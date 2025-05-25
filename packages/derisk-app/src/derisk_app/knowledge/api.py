@@ -58,6 +58,7 @@ from derisk_serve.rag.api.schemas import (
 # from derisk_serve.rag.connector import VectorStoreConnector
 from derisk_serve.rag.service.service import Service
 from derisk_serve.rag.storage_manager import StorageManager
+from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ async def space_add(
         await blocking_func_to_async(get_executor(), service.create_space, request)
         return Result.succ([])
     except Exception as e:
+        logger.exception("space add exception!")
         return Result.failed(code="E000X", msg=f"space add error {e}")
 
 
@@ -207,6 +209,8 @@ async def arguments_save(space_id: str, argument_request: SpaceArgumentRequest):
         return Result.succ(res)
     except Exception as e:
         return Result.failed(code="E000X", msg=f"space save error {e}")
+
+
 
 
 @router.post("/knowledge/{space_name}/document/add")
@@ -509,6 +513,8 @@ async def batch_document_sync(
             knowledge_space = service.get(knowledge_query)
         for sync_request in request:
             sync_request.knowledge_id = knowledge_space.knowledge_id
+            doc = service.get_document({"id": sync_request.doc_id})
+            sync_request.doc_id = doc.doc_id
         doc_ids = await service.sync_document(requests=request)
         # doc_ids = service.sync_document(
         #     space_name=space_name, sync_requests=request

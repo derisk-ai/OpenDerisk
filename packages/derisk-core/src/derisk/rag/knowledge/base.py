@@ -29,6 +29,15 @@ class DocumentType(Enum):
     EXCEL = "xlsx"
 
 
+class TaskStatusType(Enum):
+    """Task Status Type Enum."""
+
+    TODO = "TODO"
+    RUNNING = "RUNNING"
+    SUCCEED = "SUCCEED"
+    FAILED = "FAILED"
+    FINISHED = "FINISHED"
+
 class KnowledgeType(Enum):
     """Knowledge Type Enum."""
 
@@ -70,23 +79,25 @@ class ChunkStrategy(Enum):
                 "param_name": "chunk_size",
                 "param_type": "int",
                 "default_value": 512,
-                "description": "The size of the data chunks used in processing.",
+                "description": "分段最大长度",
             },
             {
                 "param_name": "chunk_overlap",
                 "param_type": "int",
                 "default_value": 50,
-                "description": "The amount of overlap between adjacent data chunks.",
+                "description": "分段最大重叠长度",
             },
         ],
         "chunk size",
         "split document by chunk size",
+        "固定长度切分",
     )
     CHUNK_BY_PAGE: _STRATEGY_ENUM_TYPE = (
         PageTextSplitter,
         [],
         "page",
         "split document by page",
+        "按页切分",
     )
     CHUNK_BY_PARAGRAPH: _STRATEGY_ENUM_TYPE = (
         ParagraphTextSplitter,
@@ -95,11 +106,12 @@ class ChunkStrategy(Enum):
                 "param_name": "separator",
                 "param_type": "string",
                 "default_value": "\\n",
-                "description": "paragraph separator",
+                "description": "段落分隔符号",
             }
         ],
         "paragraph",
         "split document by paragraph",
+        "按段落切分",
     )
     CHUNK_BY_SEPARATOR: _STRATEGY_ENUM_TYPE = (
         SeparatorTextSplitter,
@@ -108,32 +120,47 @@ class ChunkStrategy(Enum):
                 "param_name": "separator",
                 "param_type": "string",
                 "default_value": "\\n",
-                "description": "chunk separator",
+                "description": "分隔符号",
             },
             {
                 "param_name": "enable_merge",
                 "param_type": "boolean",
                 "default_value": False,
-                "description": "Whether to merge according to the chunk_size after "
-                "splitting by the separator.",
+                "description": "是否允许分隔后再次合并文本段",
             },
         ],
         "separator",
         "split document by separator",
+        "分割符切分",
     )
     CHUNK_BY_MARKDOWN_HEADER: _STRATEGY_ENUM_TYPE = (
         MarkdownHeaderTextSplitter,
-        [],
+        [
+            {
+                "param_name": "header_level",
+                "param_type": "string",
+                "default_value": "##",
+                "description": "标题层级",
+            },
+            {
+                "param_name": "max_split_chunk_size",
+                "param_type": "int",
+                "default_value": 3072,
+                "description": "最大切分的文本段长度",
+            },
+        ],
         "markdown header",
         "split document by markdown header",
+        "标题层级切分",
     )
 
-    def __init__(self, splitter_class, parameters, alias, description):
+    def __init__(self, splitter_class, parameters, alias, description, chinese_name):
         """Create a new ChunkStrategy with the given splitter_class."""
         self.splitter_class = splitter_class
         self.parameters = parameters
         self.alias = alias
         self.description = description
+        self.chinese_name = chinese_name
 
     def match(self, *args, **kwargs) -> TextSplitter:
         """Match and build splitter."""
@@ -163,7 +190,11 @@ class Knowledge(ABC):
         documents = self._load()
         return self._postprocess(documents)
 
-    def extract(self, documents: List[Document]) -> List[Document]:
+    def extract(
+        self,
+        documents: List[Document],
+        chunk_parameter: Optional["ChunkParameters"] = None,
+    ) -> List[Document]:
         """Extract knowledge from text."""
         return documents
 

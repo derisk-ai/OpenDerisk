@@ -6,8 +6,6 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple, Type, cast
 
 from derisk.component import BaseComponent, ComponentType, SystemApp
-from .base_team import ManagerAgent
-
 from .agent import Agent
 from .base_agent import ConversableAgent
 
@@ -57,7 +55,6 @@ class AgentManager(BaseComponent):
         self._agents: Dict[str, Tuple[Type[ConversableAgent], ConversableAgent]] = (
             defaultdict()
         )
-        self._tl: Dict[str, Tuple[Type[ManagerAgent], ManagerAgent]] = defaultdict()
         self._core_agents: Set[str] = set()
 
     def init_app(self, system_app: SystemApp):
@@ -73,22 +70,23 @@ class AgentManager(BaseComponent):
         self._core_agents = list(core_agents.values())
 
         """Register Manager Agent"""
+
+        from derisk.agent.core.plan.report_agent import ReportAssistantAgent
+        self.register_agent(ReportAssistantAgent)
+        from derisk.agent.core.plan.planning_agent import PlanningAgent
+        self.register_agent(PlanningAgent)
+
         from .plan.react.team_react_plan import ReActPlanChatManager
         from .plan.auto.team_auto_plan import AutoPlanChatManager
 
-        self.register_tl_agent(ReActPlanChatManager)
-        self.register_tl_agent(AutoPlanChatManager)
+        self.register_agent(ReActPlanChatManager)
+        self.register_agent(AutoPlanChatManager)
 
-    def register_tl_agent(
-        self, cls: Type[ManagerAgent], ignore_duplicate: bool = False
-    ) -> str:
-        """Register an agent."""
-        inst = cls()
-        profile = inst.role
-        if profile in self._tl and not ignore_duplicate:
-            raise ValueError(f"TeamLeader:{profile} already register!")
-        self._tl[profile] = (cls, inst)
-        return profile
+        # from derisk_ext.agent.agents.open_rca.ipython_agent import IpythonAssistantAgent
+        # self.register_agent(IpythonAssistantAgent)
+
+        # from derisk_ext.agent.agents.open_rca.rca_planning_agent import RcaPlanningAgent
+        # self.register_agent(RcaPlanningAgent)
 
     def register_agent(
         self, cls: Type[ConversableAgent], ignore_duplicate: bool = False
@@ -119,11 +117,6 @@ class AgentManager(BaseComponent):
             raise ValueError(f"Agent:{name} not register!")
         return self._agents[name][0]
 
-    def get_teamleader_by_name(self, name: str) -> Type[ManagerAgent]:
-        if name not in self._tl:
-            raise ValueError(f"TeamLeader:{name} not register!")
-        return self._tl[name][0]
-
     def get_describe_by_name(self, name: str) -> str:
         """Return the description of an agent by name."""
         return self._agents[name][1].desc or ""
@@ -133,25 +126,6 @@ class AgentManager(BaseComponent):
         result = {}
         for name, value in self._agents.items():
             result[name] = value[1].desc or ""
-        return result
-
-    def all_tt(self) -> Dict[str, str]:
-        """Return a dictionary of all registered agents and their descriptions."""
-        result = {}
-        for name, value in self._tl.items():
-            result[name] = value[1].desc or ""
-        return result
-
-    def list_tl(self):
-        """Return a list of all registered agents and their descriptions."""
-        result = []
-        for name, value in self._tl.items():
-            result.append(
-                {
-                    "name": value[1].role,
-                    "desc": value[1].goal,
-                }
-            )
         return result
 
     def list_agents(self):
@@ -209,11 +183,13 @@ def scan_agents():
     if _HAS_SCAN:
         return
     scanner = ModelScanner[ConversableAgent]()
-    config = ScannerConfig(
-        module_path="derisk.agent.expand",
-        base_class=ConversableAgent,
-        recursive=True,
-    )
-    scanner.scan_and_register(config)
+
+    for path in ["derisk.agent.expand", "derisk_ext.agent.agents.reasoning", "derisk_ext.ai_sre"]:
+        config = ScannerConfig(
+            module_path=path,
+            base_class=ConversableAgent,
+            recursive=True,
+        )
+        scanner.scan_and_register(config)
     _HAS_SCAN = True
     return scanner.get_registered_items()

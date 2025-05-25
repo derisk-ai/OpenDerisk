@@ -16,26 +16,22 @@ import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import React, { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import Feedback from './Feedback';
-import RobotIcon from './RobotIcon';
+// import Feedback from './Feedback';
+// import RobotIcon from './RobotIcon';
+import ChatInputPanel from '../input/ChatInputPanel';
 
 const UserIcon: React.FC = () => {
   const user = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? '');
 
-  if (!user.avatar_url) {
-    return (
-      <div className='flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-tr from-[#31afff] to-[#1677ff] text-xs text-white'>
-        {user?.nick_name}
-      </div>
-    );
-  }
+  const avatarUrl = user?.avatar_url || '/agents/sre.png';
+
   return (
     <Image
       className='rounded-full border border-gray-200 object-contain bg-white inline-block'
       width={32}
       height={32}
-      src={user?.avatar_url}
-      alt={user?.nick_name}
+      src={avatarUrl}
+      alt={'User Avatar'}
     />
   );
 };
@@ -79,6 +75,19 @@ const formatMarkdownValForAgent = (val: string) => {
   return val?.replace(/<table(\w*=[^>]+)>/gi, '<table $1>').replace(/<tr(\w*=[^>]+)>/gi, '<tr $1>');
 };
 
+function getRobotContext(context: string): { left: string; right: string } {
+  try {
+    const robotContext = JSON.parse(context);
+    return robotContext;
+  } catch (e: unknown) {
+    console.log(e);
+    return {
+      left: '',
+      right: '',
+    };
+  }
+}
+
 const ChatContent: React.FC<{
   content: Omit<IChatDialogueMessageSchema, 'context'> & {
     context:
@@ -89,7 +98,8 @@ const ChatContent: React.FC<{
         };
   };
   onLinkClick: () => void;
-}> = ({ content, onLinkClick }) => {
+  messages: any[];
+}> = ({ content, onLinkClick, messages }) => {
   const { t } = useTranslation();
 
   const searchParams = useSearchParams();
@@ -149,6 +159,7 @@ const ChatContent: React.FC<{
           return children;
         }
         const { name, status, err_msg, result } = cachePluginContext[index];
+
         const { bgClass, icon } = pluginViewStatusMapper[status] ?? {};
         return (
           <div className='bg-white dark:bg-[#212121] rounded-lg overflow-hidden my-2 flex flex-col lg:max-w-[80%]'>
@@ -172,13 +183,17 @@ const ChatContent: React.FC<{
     [cachePluginContext],
   );
 
+  // If the robot answers, the context needs to be parsed into an object, and then the left and right are rendered separately
+  const robotContext = getRobotContext(context as string);
+  const { left = '', right = '' } = robotContext;
+
   return (
-    <div className='flex flex-1 gap-3 mt-6'>
+    <div className='flex h-full'>
       {/* icon */}
-      <div className='flex flex-shrink-0 items-start'>{isRobot ? <RobotIcon model={model_name} /> : <UserIcon />}</div>
+      {/* <div className='flex flex-shrink-0 items-start'>{isRobot ? null : <UserIcon />}</div> */}
       <div className={`flex ${scene === 'chat_agent' && !thinking ? 'flex-1' : ''} overflow-hidden`}>
         {/* 用户提问 */}
-        {!isRobot && (
+        {!isRobot && false && (
           <div className='flex flex-1 relative group'>
             <div
               className='flex-1 text-sm text-[#1c2533] dark:text-white'
@@ -213,8 +228,8 @@ const ChatContent: React.FC<{
         )}
         {/* ai回答 */}
         {isRobot && (
-          <div className='flex flex-1 flex-col w-full'>
-            <div className='bg-white dark:bg-[rgba(255,255,255,0.16)] p-4 rounded-2xl rounded-tl-none mb-2'>
+          <div className='flex flex-1 flex-col w-full p-2'>
+            <div className='flex w-full h-full bg-white dark:bg-[rgba(255,255,255,0.16)] p-2 rounded-2xl'>
               {typeof context === 'object' && (
                 <div>
                   {`[${context.template_name}]: `}
@@ -225,9 +240,27 @@ const ChatContent: React.FC<{
                 </div>
               )}
               {typeof context === 'string' && scene === 'chat_agent' && (
-                <GPTVis components={markdownComponents} {...markdownPlugins}>
-                  {preprocessLaTeX(formatMarkdownValForAgent(value))}
-                </GPTVis>
+                <div className='flex flex-row w-full'>
+                  <div className='flex flex-col w-2/5 pr-2 border-dashed border-r border-gray-300'>
+                    <div className='flex flex-col flex-justify-space-between h-full overflow-y-auto'>
+                      <div className='flex flex-row gap-2 mb-2 text-gray-500 text-ms pt-2 pb-3 justify-end'>
+                        <span className='wrap-break-word w-4/5'>{messages[0].context}</span>
+                        <span className='pl-3'>
+                          <UserIcon />
+                        </span>
+                      </div>
+                      <GPTVis components={markdownComponents} {...markdownPlugins}>
+                        {preprocessLaTeX(formatMarkdownValForAgent(left))}
+                      </GPTVis>
+                    </div>
+                    <ChatInputPanel />
+                  </div>
+                  <div className='flex flex-col w-3/5 pl-2 h-full overflow-y-auto'>
+                    <GPTVis className='overflow-y-auto' components={markdownComponents} {...markdownPlugins}>
+                      {preprocessLaTeX(formatMarkdownValForAgent(right))}
+                    </GPTVis>
+                  </div>
+                </div>
               )}
               {typeof context === 'string' && scene !== 'chat_agent' && (
                 <div>
@@ -240,10 +273,11 @@ const ChatContent: React.FC<{
                   >
                     {preprocessLaTeX(formatMarkdownVal(value))}
                   </GPTVis>
+                  {/* <VisCard content={preprocessLaTeX(formatMarkdownVal(value)) } /> */}
                 </div>
               )}
               {/* 正在思考 */}
-              {thinking && !context && (
+              {false && thinking && !context && (
                 <div className='flex items-center gap-2'>
                   <span className='flex text-sm text-[#1c2533] dark:text-white'>{t('thinking')}</span>
                   <div className='flex'>
@@ -255,7 +289,7 @@ const ChatContent: React.FC<{
               )}
             </div>
             {/* 用户反馈 */}
-            <Feedback content={content} />
+            {/* <Feedback content={content} /> */}
           </div>
         )}
       </div>

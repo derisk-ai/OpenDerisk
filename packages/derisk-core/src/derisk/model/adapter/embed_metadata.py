@@ -90,8 +90,42 @@ RERANKER_COMMON_HF_JINA_MODELS = [
     ),
 ]
 
+EMBED_COMMON_HF_BAILING_MODELS = [
+    EmbeddingModelMetadata(
+        model=["bailing/bge-m3"],
+        dimension=1024,
+        context_length=8192,
+        description=_(
+            "The embedding model are trained by Bailing AI, it support multiple "
+            "languages. And it has 0.57B parameters."
+        ),
+        link="https://yuque.antfin.com/lingxibot/saf0gi/lhmzoxom5xup1w8g#Eoe4j",
+    ),
+    EmbeddingModelMetadata(
+        model=["bailing/gte-qwen2_1.5b-instruct"],
+        dimension=1536,
+        context_length=8192,
+        description=_(
+            "The embedding model are trained by Bailing AI, it support multiple "
+            "languages. And it has 0.57B parameters."
+        ),
+        link="https://yuque.antfin.com/lingxibot/saf0gi/lhmzoxom5xup1w8g#Eoe4j",
+    ),
+    EmbeddingModelMetadata(
+        model=["bailing/bge-large"],
+        dimension=1024,
+        context_length=512,
+        description=_(
+            "The embedding model are trained by Bailing AI, it support multiple "
+            "languages. And it has 0.57B parameters."
+        ),
+        link="https://yuque.antfin.com/lingxibot/saf0gi/lhmzoxom5xup1w8g#Eoe4j",
+    ),
+]
+
 _register_embed_common_hf_models(EMBED_COMMON_HF_BGE_MODELS)
 _register_embed_common_hf_models(EMBED_COMMON_HF_JINA_MODELS)
+
 
 # Register reranker models
 _register_reranker_common_hf_models(RERANKER_COMMON_HF_BGE_MODELS)

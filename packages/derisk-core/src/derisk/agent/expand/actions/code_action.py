@@ -5,7 +5,8 @@ from typing import Optional, Union
 
 from derisk.util.code_utils import UNKNOWN, execute_code, extract_code, infer_lang
 from derisk.util.utils import colored
-from derisk.vis.tags.vis_code import Vis, VisCode
+from derisk.vis import SystemVisTag
+from derisk_ext.vis.gptvis.tags.vis_code import Vis, VisCode
 
 from ...core.action.base import Action, ActionOutput
 from ...resource.base import AgentResource
@@ -19,17 +20,13 @@ class CodeAction(Action[None]):
     def __init__(self, **kwargs):
         """Code action init."""
         super().__init__(**kwargs)
-        self._render_protocol = VisCode()
         self._code_execution_config = {}
-
-    @property
-    def render_protocol(self) -> Optional[Vis]:
-        """Return the render protocol."""
-        return self._render_protocol
+        ## this action out view vis tag name
+        self.action_view_tag: str = SystemVisTag.VisCode.value
 
     async def run(
         self,
-        ai_message: str,
+        ai_message: str = None,
         resource: Optional[AgentResource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,

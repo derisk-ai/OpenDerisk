@@ -26,8 +26,10 @@ from ...._private.pydantic import (
     model_validator,
 )
 from ....util.json_utils import find_json_objects
+from ....vis import VisProtocolConverter
 from ....vis.base import Vis
 from ...resource.base import AgentResource, Resource, ResourceType
+from ....vis.vis_converter import DefaultVisConverter
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +44,15 @@ class ActionOutput(BaseModel):
 
     content: str
     is_exe_success: bool = True
-    view: Optional[str] = None
+    view: Optional[str] = None # 给人看的信息
+    model_view: Optional[str] = None # 多轮聊天 给模型看的信息
+    action_id: Optional[str] = None # eg. 2.4-1.5，其中横线-表示派生关系，2.2表示父agent第2轮第4个action，1.5表示子agent第1轮第5个action
+    action_intention: Optional[str] = None #本次action对应的intention
+    action_reason: Optional[str] = None  # 本次action对应的reason
     resource_type: Optional[str] = None
     resource_value: Optional[Any] = None
     action: Optional[str] = None
+    action_name: Optional[str] = None
     action_input: Optional[str] = None
     thoughts: Optional[str] = None
     observations: Optional[str] = None
@@ -60,6 +67,7 @@ class ActionOutput(BaseModel):
     # Memory fragments of current conversation, we can recover the conversation at any
     # time.
     memory_fragments: Optional[Dict[str, Any]] = None
+    extra: Optional[dict[str, Any]] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -89,11 +97,29 @@ class ActionOutput(BaseModel):
 class Action(ABC, Generic[T]):
     """Base Action class for defining agent actions."""
 
-    def __init__(self, language: str = "en", name: Optional[str] = None):
+    def __init__(self, language: str = "en", name: Optional[str] = None, **kwargs):
         """Create an action."""
         self.resource: Optional[Resource] = None
         self.language: str = language
         self._name = name
+        self.action_input: Optional[T] = None
+        self.action_view_tag: Optional[str] = None
+        self.intention: Optional[str] = None
+        self.reason: Optional[str] = None
+        self._render: Optional[VisProtocolConverter] = None
+
+    def init_action(self, **kwargs):
+        self._render: VisProtocolConverter = kwargs.get(
+            "render_protocol", DefaultVisConverter()
+        )
+
+    @property
+    def render_protocol(self) -> Optional[Vis]:
+        """Return the render protocol."""
+        if self.action_view_tag:
+            return self._render.vis_inst(self.action_view_tag)
+        else:
+            return None
 
     def init_resource(self, resource: Optional[Resource]):
         """Initialize the resource."""
@@ -118,11 +144,6 @@ class Action(ABC, Generic[T]):
     def get_action_description(cls) -> str:
         """Return the action description."""
         return cls.__doc__ or ""
-
-    @property
-    def render_protocol(self) -> Optional[Vis]:
-        """Return the render protocol."""
-        return None
 
     def render_prompt(self) -> Optional[str]:
         """Return the render prompt."""
@@ -226,7 +247,7 @@ class Action(ABC, Generic[T]):
     @abstractmethod
     async def run(
         self,
-        ai_message: str,
+        ai_message: str = None,
         resource: Optional[AgentResource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,

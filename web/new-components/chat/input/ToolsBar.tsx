@@ -5,7 +5,7 @@ import type { UploadFile } from 'antd';
 import { Spin, Tooltip } from 'antd';
 import classNames from 'classnames';
 import Image from 'next/image';
-import React, { useContext, useMemo, useState } from 'react';
+import React, { memo, useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import MaxNewTokens from './MaxNewTokens';
@@ -195,4 +195,4 @@ const ToolsBar: React.FC<{
   );
 };
 
-export default ToolsBar;
+export default memo(ToolsBar);

@@ -195,6 +195,22 @@ class OpenAPIRerankerDeployModelParameters(RerankerDeployModelParameters):
             "help": _("The timeout for the request in seconds."),
         },
     )
+    text_limit: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": _(
+                "rerank text limit."
+            ),
+        },
+    )
+    batch_limit: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": _(
+                "rerank batch limit."
+            ),
+        },
+    )
 
     @property
     def real_provider_model_name(self) -> str:
@@ -225,6 +241,14 @@ class OpenAPIRerankEmbeddings(BaseModel, RerankEmbeddings):
     )
 
     session: Optional[requests.Session] = None
+    text_limit: Optional[int] = Field(
+        default=None,
+        description="The maximum length of the text to be reranked.",
+    )
+    batch_limit: Optional[int] = Field(
+        default=None,
+        description="The maximum number of texts to be reranked in a single request.",
+    )
 
     def __init__(self, **kwargs):
         """Initialize the OpenAPIEmbeddings."""

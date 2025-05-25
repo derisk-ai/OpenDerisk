@@ -58,17 +58,11 @@ function smallMenuItemStyle(active?: boolean) {
 }
 
 function SideBar() {
-  // const { chatId, scene, isMenuExpand, refreshDialogList, setIsMenuExpand, setAgent, mode, setMode, adminList } =
-  //   useContext(ChatContext);
   const { isMenuExpand, setIsMenuExpand, mode, setMode, adminList } = useContext(ChatContext);
   const { pathname } = useRouter();
   const { t, i18n } = useTranslation();
   const [logo, setLogo] = useState<string>('/logo_zh_latest.png');
-  const [open, setOpen] = useState(true);
 
-  const handleClick = () => {
-    setOpen(!open);
-  };
   const hasAdmin = useMemo(() => {
     const { user_id } = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) || '{}');
     return adminList.some(admin => admin.user_id === user_id);
@@ -228,22 +222,8 @@ function SideBar() {
         path: '/chat',
         isActive: pathname.startsWith('/chat'),
       },
-      // {
-      //   key: 'task_management',
-      //   name: t('task_management'),
-      //   isActive: pathname === '/taskManagement',
-      //   icon: (
-      //     <Image
-      //       key='image_explore'
-      //       src={pathname === '/taskManagement' ? '/pictures/explore_active.png' : '/pictures/explore.png'}
-      //       alt='construct_image'
-      //       width={40}
-      //       height={40}
-      //     />
-      //   ),
-      //   path: '/taskManagement',
-      // },
       {
+        //
         key: 'configuration_management',
         name: t('configuration_management'),
         icon: <SettingOutlined style={{ fontSize: '20px', margin: '0 10px' }} />,
@@ -273,10 +253,8 @@ function SideBar() {
         ],
       },
     ];
-
     return items;
   }, [t, pathname, hasAdmin]);
-
 
   useEffect(() => {
     const language = i18n.language;
@@ -285,7 +263,7 @@ function SideBar() {
   }, []);
 
   useEffect(() => {
-    setLogo(mode === 'dark' ? '/logo_zh_latest_w.png' : '/logo_zh_latest.png');
+    setLogo(mode === 'dark' ? '/logo_s_latest.png' : '/logo_zh_latest.png');
   }, [mode]);
 
   if (!isMenuExpand) {
@@ -298,7 +276,7 @@ function SideBar() {
       >
         <div>
           <Link href='/' className='flex justify-center items-center pb-4'>
-            <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='derisk' width={40} height={40} />
+            <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={40} height={40} />
           </Link>
           <div className='flex flex-col gap-4 items-center'>
             {functions.map(i => {
@@ -345,7 +323,7 @@ function SideBar() {
       <div>
         {/* LOGO */}
         <Link href='/' className='flex items-center justify-center p-2 pb-4'>
-          <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='derisk' width={180} height={40} />
+          <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={180} height={40} />
         </Link>
         {/* functions */}
         <div className='flex flex-col gap-4'>
@@ -353,9 +331,9 @@ function SideBar() {
             if (item?.hideInMenu) return <></>;
             if (item?.children) {
               return (
-                <>
+                <div key={item?.key}>
                   <MenuList value={item} />
-                </>
+                </div>
               );
             }
             return (

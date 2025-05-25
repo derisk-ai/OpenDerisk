@@ -131,7 +131,7 @@ class RagParameters(BaseParameters):
 class ServiceWebParameters(BaseParameters):
     host: str = field(default="0.0.0.0", metadata={"help": _("Webserver deploy host")})
     port: int = field(
-        default=6666, metadata={"help": _("Webserver deploy port, default is 6666")}
+        default=5670, metadata={"help": _("Webserver deploy port, default is 5670")}
     )
     light: Optional[bool] = field(
         default=False, metadata={"help": _("Run Webserver in light mode")}
@@ -239,6 +239,14 @@ class ServiceWebParameters(BaseParameters):
             "help": _("The max sequence length of the embedding model, default is 512")
         },
     )
+    web_url: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The real web url `,`")},
+    )
+
+    enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
+
+    main_app_code: str = field(default="chat_normal", metadata={"help": _("The main app code")}, )
 
 
 @dataclass
