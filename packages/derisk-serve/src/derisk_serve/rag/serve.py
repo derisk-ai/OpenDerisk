@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List, Optional, Union
 
@@ -7,7 +8,7 @@ from derisk.component import SystemApp
 from derisk.storage.metadata import DatabaseManager
 from derisk_serve.core import BaseServe
 
-from .api.endpoints import init_endpoints, router
+from .api.endpoints import init_endpoints, router, init_documents_auto_run
 from .config import (
     SERVE_APP_NAME,
     SERVE_APP_NAME_HUMP,
@@ -27,7 +28,7 @@ class Serve(BaseServe):
         self,
         system_app: SystemApp,
         config: Optional[ServeConfig] = None,
-        api_prefix: Optional[str] = "/api/v2/serve/knowledge",
+        api_prefix: Optional[str] = "/openapi/v1/knowledge",
         api_tags: Optional[List[str]] = None,
         db_url_or_db: Union[str, URL, DatabaseManager] = None,
         try_create_tables: Optional[bool] = False,
@@ -52,6 +53,9 @@ class Serve(BaseServe):
         )
         init_endpoints(self._system_app, self._config)
         self._app_has_initiated = True
+
+        # 初始化定时任务
+        init_documents_auto_run()
 
     def on_init(self):
         """Called when init the application.

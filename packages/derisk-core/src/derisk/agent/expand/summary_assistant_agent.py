@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Tuple
 
 from derisk.rag.retriever.rerank import RetrieverNameRanker
 
-from .. import AgentMessage
+from .. import AgentMessage, Agent
 from ..core.action.blank_action import BlankAction
 from ..core.base_agent import ConversableAgent
 from ..core.profile import DynConfig, ProfileConfig
@@ -111,12 +111,13 @@ class SummaryAssistantAgent(ConversableAgent):
                 return resource_prompt, resource_reference
         return None, None
 
-    def _init_reply_message(
+    async def init_reply_message(
         self,
         received_message: AgentMessage,
         rely_messages: Optional[List[AgentMessage]] = None,
+        sender: Optional[Agent] = None,
     ) -> AgentMessage:
-        reply_message = super()._init_reply_message(received_message, rely_messages)
+        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages, sender=sender)
         reply_message.context = {
             "user_question": received_message.content,
         }

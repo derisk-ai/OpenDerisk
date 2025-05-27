@@ -100,12 +100,23 @@ function Models() {
   };
 
   return (
-    <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto'>
+    <div className='px-6 overflow-y-auto'>
       <div className='flex justify-between items-center mb-6'>
+        <div className='flex items-center gap-4'>
+          {/* <Input
+              variant="filled"
+              prefix={<SearchOutlined />}
+              placeholder={t('please_enter_the_keywords')}
+              onChange={onSearch}
+              onPressEnter={onSearch}
+              allowClear
+              className="w-[230px] h-[40px] border-1 border-white backdrop-filter backdrop-blur-lg bg-white bg-opacity-30 dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60"
+            /> */}
+        </div>
 
         <div className='flex items-center gap-4'>
           <Button
-            className='border-none bg-button-gradient'
+            className='border-none text-white bg-button-gradient'
             icon={<PlusOutlined />}
             onClick={() => {
               setIsModalOpen(true);

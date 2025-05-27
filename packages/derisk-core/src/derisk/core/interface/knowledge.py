@@ -18,6 +18,10 @@ class Document(BaseModel):
         default_factory=dict,
         description="metadata fields",
     )
+    chunks: List["Chunk"] = Field(
+        default_factory=list,
+        description="chunks",
+    )
 
     def set_content(self, content: str) -> None:
         """Set document content."""
@@ -60,6 +64,7 @@ class Chunk(Document):
     )
     score: float = Field(default=0.0, description="chunk text similarity score")
     summary: str = Field(default="", description="chunk text summary")
+    query: Optional[str] = Field(default=None, description="chunk text query")
     separator: str = Field(
         default="\n",
         description="Separator between metadata fields when converting to string.",

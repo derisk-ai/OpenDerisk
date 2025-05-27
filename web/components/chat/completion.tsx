@@ -20,6 +20,7 @@ import AgentContent from './agent-content';
 import ChatContent from './chat-content';
 import ChatFeedback from './chat-feedback';
 import { renderModelIcon } from './header/model-selector';
+import MonacoEditor from './monaco-editor';
 
 type Props = {
   messages: IChatDialogueMessageSchema[];
@@ -240,6 +241,22 @@ const Completion = ({ messages, onSubmit, onFormatContent }: Props) => {
           <CompletionInput loading={isLoading} onSubmit={handleChat} handleFinish={setIsLoading} />
         </div>
       </div>
+      <Modal
+        title='JSON Editor'
+        open={jsonModalOpen}
+        width='60%'
+        cancelButtonProps={{
+          hidden: true,
+        }}
+        onOk={() => {
+          setJsonModalOpen(false);
+        }}
+        onCancel={() => {
+          setJsonModalOpen(false);
+        }}
+      >
+        <MonacoEditor className='w-full h-[500px]' language='json' value={jsonValue} />
+      </Modal>
     </>
   );
 };

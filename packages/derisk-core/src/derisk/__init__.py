@@ -3,7 +3,7 @@
 from derisk import _version  # noqa: E402
 from derisk.component import BaseComponent, SystemApp  # noqa: F401
 
-_CORE_LIBS = ["core", "rag", "model", "agent", "datasource", "vis", "storage", "train"]
+_CORE_LIBS = ["core", "rag", "model", "agent", "datasource", "storage", "train", "vis"]
 _SERVE_LIBS = ["serve"]
 _LIBS = _CORE_LIBS + _SERVE_LIBS
 

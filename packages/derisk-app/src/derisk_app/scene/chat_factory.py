@@ -7,7 +7,29 @@ class ChatFactory(metaclass=Singleton):
     @staticmethod
     def get_implementation(chat_mode, system_app, **kwargs):
         # Lazy loading
-      
+        from derisk_app.scene.chat_dashboard.chat import ChatDashboard  # noqa: F401
+        from derisk_app.scene.chat_dashboard.prompt import prompt  # noqa: F401
+        from derisk_app.scene.chat_data.chat_excel.excel_analyze.chat import (  # noqa: F401
+            ChatExcel,
+        )
+        from derisk_app.scene.chat_data.chat_excel.excel_analyze.prompt import (  # noqa: F401,F811
+            prompt,
+        )
+        from derisk_app.scene.chat_data.chat_excel.excel_learning.prompt import (  # noqa: F401, F811
+            prompt,
+        )
+        from derisk_app.scene.chat_db.auto_execute.chat import (  # noqa: F401
+            ChatWithDbAutoExecute,
+        )
+        from derisk_app.scene.chat_db.auto_execute.prompt import (  # noqa: F401,F811
+            prompt,
+        )
+        from derisk_app.scene.chat_db.professional_qa.chat import (  # noqa: F401
+            ChatWithDbQA,
+        )
+        from derisk_app.scene.chat_db.professional_qa.prompt import (  # noqa: F401, F811
+            prompt,
+        )
         from derisk_app.scene.chat_knowledge.refine_summary.chat import (  # noqa: F401
             ExtractRefineSummary,
         )

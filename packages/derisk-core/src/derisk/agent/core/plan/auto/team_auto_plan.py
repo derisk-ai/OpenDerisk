@@ -1,6 +1,7 @@
 """Auto reasoning_engine chat manager agent."""
 
 import logging
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 from derisk.core.interface.message import ModelMessageRoleType
@@ -126,6 +127,7 @@ class AutoPlanChatManager(ManagerAgent):
                         f"Please only return the role, such as: {agents[0].name}",
                     )
                 ],
+                reply_message_id=uuid.uuid4().hex,
                 prompt=self.select_speaker_msg(agents),
             )
             if not fina_name:
@@ -228,7 +230,7 @@ class AutoPlanChatManager(ManagerAgent):
                             current_goal=now_plan.sub_task_content,
                             context={
                                 "plan_task": now_plan.sub_task_content,
-                                "plan_task_num": now_plan.sub_task_num,
+                                "plan_task_id": now_plan.sub_task_id,
                             },
                             rounds=rounds + 1,
                         )
@@ -283,14 +285,14 @@ class AutoPlanChatManager(ManagerAgent):
                             # Plan executed successfully
                             self.memory.plans_memory.complete_task(
                                 self.not_null_agent_context.conv_id,
-                                now_plan.sub_task_num,
+                                now_plan.sub_task_id,
                                 plan_result,
                             )
                         else:
                             plan_result = reply_message["content"]
                             self.memory.plans_memory.update_task(
                                 self.not_null_agent_context.conv_id,
-                                now_plan.sub_task_num,
+                                now_plan.sub_task_id,
                                 Status.FAILED.value,
                                 now_plan.retry_times + 1,
                                 speaker.name,
@@ -315,3 +317,22 @@ class AutoPlanChatManager(ManagerAgent):
             is_exe_success=False,
             content=f"Maximum number of dialogue rounds exceeded.{self.max_round}",
         )
+
+    async def thinking(
+            self,
+            messages: List[AgentMessage],
+            reply_message_id: str,
+            reply_message: AgentMessage,
+            sender: Optional[Agent] = None,
+            prompt: Optional[str] = None,
+            current_goal: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Think and reason about the current task goal."""
+        # TeamManager, which is based on processes and plans by default, only needs to
+        # ensure execution and does not require additional thinking.
+        if messages is None or len(messages) <= 0:
+            return None, None
+        else:
+            message = messages[-1]
+            self.messages.append(message.to_llm_message())
+            return None, message.content, None

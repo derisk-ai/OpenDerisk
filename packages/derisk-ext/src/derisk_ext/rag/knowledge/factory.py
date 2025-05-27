@@ -30,6 +30,8 @@ class KnowledgeFactory:
     def create(
         cls,
         datasource: str = "",
+        doc_token: Optional[str] = "",
+        doc_id: Optional[str] = "",
         knowledge_type: KnowledgeType = KnowledgeType.DOCUMENT,
         metadata: Optional[Dict[str, Union[str, List[str]]]] = None,
     ):

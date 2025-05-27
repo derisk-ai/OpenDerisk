@@ -1201,7 +1201,7 @@ def initialize_worker_manager_in_client(
     include_router: bool = True,
     run_locally: bool = True,
     controller_addr: Optional[str] = None,
-    binding_port: int = 6666,
+    binding_port: int = 5670,
     binding_host: Optional[str] = None,
     start_listener: Optional[Callable[["WorkerManager"], None]] = None,
     system_app: Optional[SystemApp] = None,

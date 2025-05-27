@@ -27,14 +27,13 @@ from derisk.util.tracer import SpanType, root_tracer
 from derisk_app.openapi.api_v1.api_v1 import (
     CHAT_FACTORY,
     __new_conversation,
-    get_chat_flow,
     get_executor,
     stream_generator,
 )
 from derisk_app.scene import BaseChat, ChatScene
 from derisk_client.schema import ChatCompletionRequestBody, ChatMode
 from derisk_serve.agent.agents.controller import multi_agents
-from derisk_serve.flow.api.endpoints import get_service
+from derisk_serve.model.api.endpoints import get_service
 
 router = APIRouter()
 api_settings = APISettings()
@@ -72,12 +71,12 @@ async def check_api_key(
 @router.post("/v2/chat/completions", dependencies=[Depends(check_api_key)])
 async def chat_completions(
     request: ChatCompletionRequestBody = Body(),
-    service=Depends(get_service),
+
 ):
     """Chat V2 completions
     Args:
         request (ChatCompletionRequestBody): The chat request.
-        flow_service (FlowService): The flow service.
+
     Raises:
         HTTPException: If the request is invalid.
     """
@@ -94,6 +93,8 @@ async def chat_completions(
     check_chat_request(request)
     if request.conv_uid is None:
         request.conv_uid = str(uuid.uuid4())
+    request.trace_id = request.trace_id or uuid.uuid4().hex
+    request.rpc_id = request.rpc_id or "0.1"
     if request.chat_mode == ChatMode.CHAT_APP.value:
         if request.stream is False:
             raise HTTPException(
@@ -114,15 +115,7 @@ async def chat_completions(
             headers=headers,
             media_type="text/event-stream",
         )
-    elif request.chat_mode == ChatMode.CHAT_AWEL_FLOW.value:
-        if not request.stream:
-            return await chat_flow_wrapper(request)
-        else:
-            return StreamingResponse(
-                chat_flow_stream_wrapper(request),
-                headers=headers,
-                media_type="text/event-stream",
-            )
+
     elif (
         request.chat_mode is None
         or request.chat_mode == ChatMode.CHAT_NORMAL.value
@@ -229,12 +222,14 @@ async def chat_app_stream_wrapper(request: ChatCompletionRequestBody = None):
         request (OpenAPIChatCompletionRequest): request
         token (APIToken): token
     """
-    async for output in multi_agents.app_agent_chat(
+    async for output, agent_conv_id in multi_agents.app_agent_chat(
         conv_uid=request.conv_uid,
         gpts_name=request.chat_param,
         user_query=request.messages,
         user_code=request.user_name,
         sys_code=request.sys_code,
+        trace_id=request.trace_id,
+        rpc_id=request.rpc_id,
     ):
         match = re.search(r"data:\s*({.*})", output)
         if match:
@@ -258,45 +253,6 @@ async def chat_app_stream_wrapper(request: ChatCompletionRequestBody = None):
                 content = f"data: {json_content}\n\n"
                 yield content
     yield "data: [DONE]\n\n"
-
-
-async def chat_flow_wrapper(request: ChatCompletionRequestBody):
-    flow_service = get_chat_flow()
-    flow_req = CommonLLMHttpRequestBody(**model_to_dict(request))
-    flow_uid = request.chat_param
-    output = await flow_service.safe_chat_flow(flow_uid, flow_req)
-    if not output.success:
-        return JSONResponse(
-            model_to_dict(ErrorResponse(message=output.text, code=output.error_code)),
-            status_code=400,
-        )
-    else:
-        choice_data = ChatCompletionResponseChoice(
-            index=0,
-            message=ChatMessage(role="assistant", content=output.text),
-        )
-        if output.usage:
-            usage = UsageInfo(**output.usage)
-        else:
-            usage = UsageInfo()
-        return ChatCompletionResponse(
-            id=request.conv_uid, choices=[choice_data], model=request.model, usage=usage
-        )
-
-
-async def chat_flow_stream_wrapper(
-    request: ChatCompletionRequestBody,
-) -> AsyncIterator[str]:
-    """chat app stream
-    Args:
-        request (OpenAPIChatCompletionRequest): request
-    """
-    flow_service = get_chat_flow()
-    flow_req = CommonLLMHttpRequestBody(**model_to_dict(request))
-    flow_uid = request.chat_param
-
-    async for output in flow_service.chat_stream_openai(flow_uid, flow_req):
-        yield output
 
 
 def check_chat_request(request: ChatCompletionRequestBody = Body()):

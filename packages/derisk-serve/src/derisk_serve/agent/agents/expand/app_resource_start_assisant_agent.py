@@ -16,7 +16,7 @@ from derisk.agent import (
 )
 from derisk.agent.core.profile import DynConfig, ProfileConfig
 from derisk.agent.resource.app import AppResource
-from derisk.vis.tags.vis_plugin import Vis, VisPlugin
+from derisk_ext.vis.gptvis.tags.vis_plugin import Vis, VisPlugin
 
 logger = logging.getLogger(__name__)
 

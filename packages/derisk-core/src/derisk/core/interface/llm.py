@@ -28,6 +28,7 @@ from derisk.util.annotations import PublicAPI
 from derisk.util.i18n_utils import _
 from derisk.util.model_utils import GPUInfo
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -282,6 +283,12 @@ class ModelRequestContext:
     conv_uid: Optional[str] = None
     """The conversation id of the model inference."""
 
+    trace_id: Optional[str] = None
+    """The trace id of the model interface"""
+
+    rpc_id: Optional[str] = None
+    """The rpc id of the model interface"""
+
     span_id: Optional[str] = None
     """The span id of the model inference."""
 
@@ -407,7 +414,7 @@ class ModelOutput:
         return None
 
     def gen_text_with_thinking(self, new_text: Optional[str] = None) -> str:
-        from derisk.vis.tags.vis_thinking import VisThinking
+        from derisk_ext.vis.gptvis.tags.vis_thinking import VisThinking
 
         msg = ""
         if self.has_thinking:
@@ -419,6 +426,15 @@ class ModelOutput:
         elif self.has_text:
             msg += self.text or ""
         return msg
+
+    def gen_text_and_thinking(self):
+        thinking_text = ""
+        content_text = ""
+        if self.has_thinking:
+            thinking_text = self.thinking_text
+        if self.has_text:
+            content_text = self.text
+        return thinking_text, content_text
 
     @text.setter
     def text(self, value: str):
@@ -507,6 +523,10 @@ class ModelRequest:
     """Whether to echo the input messages."""
     span_id: Optional[str] = None
     """The span id of the model inference."""
+    trace_id: Optional[str] = None
+    """The trace id of the request."""
+    rpc_id: Optional[str] = None
+    """The rpc id of the request."""
 
     context: Optional[ModelRequestContext] = field(
         default_factory=lambda: ModelRequestContext()

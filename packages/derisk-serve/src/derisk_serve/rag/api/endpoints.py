@@ -1,10 +1,13 @@
+import asyncio
+import logging
 from functools import cache
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 
 from fastapi import (
     APIRouter,
     Depends,
     Form,
+    File,
     HTTPException,
     Query,
     UploadFile,
@@ -13,6 +16,7 @@ from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 
 from derisk.component import SystemApp
 from derisk.util import PaginationResult
+from derisk_app.openapi.api_view_model import APIToken
 from derisk_ext.rag.chunk_manager import ChunkParameters
 from derisk_serve.core import Result, blocking_func_to_async
 from derisk_serve.rag.api.schemas import (
@@ -21,10 +25,18 @@ from derisk_serve.rag.api.schemas import (
     KnowledgeRetrieveRequest,
     KnowledgeSyncRequest,
     SpaceServeRequest,
-    SpaceServeResponse, KnowledgeSearchRequest,
+    SpaceServeResponse,
+    KnowledgeSearchRequest,
+    ChunkServeResponse,
+    KnowledgeDocumentRequest,
+    ChunkEditRequest, KnowledgeTaskRequest,
 )
 from derisk_serve.rag.config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from derisk_serve.rag.service.service import Service
+
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
@@ -141,12 +153,12 @@ async def update(
 
 @router.delete(
     "/spaces/{knowledge_id}",
-    response_model=Result[None],
+    response_model=Result[bool],
     dependencies=[Depends(check_api_key)],
 )
 async def delete(
     knowledge_id: str, service: Service = Depends(get_service)
-) -> Result[None]:
+) -> Result[bool]:
     """Delete a Space entity
 
     Args:
@@ -155,23 +167,46 @@ async def delete(
     Returns:
         ServerResponse: The response
     """
+    logger.info(f"delete space: {knowledge_id}")
+
     # TODO: Delete the files in the space
     res = await blocking_func_to_async(global_system_app, service.delete, knowledge_id)
     return Result.succ(res)
 
 
+@router.put(
+    "/spaces/{knowledge_id}",
+    response_model=Result[bool],
+    dependencies=[Depends(check_api_key)],
+)
+async def update(
+    knowledge_id: str,
+    request: SpaceServeRequest,
+    service: Service = Depends(get_service),
+) -> Result[bool]:
+    logger.info(f"update space: {knowledge_id} {request}")
+    try:
+        request.knowledge_id = knowledge_id
+
+        return Result.succ(service.update_space_by_knowledge_id(update=request))
+    except Exception as e:
+        logger.error(f"update space error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"update space error {str(e)}")
+
+
 @router.get(
     "/spaces/{knowledge_id}",
-    response_model=Result[List],
+    response_model=Result[SpaceServeResponse],
 )
 async def query(
     knowledge_id: str,
     service: Service = Depends(get_service),
-) -> Result[List[SpaceServeResponse]]:
+) -> Result[SpaceServeResponse]:
     """Query Space entities
 
     Args:
-        request (SpaceServeRequest): The request
+        knowledge_id (str): The knowledge_id
         service (Service): The service
     Returns:
         List[ServeResponse]: The response
@@ -201,6 +236,29 @@ async def query_page(
     return Result.succ(service.get_list_by_page({}, page, page_size))
 
 
+@router.get(
+    "/knowledge_ids",
+)
+async def get_knowledge_ids(
+    category: Optional[str] = None,
+    knowledge_type: Optional[str] = None,
+    name_or_tag: Optional[str] = None,
+    service: Service = Depends(get_service),
+) -> Result[Any]:
+    logger.info(f"get_knowledge_ids params: {category} {knowledge_type} {name_or_tag}")
+
+    try:
+        request = SpaceServeRequest(
+            category=category, knowledge_type=knowledge_type, name_or_tag=name_or_tag
+        )
+
+        return Result.succ(service.get_knowledge_ids(request=request))
+    except Exception as e:
+        logger.error(f"get_knowledge_ids error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"get knowledge ids error {str(e)}")
+
+
 @router.post("/spaces/{knowledge_id}/retrieve")
 async def space_retrieve(
     knowledge_id: int,
@@ -218,7 +276,7 @@ async def space_retrieve(
     """
     request.knowledge_id = knowledge_id
     space_request = {
-        "id": knowledge_id,
+        "knowledge_id": knowledge_id,
     }
     space = service.get(space_request)
     if not space:
@@ -226,75 +284,245 @@ async def space_retrieve(
     return Result.succ(await service.retrieve(request, space))
 
 
-@router.post("/documents")
-async def create_document(
+@router.post("/spaces/{knowledge_id}/documents/create-file")
+async def create_document_text(
+    knowledge_id: str,
     doc_name: str = Form(...),
     doc_type: str = Form(...),
-    knowledge_id: str = Form(...),
-    content: Optional[str] = Form(None),
-    doc_file: Union[UploadFile, str] = Form(None),
+    doc_file: UploadFile = File(...),
+    token: APIToken = Depends(check_api_key),
     service: Service = Depends(get_service),
 ) -> Result:
-    """Create a new Document entity
+    logger.info(
+        f"create_document_text params: {knowledge_id}, {token}, {doc_type}, {doc_name}"
+    )
 
-    Args:
-        request (SpaceServeRequest): The request
-        service (Service): The service
-    Returns:
-        ServerResponse: The response
-    """
-    request = DocumentServeRequest(
-        doc_name=doc_name,
-        doc_type=doc_type,
-        content=content,
-        doc_file=doc_file,
-        knowledge_id=knowledge_id,
-    )
-    res = await blocking_func_to_async(
-        global_system_app, service.create_document, request
-    )
-    return Result.succ(res)
+    try:
+        request = DocumentServeRequest(
+            knowledge_id=knowledge_id,
+            doc_name=doc_name,
+            doc_type=doc_type,
+            doc_file=doc_file,
+        )
+        return Result.succ(
+            await service.create_single_file_knowledge(
+                knowledge_id=knowledge_id, request=request
+            )
+        )
+    except Exception as e:
+        logger.error(f"create_document_text error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"create document text error {str(e)}"
+        )
+
+
+@router.post("/spaces/{knowledge_id}/documents/create-text")
+async def create_document_text(
+    knowledge_id: str,
+    request: KnowledgeDocumentRequest,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result:
+    logger.info(f"create_document_text params: {knowledge_id}, {token}")
+
+    try:
+        request.knowledge_id = knowledge_id
+        return Result.succ(
+            await service.create_single_document_knowledge(
+                knowledge_id=knowledge_id, request=request
+            )
+        )
+    except Exception as e:
+        logger.error(f"create_document_text error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"create document text error {str(e)}"
+        )
+
+
+@router.post("/spaces/documents/tasks/update")
+def update_knowledge_task(
+    request: KnowledgeTaskRequest,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result:
+    logger.info(f"auto_sync_document params: {token}")
+
+    try:
+        return Result.succ(
+            service.update_knowledge_task(request=request)
+        )
+    except Exception as e:
+        logger.error(f"update_knowledge_task error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"update knowledge task  error {str(e)}"
+        )
+
+@router.get("/spaces/{knowledge_id}/tasks")
+def get_knowledge_task(
+    knowledge_id: str,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result:
+    logger.info(f"get_knowledge_task params: {token}")
+
+    try:
+        return Result.succ(
+            service.get_knowledge_task(knowledge_id=knowledge_id)
+        )
+    except Exception as e:
+        logger.error(f"get_knowledge_task error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"get knowledge task error {str(e)}"
+        )
+
+@router.delete("/spaces/{knowledge_id}/tasks")
+def delete_knowledge_task(
+    knowledge_id: str,
+    request: KnowledgeTaskRequest = None,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result:
+    logger.info(f"get_knowledge_task params: {token}")
+
+    try:
+        request.knowledge_id=knowledge_id
+
+        return Result.succ(
+            service.delete_knowledge_task(request=request)
+        )
+    except Exception as e:
+        logger.error(f"delete_knowledge_task error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"delete knowledge task error {str(e)}"
+        )
+
+
+
+@router.post("/spaces/documents/auto-run")
+async def auto_run(
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result:
+    logger.info(f"auto_run params: {token}")
+
+    try:
+        return Result.succ(
+            await service.init_auto_sync()
+        )
+    except Exception as e:
+        logger.error(f"auto_run error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"auto run error {str(e)}"
+        )
+
+
+
+@router.post("/spaces/{knowledge_id}/documents/delete")
+async def delete_document_knowledge(
+    knowledge_id: str,
+    request: KnowledgeDocumentRequest,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"delete_document_knowledge params: {request}, {token}")
+
+    try:
+        return Result.succ(
+            await service.delete_documents(
+                knowledge_id=knowledge_id, doc_id=request.doc_id
+            )
+        )
+    except Exception as e:
+        logger.error(f"delete_document_knowledge error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"document delete error! {str(e)}")
+
+@router.get("/spaces/documents/chunkstrategies")
+def get_chunk_strategies(
+    suffix: Optional[str] = None,
+    type: Optional[str] = None,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"get_chunk_strategies params: {suffix}, {type} {token}")
+
+    try:
+        return Result.succ(service.get_chunk_strategies(suffix=suffix, type=type))
+
+    except Exception as e:
+        logger.error(f"get_chunk_strategies error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"chunk strategies get error! {str(e)}"
+        )
+
+
+@router.post("/search")
+async def search_knowledge(
+    request: KnowledgeSearchRequest,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"search_knowledge params: {request}, {token}")
+    try:
+        # return Result.succ(await service.asearch_knowledge(request=request))
+        return Result.succ(await service.knowledge_search(request=request))
+    except Exception as e:
+        logger.error(f"search_knowledge error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"search knowledge error! {str(e)}")
 
 
 @router.get(
-    "/documents/{document_id}",
+    "/spaces/{knowledge_id}/documents/{doc_id}",
     response_model=Result[List],
 )
 async def query(
-    document_id: int,
+    knowledge_id: str,
+    doc_id: str,
     service: Service = Depends(get_service),
 ) -> Result[List[DocumentServeResponse]]:
-    """Query Space entities
+    """Get Document
 
     Args:
-        request (SpaceServeRequest): The request
+        knowledge_id (str): The knowledge_id
+        doc_id (str): The doc_id
         service (Service): The service
     Returns:
         List[ServeResponse]: The response
     """
-    request = {"doc_id": document_id}
+    request = {"doc_id": doc_id, "knowledge_id": knowledge_id}
     return Result.succ(service.get_document(request))
 
 
 @router.get(
-    "/documents",
+    "/spaces/{knowledge_id}/documents",
     response_model=Result[PaginationResult[DocumentServeResponse]],
 )
 async def query_page(
-    page: int = Query(default=1, description="current page"),
-    page_size: int = Query(default=20, description="page size"),
+    knowledge_id: str,
     service: Service = Depends(get_service),
 ) -> Result[PaginationResult[DocumentServeResponse]]:
     """Query Space entities
 
     Args:
-        page (int): The page number
-        page_size (int): The page size
         service (Service): The service
     Returns:
         ServerResponse: The response
     """
-    return Result.succ(service.get_document_list({}, page, page_size))
+    return Result.succ(
+        service.get_document_list(
+            {
+                "knowledge_id": knowledge_id,
+            }
+        )
+    )
 
 
 @router.post("/documents/chunks/add")
@@ -359,26 +587,82 @@ async def sync_document(
 
 
 @router.delete(
-    "/documents/{document_id}",
+    "/spaces/{knowledge_id}/documents/{doc_id}",
     dependencies=[Depends(check_api_key)],
     response_model=Result[None],
 )
 async def delete_document(
-    document_id: str, service: Service = Depends(get_service)
-) -> Result[None]:
+    doc_id: str, service: Service = Depends(get_service)
+) -> Result[bool]:
     """Delete a Space entity
 
     Args:
-        request (SpaceServeRequest): The request
+        doc_id (str): doc_id
         service (Service): The service
     Returns:
         ServerResponse: The response
     """
+    logger.info(f"delete_document params: {doc_id}")
+
     # TODO: Delete the files of the document
     res = await blocking_func_to_async(
-        global_system_app, service.delete_document, document_id
+        global_system_app, service.delete_document, doc_id
     )
     return Result.succ(res)
+
+
+@router.get(
+    "/spaces/{knowledge_id}/documents/{doc_id}/chunks"
+)
+async def chunk_list(
+    knowledge_id: str,
+    doc_id: str,
+    first_level_header: Optional[str] = None,
+    service: Service = Depends(get_service),
+) -> Result[List[ChunkServeResponse]]:
+    """Query Space entities
+
+    Args:
+        page (int): The page number
+        page_size (int): The page size
+        service (Service): The service
+    Returns:
+        ServerResponse: The response
+    """
+    logger.info(f"chunk_list params: {knowledge_id}, {doc_id}, {first_level_header}")
+    try:
+        request = ChunkEditRequest()
+        request.knowledge_id = knowledge_id
+        request.doc_id = doc_id
+        request.first_level_header = first_level_header.strip()
+
+        return Result.succ(service.get_chunks(request=request))
+    except Exception as e:
+        logger.error(f"chunk_list error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"get chunk  error! {str(e)}")
+
+
+@router.put("/spaces/{knowledge_id}/documents/{doc_id}/chunks/{chunk_id}")
+async def edit_chunk(
+    knowledge_id: str,
+    doc_id: str,
+    chunk_id: str,
+    request: ChunkEditRequest,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result[Any]:
+    logger.info(f"edit_chunk params: {request}, {token}")
+    try:
+        request.knowledge_id = knowledge_id
+        request.doc_id = doc_id
+        request.chunk_id = chunk_id
+
+        return Result.succ(service.edit_chunk(request=request))
+    except Exception as e:
+        logger.error(f"edit_chunk error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"edit chunk  error! {str(e)}")
 
 
 @router.post("/knowledge/search")
@@ -402,3 +686,13 @@ def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     global global_system_app
     system_app.register(Service, config=config)
     global_system_app = system_app
+
+
+def init_documents_auto_run():
+    logger.info("init_documents_auto_run start")
+
+    service = get_service()
+    service.run_periodic_in_thread()
+
+
+

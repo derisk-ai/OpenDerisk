@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ from concurrent.futures import Executor
 from typing import List, Optional, cast
 
 import pandas as pd
-from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, BackgroundTasks
 from fastapi.responses import StreamingResponse
 
 from derisk._private.config import Config
@@ -45,7 +46,6 @@ from derisk_app.scene import BaseChat, ChatFactory, ChatScene
 from derisk_serve.agent.db.gpts_app import UserRecentAppsDao, adapt_native_app_model
 from derisk_serve.datasource.manages.db_conn_info import DBConfig, DbTypeInfo
 from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
-from derisk_serve.flow.service.service import Service as FlowService
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter()
@@ -151,11 +151,6 @@ def get_dag_manager() -> DAGManager:
     return DAGManager.get_instance(CFG.SYSTEM_APP)
 
 
-def get_chat_flow() -> FlowService:
-    """Get Chat Flow Service."""
-    return FlowService.get_instance(CFG.SYSTEM_APP)
-
-
 def get_executor() -> Executor:
     """Get the global default executor"""
     return CFG.SYSTEM_APP.get_component(
@@ -167,8 +162,8 @@ def get_executor() -> Executor:
 
 @router.get("/v1/chat/db/list", response_model=Result)
 async def db_connect_list(
-    db_name: Optional[str] = Query(default=None, description="database name"),
-    user_info: UserRequest = Depends(get_user_from_headers),
+        db_name: Optional[str] = Query(default=None, description="database name"),
+        user_info: UserRequest = Depends(get_user_from_headers),
 ):
     results = CFG.local_db_manager.get_db_list(
         db_name=db_name, user_id=user_info.user_id
@@ -185,24 +180,31 @@ async def db_connect_list(
 
 @router.post("/v1/chat/db/add", response_model=Result)
 async def db_connect_add(
-    db_config: DBConfig = Body(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        db_config: DBConfig = Body(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     return Result.succ(CFG.local_db_manager.add_db(db_config, user_token.user_id))
 
 
 @router.get("/v1/permission/db/list", response_model=Result[List])
 async def permission_db_list(
-    db_name: str = None,
-    user_token: UserRequest = Depends(get_user_from_headers),
+        db_name: str = None,
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     return Result.succ()
+
+@router.get("/v1/aisre/query/list", response_model=Result[List])
+async def derisk_query_list(
+        user_token: UserRequest = Depends(get_user_from_headers),
+):
+    from derisk_ext.ai_sre.resource.query_prompt import DeRisk_Querys 
+    return Result.succ(DeRisk_Querys)
 
 
 @router.post("/v1/chat/db/edit", response_model=Result)
 async def db_connect_edit(
-    db_config: DBConfig = Body(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        db_config: DBConfig = Body(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     return Result.succ(CFG.local_db_manager.edit_db(db_config))
 
@@ -229,8 +231,8 @@ async def async_db_summary_embedding(db_name, db_type):
 
 @router.post("/v1/chat/db/test/connect", response_model=Result[bool])
 async def test_connect(
-    db_config: DBConfig = Body(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        db_config: DBConfig = Body(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     try:
         # TODO Change the synchronous call to the asynchronous call
@@ -262,8 +264,11 @@ async def db_support_types():
 async def dialogue_scenes(user_info: UserRequest = Depends(get_user_from_headers)):
     scene_vos: List[ChatSceneVo] = []
     new_modes: List[ChatScene] = [
+        ChatScene.ChatWithDbExecute,
+        ChatScene.ChatWithDbQA,
         ChatScene.ChatExcel,
         ChatScene.ChatKnowledge,
+        ChatScene.ChatDashboard,
         ChatScene.ChatAgent,
     ]
     for scene in new_modes:
@@ -280,8 +285,8 @@ async def dialogue_scenes(user_info: UserRequest = Depends(get_user_from_headers
 
 @router.post("/v1/resource/params/list", response_model=Result[List[dict]])
 async def resource_params_list(
-    resource_type: str,
-    user_token: UserRequest = Depends(get_user_from_headers),
+        resource_type: str,
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     if resource_type == "database":
         result = get_db_list()
@@ -296,10 +301,18 @@ async def resource_params_list(
 
 @router.post("/v1/chat/mode/params/list", response_model=Result[List[dict]])
 async def params_list(
-    chat_mode: str = ChatScene.ChatNormal.value(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        chat_mode: str = ChatScene.ChatNormal.value(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
-    if ChatScene.ChatKnowledge.value() == chat_mode:
+    if ChatScene.ChatWithDbQA.value() == chat_mode:
+        result = get_db_list()
+    elif ChatScene.ChatWithDbExecute.value() == chat_mode:
+        result = get_db_list()
+    elif ChatScene.ChatDashboard.value() == chat_mode:
+        result = get_db_list()
+    elif ChatScene.ChatExecution.value() == chat_mode:
+        result = plugins_select_info()
+    elif ChatScene.ChatKnowledge.value() == chat_mode:
         result = knowledge_list()
     elif ChatScene.ChatKnowledge.ExtractRefineSummary.value() == chat_mode:
         result = knowledge_list()
@@ -310,12 +323,12 @@ async def params_list(
 
 @router.post("/v1/resource/file/upload")
 async def file_upload(
-    chat_mode: str,
-    conv_uid: str,
-    sys_code: Optional[str] = None,
-    model_name: Optional[str] = None,
-    doc_file: UploadFile = File(...),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        chat_mode: str,
+        conv_uid: str,
+        sys_code: Optional[str] = None,
+        model_name: Optional[str] = None,
+        doc_file: UploadFile = File(...),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(f"file_upload:{conv_uid},{doc_file.filename}")
     file_client = FileClient()
@@ -359,11 +372,11 @@ async def file_upload(
 
 @router.post("/v1/resource/file/delete")
 async def file_delete(
-    conv_uid: str,
-    file_key: str,
-    user_name: Optional[str] = None,
-    sys_code: Optional[str] = None,
-    user_token: UserRequest = Depends(get_user_from_headers),
+        conv_uid: str,
+        file_key: str,
+        user_name: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(f"file_delete:{conv_uid},{file_key}")
     oss_file_client = FileClient()
@@ -375,11 +388,11 @@ async def file_delete(
 
 @router.post("/v1/resource/file/read")
 async def file_read(
-    conv_uid: str,
-    file_key: str,
-    user_name: Optional[str] = None,
-    sys_code: Optional[str] = None,
-    user_token: UserRequest = Depends(get_user_from_headers),
+        conv_uid: str,
+        file_key: str,
+        user_name: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(f"file_read:{conv_uid},{file_key}")
     file_client = FileClient()
@@ -389,7 +402,7 @@ async def file_read(
 
 
 def get_hist_messages(conv_uid: str, user_name: str = None):
-    from derisk_serve.conversation.serve import Service as ConversationService
+    from derisk_serve.conversation.service.service import Service as ConversationService
 
     instance: ConversationService = ConversationService.get_instance(CFG.SYSTEM_APP)
     return instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
@@ -433,10 +446,22 @@ async def get_chat_instance(dialogue: ConversationVo = Body()) -> BaseChat:
     return chat
 
 
+@router.post("/v1/init/config")
+async def init_config():
+    app_config = CFG.SYSTEM_APP.config.configs.get("app_config")
+    web_config = app_config.service.web
+    config: dict = {
+        "main_app": web_config.main_app_code,
+        "main_chat_mode": ChatScene.ChatAgent.value(),
+        "main_model": "deepseek-r1"
+    }
+    return Result.succ(config)
+
+
 @router.post("/v1/chat/prepare")
 async def chat_prepare(
-    dialogue: ConversationVo = Body(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        dialogue: ConversationVo = Body(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(json.dumps(dialogue.__dict__))
     # dialogue.model_name = CFG.LLM_MODEL
@@ -451,37 +476,11 @@ async def chat_prepare(
     return Result.succ(get_hist_messages(dialogue.conv_uid, user_token.user_id))
 
 
-@router.post("/v1/chat/completions/vis/mock/")
-async def chat_completions(
-    dialogue: ConversationVo = Body(),
-    flow_service: FlowService = Depends(get_chat_flow),
-    user_token: UserRequest = Depends(get_user_from_headers),
-):
-    logger.info(
-        f"chat_completions:{dialogue.chat_mode},{dialogue.select_param},"
-        f"{dialogue.model_name}, timestamp={int(time.time() * 1000)}"
-    )
-    headers = {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "Transfer-Encoding": "chunked",
-    }
-    from derisk_ext.vis.vis_protocal_test import t_vis_protocol
-    from derisk_ext.vis.vis_protocal_test import t_vis_protocol_sq
-
-    return StreamingResponse(
-        t_vis_protocol_sq(),
-        headers=headers,
-        media_type="text/event-stream",
-    )
-
-
 @router.post("/v1/chat/completions")
 async def chat_completions(
-    dialogue: ConversationVo = Body(),
-    flow_service: FlowService = Depends(get_chat_flow),
-    user_token: UserRequest = Depends(get_user_from_headers),
+        background_tasks: BackgroundTasks,
+        dialogue: ConversationVo = Body(),
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(
         f"chat_completions:{dialogue.chat_mode},{dialogue.select_param},"
@@ -489,6 +488,8 @@ async def chat_completions(
     )
 
     dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
+    dialogue.ext_info.update({"trace_id": uuid.uuid4().hex})
+    dialogue.ext_info.update({"rpc_id": "0.1"})
     dialogue = adapt_native_app_model(dialogue)
     headers = {
         "Content-Type": "text/event-stream",
@@ -497,24 +498,24 @@ async def chat_completions(
         "Transfer-Encoding": "chunked",
     }
     try:
+        vis_mode = dialogue.ext_info.get("vis_mode", "gpt-vis")
         domain_type = _parse_domain_type(dialogue)
         if dialogue.chat_mode == ChatScene.ChatAgent.value():
+
             from derisk_serve.agent.agents.controller import multi_agents
 
             dialogue.ext_info.update({"model_name": dialogue.model_name})
             dialogue.ext_info.update({"incremental": dialogue.incremental})
             dialogue.ext_info.update({"temperature": dialogue.temperature})
-            return StreamingResponse(
-                multi_agents.app_agent_chat(
-                    conv_uid=dialogue.conv_uid,
-                    gpts_name=dialogue.app_code,
-                    user_query=dialogue.user_input,
-                    user_code=dialogue.user_name,
-                    sys_code=dialogue.sys_code,
-                    **dialogue.ext_info,
-                ),
-                headers=headers,
-                media_type="text/event-stream",
+
+            return await multi_agents.app_agent_chat_v2(
+                conv_uid=dialogue.conv_uid,
+                background_tasks=background_tasks,
+                gpts_name=dialogue.app_code,
+                user_query=dialogue.user_input,
+                user_code=dialogue.user_name,
+                sys_code=dialogue.sys_code,
+                **dialogue.ext_info,
             )
         elif domain_type is not None and domain_type != "Normal":
             return StreamingResponse(
@@ -525,7 +526,7 @@ async def chat_completions(
 
         else:
             with root_tracer.start_span(
-                "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
+                    "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
             ):
                 chat: BaseChat = await get_chat_instance(dialogue)
 
@@ -564,9 +565,9 @@ async def chat_completions(
 
 @router.post("/v1/chat/topic/terminate")
 async def terminate_topic(
-    conv_id: str,
-    round_index: int,
-    user_token: UserRequest = Depends(get_user_from_headers),
+        conv_id: str,
+        round_index: int,
+        user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(f"terminate_topic:{conv_id},{round_index}")
     try:
@@ -606,7 +607,7 @@ async def test():
     "/v1/model/supports",
     deprecated=True,
     description="This endpoint is deprecated. Please use "
-    "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0.",
+                "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0.",
 )
 async def model_supports(worker_manager: WorkerManager = Depends(get_worker_manager)):
     logger.warning(
@@ -627,7 +628,7 @@ async def flow_stream_generator(func, incremental: bool, model_name: str):
         if chunk:
             msg = chunk.replace("\ufffd", "")
             if incremental:
-                incremental_output = msg[len(previous_response) :]
+                incremental_output = msg[len(previous_response):]
                 choice_data = ChatCompletionResponseStreamChoice(
                     index=0,
                     delta=DeltaMessage(role="assistant", content=incremental_output),
@@ -679,7 +680,7 @@ async def stream_generator(chat, incremental: bool, model_name: str):
         if chunk:
             msg = chunk.replace("\ufffd", "")
             if incremental:
-                incremental_output = msg[len(previous_response) :]
+                incremental_output = msg[len(previous_response):]
                 choice_data = ChatCompletionResponseStreamChoice(
                     index=0,
                     delta=DeltaMessage(role="assistant", content=incremental_output),

@@ -9,7 +9,6 @@ interface Props {
 export function VisThinking({ content }: Props) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = React.useState(true); // Control the expansion of the thinking process
-  // console.log("VisThinking", content)
   return (
     <div className='my-4 border rounded-lg overflow-hidden dark:border-gray-600'>
       <div

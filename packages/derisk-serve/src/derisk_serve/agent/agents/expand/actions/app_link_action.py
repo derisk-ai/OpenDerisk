@@ -4,7 +4,7 @@ from typing import Optional
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
 from derisk.agent import Action, ActionOutput, AgentResource, ResourceType
-from derisk.vis.tags.vis_app_link import Vis, VisAppLink
+from derisk_ext.vis.gptvis.tags.vis_app_link import Vis, VisAppLink
 
 logger = logging.getLogger(__name__)
 

@@ -1,1 +1,1 @@
-export const COOKIE_DERISK_UID_KEY = 'derisk-uid';
+export const COOKIE_DBGPT_UID_KEY = 'derisk-uid';

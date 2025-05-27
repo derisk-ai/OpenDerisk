@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
@@ -190,6 +191,7 @@ class OceanBaseStore(VectorStoreBase):
         vector_store_config: OceanBaseConfig,
         name: Optional[str],
         embedding_fn: Optional[Embeddings] = None,
+        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Create a OceanBaseStore instance."""
         try:
@@ -203,7 +205,7 @@ class OceanBaseStore(VectorStoreBase):
         if vector_store_config.embedding_fn is None:
             raise ValueError("embedding_fn is required for OceanBaseStore")
 
-        super().__init__()
+        super().__init__(executor)
 
         self._vector_store_config = vector_store_config
         self.embedding_function = embedding_fn

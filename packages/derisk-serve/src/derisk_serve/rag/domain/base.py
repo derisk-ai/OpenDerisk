@@ -20,6 +20,7 @@ class DomainKnowledgeIndex(ABC):
     async def transform(self, chunks: list[Chunk], **kwargs) -> list[Chunk]:
         raise NotImplementedError
 
+    @abstractmethod
     async def load(
         self,
         chunks: list[Chunk],

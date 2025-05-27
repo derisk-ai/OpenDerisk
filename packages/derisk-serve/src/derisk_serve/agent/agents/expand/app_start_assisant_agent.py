@@ -71,19 +71,21 @@ class StartAppAssistantAgent(ConversableAgent):
         historical_dialogues: Optional[List[AgentMessage]] = None,
         context: Optional[Dict[str, Any]] = None,
         is_retry_chat: bool = False,
-    ) -> Tuple[List[AgentMessage], Optional[Dict]]:
+        force_use_historical: bool = False,
+    ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
         if rely_messages and len(rely_messages) > 0:
-            return rely_messages[-1:], None
+            return rely_messages[-1:], None, None, None
         else:
             raise ValueError("没有可用的应用链接消息！")
 
     async def thinking(
         self,
         messages: List[AgentMessage],
+        reply_message_id: str,
         sender: Optional[Agent] = None,
         prompt: Optional[str] = None,
-    ) -> Tuple[Optional[str], Optional[str]]:
-        return messages[0].action_report.content, None
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        return None, messages[0].action_report.content, None
 
     async def receive(
         self,

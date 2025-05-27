@@ -9,7 +9,6 @@ import { useRouter } from 'next/router';
 import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreateAppModal from '../components/create-app-modal';
-import AwelLayout from './components/AwelLayout';
 import NativeApp from './components/NativeApp';
 import RecommendQuestions from './components/RecommendQuestions';
 import AutoPlan from './components/auto-plan';
@@ -106,17 +105,6 @@ const ExtraAppInfo: React.FC = () => {
                   appParams.current.details = data?.[1];
                 }}
                 initValue={curApp?.details}
-              />
-            )}
-            {/* awel_layout模式 */}
-            {curApp?.team_mode === 'awel_layout' && (
-              <AwelLayout
-                initValue={curApp?.team_context}
-                updateData={data => {
-                  setLoading(data?.[0]);
-                  appParams.current.team_context = data?.[1];
-                }}
-                classNames='px-6'
               />
             )}
             {/* native_app模式 */}

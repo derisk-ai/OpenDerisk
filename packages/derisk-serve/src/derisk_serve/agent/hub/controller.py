@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from abc import ABC
 from typing import List
@@ -38,7 +39,8 @@ class ModulePlugin(BaseComponent, ABC):
     def refresh_plugins(self):
         self.plugins = scan_plugins(PLUGINS_DIR)
         self.tools = AutoGPTPluginToolPack(PLUGINS_DIR)
-        self.tools.preload_resource()
+        asyncio.run(self.tools.preload_resource())
+
 
 
 module_plugin = ModulePlugin()

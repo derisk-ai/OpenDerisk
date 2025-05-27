@@ -80,5 +80,5 @@ def _get_current_cuda_memory() -> List[GPUInfo]:
                 )
         return gpu_infos
     else:
-        logger.warn("CUDA is not available.")
+        # logger.warn("CUDA is not available.")
         return []

@@ -1,8 +1,4 @@
-import { CaretRightOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import { GPTVis } from '@antv/gpt-vis';
-import { Collapse } from 'antd';
-
-import markdownComponents, { markdownPlugins, preprocessLaTeX } from './config';
+import { CheckOutlined, ClockCircleOutlined } from '@ant-design/icons';
 
 interface Props {
   data: {
@@ -13,38 +9,31 @@ interface Props {
     markdown: string;
   }[];
 }
-
+/**
+ * AgentPlans component that displays a list of plans.
+ * It contains no GPT-Vis components.
+ */
 function AgentPlans({ data }: Props) {
   if (!data || !data.length) return null;
 
   return (
-    <Collapse
-      bordered
-      className='my-3'
-      expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
-      items={data.map((item, index) => {
-        return {
-          key: index,
-          label: (
-            <div>
-              <span>
-                {item.name} - {item.agent}
-              </span>
+    <div className='flex flex-col'>
+      {data.map((item, index) => {
+        return (
+          <div key={index} className='mb-4'>
+            <div className='flex-row mb-1'>
+              <span className='text-sm'>{item.agent}</span>
               {item.status === 'complete' ? (
                 <CheckOutlined className='!text-green-500 ml-2' />
               ) : (
                 <ClockCircleOutlined className='!text-gray-500 ml-2' />
               )}
             </div>
-          ),
-          children: (
-            <GPTVis components={markdownComponents} {...markdownPlugins}>
-              {preprocessLaTeX(item.markdown)}
-            </GPTVis>
-          ),
-        };
+            <div className='text-xs break-all text-gray-500'>{item.name}</div>
+          </div>
+        );
       })}
-    />
+    </div>
   );
 }
 

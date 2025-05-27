@@ -1,7 +1,7 @@
-import ChatHeader from '@/new-components/chat/header/ChatHeader';
+// import ChatHeader from '@/new-components/chat/header/ChatHeader';
 import { VerticalAlignBottomOutlined, VerticalAlignTopOutlined } from '@ant-design/icons';
 import dynamic from 'next/dynamic';
-import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 const ChatCompletion = dynamic(() => import('@/new-components/chat/content/ChatCompletion'), { ssr: false });
 
@@ -80,7 +80,7 @@ const ChatContentContainer = ({}, ref: React.ForwardedRef<any>) => {
   return (
     <div className='flex flex-1 overflow-hidden relative'>
       <div ref={scrollRef} className='h-full w-full mx-auto overflow-y-auto'>
-        <ChatHeader isScrollToTop={isScrollToTop} />
+        {/* <ChatHeader isScrollToTop={isScrollToTop} /> */}
         <ChatCompletion />
       </div>
 
@@ -110,4 +110,4 @@ const ChatContentContainer = ({}, ref: React.ForwardedRef<any>) => {
   );
 };
 
-export default forwardRef(ChatContentContainer);
+export default memo(forwardRef(ChatContentContainer));

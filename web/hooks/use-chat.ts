@@ -105,7 +105,6 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
     },
     [queryAgentURL, app_code, scene],
   );
-
   return { chat, ctrl };
 };
 

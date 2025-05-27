@@ -81,6 +81,7 @@ const InputContainer: React.FC = () => {
     const index = tempHistory.length - 1;
     setHistory([...history, ...tempHistory]);
     setCanNewChat(false);
+
     try {
       await fetchEventSource(`${process.env.API_BASE_URL ?? ''}/api/v1/chat/completions`, {
         method: 'POST',

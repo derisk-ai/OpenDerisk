@@ -26,53 +26,18 @@ from derisk.rag.embedding.embedding_factory import RerankEmbeddingFactory
 from derisk.rag.retriever.rerank import RerankEmbeddingsRanker
 from derisk.util.function_utils import rearrange_args_by_type
 from derisk.util.i18n_utils import _
+from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
 from derisk_serve.rag.retriever.knowledge_space import KnowledgeSpaceRetriever
-
-
-# def _load_space_name() -> List[OptionValue]:
-#     return [
-#         OptionValue(label=space.name, name=space.name, value=space.name)
-#         for space in knowledge_space_service.get_knowledge_space(
-#             KnowledgeSpaceRequest()
-#         )
-#     ]
 
 
 class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
     """knowledge space retriever operator."""
 
-    # metadata = ViewMetadata(
-    #     label=_("Knowledge Base Operator"),
-    #     name="space_operator",
-    #     category=OperatorCategory.RAG,
-    #     description=_("knowledge space retriever operator."),
-    #     inputs=[IOField.build_from(_("Query"), "query", str, _("user query"))],
-    #     outputs=[
-    #         IOField.build_from(
-    #             _("related chunk content"),
-    #             "related chunk content",
-    #             List,
-    #             description=_("related chunk content"),
-    #         )
-    #     ],
-    #     parameters=[
-    #         Parameter.build_from(
-    #             _("Space Name"),
-    #             "space_name",
-    #             str,
-    #             options=FunctionDynamicOptions(func=_load_space_name),
-    #             optional=False,
-    #             default=None,
-    #             description=_("space name."),
-    #         )
-    #     ],
-    #     documentation_url="https://github.com/openai/openai-python",
-    # )
-
     def __init__(
         self,
         knowledge_ids: Optional[List[str]],
         rerank_top_k: Optional[int] = 5,
+        single_knowledge_top_k: Optional[int] = 10,
         similarity_top_k: Optional[int] = 10,
         retrieve_mode: Optional[str] = "semantic",
         metadata_filter: Optional[bool] = True,
@@ -80,6 +45,8 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         similarity_score_threshold: Optional[float] = 0.0,
         bm25_score_threshold: Optional[float] = 0.0,
         rerank_score_threshold: Optional[float] = 0.3,
+        rerank_model: Optional[str] = None,
+        llm_model: Optional[str] = None,
         system_app: Optional[Any] = None,
         **kwargs,
     ):
@@ -94,12 +61,15 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         self._knowledge_ids = knowledge_ids
         self._top_k = rerank_top_k
         self._score_threshold = rerank_score_threshold
+        self._single_knowledge_top_k = single_knowledge_top_k
         self._similarity_top_k = similarity_top_k
         self._similarity_score_threshold = similarity_score_threshold
         self._bm25_score_threshold = bm25_score_threshold
         self._retrieve_mode = retrieve_mode
         self._rerank = rerank
+        self._rerank_model = rerank_model
         self._metadata_filter = metadata_filter
+        self._llm_model = llm_model
         self._system_app = system_app
 
         super().__init__(**kwargs)
@@ -115,41 +85,78 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         """
 
         search_tasks = []
-        query = query.get("query")
+        query_to_candidates_map = {}
         # todo multi thread
+        sub_queries = query.get("sub_queries")
+        raw_query = query.get("query")
+        if not sub_queries:
+            sub_queries = [raw_query]
         for knowledge_id in self._knowledge_ids:
             space_retriever = KnowledgeSpaceRetriever(
                 space_id=knowledge_id,
-                top_k=self._top_k,
+                top_k=self._single_knowledge_top_k,
+                retrieve_mode=self._retrieve_mode,
+                llm_model=self._llm_model,
                 system_app=self._system_app,
             )
 
-            if isinstance(query, str):
+            if isinstance(sub_queries, str):
                 search_tasks.append(
                     space_retriever.aretrieve_with_scores(
-                        query, self._similarity_score_threshold
+                        sub_queries, self._similarity_score_threshold
                     )
                 )
-            elif isinstance(query, list):
-                search_tasks = [
-                    space_retriever.aretrieve_with_scores(
-                        q, self._similarity_score_threshold
+            elif isinstance(sub_queries, list):
+                for q in sub_queries:
+                    search_tasks.append(
+                        space_retriever.aretrieve_with_scores(
+                            q, self._similarity_score_threshold
+                        )
                     )
-                    for q in query
-                ]
-                # candidates = await asyncio.gather(*search_tasks)
+                    # query_to_candidates_map[q] = []
+                    # candidates = await asyncio.gather(*search_tasks)
         task_results = await asyncio.gather(*search_tasks)
-        candidates = reduce(lambda x, y: x + y, task_results)
+        if isinstance(sub_queries, str):
+            query_to_candidates_map[query] = task_results
+        elif isinstance(sub_queries, list):
+            for chunks in task_results:
+                for chunk in chunks:
+                    query = chunk.query
+                    if query not in query_to_candidates_map:
+                        query_to_candidates_map[query] = [chunk]
+                    else:
+                        query_to_candidates_map[query].append(chunk)
         if self._rerank:
-            rerank_embeddings = RerankEmbeddingFactory.get_instance(
-                self.system_app
-            ).create()
-            reranker = RerankEmbeddingsRanker(
-                rerank_embeddings, topk=self._top_k
-            )
-            rerank_candidates = reranker.rank(candidates, query)
+            if self._rerank_model:
+                rerank_embeddings = RerankEmbeddingFactory.get_instance(
+                    self.system_app
+                ).create(model_name=self._rerank_model)
+            else:
+                rerank_embeddings = RerankEmbeddingFactory.get_instance(
+                    self.system_app
+                ).create()
+            reranker = RerankEmbeddingsRanker(rerank_embeddings, topk=self._top_k)
 
-            return rerank_candidates
+            rerank_candidates_map = {}
+            sub_queries = {}
+            for q, candidates in query_to_candidates_map.items():
+                rerank_candidates_map[q] = reranker.rank(candidates, q)
+
+            results = {}
+            for q, rerank_candidates in rerank_candidates_map.items():
+                results[q] = [candidate.to_dict() for candidate in rerank_candidates]
+                sub_queries[q] = "\n".join(
+                    [chunk.content for chunk in rerank_candidates]
+                )
+
+            # results["query"] = raw_query
+
+            return KnowledgeSearchResponse(
+                document_response_list=[],
+                sub_queries=sub_queries,
+                references=results,
+                raw_query=raw_query,
+            )
 
 
 class KnowledgeSpacePromptBuilderOperator(

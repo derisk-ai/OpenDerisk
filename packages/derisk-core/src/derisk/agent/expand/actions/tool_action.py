@@ -2,13 +2,21 @@
 
 import json
 import logging
+import uuid
 from typing import Optional
 
 from derisk._private.pydantic import BaseModel, Field
-from derisk.vis.tags.vis_plugin import Vis, VisPlugin
+from derisk.vis import Vis
+from derisk.vis.schema import VisStepContent, VisTextContent
+from derisk.vis.vis_converter import (
+    SystemVisTag,
+    VisProtocolConverter,
+    DefaultVisConverter,
+)
 
 from ...core.action.base import Action, ActionOutput
 from ...core.schema import Status
+from ...resource import BaseTool
 from ...resource.base import AgentResource, Resource, ResourceType
 from ...resource.tool.pack import ToolPack
 
@@ -37,17 +45,14 @@ class ToolAction(Action[ToolInput]):
     def __init__(self, **kwargs):
         """Tool action init."""
         super().__init__(**kwargs)
-        self._render_protocol = VisPlugin()
+
+        ## this action out view vis tag name
+        self.action_view_tag: str = SystemVisTag.VisTool.value
 
     @property
     def resource_need(self) -> Optional[ResourceType]:
         """Return the resource type needed for the action."""
         return ResourceType.Tool
-
-    @property
-    def render_protocol(self) -> Optional[Vis]:
-        """Return the render protocol."""
-        return self._render_protocol
 
     @property
     def out_model_type(self):
@@ -74,7 +79,7 @@ class ToolAction(Action[ToolInput]):
 
     async def run(
         self,
-        ai_message: str,
+        ai_message: str = None,
         resource: Optional[AgentResource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,
@@ -92,29 +97,41 @@ class ToolAction(Action[ToolInput]):
                 Defaults to True.
         """
         try:
-            param: ToolInput = self._input_convert(ai_message, ToolInput)
+            param: ToolInput = self.action_input or self._input_convert(
+                ai_message, ToolInput
+            )
         except Exception as e:
             logger.exception((str(e)))
             return ActionOutput(
                 is_exe_success=False,
                 content="The requested correctly structured answer could not be found.",
             )
-        return await run_tool(
+
+        message_id = kwargs.get("message_id")
+        action_out: ActionOutput = await run_tool(
             param.tool_name,
             param.args,
             self.resource,
-            self.render_protocol,
+            action_name=self.name,
+            render= self._render,
+            say_to_user=param.thought,
+            render_protocol=self.render_protocol,
             need_vis_render=need_vis_render,
+            message_id=message_id,
         )
-
+        return action_out
 
 async def run_tool(
     name: str,
     args: dict,
     resource: Resource,
+    action_name: Optional[str] = None,
+    render: Optional[VisProtocolConverter] = None,
+    say_to_user: Optional[str] = None,
     render_protocol: Optional[Vis] = None,
     need_vis_render: bool = False,
     raw_tool_input: Optional[str] = None,
+    message_id: Optional[str] = None,
 ) -> ActionOutput:
     """Run the tool."""
     is_terminal = None
@@ -123,8 +140,11 @@ async def run_tool(
         if not tool_packs:
             raise ValueError("The tool resource is not found！")
         tool_pack: ToolPack = tool_packs[0]
+
+        tool_info: BaseTool = await tool_pack.get_resources_info(resource_name=name)
+        logger.info(tool_info)
+
         response_success = True
-        status = Status.RUNNING.value
         err_msg = None
 
         if raw_tool_input and tool_pack.parse_execute_args(
@@ -149,23 +169,41 @@ async def run_tool(
             err_msg = f"Tool [{tool_pack.name}:{name}] execute failed! {str(e)}"
             tool_result = err_msg
 
-        plugin_param = {
-            "name": name,
-            "args": args,
-            "status": status,
-            "logo": None,
-            "result": str(tool_result),
-            "err_msg": err_msg,
-        }
+        drsk_content = VisStepContent(
+            uid=uuid.uuid4().hex,
+            message_id=message_id,
+            type="all",
+            avatar=None,
+            status=status,
+            tool_name=tool_info.description,
+            tool_uri=f"{name}@{resource.name}",
+            tool_args=json.dumps(args, ensure_ascii=False),
+            tool_result=str(tool_result),
+            err_msg=err_msg,
+            progress=None,
+        )
+
+        view = render.vis_inst(SystemVisTag.VisText.value).sync_display(
+            content=VisTextContent(
+                markdown=say_to_user, type="all", uid=message_id + "_content"
+            ).to_dict()
+        )
         if render_protocol:
-            view = await render_protocol.display(content=plugin_param)
+            view = (
+                view
+                + "\n"
+                + await render_protocol.display(content=drsk_content.to_dict())
+            )
         elif need_vis_render:
             raise NotImplementedError("The render_protocol should be implemented.")
-        else:
-            view = None
+
         logger.info(f"Tool [{name}] result view:{view}")
+
         return ActionOutput(
             is_exe_success=response_success,
+            action=name,
+            action_name=action_name,
+            action_input=json.dumps(args, ensure_ascii=False),
             content=str(tool_result),
             view=view,
             observations=str(tool_result),

@@ -77,7 +77,6 @@ class AppManager(BaseComponent, ABC):
         is_retry_chat: bool = False,
         last_speaker_name: str = None,
         init_message_rounds: int = 0,
-        enable_verbose: bool = True,
         **ext_info,
     ) -> Status:
         context: AgentContext = AgentContext(
@@ -85,7 +84,6 @@ class AppManager(BaseComponent, ABC):
             gpts_app_code=gpts_app.app_code,
             gpts_app_name=gpts_app.app_name,
             language=gpts_app.language,
-            enable_vis_message=enable_verbose,
         )
         recipient = await self.create_app_agent(gpts_app, agent_memory, context)
 

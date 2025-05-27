@@ -26,6 +26,8 @@ class UserProxyAgent(ConversableAgent):
 
     ask_user: bool = False
 
+    show_message: bool = False
+
     def have_ask_user(self):
         """If have ask user info in message."""
         return self.ask_user

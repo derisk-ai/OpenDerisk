@@ -5,8 +5,9 @@ import logging
 from typing import Optional
 
 from derisk._private.pydantic import BaseModel, Field
-from derisk.vis.tags.vis_api_response import VisApiResponse
-from derisk.vis.tags.vis_plugin import Vis
+from derisk.vis import SystemVisTag
+from derisk_ext.vis.gptvis.tags.vis_api_response import VisApiResponse
+from derisk_ext.vis.gptvis.tags.vis_plugin import Vis
 
 from ...core.action.base import Action, ActionOutput
 from ...core.schema import Status
@@ -45,17 +46,12 @@ class IndicatorAction(Action[IndicatorInput]):
     def __init__(self, **kwargs):
         """Init indicator action."""
         super().__init__(**kwargs)
-        self._render_protocol = VisApiResponse()
+        self.action_view_tag: str = SystemVisTag.VisTool.value
 
     @property
     def resource_need(self) -> Optional[ResourceType]:
         """Return the resource type needed for the action."""
         return ResourceType.Knowledge
-
-    @property
-    def render_protocol(self) -> Optional[Vis]:
-        """Return the render protocol."""
-        return self._render_protocol
 
     @property
     def out_model_type(self):
