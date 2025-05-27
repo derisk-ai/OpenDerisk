@@ -9,7 +9,7 @@ from derisk.core import (
 from derisk.core.interface.message import _append_view_messages
 from derisk.storage.metadata._base_dao import REQ, RES
 from derisk.util.pagination_utils import PaginationResult
-from derisk.vis.client import vis_name_change
+
 from derisk_serve.core import BaseService
 
 from ...feedback.api.endpoints import get_service
@@ -215,7 +215,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             result.append(
                 MessageVo(
                     role=msg.type,
-                    context=vis_name_change(msg.content),
+                    context=msg.content,
                     order=msg.round_index,
                     model_name=self.config.default_model,
                     feedback=feedback,

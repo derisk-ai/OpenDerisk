@@ -244,7 +244,7 @@ export default function DocUploadForm(props: IProps) {
           tooltip={
             <>
               {t('Get_token')}
-              <Typography.Link href='' target='_blank'>
+              <Typography.Link href='https://yuque.antfin-inc.com/lark/openapi/dh8zp4' target='_blank'>
                 {t('Reference_link')}
               </Typography.Link>
             </>

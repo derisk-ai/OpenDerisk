@@ -20,6 +20,7 @@ class KnowledgeSpaceRequest(BaseModel):
 
     """vector_type: vector type"""
     id: Optional[int] = None
+    knowledge_id: Optional[str] = None
     name: Optional[str] = None
     """vector_type: vector type"""
     storage_type: Optional[str] = None

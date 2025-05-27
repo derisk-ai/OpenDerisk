@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional
 
 from derisk._private.pydantic import BaseModel, Field
-from derisk.vis.tags.vis_agent_plans import Vis, VisAgentPlans
+from derisk_ext.vis.gptvis.tags.vis_agent_plans import Vis, VisAgentPlans
 
 from derisk.agent.resource.base import AgentResource
 from derisk.agent.core.action.base import Action, ActionOutput

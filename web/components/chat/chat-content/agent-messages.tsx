@@ -1,5 +1,4 @@
 import ModelIcon from '@/new-components/chat/content/ModelIcon';
-import { SwapRightOutlined } from '@ant-design/icons';
 import { GPTVis } from '@antv/gpt-vis';
 import ReferencesContent from './ReferencesContent';
 import markdownComponents, { markdownPlugins, preprocessLaTeX } from './config';
@@ -10,6 +9,7 @@ interface Props {
     receiver: string;
     model: string | null;
     markdown: string;
+    avatar: string;
     resource: any;
   }[];
 }
@@ -21,14 +21,17 @@ function AgentMessages({ data }: Props) {
       {data.map((item, index) => (
         <div key={index} className='rounded'>
           <div className='flex items-center mb-3 text-sm'>
-            {item.model ? <ModelIcon model={item.model} /> : <div className='rounded-full w-6 h-6 bg-gray-100' />}
-            <div className='ml-2 opacity-70'>
+            {item.model ? (
+              <ModelIcon model={item.model} />
+            ) : (
+              <img src={`/agents/${item.avatar}`} className='flex-0 rounded-2xl w-6 h-6 inline-block' />
+            )}
+            <div className='ml-2 opacity-70 text-xs'>
               {item.sender}
-              <SwapRightOutlined className='mx-2 text-base' />
-              {item.receiver}
+              <span className='text-blue-500 font-medium pl-1'>@{item.receiver}</span>
             </div>
           </div>
-          <div className='whitespace-normal text-sm mb-3'>
+          <div className='whitespace-normal text-xs mb-3'>
             <GPTVis components={markdownComponents} {...markdownPlugins}>
               {preprocessLaTeX(item.markdown)}
             </GPTVis>

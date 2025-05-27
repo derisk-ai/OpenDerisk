@@ -7,7 +7,7 @@ import React, { memo, useContext, useMemo, useRef } from 'react';
 import { MobileChatContext } from '../';
 import Feedback from './Feedback';
 
-type DeRiskView = {
+type DBGPTView = {
   name: string;
   status: 'todo' | 'runing' | 'failed' | 'completed' | (string & {});
   result?: string;
@@ -29,7 +29,7 @@ const ChatDialog: React.FC<{
   const { value } = useMemo<{
     relations: string[];
     value: string;
-    cachePluginContext: DeRiskView[];
+    cachePluginContext: DBGPTView[];
   }>(() => {
     if (typeof context !== 'string') {
       return {
@@ -40,13 +40,13 @@ const ChatDialog: React.FC<{
     }
     const [value, relation] = context.split('\trelations:');
     const relations = relation ? relation.split(',') : [];
-    const cachePluginContext: DeRiskView[] = [];
+    const cachePluginContext: DBGPTView[] = [];
 
     let cacheIndex = 0;
     const result = value.replace(/<derisk-view[^>]*>[^<]*<\/derisk-view>/gi, matchVal => {
       try {
         const pluginVal = matchVal.replaceAll('\n', '\\n').replace(/<[^>]*>|<\/[^>]*>/gm, '');
-        const pluginContext = JSON.parse(pluginVal) as DeRiskView;
+        const pluginContext = JSON.parse(pluginVal) as DBGPTView;
         const replacement = `<custom-view>${cacheIndex}</custom-view>`;
 
         cachePluginContext.push({

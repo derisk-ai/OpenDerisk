@@ -42,16 +42,21 @@ class ResourceType(str, Enum):
 
     DB = "database"
     Knowledge = "knowledge"
+    KnowledgePack = "knowledge_pack"
     Internet = "internet"
     Tool = "tool"
     Plugin = "plugin"
     TextFile = "text_file"
     ExcelFile = "excel_file"
     ImageFile = "image_file"
+    AudioFile = "audio_file"
+    VideoFile = "video_file"
     AWELFlow = "awel_flow"
     App = "app"
     # Resource type for resource pack
     Pack = "pack"
+    ReasoningEngine = "reasoning_engine"
+    ReasoningArgSupplier = "reasoning_arg_supplier"
 
 
 @dataclasses.dataclass
@@ -185,6 +190,17 @@ class Resource(ABC, Generic[P]):
                 to select specific resource in the pack.
         """
 
+    async def get_summary(
+        self,
+        *,
+        query: str,
+        **kwargs,
+    ) -> Tuple[str, Optional[Dict]]:
+        """Get the summary.
+        Args:
+            query(str): The question.
+        """
+
     async def get_resources(
         self,
         lang: str = "en",
@@ -272,7 +288,12 @@ class Resource(ABC, Generic[P]):
 
     def apply(
         self,
-        apply_func: Callable[["Resource"], Union["Resource", List["Resource"], None]],
+        apply_func: Optional[
+            Callable[["Resource"], Union["Resource", List["Resource"], None]]
+        ] = None,
+        apply_pack_func: Optional[
+            Callable[["Resource"], Union["Resource", None]]
+        ] = None,
     ) -> Union["Resource", None]:
         """Apply the function to the resource."""
         return self
@@ -290,6 +311,7 @@ class AgentResource(BaseModel):
     )
     context: Optional[dict] = None
     version: Optional[str] = "v2"
+    unique_id: Optional[str] = None
 
     def resource_prompt_template(self, **kwargs) -> str:
         """Get the resource prompt template."""

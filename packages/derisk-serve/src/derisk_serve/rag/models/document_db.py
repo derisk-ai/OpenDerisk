@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Union
 
@@ -15,6 +16,8 @@ from derisk_serve.rag.api.schemas import (
     DocumentServeResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class KnowledgeDocumentEntity(Model):
     __tablename__ = "knowledge_document"
@@ -22,13 +25,13 @@ class KnowledgeDocumentEntity(Model):
     doc_id = Column(String(100))
     doc_name = Column(String(100))
     doc_type = Column(String(100))
+    doc_token = Column(String(100), name="doc_token")
     knowledge_id = Column(String(100))
     space = Column(String(100))
     chunk_size = Column(Integer)
     status = Column(String(100))
     content = Column(Text)
     chunk_params = Column(Text)
-    yuque_token = Column(String(100), name="doc_token")
     meta_data = Column(Text)
     result = Column(Text)
     vector_ids = Column(Text)
@@ -60,7 +63,7 @@ class KnowledgeDocumentEntity(Model):
             "doc_name": self.doc_name,
             "knowledge_id": self.knowledge_id,
             "doc_type": self.doc_type,
-            "yuque_token": self.yuque_token,
+            "doc_token": self.doc_token,
             "space": self.space,
             "chunk_size": self.chunk_size,
             "status": self.status,
@@ -83,7 +86,7 @@ class KnowledgeDocumentDao(BaseDao):
             doc_name=document.doc_name,
             doc_type=document.doc_type,
             knowledge_id=document.knowledge_id,
-            yuque_token=document.yuque_token,
+            doc_token=document.doc_token,
             space=document.space,
             chunk_size=0.0,
             status=document.status,
@@ -94,6 +97,7 @@ class KnowledgeDocumentDao(BaseDao):
             gmt_created=datetime.now(),
             gmt_modified=datetime.now(),
             questions=document.questions,
+            chunk_params=document.chunk_params or "",
         )
         session.add(knowledge_document)
         session.commit()
@@ -133,7 +137,7 @@ class KnowledgeDocumentDao(BaseDao):
             )
         if query.knowledge_id is not None:
             knowledge_documents = knowledge_documents.filter(
-                KnowledgeDocumentEntity.space == query.knowledge_id
+                KnowledgeDocumentEntity.knowledge_id == query.knowledge_id
             )
         if query.status is not None:
             knowledge_documents = knowledge_documents.filter(
@@ -177,7 +181,30 @@ class KnowledgeDocumentDao(BaseDao):
         session.close()
         return result
 
-    def get_documents(self, query):
+    def documents_by_doc_ids(self, doc_ids) -> List[KnowledgeDocumentEntity]:
+        """Get a list of documents by their IDs.
+        Args:
+            ids: A list of document IDs.
+        Returns:
+            A list of KnowledgeDocumentEntity objects.
+        """
+        session = self.get_raw_session()
+        print(f"current session:{session}")
+        knowledge_documents = session.query(KnowledgeDocumentEntity)
+        knowledge_documents = knowledge_documents.filter(
+            KnowledgeDocumentEntity.doc_id.in_(doc_ids)
+        )
+        result = knowledge_documents.all()
+        session.close()
+        return result
+
+    def get_documents(
+        self, query: KnowledgeDocumentEntity = None, doc_ids=None, filter_status=None
+    ):
+        logger.info(
+            f"get_documents query is {query}, doc_ids is {doc_ids}, filter_status is {filter_status}"
+        )
+
         session = self.get_raw_session()
         print(f"current session:{session}")
         knowledge_documents = session.query(KnowledgeDocumentEntity)
@@ -188,6 +215,10 @@ class KnowledgeDocumentDao(BaseDao):
         if query.doc_id is not None:
             knowledge_documents = knowledge_documents.filter(
                 KnowledgeDocumentEntity.doc_id == query.doc_id
+            )
+        if doc_ids is not None:
+            knowledge_documents = knowledge_documents.filter(
+                KnowledgeDocumentEntity.doc_id.in_(doc_ids)
             )
         if query.doc_name is not None:
             knowledge_documents = knowledge_documents.filter(
@@ -208,6 +239,18 @@ class KnowledgeDocumentDao(BaseDao):
         if query.status is not None:
             knowledge_documents = knowledge_documents.filter(
                 KnowledgeDocumentEntity.status == query.status
+            )
+        if filter_status is not None:
+            knowledge_documents = knowledge_documents.filter(
+                KnowledgeDocumentEntity.status.in_(filter_status)
+            )
+        if query.content is not None:
+            knowledge_documents = knowledge_documents.filter(
+                KnowledgeDocumentEntity.content == query.content
+            )
+        if query.knowledge_id is not None:
+            knowledge_documents = knowledge_documents.filter(
+                KnowledgeDocumentEntity.knowledge_id == query.knowledge_id
             )
 
         knowledge_documents = knowledge_documents.order_by(
@@ -323,6 +366,27 @@ class KnowledgeDocumentDao(BaseDao):
             session.merge(entry)
             return self.to_response(entry)
 
+    def update_knowledge_document_by_doc_ids(self, doc_ids: List[str], status: str):
+        logger.info(f"update_knowledge_document_by_ids doc_ids is {doc_ids} {status}")
+
+        session = self.get_raw_session()
+        try:
+            affected_rows = (
+                session.query(KnowledgeDocumentEntity)
+                .filter(KnowledgeDocumentEntity.doc_id.in_(doc_ids))
+                .update(
+                    {KnowledgeDocumentEntity.status: status}, synchronize_session=False
+                )
+            )
+
+            session.commit()
+            logger.info(f"Updated {affected_rows} documents to status: '{status}'")
+
+            return affected_rows
+
+        finally:
+            session.close()
+
     def update_set_space_id(self, space, space_id):
         session = self.get_raw_session()
         knowledge_documents = session.query(KnowledgeDocumentEntity)
@@ -343,6 +407,8 @@ class KnowledgeDocumentDao(BaseDao):
             session.close()
 
     def raw_delete(self, query: KnowledgeDocumentEntity):
+        logger.info(f"doc raw_delete query is {query}")
+
         session = self.get_raw_session()
         knowledge_documents = session.query(KnowledgeDocumentEntity)
         if query.id is not None:
@@ -360,6 +426,10 @@ class KnowledgeDocumentDao(BaseDao):
         if query.space is not None:
             knowledge_documents = knowledge_documents.filter(
                 KnowledgeDocumentEntity.space == query.space
+            )
+        if query.knowledge_id is not None:
+            knowledge_documents = knowledge_documents.filter(
+                KnowledgeDocumentEntity.knowledge_id == query.knowledge_id
             )
         knowledge_documents.delete()
         session.commit()
@@ -500,7 +570,7 @@ class KnowledgeDocumentDao(BaseDao):
             doc_id=response_dict.get("doc_id"),
             doc_name=response_dict.get("doc_name"),
             doc_type=response_dict.get("doc_type"),
-            yuque_token=response_dict.get("yuque_token"),
+            doc_token=response_dict.get("doc_token"),
             space=response_dict.get("space"),
             chunk_size=response_dict.get("chunk_size"),
             status=response_dict.get("status"),

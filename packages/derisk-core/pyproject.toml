@@ -52,7 +52,8 @@ agent = [
     # numpy should less than 2.0.0
     "numpy>=1.21.0,<2.0.0",
     "auto-gpt-plugin-template>=0.0.3",
-    "mcp>=1.4.1",
+    "mcp>=1.8.1",
+    "circuitbreaker>=2.1.3"
 ]
 simple_framework = [
     "jinja2",

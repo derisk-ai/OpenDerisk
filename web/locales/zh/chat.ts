@@ -22,7 +22,7 @@ export const ChatZh: Resources['translation'] = {
   copy_nothing: '内容复制为空',
   file_tip: '文件上传后无法更改',
   chat_online: '在线对话',
-  assistant: '平台小助手', 
+  assistant: '平台小助手', // 灵数平台小助手
   model_tip: '当前应用暂不支持模型选择',
   temperature_tip: '当前应用暂不支持温度配置',
   max_new_tokens_tip: '当前应用暂不支持max_new_tokens配置',

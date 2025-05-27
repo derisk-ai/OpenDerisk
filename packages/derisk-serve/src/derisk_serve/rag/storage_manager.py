@@ -1,5 +1,6 @@
 """RAG STORAGE MANAGER manager."""
-
+import logging
+import threading
 from typing import List, Optional, Type
 
 from derisk import BaseComponent
@@ -10,9 +11,11 @@ from derisk.rag.embedding import EmbeddingFactory
 from derisk.storage.base import IndexStoreBase
 from derisk.storage.full_text.base import FullTextStoreBase
 from derisk.storage.vector_store.base import VectorStoreBase, VectorStoreConfig
+from derisk.util.executor_utils import DefaultExecutorFactory
 from derisk_ext.storage.full_text.elasticsearch import ElasticDocumentStore
 from derisk_ext.storage.knowledge_graph.knowledge_graph import BuiltinKnowledgeGraph
 
+logger = logging.getLogger(__name__)
 
 class StorageManager(BaseComponent):
     """RAG STORAGE MANAGER manager."""
@@ -37,6 +40,9 @@ class StorageManager(BaseComponent):
         self, index_name: str, storage_type: str, llm_model: Optional[str] = None
     ) -> IndexStoreBase:
         """Get storage connector."""
+        import threading
+        logger.info(f"get_storage_connector start, 当前线程数：{threading.active_count()}")
+
         supported_vector_types = self.get_vector_supported_types
         storage_config = self.storage_config()
         if storage_type.lower() in supported_vector_types:
@@ -68,8 +74,11 @@ class StorageManager(BaseComponent):
         )
         embedding_fn = embedding_factory.create()
         vector_store_config: VectorStoreConfig = storage_config.vector
+        logger.info(f"Create vector store collection_name is {collection_name},  当前线程数：{threading.active_count()}")
+
+        executor = DefaultExecutorFactory.get_instance(self.system_app).create()
         return vector_store_config.create_store(
-            name=collection_name, embedding_fn=embedding_fn
+            name=collection_name, embedding_fn=embedding_fn, executor=executor
         )
 
     def create_kg_store(
@@ -151,6 +160,8 @@ class StorageManager(BaseComponent):
     @staticmethod
     def gen_collection_by_id(knowledge_id: str) -> str:
         index_knowledge_id = knowledge_id.replace("-", "_")
+        logger.info(f"index_knowledge_id is {index_knowledge_id}")
+
         return f"derisk_collection_{index_knowledge_id}"
 
 

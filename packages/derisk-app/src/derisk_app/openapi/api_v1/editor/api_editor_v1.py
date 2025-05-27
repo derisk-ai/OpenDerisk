@@ -26,6 +26,7 @@ from derisk_app.openapi.editor_view_model import (
     ChatSqlEditContext,
 )
 from derisk_app.scene import ChatFactory
+from derisk_app.scene.chat_dashboard.data_loader import DashboardDataLoader
 from derisk_serve.conversation.serve import Serve as ConversationServe
 
 router = APIRouter()

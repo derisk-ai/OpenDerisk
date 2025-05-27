@@ -18,7 +18,7 @@ module.exports = {
           primary: '#0069fe',
           light: '#f7f7f7',
           dark: '#151622',
-          'dark-container': '#00CCFF',
+          'dark-container': '#232734',
           success: '#52C41A',
           error: '#FF4D4F',
           warning: '#FAAD14',
@@ -27,12 +27,16 @@ module.exports = {
         gradientR: '#105EFF',
       },
       backgroundColor: {
-        bar: '#FFFFFF',
+        bar: '#e0e7f2',
       },
       textColor: {
         default: '#0C75FC',
       },
-    
+      backgroundImage: {
+        'gradient-light': "url('/images/bg.png')",
+        'gradient-dark': 'url("/images/bg_dark.png")',
+        'button-gradient': 'linear-gradient(to right, theme("colors.gradientL"), theme("colors.gradientR"))',
+      },
       keyframes: {
         pulse1: {
           '0%, 100%': { transform: 'scale(1)', backgroundColor: '#bdc0c4' },

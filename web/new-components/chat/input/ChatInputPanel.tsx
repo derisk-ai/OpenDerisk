@@ -3,7 +3,7 @@ import { LoadingOutlined } from '@ant-design/icons';
 import { Button, Input, Spin } from 'antd';
 import classNames from 'classnames';
 import { useSearchParams } from 'next/navigation';
-import React, { useContext, useMemo, useRef, useState } from 'react';
+import React, { memo, useContext, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import ToolsBar from './ToolsBar';
@@ -64,7 +64,7 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   };
 
   return (
-    <div className='flex flex-col w-5/6 mx-auto pt-4 pb-6 bg-transparent'>
+    <div className='flex flex-col w-full mx-auto pt-4 pb-0 bg-transparent'>
       <div
         className={`flex flex-1 flex-col bg-white dark:bg-[rgba(255,255,255,0.16)] px-5 py-4 pt-2 rounded-xl relative border-t border-b border-l border-r dark:border-[rgba(255,255,255,0.6)] ${
           isFocus ? 'border-[#0c75fc]' : ''
@@ -74,7 +74,7 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
         <ToolsBar ctrl={ctrl} />
         <Input.TextArea
           placeholder={t('input_tips')}
-          className='w-full h-20 resize-none border-0 p-0 focus:shadow-none dark:bg-transparent'
+          className='w-full h-10 resize-none border-0 p-0 focus:shadow-none dark:bg-transparent'
           value={userInput}
           onKeyDown={e => {
             if (e.key === 'Enter') {
@@ -127,4 +127,4 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   );
 };
 
-export default ChatInputPanel;
+export default memo(ChatInputPanel);

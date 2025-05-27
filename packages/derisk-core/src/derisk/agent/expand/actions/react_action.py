@@ -142,7 +142,8 @@ class ReActAction(ToolAction):
         if len(steps) != 1:
             raise ValueError("Only one action is allowed each time.")
         step = steps[0]
-        act_out = await self._do_run(ai_message, step, need_vis_render=need_vis_render)
+        message_id = kwargs.get("message_id")
+        act_out = await self._do_run(ai_message, step, need_vis_render=need_vis_render, message_id=message_id)
         if not act_out.action:
             act_out.action = step.action
         if step.thought:
@@ -160,30 +161,44 @@ class ReActAction(ToolAction):
         ai_message: str,
         parsed_step: ReActStep,
         need_vis_render: bool = True,
+        message_id: Optional[str]= None
     ) -> ActionOutput:
         """Perform the action."""
         tool_args = {}
         name = parsed_step.action
         action_input = parsed_step.action_input
         action_input_str = action_input
+
+        if not name:
+            terminal_content = str(action_input_str if action_input_str else ai_message)
+            return ActionOutput(
+                is_exe_success=True,
+                content=terminal_content,
+                observations=terminal_content,
+                terminate=True,
+            )
+
         try:
             # Try to parse the action input to dict
             if action_input and isinstance(action_input, str):
                 tool_args = parse_or_raise_error(action_input)
-            elif isinstance(action_input, dict):
+            elif isinstance(action_input, dict) or isinstance(action_input, list):
                 tool_args = action_input
                 action_input_str = json.dumps(action_input, ensure_ascii=False)
         except json.JSONDecodeError:
             if parsed_step.action == "terminate":
                 tool_args = {"output": action_input}
             logger.warning(f"Failed to parse the args: {action_input}")
-        act_out = await run_tool(
+        act_out: ActionOutput = await run_tool(
             name,
             tool_args,
             self.resource,
-            self.render_protocol,
+            action_name=self.name,
+            render= self._render,
+            say_to_user=parsed_step.thought,
+            render_protocol=self.render_protocol,
             need_vis_render=need_vis_render,
-            raw_tool_input=action_input_str,
+            message_id=message_id,
         )
         if not act_out.action_input:
             act_out.action_input = action_input_str

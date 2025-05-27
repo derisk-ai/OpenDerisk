@@ -1,0 +1,23 @@
+DeRisk_Querys = [
+    "在2020年4月11日00:00到00:30的指定时间范围内，报告了一次故障。此次故障的具体原因目前未知。您的任务是确定该时间段内故障的根本原因。",
+    "Within the time range of April 11, 2020, from 01:30 to 02:00, there was one failure in the system. The exact time of the root cause occurrence and the reason behind this failure are currently unknown. You are required to identify the root cause occurrence datetime and the root cause reason.",
+    "在2020年4月11日05:30到06:00的指定时间范围内，系统检测到一次故障。根本原因发生的确切时间目前未知。请确定根本原因发生的时间以协助诊断问题。",
+    "On May 22, 2020, between 02:00 and 02:30, the system encountered a failure. The exact time of the root cause occurrence is currently unknown. Please determine the root cause occurrence datetime.",
+    "在2020年5月23日00:30到01:00的时间范围内，系统发生了一次故障。受影响的具体组件和故障原因目前未知。请确定根本原因组件和故障原因。",
+    "Within the specified time range of May 23, 2020, from 01:30 to 02:00, there was one failure. The exact time of the root cause occurrence is unknown, creating a challenge for failure diagnosis. Please identify the root cause occurrence datetime.",
+    "在2020年5月24日01:30到02:00的时间范围内，系统发生了一次故障。根本原因发生的确切时间、受影响的组件以及此次故障的潜在原因目前未知。您的任务是确定根本原因发生的时间、根本原因组件和故障原因。",
+    "Within the specified time range of May 24, 2020, from 04:00 to 04:30, there was a single failure detected in the system. The specific reason behind this failure is currently unknown. Your task is to determine the root cause reason for this failure.",
+    "在2020年5月25日03:30到04:00的时间范围内，系统发生了一次故障。此次故障的具体原因目前未知，这使得诊断过程变得复杂。请确定根本原因。",
+    "During the time range of May 26, 2020, from 02:00 to 02:30, the system experienced one failure. The exact time when the root cause occurred and the reason for this failure are currently unknown. Please identify the root cause occurrence datetime and the root cause reason.",
+    "在2020年5月26日02:30到03:00的时间范围内，系统检测到一次故障。根本原因发生的确切时间目前未知。请确定根本原因发生的时间。",
+    "During the specified time range of May 26, 2020, from 04:00 to 04:30, the system experienced a failure. The root cause component responsible for this failure is currently unknown. Please identify the root cause component.",
+    "在2020年5月27日02:30到03:00的时间范围内，系统检测到一次故障。导致此次故障的具体组件、根本原因发生的确切时间以及故障的潜在原因目前未知。您的任务是确定根本原因组件、根本原因发生的时间和故障原因。",
+    "During the specified time range of May 28, 2020, from 00:30 to 01:00, the system experienced a single failure. The root cause of this failure, however, is currently unknown. Please identify the reason behind this failure.",
+    "在2020年5月28日03:30到04:00的时间范围内，系统检测到一次故障。此次故障的根本原因目前未知。您的任务是确定此次故障的根本原因。",
+    "On May 31, 2020, during the time range from 03:00 to 03:30, there was a single failure in the system. The exact time when the root cause occurred is currently unknown. Please identify the root cause occurrence datetime.",
+    "在2020年5月31日03:30到04:00的时间范围内，系统发生了一次故障。根本原因发生的确切时间目前未知，这使得诊断问题变得具有挑战性。请确定根本原因发生的时间。",
+    "During the specified time range of May 31, 2020, from 04:00 to 04:30, the system experienced a failure. The exact occurrence time and component responsible for the root cause are currently unknown. Please identify the root cause occurrence datetime and the root cause component.",
+    "在2020年5月26日05:00到05:30的时间范围内，系统检测到一次故障。然而，关于根本原因组件、根本原因发生的确切时间以及此次故障的潜在原因的详细信息目前未知。您需要确定根本原因组件、发生时间和故障原因。",
+    "There was one failure reported within the specified time range of May 23, 2020, from 01:00 to 01:30. The component responsible for the failure, the exact time of the root cause occurrence, and the underlying reason for this failure are currently unknown. Please identify the root cause component, the root cause occurrence datetime, and the root cause reason.",
+    "在2020年5月22日00:00到00:30的时间范围内，系统发生了一次故障。根本原因发生的确切时间未知，故障的原因也尚未确定。您的任务是确定根本原因发生的确切时间和故障的潜在原因。"
+]

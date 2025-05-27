@@ -93,7 +93,7 @@ class SpanStorageContainer(SpanStorage):
                     try:
                         storage.append_span_batch(spans_to_write)
                     except Exception as e:
-                        logger.warning(
+                        logger.exception(
                             f"Append spans to storage {str(storage)} failed: {str(e)},"
                             f" span_data: {spans_to_write}"
                         )

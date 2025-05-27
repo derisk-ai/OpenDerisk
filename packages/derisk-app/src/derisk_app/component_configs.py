@@ -1,10 +1,13 @@
 import logging
 from typing import Optional
 
+from derisk.agent.expand.resources.context_tool import store_information
+from derisk.agent.expand.resources.math_tool import add_two_numbers
 from derisk.component import SystemApp
 from derisk.configs.model_config import MODEL_DISK_CACHE_DIR, resolve_root_path
 from derisk.util.executor_utils import DefaultExecutorFactory
 from derisk_app.config import ApplicationConfig, ServiceWebParameters
+from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
 from derisk_serve.rag.storage_manager import StorageManager
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,7 @@ def initialize_components(
     register_serve_apps(system_app, param, web_config.host, web_config.port)
     _initialize_operators()
     _initialize_code_server(system_app)
+    _initialize_reasoning(system_app)
 
 
 def _initialize_model_cache(system_app: SystemApp, web_config: ServiceWebParameters):
@@ -111,6 +115,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
     from derisk_serve.agent.resource.mcp import MCPSSEToolPack
     from derisk_serve.agent.resource.plugin import PluginToolPack
+    from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
 
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
@@ -122,12 +127,17 @@ def _initialize_resource_manager(system_app: SystemApp):
     # Register a search tool
     rm.register_resource(resource_instance=baidu_search)
     rm.register_resource(resource_instance=list_derisk_support_models)
+    # Register a math tool
+    rm.register_resource(resource_instance=add_two_numbers)
+    rm.register_resource(resource_instance=store_information)
     # Register host tools
     rm.register_resource(resource_instance=get_current_host_cpu_status)
     rm.register_resource(resource_instance=get_current_host_memory_status)
     rm.register_resource(resource_instance=get_current_host_system_load)
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
+    rm.register_resource(ReasoningEngineResource)
+    rm.register_resource(KnowledgePackSearchResource)
 
 
 def _initialize_openapi(system_app: SystemApp):
@@ -155,3 +165,9 @@ def _initialize_code_server(system_app: SystemApp):
     from derisk.util.code.server import initialize_code_server
 
     initialize_code_server(system_app)
+
+
+def _initialize_reasoning(system_app: SystemApp):
+    from derisk.agent.core.reasoning.reasoning_manage import ReasoningManage
+
+    system_app.register(component=ReasoningManage)

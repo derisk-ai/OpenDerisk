@@ -3,7 +3,7 @@ from typing import Optional
 
 from derisk._private.pydantic import BaseModel, Field
 from derisk.agent import Action, ActionOutput, AgentResource
-from derisk.vis.tags.vis_plugin import Vis, VisPlugin
+from derisk_ext.vis.gptvis.tags.vis_plugin import Vis, VisPlugin
 from derisk_serve.agent.agents.expand.actions.intent_recognition_action import (
     IntentRecognitionInput,
 )

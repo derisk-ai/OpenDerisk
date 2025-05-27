@@ -95,11 +95,6 @@ export const MODEL_ICON_INFO: Record<string, ModelIconInfo> = {
     icon: '/models/yi.svg',
     patterns: ['yi'],
   },
-  bailing: {
-    label: 'Bailing',
-    icon: '/models/bailing.svg',
-    patterns: ['bailing'],
-  },
   wizardlm: {
     label: 'WizardLM',
     icon: '/models/wizardlm.png',

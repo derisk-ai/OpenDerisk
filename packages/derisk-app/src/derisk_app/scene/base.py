@@ -27,7 +27,12 @@ class Scene:
 
 
 class ChatScene(Enum):
- 
+    ChatWithDbExecute = Scene(
+        code="chat_with_db_execute",
+        name="Chat Data",
+        describe="Dialogue with your private data through natural language.",
+        param_types=["DB Select"],
+    )
     ExcelLearning = Scene(
         code="excel_learning",
         name="Excel Learning",
@@ -42,12 +47,26 @@ class ChatScene(Enum):
         prepare_scene_code="excel_learning",
     )
 
+    ChatWithDbQA = Scene(
+        code="chat_with_db_qa",
+        name="Chat DB",
+        describe="Have a Professional Conversation with Metadata.",
+        param_types=["DB Select"],
+    )
+    ChatExecution = Scene(
+        code="chat_execution",
+        name="Use Plugin",
+        describe="Use tools through dialogue to accomplish your goals.",
+        param_types=["Plugin Select"],
+    )
+
     ChatAgent = Scene(
         code="chat_agent",
         name="Agent Chat",
         describe="Use tools through dialogue to accomplish your goals.",
         param_types=["Plugin Select"],
     )
+
     ChatFlow = Scene(
         code="chat_flow",
         name="Flow Chat",
@@ -62,7 +81,12 @@ class ChatScene(Enum):
     ChatNormal = Scene(
         "chat_normal", "Chat Normal", "Native LLM large model AI dialogue."
     )
-  
+    ChatDashboard = Scene(
+        "chat_dashboard",
+        "Dashboard",
+        "Provide you with professional analysis reports through natural language.",
+        ["DB Select"],
+    )
     ChatKnowledge = Scene(
         "chat_knowledge",
         "Chat Knowledge",

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Optional
 
@@ -5,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from derisk._private.config import Config
 from derisk.agent.core.agent_manage import get_agent_manager
+from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.resource.manage import get_resource_manager
 from derisk.agent.util.llm.llm import LLMStrategyType
 from derisk_app.openapi.api_view_model import Result
@@ -15,7 +17,7 @@ from derisk_serve.agent.db.gpts_app import (
     GptsAppDao,
     GptsAppQuery,
     native_app_params,
-    BindAppRequest,
+    BindAppRequest, TransferSseRequest, mcp_address, AllowToolsRequest,
 )
 from derisk_serve.agent.team.base import TeamMode
 from derisk_serve.core import blocking_func_to_async
@@ -71,10 +73,13 @@ async def app_detail(
     logger.info(f"app_detail:{chat_scene},{app_code}")
     try:
         if app_code:
-            res = await blocking_func_to_async(
-                CFG.SYSTEM_APP, gpts_dao.app_detail, app_code
-            )
-            return Result.succ(res)
+            if app_code == "ai_sre":
+                return Result.succ(GptsApp(app_code='ai_sre', app_name="DeRisk(AI-SRE)", app_describe="test",team_mode=TeamMode.AUTO_PLAN.value ))
+            else:
+                res = await blocking_func_to_async(
+                    CFG.SYSTEM_APP, gpts_dao.app_detail, app_code
+                )
+                return Result.succ(res)
         else:
             from derisk_app.scene.base import ChatScene
 
@@ -297,6 +302,33 @@ async def app_resources(
         return Result.failed(code="E000X", msg=f"query app resources error: {ex}")
 
 
+@router.get("/v1/app/resources/get", response_model=Result)
+async def app_resources_parameter(
+    app_code: str,
+    resource_type: str,
+    name: Optional[str] = None,
+    version: Optional[str] = None,
+    user_code: Optional[str] = None,
+    sys_code: Optional[str] = None,
+    user_info: UserRequest = Depends(get_user_from_headers),
+):
+    """
+    Get agent resources, such as db, knowledge, internet, plugin.
+    """
+    try:
+        app_info = gpts_dao.app_detail(app_code)
+        if not app_info.details:
+            raise ValueError("app details is None")
+        app_detail = app_info.details[0]
+        resources = app_detail.resources
+        for resource in resources:
+            if resource.type == resource_type:
+                return Result.succ(json.loads(resource.value))
+    except Exception as ex:
+        logger.exception(str(ex))
+        return Result.failed(code="E000X", msg=f"query app resources error: {ex}")
+
+
 @router.post("/v1/app/publish", response_model=Result)
 async def publish(
     gpts_app: GptsApp, user_info: UserRequest = Depends(get_user_from_headers)
@@ -390,4 +422,93 @@ async def app_bind(bind_app: BindAppRequest, sys_code: str = None):
         )
     except Exception as e:
         logger.error(f"get_derisks failed:{str(e)}")
+        return Result.failed(msg=str(e), code="E300003")
+
+
+@router.post("/v1/app/transfer_sse", response_model=Result)
+async def transfer_sse(transfer_request: TransferSseRequest):
+    try:
+        if not transfer_request.all:
+            query = GptsAppQuery(
+                app_codes=transfer_request.app_code_list
+            )
+            apps = gpts_dao.app_list(query, True).app_list
+        else:
+            apps = gpts_dao.list_all()
+        for app in apps:
+            if app.team_mode != "auto_plan" or app.team_context is None:
+                continue
+            team_context = None
+            if isinstance(app.team_context, AutoTeamContext):
+                team_context = app.team_context
+            elif isinstance(app.team_context, str):
+                try:
+                    team_context = AutoTeamContext.model_validate(json.loads(app.team_context))
+                except Exception as e:
+                    logger.error(f"transfer_sse failed:{str(e)}")
+                    continue
+            resources = team_context.resources
+            if not resources:
+                continue
+            need_edit = False
+            for resource in resources:
+                if resource.type != "tool(mcp(sse))":
+                    continue
+                need_edit = True
+                json_val = json.loads(resource.value)
+                new_json = mcp_address(transfer_request.source, json_val["name"], transfer_request.uri, transfer_request.faas_function_pre)
+                if not new_json:
+                    continue
+                resource.value = json.dumps(new_json, ensure_ascii=False)
+            if need_edit:
+                team_context.resources = resources
+                if isinstance(app.team_context, AutoTeamContext):
+                    app.team_context = team_context
+                elif isinstance(app.team_context, str):
+                    app.team_context = json.dumps(team_context.to_dict(), ensure_ascii=False)
+                gpts_dao.edit(app)
+        return Result.succ()
+    except Exception as e:
+        logger.error(f"transfer_sse failed:{str(e)}")
+        return Result.failed(msg=str(e), code="E300003")
+
+
+@router.post("/v1/app/allow_tools", response_model=Result)
+async def edit_app_allow_tools(request: AllowToolsRequest):
+    try:
+        app = gpts_dao.app_detail(request.app_code)
+        if not app:
+            return Result.failed(msg=f"app {request.app_code} not exist", code="E300001")
+        if app.team_mode != "auto_plan" or app.team_context is None:
+            return Result.failed(msg=f"app {request.app_code} not auto plan", code="E300001")
+        team_context = None
+        if isinstance(app.team_context, AutoTeamContext):
+            team_context = app.team_context
+        elif isinstance(app.team_context, str):
+            try:
+                team_context = AutoTeamContext.model_validate(json.loads(app.team_context))
+            except Exception as e:
+                logger.error(f"edit_app_allow_tools failed:{str(e)}")
+                return Result.failed(msg=str(e), code="E300001")
+        resources = team_context.resources
+        need_edit = False
+        for resource in resources:
+            if resource.type != "tool(mcp(sse))":
+                continue
+            json_val = json.loads(resource.value)
+            if json_val['name'] != request.mcp_server:
+                continue
+            need_edit = True
+            json_val['allow_tools'] = request.allow_tools
+            resource.value = json.dumps(json_val, ensure_ascii=False)
+        if need_edit:
+            team_context.resources = resources
+            if isinstance(app.team_context, AutoTeamContext):
+                app.team_context = team_context
+            elif isinstance(app.team_context, str):
+                app.team_context = json.dumps(team_context.to_dict(), ensure_ascii=False)
+            gpts_dao.edit(app)
+        return Result.succ()
+    except Exception as e:
+        logger.error(f"bind_allow_tools failed:{str(e)}")
         return Result.failed(msg=str(e), code="E300003")

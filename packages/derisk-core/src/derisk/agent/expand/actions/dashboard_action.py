@@ -5,7 +5,8 @@ import logging
 from typing import List, Optional
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
-from derisk.vis.tags.vis_dashboard import Vis, VisDashboard
+from derisk.vis import SystemVisTag
+from derisk_ext.vis.gptvis.tags.vis_dashboard import Vis, VisDashboard
 
 from ...core.action.base import Action, ActionOutput
 from ...resource.base import AgentResource, ResourceType
@@ -42,17 +43,13 @@ class DashboardAction(Action[List[ChartItem]]):
     def __init__(self, **kwargs):
         """Dashboard action init."""
         super().__init__(**kwargs)
-        self._render_protocol = VisDashboard()
+        ## this action out view vis tag name
+        self.action_view_tag: str = SystemVisTag.VisDashboard.value
 
     @property
     def resource_need(self) -> Optional[ResourceType]:
         """Return the resource type needed for the action."""
         return ResourceType.DB
-
-    @property
-    def render_protocol(self) -> Optional[Vis]:
-        """Return the render protocol."""
-        return self._render_protocol
 
     @property
     def out_model_type(self):

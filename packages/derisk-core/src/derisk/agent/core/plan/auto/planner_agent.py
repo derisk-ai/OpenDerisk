@@ -144,12 +144,13 @@ assistants:[
         super().__init__(**kwargs)
         self._init_actions([PlanAction])
 
-    def _init_reply_message(
+    async def init_reply_message(
         self,
         received_message: AgentMessage,
         rely_messages: Optional[List[AgentMessage]] = None,
+        sender: Optional[Agent] = None,
     ) -> AgentMessage:
-        reply_message = super()._init_reply_message(received_message)
+        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages, sender=sender)
         reply_message.context = {
             "agents": "\n".join([f"- {item.role}:{item.desc}" for item in self.agents]),
         }

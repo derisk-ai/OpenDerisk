@@ -193,8 +193,24 @@ class DefaultWorkflowRunner(WorkflowRunner):
                 node_outputs[node.node_id] = dag_ctx.current_task_context
                 task_ctx.set_current_state(TaskState.SUCCESS)
 
+                out = dag_ctx.current_task_context.task_output
+                if not (out.is_stream or out.is_empty):
+                    task_data = dag_ctx.current_task_context.task_output
+                    from derisk.core import ModelOutput
+
+                    if isinstance(task_data, ModelOutput):
+                        task_data = task_data.to_dict()
+                    if isinstance(task_data, SimpleTaskOutput):
+                        task_data = task_data.output
+                else:
+                    task_data = "__EMPTY__"
+
                 run_metadata["skip_node_ids"] = ",".join(skip_node_ids)
                 run_metadata["state"] = TaskState.SUCCESS.value
+                run_metadata["task_output"] = task_data
+                if node.dag:
+                    run_metadata["dag_id"] = node.dag.dag_id
+                    run_metadata["dag_tags"] = node.dag.tags
                 span.metadata = run_metadata
 
             if isinstance(node, BranchOperator):

@@ -3,7 +3,18 @@
 import copy
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Iterable, List, Optional, TypedDict, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+    Tuple,
+)
 
 from derisk.core import Chunk, Document
 from derisk.core.awel.flow import Parameter, ResourceCategory, register_resource
@@ -28,6 +39,7 @@ class TextSplitter(ABC):
         length_function: Callable[[str], int] = len,
         filters=None,
         separator: str = "",
+        **kwargs: Any,
     ):
         """Create a new TextSplitter."""
         if filters is None:
@@ -448,11 +460,14 @@ class MarkdownHeaderTextSplitter(TextSplitter):
         self,
         headers_to_split_on=None,
         return_each_line: bool = False,
-        filters=None,
+        filters: list = [],
         chunk_size: int = 4000,
         chunk_overlap: int = 200,
         length_function: Callable[[str], int] = len,
         separator="\n",
+        header_level: str = "##",
+        max_split_chunk_size: int = 3072,
+        **kwargs: Any,
     ):
         """Create a new MarkdownHeaderTextSplitter.
 
@@ -476,13 +491,18 @@ class MarkdownHeaderTextSplitter(TextSplitter):
         self._chunk_size = chunk_size
         # Given the headers we want to split on,
         # (e.g., "#, ##, etc") order by length
-        self.headers_to_split_on = sorted(
-            headers_to_split_on, key=lambda split: len(split[0]), reverse=True
+        self.headers_to_split_on = self._filter_headers(
+            headers_to_split_on, header_level
         )
+
+        # self.headers_to_split_on = sorted(
+        #     headers_to_split_on, key=lambda split: len(split[0]), reverse=True
+        # )
         self._filter = filters
         self._length_function = length_function
         self._separator = separator
         self._chunk_overlap = chunk_overlap
+        self._max_split_chunk_size = max_split_chunk_size
 
     def create_documents(
         self,
@@ -534,7 +554,13 @@ class MarkdownHeaderTextSplitter(TextSplitter):
             for chunk in aggregated_chunks
         ]
 
-    def split_text(  # type: ignore
+    def _filter_headers(
+        self, headers_to_split_on: List[Tuple[str, str]], level: str
+    ) -> List[Tuple[str, str]]:
+        level_len = len(level)
+        return [header for header in headers_to_split_on if len(header[0]) <= level_len]
+
+    def split_text(
         self,
         text: str,
         separator: Optional[str] = None,
@@ -657,12 +683,34 @@ class MarkdownHeaderTextSplitter(TextSplitter):
         # lines_with_metadata has each line with associated header metadata
         # aggregate these into chunks based on common metadata
         if not self.return_each_line:
-            return self.aggregate_lines_to_chunks(lines_with_metadata)
+            chunks = self.aggregate_lines_to_chunks(lines_with_metadata)
+            split_lines_with_metadata = []
+            for chunk in chunks:
+                content = chunk.content
+                metadata = chunk.metadata
+                if len(content) > self._max_split_chunk_size:
+                    sub_chunks = self._split_by_chunk_size(
+                        content, self._max_split_chunk_size
+                    )
+                    for sub_chunk in sub_chunks:
+                        split_lines_with_metadata.append(
+                            Chunk(content=sub_chunk, metadata=metadata)
+                        )
+                else:
+                    split_lines_with_metadata.append(chunk)
+            return split_lines_with_metadata
         else:
             return [
                 Document(content=chunk["content"], metadata=chunk["metadata"])
                 for chunk in lines_with_metadata
             ]
+
+    def _split_by_chunk_size(self, long_text, chunk_size):
+        if len(long_text) <= chunk_size:
+            return [long_text]
+        first_chunk = long_text[:chunk_size]
+        remaining_text = long_text[chunk_size:]
+        return [first_chunk] + self._split_by_chunk_size(remaining_text, chunk_size)
 
     def clean(self, documents: List[dict], filters: Optional[List[str]] = None):
         """Clean the documents."""
@@ -911,6 +959,39 @@ class PageTextSplitter(TextSplitter):
             new_doc = Chunk(content=text, metadata=copy.deepcopy(_metadatas[i]))
             chunks.append(new_doc)
         return chunks
+
+
+class BlankSplitter(TextSplitter):
+    """The BlankSplitter class."""
+
+    outgoing_edges = 1
+
+    def __init__(
+        self,
+        chunk_size: int = 4000,
+        chunk_overlap: int = 200,
+        length_function: Callable[[str], int] = len,
+        filters=None,
+        separator: str = "",
+        **kwargs: Any,
+    ):
+        """Create a new TextSplitter."""
+        if filters is None:
+            filters = []
+        if chunk_overlap > chunk_size:
+            raise ValueError(
+                f"Got a larger chunk overlap ({chunk_overlap}) than chunk size "
+                f"({chunk_size}), should be smaller."
+            )
+        self._chunk_size = chunk_size
+        self._chunk_overlap = chunk_overlap
+        self._length_function = length_function
+        self._filter = filters
+        self._separator = separator
+
+    def split_text(self, text: str, **kwargs) -> List[str]:
+        """Split text into multiple components."""
+        return [text]
 
 
 class RDBTextSplitter(TextSplitter):

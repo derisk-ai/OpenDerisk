@@ -4,7 +4,7 @@ import json
 import logging
 from typing import List, Optional, Tuple
 
-from ..core.agent import AgentMessage
+from ..core.agent import AgentMessage, Agent
 from ..core.base_agent import ConversableAgent
 from ..core.profile import DynConfig, ProfileConfig
 from ..resource.database import DBResource
@@ -77,12 +77,13 @@ class DataScientistAgent(ConversableAgent):
         super().__init__(**kwargs)
         self._init_actions([ChartAction])
 
-    def _init_reply_message(
+    async def init_reply_message(
         self,
         received_message: AgentMessage,
         rely_messages: Optional[List[AgentMessage]] = None,
+        sender: Optional[Agent] = None,
     ) -> AgentMessage:
-        reply_message = super()._init_reply_message(received_message, rely_messages)
+        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages, sender=sender)
         reply_message.context = {
             "display_type": self.actions[0].render_prompt(),
             "dialect": self.database.dialect,

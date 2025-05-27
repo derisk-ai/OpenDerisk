@@ -3,7 +3,7 @@ import { apiInterceptors, getAppInfo, getChatHistory, getDialogueList } from '@/
 import useChat from '@/hooks/use-chat';
 import ChatContentContainer from '@/new-components/chat/ChatContentContainer';
 import ChatDefault from '@/new-components/chat/content/ChatDefault';
-import ChatInputPanel from '@/new-components/chat/input/ChatInputPanel';
+// import ChatInputPanel from '@/new-components/chat/input/ChatInputPanel';
 import ChatSider from '@/new-components/chat/sider/ChatSider';
 import { IApp } from '@/types/app';
 import { ChartData, ChatHistoryResponse, IChatDialogueSchema } from '@/types/chat';
@@ -12,8 +12,10 @@ import { useAsyncEffect, useRequest } from 'ahooks';
 import { Flex, Layout, Spin } from 'antd';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-
+import React, { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+const DbEditor = dynamic(() => import('@/components/chat/db-editor'), {
+  ssr: false,
+});
 const ChatContainer = dynamic(() => import('@/components/chat/chat-container'), { ssr: false });
 
 const { Content } = Layout;
@@ -76,7 +78,7 @@ export const ChatContentContext = createContext<ChatContentProps>({
 const Chat: React.FC = () => {
   const { model, currentDialogInfo } = useContext(ChatContext);
   const { isContract, setIsContract, setIsMenuExpand } = useContext(ChatContext);
-  const { chat, ctrl } = useChat({
+  const { chat } = useChat({
     app_code: currentDialogInfo.app_code || '',
   });
 
@@ -108,6 +110,15 @@ const Chat: React.FC = () => {
       knowledgeId || dbName || appInfo?.param_need?.filter(item => item.type === 'resource')[0]?.bind_value,
     );
   }, [appInfo, dbName, knowledgeId, model]);
+
+  useEffect(() => {
+    // 仅初始化执行，防止dashboard页面无法切换状态
+    setIsMenuExpand(scene !== 'chat_dashboard');
+    // 路由变了要取消Editor模式，再进来是默认的Preview模式
+    if (chatId && scene) {
+      setIsContract(false);
+    }
+  }, [chatId, scene]);
 
   // 是否是默认小助手
   const isChatDefault = useMemo(() => {
@@ -266,18 +277,22 @@ const Chat: React.FC = () => {
   }, [isChatDefault]);
 
   const contentRender = () => {
-    return isChatDefault ? (
-      <Content>
-        <ChatDefault />
-      </Content>
-    ) : (
-      <Spin spinning={historyLoading} className='w-full h-full m-auto'>
-        <Content className='flex flex-col h-screen'>
-          <ChatContentContainer ref={scrollRef} />
-          <ChatInputPanel ctrl={ctrl} />
+    if (scene === 'chat_dashboard') {
+      return isContract ? <DbEditor /> : <ChatContainer />;
+    } else {
+      return isChatDefault ? (
+        <Content>
+          <ChatDefault />
         </Content>
-      </Spin>
-    );
+      ) : (
+        <Spin spinning={historyLoading} className='w-full h-full m-auto'>
+          <Content className='flex flex-col h-screen'>
+            <ChatContentContainer ref={scrollRef} />
+            {/* <ChatInputPanel ctrl={ctrl} /> */}
+          </Content>
+        </Spin>
+      );
+    }
   };
 
   return (
@@ -327,4 +342,4 @@ const Chat: React.FC = () => {
   );
 };
 
-export default Chat;
+export default memo(Chat);

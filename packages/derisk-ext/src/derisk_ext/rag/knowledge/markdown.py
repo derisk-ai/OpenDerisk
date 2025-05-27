@@ -9,6 +9,7 @@ from derisk.rag.knowledge.base import (
     Knowledge,
     KnowledgeType,
 )
+from derisk_ext.rag import ChunkParameters
 
 
 class MarkdownKnowledge(Knowledge):
@@ -55,6 +56,20 @@ class MarkdownKnowledge(Knowledge):
                 documents = [Document(content=markdown_text, metadata=metadata)]
                 return documents
         return [Document.langchain2doc(lc_document) for lc_document in documents]
+
+    def extract(
+        self,
+        documents: List[Document],
+        chunk_parameter: Optional[ChunkParameters] = None,
+    ) -> List[Document]:
+        """Extract knowledge from text."""
+        from derisk_ext.rag.chunk_manager import ChunkManager
+
+        chunk_manager = ChunkManager(knowledge=self, chunk_parameter=chunk_parameter)
+        chunks = chunk_manager.split(documents)
+        for document in documents:
+            document.chunks = chunks
+        return documents
 
     @classmethod
     def support_chunk_strategy(cls) -> List[ChunkStrategy]:

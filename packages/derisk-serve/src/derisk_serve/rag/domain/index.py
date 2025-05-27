@@ -69,4 +69,4 @@ class DomainGeneralIndex(DomainKnowledgeIndex):
 
     @property
     def domain_type(self):
-        raise "general"
+        return "general"

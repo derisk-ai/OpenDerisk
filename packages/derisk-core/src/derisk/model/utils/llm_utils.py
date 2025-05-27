@@ -91,6 +91,8 @@ def parse_model_request(
         stream=stream,
         user_name=params.get("user_name"),
         request_id=params.get("request_id"),
+        trace_id=params.get("trace_id"),
+        rpc_id=params.get("rpc_id"),
     )
     request = ModelRequest.build_request(
         default_model,

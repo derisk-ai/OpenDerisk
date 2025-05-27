@@ -126,12 +126,13 @@ const AutoPlan: React.FC<{
     if (sourceType?.length) {
       const formatterSourceType = sourceType.map(item => {
         return {
-          label: (
+          comp: (
             <Space>
               {resourceTypeIcon[item]}
               {item}
             </Space>
           ),
+          label: item,
           value: item,
         };
       });
@@ -139,12 +140,13 @@ const AutoPlan: React.FC<{
       return concat(
         [
           {
-            label: (
+            comp: (
               <div className='flex items-center text-sm'>
                 {resourceTypeIcon['all']}
                 <span className='ml-2 text-[rgba(0,10,26,0.68)] dark:text-[#ffffffD9]'>{t('All')}</span>
               </div>
             ),
+            label: t('All'),
             value: 'all',
           },
         ],

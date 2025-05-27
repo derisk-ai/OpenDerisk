@@ -138,8 +138,8 @@ def _get_ports_by_cmdline_part(service_keys: List[str]) -> List[int]:
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
 
-    # Sort ports with preference for 8000 and 6666
-    ports.sort(key=lambda x: (x != 8000, x != 6666, x))
+    # Sort ports with preference for 8000 and 5670
+    ports.sort(key=lambda x: (x != 8000, x != 5670, x))
     return ports
 
 

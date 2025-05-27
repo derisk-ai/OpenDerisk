@@ -28,7 +28,7 @@ class RetrieverResource(Resource[ResourceParameters]):
     Retrieve knowledge chunks from a retriever.
     """
 
-    def __init__(self, name: str, retriever: "BaseRetriever"):
+    def __init__(self, name: str, retriever: Optional["BaseRetriever"] = None):
         """Create a new RetrieverResource."""
         self._name = name
         self._retriever = retriever
@@ -37,6 +37,11 @@ class RetrieverResource(Resource[ResourceParameters]):
     def name(self) -> str:
         """Return the resource name."""
         return self._name
+
+    @property
+    def description(self) -> str:
+        """Return the resource description."""
+        return ""
 
     @property
     def retriever_name(self) -> str:
@@ -86,6 +91,17 @@ class RetrieverResource(Resource[ResourceParameters]):
             return prompt_template, self._get_references(chunks)
         return prompt_template_zh, self._get_references(chunks)
 
+    async def get_summary(
+        self,
+        *,
+        query: str,
+        **kwargs,
+    ) -> Tuple[str, Optional[Dict]]:
+        """Get the summary.
+        Args:
+            query(str): The question.
+        """
+
     async def get_resources(
         self,
         lang: str = "en",
@@ -113,6 +129,8 @@ class RetrieverResource(Resource[ResourceParameters]):
                 doc_name = metadata.get("source", None)
             if not doc_name:
                 doc_name = chunk.metadata.get("metadata", "-")
+            if isinstance(doc_name, dict) and "book_slug_name" in doc_name:
+                doc_name = doc_name["book_slug_name"]
             if doc_name not in references_dict:
                 references_dict[doc_name] = {
                     "name": doc_name,
