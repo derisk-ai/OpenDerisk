@@ -2,6 +2,11 @@
 
 OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system risk intelligent manager provides 7 * 24-hour comprehensive and in-depth protection.
 
+### Features
+1. DeepResearch RCA: 通过深度分析日志、Trace、代码进行问题根因的快速定位。
+2. 可视化证据链：定位诊断过程与证据链全部可视化展示，诊断过程一目了然，可以快速判断定位的准确性。
+3. 多智能体协同: SRE-Agent、Code-Agent、ReportAgent、Vis-Agent、Data-Agent协同工作。
+4. 架构开源开放: OpenDerisk采用完全开源、开放的方式构建，相关框架、代码在开源项目也能实现开箱即用。
 
 ### Quick Start
 
