@@ -2,6 +2,30 @@
 
 OpenDeRisk AI 原生风险智能系统 —— 7*24H 应用系统AI数字运维助手(AI-SRE), 我们的愿景是, 为每个应用系统提供一个7*24H的AI系统数字管家，并能与真人进行协同，7*24H处理业务问题，形成7*24H得深度护航与防护网。
 
+<div align="center">
+  <p>
+    <a href="https://github.com/derisk-ai/OpenDerisk">
+        <img alt="stars" src="https://img.shields.io/github/stars/derisk-ai/OpenDerisk?style=social" />
+    </a>
+    <a href="https://github.com/derisk-ai/OpenDerisk">
+        <img alt="forks" src="https://img.shields.io/github/forks/derisk-ai/OpenDerisk?style=social" />
+    </a>
+    <a href="https://opensource.org/licenses/MIT">
+      <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
+    </a>
+     <a href="https://github.com/derisk-ai/OpenDerisk/releases">
+      <img alt="Release Notes" src="https://img.shields.io/github/release/derisk-ai/OpenDerisk" />
+    </a>
+    <a href="https://github.com/derisk-ai/OpenDerisk/issues">
+      <img alt="Open Issues" src="https://img.shields.io/github/issues-raw/derisk-ai/OpenDerisk" />
+    </a>
+    <a href="https://codespaces.new/derisk-ai/OpenDerisk">
+      <img alt="Open in GitHub Codespaces" src="https://github.com/codespaces/badge.svg" />
+    </a>
+  </p>
+
+[**English**](README.md) | [**简体中文**](README.zh.md)
+</div>
 
 ### 特性
 <p align="left">
