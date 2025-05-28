@@ -2,7 +2,6 @@
 
 OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system risk intelligent manager provides 7 * 24-hour comprehensive and in-depth protection.
 
-
 <div align="center">
   <p>
     <a href="https://github.com/derisk-ai/OpenDerisk">
@@ -93,7 +92,6 @@ Run the startup command:
 ```
 uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-deepseek.toml
 ```
-
 
 #### Visit Website
 
