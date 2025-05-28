@@ -8,6 +8,8 @@ encrypt_key = "your_secret_key"
 [service.web]
 host = "127.0.0.1"
 port = 7777
+enable_mcp_gateway="True"
+main_app_code = "ai_sre"
 
 [service.web.database]
 type = "sqlite"
