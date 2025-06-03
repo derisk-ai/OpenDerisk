@@ -24,8 +24,11 @@ OpenDeRisk AI 原生风险智能系统 —— 7*24H 应用系统AI数字运维�
     </a>
   </p>
 
-[**English**](README.md) | [**简体中文**](README.zh.md)
+[**English**](README.md) | [**简体中文**](README.zh.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
+
+
+[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
 ### 特性
 <p align="left">
