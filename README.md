@@ -24,8 +24,10 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
     </a>
   </p>
 
-[**English**](README.md) | [**简体中文**](README.zh.md)
+[**English**](README.md) | [**简体中文**](README.zh.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
+
+[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
 ### Features
 1. **DeepResearch RCA:** Quickly locate the root cause of issues through in-depth analysis of logs, traces, and code.
@@ -122,3 +124,4 @@ Join our networking group on Dingding and share your experience with other devel
 <div align="center" style="display: flex; gap: 20px;">
     <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="200" />
 </div>
+
