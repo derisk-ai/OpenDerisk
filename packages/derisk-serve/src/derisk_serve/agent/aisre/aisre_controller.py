@@ -121,7 +121,7 @@ class AISREController(ABC):
             code_llm_config = LLMConfig(
                 llm_client=llm_provider,
                 llm_strategy=LLMStrategyType.Priority,
-                strategy_context=json.dumps(["deepseek-v3","deepseek-r1",  ]),
+                strategy_context=json.dumps(["deepseek-v3","deepseek-r1"]),
             )
             from derisk_ext.ai_sre.ipython_agent import IpythonAssistantAgent
             coder = (await IpythonAssistantAgent()
