@@ -97,12 +97,12 @@ class DeepseekLLMClient(OpenAILLMClient):
         model = model or _DEFAULT_MODEL
         if not context_length:
             if "deepseek-chat" in model:
-                context_length = 1024 * 32
+                context_length = 1024 * 64
             elif "deepseek-coder" in model:
-                context_length = 1024 * 16
+                context_length = 1024 * 32
             else:
-                # 8k
-                context_length = 1024 * 8
+                # 32k
+                context_length = 1024 * 32
 
         if not api_key:
             raise ValueError(
@@ -157,7 +157,7 @@ register_proxy_model_adapter(
         ModelMetadata(
             model="deepseek-chat",
             context_length=64 * 1024,
-            max_output_length=8 * 1024,
+            max_output_length=32 * 1024,
             description="DeepSeek-V3 by DeepSeek",
             link="https://api-docs.deepseek.com/news/news1226",
             function_calling=True,
@@ -165,7 +165,7 @@ register_proxy_model_adapter(
         ModelMetadata(
             model="deepseek-reasoner",
             context_length=64 * 1024,
-            max_output_length=8 * 1024,
+            max_output_length=32 * 1024,
             description="DeepSeek-R1 by DeepSeek",
             link="https://api-docs.deepseek.com/news/news250120",
             function_calling=True,

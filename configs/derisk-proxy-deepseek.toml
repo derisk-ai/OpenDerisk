@@ -27,13 +27,13 @@ persist_path = "pilot/data"
 [[models.llms]]
 name = "deepseek-r1"
 provider = "proxy/deepseek"
-api_key = "${env::DEEPSEEK_API_KEY}"
+api_key = "${env:DEEPSEEK_API_KEY}"
 backend = "deepseek-reasoner"
 
 [[models.llms]]
 name = "deepseek-v3"
 provider = "proxy/deepseek"
-api_key = "${env::DEEPSEEK_API_KEY}"
+api_key = "${env:DEEPSEEK_API_KEY}"
 backend = "deepseek-chat"
 
 [[models.embeddings]]
