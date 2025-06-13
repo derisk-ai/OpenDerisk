@@ -28,8 +28,6 @@ OpenDeRisk AI 原生风险智能系统 —— 7*24H 应用系统AI数字运维�
 </div>
 
 
-[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
-
 ### 特性
 <p align="left">
   <img src="./assets/feature_zh.png" width="100%" />
@@ -115,6 +113,9 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
 - [OpenRCA](https://github.com/microsoft/OpenRCA)
 
 OpenDeRisk-AI 社区致力于构建 AI 原生的风险智能系统。🛡️ 我们希望我们的社区能够为您提供更好的服务，同时也希望您能加入我们，共同创造更美好的未来。🤝
+
+
+[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
 ### 社区 
 

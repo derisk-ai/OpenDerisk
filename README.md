@@ -27,8 +27,6 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
 [**English**](README.md) | [**简体中文**](README.zh.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
-[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
-
 ### Features
 1. **DeepResearch RCA:** Quickly locate the root cause of issues through in-depth analysis of logs, traces, and code.
 2. **Visualized Evidence Chain:** Fully visualize the diagnostic process and evidence chain, making the diagnosis clear and enabling quick judgment of accuracy.
@@ -74,8 +72,7 @@ uv sync --all-packages --frozen \
 --extra "proxy_openai" \
 --extra "rag" \
 --extra "storage_chromadb" \
---extra "client" \
---index-url=https://pypi.tuna.tsinghua.edu.cn/simple
+--extra "client"
 ```
 
 #### Start
@@ -116,6 +113,9 @@ As shown in the figure below, this demonstrates a scenario where multiple agents
 - [OpenRCA](https://github.com/microsoft/OpenRCA)
 
 The OpenDeRisk-AI community is dedicated to building AI-native risk intelligence systems. 🛡️ We hope our community can provide you with better services, and we also hope that you can join us to create a better future together. 🤝
+
+
+[![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
 ### Community Group
 
