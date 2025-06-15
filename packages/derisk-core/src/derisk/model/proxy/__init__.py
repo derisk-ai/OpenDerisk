@@ -16,11 +16,7 @@ if TYPE_CHECKING:
     from derisk.model.proxy.llms.wenxin import WenxinLLMClient
     from derisk.model.proxy.llms.yi import YiLLMClient
     from derisk.model.proxy.llms.zhipu import ZhipuLLMClient
-    from derisk.model.proxy.llms.antengine import AntEngineLLMClient
     from derisk.model.proxy.llms.volcengine import VolcengineLLMClient
-    from derisk.model.proxy.llms.aistudio import AIStudioProxyLLMClient
-    from derisk.model.proxy.llms.modelops import ModelOpsLLMClient
-
 
 def __lazy_import(name):
     module_path = {
@@ -37,10 +33,7 @@ def __lazy_import(name):
         "OllamaLLMClient": "derisk.model.proxy.llms.ollama",
         "DeepseekLLMClient": "derisk.model.proxy.llms.deepseek",
         "GiteeLLMClient": "derisk.model.proxy.llms.gitee",
-        "AntEngineLLMClient": "derisk.model.proxy.llms.antengine",
         "VolcengineLLMClient": "derisk.model.proxy.llms.volcengine",
-        "AIStudioProxyLLMClient": "derisk.model.proxy.llms.aistudio",
-        "ModelOpsLLMClient": "derisk.model.proxy.llms.modelops",
     }
 
     if name in module_path:
@@ -68,8 +61,5 @@ __all__ = [
     "OllamaLLMClient",
     "DeepseekLLMClient",
     "GiteeLLMClient",
-    "AntEngineLLMClient",
     "VolcengineLLMClient",
-    "AIStudioProxyLLMClient",
-    "ModelOpsLLMClient",
 ]

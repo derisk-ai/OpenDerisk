@@ -1421,6 +1421,8 @@ def _parse_config(config_file: str):
             config_handler=config_handler,
         )
         configs.append(llm_deploy_config)
+
+    
     if cfg.exists("models.embeddings") and (
         worker_type is None or worker_type == WorkerType.TEXT2VEC
     ):

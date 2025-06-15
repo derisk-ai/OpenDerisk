@@ -31,6 +31,8 @@ class ModelInstance:
     check_healthy: Optional[bool] = True
     healthy: Optional[bool] = False
     enabled: Optional[bool] = True
+    chat_model: Optional[bool] = False 
+    reasoning_model: Optional[bool] = False
     prompt_template: Optional[str] = None
     last_heartbeat: Optional[datetime] = None
     # Remove from the registry
