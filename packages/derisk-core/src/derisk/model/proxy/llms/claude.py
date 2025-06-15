@@ -89,11 +89,12 @@ class ClaudeLLMClient(ProxyLLMClient):
         model: Optional[str] = None,
         proxies: Optional["ProxiesTypes"] = None,
         timeout: Optional[int] = 240,
-        model_alias: Optional[str] = "claude-3-5-sonnet-20241022",
+        model_alias: Optional[str] = "claude-opus-4-20250514",
         context_length: Optional[int] = 8192,
         client: Optional["AsyncAnthropic"] = None,
         claude_kwargs: Optional[Dict[str, Any]] = None,
         proxy_tokenizer: Optional[ProxyTokenizer] = None,
+        reasoning_model: Optional[str] = None,
     ):
         try:
             import anthropic  # noqa: F401
@@ -103,17 +104,18 @@ class ClaudeLLMClient(ProxyLLMClient):
                 "Please install anthropic by command `pip install anthropic"
             ) from exc
         if not model:
-            model = "claude-3-5-sonnet-20241022"
+            model = "claude-opus-4-20250514"
         self._client = client
         self._model = model
         self._api_key = self._resolve_env_vars(api_key)
         api_base or os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-        self._api_base = self._resolve_env_vars(self._api_base)
+        self._api_base = self._resolve_env_vars(api_base)
         self._proxies = proxies
         self._timeout = timeout
         self._claude_kwargs = claude_kwargs or {}
         self._model_alias = model_alias
         self._proxy_tokenizer = proxy_tokenizer
+        self._reasoning_model = reasoning_model
 
         super().__init__(
             model_names=[model_alias],
@@ -161,7 +163,7 @@ class ClaudeLLMClient(ProxyLLMClient):
             self._client = AsyncAnthropic(
                 api_key=self._api_key,
                 base_url=self._api_base,
-                proxies=self._proxies,
+                # proxies=self._proxies,
                 timeout=self._timeout,
             )
         return self._client
@@ -177,7 +179,7 @@ class ClaudeLLMClient(ProxyLLMClient):
         """Default model name"""
         model = self._model
         if not model:
-            model = "claude-3-5-sonnet-20241022"
+            model = "claude-opus-4-20250514"
         return model
 
     def _build_request(
@@ -197,6 +199,15 @@ class ClaudeLLMClient(ProxyLLMClient):
             payload["stop"] = request.stop
         if request.top_p:
             payload["top_p"] = request.top_p
+
+        # claude 4 specific thinking configuration, when thinking is enabled, the temperature is only set to 1
+        #  https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#important-considerations-when-using-extended-thinking
+        if "claude" and "4" in model:
+            payload["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": 4 * 1024 ,
+            }
+            payload["temperature"] = 1.0
         return payload
 
     async def generate(
@@ -216,7 +227,7 @@ class ClaudeLLMClient(ProxyLLMClient):
             if system_messages:
                 payload["system"] = system_messages[0]
             if "max_tokens" not in payload:
-                max_tokens = 1024
+                max_tokens = 8 * 1024 
             else:
                 max_tokens = payload["max_tokens"]
                 del payload["max_tokens"]
@@ -237,6 +248,7 @@ class ClaudeLLMClient(ProxyLLMClient):
                 raise ValueError("Response content is empty")
             return ModelOutput(
                 text=response_content[0].text,
+                reason_content=response_content[0].thinking,
                 error_code=0,
                 finish_reason=finish_reason,
                 usage=usage,
@@ -264,26 +276,32 @@ class ClaudeLLMClient(ProxyLLMClient):
             if system_messages:
                 payload["system"] = system_messages[0]
             if "max_tokens" not in payload:
-                max_tokens = 1024
+                max_tokens = 8 * 1024 
             else:
                 max_tokens = payload["max_tokens"]
                 del payload["max_tokens"]
             if "stream" in payload:
                 del payload["stream"]
             full_text = ""
+            reasoning_content = ""
             async with self.client.messages.stream(
                 max_tokens=max_tokens,
                 messages=messages,
                 **payload,
             ) as stream:
-                async for text in stream.text_stream:
-                    full_text += text
-                    raw_usage = stream.current_message_snapshot.usage
-                    usage = {
-                        "prompt_tokens": raw_usage.input_tokens,
-                        "completion_tokens": raw_usage.output_tokens,
-                    }
-                    yield ModelOutput(text=full_text, error_code=0, usage=usage)
+                async for msg in stream:
+                    if hasattr(msg, "text") and msg.text: 
+                        full_text += msg.text
+                    if hasattr(msg, "thinking") and msg.thinking:
+                        reasoning_content += msg.thinking
+                    
+                    if hasattr(stream.current_message_snapshot, "usage")  and stream.current_message_snapshot.usage:
+                        raw_usage = stream.current_message_snapshot.usage
+                        usage = {
+                            "prompt_tokens": raw_usage.input_tokens,
+                            "completion_tokens": raw_usage.output_tokens,
+                        }
+                    yield ModelOutput(text=full_text, reasoning_content=reasoning_content, error_code=0, usage=usage)
         except Exception as e:
             yield ModelOutput(
                 text=f"**Claude Generate Stream Error, Please CheckErrorInfo.**: {e}",
@@ -294,6 +312,7 @@ class ClaudeLLMClient(ProxyLLMClient):
         model_metadata = ModelMetadata(
             model=self._model_alias,
             context_length=await self.get_context_length(),
+            reasoning_model=self._reasoning_model
         )
         return [model_metadata]
 
@@ -330,7 +349,7 @@ class ClaudeProxyTokenizer(ProxyTokenizer):
         from derisk.util.chat_util import run_async_tasks
 
         tasks = []
-        model_name = model_name or "claude-3-5-sonnet-20241022"
+        model_name = model_name or "claude-opus-4-20250514"
         for prompt in prompts:
             request = ModelRequest(
                 model=model_name, messages=[{"role": "user", "content": prompt}]
@@ -350,6 +369,7 @@ register_proxy_model_adapter(
     supported_models=[
         ModelMetadata(
             model=[
+                "claude-opus-4-20250514",
                 "claude-3-5-sonnet-20241022",
                 "claude-3-5-sonnet-latest",
                 "claude-3-5-haiku-20241022",
@@ -363,6 +383,7 @@ register_proxy_model_adapter(
         ),
         ModelMetadata(
             model=[
+                "claude-opus-4-20250514",
                 "claude-3-opus-20240229",
                 "claude-3-opus-latest",
                 "claude-3-sonnet-20240229",

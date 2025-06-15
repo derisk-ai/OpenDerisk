@@ -65,18 +65,6 @@ def new():
 
 
 @click.group()
-def app():
-    """Manage your apps(derisks)."""
-    pass
-
-
-@click.group()
-def repo():
-    """The repository to install the derisks from."""
-    pass
-
-
-@click.group()
 def run():
     """Run your derisks."""
     pass
@@ -105,11 +93,8 @@ def stop_all():
 
 cli.add_command(start)
 cli.add_command(stop)
-# cli.add_command(install)
 cli.add_command(db)
 cli.add_command(new)
-cli.add_command(app)
-cli.add_command(repo)
 cli.add_command(run)
 cli.add_command(net)
 cli.add_command(tool)
@@ -178,37 +163,6 @@ try:
     add_command_alias(serve, name="serve", parent_group=new)
 except ImportError as e:
     logging.warning(f"Integrating derisk serve command line tool failed: {e}")
-
-
-try:
-    from derisk.util.cli.flow_compat import tool_flow_cli_group
-    from derisk.util.derisks.cli import (
-        add_repo,
-        list_installed_apps,
-        list_repos,
-        new_derisks,
-        reinstall,
-        remove_repo,
-        update_repo,
-    )
-    from derisk.util.derisks.cli import install as app_install
-    from derisk.util.derisks.cli import list_all_apps as app_list_remote
-    from derisk.util.derisks.cli import uninstall as app_uninstall
-
-    add_command_alias(list_repos, name="list", parent_group=repo)
-    add_command_alias(add_repo, name="add", parent_group=repo)
-    add_command_alias(remove_repo, name="remove", parent_group=repo)
-    add_command_alias(update_repo, name="update", parent_group=repo)
-    add_command_alias(app_install, name="install", parent_group=app)
-    add_command_alias(app_uninstall, name="uninstall", parent_group=app)
-    add_command_alias(reinstall, name="reinstall", parent_group=app)
-    add_command_alias(app_list_remote, name="list-remote", parent_group=app)
-    add_command_alias(list_installed_apps, name="list", parent_group=app)
-    add_command_alias(new_derisks, name="app", parent_group=new)
-    add_command_alias(tool_flow_cli_group, name="flow", parent_group=tool)
-
-except ImportError as e:
-    logging.warning(f"Integrating derisk derisks command line tool failed: {e}")
 
 try:
     from derisk_client._cli import flow as run_flow

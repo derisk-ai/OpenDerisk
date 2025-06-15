@@ -73,7 +73,6 @@ class AISREController(ABC):
             root_tracer.start_span(
                 operation_name="agent_chat", parent_span_id=context.trace_id
             )
-            rm = get_resource_manager()
             # init llm provider
             ### init chat param
             worker_manager = CFG.SYSTEM_APP.get_component(
@@ -83,11 +82,13 @@ class AISREController(ABC):
                 worker_manager, auto_convert_message=True
             )
 
+            avaliable_reasoning_llms = llm_provider.avaliable_reasoning_llms()
+                         
             employees = []
             thinking_llm_config = LLMConfig(
                 llm_client=llm_provider,
                 llm_strategy=LLMStrategyType.Priority,
-                strategy_context=json.dumps(["deepseek-r1", "deepseek-v3"]),
+                strategy_context=json.dumps(avaliable_reasoning_llms),
             )
             ## 构建AISRE Agent
             from derisk_ext.ai_sre.sre_agent import SreManager
@@ -118,10 +119,12 @@ class AISREController(ABC):
                              )
             employees.append(diag_reporter)
             ## 构建Ipaython代码Agent
+
+            avaliable_llms = llm_provider.avaliable_llms()
             code_llm_config = LLMConfig(
                 llm_client=llm_provider,
                 llm_strategy=LLMStrategyType.Priority,
-                strategy_context=json.dumps(["deepseek-v3","deepseek-r1"]),
+                strategy_context=json.dumps(avaliable_llms),
             )
             from derisk_ext.ai_sre.ipython_agent import IpythonAssistantAgent
             coder = (await IpythonAssistantAgent()

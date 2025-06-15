@@ -804,6 +804,11 @@ class ModelMetadata(BaseParameters):
         default=True,
         metadata={"help": "Whether the model is a chat model"},
     )
+    reasoning_model: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether the model is a reasoning model"},
+    )
+
     function_calling: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether the model is a function calling model"},
