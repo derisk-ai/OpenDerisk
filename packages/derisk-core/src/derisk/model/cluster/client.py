@@ -113,8 +113,8 @@ class DefaultLLMClient(LLMClient):
 
         models = []
         for i in instances:
-            if i.model_params.get("reasoning_model"):
-                models.append(i.model_params["name"])
+            if i.model_params.__getattribute__("reasoning_model"):
+                models.append(i.model_params.__getattribute__("name"))
         return models 
 
     async def avaliable_llms(self) -> List[str]:
@@ -124,8 +124,8 @@ class DefaultLLMClient(LLMClient):
         )
         models = []
         for i in instances:
-            if not i.model_params.get("reasoning_model"):
-                models.append(i.model_params["name"])
+            if not i.model_params.__getattribute__("reasoning_model"):
+                models.append(i.model_params.__getattribute__("name"))
         return models  
         
     async def count_token(self, model: str, prompt: str) -> int:

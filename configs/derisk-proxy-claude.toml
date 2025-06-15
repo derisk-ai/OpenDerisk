@@ -1,0 +1,59 @@
+[system]
+# Load language from environment variable(It is set by the hook)
+language = "${env:DERISK_LANG:-zh}"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+# Server Configurations
+[service.web]
+host = "0.0.0.0"
+port = 7777
+enable_mcp_gateway="True"
+main_app_code = "ai_sre"
+
+[service.web.database]
+type = "sqlite"
+path = "pilot/meta_data/derisk.db"
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+# Model Configurations
+[models]
+[[models.llms]]
+name = "claude-4-reasoner"
+provider = "proxy/claude"
+api_base = "https://api.anthropic.com"
+api_key = "${env:ANTHROPIC_API_KEY}"
+backend = "claude-opus-4-20250514"
+reasoning_model = "True"
+
+[[models.llms]]
+name = "claude-opus-4-chat"
+provider = "proxy/claude"
+api_base = "https://api.openai-proxy.org/anthropic"
+api_key = "${env:ANTHROPIC_API_KEY}"
+backend = "claude-opus-4-20250514"
+
+[[models.llms]]
+name = "deepseek-r1"
+provider = "proxy/deepseek"
+api_key = "${env:DEEPSEEK_API_KEY}"
+backend = "deepseek-reasoner"
+reasoning_model = "True"
+
+[[models.llms]]
+name = "deepseek-v3"
+provider = "proxy/deepseek"
+api_key = "${env:DEEPSEEK_API_KEY}"
+backend = "deepseek-chat"
+
+[[models.embeddings]]
+name = "BAAI/bge-large-zh-v1.5"
+provider = "proxy/openai"
+api_url = "https://api.siliconflow.cn/v1/embeddings"
+api_key = "${env:SILICONFLOW_API_KEY}"

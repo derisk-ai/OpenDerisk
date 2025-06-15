@@ -82,7 +82,7 @@ class AISREController(ABC):
                 worker_manager, auto_convert_message=True
             )
 
-            avaliable_reasoning_llms = llm_provider.avaliable_reasoning_llms()
+            avaliable_reasoning_llms = await llm_provider.avaliable_reasoning_llms()
                          
             employees = []
             thinking_llm_config = LLMConfig(
@@ -120,7 +120,7 @@ class AISREController(ABC):
             employees.append(diag_reporter)
             ## 构建Ipaython代码Agent
 
-            avaliable_llms = llm_provider.avaliable_llms()
+            avaliable_llms = await llm_provider.avaliable_llms()
             code_llm_config = LLMConfig(
                 llm_client=llm_provider,
                 llm_strategy=LLMStrategyType.Priority,
