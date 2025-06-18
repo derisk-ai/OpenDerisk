@@ -162,11 +162,9 @@ thirdparty
 /web/node_modules
 /web/yarn.lock
 
-.idea
 # next.js
 /web/.next/
 /web/out/
-
 # production
 /web/build
 
@@ -188,5 +186,7 @@ thirdparty
 /examples/**/*.gv.pdf
 /i18n/locales/**/**/*_ai_translated.po
 /i18n/locales/**/**/*~
+
+# Custome configs
 configs/my
-/configs/local/
+configs/local

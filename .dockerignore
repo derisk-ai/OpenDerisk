@@ -12,6 +12,8 @@ venv/
 web/node_modules/
 web/.next/
 web/.env
+web/out
+web/build
 docs/node_modules/
 build/
 docs/build/

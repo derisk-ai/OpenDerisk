@@ -17,24 +17,27 @@ git clone https://github.com/<YOUR-GITHUB-USERNAME>/DERISK
 Please replace `<YOUR-GITHUB-USERNAME>` with your GitHub username.
 
 
-## Create A New Development Environment
+## Install UV
 
-1. Create a new virtual environment using the following command:
+1. Install uv
 ```
-# Make sure python >= 3.10
-conda create -n derisk_env python=3.10
-conda activate derisk_env
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 2. Change to the project directory using the following command:
 ```
-cd DERISK
+cd OpenDerisk
 ```
 
 3. Install the project from the local source using the following command:
 ```
 # it will take some minutes
-pip install -e ".[default]"
+uv sync --all-packages --frozen \
+--extra "base" \
+--extra "proxy_openai" \
+--extra "rag" \
+--extra "storage_chromadb" \
+--extra "client"
 ```
 
 4. Install development requirements
