@@ -25,10 +25,26 @@ persist_path = "pilot/data"
 # Model Configurations
 [models]
 [[models.llms]]
+name = "gemini-2.5-reasoner"
+provider = "proxy/gemini"
+api_base = "https://api.openai-proxy.org/google"
+api_key = "${env:GEMINI_API_KEY}"
+backend = "gemini-2.5-flash"
+reasoning_model = "True"
+
+[[models.llms]]
+name = "gemini-2.5-chat"
+provider = "proxy/claude"
+api_base = "https://api.openai-proxy.org/google"
+api_key = "${env:GEMINI_API_KEY}"
+backend = "gemini-2.5-flash"
+
+[[models.llms]]
 name = "deepseek-r1"
 provider = "proxy/deepseek"
 api_key = "${env:DEEPSEEK_API_KEY}"
 backend = "deepseek-reasoner"
+reasoning_model = "True"
 
 [[models.llms]]
 name = "deepseek-v3"
@@ -41,4 +57,3 @@ name = "BAAI/bge-large-zh-v1.5"
 provider = "proxy/openai"
 api_url = "https://api.siliconflow.cn/v1/embeddings"
 api_key = "${env:SILICONFLOW_API_KEY}"
-
