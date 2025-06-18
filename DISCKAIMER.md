@@ -1,6 +1,6 @@
 # User Agreement and Disclaimer
 
-1. If you do not agree with any content of this statement, please stop using this software immediately. Once you start using this software product and service, it means that you have agreed to all the contents of this statement
+1. If you do not agree with any content of this statement, please stop using this software immediately. Once you start using this software product and service, it means that you have agreed to all the contents of this statement.
 
 2. This disclaimer applies to all users of this software. This software reserves the right to modify and update this statement at any time, and notify users in the form of Github Readme, software updates, etc. Please review regularly and abide by the latest disclaimer.
 
@@ -15,6 +15,6 @@
 7. The project authors and contributors are not legally responsible for any direct or indirect losses caused by the use of this software.
 
 
-Please read and understand all the contents of this disclaimer carefully before using this software, thank you for your understanding and support.
+Please read and understand all the contents of this disclaimer carefully before using this software, thank you for your understanding and support. ✨✨✨
 
  
