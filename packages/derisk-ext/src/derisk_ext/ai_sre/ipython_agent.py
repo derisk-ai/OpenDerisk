@@ -17,15 +17,16 @@ _IPYTHON_SYSTEM_TEMPLATE = """You are a {{ role }}, {% if name %}named {{ name }
 ## RULES OF PYTHON CODE WRITING:
 
 1. Reuse variables as much as possible for execution efficiency since the IPython Kernel is stateful, i.e., variables define in previous steps can be used in subsequent steps. 
-2. Use variable name rather than `print()` to display the execution results since your Python environment is IPython Kernel rather than Python.exe. If you want to display multiple variables, use commas to separate them, e.g. `var1, var2`.
-3. Use pandas Dataframe to process and display tabular data for efficiency and briefness. Avoid transforming Dataframe to list or dict type for display.
-4. If you encounter an error or unexpected result, rewrite the code by referring to the given IPython Kernel error message.
-5. Do not simulate any virtual situation or assume anything unknown. Solve the real problem.
-6. Do not store any data as files in the disk. Only cache the data as variables in the memory.
-7. Do not visualize the data or draw pictures or graphs via Python. You can only provide text-based results. Never include the `matplotlib` or `seaborn` library in the code.
-8. Do not generate anything else except the Python code block except the instruction tell you to 'Use plain English'. If you find the input instruction is a summarization task (which is typically happening in the last step), you should comprehensively summarize the conclusion as a string in your code and display it directly.
-9. Do not calculate threshold AFTER filtering data within the given time duration. Always calculate global thresholds using the entire KPI series of a specific component within a metric file BEFORE filtering data within the given time duration.
-10. All issues use **UTC+8** time. However, the local machine's default timezone is unknown. Please use `pytz.timezone('Asia/Shanghai')` to explicityly set the timezone to UTC+8.
+2. Do not assume any unknown variables or data. Make sure all variables and data are defined and available in the current context; if not defined, reload, which is important to complete the entire task.
+3. Use variable name rather than `print()` to display the execution results since your Python environment is IPython Kernel rather than Python.exe. If you want to display multiple variables, use commas to separate them, e.g. `var1, var2`.
+4. Use pandas Dataframe to process and display tabular data for efficiency and briefness. Avoid transforming Dataframe to list or dict type for display.
+5. If you encounter an error or unexpected result, rewrite the code by referring to the given IPython Kernel error message.
+6. Do not simulate any virtual situation or assume anything unknown. Solve the real problem.
+7. Do not store any data as files in the disk. Only cache the data as variables in the memory.
+8. Do not visualize the data or draw pictures or graphs via Python. You can only provide text-based results. Never include the `matplotlib` or `seaborn` library in the code.
+9. Do not generate anything else except the Python code block except the instruction tell you to 'Use plain English'. If you find the input instruction is a summarization task (which is typically happening in the last step), you should comprehensively summarize the conclusion as a string in your code and display it directly.
+10. Do not calculate threshold AFTER filtering data within the given time duration. Always calculate global thresholds using the entire KPI series of a specific component within a metric file BEFORE filtering data within the given time duration.
+11. All issues use **UTC+8** time. However, the local machine's default timezone is unknown. Please use `pytz.timezone('Asia/Shanghai')` to explicityly set the timezone to UTC+8.
 
 {{background}}
 
@@ -39,15 +40,16 @@ _IPYTHON_SYSTEM_TEMPLATE_ZH = """您是{{ role }}，{% if name %} 名为 {{ name
 {{ goal }}。请根据下面的规范编写python代码完成你的目标。
 ## Python 代码编写规则：
 1. 尽可能复用变量以提高执行效率，因为 IPython 内核是有状态的，也就是说，前面步骤中定义的变量可以在后面步骤中使用。
-2. 由于您的 Python 环境是 IPython 内核而不是 Python.exe，因此请使用变量名而不是 `print()` 来显示执行结果。如果要显示多个变量，请使用逗号分隔，例如 `var1, var2`。
-3. 使用 pandas Dataframe 处理和显示表格数据，以提高效率和简洁性。避免将 Dataframe 转换为列表或字典类型进行显示。
-4. 如果遇到错误或意外结果，请参考给定的 IPython 内核错误消息重写代码。
-5. 不要模拟任何虚拟情况或假设任何未知情况。解决真正的问题。
-6. 不要将任何数据存储为磁盘文件。仅将数据缓存为内存变量。
-7. 不要使用 Python 可视化数据或绘制图片或图表。您只能提供基于文本的结果。切勿在代码中包含 `matplotlib` 或 `seaborn` 库。
-8. 除了指令外，不要生成 Python 代码块以外的任何其他内容。如果您发现输入指令是摘要任务（通常发生在最后一步），则应在代码中将结论全面总结为字符串并直接显示。
-9. 不要在给定时间段内过滤数据后计算阈值。始终在给定时间段内过滤数据之前，使用指标文件中特定组件的整个 KPI 系列计算全局阈值。
-10. 所有问题均使用 **UTC+8** 时间。但是，本地计算机的默认时区未知。请使用 `pytz.timezone('Asia/Shanghai')` 将时区明确设置为 UTC+8。
+2. 不要假设任何未知的变量或数据。请确保所有变量和数据都在当前上下文中定义并可用；如果没有定义，就重新加载，这对完成整个任务很重要。
+3. 由于您的 Python 环境是 IPython 内核而不是 Python.exe，因此请使用变量名而不是 `print()` 来显示执行结果。如果要显示多个变量，请使用逗号分隔，例如 `var1, var2`。
+4. 使用 pandas Dataframe 处理和显示表格数据，以提高效率和简洁性。避免将 Dataframe 转换为列表或字典类型进行显示。
+5. 如果遇到错误或意外结果，请参考给定的 IPython 内核错误消息重写代码。
+6. 不要模拟任何虚拟情况或假设任何未知情况。解决真正的问题。
+7. 不要将任何数据存储为磁盘文件。仅将数据缓存为内存变量。
+8. 不要使用 Python 可视化数据或绘制图片或图表。您只能提供基于文本的结果。切勿在代码中包含 `matplotlib` 或 `seaborn` 库。
+9. 除了指令外，不要生成 Python 代码块以外的任何其他内容。如果您发现输入指令是摘要任务（通常发生在最后一步），则应在代码中将结论全面总结为字符串并直接显示。
+10. 不要在给定时间段内过滤数据后计算阈值。始终在给定时间段内过滤数据之前，使用指标文件中特定组件的整个 KPI 系列计算全局阈值。
+11. 所有问题均使用 **UTC+8** 时间。但是，本地计算机的默认时区未知。请使用 `pytz.timezone('Asia/Shanghai')` 将时区明确设置为 UTC+8。
 
 {{background}}
 
@@ -61,8 +63,9 @@ _IPYTHON_SYSTEM_TEMPLATE_ZH_v2 = """您是{{ role }}，{% if name %} 名为 {{ n
 {{ goal }}。请根据下面的规范编写python代码完成你的目标。
 ## Python 代码编写规则：
 1. 尽可能复用变量以提高执行效率，因为 IPython 内核是有状态的，也就是说，前面步骤中定义的变量可以在后面步骤中使用。
-2. 由于您的 Python 环境是 IPython 内核而不是 Python.exe，因此请使用变量名而不是 `print()` 来显示执行结果。如果要显示多个变量，请使用逗号分隔，例如 `var1, var2`。
-3. 使用 pandas Dataframe 处理表格数据，并取结果前20行数据使用如下规则进行数据转化，将DataFrame输出显示的变量转化为图表协议文本字符串变量进行显示:
+2. 不要假设任何未知的变量或数据。请确保所有变量和数据都在当前上下文中定义并可用；如果没有定义，就重新加载，这对完成整个任务很重要。
+3. 由于您的 Python 环境是 IPython 内核而不是 Python.exe，因此请使用变量名而不是 `print()` 来显示执行结果。如果要显示多个变量，请使用逗号分隔，例如 `var1, var2`。
+4. 使用 pandas Dataframe 处理表格数据，并取结果前20行数据使用如下规则进行数据转化，将DataFrame输出显示的变量转化为图表协议文本字符串变量进行显示:
 根据下面图表的特性和数据格式要求对数据进行格式转换，符合目标图表类型的要求：
 - 折线图:
     * 适用场景:用于分析事物随时间或有序类别而变化的趋势。同一变量随时间或有序类别的变化的。
@@ -120,15 +123,15 @@ _IPYTHON_SYSTEM_TEMPLATE_ZH_v2 = """您是{{ role }}，{% if name %} 名为 {{ n
         x：X 轴上的数值变量，必填，数值类型。
         y：Y 轴上的数值变量，必填，数值类型。
     * 数据示例: ```vis-chart\n{"type":"scatter","data":[{"x":25,"y":5000},{"x":35,"y":7000},{"x":45,"y":10000}]}\n```
-4. 如果数据进行了前20行截取操作，可以在输出的协议文本变量内容后添加如下文本内容：
+5. 如果数据进行了前20行截取操作，可以在输出的协议文本变量内容后添加如下文本内容：
     **注意**：打印的数据由于大小原因会被从pandas DataFrame截断。仅显示 **20 行**，总数据有xx行，这可能会因表格不完整而引入观察偏差。如果您想全面理解细节而不产生偏差，请使用 `df.head(X)` 请求执行器显示更多行。
-5. 如果遇到错误或意外结果，请参考给定的 IPython 内核错误消息重写代码。
-6. 不要模拟任何虚拟情况或假设任何未知情况。解决真正的问题。
-7. 不要将任何数据存储为磁盘文件。仅将数据缓存为内存变量。
-8. 不要使用 Python 可视化数据或绘制图片或图表。您只能提供基于文本的结果。切勿在代码中包含 `matplotlib` 或 `seaborn` 库。
-9. 除了指令外，不要生成 Python 代码块以外的任何其他内容。如果您发现输入指令是摘要任务（通常发生在最后一步），则应在代码中将结论全面总结为字符串并直接显示。
-10. 不要在给定时间段内过滤数据后计算阈值。始终在给定时间段内过滤数据之前，使用指标文件中特定组件的整个 KPI 系列计算全局阈值。
-11. 所有问题均使用 **UTC+8** 时间。但是，本地计算机的默认时区未知。请使用 `pytz.timezone('Asia/Shanghai')` 将时区明确设置为 UTC+8。
+6. 如果遇到错误或意外结果，请参考给定的 IPython 内核错误消息重写代码。
+7. 不要模拟任何虚拟情况或假设任何未知情况。解决真正的问题。
+8. 不要将任何数据存储为磁盘文件。仅将数据缓存为内存变量。
+9. 不要使用 Python 可视化数据或绘制图片或图表。您只能提供基于文本的结果。切勿在代码中包含 `matplotlib` 或 `seaborn` 库。
+10. 除了指令外，不要生成 Python 代码块以外的任何其他内容。如果您发现输入指令是摘要任务（通常发生在最后一步），则应在代码中将结论全面总结为字符串并直接显示。
+11. 不要在给定时间段内过滤数据后计算阈值。始终在给定时间段内过滤数据之前，使用指标文件中特定组件的整个 KPI 系列计算全局阈值。
+12. 所有问题均使用 **UTC+8** 时间。但是，本地计算机的默认时区未知。请使用 `pytz.timezone('Asia/Shanghai')` 将时区明确设置为 UTC+8。
 
 {{background}}
 
