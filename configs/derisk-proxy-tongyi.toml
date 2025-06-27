@@ -25,21 +25,23 @@ persist_path = "pilot/data"
 # Model Configurations
 [models]
 [[models.llms]]
-name = "deepseek-r1"
-provider = "proxy/deepseek"
-api_key = "${env:DEEPSEEK_API_KEY}"
-backend = "deepseek-reasoner"
+name = "qwq-plus"
+provider = "proxy/tongyi"
+api_key = "${env:TONGYI_API_KEY}"
+backend = "qwq-plus"
 reasoning_model = "True"
 
+
 [[models.llms]]
-name = "deepseek-v3"
-provider = "proxy/deepseek"
-api_key = "${env:DEEPSEEK_API_KEY}"
-backend = "deepseek-chat"
+name = "qwen-plus"
+provider = "proxy/tongyi"
+api_key = "${env:TONGYI_API_KEY}"
+backend = "qwen-plus"
 
 [[models.embeddings]]
 name = "BAAI/bge-large-zh-v1.5"
 provider = "proxy/openai"
 api_url = "https://api.siliconflow.cn/v1/embeddings"
 api_key = "${env:SILICONFLOW_API_KEY}"
+
 
