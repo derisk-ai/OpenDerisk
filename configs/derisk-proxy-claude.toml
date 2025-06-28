@@ -29,7 +29,7 @@ name = "claude-4-reasoner"
 provider = "proxy/claude"
 api_base = "https://api.anthropic.com"
 api_key = "${env:ANTHROPIC_API_KEY}"
-backend = "claude-opus-4-20250514"
+backend = "claude-opus-4-reasoner"
 reasoning_model = "True"
 
 [[models.llms]]
@@ -37,7 +37,7 @@ name = "claude-opus-4-chat"
 provider = "proxy/claude"
 api_base = "https://api.openai-proxy.org/anthropic"
 api_key = "${env:ANTHROPIC_API_KEY}"
-backend = "claude-opus-4-20250514"
+backend = "claude-opus-4-chat"
 
 [[models.llms]]
 name = "deepseek-r1"
