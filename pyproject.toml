@@ -1,5 +1,5 @@
 [project]
-name = "derisk-mono"
+name = "OpenDerisk"
 version = "0.1.0"
 description = """OPENDERISK is  AI-Native Risk Intelligence Systems, \
 OpenDeRisk——Your application system risk intelligent manager \
