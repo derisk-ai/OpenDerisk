@@ -107,21 +107,21 @@ As shown in the figure below, this demonstrates a scenario where multiple agents
 </p>
 
 ### RoadMap
-[x] 0530 V0.1 Version: Based on domain knowledge and MCP services, achieving anomaly awareness -> autonomous decision-making -> adaptive execution and issue resolution.
+- [x] 0530 V0.1 Version: Based on domain knowledge and MCP services, achieving anomaly awareness -> autonomous decision-making -> adaptive execution and issue resolution.
   - [ ] Domain knowledge engine for technical risks
   - [x] Reasoning engine driven by large models for anomaly awareness -> decision-making -> execution
   - [x] Automated troubleshooting and fixes
 
-[ ] 0730 V0.2 Version
+- [ ] 0730 V0.2 Version
   - [ ] MCP services and management for technical risks
   - [ ] Support for custom binding of knowledge and MCP tools
   - [ ] Support for 3+ DevOps domain MCP services
 
-[ ] 0930 V0.3 Version
+- [ ] 0930 V0.3 Version
   - [ ] Support for integration with production environments
   - [ ] Provide a complete production environment deployment solution, supporting production issue diagnosis.
 
-[ ] 1230 V0.4 Version
+- [ ] 1230 V0.4 Version
   - [ ] End-to-end AIOps online Agentic RL
   - [ ] End-to-end evaluation capabilities
 
