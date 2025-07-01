@@ -18,8 +18,8 @@ members = [
     "derisk-app",
     "derisk-client",
     "derisk-ext",
-    "derisk-mono",
     "derisk-serve",
+    "openderisk",
 ]
 
 [[package]]
@@ -1488,49 +1488,6 @@ provides-extras = ["rag", "graph-rag", "datasource-mysql", "storage-milvus", "st
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.3.4" }]
-
-[[package]]
-name = "derisk-mono"
-version = "0.1.0"
-source = { virtual = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "asynctest" },
-    { name = "jupyter" },
-    { name = "mypy" },
-    { name = "pip" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-integration" },
-    { name = "pytest-mock" },
-    { name = "pytest-recording" },
-    { name = "ruff" },
-    { name = "tomli" },
-    { name = "tomli-w" },
-    { name = "twine" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "asynctest", specifier = ">=0.13.0" },
-    { name = "jupyter" },
-    { name = "mypy", specifier = ">=1.15.0" },
-    { name = "pip" },
-    { name = "pytest", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-integration", specifier = ">=0.2.3" },
-    { name = "pytest-mock", specifier = ">=3.14.0" },
-    { name = "pytest-recording", specifier = ">=0.13.2" },
-    { name = "ruff", specifier = ">=0.9.1" },
-    { name = "tomli", specifier = ">=2.0.2" },
-    { name = "tomli-w", specifier = ">=1.1.0" },
-    { name = "twine" },
-]
 
 [[package]]
 name = "derisk-serve"
@@ -4188,6 +4145,49 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/99/b1/318f5d4c482f19c5fcbcde190801bfaaaec23413cda0b88a29f6897448ff/openai-1.75.0.tar.gz", hash = "sha256:fb3ea907efbdb1bcfd0c44507ad9c961afd7dce3147292b54505ecfd17be8fd1", size = 429492, upload_time = "2025-04-16T16:49:29.25Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/9a/f34f163294345f123673ed03e77c33dee2534f3ac1f9d18120384457304d/openai-1.75.0-py3-none-any.whl", hash = "sha256:fe6f932d2ded3b429ff67cc9ad118c71327db32eb9d32dd723de3acfca337125", size = 646972, upload_time = "2025-04-16T16:49:27.196Z" },
+]
+
+[[package]]
+name = "openderisk"
+version = "0.1.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "asynctest" },
+    { name = "jupyter" },
+    { name = "mypy" },
+    { name = "pip" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-integration" },
+    { name = "pytest-mock" },
+    { name = "pytest-recording" },
+    { name = "ruff" },
+    { name = "tomli" },
+    { name = "tomli-w" },
+    { name = "twine" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "asynctest", specifier = ">=0.13.0" },
+    { name = "jupyter" },
+    { name = "mypy", specifier = ">=1.15.0" },
+    { name = "pip" },
+    { name = "pytest", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-integration", specifier = ">=0.2.3" },
+    { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "pytest-recording", specifier = ">=0.13.2" },
+    { name = "ruff", specifier = ">=0.9.1" },
+    { name = "tomli", specifier = ">=2.0.2" },
+    { name = "tomli-w", specifier = ">=1.1.0" },
+    { name = "twine" },
 ]
 
 [[package]]
