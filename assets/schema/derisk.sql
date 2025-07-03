@@ -78,6 +78,33 @@ CREATE TABLE IF NOT EXISTS `document_chunk`
   KEY `idx_chunk_id` (`chunk_id`) BLOCK_SIZE 16384 GLOBAL COMMENT 'index:chunk_id'
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COMMENT='knowledge document chunk detail';
 
+CREATE TABLE `knowledge_task` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `gmt_create` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modified` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  `task_id` varchar(255) DEFAULT NULL COMMENT '任务id',
+  `knowledge_id` varchar(255) DEFAULT NULL COMMENT '知识库id',
+  `doc_type` varchar(255) DEFAULT NULL COMMENT '文档类型',
+  `doc_content` text DEFAULT NULL COMMENT '文档的内容',
+  `yuque_token` varchar(255) DEFAULT NULL COMMENT '语雀token',
+  `group_login` varchar(255) DEFAULT NULL COMMENT '语雀group',
+  `book_slug` varchar(255) DEFAULT NULL COMMENT '语雀book',
+  `yuque_doc_id` varchar(255) DEFAULT NULL COMMENT '语雀文档id',
+  `chunk_parameters` varchar(2048) DEFAULT NULL COMMENT '切分参数',
+  `status` varchar(255) DEFAULT NULL COMMENT '状态',
+  `owner` varchar(255) DEFAULT NULL COMMENT '任务发起者',
+  `batch_id` varchar(255) DEFAULT NULL COMMENT '批次任务id',
+  `doc_id` varchar(255) DEFAULT NULL COMMENT '文档表id',
+  `retry_times` int(11) DEFAULT NULL COMMENT '重试次数',
+  `error_msg` text DEFAULT NULL COMMENT '失败信息',
+  `start_time` varchar(255) DEFAULT NULL COMMENT '任务开始时间',
+  `end_time` varchar(255) DEFAULT NULL COMMENT '任务结束时间',
+  `host` varchar(255) DEFAULT NULL COMMENT '任务执行机器',
+  PRIMARY KEY (`id`),
+  KEY `idx_task_id` (`task_id`) BLOCK_SIZE 16384 GLOBAL,
+  KEY `idx_knowledge_id` (`knowledge_id`) BLOCK_SIZE 16384 GLOBAL,
+  KEY `idx_status` (`status`) BLOCK_SIZE 16384 GLOBAL
+) AUTO_INCREMENT = 1100001 DEFAULT CHARSET = utf8mb4  COMMENT = '知识任务表'
 
 CREATE TABLE IF NOT EXISTS `connect_config`
 (
@@ -123,12 +150,12 @@ CREATE TABLE IF NOT EXISTS `chat_history_message`
 (
     `id`             bigint(20)             NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
     `conv_uid`       varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Conversation record unique id',
-    `index`          int                                     NOT NULL COMMENT 'Message index',
+    `index_num`          int                                     NOT NULL COMMENT 'Message index',
     `round_index`    int                                     NOT NULL COMMENT 'Round of conversation',
     `message_detail` longtext COLLATE utf8mb4_unicode_ci COMMENT 'Message details, json format',
     `gmt_create`  timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `gmt_modified` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
-    UNIQUE KEY `message_uid_index` (`conv_uid`, `index`),
+    UNIQUE KEY `message_uid_index` (`conv_uid`, `index_num`),
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT 'Chat history message';
 
@@ -218,15 +245,14 @@ CREATE TABLE IF NOT EXISTS `prompt_manage`
     `gmt_modified`   timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
     PRIMARY KEY (`id`),
     UNIQUE KEY `prompt_name_uiq` (`prompt_name`, `sys_code`, `prompt_language`, `model`),
-    KEY              `gmt_created_idx` (`gmt_created`)
+    KEY              `gmt_create_idx` (`gmt_create`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Prompt management table';
 
-
-
- CREATE TABLE IF NOT EXISTS `gpts_conversations` (
+CREATE TABLE IF NOT EXISTS `gpts_conversations` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_id` varchar(255) NOT NULL COMMENT 'The unique id of the conversation record',
   `user_goal` text NOT NULL COMMENT 'User''s goals content',
+  `conv_session_id` VARCHAR(255) DEFAULT NULL COMMENT 'Conversation session id',
   `gpts_name` varchar(255) NOT NULL COMMENT 'The gpts name',
   `state` varchar(255) DEFAULT NULL COMMENT 'The gpts state',
   `max_auto_reply_round` int(11) NOT NULL COMMENT 'max auto reply round',
@@ -236,7 +262,6 @@ CREATE TABLE IF NOT EXISTS `prompt_manage`
   `gmt_create`    timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `gmt_modified`   timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
   `team_mode` varchar(255) NULL COMMENT 'agent team work mode',
-
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_gpts_conversations` (`conv_id`),
   KEY `idx_gpts_name` (`gpts_name`)
@@ -265,20 +290,30 @@ CREATE TABLE IF NOT EXISTS `gpts_instance` (
 CREATE TABLE `gpts_messages` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_id` varchar(255) NOT NULL COMMENT 'The unique id of the conversation record',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'Conversation session id',
+  `message_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the message in the conversation', 
   `sender` varchar(255) NOT NULL COMMENT 'Who speaking in the current conversation turn',
   `receiver` varchar(255) NOT NULL COMMENT 'Who receive message in the current conversation turn',
+  `sender_name` VARCHAR(255) NOT NULL COMMENT 'The name of the sender in the current conversation turn',
+  `receiver_name` VARCHAR(255) NOT NULL COMMENT 'The name of the receiver in the current conversation turn',
   `model_name` varchar(255) DEFAULT NULL COMMENT 'message generate model',
   `rounds` int(11) NOT NULL COMMENT 'dialogue turns',
   `is_success` int(4)  NULL DEFAULT 0 COMMENT 'agent message is success',
   `app_code` varchar(255) NOT NULL COMMENT 'Current AI assistant code',
   `app_name` varchar(255) NOT NULL COMMENT 'Current AI assistant name',
+  `thinking` TEXT DEFAULT NULL COMMENT 'Thinking content of the speech',
   `content` longtext COMMENT 'Content of the speech',
+  `system_prompt` TEXT NULL COMMENT 'System prompt of the speech',
+  `user_prompt` TEXT NULL COMMENT 'User prompt of the speech',
+  `show_message` BOOLEAN DEFAULT 1 COMMENT 'Whether to display the message in the conversation',
+  `goal_id` VARCHAR(255) DEFAULT NULL COMMENT 'The unique id of the goal in the conversation',
   `current_goal` text COMMENT 'The target corresponding to the current message',
   `context` text COMMENT 'Current conversation context',
   `review_info` longtext COMMENT 'Current conversation review info',
   `action_report` longtext COMMENT 'Current conversation action report',
   `resource_info` longtext DEFAULT NULL  COMMENT 'Current conversation resource info',
   `role` varchar(255) DEFAULT NULL COMMENT 'The role of the current message content',
+  `avatar` VARCHAR(1024) DEFAULT NULL COMMENT 'Avatar URL of the sender',
   `gmt_create`    timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `gmt_modified`   timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
   PRIMARY KEY (`id`),
@@ -305,7 +340,7 @@ CREATE TABLE `gpts_plans` (
   `gmt_create`    timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
   `gmt_modified`   timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_sub_task` (`conv_id`,`sub_task_num`)
+  UNIQUE KEY `uk_sub_task` (`conv_id`,`sub_task_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COMMENT="gpt plan";
 
 -- derisk.derisk_serve_flow definition
@@ -379,7 +414,7 @@ CREATE TABLE `derisk_serve_variables` (
   `gmt_create` timestamp DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Record update time',
   PRIMARY KEY (`id`),
-  KEY `ix_your_table_name_key` (`key`),
+  KEY `ix_your_table_name_key` (`key_info`),
   KEY `ix_your_table_name_name` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
