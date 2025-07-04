@@ -2,7 +2,7 @@ import uuid
 import json
 import requests 
 
-from ..resource.evaluate_resource import get_eval_datasets
+from derisk_ext.ai_sre.resource.evaluate_resource import get_eval_datasets
 
 def call_chat_completions(query):
     url = "http://127.0.0.1:7777/api/v1/chat/completions"  
@@ -10,7 +10,6 @@ def call_chat_completions(query):
         "Content-Type": "application/json",
         "Authorization": "Bearer your_secret_key",  
     }
-        
     # 构造请求体
     payload = {
         "chat_mode": "chat_agent",  # 替换为实际的 chat_mode
