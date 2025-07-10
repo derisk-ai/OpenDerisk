@@ -40,10 +40,6 @@ def initialize_components(
     system_app.register(ConnectorManager)
     system_app.register(StorageManager)
 
-    from derisk_serve.agent.hub.controller import module_plugin
-
-    system_app.register_instance(module_plugin)
-
     from derisk_serve.agent.agents.controller import multi_agents
 
     system_app.register_instance(multi_agents)
@@ -114,14 +110,12 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk_serve.agent.resource.datasource import DatasourceResource
     from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
     from derisk_serve.agent.resource.mcp import MCPSSEToolPack
-    from derisk_serve.agent.resource.plugin import PluginToolPack
     from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
 
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
     rm.register_resource(DatasourceResource)
     rm.register_resource(KnowledgeSpaceRetrieverResource)
-    rm.register_resource(PluginToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(GptAppResource)
     rm.register_resource(resource_instance=Terminate())
     # Register a search tool
