@@ -87,7 +87,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         # TODO: implement your own logic here
         # Build the query request from the request
         query_request = {
-            "id": request.id
+            "name": request.name
         }
         self.dao.delete(query_request)
 
@@ -142,9 +142,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
     async def connect_mcp(self, mcp_name: str, headers: Optional[dict]):
         logger.info(f"connect_mcp:{mcp_name},{headers}")
-        mcp_resp = self.get(ServeRequest(mcp_name=mcp_name))
+        mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
+        
+        from derisk.agent.resource.tool.mcp.mcp_utils import connect_mcp
+        return await connect_mcp(mcp_name, mcp_resp.sse_url, headers)
 
     async def list_tools(self, mcp_name: str, mcp_sse_url: Optional[str], headers: Optional[dict[str, Any]] = None) -> \
     Optional[List[McpTool]]:
@@ -171,7 +174,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         arguments: dict[str, Any] | None = None,
                         headers: Optional[dict] = None):
         logger.info(f"call mcp tool:{mcp_name},{mcp_sse_url}")
-        mcp_resp = self.get(ServeRequest(mcp_name=mcp_name))
+        mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
 

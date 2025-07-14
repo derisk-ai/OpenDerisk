@@ -241,7 +241,7 @@ class ModelScanner(Generic[T]):
             # First try to import as a module
             module = importlib.import_module(config.module_path)
 
-            if hasattr(module, "__file__"):
+            if hasattr(module, "__file__") and module.__file__ is not None:
                 # If it's a regular module/package, scan its directory
                 base_path = os.path.dirname(module.__file__)
                 scanned_items = self._scan_directory(base_path, config)

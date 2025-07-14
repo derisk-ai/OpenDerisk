@@ -138,10 +138,10 @@ async def update(
 @router.delete(
     "/", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
 )
-async def update(
+async def delete(
         request: ServeRequest, service: Service = Depends(get_service)
 ) -> Result[ServerResponse]:
-    """Update a Mcp entity
+    """Delete a Mcp entity
 
     Args:
         request (ServeRequest): The request
@@ -150,7 +150,6 @@ async def update(
         ServerResponse: The response
     """
     return Result.succ(service.delete(request))
-
 
 
 @router.post(
@@ -178,40 +177,61 @@ async def offline(
 
 
 @router.post(
-    "/connect", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
+    "/connect",
+    response_model=Result[bool],
+    dependencies=[Depends(check_api_key)],
 )
 async def connect(
-        request: McpRunRequest, service: Service = Depends(get_service)
-) -> Result[ServerResponse]:
+    request: McpRunRequest, service: Service = Depends(get_service)
+) -> Result[bool]:
     try:
-        return Result.succ(None)
+        return Result.succ(
+            await service.connect_mcp(request.name, request.sse_headers)
+        )
     except Exception as e:
         return Result.failed(str(e))
 
 
 @router.post(
-    "/tool/list", response_model=Result[List[McpTool]], dependencies=[Depends(check_api_key)]
+    "/tool/list",
+    response_model=Result[List[McpTool]],
+    dependencies=[Depends(check_api_key)],
 )
 async def tool_list(
-        request: McpRunRequest, service: Service = Depends(get_service)
+    request: McpRunRequest, service: Service = Depends(get_service)
 ) -> Result[List[McpTool]]:
     try:
         return Result.succ(
-            await service.list_tools(request.name, request.sse_url, request.sse_headers))
+            await service.list_tools(request.name, request.sse_url, request.sse_headers)
+        )
     except Exception as e:
         logger.exception("mcp list tool exception!")
         return Result.failed(str(e))
 
 
 @router.post(
-    "/tool/run", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
+    "/tool/run",
+    response_model=Result[Any],
+    dependencies=[Depends(check_api_key)],
 )
 async def run(
-        request: McpRunRequest, service: Service = Depends(get_service)
+    request: McpRunRequest, service: Service = Depends(get_service)
 ) -> Result[Any]:
     try:
+        mcp_name = request.name
+        tool_name = request.params.get("name")
+        arguments = request.params.get("arguments")
+        if not tool_name:
+            raise ValueError("Tool name is required in params")
         return Result.succ(
-            await service.call_tool(request.name, request.method, request.sse_url, request.params, request.sse_headers))
+            await service.call_tool(
+                mcp_name,
+                tool_name,
+                request.sse_url,
+                arguments,
+                request.sse_headers,
+            )
+        )
     except Exception as e:
         logger.exception("mcp tool run exception!")
         return Result.failed(str(e))
@@ -223,13 +243,12 @@ async def run(
     dependencies=[Depends(check_api_key)],
 )
 async def fuzzy_query(
-        query_filter: QueryFilter,
-        page: Optional[int] = Query(default=1, description="current page"),
-        page_size: Optional[int] = Query(default=20, description="page size"),
-        service: Service = Depends(get_service),
+    query_filter: QueryFilter,
+    page: Optional[int] = Query(default=1, description="current page"),
+    page_size: Optional[int] = Query(default=20, description="page size"),
+    service: Service = Depends(get_service),
 ) -> Result[PaginationResult[ServerResponse]]:
     try:
-
         return Result.succ(service.filter_list_page(query_filter, page, page_size))
     except Exception as e:
         logger.exception("fuzzy query exception!")
@@ -242,7 +261,7 @@ async def fuzzy_query(
     dependencies=[Depends(check_api_key)],
 )
 async def query(
-        request: ServeRequest, service: Service = Depends(get_service)
+    request: ServeRequest, service: Service = Depends(get_service)
 ) -> Result[ServerResponse]:
     """Query Mcp entities
 
@@ -261,10 +280,10 @@ async def query(
     dependencies=[Depends(check_api_key)],
 )
 async def query_page(
-        request: ServeRequest,
-        page: Optional[int] = Query(default=1, description="current page"),
-        page_size: Optional[int] = Query(default=20, description="page size"),
-        service: Service = Depends(get_service),
+    request: ServeRequest,
+    page: Optional[int] = Query(default=1, description="current page"),
+    page_size: Optional[int] = Query(default=20, description="page size"),
+    service: Service = Depends(get_service),
 ) -> Result[PaginationResult[ServerResponse]]:
     """Query Mcp entities
 
