@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Optional, Any
 
@@ -57,9 +58,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             ServerResponse: The response
         """
         # TODO: implement your own logic here
+        if request.sse_headers is not None:
+            request.sse_headers = json.dumps(request.sse_headers)
         # Build the query request from the request
         query_request = {
-            # "id": request.id
+            "id": request.id
         }
         return self.dao.update(query_request, update_request=request)
 
