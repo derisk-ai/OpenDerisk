@@ -1,8 +1,6 @@
-import json
 import logging
 from functools import cache
 from typing import List, Optional, Any
-import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
@@ -10,11 +8,9 @@ from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 from derisk.component import SystemApp
 from derisk.util import PaginationResult
 from derisk_serve.core import Result
-from derisk_ext.mcp.client import GatewayClient
-
+from .schemas import ServeRequest, ServerResponse, McpRunRequest, McpTool, QueryFilter
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..service.service import Service
-from .schemas import ServeRequest, ServerResponse, McpRunRequest, McpTool, QueryFilter
 
 router = APIRouter()
 
@@ -87,10 +83,17 @@ async def check_api_key(
         return None
 
 
-@router.get("/health")
-async def health():
+@router.post("/health")
+async def health(
+    request: ServeRequest, service: Service = Depends(get_service)
+) -> Result[bool]:
     """Health check endpoint"""
-    return {"status": "ok"}
+    try:
+        await service.connect_mcp(request.name, request.sse_headers)
+        return Result.succ(True)
+    except Exception as e:
+        logger.exception("health check exception!")
+        return Result.failed(str(e))
 
 
 @router.get("/test_auth", dependencies=[Depends(check_api_key)])
@@ -100,7 +103,7 @@ async def test_auth():
 
 
 @router.post(
-    "/", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
+    "/create", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
 )
 async def create(
         request: ServeRequest, service: Service = Depends(get_service)
@@ -113,6 +116,9 @@ async def create(
     Returns:
         ServerResponse: The response
     """
+    if not request.mcp_code:
+        import uuid
+        request.mcp_code = str(uuid.uuid4())
     logger.info(f"mcp add:{request}")
     try:
         return Result.succ(service.create(request))
@@ -121,7 +127,7 @@ async def create(
         return Result.failed(str(e))
 
 
-@router.put(
+@router.post(
     "/update", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
 )
 async def update(
@@ -135,15 +141,17 @@ async def update(
     Returns:
         ServerResponse: The response
     """
+    if request.mcp_code is None:
+        return Result.failed("mcp_code is null")
     return Result.succ(service.update(request))
 
 
-@router.delete(
+@router.post(
     "/delete", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
 )
 async def delete(
         request: ServeRequest, service: Service = Depends(get_service)
-) -> Result[ServerResponse]:
+) -> Result[bool]:
     """Delete a Mcp entity
 
     Args:
@@ -152,107 +160,47 @@ async def delete(
     Returns:
         ServerResponse: The response
     """
-    return Result.succ(service.delete(request))
+    try:
+        deleted_entity = service.get(request)
+        if not deleted_entity:
+            return Result.failed(f"MCP '{request.name}' not found")
+
+        service.delete(request)
+        return Result.succ(True)
+    except Exception as e:
+        logger.exception(f"Failed to delete MCP '{request.name}': {e}")
+        return Result.failed(str(e))
 
 
 @router.post(
     "/start", response_model=Result[bool], dependencies=[Depends(check_api_key)]
 )
 async def start(request: ServeRequest, service: Service = Depends(get_service)) -> Result[bool]:
-    """Start MCP service with full lifecycle management"""
+    """Start MCP service
+        对于local server，这里应该调用cmd启动server
+    """
     try:
         # 1. Check if service already exists and is online
         mcp = service.get(request)
         if mcp and mcp.available:
-            return Result.succ(True, message=f"MCP '{request.name}' is already online")
+            return Result.succ(True)
+            # 2. Try to connect to MCP
+        is_connected = await service.connect_mcp(request.name, request.sse_headers)
+        if not is_connected:
+            return Result.failed(f"Failed to connect to MCP '{request.name}'")
 
-        # 2. Initialize GatewayClient with the correct MCP Gateway URL
-        # Replace "ws://gateway-host:port/register" with the actual Gateway URL
-        gateway_url = "ws://gateway-host:port/register"  # TODO: Replace with actual Gateway URL
-        client = GatewayClient(
-            gateway_url=gateway_url,  # Use Gateway URL, not request.sse_url
-            server_name=request.name,
-            headers=request.sse_headers
+        # 3. Update MCP status to available
+        update_data = ServeRequest(
+            mcp_code=mcp.mcp_code,
+            available=True,
         )
+        service.update(update_data)
 
-        # 3. Connect and register with gateway
-        try:
-            # 3.1 Establish WebSocket connection
-            if not await client.connect_and_listen():
-                return Result.failed(f"Failed to connect to gateway: {gateway_url}")
-
-            # 3.2 Send registration (retry 3 times)
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    registration_result = await client.send({
-                        "jsonrpc": "2.0",
-                        "method": "register",
-                        "params": {
-                            "name": request.name,
-                            "version": "1.0.0",
-                            "capabilities": {}
-                        }
-                    })
-                    if registration_result and registration_result.get("status") == "registered":
-                        break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-                    await asyncio.sleep(1)
-            else:
-                return Result.failed("Registration attempts exhausted")
-
-            # 3.3 Initialize service
-            init_result = await client.send({
-                "jsonrpc": "2.0",
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "0.1.0",
-                    "clientInfo": {"name": "MCPGateway", "version": "1.0.0"}
-                }
-            })
-            if not init_result:
-                return Result.failed("Initialization failed")
-
-            # 3.4 Load tools
-            tools_result = await client.send({
-                "jsonrpc": "2.0",
-                "method": "tools/list",
-                "params": {}
-            })
-            if not tools_result or "tools" not in tools_result:
-                return Result.failed("Failed to load tools")
-
-        except Exception as e:
-            logger.error(f"Gateway communication failed: {str(e)}")
-            try:
-                await client.close()
-            except:
-                pass
-            return Result.failed(f"Startup aborted: {str(e)}")
-
-        # 4. Update database (atomic operation)
-        try:
-            update_data = ServeRequest(
-                id=request.id,
-                name=request.name,
-                available=True,
-            )
-            if mcp:
-                service.update(update_data)
-            else:
-                service.create(update_data)
-        except Exception as e:
-            logger.error(f"Database update failed: {str(e)}")
-            await client.close()
-            return Result.failed(f"Service started but status update failed: {str(e)}")
-
-        return Result.succ(True, message=f"MCP '{request.name}' started successfully")
-
+        return Result.succ(True)
     except Exception as e:
-        logger.exception(f"Critical startup failure: {e}")
-        return Result.failed(f"Startup failed: {str(e)}")
+        logger.exception(f"Failed to start MCP '{request.name}': {e}")
+        return Result.failed(str(e))
+
 
 @router.post(
     "/offline", response_model=Result[bool], dependencies=[Depends(check_api_key)]
@@ -260,54 +208,33 @@ async def start(request: ServeRequest, service: Service = Depends(get_service)) 
 async def offline(
         request: ServeRequest, service: Service = Depends(get_service)
 ) -> Result[bool]:
-    """标记 MCP 服务为离线状态，并关闭相关连接"""
+    """Mark MCP service as offline and disconnect if connected
+
+    Args:
+        request (ServeRequest): The request containing MCP details
+        service (Service): The service instance
+
+    Returns:
+        Result[bool]: Operation result with success/failure status
+    """
     try:
-        # 1. 获取 MCP 实例
+        # 1. Get MCP instance
         mcp = service.get(request)
         if not mcp:
             return Result.failed(f"MCP '{request.name}' not found")
 
-        # 2. 若已离线则直接返回
+        # 2. If already offline, return directly
         if not mcp.available:
-            return Result.succ(True, message=f"MCP '{request.name}' is already offline")
+            return Result.succ(True)
 
-        # 3. Close WebSocket connection (if exists)
-        ws_failed = False
-        if mcp.sse_url:
-            try:
-                gateway_url = "ws://gateway-host:port/register"  # TODO: 替换为实际的网关 URL
-                client = GatewayClient(
-                    gateway_url=gateway_url,
-                    server_name=mcp.name,
-                    headers=mcp.sse_headers
-                )
-
-                # 发送 unregister 请求
-                await client.send({
-                    "jsonrpc": "2.0",
-                    "method": "unregister",
-                    "params": {"name": mcp.name}
-                })
-                await client.close()
-            except Exception as e:
-                logger.error(f"WebSocket close failed for {request.name}: {str(e)}")
-                ws_failed = True
-
-        # 4. Update database (must succeed even if WS failed)
-        try:
-            update_request = ServeRequest(id=request.id, name=request.name, available=False)
-            service.update(update_request)
-        except Exception as e:
-            logger.error(f"Database update failed for {request.name}: {str(e)}")
-            if ws_failed:
-                return Result.failed(f"Both WebSocket close and DB update failed: {str(e)}")
-            return Result.failed(f"Database update failed: {str(e)}")
-
-        # 5. Return appropriate result
-        if ws_failed:
-            return Result.succ(True,
-                               message=f"MCP '{request.name}' marked offline but WebSocket close failed")
-        return Result.succ(True, message=f"MCP '{request.name}' offline success")
+        # 4. Update status to unavailable
+        update_request = ServeRequest(
+            mcp_code=request.mcp_code,
+            name=request.name,
+            available=False
+        )
+        service.update(update_request)
+        return Result.succ(True)
 
     except Exception as e:
         logger.exception(f"Critical offline failure for {request.name}: {e}")

@@ -58,13 +58,27 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             ServerResponse: The response
         """
         # TODO: implement your own logic here
-        if request.sse_headers is not None:
-            request.sse_headers = json.dumps(request.sse_headers)
         # Build the query request from the request
         query_request = {
-            "id": request.id
+            "mcp_code": request.mcp_code
         }
-        return self.dao.update(query_request, update_request=request)
+        request_dict = (
+            request.dict() if isinstance(request, ServeRequest) else request
+        )
+
+        # 处理 JSON 字段序列化
+        if 'sse_headers' in request_dict and isinstance(request_dict['sse_headers'], dict):
+            request_dict['sse_headers'] = json.dumps(request_dict['sse_headers'])
+
+        if 'available' in request_dict:
+            # 将None转换为False，或保持原值
+            request_dict['available'] = request_dict['available'] if request_dict['available'] is not None else False
+        # 过滤掉只读字段（如自动生成的 id 和时间戳）
+        request_dict.pop('mcp_code', None)
+        request_dict.pop('gmt_created', None)
+        request_dict.pop('gmt_modified', None)
+
+        return self.dao.update(query_request, request_dict)
 
     def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a Mcp entity
@@ -89,9 +103,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         # TODO: implement your own logic here
         # Build the query request from the request
-        query_request = {
-            "name": request.name
-        }
+        query_request = request
         self.dao.delete(query_request)
 
     def get_list(self, request: ServeRequest) -> List[ServerResponse]:

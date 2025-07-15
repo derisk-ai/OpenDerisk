@@ -28,8 +28,8 @@ from ..config import SERVER_APP_TABLE_NAME, ServeConfig
 
 class ServeEntity(Model):
     __tablename__ = SERVER_APP_TABLE_NAME
-    id = Column(Integer, primary_key=True, nullable=False, comment="Auto increment id")
 
+    mcp_code = Column(String(255), primary_key=True, nullable=False, comment="mcp code")
     name = Column(String(255), nullable=False, comment="mcp name")
     description = Column(Text, nullable=False, comment="mcp description")
     type = Column(String(255), nullable=False, comment="mcp type")
@@ -47,7 +47,7 @@ class ServeEntity(Model):
     available = Column(Boolean, nullable=True, comment="mcp already available")
     server_ips = Column(Text, nullable=True, comment="mcp server run machine ips")
     gmt_created = Column(DateTime, name='gmt_create', default=datetime.now, comment="Record creation time")
-    gmt_modified = Column(DateTime, default=datetime.now, comment="Record update time")
+    gmt_modified = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="Record update time")
 
     def __repr__(self):
         return (
@@ -73,7 +73,6 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             request_dict['sse_headers'] = json.dumps(request_dict['sse_headers'])
 
         # 过滤掉只读字段（如自动生成的 id 和时间戳）
-        request_dict.pop('id', None)
         request_dict.pop('gmt_created', None)
         request_dict.pop('gmt_modified', None)
 
@@ -85,6 +84,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         sse_headers = json.loads(entity.sse_headers) if entity.sse_headers else None
 
         return ServeRequest(
+            mcp_code=entity.mcp_code,
             name=entity.name,
             description=entity.description,
             type=entity.type,
@@ -107,7 +107,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         sse_headers = json.loads(entity.sse_headers) if entity.sse_headers else None
 
         return ServerResponse(
-            id=entity.id,
+            mcp_code=entity.mcp_code,
             name=entity.name,
             description=entity.description,
             type=entity.type,
