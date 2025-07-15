@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS `knowledge_space`
   `tags` varchar(1024) DEFAULT NULL COMMENT 'knowledge tags',
   `domain_type` varchar(50) NOT NULL COMMENT 'domain type',
   `description` varchar(500) NOT NULL COMMENT 'description',
+  `category` VARCHAR(128) NOT NULL COMMENT "knowledge category",
+  `knowledge_type` VARCHAR(100) NOT NULL COMMENT 'knowledge type, like: document, web, etc.', 
   `owner` varchar(100) DEFAULT NULL COMMENT 'owner',
   `context` text DEFAULT NULL COMMENT 'context argument',
   `gmt_create` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
@@ -585,3 +587,26 @@ CREATE TABLE `derisk_serve_derisks_hub` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `derisk_serve_mcp` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `name` varchar(255) NOT NULL COMMENT 'mcp name',
+  `description` varchar(255) DEFAULT NULL COMMENT 'mcp description',
+  `author` varchar(255) DEFAULT NULL COMMENT 'mcp author',
+  `email` varchar(255) DEFAULT NULL COMMENT 'mcp author email',
+  `type` varchar(255) DEFAULT NULL COMMENT 'mcp type',
+  `version` varchar(255) DEFAULT NULL COMMENT 'mcp version',
+  `stdio_cmd` text DEFAULT NULL COMMENT 'mcp stdio cmd',
+  `sse_url` text DEFAULT NULL COMMENT 'mcp sse connect url',
+  `sse_headers` longtext DEFAULT NULL COMMENT 'mcp sse connect headers',
+  `icon` text DEFAULT NULL COMMENT 'mcp icon',
+  `category` varchar(255) DEFAULT NULL COMMENT 'mcp category',
+  `gmt_create` timestamp NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'plugin upload time',
+  `gmt_modified` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'update time',
+  `installed` int(11) DEFAULT '0' COMMENT 'mcp already installed count',
+  `available` tinyint(4) DEFAULT NULL COMMENT 'mcp already available',
+  `token` text DEFAULT NULL COMMENT 'mcp sse connect token',
+  `server_ips` text DEFAULT NULL COMMENT 'mcp server run machine ips',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_name` (`name`) BLOCK_SIZE 16384 GLOBAL
+) AUTO_INCREMENT = 300001 DEFAULT CHARSET = utf8mb4;
