@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/derisk-ai-openderisk-badge.png)](https://mseep.ai/app/derisk-ai-openderisk)
+
 ### OpenDeRisk
 
 OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system risk intelligent manager provides 7 * 24-hour comprehensive and in-depth protection.
