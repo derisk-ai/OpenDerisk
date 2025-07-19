@@ -443,6 +443,16 @@ export const addMCP = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/', data);
 };
 
+export const EditMCP = (data: PostDbParams) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/update', data);
+};
+// export const DeleteMCP = (id: String) => {
+//   return DELETE<null, null>(`/api/v1/serve/mcp/?${id}`);
+
+// };
+export const DeleteMCP = (data: PostDbParams) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/delete', data);
+};
 /** MPC Start*/
 export const startMCP = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/start', data);
