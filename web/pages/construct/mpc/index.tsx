@@ -9,7 +9,19 @@ import { useRouter } from 'next/router';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreatMpcModel from './CreatMpcModel';
-
+type FieldType = {
+  name?: string;
+  description?: string;
+  type?: string;
+  sse_url?: string;
+  token?: string;
+  email?: string;
+  version?: string;
+  author?: string;
+  icon?: any;
+  mcp_code?: any;
+  stdio_cmd?: string;
+};
 const Mpc: React.FC = () => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
@@ -66,13 +78,15 @@ const Mpc: React.FC = () => {
       throttleWait: 300,
     },
   );
-  const confirm: PopconfirmProps['onConfirm'] = (item) => {
-    DeleteMCP({name:item.name}).then(()=>{
+  const confirm: PopconfirmProps['onConfirm'] = (item:FieldType) => {
+    const params = {
+      name: item.name,
+      mcp_code: item.mcp_code,
+    }
+    apiInterceptors(DeleteMCP(params)).then(()=>{
       message.success('删除成功');
       onSearch();
     })
-
-    
   };
   
   const cancel: PopconfirmProps['onCancel'] = (e) => {
@@ -285,14 +299,7 @@ const Mpc: React.FC = () => {
                                           </span>
                                         ),
                                       },
-                                      {
-                                        key: 'delete_mcp',
-                                        label: (
-                                          <span className='text-red-400' onClick={() => deleteMcp(item)}>
-                                            {t('Delete_Btn')}
-                                          </span>
-                                        ),
-                                      },
+                                  
                                     ],
                                   }}
                                 />
@@ -341,7 +348,7 @@ const Mpc: React.FC = () => {
     okText="Yes"
     cancelText="No"
   >
-    <Button type="link"   className='float-right' danger>Delete</Button>
+    <Button type="link"   className='float-right' danger>{t('Delete_Btn')}</Button>
   </Popconfirm>
                             </div>
                           </div>

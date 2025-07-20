@@ -1,12 +1,14 @@
 import { addMCP, apiInterceptors,EditMCP } from '@/client/api';
 import { PlusOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Button, Form, Input, Modal, message } from 'antd';
+import { Button,Select, Form, Input, Modal, message } from 'antd';
 import React, { useState ,useEffect} from 'react';
 import { useTranslation } from 'react-i18next';
 import CustomUpload from './CustomUpload';
 interface CreatMpcModelProps {
   onSuccess?: () => void;
+  setFormData?: () => void;
+  formData?:any;
 
 }
 
@@ -20,6 +22,7 @@ type FieldType = {
   version?: string;
   author?: string;
   icon?: any;
+  mcp_code?: any;
   stdio_cmd?: string;
 };
 
@@ -38,16 +41,11 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
     }
   }, [formData]);
 
-  // useEffect(() => {
-  //   if (modalState) {
-  //     setIsModalOpen(true);
-  //   }
-  // }, [modalState]);
 
   const { loading, run: runAddMCP } = useRequest(
     async (params): Promise<any> => {
-debugger
       if (modleTitle === t('edit_MCP')) {
+        params.mcp_code = formData.mcp_code;
         return await apiInterceptors(EditMCP(params));
       }else{
         return await apiInterceptors(addMCP(params));
@@ -59,9 +57,9 @@ debugger
         const [, , res] = data;
         if (res?.success) {
           if (modleTitle === t('edit_MCP')) {
-            message.success('编辑成功');
+            message.success(t('Edit_Success'));
           }else{
-            message.success('创建成功');
+            message.success(t('Add_Success'))
           }
           form?.resetFields();
           setIsModalOpen(false);
@@ -73,6 +71,7 @@ debugger
   );
 
   const showModal = () => {
+    setModleTitle(t('create_MCP'));
     setIsModalOpen(true);
   };
 
@@ -127,12 +126,15 @@ debugger
             name='type'
             rules={[{ required: true, message: 'Please input your type!' }]}
           >
-            <Input />
+            <Select>
+            <Select.Option value="http">http</Select.Option>
+          </Select>
           </Form.Item>
 
           <Form.Item<FieldType> label="Mcp Url" name='sse_url'
              rules={[{ required: true, message: 'Please input Mcp Url!' }]}>
             <Input />
+       
           </Form.Item>
           <Form.Item<FieldType> label="Token" name='token'
             >
