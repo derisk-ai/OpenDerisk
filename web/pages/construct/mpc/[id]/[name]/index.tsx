@@ -97,48 +97,10 @@ const MpcDetail: React.FC = () => {
       manual: false,
       onSuccess: data => {
         const [, , res] = data;
-        if (res?.success) {
+        debugger
+        if (res?.data) {
           // res?.data ||
-          setToolList([
-            {
-              name: 'list_servers',
-              description: 'List all registered MCP servers',
-              param_schema: {},
-            },
-            {
-              name: 'fetch_fetch',
-              description:
-                'Fetches a URL from the internet and optionally extracts its contents as markdown.\n\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.',
-              param_schema: {
-                url: {
-                  type: 'string',
-                  title: 'Url',
-                  description: 'URL to fetch',
-                  required: true,
-                },
-                max_length: {
-                  type: 'integer',
-                  title: 'Max Length',
-                  description: 'Maximum number of characters to return.',
-                  required: false,
-                  default: 5000,
-                },
-                start_index: {
-                  type: 'integer',
-                  title: 'Start Index',
-                  description:
-                    'On return output starting at this character index, useful if a previous fetch was truncated and more context is required.',
-                  required: false,
-                },
-                raw: {
-                  type: 'boolean',
-                  title: 'Raw',
-                  description: 'Get the actual HTML content of the requested page, without simplification.',
-                  required: false,
-                },
-              },
-            },
-          ]);
+          setToolList(res?.data|| []);
         }
       },
       debounceWait: 300,

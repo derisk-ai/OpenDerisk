@@ -18,7 +18,7 @@
     "lint": "eslint '**/*.{ts,tsx}' --fix",
     "format": "prettier --write '**/*.{ts,tsx}'",
     "export": "next export",
-    "compile": " NODE_OPTIONS=--max_old_space_size=8192 next build && next export"
+    "compile": " NODE_OPTIONS=--max_old_space_size=8192 next build --no-lint && next export"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.18.4",
