@@ -440,9 +440,16 @@ export const getMPCListQuery = (data: Record<string, string>) => {
 
 /** MPC Creat*/
 export const addMCP = (data: Record<string, string>) => {
-  return POST<Record<string, string>, []>('/api/v1/serve/mcp/', data);
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/create', data);
 };
 
+export const EditMCP = (data: PostDbParams) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/update', data);
+};
+
+export const DeleteMCP = (data: PostDbParams) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/delete', data);
+};
 /** MPC Start*/
 export const startMCP = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/start', data);

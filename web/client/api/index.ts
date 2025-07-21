@@ -16,7 +16,7 @@ export type SuccessTuple<T = any, D = any> = [null, T, ResponseType<T>, ApiRespo
 export type FailedTuple<T = any, D = any> = [Error | AxiosError<T, D>, null, null, null];
 
 const ins = axios.create({
-  baseURL: process.env.API_BASE_URL ?? '',
+  baseURL: 'http://127.0.0.1:7777',
 });
 
 const LONG_TIME_API: string[] = [
@@ -78,6 +78,8 @@ export const DELETE = <Params = any, Response = any, D = any>(
 ) => {
   return ins.delete<Params, ApiResponse<Response>>(url, { params, ...config });
 };
+
+
 
 export * from './app';
 export * from './chat';

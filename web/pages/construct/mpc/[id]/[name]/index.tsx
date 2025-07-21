@@ -213,8 +213,8 @@ const MpcDetail: React.FC = () => {
                   style={{ position: 'absolute', height: '100%', width: '100%', inset: '0px', color: 'transparent' }}
                 />
               ) : (
-                <span className='ant-avatar ant-avatar-circle bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
-                  <span className='ant-avatar-string text-[10px]'>derisk</span>
+                <span style={{borderRadius:'50%',lineHeight:'27px'}} className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'>
+                  <span className='ant-avatar-string text-[10px]'>derisk22</span>
                 </span>
               )}
             </div>
