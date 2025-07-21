@@ -31,17 +31,11 @@ from derisk.agent.resource.base import AgentResource, ResourceType
 from derisk.storage.metadata import BaseDao, Model
 from derisk_app.openapi.api_view_model import ConversationVo
 from derisk_app.scene import ChatScene
-from derisk_serve.agent.app.recommend_question.recommend_question import (
-    RecommendQuestion,
-    RecommendQuestionDao,
-    RecommendQuestionEntity,
-)
+
 from derisk_serve.agent.model import NativeTeamContext
 from derisk_serve.agent.team.base import TeamMode
 
 logger = logging.getLogger(__name__)
-
-recommend_question_dao = RecommendQuestionDao()
 
 
 class BindAppRequest(BaseModel):
@@ -151,7 +145,7 @@ class GptsApp(BaseModel):
     param_need: Optional[List[dict]] = []
     owner_name: Optional[str] = None
     owner_avatar_url: Optional[str] = None
-    recommend_questions: Optional[List[RecommendQuestion]] = []
+    recommend_questions: Optional[List] = []
     admins: List[str] = Field(default_factory=list)
 
     # By default, keep the last two rounds of conversation records as the context
@@ -756,7 +750,7 @@ class GptsAppDao(BaseDao):
             parse_llm_strategy: bool = False,
             owner_name: str = None,
             owner_avatar_url: str = None,
-            recommend_questions: List[RecommendQuestionEntity] = None,
+            recommend_questions: List = None,
     ):
         return {
             "app_code": app_info.app_code,
@@ -787,9 +781,7 @@ class GptsAppDao(BaseDao):
             "owner_name": app_info.user_code,
             "owner_avatar_url": owner_avatar_url,
             "recommend_questions": (
-                [RecommendQuestion.from_entity(item) for item in recommend_questions]
-                if recommend_questions
-                else []
+               [] 
             ),
             "admins": [],
         }
@@ -807,16 +799,7 @@ class GptsAppDao(BaseDao):
         return app_details_group
 
     def _group_app_questions(self, app_codes, session):
-        qry = session.query(RecommendQuestionEntity).filter(
-            RecommendQuestionEntity.app_code.in_(app_codes)
-        )
-        questions = qry.all()
-        questions.sort(key=lambda x: x.app_code)
-        question_group = {
-            key: list(group)
-            for key, group in groupby(questions, key=lambda x: x.app_code)
-        }
-        return question_group
+        return {} 
 
     def native_app_detail(self, app_name: str):
         with self.session() as session:
@@ -884,41 +867,8 @@ class GptsAppDao(BaseDao):
             app_qry = session.query(GptsAppEntity).filter(
                 GptsAppEntity.app_code == app_code
             )
-
-            app_info = app_qry.first()
-
-            app_detail_qry = session.query(GptsAppDetailEntity).filter(
-                GptsAppDetailEntity.app_code == app_code
-            )
-            app_details = app_detail_qry.all()
-
-            collection_dao = GptsAppCollectionDao()
-            gpts_collections = collection_dao.list(
-                GptsAppCollection.from_dict(
-                    {"sys_code": sys_code, "user_code": user_code}
-                )
-            )
-            app_codes = [gc.app_code for gc in gpts_collections]
-
-            qry = session.query(RecommendQuestionEntity).filter(
-                RecommendQuestionEntity.app_code.in_([app_code])
-            )
-            questions = qry.all()
-
-            if app_info:
-                app = GptsApp.from_dict(
-                    self._entity_to_app_dict(
-                        app_info,
-                        app_details,
-                        None,
-                        app_codes,
-                        recommend_questions=questions,
-                    )
-                )
-                return app
-            else:
-                return app_info
-
+            return app_qry.first()
+         
     def delete(
             self,
             app_code: str,
@@ -945,7 +895,6 @@ class GptsAppDao(BaseDao):
                 GptsAppCollectionEntity.app_code == app_code
             )
             app_collect_qry.delete()
-        recommend_question_dao.delete_by_app_code(app_code)
 
     def remove_native_app(self, app_code: str):
         with self.session(commit=True) as session:
@@ -1004,27 +953,6 @@ class GptsAppDao(BaseDao):
                     )
                 )
             session.add_all(app_details)
-
-            recommend_questions = []
-            for recommend_question in gpts_app.recommend_questions:
-                if isinstance(gpts_app.team_context, AWELTeamContext):
-                    chat_scene = ChatScene.ChatAgent.value()
-                elif isinstance(gpts_app.team_context, NativeTeamContext):
-                    chat_scene = gpts_app.team_context.chat_scene
-                recommend_questions.append(
-                    RecommendQuestionEntity(
-                        app_code=app_entity.app_code,
-                        question=recommend_question.question,
-                        user_code=app_entity.user_code,
-                        gmt_create=recommend_question.gmt_create,
-                        gmt_modified=recommend_question.gmt_modified,
-                        params=json.dumps(recommend_question.params),
-                        valid=recommend_question.valid,
-                        chat_mode=chat_scene,
-                        is_hot_question="false",
-                    )
-                )
-            session.add_all(recommend_questions)
             gpts_app.app_code = app_entity.app_code
             return gpts_app
 
@@ -1091,34 +1019,7 @@ class GptsAppDao(BaseDao):
                         )
                     )
                 session.add_all(app_details)
-
-            old_questions = session.query(RecommendQuestionEntity).filter(
-                RecommendQuestionEntity.app_code == gpts_app.app_code
-            )
-            old_questions.delete()
             session.commit()
-
-            recommend_questions = []
-            for recommend_question in gpts_app.recommend_questions:
-                if isinstance(gpts_app.team_context, AWELTeamContext):
-                    chat_scene = ChatScene.ChatAgent.value()
-                elif isinstance(gpts_app.team_context, NativeTeamContext):
-                    chat_scene = gpts_app.team_context.chat_scene
-                else:
-                    chat_scene = None
-                recommend_questions.append(
-                    RecommendQuestionEntity(
-                        app_code=gpts_app.app_code,
-                        question=recommend_question.question,
-                        gmt_create=recommend_question.gmt_create,
-                        gmt_modified=recommend_question.gmt_modified,
-                        params=json.dumps(recommend_question.params),
-                        valid=recommend_question.valid,
-                        chat_mode=chat_scene,
-                    )
-                )
-            session.add_all(recommend_questions)
-            return True
 
     def update_admins(self, app_code: str, user_nos: Optional[list[str]] = None):
         """

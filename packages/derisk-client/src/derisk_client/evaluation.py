@@ -4,13 +4,13 @@ from typing import List
 
 from derisk.core.interface.evaluation import EvaluationResult
 from derisk.core.schema.api import Result
-from derisk_serve.evaluate.api.schemas import EvaluateServeRequest
+from derisk_serve.evaluate.api.schemas import ServeRequest 
 
 from .client import Client, ClientException
 
 
 async def run_evaluation(
-    client: Client, request: EvaluateServeRequest
+    client: Client, request: ServeRequest
 ) -> List[EvaluationResult]:
     """Run evaluation.
 

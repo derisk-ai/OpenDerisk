@@ -66,7 +66,7 @@ class ChatHistoryMessageEntity(Model):
     """Chat history message entity."""
 
     __tablename__ = "chat_history_message"
-    __table_args__ = (UniqueConstraint("conv_uid", "index", name="message_uid_index"),)
+    __table_args__ = (UniqueConstraint("conv_uid", "index_num", name="message_uid_index"),)
     id = Column(
         Integer, primary_key=True, autoincrement=True, comment="autoincrement id"
     )
@@ -76,7 +76,7 @@ class ChatHistoryMessageEntity(Model):
         nullable=False,
         comment="Conversation record unique id",
     )
-    index = Column(Integer, nullable=False, comment="Message index")
+    index = Column(Integer, name="index_num", nullable=False, comment="Message index")
     round_index = Column(Integer, nullable=False, comment="Message round index")
     message_detail = Column(
         Text(length=2**31 - 1), nullable=True, comment="Message details, json format"
