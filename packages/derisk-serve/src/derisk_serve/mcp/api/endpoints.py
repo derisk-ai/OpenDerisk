@@ -147,7 +147,7 @@ async def update(
 
 
 @router.post(
-    "/delete", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
+    "/delete", response_model=Result[bool], dependencies=[Depends(check_api_key)]
 )
 async def delete(
         request: ServeRequest, service: Service = Depends(get_service)
@@ -180,26 +180,37 @@ async def start(request: ServeRequest, service: Service = Depends(get_service)) 
         对于local server，这里应该调用cmd启动server
     """
     try:
-        # 1. Check if service already exists and is online
+        # 1. 检查MCP服务是否存在
         mcp = service.get(request)
-        if mcp and mcp.available:
+        if not mcp:
+            return Result.failed(f"MCP服务 '{request.name}' 不存在")
+        
+        # 2. 如果已经可用，直接返回成功
+        if mcp.available:
+            logger.info(f"MCP服务 '{request.name}' 已经处于可用状态")
             return Result.succ(True)
-            # 2. Try to connect to MCP
+        
+        # 3. 尝试连接到MCP服务器验证可用性
+        logger.info(f"正在连接MCP服务 '{request.name}'...")
         is_connected = await service.connect_mcp(request.name, request.sse_headers)
+        
         if not is_connected:
-            return Result.failed(f"Failed to connect to MCP '{request.name}'")
-
-        # 3. Update MCP status to available
+            logger.error(f"无法连接到MCP服务 '{request.name}'")
+            return Result.failed(f"连接MCP服务 '{request.name}' 失败")
+        
+        # 4. 更新MCP状态为可用
         update_data = ServeRequest(
             mcp_code=mcp.mcp_code,
             available=True,
         )
         service.update(update_data)
-
+        
+        logger.info(f"MCP服务 '{request.name}' 启动成功")
         return Result.succ(True)
+        
     except Exception as e:
-        logger.exception(f"Failed to start MCP '{request.name}': {e}")
-        return Result.failed(str(e))
+        logger.exception(f"启动MCP服务 '{request.name}' 时发生异常: {e}")
+        return Result.failed(f"启动失败: {str(e)}")
 
 
 @router.post(
@@ -218,27 +229,30 @@ async def offline(
         Result[bool]: Operation result with success/failure status
     """
     try:
-        # 1. Get MCP instance
+        # 1. 检查MCP服务是否存在
         mcp = service.get(request)
         if not mcp:
-            return Result.failed(f"MCP '{request.name}' not found")
-
-        # 2. If already offline, return directly
+            return Result.failed(f"MCP服务 '{request.name}' 不存在")
+        
+        # 2. 如果已经离线，直接返回成功
         if not mcp.available:
+            logger.info(f"MCP服务 '{request.name}' 已经处于离线状态")
             return Result.succ(True)
-
-        # 4. Update status to unavailable
+        
+        # 3. 更新状态为不可用
         update_request = ServeRequest(
             mcp_code=request.mcp_code,
             name=request.name,
             available=False
         )
         service.update(update_request)
+        
+        logger.info(f"MCP服务 '{request.name}' 已标记为离线")
         return Result.succ(True)
-
+        
     except Exception as e:
-        logger.exception(f"Critical offline failure for {request.name}: {e}")
-        return Result.failed(f"Offline operation failed: {str(e)}")
+        logger.exception(f"将MCP服务 '{request.name}' 标记为离线时发生异常: {e}")
+        return Result.failed(f"离线操作失败: {str(e)}")
 
 
 @router.post(

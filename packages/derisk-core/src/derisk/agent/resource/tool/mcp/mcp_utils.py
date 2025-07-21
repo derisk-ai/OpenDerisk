@@ -180,7 +180,7 @@ async def connect_mcp(mcp_name: str, server: str, headers: Optional[dict[str, st
     try:
         return await safe_call_tool(
             connect,
-            time_out=60,
+            time_out=600,
         )
     except ServiceUnavailableError as e:
         raise ValueError(f"MCP服务{mcp_name}连接异常!", e)
