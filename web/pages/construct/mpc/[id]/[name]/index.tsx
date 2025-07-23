@@ -150,9 +150,9 @@ const MpcDetail: React.FC = () => {
 
     await runMcpToolRun({
       name: queryParams?.name,
-      //  method: 'tools/call',
+  
       params:{
-        name: queryParams?.name,
+        name: selectUrl,
         arguments: {
           ..._params,
         },
