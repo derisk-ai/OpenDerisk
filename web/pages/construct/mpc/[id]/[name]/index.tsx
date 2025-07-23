@@ -39,11 +39,7 @@ const MpcDetail: React.FC = () => {
     run: runMcpToolRun,
     data: runData,
   } = useRequest(
-    async (
-      params = {
-        name: queryParams.name,
-      },
-    ): Promise<any> => {
+    async (params: any): Promise<any> => {
       return await apiInterceptors(mcpToolRun(params));
     },
     {
@@ -97,10 +93,9 @@ const MpcDetail: React.FC = () => {
       manual: false,
       onSuccess: data => {
         const [, , res] = data;
-        debugger
         if (res?.data) {
           // res?.data ||
-          setToolList(res?.data|| []);
+          setToolList(res?.data || []);
         }
       },
       debounceWait: 300,
@@ -153,7 +148,17 @@ const MpcDetail: React.FC = () => {
       return;
     }
 
-    await runMcpToolRun({ name: queryParams?.name, ..._params });
+    await runMcpToolRun({
+      name: queryParams?.name,
+      //  method: 'tools/call',
+      params:{
+        name: queryParams?.name,
+        arguments: {
+          ..._params,
+        },
+      }
+     
+    });
   };
 
   const formData: any = useMemo(() => {
@@ -175,7 +180,10 @@ const MpcDetail: React.FC = () => {
                   style={{ position: 'absolute', height: '100%', width: '100%', inset: '0px', color: 'transparent' }}
                 />
               ) : (
-                <span style={{borderRadius:'50%',lineHeight:'27px'}} className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'>
+                <span
+                  style={{ borderRadius: '50%', lineHeight: '27px' }}
+                  className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'
+                >
                   <span className='ant-avatar-string text-[10px]'>derisk22</span>
                 </span>
               )}
