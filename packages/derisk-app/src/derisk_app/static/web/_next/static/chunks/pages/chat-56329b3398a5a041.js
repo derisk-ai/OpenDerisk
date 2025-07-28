@@ -1,0 +1,1 @@
+(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[8180],{34857:function(n,_,u){(window.__NEXT_P=window.__NEXT_P||[]).push(["/chat",function(){return u(31959)}])}},function(n){n.O(0,[1042,5867,2423,4634,6214,4610,8763,7699,1986,9501,9177,1959,9774,2888,179],function(){return n(n.s=34857)}),_N_E=n.O()}]);

@@ -1,13 +1,27 @@
-import { apiInterceptors, getMPCList, offlineMCP, startMCP } from '@/client/api';
+import { apiInterceptors, getMPCList, offlineMCP, startMCP,DeleteMCP } from '@/client/api';
 import { InnerDropdown } from '@/new-components/common/blurredCard';
 import { FolderOpenFilled } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Form, Pagination, Result, Spin, Tooltip, message } from 'antd';
+import type { PopconfirmProps } from 'antd';
+
+import { Form, Pagination, Result, Spin, Tooltip,Button, message,Tag,Popconfirm } from 'antd';
 import { useRouter } from 'next/router';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreatMpcModel from './CreatMpcModel';
-
+type FieldType = {
+  name?: string;
+  description?: string;
+  type?: string;
+  sse_url?: string;
+  token?: string;
+  email?: string;
+  version?: string;
+  author?: string;
+  icon?: any;
+  mcp_code?: any;
+  stdio_cmd?: string;
+};
 const Mpc: React.FC = () => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
@@ -21,7 +35,9 @@ const Mpc: React.FC = () => {
   });
 
   const [mcpList, setMcpList] = useState<any>([]);
-
+  const [modalState, setModalState] = useState<any>(true);
+  const [formData, setFormData] = useState<any>({});
+  // let formData ={}  
   const router = useRouter();
 
   const { loading, run: runGetMPCList } = useRequest(
@@ -62,7 +78,21 @@ const Mpc: React.FC = () => {
       throttleWait: 300,
     },
   );
-
+  const confirm: PopconfirmProps['onConfirm'] = (item:FieldType) => {
+    const params = {
+      name: item.name,
+      mcp_code: item.mcp_code,
+    }
+    apiInterceptors(DeleteMCP(params)).then(()=>{
+      message.success('删除成功');
+      onSearch();
+    })
+  };
+  
+  const cancel: PopconfirmProps['onCancel'] = (e) => {
+    console.log(e);
+    message.error('Click on No');
+  };
   const { run: runOfflineMCP } = useRequest(
     async (params): Promise<any> => {
       return await apiInterceptors(offlineMCP(params));
@@ -114,6 +144,21 @@ const Mpc: React.FC = () => {
 
   const onSearch = () => {
     runGetMPCList(queryParams, paginationParams);
+  };
+  // const deleteMcp = async (item:any) => {
+  //  console.log(item);
+  //   // await apiInterceptors();
+  //   DeleteMCP(item.id).then(()=>{
+  //     onSearch()
+  //   })
+   
+  // };
+
+  const editMcp = (item: any) => { 
+    setFormData(item);
+    // formData = item;
+    // setModalState(true);
+    // setModalState(true);
   };
 
   return (
@@ -172,7 +217,7 @@ const Mpc: React.FC = () => {
           <div className='container mx-auto px-4 md:px-6 '>
             {/* top */}
             <div className='flex items-center gap-4 justify-end'>
-              <CreatMpcModel onSuccess={() => runGetMPCList(queryParams, paginationParams)}></CreatMpcModel>
+              <CreatMpcModel formData={formData} setFormData={setFormData} setModalState={setModalState}  onSuccess={() => runGetMPCList(queryParams, paginationParams)}></CreatMpcModel>
             </div>
             <div className='flex flex-col md:flex-row md:items-center justify-between mb-6'>
               <div>
@@ -192,12 +237,13 @@ const Mpc: React.FC = () => {
                       onClick={goMpcDetail(item?.id, item?.name)}
                     >
                       <div className=' text-card-foreground  '>
+
                         <div className='p-4'>
                           {/* box top */}
 
                           <div className='flex items-center gap-3 mb-3'>
                             {/* top img */}
-                            <div className='h-8 w-8 rounded-full overflow-hidden shrink-0'>
+                            <div className='h-8 w-8 rounded-full  shrink-0'>
                               {item?.icon ? (
                                 <img
                                   loading='lazy'
@@ -208,9 +254,10 @@ const Mpc: React.FC = () => {
                                   src={item?.icon}
                                 />
                               ) : (
-                                <span className='ant-avatar ant-avatar-circle bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
+                                <span style={{borderRadius:'50%',lineHeight:'27px'}} className='inline-block w-[32px] h-[32px] text-white text-center rounded-full ant-avatar ant-avatar-circle bg-gradient-to-tr  from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
                                   <span className='ant-avatar-string text-[10px]'>derisk</span>
                                 </span>
+                                
                               )}
                             </div>
                             {/* top title */}
@@ -236,7 +283,7 @@ const Mpc: React.FC = () => {
                                 <InnerDropdown
                                   menu={{
                                     items: [
-                                      {
+                                     item?.available && {
                                         key: 'stop_mcp',
                                         label: (
                                           <span className='text-red-400' onClick={() => onStopTheMCP(item)}>
@@ -244,7 +291,7 @@ const Mpc: React.FC = () => {
                                           </span>
                                         ),
                                       },
-                                      {
+                                      !item?.available &&{
                                         key: 'start_mcp',
                                         label: (
                                           <span className='text-green-400' onClick={() => onStartTheMCP(item)}>
@@ -252,6 +299,7 @@ const Mpc: React.FC = () => {
                                           </span>
                                         ),
                                       },
+                                  
                                     ],
                                   }}
                                 />
@@ -275,13 +323,33 @@ const Mpc: React.FC = () => {
                                 </div>
                                 <div className='flex items-center'>
                                   <span className=' text-gray-500'>{`${t('mcp_author')}：`}</span>
-                                  <span>{item?.author || '-'}</span>
+                                  <span style={{width:'59px'}} className='width-[59px]'>{item?.author || '-'}</span>
                                 </div>
                               </div>
-                              <div className='flex items-center'>
+                              <div className='flex justify-between'>
+                                <div className='flex items-center'>
                                 <span className=' text-gray-500'>{`${t('mcp_email')}：`}</span>
                                 <span>{item?.email || '-'}</span>
+                                </div>
+                                <div className='flex items-center'>
+                                  <span className=' text-gray-500'>{`${t('Status')}：`}</span>
+                                  {/* <span>{item?.author || '-'}</span> */}
+                                  {item?.available ? <Tag color="#87d068">{`${t('mcp_Online')}`}</Tag> :  <Tag >{`${t('mcp_Offline')}`}</Tag>
+                                  }
+                                </div>
                               </div>
+                             
+                              <Button type="link" className='p-px' onClick={()=>{editMcp(item)}}>{`${t('Edit')}`}</Button>
+                              <Popconfirm
+    title="Delete the task"
+    description="Are you sure to delete this task?"
+    onConfirm={() => confirm(item)} // 直接调用 confirm 并传入 taskId
+    onCancel={cancel}
+    okText="Yes"
+    cancelText="No"
+  >
+    <Button type="link"   className='float-right' danger>{t('Delete_Btn')}</Button>
+  </Popconfirm>
                             </div>
                           </div>
                         </div>

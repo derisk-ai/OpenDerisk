@@ -39,11 +39,7 @@ const MpcDetail: React.FC = () => {
     run: runMcpToolRun,
     data: runData,
   } = useRequest(
-    async (
-      params = {
-        name: queryParams.name,
-      },
-    ): Promise<any> => {
+    async (params: any): Promise<any> => {
       return await apiInterceptors(mcpToolRun(params));
     },
     {
@@ -97,48 +93,9 @@ const MpcDetail: React.FC = () => {
       manual: false,
       onSuccess: data => {
         const [, , res] = data;
-        if (res?.success) {
+        if (res?.data) {
           // res?.data ||
-          setToolList([
-            {
-              name: 'list_servers',
-              description: 'List all registered MCP servers',
-              param_schema: {},
-            },
-            {
-              name: 'fetch_fetch',
-              description:
-                'Fetches a URL from the internet and optionally extracts its contents as markdown.\n\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.',
-              param_schema: {
-                url: {
-                  type: 'string',
-                  title: 'Url',
-                  description: 'URL to fetch',
-                  required: true,
-                },
-                max_length: {
-                  type: 'integer',
-                  title: 'Max Length',
-                  description: 'Maximum number of characters to return.',
-                  required: false,
-                  default: 5000,
-                },
-                start_index: {
-                  type: 'integer',
-                  title: 'Start Index',
-                  description:
-                    'On return output starting at this character index, useful if a previous fetch was truncated and more context is required.',
-                  required: false,
-                },
-                raw: {
-                  type: 'boolean',
-                  title: 'Raw',
-                  description: 'Get the actual HTML content of the requested page, without simplification.',
-                  required: false,
-                },
-              },
-            },
-          ]);
+          setToolList(res?.data || []);
         }
       },
       debounceWait: 300,
@@ -191,7 +148,17 @@ const MpcDetail: React.FC = () => {
       return;
     }
 
-    await runMcpToolRun({ name: queryParams?.name, ..._params });
+    await runMcpToolRun({
+      name: queryParams?.name,
+  
+      params:{
+        name: selectUrl,
+        arguments: {
+          ..._params,
+        },
+      }
+     
+    });
   };
 
   const formData: any = useMemo(() => {
@@ -213,8 +180,11 @@ const MpcDetail: React.FC = () => {
                   style={{ position: 'absolute', height: '100%', width: '100%', inset: '0px', color: 'transparent' }}
                 />
               ) : (
-                <span className='ant-avatar ant-avatar-circle bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
-                  <span className='ant-avatar-string text-[10px]'>derisk</span>
+                <span
+                  style={{ borderRadius: '50%', lineHeight: '27px' }}
+                  className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'
+                >
+                  <span className='ant-avatar-string text-[10px]'>derisk22</span>
                 </span>
               )}
             </div>

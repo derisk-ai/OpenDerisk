@@ -7,7 +7,6 @@ export type CustomRecommendConfig = {
   customCKB?: Partial<AdvisorConfig['ckbCfg']>;
   customRule?: Partial<AdvisorConfig['ruleCfg']>;
 };
-
 export const customizeAdvisor = (props: CustomAdvisorConfig): Advisor => {
   const { charts, scopeOfCharts: CKBCfg, ruleConfig: ruleCfg } = props;
 

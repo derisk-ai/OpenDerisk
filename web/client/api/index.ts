@@ -79,6 +79,8 @@ export const DELETE = <Params = any, Response = any, D = any>(
   return ins.delete<Params, ApiResponse<Response>>(url, { params, ...config });
 };
 
+
+
 export * from './app';
 export * from './chat';
 export * from './evaluate';

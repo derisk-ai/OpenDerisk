@@ -111,8 +111,9 @@ async def call_mcp_tool(mcp_name: str, tool_name: str, server: str, headers: Opt
                 async with ClientSession(read, write) as session:
                     # Initialize the connection
                     await session.initialize()
+                    arguments = kwargs.get("arguments")
                     result = await session.call_tool(
-                        tool_name, arguments=kwargs
+                        tool_name, arguments=arguments
                     )
                     end_time = int(
                         datetime.now().timestamp() * 1000
@@ -142,3 +143,51 @@ async def call_mcp_tool(mcp_name: str, tool_name: str, server: str, headers: Opt
         raise ValueError(f"MCP服务{mcp_name}工具调用超时!")
     except Exception as e:
         raise ValueError(f"MCP服务{mcp_name}:{tool_name}工具调用异常!", e)
+
+
+async def connect_mcp(mcp_name: str, server: str, headers: Optional[dict[str, str]] = None):
+    """Connect to MCP server
+
+    Args:
+        mcp_name (str): MCP server name
+        server (str): MCP server URL 
+        headers (Optional[dict[str, str]], optional): Request headers. Defaults to None.
+
+    Raises:
+        ValueError: If connection fails or times out
+    """
+    logger.info(f"connect_mcp:{mcp_name},{server}")
+    trace_id = root_tracer.get_current_span().trace_id
+
+    async def connect():
+        start_time = int(datetime.now().timestamp() * 1000)
+        try:
+            async with sse_client(url=server, headers=headers) as (read, write):
+                async with ClientSession(read, write) as session:
+                    # Initialize the connection
+                    await session.initialize()
+                    end_time = int(datetime.now().timestamp() * 1000)
+                    LOGGER.info(
+                        f"[{trace_id}][DIGEST][connect]mcp_server=[{mcp_name}],sse=[{server}],success=[Y],err_msg=[None],costMs=[{end_time - start_time}],headers=[{headers}]"
+                    )
+                    return True
+        except Exception as e:
+            LOGGER.exception(
+                f"[{trace_id}][DIGEST][connect]mcp_server=[{mcp_name}],sse=[{server}],success=[N],err_msg=[{str(e)}],costMs=[None],headers=[{headers}]"
+            )
+            raise ValueError(f"MCP Connect Exception! {str(e)}")
+
+    try:
+        return await safe_call_tool(
+            connect,
+            time_out=600,
+        )
+    except ServiceUnavailableError as e:
+        raise ValueError(f"MCP服务{mcp_name}连接异常!", e)
+    except asyncio.TimeoutError as e:
+        raise ValueError(f"MCP服务{mcp_name}连接超时!")
+    except Exception as e:
+        raise ValueError(f"MCP服务{mcp_name}连接异常!", e)
+
+
+

@@ -400,7 +400,10 @@ export const CommonZh: Resources['translation'] = {
   task_name: '任务名称',
   stop_mcp: '下线MCP',
   start_mcp: '上线MCP',
+  mcp_Online: '已上线', // 现在不会报错，因为 I18nKeys 包含 mcp_Online
+  mcp_Offline: '未上线',
   create_MCP: '创建MCP',
+  edit_MCP: '编辑 MCP',
   mcp_name: 'MCP 名称',
   mcp_description: 'MCP 描述',
   mcp_type: 'MCP 类型',

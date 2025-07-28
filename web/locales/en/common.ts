@@ -395,7 +395,10 @@ export const CommonEn = {
   stop_mcp: 'Stop MCP',
   start_mcp: 'Start MCP',
   create_MCP: 'Create MCP',
+  edit_MCP: 'Edit MCP',
   mcp_name: 'MCP Name',
+  mcp_Online: 'Online', // 现在不会报错，因为 I18nKeys 包含 mcp_Online
+  mcp_Offline: 'Offline',
   mcp_description: 'MCP Description',
   mcp_type: 'MCP Type',
   mcp_author: 'Author',
