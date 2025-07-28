@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Optional, Any
 
@@ -59,9 +60,25 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         # TODO: implement your own logic here
         # Build the query request from the request
         query_request = {
-            # "id": request.id
+            "mcp_code": request.mcp_code
         }
-        return self.dao.update(query_request, update_request=request)
+        request_dict = (
+            request.dict() if isinstance(request, ServeRequest) else request
+        )
+
+        # 处理 JSON 字段序列化
+        if 'sse_headers' in request_dict and isinstance(request_dict['sse_headers'], dict):
+            request_dict['sse_headers'] = json.dumps(request_dict['sse_headers'])
+
+        if 'available' in request_dict:
+            # 将None转换为False，或保持原值
+            request_dict['available'] = request_dict['available'] if request_dict['available'] is not None else False
+        # 过滤掉只读字段（如自动生成的 id 和时间戳）
+        request_dict.pop('mcp_code', None)
+        request_dict.pop('gmt_created', None)
+        request_dict.pop('gmt_modified', None)
+
+        return self.dao.update(query_request, request_dict)
 
     def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a Mcp entity
@@ -86,9 +103,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         # TODO: implement your own logic here
         # Build the query request from the request
-        query_request = {
-            "id": request.id
-        }
+        query_request = request
         self.dao.delete(query_request)
 
     def get_list(self, request: ServeRequest) -> List[ServerResponse]:
@@ -142,9 +157,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
     async def connect_mcp(self, mcp_name: str, headers: Optional[dict]):
         logger.info(f"connect_mcp:{mcp_name},{headers}")
-        mcp_resp = self.get(ServeRequest(mcp_name=mcp_name))
+        mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
+        
+        from derisk.agent.resource.tool.mcp.mcp_utils import connect_mcp
+        return await connect_mcp(mcp_name, mcp_resp.sse_url, headers)
 
     async def list_tools(self, mcp_name: str, mcp_sse_url: Optional[str], headers: Optional[dict[str, Any]] = None) -> \
     Optional[List[McpTool]]:
@@ -171,7 +189,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         arguments: dict[str, Any] | None = None,
                         headers: Optional[dict] = None):
         logger.info(f"call mcp tool:{mcp_name},{mcp_sse_url}")
-        mcp_resp = self.get(ServeRequest(mcp_name=mcp_name))
+        mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
 

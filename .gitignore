@@ -190,3 +190,6 @@ thirdparty
 # Custome configs
 configs/my
 configs/local
+.specstory
+
+.cursorignore

@@ -10,7 +10,7 @@ from ..config import SERVE_APP_NAME_HUMP
 # ------------------------ Request Model ------------------------
 class ServeRequest(BaseModel):
     """Mcp request model"""
-
+    mcp_code: Optional[str] = Field(None, description="mcp_code")
     name: Optional[str] = Field(None, min_length=1, max_length=255, description="mcp name")
     description: Optional[str] = Field(None, min_length=1, description="mcp description")
     type: Optional[str] = Field(None, min_length=1, max_length=255, description="mcp type")
@@ -48,7 +48,7 @@ class ServeRequest(BaseModel):
 class ServerResponse(BaseModel):
     """Mcp response model"""
 
-    id: int = Field(..., description="Auto increment id")
+    mcp_code: str = Field(..., description="mcp code")
     name: str = Field(..., description="mcp name")
     description: str = Field(..., description="mcp description")
     type: str = Field(..., description="mcp type")
