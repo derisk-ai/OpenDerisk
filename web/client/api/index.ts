@@ -16,7 +16,7 @@ export type SuccessTuple<T = any, D = any> = [null, T, ResponseType<T>, ApiRespo
 export type FailedTuple<T = any, D = any> = [Error | AxiosError<T, D>, null, null, null];
 
 const ins = axios.create({
-  baseURL: 'http://127.0.0.1:7777',
+  baseURL: process.env.API_BASE_URL ?? '',
 });
 
 const LONG_TIME_API: string[] = [
