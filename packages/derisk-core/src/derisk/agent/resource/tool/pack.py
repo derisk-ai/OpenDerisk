@@ -407,12 +407,13 @@ class MCPToolPack(ToolPack):
             del arguments[arg_name]
 
         # Rebuild derisk mcp call param
+        server = self.tool_server_map[tl.name]
         return {
             "mcp_name": self.name,
             "server": self.tool_server_map[tl.name],
             "args": arguments,
             "tool_name": tl.name,
-            "headers": self._headers,
+            "headers": self.server_headers_map[server],
         }
 
     # async def get_mcp_tool_list(self, server: str, headers: Optional[dict] = None, server_ssl_verify: Optional[Any] = None):
@@ -491,7 +492,7 @@ class MCPToolPack(ToolPack):
                 self._headers["x-mcp-hash-key"] = str(uuid.uuid4())
                 result = await get_mcp_tool_list(
                     self.name, server,
-                    headers=self._headers,
+                    headers=self.server_headers_map[server],
                     allow_tools=self._allow_tools
                 )
                 for tool in result.tools:
@@ -506,7 +507,7 @@ class MCPToolPack(ToolPack):
                         tool_name=tool_name,
                         server=server,
                         trace_id=trace_id,
-                        headers=self._headers,
+                        headers=self.server_headers_map[server],
                     )
 
                     self.add_command(
