@@ -3,8 +3,8 @@
 import logging
 from typing import Optional, Union
 
-from derisk.util.code_utils import UNKNOWN, execute_code, extract_code, infer_lang
-from derisk.util.utils import colored
+from derisk.util.code_utils import UNKNOWN, execute_code, extract_code, infer_lang, extract_code_v2
+from derisk.util.logger import colored
 from derisk.vis import SystemVisTag
 from derisk_ext.vis.gptvis.tags.vis_code import Vis, VisCode
 
@@ -34,7 +34,7 @@ class CodeAction(Action[None]):
     ) -> ActionOutput:
         """Perform the action."""
         try:
-            code_blocks = extract_code(ai_message)
+            code_blocks, text_info = extract_code_v2(ai_message)
             if len(code_blocks) < 1:
                 logger.info(
                     f"No executable code found in answer,{ai_message}",
@@ -71,11 +71,13 @@ class CodeAction(Action[None]):
             if not self.render_protocol:
                 raise NotImplementedError("The render_protocol should be implemented.")
             view = await self.render_protocol.display(content=param)
+
             return ActionOutput(
                 is_exe_success=exit_success,
                 content=content,
                 view=view,
-                thoughts=ai_message,
+                simple_view=logs,
+                thoughts=text_info or ai_message,
                 observations=content,
             )
         except Exception as e:

@@ -88,7 +88,6 @@ class ComponentType(str, Enum):
     MODEL_CACHE_MANAGER = "derisk_model_cache_manager"
     PLUGIN_HUB = "derisk_plugin_hub"
     MULTI_AGENTS = "derisk_multi_agents"
-    ASYNC_AGENT_CHAT = "derisk_async_agent_chat"
     EXECUTOR_DEFAULT = "derisk_thread_pool_default"
     TRACER = "derisk_tracer"
     TRACER_SPAN_STORAGE = "derisk_tracer_span_storage"
@@ -99,11 +98,13 @@ class ComponentType(str, Enum):
     CONNECTOR_MANAGER = "derisk_connector_manager"
     RAG_STORAGE_MANAGER = "derisk_rag_storage_manager"
     AGENT_MANAGER = "derisk_agent_manager"
+    LLM_STRATEGY_MANAGER = "derisk_llm_strategy_manager"
     RESOURCE_MANAGER = "derisk_resource_manager"
     VARIABLES_PROVIDER = "derisk_variables_provider"
     FILE_STORAGE_CLIENT = "derisk_file_storage_client"
     VIS_CONVERTER_PACKAGE = "vis_converter_package"
     REASONING_MANAGER = "derisk_reasoning_manager"
+
 
 
 _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"

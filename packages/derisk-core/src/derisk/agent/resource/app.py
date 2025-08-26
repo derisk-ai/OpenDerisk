@@ -14,8 +14,9 @@ from .base import Resource, ResourceParameters, ResourceType
 
 class AppInfo(BaseModel):
     code: str
-    name: str
-    desc: str
+    name: Optional[str]
+    desc: Optional[str]
+    icon: Optional[str] = None
 
 
 class AppResource(Resource[ResourceParameters]):
@@ -29,7 +30,10 @@ class AppResource(Resource[ResourceParameters]):
     @abstractmethod
     def app_desc(self):
         """Return the app description."""
-
+    @property
+    @abstractmethod
+    def app_icon(self):
+        """Return the app icon."""
     @property
     @abstractmethod
     def app_name(self):
@@ -55,7 +59,7 @@ class AppResource(Resource[ResourceParameters]):
         return self._resource_name
 
     @classmethod
-    def _get_app_list(cls) -> List[AppInfo]:
+    def _get_app_list(cls, **kwargs) -> List[AppInfo]:
         """Get the current app list"""
 
     @classmethod
@@ -64,12 +68,15 @@ class AppResource(Resource[ResourceParameters]):
         class _DynAppResourceParameters(ResourceParameters):
             """Application resource class."""
 
-            apps = cls._get_app_list()
+            apps = cls._get_app_list(**kwargs)
             valid_values = [
                 {
-                    "label": f"{app.name}({app.code})",
+                    "label": f"{app.name}[{app.desc}]",
                     "key": app.code,
-                    "description": app.desc,
+                    "app_code": app.code,
+                    "app_name": app.name,
+                    "app_icon": app.icon,
+                    "app_desc": app.desc,
                 }
                 for app in apps
             ]
@@ -109,6 +116,8 @@ class AppResource(Resource[ResourceParameters]):
                 copied_data = data.copy()
                 if "app_code" not in copied_data and "value" in copied_data:
                     copied_data["app_code"] = copied_data.pop("value")
+                if "name" not in copied_data:
+                    copied_data["name"] = copied_data["app_name"]
                 return super().from_dict(
                     copied_data, ignore_extra_fields=ignore_extra_fields
                 )

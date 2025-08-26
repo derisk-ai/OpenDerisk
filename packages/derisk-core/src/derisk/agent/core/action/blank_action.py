@@ -23,7 +23,7 @@ class BlankAction(Action):
 
     async def run(
         self,
-        ai_message: str,
+        ai_message: str = None,
         resource: Optional[AgentResource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,

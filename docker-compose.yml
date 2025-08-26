@@ -1,0 +1,58 @@
+version: '3.10'
+
+services:
+  db:
+    image: mysql/mysql-server
+    environment:
+      MYSQL_USER: 'user'
+      MYSQL_PASSWORD: 'password'
+      MYSQL_ROOT_PASSWORD: 'aa123456'
+    ports:
+      - 3306:3306
+    volumes:
+      - derisk-myql-db:/var/lib/mysql
+      - ./docker/examples/my.cnf:/etc/my.cnf
+      - ./docker/examples/sqls:/docker-entrypoint-initdb.d
+      - ./assets/schema/derisk.sql:/docker-entrypoint-initdb.d/derisk.sql
+    restart: unless-stopped
+    networks:
+      - derisknet
+  webserver:
+    image: eosphorosai/derisk:latest
+    command: python3 derisk/app/derisk_server.py
+    environment:
+      - LOCAL_DB_HOST=db
+      - LOCAL_DB_PASSWORD=aa123456
+      - ALLOWLISTED_PLUGINS=db_dashboard
+      - LLM_MODEL=glm-4-9b-chat
+    depends_on:
+      - db
+    volumes:
+      - /data:/data
+      # Please modify it to your own model directory
+      - /data/models:/app/models
+      - derisk-data:/app/pilot/data
+      - derisk-message:/app/pilot/message
+    env_file:
+      - .env.template
+    ports:
+      - 5670:5670/tcp
+    # webserver may be failed, it must wait all sqls in /docker-entrypoint-initdb.d execute finish.
+    restart: unless-stopped
+    networks:
+      - derisknet
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+volumes:
+  derisk-myql-db:
+  derisk-data:
+  derisk-message:
+networks:
+  derisknet:
+    driver: bridge
+    name: derisknet

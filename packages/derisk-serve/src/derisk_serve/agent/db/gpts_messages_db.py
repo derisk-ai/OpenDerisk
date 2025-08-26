@@ -71,6 +71,14 @@ class GptsMessagesEntity(Model):
     content = Column(
         Text(length=2 ** 31 - 1), nullable=True, comment="Content of the speech"
     )
+    content_types = Column(
+        String(1000), nullable=True, comment="Content types of the speech"
+    )
+    message_type = Column(
+        String(255),
+        nullable=True,
+        comment="type of the message"
+    )
     system_prompt = Column(
         Text(length=2 ** 31 - 1), nullable=True, comment="this message system prompt"
     )
@@ -106,7 +114,9 @@ class GptsMessagesEntity(Model):
         String(255), nullable=True, comment="The role of the current message content"
     )
     avatar = Column(
-        String(255), nullable=True, comment="The avatar of the agent who send current message content"
+        String(255),
+        nullable=True,
+        comment="The avatar of the agent who send current message content",
     )
     created_at = Column(
         DateTime, name="gmt_create", default=datetime.utcnow, comment="create time"
@@ -122,7 +132,6 @@ class GptsMessagesEntity(Model):
 
 
 class GptsMessagesDao(BaseDao):
-
     def _dict_to_entity(self, entity: dict) -> GptsMessagesEntity:
         return GptsMessagesEntity(
             conv_id=entity.get("conv_id"),
@@ -133,6 +142,7 @@ class GptsMessagesDao(BaseDao):
             receiver=entity.get("receiver"),
             receiver_name=entity.get("receiver_name"),
             content=entity.get("content"),
+            content_types=entity.get("content_types"),
             thinking=entity.get("thinking"),
             is_success=entity.get("is_success", True),
             role=entity.get("role", None),
@@ -156,7 +166,7 @@ class GptsMessagesDao(BaseDao):
         session = self.get_raw_session()
         message_qry = session.query(GptsMessagesEntity)
         message_qry = message_qry.filter(
-            GptsMessagesEntity.message_id == entity['message_id']
+            GptsMessagesEntity.message_id == entity["message_id"]
         )
         old_message: Optional[GptsMessagesEntity] = message_qry.one_or_none()
 
@@ -172,6 +182,7 @@ class GptsMessagesDao(BaseDao):
                     GptsMessagesEntity.app_code: entity.get("app_code"),
                     GptsMessagesEntity.app_name: entity.get("app_name"),
                     GptsMessagesEntity.content: entity.get("content"),
+                    GptsMessagesEntity.content_types: entity.get("content_types"),
                     GptsMessagesEntity.current_goal: entity.get("current_goal"),
                     GptsMessagesEntity.context: entity.get("context"),
                     GptsMessagesEntity.review_info: entity.get("review_info"),
@@ -235,11 +246,15 @@ class GptsMessagesDao(BaseDao):
         session.close()
         return result
 
-    def get_by_conv_session_id(self, conv_session_id: str) -> Optional[List[GptsMessagesEntity]]:
+    def get_by_conv_session_id(
+            self, conv_session_id: str
+    ) -> Optional[List[GptsMessagesEntity]]:
         session = self.get_raw_session()
         gpts_messages = session.query(GptsMessagesEntity)
         if conv_session_id:
-            gpts_messages = gpts_messages.filter(GptsMessagesEntity.conv_session_id == conv_session_id)
+            gpts_messages = gpts_messages.filter(
+                GptsMessagesEntity.conv_session_id == conv_session_id
+            )
         result = gpts_messages.order_by(GptsMessagesEntity.rounds).all()
         session.close()
         return result
@@ -256,7 +271,6 @@ class GptsMessagesDao(BaseDao):
             session.delete(old_message)
             session.commit()
         session.close()
-
 
     def get_by_message_id(self, message_id: str) -> Optional[GptsMessagesEntity]:
         session = self.get_raw_session()

@@ -10,7 +10,8 @@ from derisk.rag.embedding.embedding_factory import EmbeddingFactory
 from derisk.rag.retriever import EmbeddingRetriever, QueryRewrite, Ranker
 from derisk.rag.retriever.base import BaseRetriever, RetrieverStrategy
 from derisk.rag.transformer.keyword_extractor import KeywordExtractor
-from derisk.storage.vector_store.filters import MetadataFilters
+from derisk.rag.transformer.tag_extractor import MetadataTag
+from derisk.storage.vector_store.filters import MetadataFilters, MetadataFilter
 from derisk.util.executor_utils import ExecutorFactory, blocking_func_to_async
 from derisk_ext.rag.retriever.doc_tree import TreeNode
 from derisk_serve.rag.models.models import KnowledgeSpaceDao
@@ -19,6 +20,8 @@ from derisk_serve.rag.retriever.retriever_chain import RetrieverChain
 from derisk_serve.rag.storage_manager import StorageManager
 
 logger = logging.getLogger(__name__)
+FILTERED_KEYS = ["source", "doc_name", "sheet_name", "knowledge_id", "doc_id"]
+EXCEL_TYPES = ["excel", "csv"]
 
 
 class KnowledgeSpaceRetriever(BaseRetriever):
@@ -33,6 +36,7 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         llm_model: Optional[str] = None,
         retrieve_mode: Optional[str] = None,
         embedding_model: Optional[str] = None,
+        tag_filters: Optional[List[MetadataTag]] = None,
         system_app: SystemApp = None,
     ):
         """
@@ -47,12 +51,13 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         self._space_id = space_id
         self._query_rewrite = query_rewrite
         self._rerank = rerank
-        self._llm_model = llm_model or "aistudio/Qwen2-72B-Instruct"
+        self._llm_model = llm_model
         app_config = system_app.config.configs.get("app_config")
         self._top_k = top_k or app_config.rag.similarity_top_k
-        self._retrieve_mode = retrieve_mode or RetrieverStrategy.SEMANTIC.value
+        self._retrieve_mode = retrieve_mode or RetrieverStrategy.HYBRID.value
         self._embedding_model = embedding_model or app_config.models.default_embedding
         self._system_app = system_app
+        self._tag_filters = tag_filters
         embedding_factory = self._system_app.get_component(
             "embedding_factory", EmbeddingFactory
         )
@@ -180,26 +185,45 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         Return:
             List[Chunk]: list of chunks with score.
         """
+        if self._tag_filters:
+            tags_filters = await self._build_query_tag_filter(query, self._tag_filters)
+            if filters is None:
+                metadata_filters = []
+                for tag_filter in tags_filters:
+                    for key, value in tag_filter.items():
+                        if key and value:
+                            metadata_filters.append(
+                                MetadataFilter(key=key, value=value)
+                            )
+                if metadata_filters:
+                    filters = MetadataFilters(filters=metadata_filters)
+            else:
+                for tag_filter in tags_filters:
+                    for key, value in tag_filter.items():
+                        if key and value:
+                            filters.filters.append(MetadataFilter(key=key, value=value))
         if self._retrieve_mode == RetrieverStrategy.SEMANTIC.value:
-            logger.info("Starting Semantic retrieval")
+            logger.info(f"Knowledge {self._knowledge_id} Starting Semantic retrieval")
             return await self.semantic_retrieve(query, score_threshold, filters)
         elif self._retrieve_mode == RetrieverStrategy.KEYWORD.value:
-            logger.info("Starting Full Text retrieval")
+            logger.info(f"Knowledge {self._knowledge_id} Starting Full Text retrieval")
             return await self.full_text_retrieve(query, self._top_k, filters)
+        elif self._retrieve_mode == RetrieverStrategy.EXACT.value:
+            logger.info("Starting Exact retrieval")
+            return self.exact_search(filters, self._top_k)
         elif self._retrieve_mode == RetrieverStrategy.HYBRID.value:
-            logger.info("Starting Hybrid retrieval")
+            logger.info(f"Knowledge {self._knowledge_id} Starting Hybrid retrieval")
             tasks = []
             import asyncio
-
             tasks.append(self.semantic_retrieve(query, score_threshold, filters))
-            tasks.append(self.full_text_retrieve(query, self._top_k, filters))
-            # tasks.append(self.tree_index_retrieve(query, self._top_k, filters))
+            # tasks.append(self.full_text_retrieve(query, self._top_k, filters))
+            tasks.append(self.tree_index_retrieve(query, self._top_k, filters))
             results = await asyncio.gather(*tasks)
             semantic_candidates = results[0]
             full_text_candidates = results[1]
             # tree_candidates = results[2]
             logger.info(
-                f"Hybrid retrieval completed. "
+                f"Knowledge {self._knowledge_id} Hybrid retrieval completed. "
                 f"Found {len(semantic_candidates)} semantic candidates "
                 f"and Found {len(full_text_candidates)} full text candidates."
                 # f"and Found {len(tree_candidates)} tree candidates."
@@ -209,6 +233,8 @@ class KnowledgeSpaceRetriever(BaseRetriever):
             unique_candidates = {chunk.content: chunk for chunk in candidates}
             for chunk in unique_candidates.values():
                 chunk.query = query
+                if chunk.metadata.get("data_type") in EXCEL_TYPES:
+                    _add_excel_headers(chunk)
             return list(unique_candidates.values())
 
     async def semantic_retrieve(
@@ -307,7 +333,9 @@ class KnowledgeSpaceRetriever(BaseRetriever):
                 rerank=self._rerank,
             )
             candidates = []
-            tree_nodes = await tree_retriever.aretrieve_with_scores(query, top_k, filters)
+            tree_nodes = await tree_retriever.aretrieve_with_scores(
+                query, top_k, filters
+            )
             # Convert tree nodes to chunks
             for node in tree_nodes:
                 chunks = self._traverse(node)
@@ -316,6 +344,45 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         except Exception as e:
             logger.error(f"Error in tree index retrieval: {e}")
             return []
+
+    def exact_search(self, filters: MetadataFilters, top_k: int = 1) -> List[Chunk]:
+        """Exact search in the knowledge space.
+
+        Args:
+            filters: (Optional[MetadataFilters]) metadata filters.
+            top_k (int): 1.
+
+        Return:
+            List[Chunk]: list of chunks.
+        """
+        logger.info("Starting exact search, filters: %s", filters)
+        return self._storage_connector.exact_search(filters=filters, topk=top_k)
+
+    async def _build_query_tag_filter(
+        self, query: str, tag_filters: List[MetadataTag]
+    ) -> dict:
+        """Build tag filters.
+
+        Args:
+            query: (Optional[str]) query.
+            tag_filters (int): tag_filters.
+
+        Return:
+            List[Chunk]: list of chunks.
+        """
+        logger.info("Build_query_tag_filters: %s", query)
+        worker_manager = self._system_app.get_component(
+            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
+        ).create()
+        llm_client = DefaultLLMClient(worker_manager=worker_manager)
+        from derisk.rag.transformer.tag_extractor import TagsExtractor
+        self._tag_extractor = TagsExtractor(
+            llm_client=llm_client,
+            model_name=self._llm_model,
+            tags=tag_filters,
+        )
+        extract_tags = await self._tag_extractor.extract(query)
+        return extract_tags
 
     def _traverse(self, node: TreeNode):
         """Traverse the tree and search for the keyword."""
@@ -341,3 +408,17 @@ class KnowledgeSpaceRetriever(BaseRetriever):
                     )
                 )
         return result
+
+
+def _add_excel_headers(
+    excel_chunk: Chunk,
+) -> None:
+    """Add headers to the excel knowledge."""
+    markdown_table = "| KEY | VALUE |\n| --- | --- |\n"
+    filtered_metadata = excel_chunk.metadata
+    for key, value in filtered_metadata.items():
+        if key in FILTERED_KEYS:
+            continue
+        markdown_table += f"| {key} | {value} |\n"
+    excel_chunk.content = markdown_table
+

@@ -2,7 +2,6 @@ from typing import Any, List, Optional
 
 from derisk._private.pydantic import BaseModel
 
-
 class DataNode(BaseModel):
     title: Optional[str]
     key: Optional[str]
@@ -20,3 +19,8 @@ class SqlRunData(BaseModel):
     colunms: Optional[List[str]] = []
     values: Optional[List] = []
 
+
+class ChartRunData(BaseModel):
+    sql_data: SqlRunData
+    chart_values: List[Any]
+    chart_type: Optional[str]

@@ -15,19 +15,22 @@ from fastapi.responses import StreamingResponse
 from derisk._private.config import Config
 from derisk.component import ComponentType
 from derisk.configs import TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE
+from derisk.core import ModelOutput, HumanMessage
 from derisk.core.awel import BaseOperator, CommonLLMHttpRequestBody
 from derisk.core.awel.dag.dag_manager import DAGManager
 from derisk.core.awel.util.chat_util import safe_chat_stream_with_dag_task
+from derisk.core.interface.file import FileStorageClient
+from derisk.core.schema.api import ChatCompletionResponseChoice, ChatMessage, UsageInfo, ChatCompletionResponse
 from derisk.model.base import FlatSupportedModel
 from derisk.model.cluster import (
     BaseModelController,
     WorkerManager,
     WorkerManagerFactory,
 )
+from derisk.util.data_util import first
 from derisk.util.executor_utils import (
     DefaultExecutorFactory,
     ExecutorFactory,
-    blocking_func_to_async,
 )
 from derisk.util.file_client import FileClient
 from derisk.util.tracer import SpanType, root_tracer
@@ -42,15 +45,17 @@ from derisk_app.openapi.api_view_model import (
     MessageVo,
     Result,
 )
-from derisk_app.scene import BaseChat, ChatFactory, ChatScene
-from derisk_serve.agent.db.gpts_app import UserRecentAppsDao, adapt_native_app_model
+from derisk_serve.agent.agents.controller import multi_agents
+from derisk_serve.agent.db.gpts_app import UserRecentAppsDao
+from derisk_serve.agent.team.base import TeamMode
+from derisk_serve.core import blocking_func_to_async
 from derisk_serve.datasource.manages.db_conn_info import DBConfig, DbTypeInfo
 from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
+from derisk_serve.flow.service.service import Service as FlowService
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter()
 CFG = Config()
-CHAT_FACTORY = ChatFactory()
 logger = logging.getLogger(__name__)
 knowledge_service = KnowledgeService()
 
@@ -68,11 +73,11 @@ def __get_conv_user_message(conversations: dict):
     return ""
 
 
-def __new_conversation(chat_mode, user_name: str, sys_code: str) -> ConversationVo:
+def __new_conversation(team_mode, user_name: str, sys_code: str) -> ConversationVo:
     unique_id = uuid.uuid1()
     return ConversationVo(
         conv_uid=str(unique_id),
-        chat_mode=chat_mode,
+        team_mode=team_mode,
         user_name=user_name,
         sys_code=sys_code,
     )
@@ -146,9 +151,18 @@ def get_worker_manager() -> WorkerManager:
     return worker_manager
 
 
+def get_fs() -> FileStorageClient:
+    return FileStorageClient.get_instance(CFG.SYSTEM_APP)
+
+
 def get_dag_manager() -> DAGManager:
     """Get the global default DAGManager"""
     return DAGManager.get_instance(CFG.SYSTEM_APP)
+
+
+def get_chat_flow() -> FlowService:
+    """Get Chat Flow Service."""
+    return FlowService.get_instance(CFG.SYSTEM_APP)
 
 
 def get_executor() -> Executor:
@@ -192,13 +206,6 @@ async def permission_db_list(
         user_token: UserRequest = Depends(get_user_from_headers),
 ):
     return Result.succ()
-
-@router.get("/v1/aisre/query/list", response_model=Result[List])
-async def derisk_query_list(
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    from derisk_ext.ai_sre.resource.query_prompt import DeRisk_Querys 
-    return Result.succ(DeRisk_Querys)
 
 
 @router.post("/v1/chat/db/edit", response_model=Result)
@@ -260,29 +267,6 @@ async def db_support_types():
     return Result[DbTypeInfo].succ(db_type_infos)
 
 
-@router.post("/v1/chat/dialogue/scenes", response_model=Result[List[ChatSceneVo]])
-async def dialogue_scenes(user_info: UserRequest = Depends(get_user_from_headers)):
-    scene_vos: List[ChatSceneVo] = []
-    new_modes: List[ChatScene] = [
-        ChatScene.ChatWithDbExecute,
-        ChatScene.ChatWithDbQA,
-        ChatScene.ChatExcel,
-        ChatScene.ChatKnowledge,
-        ChatScene.ChatDashboard,
-        ChatScene.ChatAgent,
-    ]
-    for scene in new_modes:
-        scene_vo = ChatSceneVo(
-            chat_scene=scene.value(),
-            scene_name=scene.scene_name(),
-            scene_describe=scene.describe(),
-            param_title=",".join(scene.param_types()),
-            show_disable=scene.show_disable(),
-        )
-        scene_vos.append(scene_vo)
-    return Result.succ(scene_vos)
-
-
 @router.post("/v1/resource/params/list", response_model=Result[List[dict]])
 async def resource_params_list(
         resource_type: str,
@@ -298,76 +282,56 @@ async def resource_params_list(
         return Result.succ()
     return Result.succ(result)
 
-
-@router.post("/v1/chat/mode/params/list", response_model=Result[List[dict]])
-async def params_list(
-        chat_mode: str = ChatScene.ChatNormal.value(),
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    if ChatScene.ChatWithDbQA.value() == chat_mode:
-        result = get_db_list()
-    elif ChatScene.ChatWithDbExecute.value() == chat_mode:
-        result = get_db_list()
-    elif ChatScene.ChatDashboard.value() == chat_mode:
-        result = get_db_list()
-    elif ChatScene.ChatExecution.value() == chat_mode:
-        result = plugins_select_info()
-    elif ChatScene.ChatKnowledge.value() == chat_mode:
-        result = knowledge_list()
-    elif ChatScene.ChatKnowledge.ExtractRefineSummary.value() == chat_mode:
-        result = knowledge_list()
-    else:
-        return Result.succ()
-    return Result.succ(result)
-
-
 @router.post("/v1/resource/file/upload")
 async def file_upload(
         chat_mode: str,
         conv_uid: str,
+        temperature: Optional[float] = None,
+        max_new_tokens: Optional[int] = None,
         sys_code: Optional[str] = None,
         model_name: Optional[str] = None,
-        doc_file: UploadFile = File(...),
+        doc_files: List[UploadFile] = File(...),
         user_token: UserRequest = Depends(get_user_from_headers),
+        fs: FileStorageClient = Depends(get_fs),
 ):
-    logger.info(f"file_upload:{conv_uid},{doc_file.filename}")
-    file_client = FileClient()
-    file_name = doc_file.filename
-    is_oss, file_key = await file_client.write_file(
-        conv_uid=conv_uid, doc_file=doc_file
+    logger.info(
+        f"file_upload:{conv_uid}, files:{[file.filename for file in doc_files]}"
     )
 
-    _, file_extension = os.path.splitext(file_name)
-    if file_extension.lower() in [".xls", ".xlsx", ".csv"]:
-        file_param = {
-            "is_oss": is_oss,
-            "file_path": file_key,
-            "file_name": file_name,
-            "file_learning": True,
-        }
-        # Prepare the chat
-        dialogue = ConversationVo(
-            conv_uid=conv_uid,
-            chat_mode=chat_mode,
-            select_param=file_param,
-            model_name=model_name,
-            user_name=user_token.user_id,
-            sys_code=sys_code,
-        )
-        chat: BaseChat = await get_chat_instance(dialogue)
-        await chat.prepare()
+    bucket = "derisk_app_file"
+    file_params = []
 
-        # Refresh messages
-        return Result.succ(file_param)
-    else:
-        return Result.succ(
-            {
-                "is_oss": is_oss,
-                "file_path": file_key,
-                "file_learning": False,
-                "file_name": file_name,
-            }
+    for doc_file in doc_files:
+        file_name = doc_file.filename
+        custom_metadata = {
+            "user_name": user_token.user_id,
+            "sys_code": sys_code,
+            "conv_uid": conv_uid,
+        }
+
+        file_uri = await blocking_func_to_async(
+            CFG.SYSTEM_APP,
+            fs.save_file,
+            bucket,
+            file_name,
+            doc_file.file,
+            custom_metadata=custom_metadata,
         )
+
+        _, file_extension = os.path.splitext(file_name)
+        file_param = {
+            "is_oss": True,
+            "file_path": file_uri,
+            "file_name": file_name,
+            "file_learning": False,
+            "bucket": bucket,
+        }
+        file_params.append(file_param)
+
+    # If only one file was uploaded, return the single file_param directly
+    # Otherwise return the array of file_params
+    result = file_params[0] if len(file_params) == 1 else file_params
+    return Result.succ(result)
 
 
 @router.post("/v1/resource/file/delete")
@@ -407,90 +371,30 @@ def get_hist_messages(conv_uid: str, user_name: str = None):
     instance: ConversationService = ConversationService.get_instance(CFG.SYSTEM_APP)
     return instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
 
-
-async def get_chat_instance(dialogue: ConversationVo = Body()) -> BaseChat:
-    logger.info(f"get_chat_instance:{dialogue}")
-    if not dialogue.chat_mode:
-        dialogue.chat_mode = ChatScene.ChatNormal.value()
-    if not dialogue.conv_uid:
-        conv_vo = __new_conversation(
-            dialogue.chat_mode, dialogue.user_name, dialogue.sys_code
-        )
-        dialogue.conv_uid = conv_vo.conv_uid
-
-    if not ChatScene.is_valid_mode(dialogue.chat_mode):
-        raise StopAsyncIteration(
-            Result.failed("Unsupported Chat Mode," + dialogue.chat_mode + "!")
-        )
-
-    chat_param = {
-        "chat_session_id": dialogue.conv_uid,
-        "user_name": dialogue.user_name,
-        "sys_code": dialogue.sys_code,
-        "current_user_input": dialogue.user_input,
-        "select_param": dialogue.select_param,
-        "model_name": dialogue.model_name,
-        "app_code": dialogue.app_code,
-        "ext_info": dialogue.ext_info,
-        "temperature": dialogue.temperature,
-        "max_new_tokens": dialogue.max_new_tokens,
-        "prompt_code": dialogue.prompt_code,
-    }
-    chat: BaseChat = await blocking_func_to_async(
-        get_executor(),
-        CHAT_FACTORY.get_implementation,
-        dialogue.chat_mode,
-        CFG.SYSTEM_APP,
-        **{"chat_param": chat_param},
-    )
-    return chat
-
-
-@router.post("/v1/init/config")
-async def init_config():
-    app_config = CFG.SYSTEM_APP.config.configs.get("app_config")
-    web_config = app_config.service.web
-    config: dict = {
-        "main_app": web_config.main_app_code,
-        "main_chat_mode": ChatScene.ChatAgent.value(),
-        "main_model": "deepseek-r1"
-    }
-    return Result.succ(config)
-
-
-@router.post("/v1/chat/prepare")
-async def chat_prepare(
-        dialogue: ConversationVo = Body(),
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    logger.info(json.dumps(dialogue.__dict__))
-    # dialogue.model_name = CFG.LLM_MODEL
-    dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
-    logger.info(f"chat_prepare:{dialogue}")
-    ## check conv_uid
-    chat: BaseChat = await get_chat_instance(dialogue)
-
-    await chat.prepare()
-
-    # Refresh messages
-    return Result.succ(get_hist_messages(dialogue.conv_uid, user_token.user_id))
-
-
 @router.post("/v1/chat/completions")
 async def chat_completions(
         background_tasks: BackgroundTasks,
         dialogue: ConversationVo = Body(),
+        flow_service: FlowService = Depends(get_chat_flow),
         user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(
-        f"chat_completions:{dialogue.chat_mode},{dialogue.select_param},"
+        f"chat_completions:{dialogue.team_mode},{dialogue.select_param},"
         f"{dialogue.model_name}, timestamp={int(time.time() * 1000)}"
     )
 
+    if not dialogue.conv_uid:
+        dialogue.conv_uid = uuid.uuid1().hex
     dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
-    dialogue.ext_info.update({"trace_id": uuid.uuid4().hex})
+    dialogue.ext_info.update(
+        {
+            "trace_id": first(
+                root_tracer.get_context_trace_id(), default=uuid.uuid4().hex
+            )
+        }
+    )
     dialogue.ext_info.update({"rpc_id": "0.1"})
-    dialogue = adapt_native_app_model(dialogue)
+
     headers = {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -498,50 +402,50 @@ async def chat_completions(
         "Transfer-Encoding": "chunked",
     }
     try:
-        vis_mode = dialogue.ext_info.get("vis_mode", "gpt-vis")
-        domain_type = _parse_domain_type(dialogue)
-        if dialogue.chat_mode == ChatScene.ChatAgent.value():
-
-            from derisk_serve.agent.agents.controller import multi_agents
+        if dialogue.team_mode == TeamMode.NATIVE_APP.value:
+            with root_tracer.start_span(
+                    "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
+            ):
+                in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
+                return StreamingResponse(
+                    multi_agents.quick_app_chat(
+                        conv_session_id=dialogue.conv_uid,
+                        user_query=in_message,
+                        model=dialogue.model_name,
+                        model_tokens=dialogue.max_new_tokens,
+                        temperature=dialogue.temperature,
+                        chat_in_params=dialogue.chat_in_params,
+                        **dialogue.ext_info,
+                    ),
+                    headers=headers,
+                    media_type="text/event-stream",
+                )
+        else:
 
             dialogue.ext_info.update({"model_name": dialogue.model_name})
             dialogue.ext_info.update({"incremental": dialogue.incremental})
             dialogue.ext_info.update({"temperature": dialogue.temperature})
+            dialogue.ext_info.update({"max_new_tokens": dialogue.max_new_tokens})
 
-            return await multi_agents.app_agent_chat_v2(
-                conv_uid=dialogue.conv_uid,
-                background_tasks=background_tasks,
-                gpts_name=dialogue.app_code,
-                user_query=dialogue.user_input,
-                user_code=dialogue.user_name,
-                sys_code=dialogue.sys_code,
-                **dialogue.ext_info,
-            )
-        elif domain_type is not None and domain_type != "Normal":
+            in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
+
             return StreamingResponse(
-                chat_with_domain_flow(dialogue, domain_type),
+                multi_agents.app_chat_v2(
+                    conv_uid=dialogue.conv_uid,
+                    background_tasks=background_tasks,
+                    gpts_name=dialogue.app_code,
+                    specify_config_code=dialogue.app_config_code,
+                    user_query=in_message,
+                    user_code=dialogue.user_name,
+                    sys_code=dialogue.sys_code,
+                    chat_in_params=dialogue.chat_in_params,
+                    **dialogue.ext_info,
+                ),
                 headers=headers,
                 media_type="text/event-stream",
             )
 
-        else:
-            with root_tracer.start_span(
-                    "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
-            ):
-                chat: BaseChat = await get_chat_instance(dialogue)
 
-            if not chat.prompt_template.stream_out:
-                return StreamingResponse(
-                    no_stream_generator(chat),
-                    headers=headers,
-                    media_type="text/event-stream",
-                )
-            else:
-                return StreamingResponse(
-                    stream_generator(chat, dialogue.incremental, dialogue.model_name),
-                    headers=headers,
-                    media_type="text/plain",
-                )
     except Exception as e:
         logger.exception(f"Chat Exception!{dialogue}", e)
 
@@ -655,7 +559,14 @@ async def no_stream_generator(chat):
         yield f"data: {msg}\n\n"
 
 
-async def stream_generator(chat, incremental: bool, model_name: str):
+async def stream_generator(
+        chat,
+        incremental: bool,
+        model_name: str,
+        text_output: bool = True,
+        openai_format: bool = False,
+        conv_uid: str = None,
+):
     """Generate streaming responses
 
     Our goal is to generate an openai-compatible streaming responses.
@@ -674,33 +585,76 @@ async def stream_generator(chat, incremental: bool, model_name: str):
     span = root_tracer.start_span("stream_generator")
     msg = "[LLM_ERROR]: llm server has no output, maybe your prompt template is wrong."
 
-    stream_id = f"chatcmpl-{str(uuid.uuid1())}"
-    previous_response = ""
-    async for chunk in chat.stream_call():
-        if chunk:
-            msg = chunk.replace("\ufffd", "")
-            if incremental:
-                incremental_output = msg[len(previous_response):]
-                choice_data = ChatCompletionResponseStreamChoice(
-                    index=0,
-                    delta=DeltaMessage(role="assistant", content=incremental_output),
-                )
-                chunk = ChatCompletionStreamResponse(
-                    id=stream_id, choices=[choice_data], model=model_name
-                )
-                _content = json.dumps(
-                    chunk.dict(exclude_unset=True), ensure_ascii=False
-                )
-                yield f"data:{_content}\n\n"
+    stream_id = conv_uid or f"chatcmpl-{str(uuid.uuid1())}"
+    try:
+        if incremental and not openai_format:
+            raise ValueError("Incremental response must be openai-compatible format.")
+        async for chunk in chat.stream_call(
+                text_output=text_output, incremental=incremental
+        ):
+            if not chunk:
+                await asyncio.sleep(0.02)
+                continue
+
+            if openai_format:
+                # Must be ModelOutput
+                output: ModelOutput = cast(ModelOutput, chunk)
+                text = None
+                think_text = None
+                if output.has_text:
+                    text = output.text
+                if output.has_thinking:
+                    think_text = output.thinking_text
+                if incremental:
+                    choice_data = ChatCompletionResponseStreamChoice(
+                        index=0,
+                        delta=DeltaMessage(
+                            role="assistant", content=text, reasoning_content=think_text
+                        ),
+                    )
+                    chunk = ChatCompletionStreamResponse(
+                        id=stream_id, choices=[choice_data], model=model_name
+                    )
+                    _content = json.dumps(
+                        chunk.dict(exclude_unset=True), ensure_ascii=False
+                    )
+                    yield f"data: {_content}\n\n"
+                else:
+                    choice_data = ChatCompletionResponseChoice(
+                        index=0,
+                        message=ChatMessage(
+                            role="assistant",
+                            content=output.text,
+                            reasoning_content=output.thinking_text,
+                        ),
+                    )
+                    if output.usage:
+                        usage = UsageInfo(**output.usage)
+                    else:
+                        usage = UsageInfo()
+                    _content = ChatCompletionResponse(
+                        id=stream_id,
+                        choices=[choice_data],
+                        model=model_name,
+                        usage=usage,
+                    )
+                    _content = json.dumps(
+                        chunk.dict(exclude_unset=True), ensure_ascii=False
+                    )
+                    yield f"data: {_content}\n\n"
             else:
-                # TODO generate an openai-compatible streaming responses
+                msg = chunk.replace("\ufffd", "")
                 msg = msg.replace("\n", "\\n")
                 yield f"data:{msg}\n\n"
-            previous_response = msg
             await asyncio.sleep(0.02)
-    if incremental:
-        yield "data: [DONE]\n\n"
-    span.end()
+        if incremental:
+            yield "data: [DONE]\n\n"
+        span.end()
+    except Exception as e:
+        logger.exception("stream_generator error")
+        yield f"data: [SERVER_ERROR]{str(e)}\n\n"
+        if incremental:
+            yield "data: [DONE]\n\n"
 
 
 def message2Vo(message: dict, order, model_name) -> MessageVo:
@@ -710,63 +664,3 @@ def message2Vo(message: dict, order, model_name) -> MessageVo:
         order=order,
         model_name=model_name,
     )
-
-
-def _parse_domain_type(dialogue: ConversationVo) -> Optional[str]:
-    if dialogue.chat_mode == ChatScene.ChatKnowledge.value():
-        # Supported in the knowledge chat
-        if dialogue.app_code == "" or dialogue.app_code == "chat_knowledge":
-            spaces = knowledge_service.get_knowledge_space(
-                KnowledgeSpaceRequest(name=dialogue.select_param)
-            )
-        else:
-            spaces = knowledge_service.get_knowledge_space(
-                KnowledgeSpaceRequest(id=dialogue.select_param)
-            )
-        if len(spaces) == 0:
-            raise ValueError(f"Knowledge space {dialogue.select_param} not found")
-        dialogue.select_param = spaces[0].name
-        if spaces[0].domain_type:
-            return spaces[0].domain_type
-    else:
-        return None
-
-
-async def chat_with_domain_flow(dialogue: ConversationVo, domain_type: str):
-    """Chat with domain flow"""
-    dag_manager = get_dag_manager()
-    dags = dag_manager.get_dags_by_tag(TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE, domain_type)
-    if not dags or not dags[0].leaf_nodes:
-        raise ValueError(f"Cant find the DAG for domain type {domain_type}")
-
-    end_task = cast(BaseOperator, dags[0].leaf_nodes[0])
-    space = dialogue.select_param
-    connector_manager = CFG.local_db_manager
-    # TODO: Some flow maybe not connector
-    db_list = [item["db_name"] for item in connector_manager.get_db_list()]
-    db_names = [item for item in db_list if space in item]
-    if len(db_names) == 0:
-        raise ValueError(f"fin repost dbname {space}_fin_report not found.")
-    flow_ctx = {"space": space, "db_name": db_names[0]}
-    request = CommonLLMHttpRequestBody(
-        model=dialogue.model_name,
-        messages=dialogue.user_input,
-        stream=True,
-        extra=flow_ctx,
-        conv_uid=dialogue.conv_uid,
-        span_id=root_tracer.get_current_span_id(),
-        chat_mode=dialogue.chat_mode,
-        chat_param=dialogue.select_param,
-        user_name=dialogue.user_name,
-        sys_code=dialogue.sys_code,
-        incremental=dialogue.incremental,
-    )
-    async for output in safe_chat_stream_with_dag_task(end_task, request, False):
-        text = output.text
-        if text:
-            text = text.replace("\n", "\\n")
-        if output.error_code != 0:
-            yield f"data:[SERVER_ERROR]{text}\n\n"
-            break
-        else:
-            yield f"data:{text}\n\n"

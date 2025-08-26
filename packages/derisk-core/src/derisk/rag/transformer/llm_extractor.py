@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from derisk.core import HumanPromptTemplate, LLMClient, ModelMessage, ModelRequest
 from derisk.rag.transformer.base import ExtractorBase
@@ -20,7 +20,7 @@ class LLMExtractor(ExtractorBase, ABC):
         self._model_name = model_name
         self._prompt_template = prompt_template
 
-    async def extract(self, text: str, limit: Optional[int] = None) -> List:
+    async def extract(self, text: str, limit: Optional[int] = None) -> Union[str, List]:
         """Extract by LLM."""
         return await self._extract(text, None, limit)
 

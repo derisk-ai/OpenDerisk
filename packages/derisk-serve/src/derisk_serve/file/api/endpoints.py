@@ -120,7 +120,6 @@ async def upload_files(
         global_system_app,
         service.upload_files,
         bucket,
-        "distributed",
         files,
         user_name,
         sys_code,
@@ -137,6 +136,8 @@ async def download_file(
     file_data, file_metadata = await blocking_func_to_async(
         global_system_app, service.download_file, bucket, file_id
     )
+
+
     file_name_encoded = quote(file_metadata.file_name)
 
     def file_iterator(raw_iter):
@@ -150,6 +151,12 @@ async def download_file(
     response.headers["Content-Disposition"] = (
         f"attachment; filename={file_name_encoded}"
     )
+
+    # Test
+    if file_metadata.file_name.endswith(".svg"):
+        response.headers['Content-Type'] = "image/svg+xml"
+        response.headers['Content-Disposition'] = "inline"
+
     return response
 
 

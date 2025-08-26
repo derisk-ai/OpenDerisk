@@ -28,7 +28,7 @@ from .base import (
     ResourceType,
     ViewMetadata,
     _get_operator_class,
-    _get_resource_class,
+    _get_resource_class, BaseMetadata,
 )
 from .compat import get_new_class_name
 from .exceptions import (
@@ -96,6 +96,8 @@ class FlowNodeData(BaseModel):
                 return ViewMetadata(**value)
             elif flow_type == "resource":
                 return ResourceMetadata(**value)
+        elif isinstance(value, BaseMetadata):
+            return value
         raise ValueError("Unable to infer the type for `data`")
 
     def to_dict(self) -> Dict[str, Any]:

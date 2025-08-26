@@ -4,6 +4,7 @@ import logging
 import uuid
 from typing import Dict, List, Optional, Tuple
 
+from derisk.agent.core.plan.planning_agent import PlanningAgent
 from derisk.core.interface.message import ModelMessageRoleType
 
 from derisk.agent.core.action.base import ActionOutput
@@ -12,7 +13,7 @@ from derisk.agent.core.agent_manage import mentioned_agents, participant_roles
 from derisk.agent.core.base_agent import ConversableAgent
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.gpts.base import GptsPlan
-from .planner_agent import PlannerAgent
+
 from derisk.agent.core.profile import DynConfig, ProfileConfig
 from derisk.agent.core.schema import Status
 
@@ -58,9 +59,9 @@ class AutoPlanChatManager(ManagerAgent):
         rely_prompt = None
         rely_messages: List[Dict] = []
 
-        if now_plan.rely and len(now_plan.rely) > 0:
-            rely_tasks_list = now_plan.rely.split(",")
-            rely_tasks_list_int = [int(i) for i in rely_tasks_list]
+        if now_plan.task_parent and len(now_plan.task_parent) > 0:
+            rely_tasks_list = now_plan.task_parent.split(",")
+            rely_tasks_list_int = [i for i in rely_tasks_list]
             rely_tasks = self.memory.plans_memory.get_by_conv_id_and_num(
                 conv_id, rely_tasks_list_int
             )
@@ -189,7 +190,7 @@ class AutoPlanChatManager(ManagerAgent):
                         "resources still fails to build a valid reasoning_engine！",
                     )
                 planner: ConversableAgent = (
-                    await PlannerAgent()
+                    await PlanningAgent()
                     .bind(self.memory)
                     .bind(self.agent_context)
                     .bind(self.llm_config)
@@ -198,7 +199,7 @@ class AutoPlanChatManager(ManagerAgent):
                 )
 
                 plan_message = await planner.generate_reply(
-                    received_message=AgentMessage.from_llm_message(
+                    received_message=AgentMessage.from_dict_message(
                         {"content": message.content, "rounds": rounds}
                     ),
                     sender=self,
@@ -290,14 +291,14 @@ class AutoPlanChatManager(ManagerAgent):
                             )
                         else:
                             plan_result = reply_message["content"]
-                            self.memory.plans_memory.update_task(
+                            self.memory.plans_memory.update_by_uid(
                                 self.not_null_agent_context.conv_id,
-                                now_plan.sub_task_id,
+                                now_plan.task_uid,
                                 Status.FAILED.value,
                                 now_plan.retry_times + 1,
                                 speaker.name,
                                 "",
-                                plan_result,
+                                result=plan_result,
                             )
                             return ActionOutput(
                                 is_exe_success=False, content=plan_result
@@ -319,13 +320,12 @@ class AutoPlanChatManager(ManagerAgent):
         )
 
     async def thinking(
-            self,
-            messages: List[AgentMessage],
-            reply_message_id: str,
-            reply_message: AgentMessage,
-            sender: Optional[Agent] = None,
-            prompt: Optional[str] = None,
-            current_goal: Optional[str] = None,
+        self,
+        messages: List[AgentMessage],
+        reply_message_id: str,
+        sender: Optional[Agent] = None,
+        prompt: Optional[str] = None,
+        received_message: Optional[AgentMessage] = None,
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Think and reason about the current task goal."""
         # TeamManager, which is based on processes and plans by default, only needs to

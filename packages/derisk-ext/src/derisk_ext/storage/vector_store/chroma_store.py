@@ -90,7 +90,7 @@ class ChromaStore(VectorStoreBase):
         embedding_fn: Optional[Embeddings] = None,
         chroma_client: Optional["PersistentClient"] = None,  # type: ignore # noqa
         collection_metadata: Optional[dict] = None,
-        executor: Optional[ThreadPoolExecutor] = None
+        executor: Optional[ThreadPoolExecutor] = None,
     ) -> None:
         """Create a ChromaStore instance.
 
@@ -167,14 +167,15 @@ class ChromaStore(VectorStoreBase):
             )
         ]
 
-    def similar_search_with_scores(
-        self, text, topk, score_threshold, filters: Optional[MetadataFilters] = None
-    ) -> List[Chunk]:
+    def similar_search_with_scores(self, text, topk, score_threshold,
+                                   filters: Optional[MetadataFilters] = None,
+                                   **kwargs) -> List[Chunk]:
         """Search similar documents with scores.
 
         Chroma similar_search_with_score.
         Return docs and relevance scores in the range [0, 1].
         Args:
+            **kwargs:
             text(str): query text
             topk(int): return docs nums. Defaults to 4.
             score_threshold(float): score_threshold: Optional, a floating point value

@@ -61,6 +61,7 @@ class CSVKnowledge(Knowledge):
                             continue
                         strs.append(f"{k.strip()}: {v.strip()}")
                     content = "\n".join(strs)
+                    content = super().parse_document_body(content)
                     try:
                         source = (
                             row[self._source_column]
@@ -71,7 +72,14 @@ class CSVKnowledge(Knowledge):
                         raise ValueError(
                             f"Source column '{self._source_column}' not in CSV file."
                         )
-                    metadata = {"source": source, "row": i}
+                    doc_name = self._doc_name or self._path.rsplit(
+                        "/", 1)[-1].replace(".csv", "")
+                    metadata = {
+                        "source": source,
+                        "row": i,
+                        "doc_name": doc_name,
+                        "data_type": "csv",
+                    }
                     if self._metadata:
                         metadata.update(self._metadata)  # type: ignore
                     doc = Document(content=content, metadata=metadata)
@@ -102,3 +110,8 @@ class CSVKnowledge(Knowledge):
     def document_type(cls) -> DocumentType:
         """Return document type."""
         return DocumentType.CSV
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.CSV.value

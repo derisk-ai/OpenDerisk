@@ -12,12 +12,13 @@ from derisk.util.configure import HookConfig
 from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer import TracerParameters
-from derisk.util.utils import LoggingParameters
+from derisk.util.logger import LoggingParameters
 from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
 from derisk_ext.storage.knowledge_graph.knowledge_graph import (
     BuiltinKnowledgeGraphConfig,
 )
 from derisk_serve.core import BaseServeConfig
+from derisk_serve.core.config import GPTsAppConfig
 
 
 @dataclass
@@ -244,10 +245,6 @@ class ServiceWebParameters(BaseParameters):
         metadata={"help": _("The real web url `,`")},
     )
 
-    enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
-
-    main_app_code: str = field(default="chat_normal", metadata={"help": _("The main app code")}, )
-
 
 @dataclass
 class ServiceConfig(BaseParameters):
@@ -259,6 +256,15 @@ class ServiceConfig(BaseParameters):
         default_factory=ModelServiceConfig,
         metadata={"help": _("Model service configuration")},
     )
+
+
+@dataclass
+class MCPConfigParameters(BaseParameters):
+    mode: Optional[str] = field(
+        default="origin",
+        metadata={"help": _("The mcp client mode，default origin `,`")},
+    )
+    enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
 
 
 @dataclass
@@ -298,6 +304,10 @@ class ApplicationConfig:
         default_factory=lambda: RagParameters(),
         metadata={"help": _("Rag Knowledge Parameters")},
     )
+    app: GPTsAppConfig = field(
+        default_factory=lambda: GPTsAppConfig(),
+        metadata={"help": _("GPTs application configuration")},
+    )
     trace: TracerParameters = field(
         default_factory=TracerParameters,
         metadata={
@@ -308,5 +318,11 @@ class ApplicationConfig:
         default_factory=LoggingParameters,
         metadata={
             "help": _("Logging configuration"),
+        },
+    )
+    mcp: MCPConfigParameters = field(
+        default_factory=MCPConfigParameters,
+        metadata={
+            "help": _("MCP configuration"),
         },
     )

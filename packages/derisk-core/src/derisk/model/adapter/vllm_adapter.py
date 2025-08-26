@@ -6,10 +6,7 @@ from derisk.core import ModelMessage
 from derisk.core.interface.parameter import LLMDeployModelParameters
 from derisk.model.adapter.base import LLMModelAdapter, register_model_adapter
 from derisk.model.adapter.model_metadata import COMMON_HF_MODELS
-from derisk.model.adapter.template import (
-    ConversationAdapter,
-    ConversationAdapterFactory,
-)
+from derisk.model.adapter.template import ConversationAdapter, ConversationAdapterFactory
 from derisk.model.base import ModelType
 from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import (

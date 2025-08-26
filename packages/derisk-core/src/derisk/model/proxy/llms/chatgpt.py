@@ -144,7 +144,6 @@ class OpenAILLMClient(ProxyLLMClient):
         context_length: Optional[int] = 8192,
         openai_client: Optional["ClientType"] = None,
         openai_kwargs: Optional[Dict[str, Any]] = None,
-        reasoning_model: Optional[str] = None,
         **kwargs,
     ):
         try:
@@ -172,7 +171,6 @@ class OpenAILLMClient(ProxyLLMClient):
         self._api_type = api_type
         self._client = openai_client
         self._openai_kwargs = openai_kwargs or {}
-        self._reasoning_model = reasoning_model
         super().__init__(model_names=[model_alias], context_length=context_length)
 
         # Prepare openai client and cache default headers
@@ -208,6 +206,7 @@ class OpenAILLMClient(ProxyLLMClient):
             proxies=model_params.http_proxy,
             model_alias=model_params.real_provider_model_name,
             context_length=max(model_params.context_length or 8192, 8192),
+            # full_url=model_params.proxy_server_url,
         )
 
     @classmethod
@@ -249,9 +248,12 @@ class OpenAILLMClient(ProxyLLMClient):
         for k, v in self._openai_kwargs.items():
             payload[k] = v
         if request.temperature:
-            payload["temperature"] = request.temperature
+            if "gpt-5" in request.model:
+                payload["temperature"] = 1
+            else:
+                payload["temperature"] = request.temperature
         if request.max_new_tokens:
-            payload["max_tokens"] = request.max_new_tokens
+            payload["max_completion_tokens"] = request.max_new_tokens
         if request.stop:
             payload["stop"] = request.stop
         if request.top_p:
@@ -331,11 +333,9 @@ class OpenAILLMClient(ProxyLLMClient):
                 yield ModelOutput.build(text, reasoning_content, usage=usage)
 
     async def models(self) -> List[ModelMetadata]:
-            
         model_metadata = ModelMetadata(
             model=self._model_alias,
             context_length=await self.get_context_length(),
-            reasoning_model=self._reasoning_model,
         )
         return [model_metadata]
 

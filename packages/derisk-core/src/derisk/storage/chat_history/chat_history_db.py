@@ -59,6 +59,9 @@ class ChatHistoryEntity(Model):
     gmt_modified = Column(DateTime, default=datetime.now, comment="Record update time")
     app_code = Column(String(255), nullable=True, comment="App unique code")
 
+    Index("idx_q_user", "user_name")
+    Index("idx_q_mode", "chat_mode")
+    Index("idx_q_conv", "summary")
     Index("idx_chat_his_app_code", "app_code")
 
 
@@ -66,7 +69,9 @@ class ChatHistoryMessageEntity(Model):
     """Chat history message entity."""
 
     __tablename__ = "chat_history_message"
-    __table_args__ = (UniqueConstraint("conv_uid", "index_num", name="message_uid_index"),)
+    __table_args__ = (
+        UniqueConstraint("conv_uid", "index", name="uk_conversation_message"),
+    )
     id = Column(
         Integer, primary_key=True, autoincrement=True, comment="autoincrement id"
     )
@@ -76,7 +81,7 @@ class ChatHistoryMessageEntity(Model):
         nullable=False,
         comment="Conversation record unique id",
     )
-    index = Column(Integer, name="index_num", nullable=False, comment="Message index")
+    index = Column(Integer, nullable=False, comment="Message index")
     round_index = Column(Integer, nullable=False, comment="Message round index")
     message_detail = Column(
         Text(length=2**31 - 1), nullable=True, comment="Message details, json format"

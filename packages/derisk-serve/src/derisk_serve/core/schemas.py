@@ -58,7 +58,7 @@ async def common_exception_handler(request: Request, exc: Exception) -> JSONResp
         msg=err_msg,
         err_code="E0003",
     )
-    logger.error(f"common_exception_handler catch Exception: {res}")
+    logger.exception(f"common_exception_handler catch Exception: {res}")
     return JSONResponse(status_code=400, content=res.to_dict())
 
 

@@ -1,5 +1,4 @@
 import json
-import uuid
 from typing import Optional, List
 
 from pydantic import BaseModel, Field
@@ -15,8 +14,6 @@ from derisk.agent import (
 )
 from derisk.agent.core.reasoning.reasoning_engine import REASONING_LOGGER as LOGGER
 from derisk.agent.resource import ResourcePack
-from derisk.component import logger
-from derisk.util.json_utils import find_json_objects
 from derisk.util.tracer import root_tracer
 from derisk.vis import SystemVisTag
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
@@ -55,21 +52,35 @@ class AgentAction(Action[AgentActionInput]):
         **kwargs,
     ) -> ActionOutput:
         """Perform the action."""
-        action_input = self.action_input or AgentActionInput.model_validate_json(json_data=ai_message)
+        action_input = self.action_input or AgentActionInput.model_validate_json(
+            json_data=ai_message
+        )
         sender: ConversableAgent = kwargs["agent"]
-        recipient = next((agent for agent in sender.agents if agent.name == action_input.agent_name), None)
+        recipient = next(
+            (agent for agent in sender.agents if agent.name == action_input.agent_name),
+            None,
+        )
         if not recipient:
             raise RuntimeError("recipient can't by empty")
 
-        received_message = kwargs["message"] if "message" in kwargs else AgentMessage.init_new()
+        received_message = (
+            kwargs["message"] if "message" in kwargs else AgentMessage.init_new()
+        )
         # goal_id = uuid.uuid4().hex
         message = await sender.init_reply_message(received_message=received_message)
-        message.rounds = await sender.memory.gpts_memory.next_message_rounds(sender.not_null_agent_context.conv_id)
+        message.rounds = await sender.memory.gpts_memory.next_message_rounds(
+            sender.not_null_agent_context.conv_id
+        )
+        message.show_message = False
         message.user_prompt = received_message.user_prompt
         message.system_prompt = received_message.system_prompt
-        message.content = action_input.content + "\n\n" + json.dumps(action_input.extra_info, ensure_ascii=False)
-        message.goal_id = kwargs["action_id"] if "action_id" in kwargs else ""
-        message.current_goal = action_input.content
+        message.content = (
+            action_input.content
+            + "\n\n"
+            + json.dumps(action_input.extra_info, ensure_ascii=False)
+        )
+        # message.goal_id = kwargs["action_id"] if "action_id" in kwargs else ""
+        # message.current_goal = action_input.content
         # 合并context 且action_input.extra_info优先级更高
         message.context = (message.context or {}) | (action_input.extra_info or {})
 
@@ -86,19 +97,21 @@ class AgentAction(Action[AgentActionInput]):
         # )])
 
         LOGGER.info(
-            f"[{sender.agent_context.trace_id}][{sender.agent_context.conv_id}][ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]"
+            f"[ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]"
         )
-        await sender.send(
-            message=message,
-            recipient=recipient,
-        )
+        ## 构建一个独立的对话消息轮次(不依赖对话循环)
+        await sender.send(message=message, recipient=recipient, request_reply=False)
 
+        answer: AgentMessage = await recipient.generate_reply(received_message=message, sender=sender, recipient=recipient)
+        await recipient.send(message=answer, recipient=sender, request_reply=False)
+        ask_user = True if answer and answer.action_report and answer.action_report.ask_user else False
         return ActionOutput.from_dict({
             "is_exe_success": True,
             "action": action_input.agent_name,
             "action_name": self.name,
             "action_input": action_input.content,
-            "content": message.message_id,
+            "content": answer.message_id,
+            "ask_user": ask_user,
         })
 
 
@@ -107,8 +120,8 @@ class KnowledgeRetrieveActionInput(BaseModel):
     knowledge_ids: Optional[List[str]] = Field(
         None, description="selected knowledge ids"
     )
-    intention: str = Field(None, description="Summary of intention to the user")
-    thought: str = Field(None, description="Summary of thoughts to the user")
+    intention: Optional[str] = Field("", description="Summary of intention to the user")
+    thought: Optional[str] = Field("", description="Summary of thoughts to the user")
     # space_ids: list[str] = Field(..., description="knowledge space id list")
 
 
@@ -131,6 +144,8 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 return next(
                     (r2 for r1 in resource.sub_resources if (r2 := _unpack(r1))), None
                 )
+            else:
+                return None
 
         return _unpack(self.resource)
 
@@ -164,14 +179,24 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             try:
                 summary_res = await resource.get_summary(
                     query=self.action_input.query,
-                    selected_knowledge_ids=self.action_input.knowledge_ids
+                    selected_knowledge_ids=self.action_input.knowledge_ids,
                 )
-                summary: str = summary_res.summary_content if summary_res and isinstance(summary_res, KnowledgeSearchResponse) and summary_res.summary_content else "未找到相关知识"
+                summary: str = (
+                    summary_res.summary_content
+                    if summary_res
+                       and isinstance(summary_res, KnowledgeSearchResponse)
+                       and summary_res.summary_content
+                    else "未找到相关知识"
+                )
                 output_dict["content"] = summary
                 output_dict["view"] = summary
-                output_dict["resource_value"] = summary_res.dict() if isinstance(summary_res, KnowledgeSearchResponse) else None
+                output_dict["resource_value"] = (
+                    summary_res.dict()
+                    if isinstance(summary_res, KnowledgeSearchResponse)
+                    else None
+                )
                 LOGGER.info(
-                    f"[{agent.agent_context.trace_id if agent else None}][{agent.agent_context.conv_id if agent else None}][ACTION]---------->   "
+                    f"[ACTION]---------->   "
                     f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
                 )
             except Exception as e:
@@ -179,7 +204,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 output_dict["content"] = "知识检索失败"
                 output_dict["view"] = "知识检索失败"
                 LOGGER.exception(
-                    f"[{agent.agent_context.trace_id if agent else None}][{agent.agent_context.conv_id if agent else None}][ACTION]---------->   "
+                    f"[ACTION]---------->   "
                     f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
                 )
             action_output = ActionOutput.from_dict(output_dict)
@@ -187,50 +212,17 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
 
 
 class UserConfirmAction(Action[None]):
-    async def run(self, ai_message: str = None, resource: Optional[AgentResource] = None, rely_action_out: Optional[ActionOutput] = None, need_vis_render: bool = True, **kwargs) -> ActionOutput:
+    async def run(
+        self,
+        ai_message: str = None,
+        resource: Optional[AgentResource] = None,
+        rely_action_out: Optional[ActionOutput] = None,
+        need_vis_render: bool = True,
+        **kwargs,
+    ) -> ActionOutput:
         raise NotImplementedError
 
 
 def get_parent_action_id(action_id: str) -> str:
-    idx = action_id.rfind('-')
+    idx = action_id.rfind("-")
     return action_id[:idx] if idx > 0 else ""
-
-def parse_action_reports(text: str) -> list[ActionOutput]:
-    def _parse_sub_action_reports(content:str, action_report_list: list[ActionOutput]) -> bool:
-        """
-        递归解析sub_action_report
-        :param content:
-        :param action_report_list:
-        :return: 是否有sub_action_report
-        """
-        try:
-            sub_action_report_dicts_list = json.loads(content) if content else []
-            sub_action_report_list = [ActionOutput.from_dict(sub_dict) for sub_dict in sub_action_report_dicts_list] if isinstance(sub_action_report_dicts_list, list) else []
-        except Exception as e:
-            return False
-        if not sub_action_report_list:
-            return False
-
-        sub = False
-        for sub_action_report in sub_action_report_list:
-            try:
-                sub = sub or _parse_sub_action_reports(sub_action_report.content, action_report_list)
-            except Exception as e:
-                pass
-        if not sub:
-            action_report_list.extend(sub_action_report_list)
-        return True
-
-    try:
-        if not text:
-            return []
-        # 先解析最外层的action_report
-        action_report_dict = json.loads(text)
-        action_report = ActionOutput.from_dict(action_report_dict)
-    except Exception as e:
-        return []
-
-    result: list[ActionOutput] = []
-    if _parse_sub_action_reports(action_report.content, result):
-        return result
-    return [action_report]

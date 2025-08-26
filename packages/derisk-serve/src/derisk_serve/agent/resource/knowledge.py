@@ -79,8 +79,13 @@ class KnowledgeSpaceLoadResourceParameters(RetrieverResourceParameters):
     ) -> "KnowledgeSpaceLoadResourceParameters":
         """Create a new instance from a dictionary."""
         copied_data = data.copy()
-        if "space_name" not in copied_data and "value" in copied_data:
-            copied_data["space_name"] = copied_data.pop("value")
+        if "knowledge" not in copied_data and "value" in copied_data:
+            copied_data["knowledge"] = copied_data.pop("value")
+        if "knowledge" not in copied_data:
+            if "knowledge" not in copied_data and "knowledge_id" in copied_data:
+                copied_data["knowledge"] = copied_data.pop("knowledge_id")
+        if "name" not in copied_data :
+            copied_data["name"] = "知识内容"
         return super().from_dict(copied_data, ignore_extra_fields=ignore_extra_fields)
 
 
@@ -93,6 +98,7 @@ class KnowledgeSpaceRetrieverResource(RetrieverResource):
         knowledge: str,
         top_k: int = 10,
         system_app: SystemApp = None,
+        **kwargs: Any,
     ):
         # TODO: Build the retriever in a thread pool, it will block the event loop
         retriever = KnowledgeSpaceRetriever(
@@ -129,10 +135,10 @@ class KnowledgeSpaceRetrieverResource(RetrieverResource):
 
         knowledge_space_service = KnowledgeService()
         knowledge_spaces = knowledge_space_service.get_knowledge_space(
-            KnowledgeSpaceRequest(**kwargs)
+            KnowledgeSpaceRequest(name=kwargs.get("name"), owner=kwargs.get("owner")), name_or_tag=kwargs.get("query")
         )
         results = [
-            {"label": ks.name, "key": ks.knowledge_id, "description": ks.desc}
+            {"label": ks.name, "key": ks.knowledge_id, "knowledge_id": ks.knowledge_id, "owner": ks.owner, "storage_type": ks.storage_type, "description": ks.desc}
             for ks in knowledge_spaces
         ]
 

@@ -4,6 +4,7 @@ You can define your own models and DAOs here
 
 import json
 from typing import Any, Dict, List, Optional, Union
+from sqlalchemy.sql.elements import BinaryExpression
 
 from derisk.core import MessageStorageItem
 from derisk.storage.chat_history.chat_history_db import ChatHistoryEntity as ServeEntity
@@ -60,6 +61,17 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             RES: The response
         """
         # TODO implement your own logic here, transfer the entity to a response
+        gmt_created = (
+            entity.gmt_created.strftime("%Y-%m-%d %H:%M:%S")
+            if entity.gmt_created
+            else None
+        )
+        gmt_modified = (
+            entity.gmt_modified.strftime("%Y-%m-%d %H:%M:%S")
+            if entity.gmt_modified
+            else None
+        )
+
         return ServerResponse(
             app_code=entity.app_code,
             conv_uid=entity.conv_uid,
@@ -67,6 +79,8 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             chat_mode=entity.chat_mode,
             user_name="",
             sys_code=entity.sys_code,
+            gmt_created=gmt_created,
+            gmt_modified=gmt_modified,
         )
 
     def get_latest_message(self, conv_uid: str) -> Optional[MessageStorageItem]:
@@ -105,7 +119,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         return messages
 
     def get_conv_by_page(
-        self, req: ServeRequest, page: int, page_size: int
+        self, req: ServeRequest, page: int, page_size: int, additional_filters: Optional[List[Union[BinaryExpression, bool]]] = None
     ) -> PaginationResult[ServerResponse]:
         """Get conversation by page
 
@@ -119,7 +133,14 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         """
         with self.session(commit=False) as session:
             query = self._create_query_object(session, req)
-            query = query.order_by(ServeEntity.gmt_created.desc())
+            # 动态添加额外条件
+            if additional_filters:
+                for condition in additional_filters:
+                    # 确保条件有效
+                    if condition is not None and condition is not False:
+                        query = query.filter(condition)
+
+            query = query.order_by(ServeEntity.id.desc())
             total_count = query.count()
             items = query.offset((page - 1) * page_size).limit(page_size)
             total_pages = (total_count + page_size - 1) // page_size

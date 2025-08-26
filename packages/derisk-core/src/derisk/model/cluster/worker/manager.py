@@ -57,7 +57,7 @@ from derisk.util.parameter_utils import (
 from derisk.util.system_utils import get_system_info
 from derisk.util.tracer import SpanType, SpanTypeRunName, initialize_tracer, root_tracer
 from derisk.util.tracer.tracer_impl import TracerParameters
-from derisk.util.utils import (
+from derisk.util.logger import (
     LoggingParameters,
     setup_http_service_logging,
     setup_logging,
@@ -1306,7 +1306,6 @@ def run_worker_manager(
     setup_logging(
         "derisk",
         log_config=log_config,
-        default_logger_filename=os.path.join(LOGDIR, "derisk_model_worker_manager.log"),
     )
 
     embedded_mod = True
@@ -1421,8 +1420,6 @@ def _parse_config(config_file: str):
             config_handler=config_handler,
         )
         configs.append(llm_deploy_config)
-
-    
     if cfg.exists("models.embeddings") and (
         worker_type is None or worker_type == WorkerType.TEXT2VEC
     ):

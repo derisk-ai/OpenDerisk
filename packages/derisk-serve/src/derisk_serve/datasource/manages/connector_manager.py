@@ -46,15 +46,18 @@ class ConnectorManager(BaseComponent):
         """
         from derisk.datasource.rdbms.base import RDBMSConnector  # noqa: F401
         from derisk_ext.datasource.conn_tugraph import TuGraphConnector  # noqa: F401
-      
-     
+
         from derisk_ext.datasource.rdbms.conn_mysql import MySQLConnector  # noqa: F401
         from derisk_ext.datasource.rdbms.conn_oceanbase import (  # noqa: F401
             OceanBaseConnector,
         )
+        from derisk_ext.datasource.rdbms.conn_postgresql import (  # noqa: F401
+            PostgreSQLConnector,
+        )
         from derisk_ext.datasource.rdbms.conn_sqlite import (
             SQLiteConnector,  # noqa: F401
         )
+
         from derisk_ext.datasource.rdbms.dialect.oceanbase.ob_dialect import (  # noqa: F401
             OBDialect,
         )

@@ -155,6 +155,7 @@ _OPERATOR_CATEGORY_DETAIL = {
     "type_converter": _CategoryDetail("Type Converter", "Convert the type"),
     "example": _CategoryDetail("Example", "Example operator"),
     "code": _CategoryDetail("Code", "Code operator"),
+    "reasoning": _CategoryDetail("Reasoning", "Reasoning operator"),
 }
 
 
@@ -174,6 +175,7 @@ class OperatorCategory(str, Enum):
     TYPE_CONVERTER = "type_converter"
     EXAMPLE = "example"
     CODE = "code"
+    REASONING = "reasoning"
 
     def label(self) -> str:
         """Get the label of the category."""
@@ -905,7 +907,11 @@ class BaseMetadata(BaseResource):
 
     def get_origin_id(self) -> str:
         """Get the origin id."""
-        split_ids = self.id.split("_")
+        return BaseMetadata.get_origin_by_id(self.id)
+
+    @classmethod
+    def get_origin_by_id(cls, id: str):
+        split_ids = id.split("_")
         return "_".join(split_ids[:-1])
 
     def _parse_ui_size(self) -> Optional[str]:
@@ -1450,7 +1456,21 @@ class FlowRegistry:
             List[Dict]: The metadata list.
         """
         if not tags:
-            return [item.metadata.to_dict() for item in self._registry.values()]
+            # return [item.metadata.to_dict() for item in self._registry.values()]
+            results = []
+            ids: set[str] = set()
+            for item in self._registry.values():
+                st = datetime.now()
+                try:
+                    if item.metadata.id in ids:
+                        continue
+                    ids.add(item.metadata.id)
+                    results.append(item.metadata.to_dict())
+                finally:
+                    pass
+                    # print(f"flow item cost: {int(datetime.now().timestamp() * 1000 - st.timestamp() * 1000)},\t{item.metadata.id} - {item.metadata.name} ")
+            return results
+
         else:
             results = []
             for item in self._registry.values():
@@ -1513,7 +1533,21 @@ def _register_operator(view_cls: Optional[Type[T]]):
 
 def _get_resource_class(type_key: str) -> _RegistryItem:
     """Get the operator class by the type name."""
-    item = _OPERATOR_REGISTRY.get_registry_item(type_key)
+    def _recursive_get_resource_class(_key: str):
+        if not _key:
+            return None
+
+        _item = _OPERATOR_REGISTRY.get_registry_item(_key)
+        if _item:
+            return _item
+
+        _new_key = BaseMetadata.get_origin_by_id(_key)
+        if  not _new_key or _new_key == _key:
+            return None
+
+        return _recursive_get_resource_class(_new_key)
+
+    item = _recursive_get_resource_class(type_key)
     if not item:
         raise FlowMetadataException(f"Resource {type_key} not registered.")
     if not isinstance(item.metadata, ResourceMetadata):

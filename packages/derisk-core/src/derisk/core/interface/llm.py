@@ -6,14 +6,12 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
-from enum import Enum
 from typing import (
     Any,
     AsyncIterator,
     Coroutine,
     Dict,
     List,
-    Literal,
     Optional,
     Tuple,
     Union,
@@ -22,12 +20,12 @@ from typing import (
 from cachetools import TTLCache
 
 from derisk._private.pydantic import BaseModel, model_to_dict
+from derisk.core.interface.media import MediaContent, MediaContentType, MediaObject
 from derisk.core.interface.message import ModelMessage, ModelMessageRoleType
 from derisk.util import BaseParameters
 from derisk.util.annotations import PublicAPI
-from derisk.util.i18n_utils import _
 from derisk.util.model_utils import GPUInfo
-
+from derisk.vis import Vis
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +66,14 @@ class ModelInferenceMetrics:
     """The total number of tokens (prompt plus completion)."""
 
     speed_per_second: Optional[float] = None
-    """The average number of tokens generated per second."""
+    """The average number of tokens generated per second. Includes both prefill and 
+    decode time."""
+
+    prefill_tokens_per_second: Optional[float] = None
+    """Prefill speed in tokens per second."""
+
+    decode_tokens_per_second: Optional[float] = None
+    """The average number of tokens generated per second during the decode phase."""
 
     current_gpu_infos: Optional[List[GPUInfo]] = None
     """Current gpu information, all devices"""
@@ -100,6 +105,12 @@ class ModelInferenceMetrics:
         completion_tokens = last_metrics.completion_tokens if last_metrics else None
         total_tokens = last_metrics.total_tokens if last_metrics else None
         speed_per_second = last_metrics.speed_per_second if last_metrics else None
+        prefill_tokens_per_second = (
+            last_metrics.prefill_tokens_per_second if last_metrics else None
+        )
+        decode_tokens_per_second = (
+            last_metrics.decode_tokens_per_second if last_metrics else None
+        )
         current_gpu_infos = last_metrics.current_gpu_infos if last_metrics else None
         avg_gpu_infos = last_metrics.avg_gpu_infos if last_metrics else None
 
@@ -119,6 +130,8 @@ class ModelInferenceMetrics:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
             speed_per_second=speed_per_second,
+            prefill_tokens_per_second=prefill_tokens_per_second,
+            decode_tokens_per_second=decode_tokens_per_second,
             current_gpu_infos=current_gpu_infos,
             avg_gpu_infos=avg_gpu_infos,
         )
@@ -127,140 +140,64 @@ class ModelInferenceMetrics:
         """Convert the model inference metrics to dict."""
         return asdict(self)
 
+    def to_printable_string(self) -> str:
+        """Stringify the metrics in an elegant format.
 
-MEDIA_DATA_TYPE = Union[str, bytes]
+        Returns:
+            str: A formatted string containing first token latency, prefill speed,
+                 decode speed, prompt tokens and completion tokens.
+        """
+        lines = []
 
+        # Calculate first token latency if possible
+        first_token_latency = None
+        if self.first_token_time_ms is not None and self.start_time_ms is not None:
+            first_token_latency = (
+                self.first_token_time_ms - self.start_time_ms
+            ) / 1000.0
 
-@dataclass
-class MediaObject:
-    """Media object for the model output or model request."""
+        # Add section header
+        lines.append("=== Model Inference Metrics ===")
 
-    data: MEDIA_DATA_TYPE = field(metadata={"help": _("The media data")})
-    format: str = field(default="text", metadata={"help": _("The format of the media")})
+        # Latency metrics
+        lines.append("\n▶ Latency:")
+        if first_token_latency is not None:
+            lines.append(f"  • First Token Latency: {first_token_latency:.3f}s")
+        else:
+            lines.append("  • First Token Latency: N/A")
 
-
-class MediaContentType(str, Enum):
-    """The media content type."""
-
-    TEXT = "text"
-    THINKING = "thinking"
-    IMAGE = "image"
-    AUDIO = "audio"
-    VIDEO = "video"
-
-
-@dataclass
-class MediaContent:
-    """Media content for the model output or model request.
-
-    Examples:
-        .. code-block:: python
-
-        simple_text = MediaContent(
-            type="text",
-            object=MediaObject(
-                data="Hello, world!",
-                format="text",
+        # Speed metrics
+        lines.append("\n▶ Speed:")
+        if self.prefill_tokens_per_second is not None:
+            lines.append(
+                f"  • Prefill Speed: {self.prefill_tokens_per_second:.2f} tokens/s"
             )
-        )
-        thinking_text = MediaContent(
-            type="thinking",
-            object=MediaObject(
-                data="Thinking...",
-                format="text",
-            )
-        )
+        else:
+            lines.append("  • Prefill Speed: N/A")
 
-        url_image1 = MediaContent(
-            type="image",
-            object=MediaObject(
-                data="https://example.com/image.jpg",
-                format="url",
+        if self.decode_tokens_per_second is not None:
+            lines.append(
+                f"  • Decode Speed: {self.decode_tokens_per_second:.2f} tokens/s"
             )
-        )
-        # Url with image type: 'image/jpeg'
-        url_image2 = MediaContent(
-            type="image",
-            object=MediaObject(
-                data="https://example.com/image.jpg",
-                format="url@image/jpeg",
-            )
-        )
+        else:
+            lines.append("  • Decode Speed: N/A")
 
-        # With image type: 'image/jpeg'
-        base64_image1 = MediaContent(
-            type="image",
-            object=MediaObject(
-                data="base64_string",
-                format="base64@image/jpeg",
-            )
-        )
-        # No image type
-        base64_image2 = MediaContent(
-            type="image",
-            object=MediaObject(
-                data="base64_string",
-                format="base64",
-            )
-        )
+        # Token counts
+        lines.append("\n▶ Tokens:")
+        if self.prompt_tokens is not None:
+            lines.append(f"  • Prompt Tokens: {self.prompt_tokens}")
+        else:
+            lines.append("  • Prompt Tokens: N/A")
 
-        # Video
-        url_video1 = MediaContent(
-            type="video",
-            object=MediaObject(
-                data="https://example.com/video.mp4",
-                format="url",
-            )
-        )
-        url_video2 = MediaContent(
-            type="video",
-            object=MediaObject(
-                data="https://example.com/video.mp4",
-                format="url@video/mp4",
-            )
-        )
-        binary_video = MediaContent(
-            type="video",
-            object=MediaObject(
-                data=b"binary_data",
-                format="binary@video/mp4",
-            )
-        )
-        binary_audio = MediaContent(
-            type="audio",
-            object=MediaObject(
-                data=b"binary_data",
-                format="binary@audio/mpeg",
-            )
-        )
-    """
+        if self.completion_tokens is not None:
+            lines.append(f"  • Completion Tokens: {self.completion_tokens}")
+        else:
+            lines.append("  • Completion Tokens: N/A")
 
-    object: MediaObject = field(metadata={"help": _("The media object")})
-    type: Literal["text", "thinking", "image", "audio", "video"] = field(
-        default="text", metadata={"help": _("The type of the model media content")}
-    )
+        if self.total_tokens is not None:
+            lines.append(f"  • Total Tokens: {self.total_tokens}")
 
-    @classmethod
-    def build_text(cls, text: str) -> "MediaContent":
-        """Create a MediaContent object from text."""
-        return cls(type="text", object=MediaObject(data=text, format="text"))
-
-    @classmethod
-    def build_thinking(cls, text: str) -> "MediaContent":
-        """Create a MediaContent object from thinking."""
-        return cls(type="thinking", object=MediaObject(data=text, format="text"))
-
-    def get_text(self) -> str:
-        """Get the text."""
-        if self.type == MediaContentType.TEXT:
-            return self.object.data
-        raise ValueError("The content type is not text")
-
-    def get_thinking(self) -> str:
-        """Get the thinking."""
-        if self.type == MediaContentType.THINKING:
-            return self.object.data
-        raise ValueError("The content type is not thinking")
+        return "\n".join(lines)
 
 
 @dataclass
@@ -304,6 +241,9 @@ class ModelRequestContext:
     request_id: Optional[str] = None
     """The request id of the model inference."""
 
+    is_reasoning_model: Optional[bool] = False
+    """Whether the model is a reasoning model."""
+
 
 @dataclass
 @PublicAPI(stability="beta")
@@ -326,7 +266,11 @@ class ModelOutput:
         self,
         error_code: int,
         text: Optional[str] = None,
-        content: Optional[MediaContent] = None,
+        content: Optional[
+            Union[
+                MediaContent, List[MediaContent], Dict[str, Any], List[Dict[str, Any]]
+            ]
+        ] = None,
         **kwargs,
     ):
         if text is not None and content is not None:
@@ -334,7 +278,7 @@ class ModelOutput:
         elif text is not None:
             self.content = MediaContent.build_text(text)
         elif content is not None:
-            self.content = content
+            self.content = MediaContent.parse_content(content)
         else:
             raise ValueError("Must pass either text or content")
         self.error_code = error_code
@@ -348,9 +292,18 @@ class ModelOutput:
             ]:
                 setattr(self, k, v)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self, vis_think: Optional[Vis] = None) -> Dict:
         """Convert the model output to dict."""
-        return asdict(self)
+        text = self.gen_text_with_thinking(vis_think=vis_think)
+        return {
+            "error_code": self.error_code,
+            "text": text,
+            "incremental": self.incremental,
+            "model_context": self.model_context,
+            "finish_reason": self.finish_reason,
+            "usage": self.usage,
+            "metrics": self.metrics,
+        }
 
     @property
     def success(self) -> bool:
@@ -374,11 +327,7 @@ class ModelOutput:
         elif isinstance(self.content, list) and all(
             isinstance(c, MediaContent) for c in self.content
         ):
-            text_content = [c for c in self.content if c.type == MediaContentType.TEXT]
-            if not text_content:
-                raise ValueError("There is no text content")
-            # Return the last text content
-            return text_content[-1].get_text()
+            return MediaContent.last_text(self.content)
         raise ValueError("The content is not text")
 
     @property
@@ -393,7 +342,7 @@ class ModelOutput:
 
     @property
     def thinking_text(self) -> Optional[str]:
-        """The reasoning_engine content."""
+        """The reasoning content."""
         if not self.content:
             return None
         if isinstance(self.content, MediaContent):
@@ -413,13 +362,16 @@ class ModelOutput:
             return thinking_content[-1].get_thinking()
         return None
 
-    def gen_text_with_thinking(self, new_text: Optional[str] = None) -> str:
-        from derisk_ext.vis.gptvis.tags.vis_thinking import VisThinking
-
+    def gen_text_with_thinking(
+        self, new_text: Optional[str] = None, vis_think: Optional[Vis] = None
+    ) -> str:
         msg = ""
         if self.has_thinking:
             msg = self.thinking_text or ""
-            msg = VisThinking().sync_display(content=msg)
+            if vis_think:
+                msg = vis_think.sync_display(content=msg)
+            else:
+                msg = f"<thinking>{msg}</thinking>"  # No vis component is specified, temporarily restore a default format # noqa: E501
             msg += "\n"
         if new_text:
             msg += new_text
@@ -427,13 +379,17 @@ class ModelOutput:
             msg += self.text or ""
         return msg
 
-    def gen_text_and_thinking(self):
+    def gen_text_and_thinking(self, new_text: Optional[str] = None):
         thinking_text = ""
         content_text = ""
         if self.has_thinking:
             thinking_text = self.thinking_text
-        if self.has_text:
-            content_text = self.text
+
+        if new_text:
+            content_text += new_text
+        elif self.has_text:
+            content_text = self.text or ""
+
         return thinking_text, content_text
 
     @text.setter
@@ -464,6 +420,7 @@ class ModelOutput:
         usage: Optional[Dict[str, Any]] = None,
         finish_reason: Optional[str] = None,
         is_reasoning_model: bool = False,
+        metrics: Optional[ModelInferenceMetrics] = None,
     ) -> "ModelOutput":
         if thinking and text:
             # Has thinking and text
@@ -487,7 +444,15 @@ class ModelOutput:
             content=content,
             usage=usage,
             finish_reason=finish_reason,
+            metrics=metrics,
         )
+
+    @property
+    def error_message(self) -> str:
+        """Get the error message.
+        Just return the error message when error_code is not 0.
+        """
+        return self.text if self.has_text else "Unknown error"
 
 
 _ModelMessageType = Union[List[ModelMessage], List[Dict[str, Any]]]
@@ -804,11 +769,6 @@ class ModelMetadata(BaseParameters):
         default=True,
         metadata={"help": "Whether the model is a chat model"},
     )
-    reasoning_model: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Whether the model is a reasoning model"},
-    )
-
     function_calling: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether the model is a function calling model"},

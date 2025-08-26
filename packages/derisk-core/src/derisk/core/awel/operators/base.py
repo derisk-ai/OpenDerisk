@@ -306,7 +306,7 @@ class BaseOperator(DAGNode, ABC, Generic[OUT], metaclass=BaseOperatorMeta):
         Returns:
             OUT: The output of the node after execution.
         """
-        from derisk.util.utils import get_or_create_event_loop
+        from derisk.util.logger import get_or_create_event_loop
 
         if not loop:
             loop = get_or_create_event_loop()
@@ -378,7 +378,7 @@ class BaseOperator(DAGNode, ABC, Generic[OUT], metaclass=BaseOperatorMeta):
         Returns:
             Iterator[OUT]: An iterator over the output stream.
         """
-        from derisk.util.utils import get_or_create_event_loop
+        from derisk.util.logger import get_or_create_event_loop
 
         if not loop:
             loop = get_or_create_event_loop()

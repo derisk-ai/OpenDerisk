@@ -1,6 +1,5 @@
 import asyncio
 from abc import ABC
-from functools import reduce
 from typing import List, Optional, Any
 
 from derisk.core import (
@@ -11,11 +10,9 @@ from derisk.core import (
 )
 from derisk.core.awel import JoinOperator
 from derisk.core.awel.flow import (
-    FunctionDynamicOptions,
     IOField,
     OperatorCategory,
     OperatorType,
-    OptionValue,
     Parameter,
     ViewMetadata,
 )
@@ -24,9 +21,10 @@ from derisk.core.interface.operators.prompt_operator import BasePromptBuilderOpe
 from derisk.core.interface.operators.retriever import RetrieverOperator
 from derisk.rag.embedding.embedding_factory import RerankEmbeddingFactory
 from derisk.rag.retriever.rerank import RerankEmbeddingsRanker
+from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util.function_utils import rearrange_args_by_type
 from derisk.util.i18n_utils import _
-from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
+from derisk_serve.rag.api.schemas import KnowledgeSearchResponse, DocumentSearchResponse
 from derisk_serve.rag.retriever.knowledge_space import KnowledgeSpaceRetriever
 
 
@@ -47,6 +45,8 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         rerank_score_threshold: Optional[float] = 0.3,
         rerank_model: Optional[str] = None,
         llm_model: Optional[str] = None,
+        metadata_filters: Optional[MetadataFilters] = None,
+        tag_filters: Optional[dict] = None,
         system_app: Optional[Any] = None,
         **kwargs,
     ):
@@ -69,7 +69,9 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         self._rerank = rerank
         self._rerank_model = rerank_model
         self._metadata_filter = metadata_filter
+        self._tag_filters = tag_filters
         self._llm_model = llm_model
+        self._metadata_filters = metadata_filters
         self._system_app = system_app
 
         super().__init__(**kwargs)
@@ -97,20 +99,23 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                 top_k=self._single_knowledge_top_k,
                 retrieve_mode=self._retrieve_mode,
                 llm_model=self._llm_model,
+                tag_filters=self._tag_filters,
                 system_app=self._system_app,
             )
 
             if isinstance(sub_queries, str):
                 search_tasks.append(
                     space_retriever.aretrieve_with_scores(
-                        sub_queries, self._similarity_score_threshold
+                        sub_queries,
+                        self._similarity_score_threshold,
+                        self._metadata_filters,
                     )
                 )
             elif isinstance(sub_queries, list):
                 for q in sub_queries:
                     search_tasks.append(
                         space_retriever.aretrieve_with_scores(
-                            q, self._similarity_score_threshold
+                            q, self._similarity_score_threshold, self._metadata_filters
                         )
                     )
                     # query_to_candidates_map[q] = []
@@ -126,6 +131,7 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                         query_to_candidates_map[query] = [chunk]
                     else:
                         query_to_candidates_map[query].append(chunk)
+
         if self._rerank:
             if self._rerank_model:
                 rerank_embeddings = RerankEmbeddingFactory.get_instance(
@@ -141,6 +147,12 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
             sub_queries = {}
             for q, candidates in query_to_candidates_map.items():
                 rerank_candidates_map[q] = reranker.rank(candidates, q)
+                if self._score_threshold:
+                    rerank_candidates_map[q] = [
+                        candidate
+                        for candidate in rerank_candidates_map[q]
+                        if candidate.score >= self._score_threshold
+                    ]
 
             results = {}
             for q, rerank_candidates in rerank_candidates_map.items():
@@ -148,15 +160,53 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                 sub_queries[q] = "\n".join(
                     [chunk.content for chunk in rerank_candidates]
                 )
-
-            # results["query"] = raw_query
-
+            documents = []
+            for chunks in list(rerank_candidates_map.values()):
+                documents.extend([chunk for chunk in chunks])
             return KnowledgeSearchResponse(
-                document_response_list=[],
+                document_response_list=deduplicate_documents(documents),
                 sub_queries=sub_queries,
                 references=results,
                 raw_query=raw_query,
             )
+        documents = []
+        for chunks in list(query_to_candidates_map.values()):
+            documents.extend([chunk for chunk in chunks])
+        return KnowledgeSearchResponse(
+            document_response_list=deduplicate_documents(documents),
+            sub_queries=sub_queries,
+            references=[],
+            raw_query=raw_query,
+        )
+
+
+def deduplicate_documents(documents: List):
+    """
+    Remove duplicate results based on text content.
+    """
+    content_to_best_chunk = {}
+
+    for chunk in documents:
+        content = chunk.content
+        score = chunk.score
+        res = DocumentSearchResponse(
+            content=chunk.content,
+            score=chunk.score,
+            yuque_url=chunk.metadata.get("yuque_url"),
+            doc_name=chunk.metadata.get("doc_name") or chunk.metadata.get("title"),
+            metadata=chunk.metadata,
+            doc_id=chunk.metadata.get("doc_id"),
+            knowledge_id=chunk.metadata.get("knowledge_id"),
+            create_time=chunk.metadata.get("create_time"),
+            modified_time=chunk.metadata.get("modified_time"),
+            doc_type=chunk.metadata.get("doc_type"),
+            chunk_id=chunk.metadata.get("chunk_id"),
+        )
+        if content not in content_to_best_chunk or score > content_to_best_chunk[
+            content
+        ].get("score"):
+            content_to_best_chunk[content] = res.dict()
+    return list(content_to_best_chunk.values())
 
 
 class KnowledgeSpacePromptBuilderOperator(

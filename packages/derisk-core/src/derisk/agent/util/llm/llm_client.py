@@ -33,10 +33,10 @@ class AIWrapper:
     }
 
     def __init__(
-            self,
-            llm_client: LLMClient,
-            output_parser: Optional[BaseOutputParser] = None,
-            thinking_render: Optional[Type[Vis]] = None,
+        self,
+        llm_client: LLMClient,
+        output_parser: Optional[BaseOutputParser] = None,
+        thinking_render: Optional[Type[Vis]] = None,
     ):
         """Create an AIWrapper instance."""
         self.llm_echo = False
@@ -47,10 +47,10 @@ class AIWrapper:
 
     @classmethod
     def instantiate(
-            cls,
-            template: Optional[Union[str, Callable]] = None,
-            context: Optional[Dict] = None,
-            allow_format_str_template: Optional[bool] = False,
+        cls,
+        template: Optional[Union[str, Callable]] = None,
+        context: Optional[Dict] = None,
+        allow_format_str_template: Optional[bool] = False,
     ):
         """Instantiate the template with the context."""
         if not context or template is None:
@@ -79,26 +79,26 @@ class AIWrapper:
         params = create_config.copy()
         params["context"] = context
 
-        if prompt is not None:
-            # Instantiate the prompt
-            params["prompt"] = self.instantiate(
-                prompt, context, allow_format_str_template
-            )
-        elif context and messages and isinstance(messages, list):
-            # Instantiate the messages
-            params["messages"] = [
-                (
-                    {
-                        **m,
-                        "content": self.instantiate(
-                            m["content"], context, allow_format_str_template
-                        ),
-                    }
-                    if m.get("content")
-                    else m
-                )
-                for m in messages
-            ]
+        # if prompt is not None:
+        #     # Instantiate the prompt
+        #     params["prompt"] = self.instantiate(
+        #         prompt, context, allow_format_str_template
+        #     )
+        # elif context and messages and isinstance(messages, list):
+        #     # Instantiate the messages
+        #     params["messages"] = [
+        #         (
+        #             {
+        #                 **m,
+        #                 "content": self.instantiate(
+        #                     m["content"], context, allow_format_str_template
+        #                 ),
+        #             }
+        #             if m.get("content")
+        #             else m
+        #         )
+        #         for m in messages
+        #     ]
         return params
 
     def _separate_create_config(self, config):
@@ -180,13 +180,13 @@ class AIWrapper:
             start_time = datetime.now()
             if stream_out:
                 async for output in self._llm_client.generate_stream(
-                        model_request.copy()
+                    model_request.copy()
                 ):  # type: ignore
                     model_output: ModelOutput = output
                     # 恢复模型调用异常，触发后续的模型兜底策略
                     # 恢复模型调用异常，触发后续的模型兜底策略
                     if model_output.error_code != 0:
-                        raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+                        raise LLMChatError(model_output.text)
 
                     parsed_output = model_output.gen_text_and_thinking()
 
@@ -207,7 +207,7 @@ class AIWrapper:
                 model_output = await self._llm_client.generate(model_request.copy())  # type: ignore
                 # 恢复模型调用异常，触发后续的模型兜底策略
                 if model_output.error_code != 0:
-                    raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+                    raise LLMChatError(model_output.text)
                 parsed_output = model_output.gen_text_and_thinking()
                 # parsed_output = parsed_output.strip().replace("\\n", "\n")
                 end_time = datetime.now()

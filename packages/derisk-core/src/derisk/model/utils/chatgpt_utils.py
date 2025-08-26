@@ -88,12 +88,12 @@ def _initialize_openai_v1(init_params: OpenAIParameters):
 
     if api_key is None:
         raise ValueError("api_key is required, please set OPENAI_API_KEY environment")
-    if base_url is None:
-        raise ValueError("base_url is required, please set OPENAI_BASE_URL environment")
-    if base_url.endswith("/"):
+    if base_url and base_url.endswith("/"):
         base_url = base_url[:-1]
 
-    openai_params = {"api_key": api_key, "base_url": base_url}
+    openai_params = {"api_key": api_key}
+    if base_url:
+        openai_params["base_url"] = base_url
     return openai_params, api_type, api_version, api_azure_deployment
 
 
@@ -173,9 +173,10 @@ class OpenAIStreamingOutputOperator(TransformStreamAbsOperator[ModelOutput, str]
             before parent operator(Streaming Operator is trigger by downstream
             Operator).
             """
-            return await self.current_dag_context.get_from_share_data(
+            model_name = await self.current_dag_context.get_from_share_data(
                 BaseLLM.SHARE_DATA_KEY_MODEL_NAME
             )
+            return model_name
 
         async for output in _to_openai_stream(model_output, None, model_caller):
             yield output
@@ -215,11 +216,13 @@ async def _to_openai_stream(
         id=id, choices=[choice_data], model=model or ""
     )
     yield transform_to_sse(chunk)
-
+    delta_text = ""
     previous_text = ""
+    thinking_text = ""
+    previous_thinking_text = ""
     finish_stream_events = []
     async for model_output in output_iter:
-        if model_caller is not None:
+        if model is None and model_caller is not None:
             if asyncio.iscoroutinefunction(model_caller):
                 model = await model_caller()
             else:
@@ -229,23 +232,36 @@ async def _to_openai_stream(
             yield transform_to_sse(model_output.to_dict())
             yield transform_to_sse("[DONE]")
             return
-        decoded_unicode = model_output.text.replace("\ufffd", "")
-        delta_text = decoded_unicode[len(previous_text) :]
-        previous_text = (
-            decoded_unicode
-            if len(decoded_unicode) > len(previous_text)
-            else previous_text
-        )
+        if model_output.has_text:
+            decoded_unicode = model_output.text.replace("\ufffd", "")
+            delta_text = decoded_unicode[len(previous_text) :]
+            previous_text = (
+                decoded_unicode
+                if len(decoded_unicode) > len(previous_text)
+                else previous_text
+            )
+        if model_output.has_thinking:
+            decoded_unicode = model_output.thinking_text.replace("\ufffd", "")
+            thinking_text = decoded_unicode[len(previous_thinking_text) :]
+            previous_thinking_text = (
+                decoded_unicode
+                if len(decoded_unicode) > len(previous_thinking_text)
+                else previous_thinking_text
+            )
 
-        if len(delta_text) == 0:
+        if not delta_text:
             delta_text = None
+        if not thinking_text:
+            thinking_text = None
         choice_data = ChatCompletionResponseStreamChoice(
             index=0,
-            delta=DeltaMessage(content=delta_text),
+            delta=DeltaMessage(content=delta_text, reasoning_content=thinking_text),
             finish_reason=model_output.finish_reason,
         )
-        chunk = ChatCompletionStreamResponse(id=id, choices=[choice_data], model=model)
-        if delta_text is None:
+        chunk = ChatCompletionStreamResponse(
+            id=id, choices=[choice_data], model=model or ""
+        )
+        if delta_text is None and thinking_text is None:
             if model_output.finish_reason is not None:
                 finish_stream_events.append(chunk)
             continue

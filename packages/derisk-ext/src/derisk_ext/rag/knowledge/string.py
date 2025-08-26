@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from derisk.core import Document
 from derisk.rag.knowledge.base import ChunkStrategy, Knowledge, KnowledgeType
+from derisk.util import json_utils
 
 
 class StringKnowledge(Knowledge):
@@ -37,10 +38,15 @@ class StringKnowledge(Knowledge):
 
     def _load(self) -> List[Document]:
         """Load raw text from loader."""
-        metadata = {"source": "raw text"}
+        metadata = {"chunk_type": "text"}
+        json_data = json_utils.find_json_objects(self._text)
+        if json_data:
+            for item in json_data:
+                metadata.update(item)
         if self._metadata:
             metadata.update(self._metadata)  # type: ignore
-        docs = [Document(content=self._text, metadata=metadata)]
+        text = self.parse_document_body(self._text)
+        docs = [Document(content=text, metadata=metadata)]
         return docs
 
     @classmethod
@@ -49,12 +55,15 @@ class StringKnowledge(Knowledge):
         return [
             ChunkStrategy.CHUNK_BY_SIZE,
             ChunkStrategy.CHUNK_BY_SEPARATOR,
+            ChunkStrategy.CHUNK_BY_MARKDOWN_HEADER,
+            ChunkStrategy.NO_CHUNK,
+            ChunkStrategy.DeriskTest,
         ]
 
     @classmethod
     def default_chunk_strategy(cls) -> ChunkStrategy:
         """Return default chunk strategy."""
-        return ChunkStrategy.CHUNK_BY_SIZE
+        return ChunkStrategy.CHUNK_BY_MARKDOWN_HEADER
 
     @classmethod
     def type(cls):

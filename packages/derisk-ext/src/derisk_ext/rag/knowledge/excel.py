@@ -20,7 +20,7 @@ class ExcelKnowledge(Knowledge):
         self,
         file_path: Optional[str] = None,
         knowledge_type: Optional[KnowledgeType] = KnowledgeType.DOCUMENT,
-        source_column: Optional[str] = None,
+        source_columns: Optional[str] = None,
         encoding: Optional[str] = "utf-8",
         loader: Optional[Any] = None,
         metadata: Optional[Dict[str, Union[str, List[str]]]] = None,
@@ -43,7 +43,7 @@ class ExcelKnowledge(Knowledge):
             **kwargs,
         )
         self._encoding = encoding
-        self._source_column = source_column
+        self._source_columns = source_columns.split(",") if source_columns else None
 
     def _load(self) -> List[Document]:
         """Load csv document from loader."""
@@ -56,31 +56,44 @@ class ExcelKnowledge(Knowledge):
 
             excel_file = pd.ExcelFile(self._path)
             sheet_names = excel_file.sheet_names
+            doc_name = self._doc_name or self._path.rsplit("/", 1)[-1].replace(".xlsx", "")
+            metadata = {
+                "source": self._path,
+                "doc_name": doc_name,
+                "data_type": "excel",
+            }
             for sheet_name in sheet_names:
                 df = excel_file.parse(sheet_name)
+                metadata["sheet_name"] = sheet_name
+                if (
+                    sum(1 for col in df.columns if "Unnamed" in str(col))
+                    > len(df.columns) / 2
+                ):
+                    headers = df.iloc[0].tolist()
+                    df = df.iloc[1:]
+                    df.columns = headers
+                else:
+                    headers = df.columns.tolist()
+
                 for index, row in df.iterrows():
                     strs = []
-                    for column_name, column_value in row.items():
-                        if column_name is None or column_value is None:
+                    # metadata = {"row": index}
+                    for header, value in zip(headers, row):
+                        if header is None or value is None:
                             continue
 
-                        column_name = str(column_name)
-                        column_value = str(column_value)
-                        strs.append(f"{column_name.strip()}: {column_value.strip()}")
-
+                        header_str = str(header).strip()
+                        value_str = str(value).strip() if not pd.isna(value) else ""
+                        metadata[header_str] = value_str
+                        if (
+                            self._source_columns
+                            and header_str not in self._source_columns
+                        ):
+                            continue
+                        value_str = super().parse_document_body(value_str)
+                        strs.append(f"{value_str}")
                     content = "\n".join(strs)
-                    try:
-                        source = (
-                            row[self._source_column]
-                            if self._source_column is not None
-                            else self._path
-                        )
-                    except KeyError:
-                        raise ValueError(
-                            f"Source column '{self._source_column}' not in CSV file."
-                        )
-
-                    metadata = {"source": source, "row": index}
+                    metadata["row"] = index
                     if self._metadata:
                         metadata.update(self._metadata)  # type: ignore
                     doc = Document(content=content, metadata=metadata)
@@ -112,3 +125,8 @@ class ExcelKnowledge(Knowledge):
     def document_type(cls) -> DocumentType:
         """Return document type."""
         return DocumentType.EXCEL
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.EXCEL.value

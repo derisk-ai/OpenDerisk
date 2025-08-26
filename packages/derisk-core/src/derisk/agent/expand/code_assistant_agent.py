@@ -141,7 +141,6 @@ class CodeAssistantAgent(ConversableAgent):
             ],
             reply_message_id=uuid.uuid4().hex,
             prompt=CHECK_RESULT_SYSTEM_MESSAGE,
-            current_goal=message.current_goal
         )
         success = str_to_bool(check_result)
         fail_reason = None

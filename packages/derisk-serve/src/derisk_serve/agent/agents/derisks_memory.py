@@ -14,6 +14,7 @@ from ..db.gpts_plans_db import GptsPlansDao, GptsPlansEntity
 
 class MetaDerisksPlansMemory(GptsPlansMemory):
 
+
     def __init__(self):
         self.gpts_plan = GptsPlansDao()
 
@@ -36,6 +37,35 @@ class MetaDerisksPlansMemory(GptsPlansMemory):
         results = []
         for item in db_results:
             results.append(GptsPlan.from_dict(item.__dict__))
+        return results
+
+    def get_by_planner(self, conv_id:str, planner: str)-> List[GptsPlan]:
+        db_results: List[GptsPlansEntity] = self.gpts_plan.get_by_planner(
+            conv_id=conv_id, planner=planner
+        )
+        results = []
+        for item in db_results:
+            results.append(GptsPlan.from_dict(item.__dict__))
+        return results
+
+    def get_by_planner_and_round(self, conv_id:str, planner: str, round_id:str)-> List[GptsPlan]:
+        """Get plans by conv_id and planner.
+
+        Args:
+            conv_id: conversation id
+            planner: planner
+            round_id: round_id
+        Returns:
+            List[GptsPlan]: List of planning steps
+        """
+        db_results: List[GptsPlansEntity] = self.gpts_plan.get_by_planner(
+            conv_id=conv_id, planner=planner
+        )
+        results = []
+        for item in db_results:
+            ## 过滤round_id数据
+            if item.conv_round_id == round_id:
+                results.append(GptsPlan.from_dict(item.__dict__))
         return results
 
     def get_by_conv_id_and_num(
@@ -81,8 +111,24 @@ class MetaDerisksPlansMemory(GptsPlansMemory):
             result=result,
         )
 
+    def update_by_uid(self, conv_id: str, task_uid: str, state: str, retry_times: int, agent: Optional[str] = None,
+                      model: Optional[str] = None, result: Optional[str] = None) -> None:
+        self.gpts_plan.update_by_uid(
+            conv_id=conv_id,
+            task_uid=task_uid,
+            state=state,
+            retry_times=retry_times,
+            agent=agent,
+            model=model,
+            result=result,
+        )
+
+
     def remove_by_conv_id(self, conv_id: str):
         self.gpts_plan.remove_by_conv_id(conv_id=conv_id)
+
+    def remove_by_conv_planner(self, conv_id: str, planner:str) -> None:
+        self.gpts_plan.remove_by_conv_and_planner(conv_id, planner)
 
     def get_by_conv_and_content(self, conv_id: str, content: str) -> Optional[GptsPlan]:
         item = self.gpts_plan.get_by_conv_id_and_content(

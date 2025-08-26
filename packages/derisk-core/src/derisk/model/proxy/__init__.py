@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from derisk.model.proxy.llms.spark import SparkLLMClient
     from derisk.model.proxy.llms.tongyi import TongyiLLMClient
     from derisk.model.proxy.llms.wenxin import WenxinLLMClient
-    from derisk.model.proxy.llms.yi import YiLLMClient
     from derisk.model.proxy.llms.zhipu import ZhipuLLMClient
     from derisk.model.proxy.llms.volcengine import VolcengineLLMClient
 
@@ -28,11 +27,11 @@ def __lazy_import(name):
         "TongyiLLMClient": "derisk.model.proxy.llms.tongyi",
         "WenxinLLMClient": "derisk.model.proxy.llms.wenxin",
         "ZhipuLLMClient": "derisk.model.proxy.llms.zhipu",
-        "YiLLMClient": "derisk.model.proxy.llms.yi",
         "MoonshotLLMClient": "derisk.model.proxy.llms.moonshot",
         "OllamaLLMClient": "derisk.model.proxy.llms.ollama",
         "DeepseekLLMClient": "derisk.model.proxy.llms.deepseek",
         "GiteeLLMClient": "derisk.model.proxy.llms.gitee",
+        "AntEngineLLMClient": "derisk.model.proxy.llms.antengine",
         "VolcengineLLMClient": "derisk.model.proxy.llms.volcengine",
     }
 
@@ -56,7 +55,6 @@ __all__ = [
     "WenxinLLMClient",
     "SiliconFlowLLMClient",
     "SparkLLMClient",
-    "YiLLMClient",
     "MoonshotLLMClient",
     "OllamaLLMClient",
     "DeepseekLLMClient",

@@ -241,7 +241,7 @@ class ModelScanner(Generic[T]):
             # First try to import as a module
             module = importlib.import_module(config.module_path)
 
-            if hasattr(module, "__file__") and module.__file__ is not None:
+            if hasattr(module, "__file__"):
                 # If it's a regular module/package, scan its directory
                 base_path = os.path.dirname(module.__file__)
                 scanned_items = self._scan_directory(base_path, config)
@@ -296,3 +296,21 @@ class ModelScanner(Generic[T]):
             Optional[Type[T]]: The requested class if found, None otherwise
         """
         return self._registered_items.get(name.lower())
+
+
+def model_scan(module_path: str, base_class: Type, recursive: bool = True, **kwargs) -> Dict[str, Type[T]]:
+    """Scan a specific dir and get all items
+
+    Args:
+        module_path: Dot-separated path, e.g., "derisk.model.proxy.llms"
+        base_class: Base class to filter scanned classes
+        class_filter: Additional filter function
+        recursive: Whether to scan subdirectories recursively
+        specific_files: List of specific files to scan (without .py extension)
+
+    Returns:
+        Dict[str, Type[T]]: Dictionary of all registered classes
+    """
+    scanner = ModelScanner[T]()
+    scanner.scan_and_register(ScannerConfig(module_path=module_path, base_class=base_class, recursive=recursive, **kwargs))
+    return scanner.get_registered_items()

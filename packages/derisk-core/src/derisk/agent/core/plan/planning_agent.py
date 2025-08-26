@@ -7,8 +7,7 @@ from derisk._private.pydantic import Field
 
 from derisk.agent.core.agent import AgentMessage, Agent
 from derisk.agent.core.base_agent import ConversableAgent
-from derisk.agent.core.plan.planning_action import ReActAction
-from derisk.agent.core.plan.report_agent import ReportAssistantAgent
+from derisk.agent.core.plan.planning_action import PlanningAction
 from derisk.agent.core.profile import DynConfig, ProfileConfig
 
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ class PlanningAgent(ConversableAgent):
             key="derisk_agent_planning_agent_profile_constraints",
         ),
         desc=DynConfig(
-            "你是一个任务规划专家！可以协调智能体，基于提供给你的背景知识、分析经验再结合历史消息里的分析处理进展和数据状态，对用户输入的异常或问题进行专业的分析思考，寻找接下来可行的分析处理方法和路径。",
+            "你是一个任务规划专家！可以协调智能体，基于提供给你的背景知识、分析经验再结合历史消息里的分析处理进展和数据状态，对用户输入的异常或问题进行专业的分析思考，寻找接下来可行的分析处理方法和路径,并逐步逼近答案。",
             category="agent",
             key="derisk_agent_planning_agent_profile_desc",
         ),
@@ -69,29 +68,28 @@ class PlanningAgent(ConversableAgent):
         ),
     )
     language: str = "zh"
+    current_goal: str = ":探索分析"
     report_agent: Optional[ConversableAgent] = None
+    content_stream_out: bool = False
+    init_uids: List[str] = []
+    conv_round_id: str = None
 
     def __init__(self, **kwargs):
         """Create a new PlannerAgent instance."""
         super().__init__(**kwargs)
-        self._init_actions([ReActAction])
+        self._init_actions([PlanningAction])
 
-    async def init_reply_message(
-            self,
-            received_message: AgentMessage,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            sender: Optional[Agent] = None,
-    ) -> AgentMessage:
-        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages,
-                                                         sender=sender)
-        reply_message.context = {
-            "agents": "\n".join([f"- {item.name}:{item.desc}" for item in self.agents]),
-        }
-        return reply_message
+    def register_variables(self):
+        super().register_variables()
+        @self._vm.register('agents', '规划可用的代理信息')
+        def var_out_schema(instance):
+            return "\n".join([f"- 代理名称:'{item.name}'    能力描述:'{item.desc}'" for item in instance.agents])
+
 
     def hire(self, agents: List[ConversableAgent]):
         """Bind the agents to the planner agent."""
         valid_agents = []
+        from derisk.agent.core.plan.report_agent import ReportAssistantAgent
         reporter = None
         for agent in agents:
             if isinstance(agent, ReportAssistantAgent):
@@ -114,10 +112,17 @@ class PlanningAgent(ConversableAgent):
         reply_message = kwargs.get("reply_message")
         if not reply_message:
             raise "planner agent need reply_message params!"
+        if not self.not_null_agent_context:
+            raise "planner agent need not_null_agent_context params!"
         return {
             "context": self.not_null_agent_context,
-            "plans_memory": self.memory.plans_memory,
+            "gpts_memory": self.memory.gpts_memory,
             "round": reply_message.rounds,
             "round_id": reply_message.round_id,
+            "init_uids": self.init_uids,
             "retry_times": self.current_retry_counter,
+            "planning_agent": self.name,
+            "planning_model": kwargs.get("llm_model")
         }
+
+

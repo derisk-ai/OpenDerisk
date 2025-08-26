@@ -155,6 +155,10 @@ class PromptDebugInput(ServeRequest):
         None,
         description="The prompt debug user input.",
     )
+    template_format: Optional[str] = Field(
+        "jinjia2",
+        description="The prompt debug template format.",
+    )
 
 
 class PromptType(Enum):

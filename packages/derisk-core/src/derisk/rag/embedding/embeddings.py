@@ -682,6 +682,13 @@ class OpenAPIEmbeddingDeployModelParameters(EmbeddingDeployModelParameters):
         },
     )
 
+    text_limit: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": _("embedding text limit."),
+        },
+    )
+
     @property
     def real_provider_model_name(self) -> str:
         """Get the real provider model name."""
@@ -809,6 +816,11 @@ class OpenAPIEmbeddings(BaseModel, Embeddings):
 
     session: Optional[requests.Session] = None
 
+    text_limit: Optional[int] = Field(
+        default=None,
+        description="The maximum length of the text to be embedding.",
+    )
+
     def __init__(self, **kwargs):
         """Initialize the OpenAPIEmbeddings."""
         try:
@@ -842,6 +854,8 @@ class OpenAPIEmbeddings(BaseModel, Embeddings):
             api_key=parameters.api_key,
             model_name=parameters.real_provider_model_name,
             timeout=parameters.timeout,
+            text_limit=parameters.text_limit,
+
         )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:

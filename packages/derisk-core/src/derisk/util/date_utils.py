@@ -10,3 +10,6 @@ def convert_datetime_in_row(row):
         value.strftime("%Y-%m-%d %H:%M:%S") if is_datetime(value) else value
         for value in row
     ]
+
+def current_ms() -> int:
+    return int(datetime.datetime.now().timestamp() * 1000)

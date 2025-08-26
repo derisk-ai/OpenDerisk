@@ -9,12 +9,17 @@ from derisk_app.openapi.api_v1.feedback.feed_back_db import ChatFeedBackEntity
 from derisk_serve.agent.app.recommend_question.recommend_question import (
     RecommendQuestionEntity,
 )
+
 from derisk_serve.datasource.manages.connect_config_db import ConnectConfigEntity
 from derisk_serve.file.models.models import ServeEntity as FileServeEntity
+from derisk_serve.flow.models.models import ServeEntity as FlowServeEntity
+from derisk_serve.flow.models.models import VariablesEntity as FlowVariableEntity
 from derisk_serve.prompt.models.models import ServeEntity as PromptManageEntity
 from derisk_serve.rag.models.chunk_db import DocumentChunkEntity
 from derisk_serve.rag.models.document_db import KnowledgeDocumentEntity
 from derisk_serve.rag.models.models import KnowledgeSpaceEntity
+from derisk_serve.mcp.models.models import ServeEntity as McpManageEntity
+from derisk_serve.model.models.models import ServeEntity as ModelManageentity
 
 _MODELS = [
     FileServeEntity,
@@ -27,5 +32,9 @@ _MODELS = [
     ChatHistoryEntity,
     ChatHistoryMessageEntity,
     ModelInstanceEntity,
+    FlowServeEntity,
     RecommendQuestionEntity,
+    FlowVariableEntity,
+    McpManageEntity,
+    ModelManageentity,
 ]

@@ -49,15 +49,18 @@ class ResourceType(str, Enum):
     TextFile = "text_file"
     ExcelFile = "excel_file"
     ImageFile = "image_file"
-    AudioFile = "audio_file"
-    VideoFile = "video_file"
+    CommonFile = "common_file"
     AWELFlow = "awel_flow"
     App = "app"
     # Resource type for resource pack
     Pack = "pack"
     ReasoningEngine = "reasoning_engine"
-    ReasoningArgSupplier = "reasoning_arg_supplier"
+    Memory = "memory"
+    Agent = "agent"
+    Report = "report"
 
+
+FILE_RESOURCES = [ResourceType.ImageFile.value, ResourceType.ExcelFile.value, ResourceType.TextFile.value, ResourceType.CommonFile.value]
 
 @dataclasses.dataclass
 class ResourceParameters(BaseParameters):
@@ -93,18 +96,26 @@ class Resource(ABC, Generic[P]):
 
     @classmethod
     @abstractmethod
-    def type(cls) -> ResourceType:
+    def type(cls) -> Union[ResourceType, str]:
         """Return the resource type."""
 
     @classmethod
     def type_alias(cls) -> str:
         """Return the resource type alias."""
-        return cls.type().value
+        if isinstance(cls.type(), str):
+            return cls.type()
+        else:
+            return cls.type().value
 
     @property
     @abstractmethod
     def name(self) -> str:
         """Return the resource name."""
+
+    @property
+    def ask_user(self) -> bool:
+        """whether need ask user before execute"""
+        return False
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[P]:
@@ -153,21 +164,13 @@ class Resource(ABC, Generic[P]):
 
     async def get_resources_info(
         self,
-        *,
-        lang: str = "en",
-        prompt_type: str = "default",
-        question: Optional[str] = None,
-        resources: Optional[List] = None,
+        resource_name: Optional[str] = None,
         **kwargs,
     ):
-        """Get prompts for multiple resources at the same time.
+        """Get resource info by name.
 
         Args:
-            lang(str): The language.
-            prompt_type(str): The prompt type.
-            question(str): The question.
-            resource_name(str): The resource name, just for the pack, it will be used
-                to select specific resource in the pack.
+            resource_name(str): The resource name.
         """
 
     @abstractmethod
@@ -189,6 +192,30 @@ class Resource(ABC, Generic[P]):
             resource_name(str): The resource name, just for the pack, it will be used
                 to select specific resource in the pack.
         """
+
+    async def get_prompt_vis(self,
+        *,
+        lang: str = "en",
+        prompt_type: str = "default",
+        question: Optional[str] = None,
+        resource_name: Optional[str] = None,
+        **kwargs,):
+        """Get Prompt Vis.
+
+        Args:
+            lang(str): The language.
+            prompt_type(str): The prompt type.
+            question(str): The question.
+            resource_name(str): The resource name, just for the pack, it will be used
+                to select specific resource in the pack.
+        """
+        return self.get_prompt(
+            lang=lang,
+            prompt_type=prompt_type,
+            question=question,
+            resource_name=resource_name,
+            **kwargs,
+        )
 
     async def get_summary(
         self,
@@ -275,11 +302,12 @@ class Resource(ABC, Generic[P]):
         Returns:
             List[Resource]: The resources.
         """
+        if self.type() == resource_type:
+            return [self]
+
         if not self.is_pack:
-            if self.type() == resource_type:
-                return [self]
-            else:
-                return []
+            return []
+
         resources = []
         for resource in self.sub_resources:
             if resource.type() == resource_type:
@@ -339,7 +367,8 @@ class AgentResource(BaseModel):
                 v2_resource = True
             except json.JSONDecodeError:
                 pass
-
+        elif resource_value and isinstance(resource_value, dict):
+            v2_resource = True
         if not v2_resource:
             pass
 
@@ -348,8 +377,10 @@ class AgentResource(BaseModel):
             name=d.get("name"),
             # introduce=d.get("introduce"),
             value=resource_value,
-            is_dynamic=d.get("is_dynamic", False),
-            context=d.get("context", None),
+            # is_dynamic=d.get("is_dynamic", False),
+            context=d.get("context"),
+            version=d.get("version", "v2"),
+            unique_id=d.get("unique_id")
         )
         if v2_resource:
             return raw_resource

@@ -43,6 +43,16 @@ class GptsPlansEntity(Model):
     state = Column(String(255), nullable=True, comment="subtask status")
     result = Column(Text(length=2 ** 31 - 1), nullable=True, comment="subtask result")
 
+    task_round_title = Column(String(255), nullable=True,
+                              comment="task round title.(Can be empty if there are no multiple tasks in a round)")
+    task_round_description = Column(String(500), nullable=True,
+                                    comment="task round description.(Can be empty if there are no multiple tasks in a round)")
+    planning_agent = Column(
+        String(255), nullable=True, comment="task generate planner name"
+    )
+    planning_model = Column(
+        String(255), nullable=True, comment="task generate llm model"
+    )
     created_at = Column(
         DateTime, name="gmt_create", default=datetime.utcnow, comment="create time"
     )
@@ -53,7 +63,7 @@ class GptsPlansEntity(Model):
         onupdate=datetime.utcnow,
         comment="last update time",
     )
-    __table_args__ = (UniqueConstraint("conv_id", "sub_task_id", name="uk_sub_task"),)
+    __table_args__ = (UniqueConstraint("conv_id", "task_uid", name="uk_sub_task"),)
 
 
 class GptsPlansDao(BaseDao):
@@ -84,6 +94,16 @@ class GptsPlansDao(BaseDao):
         if task_id:
             gpts_plans = gpts_plans.filter(GptsPlansEntity.sub_task_id == task_id)
         result = gpts_plans.first()
+        session.close()
+        return result
+
+    def get_by_planner(self, conv_id:str, planner: str)-> list[GptsPlansEntity]:
+        session = self.get_raw_session()
+        gpts_plans = session.query(GptsPlansEntity)
+        gpts_plans = gpts_plans.filter(GptsPlansEntity.conv_id == conv_id).filter(
+            GptsPlansEntity.planning_agent==planner
+        )
+        result = gpts_plans.all()
         session.close()
         return result
 
@@ -148,9 +168,10 @@ class GptsPlansDao(BaseDao):
             task_id: str,
             state: str,
             retry_times: int,
-            agent: str = None,
-            model: str = None,
-            result: str = None,
+            agent: Optional[str] = None,
+            model: Optional[str] = None,
+            planner: Optional[str] = None,
+            result: Optional[str] = None,
     ):
         session = self.get_raw_session()
         gpts_plans = session.query(GptsPlansEntity)
@@ -166,7 +187,41 @@ class GptsPlansDao(BaseDao):
             update_param[GptsPlansEntity.sub_task_agent] = agent
         if model:
             update_param[GptsPlansEntity.agent_model] = model
+            update_param[GptsPlansEntity.planning_model] = model
+        if planner:
+            update_param[GptsPlansEntity.planning_agent] = planner
+        gpts_plans.update(update_param, synchronize_session="fetch")
+        session.commit()
+        session.close()
 
+    def update_by_uid(
+            self,
+            conv_id: str,
+            task_uid: str,
+            state: str,
+            retry_times: int,
+            agent: Optional[str] = None,
+            model: Optional[str] = None,
+            planner: Optional[str] = None,
+            result: Optional[str] = None,
+    ):
+        session = self.get_raw_session()
+        gpts_plans = session.query(GptsPlansEntity)
+        gpts_plans = gpts_plans.filter(GptsPlansEntity.conv_id == conv_id).filter(
+            GptsPlansEntity.task_uid == task_uid
+        )
+        update_param = {}
+        update_param[GptsPlansEntity.state] = state
+
+        update_param[GptsPlansEntity.retry_times] = retry_times
+        update_param[GptsPlansEntity.result] = result
+        if agent:
+            update_param[GptsPlansEntity.sub_task_agent] = agent
+        if model:
+            update_param[GptsPlansEntity.agent_model] = model
+            update_param[GptsPlansEntity.planning_model] = model
+        if planner:
+            update_param[GptsPlansEntity.planning_agent] = planner
         gpts_plans.update(update_param, synchronize_session="fetch")
         session.commit()
         session.close()
@@ -178,5 +233,17 @@ class GptsPlansDao(BaseDao):
 
         gpts_plans = session.query(GptsPlansEntity)
         gpts_plans.filter(GptsPlansEntity.conv_id == conv_id).delete()
+        session.commit()
+        session.close()
+
+    def remove_by_conv_and_planner(self, conv_id: str, planner:str):
+        session = self.get_raw_session()
+        if conv_id is None:
+            raise Exception("conv_id is None")
+
+        gpts_plans = session.query(GptsPlansEntity)
+        gpts_plans.filter(GptsPlansEntity.conv_id == conv_id).filter(
+            GptsPlansEntity.planning_agent==planner
+        ).delete()
         session.commit()
         session.close()

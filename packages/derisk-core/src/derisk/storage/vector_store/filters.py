@@ -18,6 +18,7 @@ class FilterOperator(str, Enum):
     IN = "in"
     NIN = "nin"
     EXISTS = "exists"
+    LIKE = "like"
 
 
 class FilterCondition(str, Enum):

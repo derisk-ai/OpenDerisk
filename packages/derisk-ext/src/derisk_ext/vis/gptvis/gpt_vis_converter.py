@@ -32,9 +32,19 @@ class GptVisTagPackage(Enum):
 
 
 class GptVisConverter(VisProtocolConverter):
-    def __init__(self, paths: Optional[str] = None):
-        default_tag_paths = ["derisk_ext.vis.gptvis.tags"]
-        super().__init__(paths if paths else default_tag_paths)
+
+    @property
+    def web_use(self) -> bool:
+        return True
+    @property
+    def description(self) -> str:
+        return "基础消息布局(gpt_vis)"
+    @property
+    def render_name(self):
+        return "gpt_vis"
+    def __init__(self, paths: Optional[str] = None, **kwargs):
+        default_tag_paths = ["derisk_ext.vis.gptvis.tags", "derisk_ext.vis.common.tags"]
+        super().__init__(paths if paths else default_tag_paths, **kwargs)
 
     def system_vis_tag_map(self):
         return {
@@ -50,20 +60,23 @@ class GptVisConverter(VisProtocolConverter):
         }
 
     async def final_view(
-            self,
-            messages: List["GptsMessage"],
-            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+        self,
+        messages: List["GptsMessage"],
+        plans_map: Optional[Dict[str,"GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         return await self.visualization(messages, plans_map)
 
     async def visualization(
-        self,
-        messages: List[GptsMessage],
-        plans_map: Optional[Dict[str, GptsPlan]] = None,
-        gpt_msg: Optional[GptsMessage] = None,
-        stream_msg: Optional[Union[Dict, str]] = None,
-        is_first_chunk: bool = False,
-        incremental: bool = False,
+            self,
+            messages: List["GptsMessage"],
+            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+            gpt_msg: Optional["GptsMessage"] = None,
+            stream_msg: Optional[Union[Dict, str]] = None,
+            new_plans: Optional[List["GptsPlan"]] = None,
+            is_first_chunk: bool = False,
+            incremental: bool = False,
+            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         # VIS消息组装
         deal_messages: List[GptsMessage] = []

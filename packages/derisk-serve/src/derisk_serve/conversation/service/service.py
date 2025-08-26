@@ -9,13 +9,25 @@ from derisk.core import (
 from derisk.core.interface.message import _append_view_messages
 from derisk.storage.metadata._base_dao import REQ, RES
 from derisk.util.pagination_utils import PaginationResult
-
 from derisk_serve.core import BaseService
 
 from ...feedback.api.endpoints import get_service
 from ..api.schemas import MessageVo, ServeRequest, ServerResponse
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..models.models import ServeDao, ServeEntity
+
+
+## Compatible with historical old messages
+def vis_name_change(vis_message: str) -> str:
+    """Change vis tag name use new name."""
+    replacements = {
+        "```vis-chart": "```vis-db-chart",
+    }
+
+    for old_tag, new_tag in replacements.items():
+        vis_message = vis_message.replace(old_tag, new_tag)
+
+    return vis_message
 
 
 class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
@@ -169,8 +181,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         query_request = request
         return self.dao.get_list(query_request)
 
+
     def get_list_by_page(
-        self, request: ServeRequest, page: int, page_size: int
+        self, request: ServeRequest, page: int, page_size: int, filter: Optional[str] = None
     ) -> PaginationResult[ServerResponse]:
         """Get a list of Conversation entities by page
 
@@ -182,7 +195,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             List[ServerResponse]: The response
         """
-        return self.dao.get_conv_by_page(request, page, page_size)
+        if filter:
+            additional_filters = [    ServeEntity.summary.like(f"%{filter}%")]
+        else:
+            additional_filters = None
+        return self.dao.get_conv_by_page(request, page, page_size, additional_filters=additional_filters)
 
     def get_history_messages(
         self, request: Union[ServeRequest, Dict[str, Any]]
@@ -195,6 +212,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             List[ServerResponse]: The response
         """
+        from ...file.serve import Serve as FileServe
+
+        file_serve = FileServe.get_instance(self.system_app)
+
         conv: StorageConversation = self.create_storage_conv(request)
         result = []
         messages = _append_view_messages(conv.messages)
@@ -215,7 +236,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             result.append(
                 MessageVo(
                     role=msg.type,
-                    context=msg.content,
+                    # context=vis_name_change(
+                    #     msg.get_view_markdown_text(file_serve.replace_uri)
+                    # ),
+                    context= msg.get_view_markdown_text(file_serve.replace_uri),
                     order=msg.round_index,
                     model_name=self.config.default_model,
                     feedback=feedback,

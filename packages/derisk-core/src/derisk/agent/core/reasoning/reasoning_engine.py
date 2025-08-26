@@ -1,40 +1,14 @@
-import logging
-import os
-import re
 from abc import ABC, abstractmethod
-from logging.handlers import TimedRotatingFileHandler
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict, Tuple
+from typing_extensions import deprecated
 
 from openai import BaseModel
 from pydantic import Field
 
-from derisk.agent import AgentMessage, Action
-from derisk.configs.model_config import LOGDIR
+from derisk.agent import AgentMessage, Action, Agent, AgentContext
+from derisk.util.logger import setup_logging, LoggingParameters
 
-REASONING_LOGGER = logging.getLogger("reasoning")
-# 创建TimedRotatingFileHandler，每天午夜轮转
-handler = TimedRotatingFileHandler(
-    filename=os.path.join(LOGDIR, "reasoning.log"),  # 基础日志文件名
-    when="midnight",  # 每天午夜轮转
-    interval=1,  # 间隔1天
-    backupCount=7,  # 保留7天日志
-    encoding="utf-8",  # 编码
-    delay=False,  # 立即写入
-    utc=False,  # 使用本地时间
-)
-# 自定义文件名后缀（格式为yyyymmdd）
-handler.suffix = "%Y%m%d"
-# 更新正则表达式以匹配新后缀格式（确保自动删除旧文件）
-handler.extMatch = re.compile(r"^\d{8}$", re.ASCII)
-
-# 设置日志格式
-file_formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-handler.setFormatter(file_formatter)
-
-# 添加处理器
-REASONING_LOGGER.addHandler(handler)
+REASONING_LOGGER = setup_logging("reasoning", LoggingParameters(file="reasoning.log"))
 
 DEFAULT_REASONING_PLANNER_NAME = "DEFAULT"
 
@@ -112,6 +86,8 @@ class ReasoningEngineOutput:
         # 模型thinking原始输出
         self.model_thinking: Optional[str] = None
 
+        self.references: Optional[List[dict]] = None
+
 
 class ReasoningEngine(ABC):
     _registry: dict[str, "ReasoningEngine"] = {}
@@ -165,6 +141,17 @@ class ReasoningEngine(ABC):
     def description(self) -> str:
         """Return the description of the reasoning engine."""
 
+    @property
+    def user_prompt_template(self) -> str:
+        """Return the user prompt template of the reasoning engine."""
+        return ""
+
+    @property
+    def system_prompt_template(self) -> str:
+        """Return the system prompt template of the reasoning engine."""
+        return ""
+
+    # @deprecated
     @abstractmethod
     async def invoke(
         self,
@@ -176,3 +163,28 @@ class ReasoningEngine(ABC):
         **kwargs,
     ) -> ReasoningEngineOutput:
         """planning"""
+
+    @abstractmethod
+    async def load_thinking_messages(
+        self,
+        agent: "ReasoningAgent",
+        agent_context: AgentContext,
+        received_message: AgentMessage,
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        is_retry_chat: bool = False,
+        force_use_historical: bool = False,
+        **kwargs
+    ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
+        """组装模型消息 返回: 模型消息、resource_info、系统提示词、用户提示词"""
+
+    @abstractmethod
+    def parse_output(
+        self,
+        agent: "ReasoningAgent",
+        reply_message: AgentMessage,
+        **kwargs
+    ) -> ReasoningEngineOutput:
+        """解析模型结果"""

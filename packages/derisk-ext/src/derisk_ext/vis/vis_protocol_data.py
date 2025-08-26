@@ -6,7 +6,8 @@ from enum import Enum
 from typing import List, Dict, Any, Optional, Tuple, Union
 from derisk._private.pydantic import BaseModel
 from derisk.util.json_utils import serialize
-from jinja2 import Template
+
+from derisk.util.template_utils import render
 
 
 class UpdateType(Enum):
@@ -109,7 +110,7 @@ class ComponentParser:
                             )
                         else:
                             if LIST_NESTED_FIELD in cmp_data and isinstance(
-                                    cmp_data[LIST_NESTED_FIELD], list
+                                cmp_data[LIST_NESTED_FIELD], list
                             ):
                                 uid = uuid.uuid4().hex
                                 type = "all"
@@ -153,7 +154,12 @@ class ComponentParser:
 
         return childs, content
 
-    def _tree_merge(self, old_node: VisTreeNode, new_node: VisTreeNode, new_cmp_cache: dict[str,ComponentData]):
+    def _tree_merge(
+        self,
+        old_node: VisTreeNode,
+        new_node: VisTreeNode,
+        new_cmp_cache: dict[str, ComponentData],
+    ):
         if not old_node:
             return
         old_childs_uid_map = {node.uid: node for node in old_node.childs}
@@ -161,12 +167,15 @@ class ComponentParser:
             if node.uid not in old_childs_uid_map:
                 old_node.childs.append(copy.deepcopy(node))
                 ## 新增子结点, 父结点内容更新
-                self.component_cache[old_node.uid].content += new_cmp_cache[new_node.uid].content
+                self.component_cache[old_node.uid].content += new_cmp_cache[
+                    new_node.uid
+                ].content
             else:
                 if node.childs and len(node.childs) > 0:
                     self._tree_merge(old_childs_uid_map[node.uid], node, new_cmp_cache)
+
     def _cmp_data_merge(
-            self, new_cmp_data: dict, old_cmp_data: dict, merge_type: UpdateType
+        self, new_cmp_data: dict, old_cmp_data: dict, merge_type: UpdateType
     ):
         exclude_properties = ["uid", "type"]
         ## 处理需要增量拼接的字段
@@ -190,7 +199,6 @@ class ComponentParser:
                     result[key] = self._cmp_data_merge(value, result[key], merge_type)
                 # 其他类型增量
                 else:
-
                     if UpdateType.ALL == merge_type:
                         result[key] = copy.deepcopy(value)
                     else:
@@ -253,8 +261,7 @@ class ComponentParser:
                 context["cmp"][child.uid] = child_vis_content
                 ## 处理完的vis content 要替换进组件位置
 
-            template = Template(component_data.content)
-            cmp_vis = template.render(context)
+            cmp_vis = render(component_data.content, context)
 
             # 有组件引用，当前组件里的mardkown 里组件信息是错的，需要从content还原
             if component_data.tag:
@@ -264,8 +271,7 @@ class ComponentParser:
                         for i in range(component_data.data):
                             item = component_data.data[i]
                             lst_itm_content = content_list[i]
-                            item_template = Template(lst_itm_content)
-                            item_vis = item_template.render(context)
+                            item_vis = render(lst_itm_content, context)
                             if isinstance(item, dict):
                                 if NESTED_FIELD in item:
                                     component_data.data[i][NESTED_FIELD] = item_vis
@@ -303,4 +309,5 @@ class ComponentParser:
     def get_component_cache(self) -> Dict[str, ComponentData]:
         """获取组件缓存"""
         return self.component_cache
+
 
