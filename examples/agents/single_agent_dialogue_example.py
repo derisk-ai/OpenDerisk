@@ -23,11 +23,6 @@ from derisk.model import AutoLLMClient
 async def main():
     from derisk.model.proxy.llms.siliconflow import SiliconFlowLLMClient
 
-    llm_client = AutoLLMClient(
-        provider="proxy/aistudio",
-        name="aistudio/QwQ-32B",
-        api_key="fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS",
-    )
 
     context: AgentContext = AgentContext(
         conv_id="test123", gpts_app_name="代码助手", max_new_tokens=2048, conv_session_id="123321", temperature=0.01,

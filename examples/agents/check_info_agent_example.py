@@ -27,13 +27,6 @@ async def main():
     #     name=os.getenv("LLM_MODEL_NAME", "Qwen/Qwen2.5-Coder-32B-Instruct"),
     # )
 
-    llm_client = AutoLLMClient(
-        # provider=os.getenv("LLM_PROVIDER", "proxy/deepseek"),
-        # name=os.getenv("LLM_MODEL_NAME", "deepseek-chat"),
-        name="aistudio/DeepSeek-V3",
-        provider="proxy/aistudio",
-        api_key="fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS"
-    )
 
     agent_memory = AgentMemory()
     agent_memory.gpts_memory.init(conv_id="test456", vis_converter=GptVisConverter())
