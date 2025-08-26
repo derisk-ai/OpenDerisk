@@ -75,7 +75,6 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
           signal: ctrl ? ctrl.signal : null,
           openWhenHidden: true,
           async onopen(response) {
-            console.log('Connection opened:', response);
             if (response.ok && response.headers.get('content-type') === EventStreamContentType) {
               return;
             }

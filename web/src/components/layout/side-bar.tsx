@@ -490,9 +490,9 @@ function SideBar() {
         {
           key: 'MCP',
           name: 'MCP',
-          isActive: pathname.startsWith('/mpc'),
+          isActive: pathname.startsWith('/mcp'),
           icon: <ConsoleSqlOutlined className='w-5 h-5 text-[#515964]' />,
-          path: '/mpc',
+          path: '/mcp',
         },
         {
         key: 'prompt',
@@ -502,7 +502,7 @@ function SideBar() {
         path: '/prompt',
         },
       ],
-      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mpc'),
+      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp'),
       },
     ];
     return items;
@@ -551,20 +551,20 @@ function SideBar() {
             {functions.map(item => {
               if (item?.children) {
                 return (
-                  <div className='mr-3 w-10 h-10 flex items-center justify-center' onClick={() => setIsMenuExpand(true)}>{item.icon}</div>
+                  <div className='w-10 h-10 flex items-center justify-center' onClick={() => setIsMenuExpand(true)}>{item.icon}</div>
                 )
               }
               if ((item as any).app) {
                 return (
                   <div className='h-10 flex items-center justify-center' onClick={() => handleChat((item as any).app)} key={item.key + Date.now()}>
-                    <div className='mr-3 w-8 h-8 items-center justify-center'>{item.icon}</div>
+                    <div className='w-8 h-8 items-center justify-center'>{item.icon}</div>
                   </div>
                 );
               }
 
               return (
                 <Link key={item.key} className='h-10 flex items-center justify-center' href={item.path || '#'}>
-                  <div className='mr-3 w-8 h-8 flex items-center justify-center'>{item.icon}</div>
+                  <div className='w-8 h-8 flex items-center justify-center'>{item.icon}</div>
                 </Link>
               );
             })}
@@ -633,7 +633,7 @@ function SideBar() {
               <Link
                 href={item.path ?? '/'}
                 className={cls(
-                  'flex items-center w-full h-10 cursor-pointer text-black dark:text-white pl-1',
+                  'flex items-center w-full h-10 cursor-pointer text-black dark:text-white pl-1 mt-1',
                   'hover:bg-slate-100 hover:rounded-md',
                   'dark:hover:bg-theme-dark',
                   { 'bg-white rounded-md dark:bg-black': item.isActive },
@@ -650,7 +650,7 @@ function SideBar() {
       </div>
 
       {/* dialog */}
-      <div className="text-base flex flex-row items-center font-medium text-sm py-1 px-2 border-t border-gray-300 dark:border-gray-700">
+      <div className="text-base flex flex-row items-center font-medium text-sm py-1 px-2 border-t border-gray-300 dark:border-gray-700 mt-1">
         <ClockCircleOutlined className='mr-1 w-7 h-7' />
          历史会话
       </div>
@@ -692,7 +692,7 @@ function SideBar() {
             />
           ))
         ) : (
-          <div className='text-center text-gray-500 text-sm py-4'>
+          <div className='px-8 text-gray-500 text-sm py-4'>
             {searchValue ? '未找到匹配的会话' : '暂无历史会话'}
           </div>
         )}
