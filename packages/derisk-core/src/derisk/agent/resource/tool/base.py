@@ -151,6 +151,7 @@ class FunctionTool(BaseTool):
         args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]] = None,
         args_schema: Optional[Type[BaseModel]] = None,
         parse_execute_args_func: Optional[PARSE_EXECUTE_ARGS_FUNCTION] = None,
+        ask_user: Optional[bool] = False,
     ):
         """Create a tool from a function."""
         if not description:
@@ -163,6 +164,7 @@ class FunctionTool(BaseTool):
         self._func = func
         self._is_async = asyncio.iscoroutinefunction(func)
         self._parse_execute_args_func = parse_execute_args_func
+        self._ask_user = ask_user
 
     @property
     def name(self) -> str:
@@ -183,6 +185,12 @@ class FunctionTool(BaseTool):
     def is_async(self) -> bool:
         """Return whether the tool is asynchronous."""
         return self._is_async
+
+
+    @property
+    def ask_user(self) -> bool:
+        """whether need ask user before execute"""
+        return self._ask_user
 
     def parse_execute_args(
         self, resource_name: Optional[str] = None, input_str: Optional[str] = None
@@ -234,13 +242,14 @@ def tool(
     description: Optional[str] = None,
     args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]] = None,
     args_schema: Optional[Type[BaseModel]] = None,
+    ask_user: Optional[bool] = False,
 ) -> Callable[..., Any]:
     """Create a tool from a function."""
 
     def _create_decorator(name: str):
         def decorator(func: ToolFunc):
             tool_name = name or func.__name__
-            ft = FunctionTool(tool_name, func, description, args, args_schema)
+            ft = FunctionTool(tool_name, func, description, args, args_schema, ask_user=ask_user)
 
             @functools.wraps(func)
             def sync_wrapper(*f_args, **kwargs):

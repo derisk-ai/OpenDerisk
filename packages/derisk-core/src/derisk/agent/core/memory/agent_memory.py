@@ -8,6 +8,7 @@ from typing import Callable, List, Optional, Type, Union, cast
 from typing_extensions import TypedDict
 
 from derisk.core import LLMClient
+from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util.annotations import immutable, mutable
 from derisk.util.id_generator import new_id
 
@@ -46,6 +47,17 @@ class AgentMemoryFragment(MemoryFragment):
         importance: Optional[float] = None,
         last_accessed_time: Optional[datetime] = None,
         is_insight: bool = False,
+        rounds: Optional[int] = None,
+        create_time: Optional[datetime] = None,
+        similarity: Optional[float] = None,
+        message_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        role: Optional[str] = None,
+        task_goal: Optional[str] = None,
+        thought: Optional[str] = None,
+        action: Optional[str] = None,
+        action_result: Optional[str] = None,
     ):
         """Create a memory fragment."""
         if not memory_id:
@@ -57,6 +69,17 @@ class AgentMemoryFragment(MemoryFragment):
         self._importance: Optional[float] = importance
         self._last_accessed_time: Optional[datetime] = last_accessed_time
         self._is_insight = is_insight
+        self.rounds: Optional[int] = rounds
+        self._create_time: Optional[datetime] = create_time or datetime.utcnow()
+        self._similarity: Optional[float] = similarity
+        self._message_id: Optional[str] = message_id
+        self._agent_id: Optional[str] = agent_id
+        self._session_id: Optional[str] = session_id
+        self._role: Optional[str] = role
+        self._task_goal: Optional[str] = task_goal
+        self._thought: Optional[str] = thought
+        self._action: Optional[str] = action
+        self._action_result: Optional[str] = action_result
 
     @property
     def id(self) -> int:
@@ -72,6 +95,96 @@ class AgentMemoryFragment(MemoryFragment):
     def embeddings(self) -> Optional[List[float]]:
         """Return the embeddings of the memory fragment."""
         return self._embeddings
+
+    @property
+    def similarity(self) -> Optional[float]:
+        """Return the similarity of the memory fragment.
+
+        Returns:
+            Optional[float]: Similarity of the memory fragment
+        """
+        return self._similarity
+
+    @property
+    def create_time(self) -> Optional[datetime]:
+        """Return the create_time of the memory fragment.
+
+        Returns:
+            Optional[datetime]: Return the create_time of the memory fragment.
+        """
+        return self._create_time or datetime.utcnow()
+
+    @property
+    def message_id(self) -> Optional[str]:
+        """Return the message_id.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._message_id
+
+    @property
+    def agent_id(self) -> Optional[str]:
+        """Return the agent_id.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._agent_id
+
+    @property
+    def session_id(self) -> Optional[str]:
+        """Return the session_id.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._session_id
+
+    @property
+    def role(self) -> Optional[str]:
+        """Return the role.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._role
+
+    @property
+    def task_goal(self) -> Optional[str]:
+        """Return the task_goal.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._task_goal
+
+    @property
+    def thought(self) -> Optional[str]:
+        """Return the task_goal.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._thought
+
+    @property
+    def action(self) -> Optional[str]:
+        """Return the action.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._action
+
+    @property
+    def action_result(self) -> Optional[str]:
+        """Return the action_result.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._action_result
 
     def update_embeddings(self, embeddings: List[float]) -> None:
         """Update the embeddings of the memory fragment.
@@ -160,6 +273,16 @@ class AgentMemoryFragment(MemoryFragment):
         importance: Optional[float] = None,
         is_insight: bool = False,
         last_accessed_time: Optional[datetime] = None,
+        rounds: Optional[int] = None,
+        create_time: Optional[datetime] = None,
+        similarity: Optional[float] = None,
+        message_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        role: Optional[str] = None,
+        task_goal: Optional[str] = None,
+        thought: Optional[str] = None,
+        action: Optional[str] = None,
+        action_result: Optional[str] = None,
         **kwargs,
     ) -> "AgentMemoryFragment":
         """Build a memory fragment from the given parameters."""
@@ -170,6 +293,16 @@ class AgentMemoryFragment(MemoryFragment):
             importance=importance,
             last_accessed_time=last_accessed_time,
             is_insight=is_insight,
+            rounds=rounds,
+            create_time=create_time,
+            similarity=similarity,
+            message_id=message_id,
+            agent_id=agent_id,
+            task_goal=task_goal,
+            thought=thought,
+            action=action,
+            action_result=action_result,
+            role=role,
         )
 
     def copy(self: "AgentMemoryFragment") -> "AgentMemoryFragment":
@@ -181,7 +314,37 @@ class AgentMemoryFragment(MemoryFragment):
             importance=self.importance,
             last_accessed_time=self.last_accessed_time,
             is_insight=self.is_insight,
+            rounds=self.rounds,
+            create_time=self.create_time,
+            similarity=self.similarity,
+            message_id=self.message_id,
+            agent_id=self.agent_id,
+            task_goal=self._task_goal,
+            thought=self._thought,
+            action=self._action,
+            action_result=self._action_result,
+            role=self.role,
         )
+
+    def to_dict(self):
+        """Convert the memory fragment to a dictionary."""
+        return {
+            "observation": self.observation,
+            "embeddings": self._embeddings,
+            "memory_id": self.memory_id,
+            "importance": self.importance,
+            "last_accessed_time": self.last_accessed_time,
+            "is_insight": self.is_insight,
+            "rounds": self.rounds,
+            "create_time": self.create_time,
+            "similarity": self.similarity,
+            "message_id": self._message_id,
+            "role": self._role,
+            "task_goal": self._task_goal,
+            "thought": self._thought,
+            "action": self._action,
+            "action_result": self._action_result
+        }
 
 
 class StructuredAgentMemoryFragment(AgentMemoryFragment):
@@ -278,6 +441,7 @@ class AgentMemory(Memory[AgentMemoryFragment]):
     def __init__(
         self,
         memory: Optional[Memory[AgentMemoryFragment]] = None,
+        preference_memory: Optional[Memory[AgentMemoryFragment]] = None,
         importance_scorer: Optional[ImportanceScorer[AgentMemoryFragment]] = None,
         insight_extractor: Optional[InsightExtractor[AgentMemoryFragment]] = None,
         gpts_memory: Optional[GptsMemory] = None,
@@ -299,6 +463,10 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         self.memory: Memory[AgentMemoryFragment] = cast(
             Memory[AgentMemoryFragment], memory
         )
+        if preference_memory:
+            self.preference_memory: Memory[AgentMemoryFragment] = cast(
+                Memory[AgentMemoryFragment], preference_memory
+            )
         self.importance_scorer = importance_scorer
         self.insight_extractor = insight_extractor
         self.gpts_memory = gpts_memory
@@ -347,9 +515,10 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         memory_fragment: AgentMemoryFragment,
         now: Optional[datetime] = None,
         op: WriteOperation = WriteOperation.ADD,
+        **kwargs
     ) -> Optional[DiscardedMemoryFragments[AgentMemoryFragment]]:
         """Write a memory fragment to the memory."""
-        return await self.memory.write(memory_fragment, now)
+        return await self.memory.write(memory_fragment, now, op, **kwargs)
 
     @mutable
     async def write_batch(
@@ -381,17 +550,103 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         """
         return await self.memory.read(observation, alpha, beta, gamma)
 
+    async def search(
+        self,
+        observation: str,
+        top_k: int = 20,
+        retrieve_strategy: str = "semantic",
+        discard_strategy: Optional[str] = "fifo",
+        score_threshold: Optional[float] = 0.0,
+        condense_prompt: Optional[str] = "",
+        condense_model: Optional[str] = "deepseek-v3",
+        llm_token_limit: Optional[int] = 4096,
+        session_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        enable_global_session: Optional[bool] = False,
+        metadata_filters: Optional[MetadataFilters] = None,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        gamma: Optional[float] = None,
+    ) -> List[MemoryFragment]:
+        """Search memory fragments related to the observation.
+
+         Args:
+            observation(str): Observation
+            top_k(int): Number of top results to return
+            retrieve_strategy(str): Mode of retrieval, e.g.,"semantic", "all",
+            "graph", "hybrid"
+            score_threshold(float): Minimum score threshold for results
+            discard_strategy:(str): Mode of discard memory, e.g.,"fifo", "lru",
+             "similarity",
+            condense_prompt(str): Prompt for generating summary
+            condense_model(str): LLM for generating summary
+            llm_token_limit(int): Token limit for summary generation
+            session_id(str): Session ID for filtering results
+            agent_id(str): Agent ID for filtering results
+            user_id(str): User ID for filtering results
+            enable_global_session(bool): False to use session_id, True to use global
+            session.
+            metadata_filters(MetadataFilters): Metadata filters for results
+            alpha(float): Importance weight
+            beta(float): Time weight
+            gamma(float): Randomness weight
+
+        Returns:
+            List[AgentMemoryFragment]: List of memory fragments
+
+        Returns:
+            List[AgentMemoryFragment]: List of memory fragments
+        """
+        return await self.memory.search(
+            observation=observation,
+            top_k=top_k,
+            retrieve_strategy=retrieve_strategy,
+            score_threshold=score_threshold,
+            discard_strategy=discard_strategy,
+            condense_prompt=condense_prompt,
+            condense_model=condense_model,
+            enable_global_session=enable_global_session,
+            llm_token_limit=llm_token_limit,
+            session_id=session_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            metadata_filters=metadata_filters,
+        )
+
+    def list(
+        self,
+        session_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        metadata_filters: Optional[MetadataFilters] = None
+    ):
+        """List all memories in the session memory.
+
+        Args:
+            session_id(str): Session ID to filter memories
+            agent_id(str): Agent ID to filter memories
+            message_id(str): Message ID to filter memories
+            metadata_filters(MetadataFilters): Additional metadata filters
+        """
+        return self.memory.list(
+            session_id=session_id,
+            agent_id=agent_id,
+            message_id=message_id,
+            metadata_filters=metadata_filters,
+        )
+
     @mutable
     async def clear(self) -> List[AgentMemoryFragment]:
         """Clear the memory."""
         return await self.memory.clear()
 
-    @property
-    def plans_memory(self) -> GptsPlansMemory:
-        """Return the plan memory."""
-        return self.gpts_memory.plans_memory
+    # @property
+    # def plans_memory(self) -> GptsPlansMemory:
+    #     """Return the plan memory."""
+    #     return self.gpts_memory.plans_memory
 
-    @property
-    def message_memory(self) -> GptsMessageMemory:
-        """Return the message memory."""
-        return self.gpts_memory.message_memory
+    # @property
+    # def message_memory(self) -> GptsMessageMemory:
+    #     """Return the message memory."""
+    #     return self.gpts_memory.message_memory

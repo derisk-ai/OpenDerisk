@@ -50,6 +50,12 @@ next action (prefix "Thought: ").
 [{{ action_space_names }}].
 3. One action input (prefix "Action Input: "), empty if no input is required.
 
+
+# Historical mission progress #
+{% if most_recent_memories %}\
+{{ most_recent_memories }}
+{% endif %}\
+
 # EXAMPLE INTERACTION #
 Observation: ...(This is output provided by the external environment or Action output, \
 you are not allowed to generate it.)
@@ -117,7 +123,9 @@ class ReActAgent(ConversableAgent):
         received_message: AgentMessage,
         rely_messages: Optional[List[AgentMessage]] = None,
     ) -> AgentMessage:
-        reply_message = await super().init_reply_message(received_message, rely_messages)
+        reply_message = await super().init_reply_message(
+            received_message, rely_messages
+        )
 
         tool_packs = ToolPack.from_resource(self.resource)
         action_space = []
@@ -253,9 +261,12 @@ class ReActAgent(ConversableAgent):
 
     async def read_memories(
         self,
-        observation: str,
-    ) -> Union[str, List["AgentMessage"]]:
-        memories = await self.memory.read(observation)
+        question: str,
+        conv_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        llm_token_limit: Optional[int] = None,
+    ) -> str:
+        memories = await self.memory.read(question)
         not_json_memories = []
         messages = []
         structured_memories = []

@@ -8,6 +8,7 @@ from derisk._private.pydantic import BaseModel, Field
 from derisk.storage.metadata import BaseDao, Model
 
 
+
 class RecommendQuestion(BaseModel):
     id: Optional[int] = Field(None, description="id")
     app_code: Optional[str] = Field(None, description="The unique identify of app")
@@ -44,6 +45,12 @@ class RecommendQuestion(BaseModel):
 
     @classmethod
     def from_entity(cls, entity):
+        def _is_true(valid) -> bool:
+            if isinstance(valid, str):
+                return valid and valid.lower() in {"1", "true"}
+
+            return True if valid else False
+
         return RecommendQuestion.from_dict(
             {
                 "id": entity.id,
@@ -54,42 +61,42 @@ class RecommendQuestion(BaseModel):
                 "gmt_create": entity.gmt_create,
                 "gmt_modified": entity.gmt_modified,
                 "params": json.loads(entity.params),
-                "valid": entity.valid,
+                "valid": _is_true(entity.valid),
                 "chat_mode": entity.chat_mode,
                 "is_hot_question": entity.is_hot_question,
             }
         )
 
-
-class RecommendQuestionEntity(Model):
-    __tablename__ = "recommend_question"
-    id = Column(Integer, primary_key=True, comment="autoincrement id")
-    app_code = Column(String(255), nullable=False, comment="Current AI assistant code")
-    user_code = Column(String(255), nullable=True, comment="user code")
-    sys_code = Column(String(255), nullable=True, comment="system app code")
-    gmt_create = Column(DateTime, default=datetime.utcnow, comment="create time")
-    gmt_modified = Column(
-        DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        comment="last update time",
-    )
-    question = Column(Text, default=None, comment="question")
-    valid = Column(String(31), default=True, comment="is valid")
-    params = Column(Text, nullable=True, comment="is valid")
-    chat_mode = Column(
-        String(31),
-        nullable=True,
-        comment="chat_mode, such as chat_knowledge, chat_normal",
-    )
-    is_hot_question = Column(
-        String(10),
-        default=False,
-        comment="hot question would be displayed on the main page.",
-    )
-    __table_args__ = (Index("idx_rec_q_app_code", "app_code"),)
-
-
+#
+# class RecommendQuestionEntity(Model):
+#     __tablename__ = "recommend_question"
+#     id = Column(Integer, primary_key=True, comment="autoincrement id")
+#     app_code = Column(String(255), nullable=False, comment="Current AI assistant code")
+#     user_code = Column(String(255), nullable=True, comment="user code")
+#     sys_code = Column(String(255), nullable=True, comment="system app code")
+#     gmt_create = Column(DateTime, default=datetime.utcnow, comment="create time")
+#     gmt_modified = Column(
+#         DateTime,
+#         default=datetime.utcnow,
+#         onupdate=datetime.utcnow,
+#         comment="last update time",
+#     )
+#     question = Column(Text, default=None, comment="question")
+#     valid = Column(String(31), default=True, comment="is valid")
+#     params = Column(Text, nullable=True, comment="is valid")
+#     chat_mode = Column(
+#         String(31),
+#         nullable=True,
+#         comment="chat_mode, such as chat_knowledge, chat_normal",
+#     )
+#     is_hot_question = Column(
+#         String(10),
+#         default=False,
+#         comment="hot question would be displayed on the main page.",
+#     )
+#     __table_args__ = (Index("idx_rec_q_app_code", "app_code"),)
+from derisk_serve.building.recommend_question.models.models import ServeEntity
+RecommendQuestionEntity = ServeEntity
 class RecommendQuestionDao(BaseDao):
     def list_questions(self, rq: RecommendQuestion):
         questions = []

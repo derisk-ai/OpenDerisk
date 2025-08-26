@@ -5,7 +5,7 @@ from typing import List, Optional
 from derisk._private.llm_metadata import LLMMetadata
 from derisk.core import Chunk, LLMClient, ModelMessageRoleType, ModelRequest
 from derisk.rag.extractor.base import Extractor
-from derisk.util import utils
+from derisk.util import logger
 from derisk.util.chat_util import run_async_tasks
 
 SUMMARY_PROMPT_TEMPLATE_ZH = """请根据提供的上下文信息的进行精简地总结:

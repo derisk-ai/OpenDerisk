@@ -48,12 +48,17 @@ class PPTXKnowledge(Knowledge):
 
             pr = Presentation(self._path)
             docs = []
+            doc_name = self._doc_name or self._path.rsplit("/", 1)[-1].replace(
+                ".pptx", ""
+            )
             for slide in pr.slides:
                 content = ""
                 for shape in slide.shapes:
                     if hasattr(shape, "text") and shape.text:
                         content += shape.text
-                metadata = {"source": self._path}
+                metadata = {"source": self._path,
+                            "doc_name": doc_name,
+                            }
                 if self._metadata:
                     metadata.update(self._metadata)  # type: ignore
                 docs.append(Document(content=content, metadata=metadata))
@@ -99,3 +104,8 @@ class PPTXKnowledge(Knowledge):
             DocumentType: document type
         """
         return DocumentType.PPTX
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.PPTX.value

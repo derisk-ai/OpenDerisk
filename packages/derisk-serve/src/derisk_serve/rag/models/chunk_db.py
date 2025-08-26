@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Union
+import json
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, not_
 
@@ -26,6 +27,8 @@ class DocumentChunkEntity(Model):
     full_text_id = Column(String(100))
     meta_data = Column(Text)
     tags = Column(Text)
+    chunk_type = Column(String(100))
+    image_url = Column(String(2048))
     gmt_created = Column(DateTime, name="gmt_create")
     gmt_modified = Column(DateTime)
 
@@ -36,6 +39,8 @@ class DocumentChunkEntity(Model):
             f"document_id='{self.document_id}', content='{self.content}', "
             f"questions='{self.questions}', meta_data='{self.meta_data}', "
             f"tags='{self.tags}',"
+            f"chunk_type='{self.chunk_type}',"
+            f"image_url='{self.image_url}',"
             f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
         )
 
@@ -49,6 +54,11 @@ class DocumentChunkEntity(Model):
             "questions": self.questions,
             "meta_data": self.meta_data,
             "tags": self.tags,
+            "chunk_id": self.chunk_id,
+            "doc_id": self.doc_id,
+            "knowledge_id": self.knowledge_id,
+            "chunk_type": self.chunk_type,
+            "image_url": self.image_url,
             "gmt_created": self.gmt_created,
             "gmt_modified": self.gmt_modified,
         }
@@ -67,6 +77,8 @@ class DocumentChunkDao(BaseDao):
                 word_count=0,
                 content=document.content or "",
                 meta_data=document.meta_data or "",
+                chunk_type=document.chunk_type or "",
+                image_url=document.image_url or "",
                 gmt_created=datetime.now(),
                 gmt_modified=datetime.now(),
             )
@@ -206,6 +218,20 @@ class DocumentChunkDao(BaseDao):
         session.close()
         return count
 
+    def delete_chunk(self, chunk_id: str):
+        session = self.get_raw_session()
+        if chunk_id is None:
+            raise Exception("chunk_id is None")
+        query = DocumentChunkEntity(chunk_id=chunk_id)
+        knowledge_documents = session.query(DocumentChunkEntity)
+        if query.chunk_id is not None:
+            chunks = knowledge_documents.filter(
+                DocumentChunkEntity.chunk_id == query.chunk_id
+            )
+        chunks.delete()
+        session.commit()
+        session.close()
+
     def raw_delete(self, doc_id: str):
         session = self.get_raw_session()
         if doc_id is None:
@@ -252,9 +278,14 @@ class DocumentChunkDao(BaseDao):
             doc_name=entity.doc_name,
             doc_type=entity.doc_type,
             document_id=entity.document_id,
+            doc_id=entity.doc_id,
+            knowledge_id=entity.knowledge_id,
             content=entity.content,
             questions=entity.questions,
             meta_data=entity.meta_data,
+            tags=entity.tags,
+            chunk_type=entity.chunk_type,
+            image_url=entity.image_url,
             gmt_created=entity.gmt_created,
             gmt_modified=entity.gmt_modified,
         )
@@ -279,7 +310,11 @@ class DocumentChunkDao(BaseDao):
             questions=entity.questions,
             meta_data=entity.meta_data,
             chunk_id=entity.chunk_id,
-            tags=entity.tags,
+            tags=[] if not entity.tags else json.loads(entity.tags),
+            doc_id=entity.doc_id,
+            knowledge_id=entity.knowledge_id,
+            chunk_type=entity.chunk_type,
+            image_url=entity.image_url,
             gmt_created=gmt_created_str,
             gmt_modified=gmt_modified_str,
         )

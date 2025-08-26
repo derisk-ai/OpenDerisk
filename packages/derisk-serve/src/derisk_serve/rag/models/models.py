@@ -24,6 +24,7 @@ class KnowledgeSpaceEntity(Model):
     owner = Column(String(100))
     sys_code = Column(String(128))
     context = Column(Text)
+    refresh = Column(String(100))
     gmt_created = Column(DateTime, name="gmt_create")
     gmt_modified = Column(DateTime)
 
@@ -32,6 +33,7 @@ class KnowledgeSpaceEntity(Model):
             f"KnowledgeSpaceEntity(id={self.id}, name='{self.name}', "
             f"storage_type='{self.storage_type}', desc='{self.desc}', tags='{self.tags}',  category='{self.category}',"
             f"owner='{self.owner}' context='{self.context}', knowledge_type='{self.knowledge_type}',"
+            f"refresh='{self.refresh}',"
             f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
         )
 
@@ -50,6 +52,7 @@ class KnowledgeSpaceDao(BaseDao):
             category=space.category,
             owner=space.owner,
             sys_code=space.sys_code,
+            refresh="false",
             gmt_created=datetime.now(),
             gmt_modified=datetime.now(),
         )
@@ -88,9 +91,7 @@ class KnowledgeSpaceDao(BaseDao):
     def get_all_distinct_knowledge_ids(self):
         session = self.get_raw_session()
         try:
-            query = session.query(
-                KnowledgeSpaceEntity.knowledge_id
-            ).distinct()
+            query = session.query(KnowledgeSpaceEntity.knowledge_id).distinct()
 
             results = query.all()
 
@@ -148,6 +149,10 @@ class KnowledgeSpaceDao(BaseDao):
         if query.knowledge_type is not None:
             knowledge_spaces = knowledge_spaces.filter(
                 KnowledgeSpaceEntity.knowledge_type == query.knowledge_type
+            )
+        if query.refresh is not None:
+            knowledge_spaces = knowledge_spaces.filter(
+                KnowledgeSpaceEntity.refresh == query.refresh
             )
         if name_or_tag is not None:
             knowledge_spaces = knowledge_spaces.filter(
@@ -207,6 +212,10 @@ class KnowledgeSpaceDao(BaseDao):
             request_dict.pop("vector_type")
         if "name_or_tag" in request_dict:
             request_dict.pop("name_or_tag")
+        if "gmt_created" in request_dict:
+            request_dict.pop("gmt_created")
+        if "gmt_modified" in request_dict:
+            request_dict.pop("gmt_modified")
         entity = KnowledgeSpaceEntity(**request_dict)
         return entity
 
@@ -230,6 +239,7 @@ class KnowledgeSpaceDao(BaseDao):
             category=entity.category,
             knowledge_type=entity.knowledge_type,
             tags=entity.tags,
+            refresh=entity.refresh,
             gmt_modified=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         )
 
@@ -254,4 +264,5 @@ class KnowledgeSpaceDao(BaseDao):
             category=entity.category,
             tags=entity.tags,
             knowledge_type=entity.knowledge_type,
+            refresh=entity.refresh,
         )

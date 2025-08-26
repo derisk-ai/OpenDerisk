@@ -21,6 +21,7 @@ class RetrieverStrategy(str, Enum):
     SEMANTIC = "semantic"
     GRAPH = "graph"
     KEYWORD = "keyword"
+    EXACT = "exact"
     HYBRID = "hybrid"
 
 

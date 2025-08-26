@@ -25,15 +25,14 @@ from derisk.model.cluster.apiserver.api import APISettings
 from derisk.util.executor_utils import blocking_func_to_async
 from derisk.util.tracer import SpanType, root_tracer
 from derisk_app.openapi.api_v1.api_v1 import (
-    CHAT_FACTORY,
     __new_conversation,
+    get_chat_flow,
     get_executor,
     stream_generator,
 )
-from derisk_app.scene import BaseChat, ChatScene
 from derisk_client.schema import ChatCompletionRequestBody, ChatMode
 from derisk_serve.agent.agents.controller import multi_agents
-from derisk_serve.model.api.endpoints import get_service
+from derisk_serve.flow.api.endpoints import get_service
 
 router = APIRouter()
 api_settings = APISettings()
@@ -71,12 +70,12 @@ async def check_api_key(
 @router.post("/v2/chat/completions", dependencies=[Depends(check_api_key)])
 async def chat_completions(
     request: ChatCompletionRequestBody = Body(),
-
+    service=Depends(get_service),
 ):
     """Chat V2 completions
     Args:
         request (ChatCompletionRequestBody): The chat request.
-
+        flow_service (FlowService): The flow service.
     Raises:
         HTTPException: If the request is invalid.
     """
@@ -115,27 +114,14 @@ async def chat_completions(
             headers=headers,
             media_type="text/event-stream",
         )
-
-    elif (
-        request.chat_mode is None
-        or request.chat_mode == ChatMode.CHAT_NORMAL.value
-        or request.chat_mode == ChatMode.CHAT_KNOWLEDGE.value
-        or request.chat_mode == ChatMode.CHAT_DATA.value
-    ):
-        with root_tracer.start_span(
-            "get_chat_instance",
-            span_type=SpanType.CHAT,
-            metadata=model_to_dict(request),
-        ):
-            chat: BaseChat = await get_chat_instance(request, service.system_app)
-
+    elif request.chat_mode == ChatMode.CHAT_AWEL_FLOW.value:
         if not request.stream:
-            return await no_stream_wrapper(request, chat)
+            return await chat_flow_wrapper(request)
         else:
             return StreamingResponse(
-                stream_generator(chat, request.incremental, request.model),
+                chat_flow_stream_wrapper(request),
                 headers=headers,
-                media_type="text/plain",
+                media_type="text/event-stream",
             )
     else:
         raise HTTPException(
@@ -150,79 +136,13 @@ async def chat_completions(
                 }
             },
         )
-
-
-async def get_chat_instance(
-    dialogue: ChatCompletionRequestBody = Body(), system_app: SystemApp = None
-) -> BaseChat:
-    """
-    Get chat instance
-    Args:
-        dialogue (OpenAPIChatCompletionRequest): The chat request.
-        system_app (SystemApp): system app.
-    """
-    logger.info(f"get_chat_instance:{dialogue}")
-    if not dialogue.chat_mode:
-        dialogue.chat_mode = ChatScene.ChatNormal.value()
-    if not dialogue.conv_uid:
-        conv_vo = __new_conversation(
-            dialogue.chat_mode, dialogue.user_name, dialogue.sys_code
-        )
-        dialogue.conv_uid = conv_vo.conv_uid
-    if dialogue.chat_mode == "chat_data":
-        dialogue.chat_mode = ChatScene.ChatWithDbExecute.value()
-    if not ChatScene.is_valid_mode(dialogue.chat_mode):
-        raise StopAsyncIteration(f"Unsupported Chat Mode,{dialogue.chat_mode}!")
-
-    chat_param = {
-        "chat_session_id": dialogue.conv_uid,
-        "user_name": dialogue.user_name,
-        "sys_code": dialogue.sys_code,
-        "current_user_input": dialogue.messages,
-        "select_param": dialogue.chat_param,
-        "model_name": dialogue.model,
-        "temperature": dialogue.temperature,
-        "max_new_tokens": dialogue.max_new_tokens,
-    }
-    chat: BaseChat = await blocking_func_to_async(
-        get_executor(),
-        CHAT_FACTORY.get_implementation,
-        dialogue.chat_mode,
-        system_app,
-        **{"chat_param": chat_param},
-    )
-    return chat
-
-
-async def no_stream_wrapper(
-    request: ChatCompletionRequestBody, chat: BaseChat
-) -> ChatCompletionResponse:
-    """
-    no stream wrapper
-    Args:
-        request (OpenAPIChatCompletionRequest): request
-        chat (BaseChat): chat
-    """
-    with root_tracer.start_span("no_stream_generator"):
-        response = await chat.nostream_call()
-        msg = response.replace("\ufffd", "").replace("&quot;", '"')
-        choice_data = ChatCompletionResponseChoice(
-            index=0,
-            message=ChatMessage(role="assistant", content=msg),
-        )
-        usage = UsageInfo()
-        return ChatCompletionResponse(
-            id=request.conv_uid, choices=[choice_data], model=request.model, usage=usage
-        )
-
-
 async def chat_app_stream_wrapper(request: ChatCompletionRequestBody = None):
     """chat app stream
     Args:
         request (OpenAPIChatCompletionRequest): request
         token (APIToken): token
     """
-    async for output, agent_conv_id in multi_agents.app_agent_chat(
+    async for output in multi_agents.app_chat(
         conv_uid=request.conv_uid,
         gpts_name=request.chat_param,
         user_query=request.messages,
@@ -255,6 +175,45 @@ async def chat_app_stream_wrapper(request: ChatCompletionRequestBody = None):
     yield "data: [DONE]\n\n"
 
 
+async def chat_flow_wrapper(request: ChatCompletionRequestBody):
+    flow_service = get_chat_flow()
+    flow_req = CommonLLMHttpRequestBody(**model_to_dict(request))
+    flow_uid = request.chat_param
+    output = await flow_service.safe_chat_flow(flow_uid, flow_req)
+    if not output.success:
+        return JSONResponse(
+            model_to_dict(ErrorResponse(message=output.text, code=output.error_code)),
+            status_code=400,
+        )
+    else:
+        choice_data = ChatCompletionResponseChoice(
+            index=0,
+            message=ChatMessage(role="assistant", content=output.text),
+        )
+        if output.usage:
+            usage = UsageInfo(**output.usage)
+        else:
+            usage = UsageInfo()
+        return ChatCompletionResponse(
+            id=request.conv_uid, choices=[choice_data], model=request.model, usage=usage
+        )
+
+
+async def chat_flow_stream_wrapper(
+    request: ChatCompletionRequestBody,
+) -> AsyncIterator[str]:
+    """chat app stream
+    Args:
+        request (OpenAPIChatCompletionRequest): request
+    """
+    flow_service = get_chat_flow()
+    flow_req = CommonLLMHttpRequestBody(**model_to_dict(request))
+    flow_uid = request.chat_param
+
+    async for output in flow_service.chat_stream_openai(flow_uid, flow_req):
+        yield output
+
+
 def check_chat_request(request: ChatCompletionRequestBody = Body()):
     """
     Check the chat request
@@ -263,19 +222,18 @@ def check_chat_request(request: ChatCompletionRequestBody = Body()):
     Raises:
         HTTPException: If the request is invalid.
     """
-    if request.chat_mode and request.chat_mode != ChatScene.ChatNormal.value():
-        if request.chat_param is None:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": {
-                        "message": "chart param is None",
-                        "type": "invalid_request_error",
-                        "param": None,
-                        "code": "invalid_chat_param",
-                    }
-                },
-            )
+    if request.chat_param is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "chart param is None",
+                    "type": "invalid_request_error",
+                    "param": None,
+                    "code": "invalid_chat_param",
+                }
+            },
+        )
     if request.model is None:
         raise HTTPException(
             status_code=400,

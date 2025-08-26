@@ -2,7 +2,7 @@ import json
 import logging
 import uuid
 from abc import ABC
-from typing import List, Type
+from typing import List, Type, Optional
 
 from derisk._private.config import Config
 from derisk.agent import (
@@ -18,7 +18,6 @@ from derisk.agent import (
 )
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
-from derisk.agent.core.schema import Status
 from derisk.agent.resource import get_resource_manager
 from derisk.agent.util.llm.llm import LLMStrategyType
 from derisk.component import BaseComponent, ComponentType, SystemApp
@@ -29,10 +28,12 @@ from derisk_serve.core import blocking_func_to_async
 from derisk_serve.prompt.api.endpoints import get_service
 
 from ..db import GptsMessagesDao
-from ..db.gpts_app import GptsApp, GptsAppDao, GptsAppDetail, GptsAppQuery
+
 from ..db.gpts_conversations_db import GptsConversationsDao
 from ..team.base import TeamMode
 from .derisks_memory import MetaDerisksMessageMemory, MetaDerisksPlansMemory
+from derisk_serve.building.app.service.service import Service as AppService
+from ...building.app.api.schema_app import GptsAppQuery, GptsApp, GptsAppDetail
 
 CFG = Config()
 logger = logging.getLogger(__name__)
@@ -45,7 +46,6 @@ class AppManager(BaseComponent, ABC):
         self.gpts_conversations = GptsConversationsDao()
         self.gpts_messages_dao = GptsMessagesDao()
 
-        self.gpts_app = GptsAppDao()
         self.memory = GptsMemory(
             plans_memory=MetaDerisksMessageMemory(),
             message_memory=MetaDerisksPlansMemory(),
@@ -58,63 +58,31 @@ class AppManager(BaseComponent, ABC):
     def init_app(self, system_app: SystemApp):
         self.system_app = system_app
 
-    def get_derisks(self, user_code: str = None, sys_code: str = None):
-        apps = self.gpts_app.app_list(
-            GptsAppQuery(user_code=user_code, sys_code=sys_code)
-        ).app_list
-        return apps
+    def get_derisks(self, query: Optional[str], user_code: Optional[str] = None, sys_code: Optional[str] = None):
+
+        app_service = AppService.get_instance(CFG.SYSTEM_APP)
+
+        apps = app_service.sync_app_list(GptsAppQuery(name_filter=query, user_code=user_code, sys_code=sys_code))
+        if apps:
+            ## 排除掉非Agent的无法进行链接对话应用，
+            results = []
+            for item in apps.app_list:
+                if not item.team_mode == TeamMode.NATIVE_APP.value:
+                    results.append(item)
+            return results
+        else:
+            return []
 
     def get_app(self, app_code) -> GptsApp:
         """get app"""
-        return self.gpts_app.app_detail(app_code)
-
-    async def user_chat_2_app(
-        self,
-        user_query: str,
-        conv_uid: str,
-        gpts_app: GptsApp,
-        agent_memory: AgentMemory,
-        is_retry_chat: bool = False,
-        last_speaker_name: str = None,
-        init_message_rounds: int = 0,
-        **ext_info,
-    ) -> Status:
-        context: AgentContext = AgentContext(
-            conv_id=conv_uid,
-            gpts_app_code=gpts_app.app_code,
-            gpts_app_name=gpts_app.app_name,
-            language=gpts_app.language,
-        )
-        recipient = await self.create_app_agent(gpts_app, agent_memory, context)
-
-        if is_retry_chat:
-            # retry chat
-            self.gpts_conversations.update(conv_uid, Status.RUNNING.value)
-
-        # start user proxy
-        user_proxy: UserProxyAgent = (
-            await UserProxyAgent().bind(context).bind(agent_memory).build()
-        )
-        await user_proxy.initiate_chat(
-            recipient=recipient,
-            message=user_query,
-            is_retry_chat=is_retry_chat,
-            last_speaker_name=last_speaker_name,
-            message_rounds=init_message_rounds,
-            **ext_info,
-        )
-
-        # Check if the user has received a question.
-        if user_proxy.have_ask_user():
-            return Status.WAITING
-
-        return Status.COMPLETE
+        app_service = AppService.get_instance(CFG.SYSTEM_APP)
+        return app_service.sync_app_detail(app_code)
 
     async def create_app_agent(
-        self,
-        gpts_app: GptsApp,
-        agent_memory: AgentMemory,
-        context: AgentContext,
+            self,
+            gpts_app: GptsApp,
+            agent_memory: AgentMemory,
+            context: AgentContext,
     ) -> ConversableAgent:
         # init default llm provider
         llm_provider = DefaultLLMClient(
@@ -141,11 +109,11 @@ class AppManager(BaseComponent, ABC):
         return app_agent
 
     async def create_agent_by_app_code(
-        self,
-        gpts_app: GptsApp,
-        conv_uid: str = None,
-        agent_memory: AgentMemory = None,
-        context: AgentContext = None,
+            self,
+            gpts_app: GptsApp,
+            conv_uid: str = None,
+            agent_memory: AgentMemory = None,
+            context: AgentContext = None,
     ) -> ConversableAgent:
         """
         Create a conversable agent by application code.
@@ -197,10 +165,10 @@ class AppManager(BaseComponent, ABC):
 
 
 async def create_agent_from_gpt_detail(
-    record: GptsAppDetail,
-    llm_client: LLMClient,
-    agent_context: AgentContext,
-    agent_memory: AgentMemory,
+        record: GptsAppDetail,
+        llm_client: LLMClient,
+        agent_context: AgentContext,
+        agent_memory: AgentMemory,
 ) -> ConversableAgent:
     """
     Get the agent object from the GPTsAppDetail object.
@@ -236,11 +204,11 @@ async def create_agent_from_gpt_detail(
 
 
 async def create_agent_of_gpts_app(
-    gpts_app: GptsApp,
-    llm_client: LLMClient,
-    context: AgentContext,
-    memory: AgentMemory,
-    employees: List[ConversableAgent],
+        gpts_app: GptsApp,
+        llm_client: LLMClient,
+        context: AgentContext,
+        memory: AgentMemory,
+        employees: List[ConversableAgent],
 ) -> ConversableAgent:
     llm_config = LLMConfig(
         llm_client=llm_client,

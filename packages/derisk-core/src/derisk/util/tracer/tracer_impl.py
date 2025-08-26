@@ -170,6 +170,74 @@ class TracerManager:
         ctx = self._trace_context_var.get()
         return ctx.span_id if ctx else None
 
+    def set_context_cookie(self, cookie):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.cookie = cookie
+
+    def get_context_cookie(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.cookie if ctx and ctx.cookie else ""
+
+    def set_context_rpc_id(self, rpc_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.rpc_id = rpc_id
+
+    def get_context_rpc_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.rpc_id if ctx and ctx.rpc_id else ""
+
+    def set_context_entrance(self, entrance):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.entrance = entrance
+
+    def get_context_entrance(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.entrance if ctx and ctx.entrance else ""
+
+    def set_context_agent_id(self, agent_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.agent_id = agent_id
+
+    def get_context_agent_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.agent_id if ctx else None
+
+    def set_context_agent_hub_id(self, agent_hub_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.agent_hub_id = agent_hub_id
+
+    def get_context_agent_hub_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.agent_hub_id if ctx else None
+
+    def set_context_user_id(self, user_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.user_id = user_id
+
+    def get_context_user_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.user_id if ctx else None
+
+    def get_context_trace_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.span_id.split(":")[0] if ctx and ctx.span_id else ""
+
+
+    def set_context_conv_id(self, conv_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.conv_id = conv_id
+
+    def get_context_conv_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.conv_id if ctx else None
+
     def _get_current_span_type(self) -> Optional[SpanType]:
         current_span = self.get_current_span()
         return current_span.span_type if current_span else None
@@ -334,10 +402,10 @@ def initialize_tracer(
     tracer = DefaultTracer(system_app)
 
     storage_container = SpanStorageContainer(system_app)
-    tracer_filename = resolve_root_path(tracer_filename)
-    print("tracer_filename: ", tracer_filename)
-    storage_container.append_storage(FileSpanStorage(tracer_filename))
-    storage_container.append_storage(RagFlowSpanStorage(tracer_filename))
+    # tracer_filename = resolve_root_path(tracer_filename)
+    # print("tracer_filename: ", tracer_filename)
+    # storage_container.append_storage(FileSpanStorage(tracer_filename))
+    # storage_container.append_storage(RagFlowSpanStorage(tracer_filename))
     if tracer_parameters and tracer_parameters.exporter == "telemetry":
         from derisk.util.tracer.opentelemetry import OpenTelemetrySpanStorage
 

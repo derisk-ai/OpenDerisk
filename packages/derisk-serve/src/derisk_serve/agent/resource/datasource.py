@@ -152,7 +152,9 @@ class DatasourceResource(RDBMSConnectorResource):
     ) -> Union[str, List[str]]:
         """Return the schema link of the database."""
         try:
-            from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
+            from derisk_serve.datasource.service.db_summary_client import (
+                DBSummaryClient,
+            )
         except ImportError:
             raise ValueError("Could not import DBSummaryClient. ")
         client = DBSummaryClient(system_app=CFG.SYSTEM_APP)

@@ -65,8 +65,61 @@ def infer_lang(code):
         return UNKNOWN
 
 
-# TODO: In the future move, to better support https://spec.commonmark.org/0.30/#fenced-code-blocks
-#       perhaps by using a full Markdown parser.
+def extract_code_v2(
+        text: Union[str, List],
+        pattern: str = CODE_BLOCK_PATTERN,
+        detect_single_line_code: bool = False,
+        default_lang: str = "python",
+) -> Tuple[List[Tuple[str, str]], Optional[str]]:
+    """Extract code from a text and optionally return prefix text.
+
+    Args:
+        text (str or List): The content to extract code from.
+        pattern (str): The regular expression pattern for finding code blocks.
+        detect_single_line_code (bool): Enable extraction of single line code.
+        default_lang (str): Default language when none is specified.
+
+    Returns:
+        list or tuple:
+            If return_prefix=False: List of (language, code) tuples
+            If return_prefix=True: Tuple (prefix_text, code_blocks)
+    """
+    text_str = content_str(text)  # 假设 content_str 将输入转为字符串
+
+    # 创建匹配模式
+    if detect_single_line_code:
+        code_pattern = re.compile(pattern + r"|`([^`]+)`", re.DOTALL)
+    else:
+        code_pattern = re.compile(pattern, re.DOTALL)
+
+    # 查找所有匹配项
+    matches = list(code_pattern.finditer(text_str))
+    code_blocks = []
+
+    if matches:
+        # 获取第一个代码块前面的文本
+        first_match_start = matches[0].start()
+        prefix_text = text_str[:first_match_start].strip()
+
+        # 处理所有匹配项
+        for match in matches:
+            groups = match.groups()
+            if detect_single_line_code:
+                lang, group1, group2 = groups
+                if group1:
+                    code_blocks.append((lang.strip() if lang else "", group1.strip()))
+                elif group2:
+                    code_blocks.append(("", group2.strip()))
+            else:
+                lang, code = groups
+                code_blocks.append((lang.strip() if lang else "", code.strip()))
+    else:
+        # 没有找到代码块时的回退逻辑
+        code_blocks = [(default_lang, "")]
+        prefix_text = text_str
+
+    return code_blocks, prefix_text
+
 def extract_code(
     text: Union[str, List],
     pattern: str = CODE_BLOCK_PATTERN,

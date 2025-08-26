@@ -2,6 +2,7 @@ from derisk import BaseComponent, SystemApp
 from derisk.agent.core.reasoning.reasoning_arg_supplier import ReasoningArgSupplier
 from derisk.agent.core.reasoning.reasoning_engine import ReasoningEngine
 from derisk.component import ComponentType
+from derisk.core.awel import BaseOperator
 
 _HAS_SCAN = False
 
@@ -29,6 +30,7 @@ def _register():
     for baseclass, path in [
         (ReasoningEngine, "derisk_ext.reasoning_engine"),
         (ReasoningArgSupplier, "derisk_ext.reasoning_arg_supplier"),
+        (BaseOperator, "derisk_ext.agent.agents.awel"),
     ]:
         scanner = ModelScanner[baseclass]()
         config = ScannerConfig(
@@ -37,5 +39,6 @@ def _register():
             recursive=True,
         )
         scanner.scan_and_register(config)
-        for _, subclass in scanner.get_registered_items().items():
-            baseclass.register(subclass=subclass)
+        if hasattr(baseclass, "register"):
+            for _, subclass in scanner.get_registered_items().items():
+                baseclass.register(subclass=subclass)

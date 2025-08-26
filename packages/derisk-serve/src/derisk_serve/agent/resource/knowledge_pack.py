@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, List, Optional, Type, cast
+from typing import Any, List, Optional, Type, cast, Tuple, Dict
 
 from derisk import SystemApp
 from derisk.agent import ResourceType
@@ -9,6 +9,7 @@ from derisk.agent.resource.knowledge import (
     RetrieverResourceParameters,
 )
 from derisk.core import Chunk
+from derisk.rag.transformer.tag_extractor import MetadataTag
 from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
 from derisk_serve.rag.api.schemas import (
@@ -47,7 +48,7 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
         default=True, metadata={"help": _("Knowledge enable summary")}
     )
     summary_model: Optional[str] = dataclasses.field(
-        default="aistudio/DeepSeek-V3", metadata={"help": _("Knowledge summary model")}
+        default="DeepSeek-V3", metadata={"help": _("Knowledge summary model")}
     )
     summary_prompt: Optional[str] = dataclasses.field(
         default="你是一个内容总结专家，请根据query对检索到的文档进行总结，要求总结的内容和query是相关的。1.如果已知信息包含的图片、链接、表格、代码块等特殊markdown标签格式的信息，确保在答案中包含原文这些图片、链接、表格和代码标签，不要丢弃不要修改，如:图片格式：![image.png](xxx),链接格式:[xxx](xxx),表格格式:|xxx|xxx|xxx|,代码格式:```xxx```.2.如果无法从提供的内容中获取答案,请说:知识库中提供的内容不足以回答此问题 禁止胡乱编造.3.回答的时候最好按照1.2.3.点进行总结,并以markdwon格式显示."
@@ -58,7 +59,7 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
         default=True, metadata={"help": _("enable split query")}
     )
     split_query_model: Optional[str] = dataclasses.field(
-        default="tomato_r4_bailing_10b_sst_mft",
+        default="",
         metadata={"help": _("split query model")},
     )
     split_query_prompt: Optional[str] = dataclasses.field(
@@ -69,7 +70,7 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
         default=False, metadata={"help": _("enable rewrite query")}
     )
     rewrite_query_model: Optional[str] = dataclasses.field(
-        default="tomato_r4_bailing_10b_sst_mft",
+        default="",
         metadata={"help": _("rewrite query model")},
     )
     rewrite_query_prompt: Optional[str] = dataclasses.field(
@@ -79,7 +80,7 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
     search_with_historical: Optional[bool] = dataclasses.field(
         default=False, metadata={"help": _("search with historical")}
     )
-    tag_filters: Optional[List[dict]] = dataclasses.field(
+    tag_filters: Optional[List[MetadataTag]] = dataclasses.field(
         default=None,
         metadata={
             "help": _("tag filter"),
@@ -127,8 +128,8 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
     ) -> "KnowledgePackLoadResourceParameters":
         """Create a new instance from a dictionary."""
         copied_data = data.copy()
-        if "space_name" not in copied_data and "value" in copied_data:
-            copied_data["space_name"] = copied_data.pop("value")
+        if "name" not in copied_data:
+            copied_data["name"] = "知识库"
         return super().from_dict(copied_data, ignore_extra_fields=ignore_extra_fields)
 
 
@@ -155,7 +156,7 @@ class KnowledgePackSearchResource(RetrieverResource):
         rewrite_query_model: Optional[str] = None,
         rewrite_query_prompt: Optional[str] = None,
         search_with_historical: Optional[bool] = False,
-        tag_filters: Optional[List[dict]] = None,
+        tag_filters: Optional[List[MetadataTag]] = None,
         summary_with_historical: Optional[bool] = False,
         retrieve_mode: Optional[str] = None,
         system_app: SystemApp = None,
@@ -203,6 +204,8 @@ class KnowledgePackSearchResource(RetrieverResource):
                 self._retriever_name = None
                 self._retriever_desc = None
         else:
+            self._knowledge_ids = None
+            self.knowledge_space = None
             super().__init__(name)
 
     @property
@@ -219,10 +222,14 @@ class KnowledgePackSearchResource(RetrieverResource):
     def description(self) -> str:
         """Return the resource name."""
         desc = ""
+        if not self.knowledge_spaces:
+            return desc
         for i, knowledge_space in enumerate(self.knowledge_spaces):
-            desc += f"{i + 1}. name:{knowledge_space.name}, " \
-                    f"knowledge_id:{knowledge_space.knowledge_id}, " \
-                    f"知识库描述:{knowledge_space.desc}\n"
+            desc += (
+                f"{i + 1}. name:{knowledge_space.name}, "
+                f"knowledge_id:{knowledge_space.knowledge_id}, "
+                f"知识库描述:{knowledge_space.desc}\n"
+            )
         return desc
 
     @property
@@ -244,10 +251,10 @@ class KnowledgePackSearchResource(RetrieverResource):
 
         knowledge_space_service = KnowledgeService()
         knowledge_spaces = knowledge_space_service.get_knowledge_space(
-            KnowledgeSpaceRequest(**kwargs)
+            KnowledgeSpaceRequest(name=kwargs.get("name"), owner=kwargs.get("owner")), name_or_tag=kwargs.get("query")
         )
         results = [
-            {"label": ks.name, "key": ks.knowledge_id, "description": ks.desc}
+            {"label": ks.name, "key": ks.knowledge_id, "knowledge_id": ks.knowledge_id, "owner": ks.owner, "storage_type": ks.storage_type, "description": ks.desc}
             for ks in knowledge_spaces
         ]
 
@@ -262,6 +269,7 @@ class KnowledgePackSearchResource(RetrieverResource):
                     "valid_values": results,
                 },
             )
+            name: Optional[str]
 
         return _DynamicKnowledgeSpaceLoadResourceParameters
 
@@ -283,12 +291,15 @@ class KnowledgePackSearchResource(RetrieverResource):
         """
         search_res: KnowledgeSearchResponse = await self._retrieve(query=query)
         candidates = []
+        if not search_res.document_response_list:
+            return candidates
         for doc in search_res.document_response_list:
             candidates.append(
                 Chunk(
                     content=doc.content,
                     score=doc.score,
                     metadata={
+                        "yuque_url": doc.yuque_url,
                         "retriever": self._retriever_name,
                     },
                 )
@@ -313,6 +324,27 @@ class KnowledgePackSearchResource(RetrieverResource):
         )
         return search_res
 
+    async def get_prompt(
+        self,
+        *,
+        lang: str = "en",
+        prompt_type: str = "default",
+        question: Optional[str] = None,
+        resource_name: Optional[str] = None,
+        **kwargs,
+    ) -> Tuple[str, Optional[Dict]]:
+        """Get the prompt for the resource."""
+        if not question:
+            raise ValueError("Question is required for knowledge resource.")
+        if not self._knowledge_ids:
+            return "", {}
+
+        search_res: KnowledgeSearchResponse = await self._retrieve(
+            query=question,
+            knowledge_ids=self._knowledge_ids,
+        )
+        return search_res.summary_content, {}
+
     async def _retrieve(
         self,
         query: str,
@@ -329,6 +361,8 @@ class KnowledgePackSearchResource(RetrieverResource):
             List[Chunk]: list of chunks
         """
         selected_knowledge_ids = []
+        if not knowledge_ids:
+            return KnowledgeSearchResponse()
         for knowledge_id in knowledge_ids:
             if knowledge_id in self._knowledge_ids:
                 logger.info(
@@ -350,9 +384,10 @@ class KnowledgePackSearchResource(RetrieverResource):
             enable_summary=self._enable_summary,
             summary_model=self._summary_model,
             summary_prompt=self._summary_prompt,
-            split_query_model=self._summary_prompt,
+            split_query_model=self._split_query_model,
             split_query_prompt=self._split_query_prompt,
             enable_split_query=self._enable_split_query,
+            tag_filters=self._tag_filters,
             mode=self._retrieve_mode,
         )
         search_res = await self._rag_service.knowledge_search(request)
@@ -362,12 +397,22 @@ class KnowledgePackSearchResource(RetrieverResource):
             for sub_query, candidates in search_res.references.items():
                 text = ""
                 for i, chunk in enumerate(candidates):
-
-                    title = chunk.get('metadata').get(
-                        'title'
-                    ) if chunk.get('metadata') else ""
-
-                    text += f"{chunk.get('content')}-([title:{title})\n"
+                    yuque_url = (
+                        chunk.get("metadata").get("yuque_url")
+                        if chunk.get("metadata")
+                        else ""
+                    )
+                    title = (
+                        chunk.get("metadata").get("title")
+                        if chunk.get("metadata")
+                        else ""
+                    )
+                    if yuque_url in url_to_index:
+                        index = url_to_index[yuque_url]
+                    else:
+                        index = len(url_to_index) + 1
+                        url_to_index[yuque_url] = index
+                    text += f"{chunk.get('content')}-([{index}]-link:{yuque_url},title:{title})\n"
                 text = f"\n{sub_query}:\n" + text
                 search_res.summary_content += text
         return search_res

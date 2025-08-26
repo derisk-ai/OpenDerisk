@@ -153,15 +153,13 @@ def setup_dev_environment(
             it automatically.
     """
     from derisk.component import SystemApp
-    from derisk.util.utils import setup_logging
+    from derisk.util.logger import setup_logging
 
     from .trigger.trigger_manager import DefaultTriggerManager
 
     if not logger_filename:
         logger_filename = "derisk_awel_dev.log"
-    setup_logging(
-        "derisk", logging_level=logging_level, logger_filename=logger_filename
-    )
+    setup_logging("derisk")
 
     start_http = _check_has_http_trigger(dags)
     if start_http:

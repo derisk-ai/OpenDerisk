@@ -1,11 +1,10 @@
 from derisk._private.config import Config
 from derisk.component import ComponentType
 from derisk.model.cluster import BaseModelController
-from derisk_serve.agent.db.gpts_app import GptsAppCollectionDao, GptsAppDao
+from derisk_serve.agent.db.gpts_app import GptsAppDao
 
 CFG = Config()
 
-collection_dao = GptsAppCollectionDao()
 gpts_dao = GptsAppDao()
 
 

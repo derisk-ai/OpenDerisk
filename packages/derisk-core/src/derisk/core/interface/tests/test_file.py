@@ -119,9 +119,7 @@ def test_get_file_not_found(file_storage_system):
 
 
 def test_delete_file_not_found(file_storage_system):
-    result = file_storage_system.delete_file(
-        "derisk-fs://local/test-bucket/nonexistent"
-    )
+    result = file_storage_system.delete_file("derisk-fs://local/test-bucket/nonexistent")
     assert result is False
 
 

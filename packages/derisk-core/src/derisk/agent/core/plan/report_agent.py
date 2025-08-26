@@ -23,7 +23,7 @@ class ReportAssistantAgent(ConversableAgent):
             key="derisk_agent_reporter_agent_profile_name",
         ),
         role=DynConfig(
-            "Report Expert",
+            "ReportExpert",
             category="agent",
             key="derisk_agent_reporter_agent_profile_role",
         ),
@@ -59,7 +59,7 @@ class ReportAssistantAgent(ConversableAgent):
             key="derisk_agent_expand_summary_assistant_agent_profile_desc",
         ),
     )
-
+    current_goal: str = "答案报告回复"
     def __init__(self, **kwargs):
         """Create a new SummaryAssistantAgent instance."""
         super().__init__(**kwargs)
@@ -70,39 +70,15 @@ class ReportAssistantAgent(ConversableAgent):
         """Load agent bind resource."""
         if self.resource:
             if self.resource.is_pack:
-                sub_resources = self.resource.sub_resources
-                candidates_results: List = []
-                resource_candidates_map = {}
-                info_map = {}
                 prompt_list = []
-                for resource in sub_resources:
-                    (
-                        candidates,
-                        prompt_template,
-                        resource_reference,
-                    ) = await resource.get_resources(question=question)
-                    resource_candidates_map[resource.name] = (
-                        candidates,
-                        resource_reference,
-                        prompt_template,
+                info_map = {}
+                for resource in self.resource.sub_resources:
+                    prompt, resource_reference = await resource.get_prompt(
+                        question=question, lang=self.language
                     )
-                    candidates_results.extend(candidates)  # type: ignore # noqa
-                new_candidates_map = self.post_filters(resource_candidates_map)
-                for resource, (
-                    candidates,
-                    references,
-                    prompt_template,
-                ) in new_candidates_map.items():
-                    content = "\n".join(
-                        [
-                            f"--{i}--:" + chunk.content
-                            for i, chunk in enumerate(candidates)  # type: ignore # noqa
-                        ]
-                    )
-                    prompt_list.append(
-                        prompt_template.format(name=resource, content=content)
-                    )
-                    info_map.update(references)
+                    prompt_list.append(prompt)
+                    if resource_reference is not None:
+                        info_map.update(resource_reference)
                 return "\n".join(prompt_list), info_map
             else:
                 resource_prompt, resource_reference = await self.resource.get_prompt(
@@ -110,18 +86,6 @@ class ReportAssistantAgent(ConversableAgent):
                 )
                 return resource_prompt, resource_reference
         return None, None
-
-    async def init_reply_message(
-        self,
-        received_message: AgentMessage,
-        rely_messages: Optional[List[AgentMessage]] = None,
-        sender: Optional[Agent] = None,
-    ) -> AgentMessage:
-        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages, sender=sender)
-        reply_message.context = {
-            "user_question": received_message.content,
-        }
-        return reply_message
 
     def post_filters(self, resource_candidates_map: Optional[Dict[str, Tuple]] = None):
         """Post filters for resource candidates."""

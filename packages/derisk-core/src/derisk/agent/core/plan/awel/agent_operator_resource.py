@@ -287,6 +287,14 @@ def _agent_resource_option_values() -> List[OptionValue]:
             description="The agent role name.",
         ),
         Parameter.build_from(
+            label="App code",
+            name="app_code",
+            type=str,
+            optional=True,
+            default=None,
+            description="The agent app code.",
+        ),
+        Parameter.build_from(
             label="Fixed Gogal",
             name="fixed_subgoal",
             type=str,
@@ -331,6 +339,7 @@ class AWELAgent(BaseModel):
 
     agent_profile: str
     role_name: Optional[str] = None
+    app_code: Optional[str] = None
     llm_config: Optional[LLMConfig] = None
     agent_prompt: Optional[AgentPrompt] = None
     resources: List[AgentResource] = Field(default_factory=list)

@@ -39,7 +39,7 @@ class AgentOutputOperator(MapOperator):
         final_output = None
         try:
             begin_time_ms = int(datetime.now().timestamp())
-            async for output in multi_agents.app_agent_chat(
+            async for output in multi_agents.app_chat(
                 conv_uid=str(uuid.uuid1()),
                 gpts_name=self.app_code,
                 user_query=input_value,

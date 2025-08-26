@@ -86,6 +86,17 @@ class SplitterType(str, Enum):
         ),
     ],
 )
+
+class DocParameters(BaseModel):
+    """The parameters for chunking."""
+
+    extract_image: bool = Field(
+        default=False,
+        description="doc extract image info",
+    )
+
+
+
 class ChunkParameters(BaseModel):
     """The parameters for chunking."""
 
@@ -127,7 +138,6 @@ class ChunkParameters(BaseModel):
         default="##",
         description="header level.",
     )
-
 
 class ChunkParametersEncoder(json.JSONEncoder):
     def default(self, obj):

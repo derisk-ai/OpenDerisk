@@ -1,8 +1,10 @@
 """Markdown Knowledge."""
-
+import re
+import uuid
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Union
 
-from derisk.core import Document
+from derisk.core import Document, Chunk
 from derisk.rag.knowledge.base import (
     ChunkStrategy,
     DocumentType,
@@ -50,7 +52,13 @@ class MarkdownKnowledge(Knowledge):
                 raise ValueError("file path is required")
             with open(self._path, encoding=self._encoding, errors="ignore") as f:
                 markdown_text = f.read()
-                metadata = {"source": self._path}
+                # remove html tags
+                import re
+
+                markdown_text = re.sub(r"<[^>]+>", "", markdown_text)
+                # remove extra newlines
+                doc_name = self._doc_name or self._path.rsplit("/", 1)[-1].replace(".md", "")
+                metadata = {"source": self._path, "doc_name": doc_name}
                 if self._metadata:
                     metadata.update(self._metadata)  # type: ignore
                 documents = [Document(content=markdown_text, metadata=metadata)]
@@ -70,6 +78,36 @@ class MarkdownKnowledge(Knowledge):
         for document in documents:
             document.chunks = chunks
         return documents
+
+    def extract_images(
+            self,
+            chunks: List[Chunk],
+    ):
+        """
+        Extract Images from chunks using regex.
+
+        Args:
+            chunks:
+        """
+        new_chunks = []
+        for chunk in chunks:
+            new_chunks.append(chunk)
+            text = chunk.content
+            pattern = r'!\[.*?\]\((https?://[^\s)]+)\)'
+            urls = re.findall(pattern, text)
+            if urls:
+                for url in urls:
+                    new_chunk = deepcopy(chunk)
+                    new_chunk.image_url = url
+                    new_chunk.chunk_id = str(uuid.uuid4())
+                    new_chunk.chunk_type = "image"
+                    new_chunk.metadata = {
+                        **chunk.metadata,
+                        "chunk_type": "image",
+                        "image_url": url,
+                    }
+                    new_chunks.append(new_chunk)
+        return new_chunks
 
     @classmethod
     def support_chunk_strategy(cls) -> List[ChunkStrategy]:
@@ -94,3 +132,8 @@ class MarkdownKnowledge(Knowledge):
     def document_type(cls) -> DocumentType:
         """Return document type."""
         return DocumentType.MARKDOWN
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.MARKDOWN.value

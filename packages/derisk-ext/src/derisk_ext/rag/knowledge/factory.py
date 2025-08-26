@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Type, Union
 from derisk.rag.knowledge.base import Knowledge, KnowledgeType
 from derisk_ext.rag.knowledge.string import StringKnowledge
 from derisk_ext.rag.knowledge.url import URLKnowledge
+from derisk_ext.rag.knowledge.yuque_url import YUQUEURLKnowledge
 
 
 class KnowledgeFactory:
@@ -32,8 +33,10 @@ class KnowledgeFactory:
         datasource: str = "",
         doc_token: Optional[str] = "",
         doc_id: Optional[str] = "",
+        yuque_doc_uuid: Optional[str] = "",
         knowledge_type: KnowledgeType = KnowledgeType.DOCUMENT,
         metadata: Optional[Dict[str, Union[str, List[str]]]] = None,
+        **kwargs: Optional[Dict[str, Union[str, List[str]]]],
     ):
         """Create knowledge from file path, url or text.
 
@@ -62,12 +65,21 @@ class KnowledgeFactory:
                     file_path=datasource,
                     knowledge_type=knowledge_type,
                     metadata=metadata,
+                    **kwargs,
                 )
             case KnowledgeType.URL:
                 return cls.from_url(url=datasource, knowledge_type=knowledge_type)
             case KnowledgeType.TEXT:
                 return cls.from_text(
                     text=datasource, knowledge_type=knowledge_type, metadata=metadata
+                )
+            case KnowledgeType.YUQUEURL:
+                return cls.from_yuque_url(
+                    url=datasource,
+                    knowledge_type=knowledge_type,
+                    doc_token=doc_token,
+                    doc_id=doc_id,
+                    yuque_doc_uuid=yuque_doc_uuid,
                 )
             case _:
                 raise Exception(f"Unsupported knowledge type '{knowledge_type}'")
@@ -78,6 +90,7 @@ class KnowledgeFactory:
         file_path: str = "",
         knowledge_type: Optional[KnowledgeType] = KnowledgeType.DOCUMENT,
         metadata: Optional[Dict[str, Union[str, List[str]]]] = None,
+        **kwargs: Optional[Dict[str, Union[str, List[str]]]],
     ) -> Knowledge:
         """Create knowledge from path.
 
@@ -98,7 +111,10 @@ class KnowledgeFactory:
         """
         factory = cls(file_path=file_path, knowledge_type=knowledge_type)
         return factory._select_document_knowledge(
-            file_path=file_path, knowledge_type=knowledge_type, metadata=metadata
+            file_path=file_path,
+            knowledge_type=knowledge_type,
+            metadata=metadata,
+            **kwargs,
         )
 
     @staticmethod
@@ -142,6 +158,39 @@ class KnowledgeFactory:
             text=text,
             knowledge_type=knowledge_type,
             metadata=metadata,
+        )
+
+    @staticmethod
+    def from_yuque_url(
+        url: str = "",
+        knowledge_type: KnowledgeType = KnowledgeType.YUQUEURL,
+        doc_token: Optional[str] = "",
+        doc_id: Optional[str] = "",
+        yuque_doc_uuid: Optional[str] = "",
+    ) -> Knowledge:
+        """Create knowledge from yuque url.
+
+        Args:
+            param url: url of the file to convert
+            param knowledge_type: type of knowledge
+
+        Examples:
+            .. code-block:: python
+
+                from dbgpt.rag.knowledge.factory import KnowledgeFactory
+
+                url_knowlege = KnowledgeFactory.create(
+                    datasource="",
+                    doc_token="",
+                    knowledge_type=KnowledgeType.YUQUEURL,
+                )
+        """
+        return YUQUEURLKnowledge(
+            url=url,
+            knowledge_type=knowledge_type,
+            doc_token=doc_token,
+            doc_id=doc_id,
+            yuque_doc_uuid=yuque_doc_uuid,
         )
 
     def _select_document_knowledge(self, **kwargs):

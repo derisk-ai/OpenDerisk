@@ -19,11 +19,18 @@ def scan_serve_configs():
         "derisk_serve.agent.chat",
         "derisk_serve.conversation",
         "derisk_serve.datasource",
+        "derisk_serve.derisks.hub",
+        "derisk_serve.derisks.my",
+        "derisk_serve.evaluate",
         "derisk_serve.feedback",
         "derisk_serve.file",
+        "derisk_serve.flow",
         "derisk_serve.model",
         "derisk_serve.prompt",
         "derisk_serve.rag",
+        "derisk_serve.building.app",
+        "derisk_serve.building.config",
+        "derisk_serve.building.recommend_question",
         "derisk_serve.mcp",
     ]
 
@@ -126,6 +133,22 @@ def register_serve_apps(
     )
     # ################################ Conversation Serve Register End ################
 
+    # ################################ AWEL Flow Serve Register Begin #################
+    from derisk_serve.flow.serve import Serve as FlowServe
+
+    # Register serve app
+    system_app.register(
+        FlowServe,
+        config=get_config(
+            serve_configs,
+            FlowServe.name,
+            derisk_serve.flow.serve.ServeConfig,
+            encrypt_key=app_config.system.encrypt_key,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ AWEL Flow Serve Register End ###################
 
     # ################################ Rag Serve Register Begin #######################
 
@@ -188,6 +211,32 @@ def register_serve_apps(
     )
     # ################################ Chat Feedback Register End #####################
 
+    # ################################ derisks Register Begin ##########################
+    # Register serve deriskshub
+    from derisk_serve.derisks.hub.serve import Serve as derisksHubServe
+
+    system_app.register(
+        derisksHubServe,
+        config=get_config(
+            serve_configs,
+            derisksHubServe.name,
+            derisk_serve.derisks.hub.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    # Register serve derisksmy
+    from derisk_serve.derisks.my.serve import Serve as derisksMyServe
+
+    system_app.register(
+        derisksMyServe,
+        config=get_config(
+            serve_configs,
+            derisksMyServe.name,
+            derisk_serve.derisks.my.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    # ################################ derisks Register End ############################
 
     # ################################ File Serve Register Begin ######################
 
@@ -211,6 +260,24 @@ def register_serve_apps(
 
     # ################################ File Serve Register End ########################
 
+    # ################################ Evaluate Serve Register Begin ##################
+    from derisk_serve.evaluate.serve import Serve as EvaluateServe
+
+    rag_config = app_config.rag
+    llm_configs = app_config.models
+    # Register serve Evaluate
+    system_app.register(
+        EvaluateServe,
+        config=get_config(
+            serve_configs,
+            EvaluateServe.name,
+            derisk_serve.evaluate.serve.ServeConfig,
+            embedding_model=llm_configs.default_embedding,
+            similarity_top_k=rag_config.similarity_top_k,
+            api_keys=global_api_keys,
+        ),
+    )
+    # ################################ Evaluate Serve Register End ####################
 
     # ################################ Model Serve Register Begin #####################
     from derisk_serve.model.serve import Serve as ModelServe
@@ -226,7 +293,43 @@ def register_serve_apps(
             api_keys=global_api_keys,
         ),
     )
-    # ################################ Model Serve Register End #####################
+    # ################################ Model Serve Register End #######################
+
+    # ################################ App Building Serve Register Begin #####################
+    from derisk_serve.building.app.serve import Serve as AppServe
+    from derisk_serve.building.config.serve import Serve as AppConfigServe
+    from derisk_serve.building.recommend_question.serve import Serve as RecommendQuestionServe
+
+    # Register serve model
+    system_app.register(
+        AppServe,
+        config=get_config(
+            serve_configs,
+            AppServe.name,
+            derisk_serve.building.app.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    system_app.register(
+        AppConfigServe,
+        config=get_config(
+            serve_configs,
+            AppConfigServe.name,
+            derisk_serve.building.config.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    system_app.register(
+        RecommendQuestionServe,
+        config=get_config(
+            serve_configs,
+            RecommendQuestionServe.name,
+            derisk_serve.building.recommend_question.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    # ################################ App Building Serve Register End #####################
+
     # ################################ MCP Serve Register Begin #####################
     from derisk_serve.mcp.serve import Serve as MCPServe
 

@@ -1,7 +1,7 @@
 """Viss Agent Plans."""
-import json
 
-from derisk.util.json_utils import serialize
+from typing import Optional, Dict, Any
+
 from derisk.vis.base import Vis
 
 
@@ -12,23 +12,19 @@ class VisAgentPlans(Vis):
         """Display the content using the vis protocol."""
         content = kwargs.get("content")
         from derisk.vis.schema import VisPlansContent
-        try:
-            if isinstance(content, dict):
-                tasks = content.get("tasks")
-                if tasks:
-                    return "\n".join(
-                        [
-                            f"- [{item.get('task_id', '')}]{item.get('task_name', '')}     @{item.get('agent_name', '')}"
-                            for item in tasks
-                        ]
-                    )
 
-            content = json.dumps(
-                self.sync_generate_param(**kwargs), default=serialize, ensure_ascii=False
-            )
-            return f"```{self.vis_tag()}\n{content}\n```"
+        try:
+            tasks = content.get("tasks")
+            if tasks:
+                return "\n".join(
+                    [
+                        f"- [{item.get('task_id', '')}]{item.get('task_name', '')}     @{item.get('agent_name', '')}"
+                        for item in tasks
+                    ]
+                )
+            return str(content)
         except Exception as e:
-            return f"```{self.vis_tag()}\n{content}\n```"
+            return str(content)
 
     @classmethod
     def vis_tag(cls):
