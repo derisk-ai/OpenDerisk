@@ -116,7 +116,7 @@ Open your browser and visit [`http://localhost:7777`](http://localhost:7777)
 
 ### Rapid Development
 * Agent Development
-    Refer to the implementation logic under `derisk-ext.agent.agent`.
+    Refer to the implementation logic under `derisk-ext.agent.agents`.
 * Tool Development
     * Local tool
     * MCP

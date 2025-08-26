@@ -103,7 +103,7 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
   - 上传你的指标、日志、trace等各种Excel表格数据进行对话分析
 ##### 3.快速开发
 * Agent开发
-    参考derisk-ext.agent.agent下的实现逻辑
+    参考derisk-ext.agent.agents下的实现逻辑
 * 工具开发
     * local tool
     * mcp
