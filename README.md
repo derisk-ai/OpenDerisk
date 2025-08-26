@@ -60,7 +60,7 @@ Digital Employees (Agents) in OpenDeRisk
 
 Install uv
 
-```python
+```shell
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
