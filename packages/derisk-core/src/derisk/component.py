@@ -114,7 +114,7 @@ _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 class BaseComponent(LifeCycle, ABC):
     """Abstract Base Component class. All custom components should extend this."""
 
-    name = "base_dbgpt_component"
+    name = "base_derisk_component"
 
     def __init__(self, system_app: Optional[SystemApp] = None):
         if system_app is not None:

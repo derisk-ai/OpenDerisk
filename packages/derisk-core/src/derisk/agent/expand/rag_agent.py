@@ -96,17 +96,17 @@ class RAGAgent(ConversableAgent):
         name=DynConfig(
             "AgenticRAGAssistant",
             category="agent",
-            key="dbgpt_agent_expand_rag_assistant_agent_name",
+            key="derisk_agent_expand_rag_assistant_agent_name",
         ),
         role=DynConfig(
             "AgenticRAGAssistant",
             category="agent",
-            key="dbgpt_agent_expand_rag_assistant_agent_role",
+            key="derisk_agent_expand_rag_assistant_agent_role",
         ),
         goal=DynConfig(
             _RAG_GOAL,
             category="agent",
-            key="dbgpt_agent_expand_plugin_assistant_agent_goal",
+            key="derisk_agent_expand_plugin_assistant_agent_goal",
         ),
         system_prompt_template=_AGENTIC_RAG_SYSTEM_TEMPLATE,
         user_prompt_template=_FINIAL_SUMMARY_TEMPLATE,
