@@ -52,20 +52,13 @@ def count_directory_files(path: Annotated[str, Doc("The directory path")]) -> in
 async def main():
     from derisk.model import AutoLLMClient
 
-    # llm_client = AutoLLMClient(
-    #     # provider=os.getenv("LLM_PROVIDER", "proxy/deepseek"),
-    #     # name=os.getenv("LLM_MODEL_NAME", "deepseek-chat"),
-    #     provider=os.getenv("LLM_PROVIDER", "proxy/siliconflow"),
-    #     name=os.getenv("LLM_MODEL_NAME", "Qwen/Qwen2.5-Coder-32B-Instruct"),
-    # )
-
     llm_client = AutoLLMClient(
         # provider=os.getenv("LLM_PROVIDER", "proxy/deepseek"),
         # name=os.getenv("LLM_MODEL_NAME", "deepseek-chat"),
-        provider="proxy/gitee",
-        name="Qwen2.5-72B-Instruct",
-        api_key="W7LRHBLWM0XMW0AGLDRKEITZNZCSUUHAVFOYWO1C",
+        provider=os.getenv("LLM_PROVIDER", "proxy/siliconflow"),
+        name=os.getenv("LLM_MODEL_NAME", "Qwen/Qwen2.5-Coder-32B-Instruct"),
     )
+
 
     agent_memory = AgentMemory()
     agent_memory.gpts_memory.init(conv_id="test456", vis_converter=GptVisConverter())
