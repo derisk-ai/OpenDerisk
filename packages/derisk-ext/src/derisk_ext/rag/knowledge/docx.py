@@ -73,7 +73,8 @@ class DocxKnowledge(Knowledge):
                 para = doc.paragraphs[i]
                 text = para.text
                 content.append(text)
-            metadata = {"source": self._path}
+            doc_name = self._doc_name or self._path.rsplit("/", 1)[-1].replace(".docx", "")
+            metadata = {"source": self._path, "doc_name": doc_name}
             if self._metadata:
                 metadata.update(self._metadata)  # type: ignore
             docs.append(Document(content="\n".join(content), metadata=metadata))
@@ -103,3 +104,8 @@ class DocxKnowledge(Knowledge):
     def document_type(cls) -> DocumentType:
         """Return document type."""
         return DocumentType.DOCX
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.DOCX.value

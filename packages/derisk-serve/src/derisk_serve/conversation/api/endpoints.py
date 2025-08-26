@@ -1,9 +1,12 @@
+import io
+import json
 import uuid
 from functools import cache
-from typing import List, Optional
+from typing import List, Literal, Optional, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.responses import JSONResponse, StreamingResponse
 
 from derisk.component import SystemApp
 from derisk.util import PaginationResult
@@ -124,22 +127,27 @@ async def query(
     dependencies=[Depends(check_api_key)],
 )
 async def dialogue_new(
-    chat_mode: str = "chat_normal",
-    app_code: str = None,
-    user_name: str = None,
-    user_id: str = None,
-    sys_code: str = None,
+    data: Optional[Dict] = None,
 ):
-    user_name = user_name or user_id
     unique_id = uuid.uuid1()
-    res = ServerResponse(
-        user_input="",
-        conv_uid=str(unique_id),
-        chat_mode=chat_mode,
-        app_code=app_code,
-        user_name=user_name,
-        sys_code=sys_code,
-    )
+    if data:
+        app_code = data.get("app_code")
+        user_code = data.get("user_code")
+        sys_code = data.get("sys_code")
+        chat_mode = data.get("chat_mode")
+        res = ServerResponse(
+            user_input="",
+            conv_uid=str(unique_id),
+            app_code=app_code or chat_mode,
+            user_name=user_code,
+            sys_code=sys_code,
+        )
+    else:
+        res = ServerResponse(
+            user_input="",
+            conv_uid=str(unique_id),
+        )
+
     return Result.succ(res)
 
 
@@ -209,6 +217,7 @@ async def list_latest_conv(
     user_name: str = None,
     user_id: str = None,
     sys_code: str = None,
+    filter: Optional[str] = None,
     page: Optional[int] = Query(default=1, description="current page"),
     page_size: Optional[int] = Query(default=10, description="page size"),
     service: Service = Depends(get_service),
@@ -218,7 +227,7 @@ async def list_latest_conv(
         user_name=user_name or user_id,
         sys_code=sys_code,
     )
-    return Result.succ(service.get_list_by_page(request, page, page_size).items)
+    return Result.succ(service.get_list_by_page(request, page, page_size, filter).items)
 
 
 @router.get(
@@ -229,6 +238,89 @@ async def list_latest_conv(
 async def get_history_messages(con_uid: str, service: Service = Depends(get_service)):
     """Get the history messages of a conversation"""
     return Result.succ(service.get_history_messages(ServeRequest(conv_uid=con_uid)))
+
+
+@router.get(
+    "/export_messages",
+    dependencies=[Depends(check_api_key)],
+)
+async def export_all_messages(
+    user_name: Optional[str] = None,
+    user_id: Optional[str] = None,
+    sys_code: Optional[str] = None,
+    format: Literal["file", "json"] = Query(
+        "file", description="response format(file or json)"
+    ),
+    service: Service = Depends(get_service),
+):
+    """Export all conversations and messages for a user
+
+    Args:
+        user_name (str): The user name
+        user_id (str): The user id (alternative to user_name)
+        sys_code (str): The system code
+        format (str): The format of the response, either 'file' or 'json', defaults to
+            'file'
+
+    Returns:
+        A dictionary containing all conversations and their messages
+    """
+    # 1. Get all conversations for the user
+    request = ServeRequest(
+        user_name=user_name or user_id,
+        sys_code=sys_code,
+    )
+
+    # Initialize pagination variables
+    page = 1
+    page_size = 100  # Adjust based on your needs
+    all_conversations = []
+
+    # Paginate through all conversations
+    while True:
+        pagination_result = service.get_list_by_page(request, page, page_size)
+        all_conversations.extend(pagination_result.items)
+
+        if page >= pagination_result.total_pages:
+            break
+        page += 1
+
+    # 2. For each conversation, get all messages
+    result = {
+        "user_name": user_name or user_id,
+        "sys_code": sys_code,
+        "total_conversations": len(all_conversations),
+        "conversations": [],
+    }
+
+    for conv in all_conversations:
+        messages = service.get_history_messages(ServeRequest(conv_uid=conv.conv_uid))
+        conversation_data = {
+            "conv_uid": conv.conv_uid,
+            "chat_mode": conv.chat_mode,
+            "app_code": conv.app_code,
+            "create_time": conv.gmt_created,
+            "update_time": conv.gmt_modified,
+            "total_messages": len(messages),
+            "messages": [msg.dict() for msg in messages],
+        }
+        result["conversations"].append(conversation_data)
+
+    if format == "json":
+        return JSONResponse(content=result)
+    else:
+        file_name = (
+            f"conversation_export_{user_name or user_id or 'derisk'}_"
+            f"{sys_code or 'derisk'}"
+        )
+        # Return the json file
+        return StreamingResponse(
+            io.BytesIO(
+                json.dumps(result, ensure_ascii=False, indent=4).encode("utf-8")
+            ),
+            media_type="application/file",
+            headers={"Content-Disposition": f"attachment;filename={file_name}.json"},
+        )
 
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:

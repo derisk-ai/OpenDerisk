@@ -119,6 +119,9 @@ class Team(BaseModel):
 class ManagerAgent(ConversableAgent, Team):
     """Manager Agent class."""
 
+    def hire(self, agents: List[Agent]):
+        super().hire(agents)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     profile: ProfileConfig = ProfileConfig(
@@ -130,7 +133,6 @@ class ManagerAgent(ConversableAgent, Team):
     )
 
     is_team: bool = True
-    last_rounds: int = 100
 
     # The management agent does not need to retry the exception. The actual execution
     # of the agent has already been retried.
@@ -138,30 +140,21 @@ class ManagerAgent(ConversableAgent, Team):
 
     def __init__(self, **kwargs):
         """Create a new ManagerAgent instance."""
-        ConversableAgent.__init__(self, **kwargs)
         Team.__init__(self, **kwargs)
-
-    async def _load_thinking_messages(
-        self,
-        received_message: AgentMessage,
-        sender: Agent,
-        rely_messages: Optional[List[AgentMessage]] = None,
-        historical_dialogues: Optional[List[AgentMessage]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        is_retry_chat: bool = False,
-        force_use_historical: bool = False,
-    ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
-        """Load messages for thinking."""
-        return [AgentMessage(content=received_message.content)], None, None, None
+        ConversableAgent.__init__(self, **kwargs)
 
 
-    async def adjust_final_message(
-        self,
-        is_success: bool,
-        reply_message: AgentMessage,
-    ):
-        all_messages = await self.memory.gpts_memory.get_messages(self.agent_context.conv_id)
-        if self.last_rounds > 0:
-            reply_message.rounds = all_messages[-1].rounds + 1
-        reply_message.current_goal = self.current_goal
-        return is_success, reply_message
+    # async def _load_thinking_messages(
+    #     self,
+    #     received_message: AgentMessage,
+    #     sender: Agent,
+    #     rely_messages: Optional[List[AgentMessage]] = None,
+    #     historical_dialogues: Optional[List[AgentMessage]] = None,
+    #     context: Optional[Dict[str, Any]] = None,
+    #     is_retry_chat: bool = False,
+    #     force_use_historical: bool = False,
+    #     **kwargs
+    # ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
+    #     """Load messages for thinking."""
+    #     return [AgentMessage(content=received_message.content)], None, None, None
+

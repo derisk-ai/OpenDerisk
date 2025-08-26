@@ -217,7 +217,6 @@ class ModelsDeployParameters(BaseParameters):
             ),
         },
     )
-
     default_embedding: Optional[str] = field(
         default=None,
         metadata={
@@ -245,7 +244,6 @@ class ModelsDeployParameters(BaseParameters):
             )
         },
     )
-    
     embeddings: List[EmbeddingDeployModelParameters] = field(
         default_factory=list,
         metadata={

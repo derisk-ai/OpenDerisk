@@ -1,11 +1,11 @@
 import logging
 from typing import Optional
-
 from derisk.agent.expand.resources.context_tool import store_information
 from derisk.agent.expand.resources.math_tool import add_two_numbers
 from derisk.component import SystemApp
 from derisk.configs.model_config import MODEL_DISK_CACHE_DIR, resolve_root_path
 from derisk.util.executor_utils import DefaultExecutorFactory
+from derisk.vis.vis_manage import initialize_vis_convert
 from derisk_app.config import ApplicationConfig, ServiceWebParameters
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
 from derisk_serve.rag.storage_manager import StorageManager
@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 def initialize_components(
-    param: ApplicationConfig,
-    system_app: SystemApp,
+        param: ApplicationConfig,
+        system_app: SystemApp,
 ):
     # Lazy import to avoid high time cost
     from derisk.model.cluster.controller.controller import controller
@@ -26,11 +26,9 @@ def initialize_components(
     from derisk_app.initialization.scheduler import DefaultScheduler
     from derisk_app.initialization.serve_initialization import register_serve_apps
     from derisk_serve.datasource.manages.connector_manager import ConnectorManager
-
     web_config = param.service.web
     default_embedding_name = param.models.default_embedding
     default_rerank_name = param.models.default_reranker
-
     # Register global default executor factory first
     system_app.register(
         DefaultExecutorFactory, max_workers=web_config.default_thread_pool_size
@@ -39,11 +37,8 @@ def initialize_components(
     system_app.register_instance(controller)
     system_app.register(ConnectorManager)
     system_app.register(StorageManager)
-
     from derisk_serve.agent.agents.controller import multi_agents
-
     system_app.register_instance(multi_agents)
-
     _initialize_embedding_model(system_app, default_embedding_name)
     _initialize_rerank_model(system_app, default_rerank_name)
     _initialize_model_cache(system_app, web_config)
@@ -57,15 +52,14 @@ def initialize_components(
     _initialize_operators()
     _initialize_code_server(system_app)
     _initialize_reasoning(system_app)
+    _initialize_local_tool(system_app)
 
 
 def _initialize_model_cache(system_app: SystemApp, web_config: ServiceWebParameters):
     from derisk.storage.cache import initialize_cache
-
     if not web_config.model_cache or not web_config.model_cache.enable_model_cache:
         logger.info("Model cache is not enable")
         return
-
     storage_type = web_config.model_cache.storage_type or "memory"
     max_memory_mb = web_config.model_cache.max_memory_mb or 256
     if web_config.model_cache.persist_dir:
@@ -79,20 +73,20 @@ def _initialize_model_cache(system_app: SystemApp, web_config: ServiceWebParamet
 def _initialize_awel(system_app: SystemApp, awel_dirs: Optional[str] = None):
     from derisk.configs.model_config import _DAG_DEFINITION_DIR
     from derisk.core.awel import initialize_awel
-
     # Add default dag definition dir
     dag_dirs = [_DAG_DEFINITION_DIR]
     if awel_dirs:
         dag_dirs += awel_dirs.strip().split(",")
     dag_dirs = [x.strip() for x in dag_dirs]
-
     initialize_awel(system_app, dag_dirs)
 
 
 def _initialize_agent(system_app: SystemApp):
     from derisk.agent import initialize_agent
-
     initialize_agent(system_app)
+
+    ## init agent vis convert
+    initialize_vis_convert(system_app)
 
 
 def _initialize_resource_manager(system_app: SystemApp):
@@ -109,8 +103,13 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk_serve.agent.resource.app import GptAppResource
     from derisk_serve.agent.resource.datasource import DatasourceResource
     from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
-    from derisk_serve.agent.resource.mcp import MCPSSEToolPack
+
     from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
+    from derisk.agent.resource.memory import MemoryResource
+    from derisk.agent.expand.resources.fetch_tool import fetch
+    from derisk_ext.agent.agents.open_rca.resource.open_rca_resource import OpenRcaSceneResource
+    from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
+    from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
 
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
@@ -120,6 +119,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(resource_instance=Terminate())
     # Register a search tool
     rm.register_resource(resource_instance=baidu_search)
+    rm.register_resource(resource_instance=fetch)
     rm.register_resource(resource_instance=list_derisk_support_models)
     # Register a math tool
     rm.register_resource(resource_instance=add_two_numbers)
@@ -128,15 +128,32 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(resource_instance=get_current_host_cpu_status)
     rm.register_resource(resource_instance=get_current_host_memory_status)
     rm.register_resource(resource_instance=get_current_host_system_load)
+
+    # Register Excel File to DB tools
+    from derisk_ext.agent.agents.open_ta.tools.xls_analysis import get_data_introduction
+    from derisk_ext.agent.agents.open_ta.tools.xls_analysis import run_sql_with_file
+    rm.register_resource(resource_instance=get_data_introduction)
+    rm.register_resource(resource_instance=run_sql_with_file)
+
+    # Register Flamegraph analysis tools
+    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import flamegraph_overview
+    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import flamegraph_drill_down
+    rm.register_resource(resource_instance=flamegraph_overview)
+    rm.register_resource(resource_instance=flamegraph_drill_down)
+
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
+    rm.register_resource(LocalToolPack, resource_type=ResourceType.Tool)
+
+
+    # Other resource
     rm.register_resource(ReasoningEngineResource)
     rm.register_resource(KnowledgePackSearchResource)
-
+    rm.register_resource(MemoryResource)
+    rm.register_resource(OpenRcaSceneResource)
 
 def _initialize_openapi(system_app: SystemApp):
     from derisk_app.openapi.api_v1.editor.service import EditorService
-
     system_app.register(EditorService)
 
 
@@ -157,11 +174,14 @@ def _initialize_operators():
 
 def _initialize_code_server(system_app: SystemApp):
     from derisk.util.code.server import initialize_code_server
-
     initialize_code_server(system_app)
 
 
 def _initialize_reasoning(system_app: SystemApp):
     from derisk.agent.core.reasoning.reasoning_manage import ReasoningManage
-
     system_app.register(component=ReasoningManage)
+
+
+def _initialize_local_tool(system_app: SystemApp):
+    from derisk_serve.agent.resource.func_registry import central_registry
+    central_registry.scan_register_and_save(system_app)

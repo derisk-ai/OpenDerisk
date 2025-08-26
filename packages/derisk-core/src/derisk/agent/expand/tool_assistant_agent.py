@@ -44,7 +44,7 @@ class ToolAssistantAgent(ConversableAgent):
         ),
         desc=DynConfig(
             "You can use the following tools to complete the task objectives, "
-            "tool information: {tool_infos}",
+            "tool information: {resource_info}",
             category="agent",
             key="derisk_agent_expand_plugin_assistant_agent_desc",
         ),

@@ -7,7 +7,7 @@ from derisk.util.json_utils import parse_or_raise_error
 
 from ...resource.tool.base import BaseTool, ToolParameter
 from ...util.react_parser import ReActOutputParser, ReActStep
-from .tool_action import ToolAction, run_tool
+from .tool_action import ToolAction
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +18,13 @@ class Terminate(Action[None], BaseTool):
     It is a special action to terminate the conversation, at same time, it can be a
     tool to return the final answer.
     """
-
     async def run(
-        self,
-        ai_message: str,
-        resource: Optional[AgentResource] = None,
-        rely_action_out: Optional[ActionOutput] = None,
-        need_vis_render: bool = True,
-        **kwargs,
+            self,
+            ai_message: str = None,
+            resource: Optional[AgentResource] = None,
+            rely_action_out: Optional[ActionOutput] = None,
+            need_vis_render: bool = True,
+            **kwargs,
     ) -> ActionOutput:
         return ActionOutput(
             is_exe_success=True,
@@ -126,7 +125,7 @@ class ReActAction(ToolAction):
 
     async def run(
         self,
-        ai_message: str,
+        ai_message: str = None,
         resource: Optional[AgentResource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,
@@ -161,44 +160,33 @@ class ReActAction(ToolAction):
         ai_message: str,
         parsed_step: ReActStep,
         need_vis_render: bool = True,
-        message_id: Optional[str]= None
+        message_id: Optional[str] = None
     ) -> ActionOutput:
         """Perform the action."""
         tool_args = {}
         name = parsed_step.action
         action_input = parsed_step.action_input
         action_input_str = action_input
-
-        if not name:
-            terminal_content = str(action_input_str if action_input_str else ai_message)
-            return ActionOutput(
-                is_exe_success=True,
-                content=terminal_content,
-                observations=terminal_content,
-                terminate=True,
-            )
-
         try:
             # Try to parse the action input to dict
             if action_input and isinstance(action_input, str):
                 tool_args = parse_or_raise_error(action_input)
-            elif isinstance(action_input, dict) or isinstance(action_input, list):
+            elif isinstance(action_input, dict):
                 tool_args = action_input
                 action_input_str = json.dumps(action_input, ensure_ascii=False)
         except json.JSONDecodeError:
             if parsed_step.action == "terminate":
                 tool_args = {"output": action_input}
             logger.warning(f"Failed to parse the args: {action_input}")
-        act_out: ActionOutput = await run_tool(
+        act_out = await self.run_tool(
             name,
             tool_args,
             self.resource,
-            action_name=self.name,
-            render= self._render,
             say_to_user=parsed_step.thought,
             render_protocol=self.render_protocol,
             need_vis_render=need_vis_render,
-            message_id=message_id,
+            raw_tool_input=action_input_str,
+            message_id=message_id
         )
         if not act_out.action_input:
             act_out.action_input = action_input_str

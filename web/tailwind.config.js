@@ -1,4 +1,4 @@
-const defaultTheme = require('tailwindcss/defaultTheme');
+// const defaultTheme = require('tailwindcss/defaultTheme');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -11,7 +11,7 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Josefin Sans"', ...defaultTheme.fontFamily.sans],
+        sans: ['"Josefin Sans"'],
       },
       colors: {
         theme: {
@@ -33,8 +33,6 @@ module.exports = {
         default: '#0C75FC',
       },
       backgroundImage: {
-        'gradient-light': "url('/images/bg.png')",
-        'gradient-dark': 'url("/images/bg_dark.png")',
         'button-gradient': 'linear-gradient(to right, theme("colors.gradientL"), theme("colors.gradientR"))',
       },
       keyframes: {
@@ -60,9 +58,6 @@ module.exports = {
     },
   },
   important: true,
+  // darkMode: false
   darkMode: 'class',
-  /**
-   * @see https://www.tailwindcss-animated.com/configurator.html
-   */
-  plugins: [require('tailwindcss-animated')],
 };

@@ -29,6 +29,7 @@ You are a {{ role }}, {% if name %}named {{ name }}.
 {% endif %}your goal is {% if is_retry_chat %}{{ retry_goal }}{% else %}{{ goal }}{% endif %}.\
 Please think step-by-step to achieve your goals based on user input. You can use the resources given below.
 At the same time, please strictly abide by the constraints and specifications in the "IMPORTANT REMINDER" below.
+
 {% if resource_prompt %}\
 Given resources information:
 {{ resource_prompt }} 
@@ -69,6 +70,7 @@ _DEFAULT_SYSTEM_TEMPLATE_ZH = """\
 你是一个 {{ role }}, {% if name %}名字叫 {{ name }}.
 {% endif %}你的目标是 {% if is_retry_chat %}{{ retry_goal }}{% else %}{{ goal }}{% endif %}.\
 请一步一步思考完根据下面给出的已知信息和用户问题完成目标，同时请严格遵守下面"重要提醒"中的约束和规范。
+
 {% if resource_prompt %}\
 已知资源信息：
 {{ resource_prompt }} 
@@ -200,9 +202,7 @@ class Profile(ABC):
     def format_system_prompt(
         self,
         template_env: Optional[Environment] = None,
-        question: Optional[str] = None,
         language: str = "en",
-        most_recent_memories: Optional[str] = None,
         resource_vars: Optional[Dict[str, Any]] = None,
         is_retry_chat: bool = False,
         **kwargs,
@@ -211,10 +211,7 @@ class Profile(ABC):
 
         Args:
             template_env(Optional[Environment]): The template environment for jinja2.
-            question(Optional[str]): The question.
             language(str): The language of current context.
-            most_recent_memories(Optional[str]): The most recent memories, it reads
-                from memory.
             resource_vars(Optional[Dict[str, Any]]): The resource variables.
 
         Returns:
@@ -223,9 +220,7 @@ class Profile(ABC):
         return self._format_prompt(
             self.get_system_prompt_template(),
             template_env=template_env,
-            question=question,
             language=language,
-            most_recent_memories=most_recent_memories,
             resource_vars=resource_vars,
             is_retry_chat=is_retry_chat,
             **kwargs,
@@ -234,9 +229,7 @@ class Profile(ABC):
     def format_user_prompt(
         self,
         template_env: Optional[Environment] = None,
-        question: Optional[str] = None,
         language: str = "en",
-        most_recent_memories: Optional[str] = None,
         resource_vars: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> str:
@@ -244,10 +237,7 @@ class Profile(ABC):
 
         Args:
             template_env(Optional[Environment]): The template environment for jinja2.
-            question(Optional[str]): The question.
             language(str): The language of current context.
-            most_recent_memories(Optional[str]): The most recent memories, it reads
-                from memory.
             resource_vars(Optional[Dict[str, Any]]): The resource variables.
 
         Returns:
@@ -256,9 +246,7 @@ class Profile(ABC):
         return self._format_prompt(
             self.get_user_prompt_template(),
             template_env=template_env,
-            question=question,
             language=language,
-            most_recent_memories=most_recent_memories,
             resource_vars=resource_vars,
             **kwargs,
         )
@@ -279,9 +267,7 @@ class Profile(ABC):
         self,
         template: str,
         template_env: Optional[Environment] = None,
-        question: Optional[str] = None,
         language: str = "en",
-        most_recent_memories: Optional[str] = None,
         resource_vars: Optional[Dict[str, Any]] = None,
         is_retry_chat: bool = False,
         **kwargs,
@@ -298,12 +284,8 @@ class Profile(ABC):
             "language": language,
             "constraints": self.get_constraints(),
             "retry_constraints": self.get_retry_constraints(),
-            "most_recent_memories": (
-                most_recent_memories if most_recent_memories else None
-            ),
             "is_retry_chat": is_retry_chat,
             "examples": self.get_examples(),
-            "question": question,
         }
         if resource_vars:
             # Merge resource variables

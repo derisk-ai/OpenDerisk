@@ -1,6 +1,6 @@
 [project]
 name = "derisk-client"
-version = "0.1.0"
+version = "0.7.0"
 description = "Add your description here"
 authors = [
     { name = "csunny", email = "cfqcsunny@gmail.com" }
@@ -12,10 +12,10 @@ requires-python = ">= 3.10"
 dependencies = ["derisk-serve"]
 
 [project.urls]
-Homepage = "https://github.com/derisk-ai/DERISK"
-Documentation = "http://docs.derisk.cn/docs/overview"
-Repository = "https://github.com/derisk-ai/DERISK.git"
-Issues = "https://github.com/derisk-ai/DERISK/issues"
+Homepage = "https://github.com/derisk-ai/derisk"
+Documentation = "http://docs.derisk.ai/docs/overview"
+Repository = "https://github.com/derisk-ai/derisk.git"
+Issues = "https://github.com/derisk-ai/derisk/issues"
 
 [build-system]
 requires = ["hatchling"]

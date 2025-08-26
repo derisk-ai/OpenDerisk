@@ -68,14 +68,23 @@ class SummaryOperator(MapOperator[IN, OUT]):
             refine_summary = await self._extractor.extract(text=refine_text)
         document_response_list = []
         for query, reference in references.items():
-            document_response_list.extend([
-                DocumentSearchResponse(
-                    content=r.get("content"),
-                    score=r.get("score"),
-                    doc_name=r.get("metadata").get("doc_name"),
-                )
-                for r in reference
-            ])
+            document_response_list.extend(
+                [
+                    DocumentSearchResponse(
+                        content=r.get("content"),
+                        score=r.get("score"),
+                        yuque_url=r.get("metadata").get("yuque_url"),
+                        knowledge_id=r.get("metadata").get("knowledge_id"),
+                        doc_id=r.get("metadata").get("doc_id"),
+                        metadata=r.get("metadata"),
+                        doc_name=r.get(
+                            "metadata"
+                        ).get("doc_name") or r.get(
+                            "metadata").get("title"),
+                    )
+                    for r in reference
+                ]
+            )
         return KnowledgeSearchResponse(
             document_response_list=document_response_list,
             sub_queries=query_summary_map,

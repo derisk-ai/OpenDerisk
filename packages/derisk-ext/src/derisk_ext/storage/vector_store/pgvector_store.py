@@ -1,7 +1,6 @@
 """Postgres vector store."""
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -84,7 +83,6 @@ class PGVectorStore(VectorStoreBase):
         vector_store_config: PGVectorConfig,
         name: Optional[str],
         embedding_fn: Optional[Embeddings] = None,
-        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Create a PGVectorStore instance."""
         try:
@@ -93,7 +91,7 @@ class PGVectorStore(VectorStoreBase):
             raise ImportError(
                 "Please install the `langchain` package to use the PGVector."
             )
-        super().__init__(executor)
+        super().__init__()
         self._vector_store_config = vector_store_config
 
         self.connection_string = vector_store_config.connection_string

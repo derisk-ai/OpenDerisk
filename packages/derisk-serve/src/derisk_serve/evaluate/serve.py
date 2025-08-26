@@ -8,7 +8,7 @@ from derisk.storage.metadata import DatabaseManager
 from derisk_serve.core import BaseServe
 
 from .api.endpoints import init_endpoints, router
-from .config import (  # noqa: F401
+from .config import (
     APP_NAME,
     SERVE_APP_NAME,
     SERVE_APP_NAME_HUMP,
@@ -20,64 +20,65 @@ logger = logging.getLogger(__name__)
 
 
 class Serve(BaseServe):
-    """Serve component for DERISK
-    
+    """Serve component
+
     Examples:
 
-        Register the serve component in your system app
+        Register the serve component to the system app
+
         .. code-block:: python
-        
-        from fastapi import FastAPI
-        from derisk import SystemApp
-        from derisk.core import PromptTemplate
-        from derisk_serve.prompt.serve import Serve, SERVE_APP_NAME
-        
-        app = FastAPI()
-        system_app = SystemApp(app)
-        system_app.register(Serve, api_prefix="/api/v1/prompt")
-        system_app.init()
-        
-        # Run before start hook
-        system_app.before_start()
-        
-        prompt_serve = system_app.get_component(SERVE_APP_NAME, Serve)
 
-        # Get the prompt manager
-        prompt_manager = prompt_serve.get_prompt_manager()
-        prompt_manager.save(
-            PromptTemplate(templat"Hello {name}", input_variables=["name"]),
-            prompt_name="prompt_name",
-        )
+            from fastapi import FastAPI
+            from derisk import SystemApp
+            from derisk.core import PromptTemplate
+            from derisk_serve.prompt.serve import Serve, SERVE_APP_NAME
 
-    With your database url
-   
-    .. code-block:: python
+            app = FastAPI()
+            system_app = SystemApp(app)
+            system_app.register(Serve, api_prefix="/api/v1/prompt")
+            system_app.on_init()
+            # Run before start hook
+            system_app.before_start()
 
-        from fastapi import FastAPI
-        from derisk import SystemApp
-        from derisk.core import PromptTemplate
-        from derisk_serve.prompt.serve import Serve, SERVE_APP_NAME
+            prompt_serve = system_app.get_component(SERVE_APP_NAME, Serve)
 
-        app = FastAPI()
-        system_app = SystemApp(app)
-        system_app.register(
-            Serve,
-            api_prefix="/api/v1/prompt",
-            db_url_or_db="sqlite:///:memory:",
-            try_create_tables=True,
-        )
-        system_app.on_init()
-        # Run before start hook
-        system_app.before_start()
+            # Get the prompt manager
+            prompt_manager = prompt_serve.prompt_manager
+            prompt_manager.save(
+                PromptTemplate(template="Hello {name}", input_variables=["name"]),
+                prompt_name="prompt_name",
+            )
 
-        prompt_serve = system_app.get_component(SERVE_APP_NAME, Serve)
+        With your database url
 
-        # Get the prompt manager
-        prompt_manager = prompt_serve.prompt_manager
-        prompt_manager.save(
-            PromptTemplate(template="Hello {name}", input_variables=["name"]),
-            prompt_name="prompt_name",
-        )
+        .. code-block:: python
+
+            from fastapi import FastAPI
+            from derisk import SystemApp
+            from derisk.core import PromptTemplate
+            from derisk_serve.prompt.serve import Serve, SERVE_APP_NAME
+
+            app = FastAPI()
+            system_app = SystemApp(app)
+            system_app.register(
+                Serve,
+                api_prefix="/api/v1/prompt",
+                db_url_or_db="sqlite:///:memory:",
+                try_create_tables=True,
+            )
+            system_app.on_init()
+            # Run before start hook
+            system_app.before_start()
+
+            prompt_serve = system_app.get_component(SERVE_APP_NAME, Serve)
+
+            # Get the prompt manager
+            prompt_manager = prompt_serve.prompt_manager
+            prompt_manager.save(
+                PromptTemplate(template="Hello {name}", input_variables=["name"]),
+                prompt_name="prompt_name",
+            )
+
     """
 
     name = SERVE_APP_NAME
@@ -86,7 +87,7 @@ class Serve(BaseServe):
         self,
         system_app: SystemApp,
         config: Optional[ServeConfig] = None,
-        api_prefix: Optional[str] = None,
+        api_prefix: Optional[List[str]] = None,
         api_tags: Optional[List[str]] = None,
         db_url_or_db: Union[str, URL, DatabaseManager] = None,
         try_create_tables: Optional[bool] = False,
@@ -98,16 +99,16 @@ class Serve(BaseServe):
         super().__init__(
             system_app, api_prefix, api_tags, db_url_or_db, try_create_tables
         )
-        self._db_manager: Optional[DatabaseManager] = None
         self._config = config
 
     def init_app(self, system_app: SystemApp):
         if self._app_has_initiated:
             return
         self._system_app = system_app
-        self._system_app.app.include_router(
-            router, prefix=self._api_prefix, tags=self._api_tags
-        )
+        for prefix in self._api_prefix:
+            self._system_app.app.include_router(
+                router, prefix=prefix, tags=self._api_tags
+            )
         self._config = self._config or ServeConfig.from_app_config(
             system_app.config, SERVE_CONFIG_KEY_PREFIX
         )
@@ -115,16 +116,18 @@ class Serve(BaseServe):
         self._app_has_initiated = True
 
     def on_init(self):
-        """Called when init the application.
+        """Called before the start of the application.
 
-        You can do some initialization here. You can't get other components here
-        because they may be not initialized yet
+        You can do some initialization here.
         """
         # import your own module here to ensure the module is loaded before the
         # application starts
         from .models.models import ServeEntity as _  # noqa: F401
 
-    def after_init(self):
-        """Called after init the application."""
-        # TODO: Your code here
-        self._db_manager = self.create_or_get_db_manager()
+    def before_start(self):
+        """Called before the start of the application.
+
+        You can do some initialization here.
+        """
+        # import your own module here to ensure the module is loaded before the
+        # application starts

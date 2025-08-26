@@ -19,7 +19,7 @@ from derisk.util.tracer.tracer_impl import (
     initialize_tracer,
     root_tracer,
 )
-from derisk.util.utils import (
+from derisk.util.logger import (
     LoggingParameters,
     setup_http_service_logging,
     setup_logging,
@@ -360,7 +360,6 @@ def run_model_controller(config_file: str):
     setup_logging(
         "derisk",
         log_config=log_config,
-        default_logger_filename=os.path.join(LOGDIR, "derisk_model_controller.log"),
     )
 
     registry = _create_registry(controller_params)

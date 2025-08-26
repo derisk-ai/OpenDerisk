@@ -7,6 +7,13 @@ from derisk._private.pydantic import (
 )
 
 
+class ChatLayout(BaseModel):
+    name: str = Field(..., description="this layout name")
+    incremental: bool = Field(True, description="this layout is use incremental")
+    description: Optional[str] = Field(None, description="this layout description")
+    reuse_name: Optional[str] = Field(None, description="this layout reuse other name's web layout ")
+
+
 class VisBase(BaseModel):
     uid: str = Field(..., description="vis component uid")
     type: str = Field(..., description="vis data update type")
@@ -54,6 +61,8 @@ class VisTaskContent(BaseModel):
 
 
 class VisPlansContent(VisBase):
+    round_title: Optional[str] = Field(default=None, description="阶段规划标题")
+    round_description: Optional[str] = Field(default=None, description="阶段规划描述")
     tasks: List[VisTaskContent] = Field(default=[], description="vis plan tasks")
 
     def to_dict(self, **kwargs) -> Dict[str, Any]:
@@ -134,5 +143,30 @@ class VisGraph(VisBase):
 
 class VisSelectContent(VisBase):
     markdown: str = Field(..., description="content of the select option")
-    confirm_message: Optional[str] = Field(None, description="When the user selects this option, a message is simulated to be sent by the user, and this field represents the content of the message.")
-    extra: Optional[dict] = Field(None, description="When the user selects this option, this extended information will be passed to the system.")
+    confirm_message: Optional[str] = Field(
+        None,
+        description="When the user selects this option, a message is simulated to be sent by the user, and this field represents the content of the message.",
+    )
+    extra: Optional[dict] = Field(
+        None,
+        description="When the user selects this option, this extended information will be passed to the system.",
+    )
+
+class VisConfirm(VisBase):
+    markdown: str = Field(..., description="content of the message for user to confirm")
+    extra: Optional[dict] = Field(
+        None,
+        description="When the user confirm this message, this extended information will be passed to the system.",
+    )
+
+
+class VisReference(VisBase):
+    reference_url: Optional[str] = Field(
+        default=None, description="vis knowledge reference_url"
+    )
+    reference_name: Optional[str] = Field(
+        default=None, description="vis reference name"
+    )
+    reference_offset: Optional[int] = Field(
+        default=None, description="vis reference offset"
+    )

@@ -4,6 +4,7 @@ from typing import Generic, List, Optional, TypeVar
 from pydantic import field_validator
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field, model_to_dict
+from derisk.agent.core.plan.base import TeamContext
 
 T = TypeVar("T")
 
@@ -35,9 +36,9 @@ class PagenationResult(BaseModel, Generic[T]):
         }
 
 
-class NativeTeamContext(BaseModel):
+class NativeTeamContext(TeamContext):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
+    agent_name: Optional[str] = Field(None, description="Current agent name")
     chat_scene: Optional[str] = Field(
         ...,
         description="The chat scene of current app",

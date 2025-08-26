@@ -22,7 +22,7 @@ class RegisterResource(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: Optional[str] = None
-    resource_type: ResourceType
+    resource_type: Union[ResourceType, str]
     resource_type_alias: Optional[str] = None
     resource_cls: Type[Resource]
     resource_instance: Optional[Resource] = None
@@ -168,9 +168,10 @@ class ResourceManager(BaseComponent):
                         if not r.is_class:
                             set_configs.append(
                                 {
-                                    "label": r.resource_instance.name,  # type: ignore
+                                    "label": f"[{r.resource_instance.name}]{r.resource_instance.description}",  # type: ignore
                                     "key": r.resource_instance.name,  # type: ignore
                                     "description": r.resource_instance.description,  # type: ignore # noqa
+                                    "name": r.resource_instance.name,  # type: ignore # noqa
                                 }
                             )  # type: ignore
                 all_instance_options = set_configs
@@ -218,6 +219,8 @@ class ResourceManager(BaseComponent):
                 v2_resource = True
             except json.JSONDecodeError:
                 pass
+        elif resource_value and isinstance(resource_value, dict):
+            v2_resource = True
 
         if inst_items:
             real_resource_name = (
@@ -233,7 +236,7 @@ class ResourceManager(BaseComponent):
                     return (
                         i.resource_instance
                         if return_resource
-                        else {"name": real_resource_name}
+                        else {"name": real_resource_name }
                     )
             raise ValueError(
                 f"Resource {real_resource_name} not found in {type_unique_key}"

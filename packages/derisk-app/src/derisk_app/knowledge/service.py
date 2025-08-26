@@ -4,7 +4,7 @@ import re
 import timeit
 import uuid
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from derisk._private.config import Config
 from derisk.component import ComponentType
@@ -42,6 +42,7 @@ from derisk_serve.rag.models.document_db import (
     KnowledgeDocumentEntity,
 )
 from derisk_serve.rag.models.models import KnowledgeSpaceDao, KnowledgeSpaceEntity
+from derisk_serve.rag.models.yuque_db import KnowledgeYuqueDao, KnowledgeYuqueEntity
 from derisk_serve.rag.retriever.knowledge_space import KnowledgeSpaceRetriever
 from derisk_serve.rag.service.service import SyncStatus
 from derisk_serve.rag.storage_manager import StorageManager
@@ -49,6 +50,7 @@ from derisk_serve.rag.storage_manager import StorageManager
 knowledge_space_dao = KnowledgeSpaceDao()
 knowledge_document_dao = KnowledgeDocumentDao()
 document_chunk_dao = DocumentChunkDao()
+knowledge_yuque_dao = KnowledgeYuqueDao()
 
 logger = logging.getLogger(__name__)
 CFG = Config()
@@ -110,9 +112,78 @@ class KnowledgeService:
         space_id = knowledge_space_dao.create_knowledge_space(request)
         return space_id
 
+    def create_knowledge_document(
+        self, knowledge_id, request: KnowledgeDocumentRequest
+    ):
+        """create knowledge document
+        Args:
+           - request: KnowledgeDocumentRequest
+        """
+        knowledge_spaces = knowledge_space_dao.get_knowledge_space(
+            KnowledgeSpaceEntity(knowledge_id=knowledge_id)
+        )
+        if len(knowledge_spaces) == 0:
+            return None
+        ks = knowledge_spaces[0]
 
+        query = KnowledgeDocumentEntity(
+            doc_name=request.doc_name, knowledge_id=ks.knowledge_id
+        )
+        documents = knowledge_document_dao.get_knowledge_documents(query)
+        if request.doc_type == KnowledgeType.YUQUEURL.name:
+            for doc in documents:
+                if doc.yuque_doc_uuid == request.yuque_doc_uuid:
+                    logger.error(
+                        f"yuque doc id is {doc.yuque_doc_uuid} {doc.doc_name} have already exist"
+                    )
 
-    def get_knowledge_space(self, request: KnowledgeSpaceRequest):
+                    raise Exception(
+                        f"yuque doc id is {doc.yuque_doc_uuid} {doc.doc_name} have already exist"
+                    )
+        elif len(documents) > 0:
+            logger.info(f"request is {request}")
+
+            raise Exception(f"document name:{request.doc_name} have already named")
+        labels = request.labels
+        questions = None
+        if request.questions:
+            questions = [
+                remove_trailing_punctuation(question) for question in request.questions
+            ]
+            questions = json.dumps(questions, ensure_ascii=False)
+
+        doc_id = str(uuid.uuid4())
+        document = KnowledgeDocumentEntity(
+            doc_name=request.doc_name,
+            knowledge_id=ks.knowledge_id,
+            doc_id=doc_id,
+            doc_type=request.doc_type,
+            doc_token=request.doc_token,
+            space=ks.name,
+            chunk_size=0,
+            status=SyncStatus.TODO.name,
+            content=request.content,
+            summary=labels,
+            questions=questions,
+            result="",
+        )
+        id = knowledge_document_dao.create_knowledge_document(document)
+
+        #  create yuque doc
+        yuque_id = str(uuid.uuid4())
+        yuque = KnowledgeYuqueEntity(
+            yuque_id=yuque_id,
+            doc_id=doc_id,
+            knowledge_id=knowledge_id,
+            token=request.doc_token,
+        )
+        knowledge_yuque_dao.create_knowledge_yuque(docs=[yuque])
+
+        if id is None:
+            raise Exception(f"create document failed, {request.doc_name}")
+        return id
+
+    def get_knowledge_space(self, request: KnowledgeSpaceRequest, name_or_tag: Optional[str] = None):
         """get knowledge space
         Args:
            - request: KnowledgeSpaceRequest
@@ -124,7 +195,7 @@ class KnowledgeService:
             storage_type=request.storage_type,
             owner=request.owner,
         )
-        spaces = knowledge_space_dao.get_knowledge_space(query)
+        spaces = knowledge_space_dao.get_knowledge_space(query,name_or_tag)
         space_names = [space.name for space in spaces]
         docs_count = knowledge_document_dao.get_knowledge_documents_count_bulk(
             space_names
@@ -438,12 +509,17 @@ class KnowledgeService:
         vector_ids = documents[0].vector_ids
         if vector_ids is not None:
             storage_connector = self.storage_manager.get_storage_connector(
-                index_name=space_name, storage_type=space.storage_type
+                index_name=space.knowledge_id, storage_type=space.storage_type
             )
             # delete vector by ids
             storage_connector.delete_by_ids(vector_ids)
         # delete chunks
         document_chunk_dao.raw_delete(documents[0].doc_id)
+
+        # delete yuque docs
+        knowledge_yuque_dao.raw_delete(
+            query=KnowledgeYuqueEntity(doc_id=documents[0].doc_id)
+        )
 
         # delete document
         return str(knowledge_document_dao.raw_delete(document_query))

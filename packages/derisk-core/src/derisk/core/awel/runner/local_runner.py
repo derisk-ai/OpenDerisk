@@ -191,6 +191,7 @@ class DefaultWorkflowRunner(WorkflowRunner):
             ) as span:
                 await node._run(dag_ctx, task_ctx.log_id)
                 node_outputs[node.node_id] = dag_ctx.current_task_context
+                dag_ctx._finished_node_ids.append(node.node_id)
                 task_ctx.set_current_state(TaskState.SUCCESS)
 
                 out = dag_ctx.current_task_context.task_output

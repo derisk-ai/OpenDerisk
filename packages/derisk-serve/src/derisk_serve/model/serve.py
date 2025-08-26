@@ -67,9 +67,6 @@ class Serve(BaseServe):
         """
         # import your own module here to ensure the module is loaded before the
         # application starts
-        from .models.models import ServeEntity as _  # noqa: F401
-
-    def after_init(self):
         """Called before the start of the application."""
         from .models.model_adapter import ModelStorageAdapter
         from .models.models import ServeEntity

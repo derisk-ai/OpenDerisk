@@ -77,7 +77,11 @@ class ReActOutputParser:
         thought_matches = list(re.finditer(rf"{self.thought_prefix_escaped}\s*", text))
 
         if not thought_matches:
-            return []
+            # Try parse as json string
+            json_matches = re.search(
+                r"```json\s*({.*?})\s*```", text, re.IGNORECASE | re.DOTALL
+            )
+            return [] if not json_matches else self._parse_step_json(json_matches[1])
 
         # Process each thought section
         for i, match in enumerate(thought_matches):
@@ -98,6 +102,35 @@ class ReActOutputParser:
                 steps.append(step_data)
 
         return steps
+
+    def _parse_step_json(self, step_text: str) -> Optional[list[ReActStep]]:
+        """
+        Parse a single step of the ReAct format.
+
+        Args:
+            step_text: Text containing a single thought-action-input-observation
+                sequence.
+
+        Returns:
+            ReActStep dataclass with thought, action, action_input, and observation,
+                or None if parsing fails.
+        """
+
+        def _parse(s) -> Optional[ReActStep]:
+            thought = s["thought"]
+            action = s["tool_name"]
+            action_input = s["args"]
+            if thought and action and action_input:
+                return ReActStep(
+                    thought=thought, action=action, action_input=action_input
+                )
+            return None
+
+        llm_step = json.loads(step_text)
+        if isinstance(llm_step, list):
+            return [s for step in llm_step if (s := _parse(step))]
+        s = _parse(llm_step)
+        return [s] if s else None
 
     def _parse_step(self, step_text: str) -> Optional[ReActStep]:
         """

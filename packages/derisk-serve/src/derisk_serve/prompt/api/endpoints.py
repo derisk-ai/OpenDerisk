@@ -224,6 +224,12 @@ async def load_template(
     target: Optional[str] = Query(
         default=None, description="The target to load the template from"
     ),
+    sub_target: Optional[str] = Query(
+        default="system", description="The target to load the template from"
+    ),
+    language: Optional[str] = Query(
+        default="zh", description="The language of template"
+    ),
     service: Service = Depends(get_service),
 ) -> Result:
     """load Prompt from target
@@ -234,7 +240,7 @@ async def load_template(
     Returns:
         ServerResponse: The response
     """
-    return Result.succ(service.load_template(prompt_type, target))
+    return Result.succ(service.load_template(prompt_type=prompt_type, target=target, sub_target=sub_target, language=language))
 
 
 @router.post(

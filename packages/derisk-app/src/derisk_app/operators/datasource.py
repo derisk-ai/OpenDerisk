@@ -16,7 +16,7 @@ from derisk.core.awel.flow import (
 )
 from derisk.core.operators import BaseLLM
 from derisk.util.i18n_utils import _
-from derisk_ext.vis.gptvis.tags.vis_chart import default_chart_type_prompt
+from derisk_ext.vis.gptvis.tags.vis_db_chart import VisDbChart, default_chart_type_prompt
 
 from .llm import HOContextBody
 
@@ -304,13 +304,13 @@ class HODatasourceExecutorOperator(GPTVisMixin, MapOperator[dict, str]):
 
     async def map(self, sql_dict: dict) -> str:
         """Execute the context from the datasource."""
-        from derisk_ext.vis.gptvis.tags.vis_chart import VisChart
+
 
         if not isinstance(sql_dict, dict):
             raise ValueError(
                 "The input value of datasource executor should be a dictionary."
             )
-        vis = VisChart()
+        vis = VisDbChart()
         sql = sql_dict.get("sql")
         if not sql:
             return sql_dict.get("thoughts", "No SQL found in the input dictionary.")

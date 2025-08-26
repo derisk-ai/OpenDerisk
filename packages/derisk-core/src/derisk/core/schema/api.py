@@ -7,6 +7,8 @@ from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
 
+from .types import ChatCompletionMessageParam
+
 T = TypeVar("T")
 
 
@@ -51,8 +53,16 @@ class APIChatCompletionRequest(BaseModel):
     """Chat completion request entity."""
 
     model: str = Field(..., description="Model name")
-    messages: Union[str, List[Dict[str, str]]] = Field(..., description="Messages")
-    temperature: Optional[float] = Field(0.7, description="Temperature")
+    messages: Union[str, List[ChatCompletionMessageParam]] = Field(
+        ..., description="User input messages"
+    )
+    temperature: Optional[float] = Field(
+        0.7,
+        description="What sampling temperature to use, between 0 and 2. Higher values "
+        "like 0.8 will make the output more random, "
+        "while lower values like 0.2 will "
+        "make it more focused and deterministic.",
+    )
     top_p: Optional[float] = Field(1.0, description="Top p")
     top_k: Optional[int] = Field(-1, description="Top k")
     n: Optional[int] = Field(1, description="Number of completions")
@@ -63,6 +73,19 @@ class APIChatCompletionRequest(BaseModel):
     repetition_penalty: Optional[float] = Field(1.0, description="Repetition penalty")
     frequency_penalty: Optional[float] = Field(0.0, description="Frequency penalty")
     presence_penalty: Optional[float] = Field(0.0, description="Presence penalty")
+
+    def single_prompt(self) -> str:
+        """Get single prompt from messages."""
+        if isinstance(self.messages, str):
+            return self.messages
+        elif isinstance(self.messages, list):
+            if not self.messages:
+                raise ValueError("Empty messages")
+            if isinstance(self.messages[0], str):
+                return self.messages[0]
+            return self.messages[0]["content"]
+        else:
+            raise ValueError("Invalid messages type")
 
 
 class UsageInfo(BaseModel):
@@ -78,6 +101,7 @@ class DeltaMessage(BaseModel):
 
     role: Optional[str] = None
     content: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 class ChatCompletionResponseStreamChoice(BaseModel):
@@ -111,6 +135,7 @@ class ChatMessage(BaseModel):
 
     role: str = Field(..., description="Role of the message")
     content: str = Field(..., description="Content of the message")
+    reasoning_content: Optional[str] = Field(None, description="Reasoning content")
 
 
 class ChatCompletionResponseChoice(BaseModel):

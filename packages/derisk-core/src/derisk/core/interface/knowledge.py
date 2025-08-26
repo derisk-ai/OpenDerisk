@@ -20,7 +20,7 @@ class Document(BaseModel):
     )
     chunks: List["Chunk"] = Field(
         default_factory=list,
-        description="chunks",
+        description="list of chunks",
     )
 
     def set_content(self, content: str) -> None:
@@ -73,6 +73,8 @@ class Chunk(Document):
     embedding: Optional[List[float]] = Field(
         default=None, description="chunk embedding"
     )
+    chunk_type: Optional[str] = Field(default="text", description="chunk type")
+    image_url: Optional[str] = Field(default=None, description="image url")
     vector_id: Optional[str] = Field(default=None, description="vector id")
     full_text_id: Optional[str] = Field(default=None, description="full_text id")
 

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from typing import (
     Any,
@@ -44,10 +45,13 @@ class ActionOutput(BaseModel):
 
     content: str
     is_exe_success: bool = True
-    view: Optional[str] = None # 给人看的信息
-    model_view: Optional[str] = None # 多轮聊天 给模型看的信息
-    action_id: Optional[str] = None # eg. 2.4-1.5，其中横线-表示派生关系，2.2表示父agent第2轮第4个action，1.5表示子agent第1轮第5个action
-    action_intention: Optional[str] = None #本次action对应的intention
+    view: Optional[str] = None  # 给人看的信息
+    simple_view: Optional[str] = None # 最简单的给人看的消息，比如不带参数的工具结果，没有代码的执行结果
+    model_view: Optional[str] = None  # 多轮聊天 给模型看的信息
+    action_id: Optional[str] = (
+        None  # eg. 2.4-1.5，其中横线-表示派生关系，2.2表示父agent第2轮第4个action，1.5表示子agent第1轮第5个action
+    )
+    action_intention: Optional[str] = None  # 本次action对应的intention
     action_reason: Optional[str] = None  # 本次action对应的reason
     resource_type: Optional[str] = None
     resource_value: Optional[Any] = None
@@ -56,6 +60,7 @@ class ActionOutput(BaseModel):
     action_input: Optional[str] = None
     thoughts: Optional[str] = None
     observations: Optional[str] = None
+
     have_retry: Optional[bool] = True
     ask_user: Optional[bool] = False
     # 如果当前agent能确定下个发言者，需要在这里指定
@@ -68,6 +73,10 @@ class ActionOutput(BaseModel):
     # time.
     memory_fragments: Optional[Dict[str, Any]] = None
     extra: Optional[dict[str, Any]] = None
+    cost_ms: Optional[int] = None
+    # 输出文件列表
+    output_files: Optional[List[Any]] = None
+    state: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -107,11 +116,16 @@ class Action(ABC, Generic[T]):
         self.intention: Optional[str] = None
         self.reason: Optional[str] = None
         self._render: Optional[VisProtocolConverter] = None
+        self._action_uid = kwargs.get("action_uid") if kwargs.get("action_uid") else f"action_{uuid.uuid4().hex}"
 
     def init_action(self, **kwargs):
         self._render: VisProtocolConverter = kwargs.get(
             "render_protocol", DefaultVisConverter()
         )
+
+    @property
+    def action_uid(self):
+        return self._action_uid
 
     @property
     def render_protocol(self) -> Optional[Vis]:
@@ -203,12 +217,8 @@ class Action(ABC, Generic[T]):
     @property
     def ai_out_schema(self) -> Optional[str]:
         """Return the AI output schema."""
-        if self.out_model_type is None:
-            return None
 
-        json_format_data = json.dumps(
-            self._create_example(self.out_model_type), indent=2, ensure_ascii=False
-        )
+        json_format_data = self.ai_out_schema_json
         return f"""Please reply strictly in the following json format:
         {json_format_data}
         Make sure the reply content only has the correct json."""  # noqa: E501

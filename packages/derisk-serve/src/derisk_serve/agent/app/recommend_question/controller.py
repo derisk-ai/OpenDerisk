@@ -8,13 +8,17 @@ from derisk_serve.agent.app.recommend_question.recommend_question import (
     RecommendQuestionDao,
 )
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
+from derisk_serve.building.app.service.service import Service as AppService
+from derisk._private.config import Config
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+CFG = Config()
 
 recommend_question_dao = RecommendQuestionDao()
 
-
+def get_app_service() -> AppService:
+    return AppService.get_instance(CFG.SYSTEM_APP)
 @router.post("/v1/question/create")
 async def create(
     recommend_question: RecommendQuestion,

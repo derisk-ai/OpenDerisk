@@ -92,7 +92,7 @@ async def space_add(
         await blocking_func_to_async(get_executor(), service.create_space, request)
         return Result.succ([])
     except Exception as e:
-        logger.exception("space add exception!")
+        logger.exception("space add exception！")
         return Result.failed(code="E000X", msg=f"space add error {e}")
 
 
@@ -211,6 +211,29 @@ async def arguments_save(space_id: str, argument_request: SpaceArgumentRequest):
         return Result.failed(code="E000X", msg=f"space save error {e}")
 
 
+@router.post("/knowledge/{space_name}/document/yuque/add")
+def document_add(
+    space_name: str,
+    request: KnowledgeDocumentRequest,
+    user_token: UserRequest = Depends(get_user_from_headers),
+):
+    print(f"/document/yuque/add params: {space_name}, {request}")
+    spaces = knowledge_space_service.get_knowledge_space(
+        KnowledgeSpaceRequest(user_id=user_token.user_id, name=space_name)
+    )
+    if len(spaces) == 0:
+        return Result.failed(
+            code="E000X",
+            msg=f"knowledge_space {space_name} can not be found by user {user_token.user_id}",
+        )
+    try:
+        return Result.succ(
+            knowledge_space_service.create_knowledge_document(
+                knowledge_id=spaces[0].knowledge_id, request=request
+            )
+        )
+    except Exception as e:
+        return Result.failed(code="E000X", msg=f"document add error {e}")
 
 
 @router.post("/knowledge/{space_name}/document/add")

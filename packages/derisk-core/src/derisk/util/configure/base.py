@@ -107,12 +107,13 @@ class ConfigInfo:
         if self.key is None:
             return self.default
         value: Any = None
-        if isinstance(self.provider, ConfigProvider):
-            value = self.provider.query(self.key, **kwargs)
-        elif self.provider == ProviderType.ENV:
-            value = EnvironmentConfigProvider().query(self.key, **kwargs)
-        elif self.provider == ProviderType.PROMPT_MANAGER:
-            value = PromptManagerConfigProvider().query(self.key, **kwargs)
+        ## 暂时不需要这些逻辑而且性能非常差
+        # if isinstance(self.provider, ConfigProvider):
+        #     value = self.provider.query(self.key, **kwargs)
+        # elif self.provider == ProviderType.ENV:
+        #     value = EnvironmentConfigProvider().query(self.key, **kwargs)
+        # elif self.provider == ProviderType.PROMPT_MANAGER:
+        #     value = PromptManagerConfigProvider().query(self.key, **kwargs)
         if value is None:
             value = self.default
         if value and self.is_list and isinstance(value, str):

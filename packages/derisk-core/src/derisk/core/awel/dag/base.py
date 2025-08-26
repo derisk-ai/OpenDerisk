@@ -654,6 +654,7 @@ class DAGContext:
         self._share_data: Dict[str, Any] = share_data
         self._node_to_outputs: Dict[str, TaskContext] = node_to_outputs
         self._node_name_to_ids: Dict[str, str] = node_name_to_ids
+        self._finished_node_ids: list[str] = []
         self._event_loop_task_id = event_loop_task_id
         self._dag_variables = dag_variables
         self._share_data_lock = asyncio.Lock()
@@ -709,6 +710,17 @@ class DAGContext:
             raise ValueError(f"Task output for task {task_name} not exists")
         return task_output.task_output
 
+    async def get_all_share_data(self) -> Dict[str, Any]:
+        """Get all share data.
+
+                Returns:
+                    Dict: The share data, you can cast value to the real type
+                """
+        async with self._share_data_lock:
+            logger.debug(f"Get all share data from {id(self._share_data)}")
+            return self._share_data.copy()
+
+
     async def get_from_share_data(self, key: str) -> Any:
         """Get share data by key.
 
@@ -734,8 +746,8 @@ class DAGContext:
                 already exists. Defaults to None.
         """
         async with self._share_data_lock:
-            if key in self._share_data and not overwrite:
-                raise ValueError(f"Share data key {key} already exists")
+            # if key in self._share_data and not overwrite:
+            #     raise ValueError(f"Share data key {key} already exists")
             logger.debug(f"Save share data by key {key} to {id(self._share_data)}")
             self._share_data[key] = data
 

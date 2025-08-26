@@ -53,7 +53,10 @@ class TXTKnowledge(Knowledge):
                     text = raw_text.decode("utf-8")
                 else:
                     text = raw_text.decode(result["encoding"])
-            metadata = {"source": self._path}
+            doc_name = self._doc_name or self._path.rsplit("/", 1)[-1].replace(
+                ".txt", ""
+            )
+            metadata = {"source": self._path, "doc_name": doc_name}
             if self._metadata:
                 metadata.update(self._metadata)  # type: ignore
             return [Document(content=text, metadata=metadata)]
@@ -82,3 +85,8 @@ class TXTKnowledge(Knowledge):
     def document_type(cls) -> DocumentType:
         """Return document type."""
         return DocumentType.TXT
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.TXT.value

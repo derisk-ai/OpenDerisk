@@ -1,0 +1,18 @@
+<svg width="22px" height="22px" viewBox="0 0 22 22" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Agent-暗</title>
+    <g id="页面补充" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="1.1配置-技能/知识/Agent(空)" transform="translate(-24, -678)">
+            <g id="编组-197" transform="translate(0, -580)">
+                <g id="编组-139备份" transform="translate(24, 1257)">
+                    <g id="Agent-暗" transform="translate(0, 1)">
+                        <rect id="大小区域" x="0" y="0" width="22" height="22"></rect>
+                        <circle id="椭圆形" stroke-opacity="0.78" stroke="#000A1A" stroke-width="1.8" cx="11.0107422" cy="11.0107422" r="8.73574219"></circle>
+                        <path d="M5.62392238,7.83269962 C6.52714189,7.06169526 8.03202376,6.75451693 11.0122109,6.75451693 C13.9923981,6.75451693 15.2622814,7.04066517 16.329369,7.83269962 C17.3964565,8.62473408 17.7841083,9.32213848 17.7841083,11.0251026 C17.7841083,12.7280667 17.3028123,13.3640497 16.329369,14.2234076 C15.3559256,15.0827656 13.9923981,15.2838138 11.0122109,15.2838138 C8.03202376,15.2838138 6.12534951,15.0197251 5.34022579,14.2234076 C4.55510206,13.4270902 4.2109375,12.7192395 4.2109375,11.0191654 C4.2109375,9.31909119 4.72070286,8.60370398 5.62392238,7.83269962 Z" id="矩形" fill-opacity="0.78" fill="#000A1A"></path>
+                        <ellipse id="椭圆形" fill="#FFFFFF" transform="translate(8.7256, 10.9999) rotate(15) translate(-8.7256, -10.9999)" cx="8.72558605" cy="10.9998611" rx="1.375" ry="1.83333333"></ellipse>
+                        <ellipse id="椭圆形备份-2" fill="#FFFFFF" transform="translate(13.3089, 10.9999) scale(-1, 1) rotate(15) translate(-13.3089, -10.9999)" cx="13.3089194" cy="10.9998611" rx="1.375" ry="1.83333333"></ellipse>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

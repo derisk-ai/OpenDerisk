@@ -152,7 +152,7 @@ class BaseDao(Generic[T, REQ, RES]):
             res = self.get_one(req)
             return res  # type: ignore
 
-    def update(self, query_request: QUERY_SPEC, update_request: REQ) -> RES:
+    def update(self, query_request: QUERY_SPEC, update_request: Union[REQ, Dict], force_update: bool = False) -> RES:
         """Update an entity object.
 
         Args:
@@ -172,8 +172,11 @@ class BaseDao(Generic[T, REQ, RES]):
                 else model_to_dict(update_request)
             )
             for key, value in update_request.items():  # type: ignore
-                if value is not None:
+                if force_update:
                     setattr(entry, key, value)
+                else:
+                    if value is not None:
+                        setattr(entry, key, value)
             session.merge(entry)
             # res = self.get_one(self.to_request(entry))
             # if not res:

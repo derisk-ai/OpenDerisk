@@ -19,7 +19,6 @@ from sqlalchemy import (
 )
 
 from derisk.storage.metadata import BaseDao, Model
-from derisk.storage.metadata._base_dao import QUERY_SPEC
 from derisk.util import PaginationResult
 
 from ..api.schemas import ServeRequest, ServerResponse, QueryFilter
