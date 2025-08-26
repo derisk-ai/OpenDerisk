@@ -4,9 +4,11 @@ from httpx import AsyncClient
 
 from derisk.component import SystemApp
 from derisk.storage.metadata import db
+from derisk_serve.core import BaseServeConfig
 from derisk_serve.core.tests.conftest import (  # noqa: F401
     asystem_app,
     client,
+    config,
     system_app,
 )
 
@@ -22,9 +24,9 @@ def setup_and_teardown():
     yield
 
 
-def client_init_caller(app: FastAPI, system_app: SystemApp):
+def client_init_caller(app: FastAPI, system_app: SystemApp, config: BaseServeConfig):
     app.include_router(router)
-    init_endpoints(system_app)
+    init_endpoints(system_app, config)
 
 
 @pytest.mark.asyncio

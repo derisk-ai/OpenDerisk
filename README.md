@@ -72,7 +72,10 @@ uv sync --all-packages --frozen \
 --extra "proxy_openai" \
 --extra "rag" \
 --extra "storage_chromadb" \
---extra "client"
+--extra "derisks" \
+--extra "storage_oss2" \
+--extra "client"  \
+--extra "ext_base"
 ```
 
 #### Start

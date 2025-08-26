@@ -213,17 +213,6 @@ class EmbeddingRetriever(BaseRetriever):
                 List[Chunk], reduce(lambda x, y: x + y, res_candidates_with_score)
             )
 
-        with root_tracer.start_span(
-            "derisk.rag.retriever.embeddings.rerank",
-            metadata={
-                "query": query,
-                "score_threshold": score_threshold,
-                "rerank_cls": self._rerank.__class__.__name__,
-            },
-        ):
-            new_candidates_with_score = await self._rerank.arank(
-                new_candidates_with_score, query
-            )
             return new_candidates_with_score
 
     async def _similarity_search(

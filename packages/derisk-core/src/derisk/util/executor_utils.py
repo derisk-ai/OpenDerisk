@@ -9,6 +9,9 @@ from typing import Any, Callable, Union
 from derisk.component import BaseComponent, ComponentType, SystemApp
 
 
+logger = logging.getLogger(__name__)
+
+
 class ExecutorFactory(BaseComponent, ABC):
     name = ComponentType.EXECUTOR_DEFAULT.value
 
@@ -23,6 +26,7 @@ class DefaultExecutorFactory(ExecutorFactory):
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix=self.name
         )
+
     def init_app(self, system_app: SystemApp):
         pass
 
@@ -67,6 +71,7 @@ async def blocking_func_to_async(
         return ctx.run(partial(func, *args, **kwargs))
 
     loop = asyncio.get_event_loop()
+
     return await loop.run_in_executor(executor, run_with_context)
 
 
@@ -94,9 +99,10 @@ class AsyncToSyncIterator:
         except StopAsyncIteration:
             raise StopIteration
 
-async def heartbeat_wrapper(data_producer,
-                            heartbeat_data: Union[Any, Callable],
-                            interval=10):
+
+async def heartbeat_wrapper(
+    data_producer, heartbeat_data: Union[Any, Callable], interval=10
+):
     """
     向data_producer的输出中添加定时心跳数据
 
@@ -121,6 +127,7 @@ async def heartbeat_wrapper(data_producer,
         except BaseException as e:
             print(f"heartbeat_wrapper _data_producer exception: {repr(e)}")
             import traceback
+
             traceback.print_exc()
             raise
         finally:
@@ -140,9 +147,13 @@ async def heartbeat_wrapper(data_producer,
             except asyncio.TimeoutError:
                 # 正常心跳周期
                 try:
-                    _heartbeat_data = heartbeat_data() if isinstance(heartbeat_data, Callable) else heartbeat_data
+                    _heartbeat_data = (
+                        heartbeat_data()
+                        if isinstance(heartbeat_data, Callable)
+                        else heartbeat_data
+                    )
                     print("heartbeat_wrapper _heartbeat_producer: ", _heartbeat_data)
-                    await queue.put(_heartbeat_data) # 发送心跳
+                    await queue.put(_heartbeat_data)  # 发送心跳
                 except BaseException:
                     break
                 continue
@@ -162,12 +173,14 @@ async def heartbeat_wrapper(data_producer,
     except BaseException as e:
         print(f"heartbeat_wrapper queue.get exception: {repr(e)}")
         import traceback
+
         traceback.print_exc()
     finally:
-        stop_event.set() # 双重保险
+        stop_event.set()  # 双重保险
         # data_task.cancel()
         # heartbeat_task.cancel()
         await asyncio.gather(data_task, heartbeat_task, return_exceptions=True)
+
 
 # if __name__ == "__main__":
 #     async def data_producer():

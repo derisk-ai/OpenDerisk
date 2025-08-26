@@ -7,7 +7,7 @@ _GLOBAL_GENERATOR = SnowflakeGenerator(42)
 
 
 def initialize_id_generator(
-    instance: int, *, seq: int = 0, epoch: int = 0, timestamp: Optional[int] = None
+        instance: int, *, seq: int = 0, epoch: int = 0, timestamp: Optional[int] = None
 ):
     """Initialize the global ID generator.
 
@@ -79,7 +79,10 @@ class IdGenerator:
         self._locker = asyncio.Lock()
         self._next_id = start_round - 1
 
-    async def next(self) -> int:
+    async def next(self, new_init_round: Optional[int] = None) -> int:
         async with self._locker:
-            self._next_id += 1
-            return self._next_id
+            if new_init_round:
+                return new_init_round + 1
+            else:
+                self._next_id += 1
+                return self._next_id

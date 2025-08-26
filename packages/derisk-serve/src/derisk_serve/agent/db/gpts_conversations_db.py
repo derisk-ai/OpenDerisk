@@ -40,6 +40,7 @@ class GptsConversationsEntity(Model):
 
     user_code = Column(String(255), nullable=True, comment="user code")
     sys_code = Column(String(255), nullable=True, comment="system app ")
+    vis_render = Column(String(255), nullable=True, comment="vis mode of chat conversation ")
 
     created_at = Column(
         DateTime, name="gmt_create", default=datetime.utcnow, comment="create time"
@@ -99,6 +100,7 @@ class GptsConversationsDao(BaseDao):
         finally:
             session.close()
         return result
+
     def get_convs(self, user_code: str = None, system_app: str = None):
         session = self.get_raw_session()
         gpts_conversations = session.query(GptsConversationsEntity)

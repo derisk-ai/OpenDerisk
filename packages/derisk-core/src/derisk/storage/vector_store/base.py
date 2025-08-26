@@ -2,10 +2,11 @@
 
 import logging
 import math
+import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 
 from derisk.core import Chunk, Embeddings
 from derisk.core.awel.flow import Parameter
@@ -192,6 +193,15 @@ class VectorStoreBase(IndexStoreBase, ABC):
             List[str]: chunk ids.
         """
         return await blocking_func_to_async(self._executor, self.load_document, chunks)
+
+    def update(
+        self,
+        set_data: Dict,
+        filters: MetadataFilters,
+        **kwargs,
+        ) -> Dict:
+        """Update the collection."""
+        raise NotImplementedError
 
     def truncate(self) -> List[str]:
         """Truncate the collection."""

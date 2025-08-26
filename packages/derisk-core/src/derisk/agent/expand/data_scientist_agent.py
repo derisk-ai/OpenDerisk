@@ -83,7 +83,11 @@ class DataScientistAgent(ConversableAgent):
         rely_messages: Optional[List[AgentMessage]] = None,
         sender: Optional[Agent] = None,
     ) -> AgentMessage:
-        reply_message = await super().init_reply_message(received_message=received_message, rely_messages=rely_messages, sender=sender)
+        reply_message = await super().init_reply_message(
+            received_message=received_message,
+            rely_messages=rely_messages,
+            sender=sender,
+        )
         reply_message.context = {
             "display_type": self.actions[0].render_prompt(),
             "dialect": self.database.dialect,

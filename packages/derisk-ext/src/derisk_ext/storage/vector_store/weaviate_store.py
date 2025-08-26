@@ -2,7 +2,6 @@
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -95,7 +94,6 @@ class WeaviateStore(VectorStoreBase):
         vector_store_config: WeaviateVectorConfig,
         name: Optional[str],
         embedding_fn: Optional[Embeddings] = None,
-        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Initialize with Weaviate client."""
         try:
@@ -105,7 +103,7 @@ class WeaviateStore(VectorStoreBase):
                 "Could not import weaviate python package. "
                 "Please install it with `pip install weaviate-client`."
             )
-        super().__init__(executor)
+        super().__init__()
         self._vector_store_config = vector_store_config
 
         self.weaviate_url = vector_store_config.weaviate_url

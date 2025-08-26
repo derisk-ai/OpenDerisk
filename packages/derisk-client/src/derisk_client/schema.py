@@ -1,13 +1,15 @@
 """this module contains the schemas for the derisk client."""
 
 import json
+import warnings
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+from typing_extensions import deprecated
 
 from fastapi import File, UploadFile
 
-from derisk._private.pydantic import BaseModel, ConfigDict, Field
+from derisk._private.pydantic import BaseModel, ConfigDict, Field, validator
 from derisk_ext.rag.chunk_manager import ChunkParameters
 
 
@@ -37,6 +39,16 @@ class ChatCompletionRequestBody(BaseModel):
     conv_uid: Optional[str] = Field(
         default=None, description="The conversation id of the model inference"
     )
+    trace_id: Optional[str] = Field(
+        default=None, description="The trace id of the request"
+    )
+    call_back_url: Optional[str] = Field(
+        default=None, description="The call_back_url id of the request"
+    )
+    # render: Optional[str] = Field(
+    #     default=None, description="The render id of the request"
+    # )
+    rpc_id: Optional[str] = Field(default=None, description="The rpc id of the request")
     span_id: Optional[str] = Field(
         default=None, description="The span id of the model inference"
     )
@@ -57,13 +69,25 @@ class ChatCompletionRequestBody(BaseModel):
     )
     incremental: bool = Field(
         default=True,
-        description="Used to control whether the content is returned incrementally "
-        "or in full each time. "
-        "If this parameter is not provided, the default is full return.",
+        description="[Deprecated]字段已废弃，请统一使用vis_mode替代，是否返回增量数据由具体的vis_mode数据转换器实现",
+        json_schema_extra={"deprecated": True},
     )
     enable_vis: bool = Field(
-        default=True, description="response content whether to output vis label"
+        default=True, description="[Deprecated]字段已废弃，请统一使用vis_mode替代，是否返回vis数据由具体的vis_mode数据转换器实现",
+        json_schema_extra={"deprecated": True},
     )
+    extra_agents: Optional[List[str]] = Field(
+        default=None, description="extra sub agents"
+    )
+    vis_mode: Optional[str] = Field(
+        default=None, description="derisk message vis mode"
+    )
+
+    extra: Optional[dict[str, Any]] = Field(
+        default={},
+        description="extra info to pass down"
+    )
+
 
 
 class ChatMode(Enum):

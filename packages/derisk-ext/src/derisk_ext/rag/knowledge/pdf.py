@@ -233,6 +233,7 @@ class PDFKnowledge(Knowledge):
                         "page": page,
                         "type": "excel",
                         "title": file_title,
+                        "doc_name": self._doc_name if self._doc_name else file_title,
                         "source": self.file_path,
                     }
                     page_documents.append(
@@ -246,6 +247,7 @@ class PDFKnowledge(Knowledge):
                         "page": page,
                         "type": "text",
                         "title": file_title,
+                        "doc_name": self._doc_name if self._doc_name else file_title,
                         "source": self.file_path,
                     }
                     page_documents.append(
@@ -273,6 +275,11 @@ class PDFKnowledge(Knowledge):
     def type(cls) -> KnowledgeType:
         """Return knowledge type."""
         return KnowledgeType.DOCUMENT
+
+    @property
+    def suffix(self) -> Any:
+        """Get document suffix."""
+        return DocumentType.PDF.value
 
     @classmethod
     def document_type(cls) -> DocumentType:

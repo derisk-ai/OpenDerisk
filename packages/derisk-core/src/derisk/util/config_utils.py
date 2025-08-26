@@ -1,6 +1,8 @@
 import os
 from functools import cache
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional, Type, TypeVar, cast
+
+T = TypeVar("T")
 
 
 class AppConfig:
@@ -29,6 +31,40 @@ class AppConfig:
         """
         return self.configs.get(key, default)
 
+    def get_typed(
+        self, key: str, type_class: Type[T], default: Optional[T] = None
+    ) -> T:
+        """Get config value by key with specific type
+        Args:
+            key (str): The key of config
+            type_class (Type[T]): The expected return type
+            default (Optional[T], optional): The default value if key not found.
+                Defaults to None.
+        Returns:
+            T: The value of config with specified type
+        Raises:
+            TypeError: If the value is not of the expected type and cannot be converted
+        """
+        value = self.configs.get(key, default)
+        if value is None:
+            return cast(T, value)
+
+        # If the value is already of the expected type, return it directly
+        if isinstance(value, type_class):
+            return value
+
+        # Try to convert the value to the expected type
+        try:
+            if type_class is bool and isinstance(value, str):
+                # Handle boolean values as strings
+                return cast(T, value.lower() in ("true", "yes", "1", "y"))
+            # Convert the value to the expected type
+            return type_class(value)
+        except (ValueError, TypeError):
+            raise TypeError(
+                f"Cannot convert config value '{value}' to type {type_class.__name__}"
+            )
+
     @cache
     def get_all_by_prefix(self, prefix) -> Dict[str, Any]:
         """Get all config values by prefix
@@ -52,4 +88,4 @@ class AppConfig:
             if os.getenv("LANG") and cast(str, os.getenv("LANG")).startswith("zh")
             else default
         )
-        return self.get("derisk.app.global.language", env_lang)
+        return self.get("dbgpt.app.global.language", env_lang)

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="32px" height="32px" viewBox="0 0 32 32" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>编组 22</title>
+    <g id="业务流程（7月设计版本）" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="发布备份" transform="translate(-40, -324)">
+            <g id="编组-40" transform="translate(16, 88)">
+                <g id="编组-45" transform="translate(16, 228)">
+                    <g id="编组-22" transform="translate(8, 8)">
+                        <rect id="矩形" fill="#5272E0" x="0" y="0" width="32" height="32" rx="8"></rect>
+                        <g id="编组-10" transform="translate(4, 4)">
+                            <rect id="矩形" x="0" y="0" width="24" height="24" rx="8"></rect>
+                            <g id="编组-21" opacity="0.602446783" transform="translate(4, 6)">
+                                <rect id="矩形备份-3" fill="#FFFFFF" x="0" y="9" width="6" height="5" rx="2.5"></rect>
+                                <rect id="矩形备份-4" fill="#FFFFFF" x="10" y="9" width="6" height="5" rx="2.5"></rect>
+                                <path d="M8,0 L8,4.81749267 L8.01257962,4.81749267 L8.01257962,5.07475699 C8.01257962,6.17932649 7.11714912,7.07475699 6.01257962,7.07475699 L5,7.07475699 C3.8954305,7.07475699 3,7.97018749 3,9.07475699 L3,9.46275193 L3,9.46275193" id="路径-5" stroke="#FFFFFF" stroke-width="1.6"></path>
+                                <path d="M8.01257962,5.00002969 L10,5.00002969 C11.6568542,5.00002969 13,6.34317544 13,8.00002969 L13,10.2860249 L13,10.2860249" id="路径-6" stroke="#FFFFFF" stroke-width="1.6"></path>
+                            </g>
+                            <rect id="矩形" fill="#FFFFFF" x="4" y="3" width="16" height="6" rx="3"></rect>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

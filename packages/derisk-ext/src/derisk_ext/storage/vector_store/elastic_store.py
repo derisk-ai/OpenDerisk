@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -156,14 +155,13 @@ class ElasticStore(VectorStoreBase):
         vector_store_config: ElasticsearchStoreConfig,
         name: Optional[str],
         embedding_fn: Optional[Embeddings] = None,
-        executor: Optional[ThreadPoolExecutor] = None
     ) -> None:
         """Create a ElasticsearchStore instance.
 
         Args:
             vector_store_config (ElasticsearchStoreConfig): ElasticsearchStore config.
         """
-        super().__init__(executor)
+        super().__init__()
         self._vector_store_config = vector_store_config
 
         connect_kwargs = {}
@@ -361,7 +359,12 @@ class ElasticStore(VectorStoreBase):
         return info_docs
 
     def similar_search_with_scores(
-        self, text, topk, score_threshold, filters: Optional[MetadataFilters] = None
+        self,
+        text,
+        topk,
+        score_threshold,
+        filters: Optional[MetadataFilters] = None,
+        **kwargs
     ) -> List[Chunk]:
         """Perform a search on a query string and return results with score.
 

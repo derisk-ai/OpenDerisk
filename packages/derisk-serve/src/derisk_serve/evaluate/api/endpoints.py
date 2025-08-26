@@ -1,27 +1,52 @@
+import logging
 from functools import cache
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 
-from derisk.component import SystemApp
-from derisk.util import PaginationResult
+from derisk.component import ComponentType, SystemApp
+from derisk.model.cluster import (
+    BaseModelController,
+    WorkerManager,
+    WorkerManagerFactory,
+)
 from derisk_serve.core import Result
+from derisk_serve.evaluate.api.schemas import EvaluateServeRequest
+from derisk_serve.evaluate.config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
+from derisk_serve.evaluate.service.service import Service
 
-from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
-from ..service.service import Service
-from .schemas import ServeRequest, ServerResponse
+from ...prompt.service.service import Service as PromptService
 
 router = APIRouter()
 
 # Add your API endpoints here
 
 global_system_app: Optional[SystemApp] = None
+logger = logging.getLogger(__name__)
 
 
 def get_service() -> Service:
     """Get the service instance"""
     return global_system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, Service)
+
+
+def get_prompt_service() -> PromptService:
+    return global_system_app.get_component("derisk_serve_prompt_service", PromptService)
+
+
+def get_worker_manager() -> WorkerManager:
+    worker_manager = global_system_app.get_component(
+        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
+    ).create()
+    return worker_manager
+
+
+def get_model_controller() -> BaseModelController:
+    controller = global_system_app.get_component(
+        ComponentType.MODEL_CONTROLLER, BaseModelController
+    )
+    return controller
 
 
 get_bearer_token = HTTPBearer(auto_error=False)
@@ -82,7 +107,7 @@ async def check_api_key(
         return None
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(check_api_key)])
 async def health():
     """Health check endpoint"""
     return {"status": "ok"}
@@ -94,81 +119,35 @@ async def test_auth():
     return {"status": "ok"}
 
 
-@router.post(
-    "/", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
-)
-async def create(
-    request: ServeRequest, service: Service = Depends(get_service)
-) -> Result[ServerResponse]:
-    """Create a new Evaluate entity
+@router.get("/scenes")
+async def get_scenes():
+    scene_list = [{"recall": "召回评测"}, {"app": "应用评测"}]
 
-    Args:
-        request (ServeRequest): The request
-        service (Service): The service
-    Returns:
-        ServerResponse: The response
-    """
-    return Result.succ(service.create(request))
+    return Result.succ(scene_list)
 
 
-@router.put(
-    "/", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)]
-)
-async def update(
-    request: ServeRequest, service: Service = Depends(get_service)
-) -> Result[ServerResponse]:
-    """Update a Evaluate entity
-
-    Args:
-        request (ServeRequest): The request
-        service (Service): The service
-    Returns:
-        ServerResponse: The response
-    """
-    return Result.succ(service.update(request))
-
-
-@router.post(
-    "/query",
-    response_model=Result[ServerResponse],
-    dependencies=[Depends(check_api_key)],
-)
-async def query(
-    request: ServeRequest, service: Service = Depends(get_service)
-) -> Result[ServerResponse]:
-    """Query Evaluate entities
-
-    Args:
-        request (ServeRequest): The request
-        service (Service): The service
-    Returns:
-        ServerResponse: The response
-    """
-    return Result.succ(service.get(request))
-
-
-@router.post(
-    "/query_page",
-    response_model=Result[PaginationResult[ServerResponse]],
-    dependencies=[Depends(check_api_key)],
-)
-async def query_page(
-    request: ServeRequest,
-    page: Optional[int] = Query(default=1, description="current page"),
-    page_size: Optional[int] = Query(default=20, description="page size"),
+@router.post("/evaluation")
+async def evaluation(
+    request: EvaluateServeRequest,
     service: Service = Depends(get_service),
-) -> Result[PaginationResult[ServerResponse]]:
-    """Query Evaluate entities
+) -> Result:
+    """Evaluate results by the scene
 
     Args:
-        request (ServeRequest): The request
-        page (int): The page number
-        page_size (int): The page size
+        request (EvaluateServeRequest): The request
         service (Service): The service
     Returns:
         ServerResponse: The response
     """
-    return Result.succ(service.get_list_by_page(request, page, page_size))
+    return Result.succ(
+        await service.run_evaluation(
+            request.scene_key,
+            request.scene_value,
+            request.datasets,
+            request.context,
+            request.evaluate_metrics,
+        )
+    )
 
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:

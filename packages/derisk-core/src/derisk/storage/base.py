@@ -31,8 +31,10 @@ class IndexStoreBase(ABC):
     def __init__(self, executor: Optional[Executor] = None):
         """Init index store."""
         self._executor = executor or ThreadPoolExecutor()
-        logger.info(f"executor max_workers is {self._executor._max_workers}, 线程数：{len(self._executor._threads)}, "
-                    f"等待队列长度：{self._executor._work_queue.qsize()}")
+        logger.info(
+            f"executor max_workers is {self._executor._max_workers}, 线程名前缀：{self._executor._thread_name_prefix}, 线程数：{len(self._executor._threads)}, "
+            f"等待队列长度：{self._executor._work_queue.qsize()}, 当前线程数：{threading.active_count()}"
+        )
 
     @abstractmethod
     def get_config(self) -> IndexStoreConfig:
@@ -67,6 +69,7 @@ class IndexStoreBase(ABC):
         topk,
         score_threshold: float,
         filters: Optional[MetadataFilters] = None,
+        **kwargs
     ) -> List[Chunk]:
         """Similar search with scores in index database.
 
@@ -123,8 +126,8 @@ class IndexStoreBase(ABC):
             for i in range(0, len(chunks), max_chunks_once_load)
         ]
         logger.info(
-            f"Loading {len(chunks)} chunks in {len(chunk_groups)} groups with "
-            f"{max_threads} threads."
+            f"load_document_with_limit Loading {len(chunks)} chunks in {len(chunk_groups)} groups with "
+            f"{max_threads} threads. 当前线程数：{threading.active_count()}"
         )
         ids = []
         loaded_cnt = 0
@@ -139,7 +142,7 @@ class IndexStoreBase(ABC):
                 loaded_cnt += len(success_ids)
                 logger.info(f"Loaded {loaded_cnt} chunks, total {len(chunks)} chunks.")
         logger.info(
-            f"Loaded {len(chunks)} chunks in {time.time() - start_time} seconds"
+            f"Loaded {len(chunks)} chunks in {time.time() - start_time} seconds， 当前线程数：{threading.active_count()}"
         )
         return ids
 
@@ -161,8 +164,8 @@ class IndexStoreBase(ABC):
             for i in range(0, len(chunks), max_chunks_once_load)
         ]
         logger.info(
-            f"Loading {len(chunks)} chunks in {len(chunk_groups)} groups with "
-            f"{max_threads} threads."
+            f"aload_document_with_limit Loading {len(chunks)} chunks in {len(chunk_groups)} groups with "
+            f"{max_threads} threads. 当前线程数:{threading.active_count()} "
         )
 
         tasks = []
@@ -213,14 +216,24 @@ class IndexStoreBase(ABC):
         topk: int,
         score_threshold: float,
         filters: Optional[MetadataFilters] = None,
+        # consistent_search: Optional[bool] = False,
     ) -> List[Chunk]:
         """Async similar_search_with_score in vector database."""
         return await blocking_func_to_async_no_executor(
-            self.similar_search_with_scores, query, topk, score_threshold, filters
+            self.similar_search_with_scores,
+            query,
+            topk,
+            score_threshold,
+            filters,
+            # consistent_search
         )
 
     def full_text_search(
-        self, text: str, topk: int, filters: Optional[MetadataFilters] = None
+        self,
+        text: str,
+        topk: int,
+        filters: Optional[MetadataFilters] = None,
+        consistent_search: Optional[bool] = False,
     ) -> List[Chunk]:
         """Full text search in index database.
 
@@ -228,6 +241,7 @@ class IndexStoreBase(ABC):
             text(str): The query text.
             topk(int): The number of similar documents to return.
             filters(Optional[MetadataFilters]): metadata filters.
+            consistent_search(Optional[bool]): consistent search.
         Return:
             List[Chunk]: The similar documents.
         """
@@ -236,7 +250,11 @@ class IndexStoreBase(ABC):
         )
 
     async def afull_text_search(
-        self, text: str, topk: int, filters: Optional[MetadataFilters] = None
+        self,
+        text: str,
+        topk: int,
+        filters: Optional[MetadataFilters] = None,
+        consistent_search: Optional[bool] = False,
     ) -> List[Chunk]:
         """Similar search in index database.
 
@@ -244,11 +262,40 @@ class IndexStoreBase(ABC):
             text(str): The query text.
             topk(int): The number of similar documents to return.
             filters(Optional[MetadataFilters]): metadata filters.
+            consistent_search(Optional[bool]): consistent search.
         Return:
             List[Chunk]: The similar documents.
         """
         return await blocking_func_to_async_no_executor(
-            self.full_text_search, text, topk, filters
+            self.full_text_search, text, topk, filters, consistent_search
+        )
+
+    def exact_search(
+        self, filters: MetadataFilters = None, topk: int = 1, **kwargs
+    ) -> List[Chunk]:
+        """Exact text search in index database.
+
+        Args:
+            filters(Optional[MetadataFilters]): metadata filters.
+            topk(Optional[int]): topk 1.
+        Return:
+            List[Chunk]: The similar documents.
+        """
+        raise NotImplementedError("Exact search is not supported in this index store.")
+
+    async def aexact_search(
+        self, filters: MetadataFilters = None, topk: int = 1
+    ) -> List[Chunk]:
+        """Async Exact search in index database.
+
+        Args:
+            filters(Optional[MetadataFilters]): metadata filters.
+            topk(Optional[int]): topk 1.
+        Return:
+            List[Chunk]: The similar documents.
+        """
+        return await blocking_func_to_async_no_executor(
+            self.exact_search, filters, topk
         )
 
     def is_support_full_text_search(self) -> bool:

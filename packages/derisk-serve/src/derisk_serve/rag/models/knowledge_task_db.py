@@ -8,6 +8,7 @@ from derisk.storage.metadata import BaseDao, Model
 
 logger = logging.getLogger(__name__)
 
+
 class KnowledgeTaskEntity(Model):
     __tablename__ = "knowledge_task"
     id = Column(Integer, primary_key=True)
@@ -16,8 +17,10 @@ class KnowledgeTaskEntity(Model):
     doc_id = Column(String(100))
     doc_type = Column(String(100))
     doc_content = Column(String(100))
+    yuque_token = Column(String(100))
     group_login = Column(String(100))
     book_slug = Column(String(100))
+    yuque_doc_id = Column(String(100))
     chunk_parameters = Column(String(100))
     status = Column(String(100))
     owner = Column(String(100))
@@ -34,8 +37,8 @@ class KnowledgeTaskEntity(Model):
         return (
             f"KnowledgeTaskEntity(id={self.id}, task_id='{self.task_id}', "
             f"doc_id='{self.doc_id}', knowledge_id='{self.knowledge_id}', doc_type='{self.doc_type}', "
-            f"doc_content='{self.doc_content}', group_login='{self.group_login}',"
-            f"book_slug='{self.book_slug}', chunk_parameters='{self.chunk_parameters}',  "
+            f"doc_content='{self.doc_content}', yuque_token='{self.yuque_token}', group_login='{self.group_login}',"
+            f"book_slug='{self.book_slug}', yuque_doc_id='{self.yuque_doc_id}', chunk_parameters='{self.chunk_parameters}',  "
             f"status='{self.status}', owner='{self.owner}', batch_id='{self.batch_id}', retry_times='{self.retry_times}', "
             f"error_msg='{self.error_msg}', start_time='{self.start_time}', end_time='{self.end_time}', host='{self.host}', "
             f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
@@ -49,8 +52,10 @@ class KnowledgeTaskEntity(Model):
             "doc_id": self.doc_id,
             "doc_type": self.doc_type,
             "doc_content": self.doc_content,
+            "yuque_token": self.yuque_token,
             "group_login": self.group_login,
             "book_slug": self.book_slug,
+            "yuque_doc_id": self.yuque_doc_id,
             "chunk_parameters": self.chunk_parameters,
             "status": self.status,
             "owner": self.owner,
@@ -64,15 +69,15 @@ class KnowledgeTaskEntity(Model):
             "gmt_modified": self.gmt_modified,
         }
 
-class KnowledgeTaskDao(BaseDao):
 
+class KnowledgeTaskDao(BaseDao):
     def create_knowledge_task(self, tasks: List, batch_size: Optional[int] = 200):
         session = self.get_raw_session()
 
         try:
             for i in range(0, len(tasks), batch_size):
                 # Slice the tasks list to get the current batch
-                batch = tasks[i:i + batch_size]
+                batch = tasks[i : i + batch_size]
 
                 docs = [
                     KnowledgeTaskEntity(
@@ -81,8 +86,10 @@ class KnowledgeTaskDao(BaseDao):
                         doc_id=task.doc_id,
                         doc_type=task.doc_type,
                         doc_content=task.doc_content,
+                        yuque_token=task.yuque_token,
                         group_login=task.group_login,
                         book_slug=task.book_slug,
+                        yuque_doc_id=task.yuque_doc_id,
                         chunk_parameters=task.chunk_parameters,
                         status=task.status,
                         owner=task.owner,
@@ -114,8 +121,13 @@ class KnowledgeTaskDao(BaseDao):
             # Always ensure the session is closed
             session.close()
 
-
-    def get_knowledge_tasks(self, query: KnowledgeTaskEntity, ignore_status: Optional[List[str]] = None, page=1, page_size=20):
+    def get_knowledge_tasks(
+        self,
+        query: KnowledgeTaskEntity,
+        ignore_status: Optional[List[str]] = None,
+        page=1,
+        page_size=20,
+    ):
         session = self.get_raw_session()
         tasks = session.query(KnowledgeTaskEntity)
         if query.id is not None:
@@ -130,23 +142,23 @@ class KnowledgeTaskDao(BaseDao):
             tasks = tasks.filter(KnowledgeTaskEntity.doc_type == query.doc_type)
         if query.doc_content is not None:
             tasks = tasks.filter(KnowledgeTaskEntity.doc_content == query.doc_content)
-
+        if query.yuque_token is not None:
+            tasks = tasks.filter(KnowledgeTaskEntity.yuque_token == query.yuque_token)
         if query.group_login is not None:
             tasks = tasks.filter(KnowledgeTaskEntity.group_login == query.group_login)
         if query.book_slug is not None:
             tasks = tasks.filter(KnowledgeTaskEntity.book_slug == query.book_slug)
+        if query.yuque_doc_id is not None:
+            tasks = tasks.filter(KnowledgeTaskEntity.yuque_doc_id == query.yuque_doc_id)
         if ignore_status is not None:
             tasks = tasks.filter(KnowledgeTaskEntity.status.notin_(ignore_status))
 
         tasks = tasks.order_by(KnowledgeTaskEntity.id.asc())
-        tasks = tasks.offset((page - 1) * page_size).limit(
-            page_size
-        )
+        tasks = tasks.offset((page - 1) * page_size).limit(page_size)
 
         result = tasks.all()
         session.close()
         return result
-
 
     def delete_knowledge_tasks(self, query: KnowledgeTaskEntity):
         session = self.get_raw_session()
@@ -155,18 +167,12 @@ class KnowledgeTaskDao(BaseDao):
                 raise Exception("knowledge_id is None")
 
             tasks = session.query(KnowledgeTaskEntity)
-            tasks = tasks.filter(
-                KnowledgeTaskEntity.knowledge_id == query.knowledge_id
-            )
+            tasks = tasks.filter(KnowledgeTaskEntity.knowledge_id == query.knowledge_id)
 
             if query.task_id is not None:
-                tasks = tasks.filter(
-                    KnowledgeTaskEntity.task_id == query.task_id
-                )
+                tasks = tasks.filter(KnowledgeTaskEntity.task_id == query.task_id)
             if query.batch_id is not None:
-                tasks = tasks.filter(
-                    KnowledgeTaskEntity.batch_id == query.batch_id
-                )
+                tasks = tasks.filter(KnowledgeTaskEntity.batch_id == query.batch_id)
 
             tasks.delete()
             session.commit()
@@ -176,10 +182,10 @@ class KnowledgeTaskDao(BaseDao):
     def get_not_finished_knowledge_ids(self, ignore_status: Optional[List[str]] = None):
         session = self.get_raw_session()
         try:
-            query = session.query(
-                KnowledgeTaskEntity.knowledge_id
-            ).distinct().filter(
-                KnowledgeTaskEntity.status.notin_(ignore_status)
+            query = (
+                session.query(KnowledgeTaskEntity.knowledge_id)
+                .distinct()
+                .filter(KnowledgeTaskEntity.status.notin_(ignore_status))
             )
 
             results = query.all()
@@ -189,8 +195,9 @@ class KnowledgeTaskDao(BaseDao):
         finally:
             session.close()
 
-
-    def get_knowledge_tasks_by_status(self, ignore_status: Optional[List[str]] = None, limit=1):
+    def get_knowledge_tasks_by_status(
+        self, ignore_status: Optional[List[str]] = None, limit=1
+    ):
         session = self.get_raw_session()
         try:
             tasks = session.query(KnowledgeTaskEntity)
@@ -208,17 +215,21 @@ class KnowledgeTaskDao(BaseDao):
         finally:
             session.close()
 
-    def update_knowledge_task_batch(self, tasks: List[KnowledgeTaskEntity], batch_size: int = 100):
+    def update_knowledge_task_batch(
+        self, tasks: List[KnowledgeTaskEntity], batch_size: int = 100
+    ):
         session = self.get_raw_session()
         updated_ids = []
 
         try:
             for i in range(0, len(tasks), batch_size):
-                batch = tasks[i: i + batch_size]
+                batch = tasks[i : i + batch_size]
                 task_ids = [task.id for task in batch]
 
                 # Lock the tasks using SELECT ... FOR UPDATE to prevent concurrent modifications
-                session.query(KnowledgeTaskEntity).filter(KnowledgeTaskEntity.id.in_(task_ids)).with_for_update().all()
+                session.query(KnowledgeTaskEntity).filter(
+                    KnowledgeTaskEntity.id.in_(task_ids)
+                ).with_for_update().all()
 
                 for task in batch:
                     updated_document = session.merge(task)
@@ -235,5 +246,3 @@ class KnowledgeTaskDao(BaseDao):
 
         finally:
             session.close()
-
-

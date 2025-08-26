@@ -100,34 +100,12 @@ class DefaultLLMClient(LLMClient):
             query_metadata_task.append(
                 self.worker_manager.get_model_metadata({"model": worker_name})
             )
-        models: List[ModelMetadata] = await asyncio.gather(*query_metadata_task)
+        models: List[ModelMetadata] = await asyncio.gather(*query_metadata_task, return_exceptions=True)
         model_map = {}
         for single_model in models:
             model_map[single_model.model] = single_model
         return [model_map[model_name] for model_name in sorted(model_map.keys())]
 
-    async def avaliable_reasoning_llms(self) -> list[str]:
-        instances = await self.worker_manager.get_all_model_instances(
-            WorkerType.LLM.value, healthy_only=True 
-        )
-
-        models = []
-        for i in instances:
-            if i.model_params.__getattribute__("reasoning_model"):
-                models.append(i.model_params.__getattribute__("name"))
-        return models 
-
-    async def avaliable_llms(self) -> List[str]:
-        """Get all available LLM models."""
-        instances = await self.worker_manager.get_all_model_instances(
-            WorkerType.LLM.value, healthy_only=True
-        )
-        models = []
-        for i in instances:
-            if not i.model_params.__getattribute__("reasoning_model"):
-                models.append(i.model_params.__getattribute__("name"))
-        return models  
-        
     async def count_token(self, model: str, prompt: str) -> int:
         return await self.worker_manager.count_token({"model": model, "prompt": prompt})
 

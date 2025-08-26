@@ -2,9 +2,11 @@ import socket
 import time
 import uuid
 from enum import Enum
-from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field, model_to_dict
+from derisk.core.schema.types import ChatCompletionUserMessageParam
+from derisk_serve.building.config.api.schemas import ChatInParamValue
 
 T = TypeVar("T")
 
@@ -38,34 +40,40 @@ class ChatSceneVo(BaseModel):
     )
     show_disable: Optional[bool] = Field(False, description="chat_scene show disable")
 
-
 class ConversationVo(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     """
+    the app of  chat
+    """
+    app_code: str
+    """
     dialogue_uid
     """
-
     conv_uid: str = ""
     """ 
     user input 
     """
-    user_input: str = ""
+    user_input: Union[str, ChatCompletionUserMessageParam] = Field(
+        default="", description="User input messages."
+    )
+
     """
     user
     """
     user_name: Optional[str] = Field(None, description="user name")
     """ 
-    the scene of chat 
+    the team_mode of chat 
     """
-    chat_mode: Optional[str] = ""
-    """
-    the app of  chat
-    """
-    app_code: Optional[str] = ""
+    team_mode: Optional[str] = ""
 
+    app_config_code: Optional[str] = None
+    """
+    the chat in param valus
+    """
+    chat_in_params: Optional[List[ChatInParamValue]] = None
     temperature: Optional[float] = 0.5
-    max_new_tokens: Optional[int] = 2048
+    max_new_tokens: Optional[int] = 640000
     """
     chat scene select param 
     """

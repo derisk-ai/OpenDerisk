@@ -6,7 +6,7 @@ from .parameter_utils import (  # noqa: F401
     EnvArgumentParser,
     ParameterDescription,
 )
-from .utils import get_gpu_memory, get_or_create_event_loop  # noqa: F401
+from .logger import get_gpu_memory, get_or_create_event_loop  # noqa: F401
 
 __ALL__ = [
     "get_gpu_memory",

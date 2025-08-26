@@ -60,15 +60,15 @@ class ServerResponse(BaseModel):
             "5e7100bc-9017-11ee-9876-8fe019728d79",
         ],
     )
-    user_input: str = Field(
-        ...,
+    user_input: Optional[str] = Field(
+        None,
         description="The user input, we return it as the summary the conversation.",
         examples=[
             "Hello world",
         ],
     )
-    chat_mode: str = Field(
-        ...,
+    chat_mode: Optional[str] = Field(
+        None,
         description="The chat mode.",
         examples=[
             "chat_normal",
@@ -107,6 +107,20 @@ class ServerResponse(BaseModel):
         description="The system code.",
         examples=[
             "derisk",
+        ],
+    )
+    gmt_created: Optional[str] = Field(
+        default=None,
+        description="The record creation time.",
+        examples=[
+            "2023-01-07 09:00:00",
+        ],
+    )
+    gmt_modified: Optional[str] = Field(
+        default=None,
+        description="The record update time.",
+        examples=[
+            "2023-01-07 09:00:00",
         ],
     )
 

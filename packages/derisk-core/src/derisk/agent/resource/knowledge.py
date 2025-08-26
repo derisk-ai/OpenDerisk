@@ -85,8 +85,8 @@ class RetrieverResource(Resource[ResourceParameters]):
         content = "\n".join(
             [f"--{i}--:" + chunk.content for i, chunk in enumerate(chunks)]
         )
-        prompt_template = f"\nResources-{self.name}:\n {content}"
-        prompt_template_zh = f"\n资源-{self.name}:\n {content}"
+        prompt_template = f"\nKnowledge-{self.name}:\n {content}"
+        prompt_template_zh = f"\n知识-{self.name}:\n {content}"
         if lang == "en":
             return prompt_template, self._get_references(chunks)
         return prompt_template_zh, self._get_references(chunks)

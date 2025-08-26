@@ -1,14 +1,18 @@
 [project]
-name = "OpenDerisk"
-version = "0.1.0"
-description = """OPENDERISK is  AI-Native Risk Intelligence Systems, \
-OpenDeRisk——Your application system risk intelligent manager \
-provides 7* 24-hour comprehensive and in-depth protection..\
+name = "derisk-mono"
+version = "0.2.0"
+description = """
+    Building AI-Native Risk Intelligent Systems,
+    Our vision is to provide every production system with a 7 * 24H AI teammate in the future,
+    constantly safeguarding your system's stability and security,
+    freeing you from tedious operations and risk management tasks.
 """
 authors = [
-    { name = "csunny", email = "cfqcsunny@gmail.com" }
+    { name = "HongjunYang", email = "yhjun1026@gmail.com" }
 ]
-
+dependencies = [
+    "allpairspy>=2.5.1"
+]
 readme = "README.md"
 requires-python = ">= 3.10"
 
@@ -19,12 +23,6 @@ derisk-ext = { workspace = true }
 derisk-serve = { workspace = true }
 derisk-app = { workspace = true }
 
-[[tool.uv.index]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-publish-url = "https://test.pypi.org/legacy/"
-explicit = true
-
 [tool.uv.workspace]
 members = [
     "packages/derisk-app",
@@ -34,6 +32,11 @@ members = [
     "packages/derisk-serve",
 ]
 
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
 
 [tool.uv]
 managed = true
@@ -50,7 +53,6 @@ dev-dependencies = [
     "pytest-integration>=0.2.3",
     "pytest-recording>=0.13.2",
     "pytest-cov>=6.0.0",
-    "jupyter",
     "mypy>=1.15.0",
 ]
 

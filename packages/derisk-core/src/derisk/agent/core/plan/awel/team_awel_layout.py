@@ -194,7 +194,7 @@ class AWELBaseManager(ManagerAgent, ABC):
                 content=f"{str(e)}",
                 have_retry=False,
             )
-            failed_message = AgentMessage.from_llm_message(
+            failed_message = AgentMessage.from_dict_message(
                 {
                     "content": f"{str(e)}",
                     "rounds": 999,
@@ -298,7 +298,7 @@ class WrappedAWELLayoutManager(AWELBaseManager):
                 content=f"{str(e)}",
                 have_retry=False,
             )
-            failed_message = AgentMessage.from_llm_message(
+            failed_message = AgentMessage.from_dict_message(
                 {
                     "content": f"{str(e)}",
                     "rounds": 999,

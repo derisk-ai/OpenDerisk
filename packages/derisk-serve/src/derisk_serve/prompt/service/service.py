@@ -209,6 +209,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         self,
         prompt_type: str,
         target: Optional[str] = None,
+        sub_target: Optional[str] = None,
         language: Optional[str] = "en",
     ):
         logger.info(f"load_template:{prompt_type},{target}")
@@ -219,12 +220,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             agent_manage = get_agent_manager()
             target_agent_cls: Type[ConversableAgent] = agent_manage.get_by_name(target)
             target_agent = target_agent_cls()
-            base_template = target_agent.prompt_template()
+            base_template, format_type = target_agent.prompt_template(prompt_type=sub_target,  language=language)
 
             return PromptTemplate(
                 template=base_template,
-                input_variables=get_template_vars(base_template),
-                response_format=target_agent.actions[0].ai_out_schema_json,
+                input_variables=get_template_vars(base_template, template_format=format_type),
+                response_format=target_agent.actions[0].ai_out_schema_json if target_agent.actions else None,
             )
         elif type == PromptType.SCENE:
             if not target:
@@ -287,28 +288,32 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             debug_messages = []
             from derisk.core import ModelMessageRoleType
 
-            prompt = debug_input.content
-
             prompt_vars = debug_input.input_values
             type = PromptType(debug_input.prompt_type)
+            prompt_param = prompt_vars
             if type == PromptType.AGENT:
-                if debug_input.response_schema:
-                    prompt_vars.update(
-                        {
-                            "out_schema": f"请确保按照以下json格式回复:\n"
-                            f"{debug_input.response_schema}\n确保响应是正确的json,并且可以"
-                            "被Python json.loads 解析。"
-                        }
-                    )
+                ag_m = get_agent_manager()
+                ag = ag_m.get(debug_input.chat_scene)
+
+                all_variables = ag.init_variables()
+                if all_variables:
+                    for item in all_variables:
+                        if prompt_vars and item.name not in prompt_vars:
+                            prompt_param[item.name] = item.value
+
             elif type == PromptType.SCENE:
                 if debug_input.response_schema:
-                    prompt_vars.update({"response": debug_input.response_schema})
-
-            if debug_input.input_values:
-                prompt = prompt.format(**prompt_vars)
+                    prompt_param.update({"response": debug_input.response_schema})
+            if debug_input.template_format == "f-string":
+                system_prompt = debug_input.content.format(
+                    **prompt_param,
+                )
+            else:
+                from derisk.util.template_utils import render
+                system_prompt = render(debug_input.content, prompt_param)
 
             debug_messages.append(
-                {"role": ModelMessageRoleType.SYSTEM, "content": prompt}
+                {"role": ModelMessageRoleType.SYSTEM, "content": system_prompt}
             )
             debug_messages.append(
                 {"role": ModelMessageRoleType.HUMAN, "content": debug_input.user_input}
@@ -345,8 +350,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             model_request = ModelRequest(**payload)
 
             async for output in llm_client.generate_stream(model_request.copy()):  # type: ignore
-                yield f"data:{output.text}\n\n"
-            yield "data:[DONE]\n\n"
+                res_content = output.gen_text_with_thinking()
+                if res_content:
+                    escaped_text = res_content.replace("\n", "\\n")
+                    yield f"data: {escaped_text}\n\n"
+            yield "data: [DONE]\n\n"
         except Exception as e:
             logger.error(f"Call LLMClient error, {str(e)}, detail: {payload}")
             raise ValueError(e)
@@ -373,10 +381,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     raise ValueError("请选择一个Agent用来加载模版")
                 from derisk.agent.core import agent_manage
 
-                target_agent_cls: Type[ConversableAgent] = agent_manage.get_by_name(
+                target_agent: ConversableAgent = agent_manage.get(
                     target
                 )
-                target_agent = target_agent_cls()
 
                 return compare_json_properties_ex(
                     ai_json, json.loads(target_agent.actions[0].ai_out_schema_json)

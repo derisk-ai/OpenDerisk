@@ -91,6 +91,7 @@ def parse_model_request(
         stream=stream,
         user_name=params.get("user_name"),
         request_id=params.get("request_id"),
+        is_reasoning_model=params.get("is_reasoning_model", False),
         trace_id=params.get("trace_id"),
         rpc_id=params.get("rpc_id"),
     )
@@ -99,7 +100,7 @@ def parse_model_request(
         messages=params["messages"],
         temperature=params.get("temperature"),
         context=context,
-        max_new_tokens=params.get("max_new_tokens"),
+        # max_new_tokens=params.get("max_new_tokens"),
         stop=params.get("stop"),
         top_p=params.get("top_p"),
     )

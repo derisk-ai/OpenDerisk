@@ -64,7 +64,6 @@ class Serve(BaseServe):
         # application starts
         from .models.models import ServeEntity as _  # noqa: F401
 
-    def after_init(self):
-        """Called after init the application."""
-        # TODO: Your code here
+    def before_start(self):
+        from .models.models import ServeEntity as _  # noqa: F401
         self._db_manager = self.create_or_get_db_manager()

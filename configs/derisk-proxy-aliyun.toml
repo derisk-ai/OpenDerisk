@@ -1,0 +1,114 @@
+[system]
+# Load language from environment variable(It is set by the hook)
+language = "${env:DERISK_LANG:-zh}"
+log_level = "INFO"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+# Server Configurations
+[service.web]
+host = "127.0.0.1"
+port = "${env:WEB_SERVER_PORT:-8080}"
+model_storage = "database"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-8080}"
+
+[service.web.database]
+type = "sqlite"
+path = "pilot/meta_data/derisk.db"
+
+[service.web.trace]
+file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag]
+chunk_size=1000
+chunk_overlap=0
+similarity_top_k=5
+similarity_score_threshold=0.0
+max_chunks_once_load=10
+max_threads=1
+rerank_top_k=3
+graph_community_summary_enabled="True"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+
+# Model Configurations
+[models]
+
+[[models.llms]]
+name = "deepseek-r1"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "deepseek-r1"
+
+[[models.llms]]
+name = "deepseek-v3"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "deepseek-v3"
+
+[[models.llms]]
+name = "Kimi-k2"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "Moonshot-Kimi-K2-Instruct"
+
+[[models.llms]]
+name = "qwen-plus"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "qwen-plus-latest"
+
+[[models.llms]]
+name = "qwen-vl-max"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "qwen-vl-max"
+
+
+[[models.llms]]
+name = "wanx2.1-t2v-plus"
+provider = "proxy/tongyi"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "sk-xxxx"
+backend = "wanx2.1-t2v-plus"
+
+
+
+[[models.embeddings]]
+name = "bge-large-zh-v1.5"
+provider = "proxy/openai"
+api_url = "https://ai.gitee.com/v1/embeddings"
+api_key = "xxxx"
+
+
+#[[serves]]
+#type = "file"
+## Default backend for file server
+#default_backend = "oss"
+#
+#[[serves.backends]]
+#type = "oss"
+#endpoint = "https://oss-cn-beijing.aliyuncs.com"
+#region = "oss-cn-beijing"
+#access_key_id = "${env:OSS_ACCESS_KEY_ID}"
+#access_key_secret = "${env:OSS_ACCESS_KEY_SECRET}"
+#fixed_bucket = "${env:BUCKET_NAME}"
+
+[trace]
+tracer_storage_cls="derisk_serve.rag.tracer.rag_flow_span.RagFlowSpanStorage"
+
+[mcp]
+mode = "origin"
+enable_mcp_gateway="True"
