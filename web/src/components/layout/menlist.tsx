@@ -35,7 +35,7 @@ const MenuList = (props: Tprops) => {
       >
         {!isStow ? (
           <>
-            <div className='mr-3 w-6 h-6'>{value?.icon}</div>
+            <div className='mr-2 w-6 h-6'>{value?.icon}</div>
             <span className='text-sm'>{value?.name}</span>
           </>
         ) : (
@@ -56,7 +56,7 @@ const MenuList = (props: Tprops) => {
                 <Link
                   href={item?.path || '#'}
                   className={cls(
-                    'flex items-center w-full h-9 cursor-pointer hover:bg-[#F1F5F9] dark:hover:bg-theme-dark hover:rounded-md pl-1',
+                    'flex items-center w-full h-9 cursor-pointer hover:bg-[#F1F5F9] dark:hover:bg-theme-dark hover:rounded-md pl-2',
                     {
                       'bg-white rounded-md dark:bg-black': item.isActive,
                     },
