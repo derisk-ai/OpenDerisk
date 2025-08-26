@@ -193,3 +193,4 @@ configs/local
 .specstory
 
 .cursorignore
+/pilot/datasets/
