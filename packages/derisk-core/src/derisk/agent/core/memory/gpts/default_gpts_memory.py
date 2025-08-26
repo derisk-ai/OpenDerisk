@@ -12,6 +12,8 @@ from .base import GptsMessage, GptsMessageMemory, GptsPlan, GptsPlansMemory
 class DefaultGptsPlansMemory(GptsPlansMemory):
     """Default memory for storing plans."""
 
+
+
     def __init__(self):
         """Create a memory to store plans."""
         self.df = pd.DataFrame(columns=[field.name for field in fields(GptsPlan)])
@@ -97,18 +99,59 @@ class DefaultGptsPlansMemory(GptsPlansMemory):
         if model:
             self.df.loc[condition, "agent_model"] = model
 
+    def update_by_uid(self, conv_id: str, task_uid: str, state: str, retry_times: int, agent: Optional[str] = None,
+                      model: Optional[str] = None, result: Optional[str] = None) -> None:
+        condition = (self.df["conv_id"] == conv_id) & (
+            self.df["task_uid"] == task_uid
+        )
+        self.df.loc[condition, "state"] = state
+        self.df.loc[condition, "retry_times"] = retry_times
+        self.df.loc[condition, "result"] = result
+
+        if agent:
+            self.df.loc[condition, "sub_task_agent"] = agent
+
+        if model:
+            self.df.loc[condition, "agent_model"] = model
+
     def remove_by_conv_id(self, conv_id: str):
         """Remove all plans in the conversation."""
         self.df.drop(self.df[self.df["conv_id"] == conv_id].index, inplace=True)
 
-    def get_by_conv_and_content(self, conv_id: str, content: str)-> Optional[GptsPlan] :
-        todo_states = [Status.TODO.value, Status.RETRYING.value]  # noqa: F841
-        result = self.df.query("conv_id==@conv_id and task_content==@content")  # noqa
+    def get_by_planner(self, conv_id: str, planner: str) -> List[GptsPlan]:
+        result = self.df.query("conv_id==@conv_id and planning_agent==@planner")  # noqa: F541
         plans = []
         for row in result.itertuples(index=False, name=None):
             row_dict = dict(zip(self.df.columns, row))
             plans.append(GptsPlan.from_dict(row_dict))
-        return plans[0]
+        return plans
+
+
+    def get_by_planner_and_round(self, conv_id:str, planner: str, round_id:str)-> List[GptsPlan]:
+        """Get plans by conv_id and planner.
+
+        Args:
+            conv_id: conversation id
+            planner: planner
+            round_id: round_id
+        Returns:
+            List[GptsPlan]: List of planning steps
+        """
+        result = self.df.query("conv_id==@conv_id and planning_agent==@planner and conv_round_id==@round_id")  # noqa: F541
+        plans = []
+        for row in result.itertuples(index=False, name=None):
+            row_dict = dict(zip(self.df.columns, row))
+            plans.append(GptsPlan.from_dict(row_dict))
+        return plans
+
+    def remove_by_conv_planner(self, conv_id: str, planner: str) -> None:
+        self.df.drop(
+            self.df[
+                (self.df["conv_id"] == conv_id) &
+                (self.df["planner"] == planner)
+                ].index,
+            inplace=True
+        )
 
 class DefaultGptsMessageMemory(GptsMessageMemory):
     """Default memory for storing messages."""

@@ -1,6 +1,6 @@
 [project]
 name = "derisk-ext"
-version = "0.1.0"
+version = "0.7.0"
 description = "Add your description here"
 authors = [
     { name = "csunny", email = "cfqcsunny@gmail.com" }
@@ -10,19 +10,24 @@ readme = "README.md"
 requires-python = ">= 3.10"
 
 dependencies = [
-    "derisk>=0.1.0",
+    "derisk>=0.7.0",
     "pymysql",
+    "allpairspy"
 ]
 
 [project.urls]
-Homepage = "https://github.com/derisk-ai/DERISK"
-Documentation = "http://docs.derisk.cn/docs/overview"
-Repository = "https://github.com/derisk-ai/DERISK.git"
-Issues = "https://github.com/derisk-ai/DERISK/issues"
+Homepage = "https://github.com/derisk-ai/derisk"
+Documentation = "http://docs.derisk.ai/docs/overview"
+Repository = "https://github.com/derisk-ai/derisk.git"
+Issues = "https://github.com/derisk-ai/derisk/issues"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[project.scripts]
+derisk_ext = "derisk_ext.mcp.run:main"
+
 
 [project.optional-dependencies]
 rag = [
@@ -47,19 +52,50 @@ datasource_mysql = [
     # libpq-dev and libmysqlclient-dev first.
     "mysqlclient==2.1.0",
 ]
+datasource_postgres = [
+    # "psycopg2", # In production, you can install psycopg2 instead of psycopg2-binary
+    "psycopg2-binary",
+]
 
+datasource_duckdb = [
+    "duckdb",
+    "duckdb-engine==0.9.1",
+]
+# datasource_doris = ["pydoris>=1.0.2,<2.0.0"]
 storage_milvus = ["pymilvus"]
+storage_weaviate = ["weaviate-client"]
 storage_chromadb = [
     "onnxruntime>=1.14.1,<=1.18.1",
     "chromadb>=0.4.22"
     ]
 storage_elasticsearch = ["elasticsearch"]
 storage_obvector = ["pyobvector"]
-
+storage_oss2 = ["oss2==2.18.4"]
 proxy_tongyi = [
     # For tongyi proxy embedding model
     "dashscope"
 ]
+
+ext_base=[
+    "pycryptodome==3.20.0",
+    "py-spy>=0.4.0",
+    "json_repair>=0.40.0",
+    "ipython>= 8.37.0"
+#    "playwright==1.52.0",
+]
+
+mcp_gateway=[
+    "flask>=3.1.0",
+    "flask-cors>=5.0.1",
+    "httpx<0.28",
+    "mcp>=1.1.3",
+    "pydantic>=2.0.0",
+    "readabilipy>=0.2.0",
+    "requests>=2.32.3",
+    "websockets>=15.0.1",
+    "werkzeug>=3.1.3",
+]
+
 
 [tool.uv]
 managed = true

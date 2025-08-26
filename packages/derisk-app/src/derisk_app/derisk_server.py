@@ -21,7 +21,7 @@ from derisk.util.i18n_utils import _, set_default_language
 from derisk.util.parameter_utils import _get_dict_from_obj
 from derisk.util.system_utils import get_system_info
 from derisk.util.tracer import SpanType, SpanTypeRunName, initialize_tracer, root_tracer
-from derisk.util.utils import (
+from derisk.util.logger import (
     logging_str_to_uvicorn_level,
     setup_http_service_logging,
     setup_logging,
@@ -57,17 +57,14 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     """Lazy import to avoid high time cost"""
     from derisk_app.knowledge.api import router as knowledge_router
     from derisk_app.openapi.api_v1.api_v1 import router as api_v1
- 
     from derisk_app.openapi.api_v1.feedback.api_fb_v1 import router as api_fb_v1
     from derisk_app.openapi.api_v2.api_v2 import router as api_v2
-    from derisk_serve.agent.app.endpoints import router as app_v2
     from derisk_serve.agent.app.controller import router as gpts_v1
 
     app.include_router(api_v1, prefix="/api", tags=["Chat"])
     app.include_router(api_v2, prefix="/api", tags=["ChatV2"])
     app.include_router(api_fb_v1, prefix="/api", tags=["FeedBack"])
     app.include_router(gpts_v1, prefix="/api", tags=["GptsApp"])
-    app.include_router(app_v2, prefix="/api", tags=["App"])
 
     app.include_router(knowledge_router, tags=["Knowledge"])
 
@@ -79,7 +76,7 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
 
     ##  ⬇️⬇️⬇️⬇️⬇️⬇️
     ## 启动MCP注册中心， 默认关闭，线下调试使用可手动开启
-    if param and param.service.web.enable_mcp_gateway:
+    if param and param.mcp.enable_mcp_gateway:
         from derisk_ext.mcp.gateway import McpserverParam, run_mcp_port
         mcp_server_param = McpserverParam()
         run_mcp_port(app, mcp_server_param)
@@ -89,6 +86,8 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
     if param.service.web.new_web_ui:
         static_file_path = os.path.join(ROOT_PATH, "src", "derisk_app/static/web")
+    else:
+        static_file_path = os.path.join(ROOT_PATH, "src", "derisk_app/static/old_web")
 
     os.makedirs(STATIC_MESSAGE_IMG_PATH, exist_ok=True)
     app.mount(
@@ -96,9 +95,9 @@ def mount_static_files(app: FastAPI, param: ApplicationConfig):
         StaticFiles(directory=STATIC_MESSAGE_IMG_PATH, html=True),
         name="static2",
     )
-    app.mount(
-        "/_next/static", StaticFiles(directory=static_file_path + "/_next/static")
-    )
+    # app.mount(
+    #     "/_next/static", StaticFiles(directory=static_file_path + "/_next/static")
+    # )
     app.mount("/", StaticFiles(directory=static_file_path, html=True), name="static")
 
     app.mount(
@@ -134,27 +133,24 @@ def initialize_app(param: ApplicationConfig, args: List[str] = None):
     from derisk.model.cluster import initialize_worker_manager_in_client
 
     web_config = param.service.web
-    log_config = web_config.log or param.log
-    setup_logging(
-        "derisk",
-        log_config,
-        default_logger_filename=os.path.join(LOGDIR, "derisk_webserver.log"),
-    )
     print(param)
 
     server_init(param, system_app)
     mount_routers(app, param)
     model_start_listener = _create_model_start_listener(system_app)
+
+    # Migration db storage, so you db models must be imported before this
+    _migration_db_storage(
+        param.service.web.database, web_config.disable_alembic_upgrade
+    )
+
     initialize_components(
         param,
         system_app,
     )
     system_app.on_init()
 
-    # Migration db storage, so you db models must be imported before this
-    _migration_db_storage(
-        param.service.web.database, web_config.disable_alembic_upgrade
-    )
+
 
     # After init, when the database is ready
     system_app.after_init()
@@ -257,14 +253,6 @@ def run_webserver(config_file: str):
         },
     ):
         param = initialize_app(param)
-
-        # TODO
-        from derisk_serve.agent.agents.expand.app_start_assisant_agent import (  # noqa: F401
-            StartAppAssistantAgent,
-        )
-        from derisk_serve.agent.agents.expand.intent_recognition_agent import (  # noqa: F401
-            IntentRecognitionAgent,
-        )
 
         run_uvicorn(param.service.web)
 

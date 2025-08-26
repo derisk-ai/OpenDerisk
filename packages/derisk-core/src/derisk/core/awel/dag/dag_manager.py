@@ -126,6 +126,7 @@ class DAGManager(BaseComponent):
                     if tag_key not in self._tags_to_dag_ids:
                         self._tags_to_dag_ids[tag_key] = defaultdict(set)
                     self._tags_to_dag_ids[tag_key][tag_value].add(dag_id)
+            logger.info(f"dag[{dag_id}] registered.")
 
     def unregister_dag(self, dag_id: str):
         """Unregister a DAG."""

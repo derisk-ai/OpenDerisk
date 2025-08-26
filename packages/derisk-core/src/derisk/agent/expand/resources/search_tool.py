@@ -66,3 +66,5 @@ def _search_to_view(results) -> str:
             f"### [{item['title']}]({item['href']})\n{item['snippet']}\n"
         )
     return "\n".join(view_results)
+
+

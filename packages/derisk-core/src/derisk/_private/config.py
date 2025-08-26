@@ -23,16 +23,16 @@ class Config(metaclass=Singleton):
 
         # Gradio language version: en, zh
         self.LANGUAGE = os.getenv("LANGUAGE", "en")
-        self.DERISK_WEBSERVER_PORT = int(os.getenv("DERISK_WEBSERVER_PORT", 5670))
+        self.DERISK_WEBSERVER_PORT = int(os.getenv("DERISK_WEBSERVER_PORT", 8080))
 
-        self.debug_mode = False
+        self.debug_mode = os.getenv("DEBUG_MODE", "False").lower() == "true"
         self.skip_reprompt = False
         self.temperature = float(os.getenv("TEMPERATURE", 0.7))
 
         # self.NUM_GPUS = int(os.getenv("NUM_GPUS", 1))
 
         self.execute_local_commands = (
-            os.getenv("EXECUTE_LOCAL_COMMANDS", "False").lower() == "true"
+                os.getenv("EXECUTE_LOCAL_COMMANDS", "False").lower() == "true"
         )
         # User agent header to use when making HTTP requests
         # Some websites might just completely deny request with an error code if
@@ -74,7 +74,7 @@ class Config(metaclass=Singleton):
                 self.wenxin_proxy_api_secret
             )
             os.environ["wenxin_proxyllm_proxyllm_backend"] = (
-                self.wenxin_model_version or ""
+                    self.wenxin_model_version or ""
             )
 
         # xunfei spark
@@ -189,17 +189,17 @@ class Config(metaclass=Singleton):
         self.prompt_template_registry = PromptTemplateRegistry()
 
         self.execute_local_commands = (
-            os.getenv("EXECUTE_LOCAL_COMMANDS", "False").lower() == "true"
+                os.getenv("EXECUTE_LOCAL_COMMANDS", "False").lower() == "true"
         )
         # message stor file
         self.message_dir = os.getenv("MESSAGE_HISTORY_DIR", "../../message")
 
         # Native SQL Execution Capability Control Configuration
         self.NATIVE_SQL_CAN_RUN_DDL = (
-            os.getenv("NATIVE_SQL_CAN_RUN_DDL", "True").lower() == "true"
+                os.getenv("NATIVE_SQL_CAN_RUN_DDL", "True").lower() == "true"
         )
         self.NATIVE_SQL_CAN_RUN_WRITE = (
-            os.getenv("NATIVE_SQL_CAN_RUN_WRITE", "True").lower() == "true"
+                os.getenv("NATIVE_SQL_CAN_RUN_WRITE", "True").lower() == "true"
         )
 
         # derisk meta info database connection configuration
@@ -242,7 +242,7 @@ class Config(metaclass=Singleton):
         # Vector Store Configuration
         self.VECTOR_STORE_TYPE = os.getenv("VECTOR_STORE_TYPE", "Chroma")
         self.GRAPH_COMMUNITY_SUMMARY_ENABLED = (
-            os.getenv("GRAPH_COMMUNITY_SUMMARY_ENABLED", "").lower() == "true"
+                os.getenv("GRAPH_COMMUNITY_SUMMARY_ENABLED", "").lower() == "true"
         )
         self.MILVUS_URL = os.getenv("MILVUS_URL", "127.0.0.1")
         self.MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
@@ -302,11 +302,11 @@ class Config(metaclass=Singleton):
         )
         # Whether to enable Chat Knowledge Search Rewrite Mode
         self.KNOWLEDGE_SEARCH_REWRITE = (
-            os.getenv("KNOWLEDGE_SEARCH_REWRITE", "False").lower() == "true"
+                os.getenv("KNOWLEDGE_SEARCH_REWRITE", "False").lower() == "true"
         )
         # Control whether to display the source document of knowledge on the front end.
         self.KNOWLEDGE_CHAT_SHOW_RELATIONS = (
-            os.getenv("KNOWLEDGE_CHAT_SHOW_RELATIONS", "False").lower() == "true"
+                os.getenv("KNOWLEDGE_CHAT_SHOW_RELATIONS", "False").lower() == "true"
         )
 
         # SUMMARY_CONFIG Configuration
@@ -323,7 +323,7 @@ class Config(metaclass=Singleton):
         self.USE_FASTCHAT: bool = os.getenv("USE_FASTCHAT", "True").lower() == "true"
 
         self.MODEL_CACHE_ENABLE: bool = (
-            os.getenv("MODEL_CACHE_ENABLE", "True").lower() == "true"
+                os.getenv("MODEL_CACHE_ENABLE", "True").lower() == "true"
         )
         self.MODEL_CACHE_STORAGE_TYPE: str = os.getenv(
             "MODEL_CACHE_STORAGE_TYPE", "disk"
@@ -351,7 +351,7 @@ class Config(metaclass=Singleton):
         # Whether to enable the new web UI, enabled by default
 
         self.USE_NEW_WEB_UI: bool = (
-            os.getenv("USE_NEW_WEB_UI", "True").lower() == "true"
+                os.getenv("USE_NEW_WEB_UI", "True").lower() == "true"
         )
 
         # file server configuration
@@ -362,14 +362,14 @@ class Config(metaclass=Singleton):
         )
         # multi-instance flag
         self.WEBSERVER_MULTI_INSTANCE = (
-            os.getenv("MULTI_INSTANCE", "False").lower() == "true"
+                os.getenv("MULTI_INSTANCE", "False").lower() == "true"
         )
 
         self.SCHEDULER_ENABLED = (
-            os.getenv("SCHEDULER_ENABLED", "True").lower() == "true"
+                os.getenv("SCHEDULER_ENABLED", "True").lower() == "true"
         )
         self.NOTE_BOOK_ENABLE: bool = (
-            os.getenv("NOTE_BOOK_ENABLE", "True").lower() == "true"
+                os.getenv("NOTE_BOOK_ENABLE", "False").lower() == "true"
         )
         self.NOTE_BOOK_ROOT: str = os.getenv("NOTE_BOOK_ROOT", os.path.expanduser("~"))
 

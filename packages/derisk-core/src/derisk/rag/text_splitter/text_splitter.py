@@ -70,7 +70,7 @@ class TextSplitter(ABC):
         _metadatas = metadatas or [{}] * len(texts)
         chunks = []
         for i, text in enumerate(texts):
-            if _metadatas[i].get("type") == "excel":
+            if _metadatas[i].get("type") == "excel" or _metadatas[i].get("type") == "yuque_excel":
                 table_chunk = Chunk(content=text, metadata=copy.deepcopy(_metadatas[i]))
                 chunks.append(table_chunk)
             else:

@@ -3,11 +3,12 @@
 import uuid
 from typing import List, Optional
 
+from derisk._private.config import Config
 from derisk.agent import AgentMessage, ConversableAgent
 from derisk.agent.resource.app import AppInfo, AppResource
 from derisk_serve.agent.agents.app_agent_manage import get_app_manager
 
-
+CFG = Config()
 class GptAppResource(AppResource):
     """AppResource resource class."""
 
@@ -16,10 +17,9 @@ class GptAppResource(AppResource):
         super().__init__(name, **kwargs)
 
         self._app_code = app_code
-
-        self.gpt_app = get_app_manager().get_app(self._app_code)
-        self._app_name = self.gpt_app.app_name
-        self._app_desc = self.gpt_app.app_describe
+        self._app_name = kwargs.get("app_name")
+        self._app_icon = kwargs.get("app_icon")
+        self._app_desc = kwargs.get("app_desc")
 
     @property
     def app_desc(self):
@@ -31,16 +31,21 @@ class GptAppResource(AppResource):
         """Return the app name."""
         return self._app_name
 
+    @property
+    def app_icon(self):
+        """Return the app name."""
+        return self._app_icon
+
     @classmethod
-    def _get_app_list(cls) -> List[AppInfo]:
+    def _get_app_list(cls, **kwargs) -> List[AppInfo]:
         from derisk_serve.agent.agents.app_agent_manage import get_app_manager
 
         # Only call this function when the system app is initialized
-        apps = get_app_manager().get_derisks()
+        apps = get_app_manager().get_derisks(query=kwargs.get("query"), user_code=kwargs.get("user_code"), sys_code=kwargs.get("sys_code"))
         app_list = []
         for app in apps:
             app_list.append(
-                AppInfo(name=app.app_name, code=app.app_code, desc=app.app_describe)
+                AppInfo(name=app.app_name, icon=app.icon, code=app.app_code, desc=app.app_describe)
             )
         return app_list
 

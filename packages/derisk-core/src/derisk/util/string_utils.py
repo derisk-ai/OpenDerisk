@@ -14,6 +14,7 @@ def contains_chinese(text):
     """Check if the text contains Chinese characters."""
     return re.search(r"[\u4e00-\u9fa5]", text) is not None
 
+
 def is_number(s: str) -> bool:
     """
     判断字符串是否为数字
@@ -21,7 +22,8 @@ def is_number(s: str) -> bool:
     :return:
     """
     # 找到第一个不是数字的字符
-    return False if not s or next((c for c in s if c > '9' or c < '0'), None) else True
+    return False if not s or next((c for c in s if c > "9" or c < "0"), None) else True
+
 
 def is_number_chinese(text):
     ### Determine whether the string is numbers and Chinese
@@ -148,3 +150,34 @@ def remove_trailing_punctuation(s):
         s = s[:-1]
 
     return s
+
+
+zh_punctuation = '，。！？；：“”‘’()[]{}《》【】〔〕〈〉〖〗「」『』﹁﹂﹃﹄《》「」『』〝〞…'
+en_punctuation = string.punctuation
+
+
+def determine(text):
+    zh_count = count_zh_punctuation(text)
+    en_count = count_en_punctuation(text)
+    if zh_count > en_count:
+        return "zh"
+    elif en_count > zh_count:
+        return "en"
+    else:
+        return "en"
+
+
+def count_zh_punctuation(text):
+    count = 0
+    for char in text:
+        if char in zh_punctuation:
+            count += 1
+    return count
+
+
+def count_en_punctuation(text):
+    count = 0
+    for char in text:
+        if char in en_punctuation:
+            count += 1
+    return count

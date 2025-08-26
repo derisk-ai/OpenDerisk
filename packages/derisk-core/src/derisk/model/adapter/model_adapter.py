@@ -8,10 +8,7 @@ from typing import List, Optional, Type
 
 from derisk.core.interface.parameter import LLMDeployModelParameters
 from derisk.model.adapter.base import LLMModelAdapter, get_model_adapter
-from derisk.model.adapter.template import (
-    ConversationAdapter,
-    ConversationAdapterFactory,
-)
+from derisk.model.adapter.template import ConversationAdapter, ConversationAdapterFactory
 from derisk.model.base import ModelType
 
 logger = logging.getLogger(__name__)

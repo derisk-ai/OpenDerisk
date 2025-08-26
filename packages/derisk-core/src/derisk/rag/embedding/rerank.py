@@ -198,17 +198,13 @@ class OpenAPIRerankerDeployModelParameters(RerankerDeployModelParameters):
     text_limit: Optional[int] = field(
         default=None,
         metadata={
-            "help": _(
-                "rerank text limit."
-            ),
+            "help": _("rerank text limit."),
         },
     )
     batch_limit: Optional[int] = field(
         default=None,
         metadata={
-            "help": _(
-                "rerank batch limit."
-            ),
+            "help": _("rerank batch limit."),
         },
     )
 
@@ -414,6 +410,8 @@ class SiliconFlowRerankEmbeddings(OpenAPIRerankEmbeddings):
         results = sorted(results, key=lambda x: x.get("index", 0))
         scores = [float(result.get("relevance_score")) for result in results]
         return scores
+
+
 
 register_embedding_adapter(
     CrossEncoderRerankEmbeddings, supported_models=RERANKER_COMMON_HF_MODELS

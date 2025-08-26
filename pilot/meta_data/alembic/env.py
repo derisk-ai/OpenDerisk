@@ -19,6 +19,8 @@ config = context.config
 # ... etc.
 
 
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -68,6 +70,12 @@ def run_migrations_online() -> None:
         with context.begin_transaction():
             context.run_migrations()
 
+
+# ... 顶部导入 ...
+
+print("Alembic 扫描到的表:")
+for table in db.metadata.tables:
+    print(f" - {table}")
 
 if context.is_offline_mode():
     run_migrations_offline()

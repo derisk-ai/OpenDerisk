@@ -6,6 +6,7 @@ from .. import ActionOutput, Agent, AgentMessage
 from .base_agent import ConversableAgent
 from .profile import ProfileConfig
 
+HUMAN_ROLE = "Human"
 
 class UserProxyAgent(ConversableAgent):
     """A proxy agent for the user.
@@ -15,7 +16,7 @@ class UserProxyAgent(ConversableAgent):
 
     profile: ProfileConfig = ProfileConfig(
         name="User",
-        role="Human",
+        role=HUMAN_ROLE,
         description=(
             "A human admin. Interact with the planner to discuss the reasoning_engine. "
             "Plan execution needs to be approved by this admin."
@@ -26,7 +27,7 @@ class UserProxyAgent(ConversableAgent):
 
     ask_user: bool = False
 
-    show_message: bool = False
+    show_message: bool = True
 
     def have_ask_user(self):
         """If have ask user info in message."""

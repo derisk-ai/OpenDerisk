@@ -142,8 +142,10 @@ class DocTreeIndex:
         for child in node.children:
             result = self.search_keywords(child, keyword)
             if result:
-                logger.info(f"DocTreeIndex Match found when searching "
-                            f"for {keyword} in {node.content} ")
+                logger.info(
+                    f"DocTreeIndex Match found when searching "
+                    f"for {keyword} in {node.content} "
+                )
                 return result
         # Check if the keyword matches any of the child nodes
         # If no match, continue to search in all children

@@ -286,9 +286,16 @@ class RerankEmbeddingsRanker(Ranker):
         """
         if not candidates_with_scores or not query:
             return candidates_with_scores
-
-        contents = [candidate.content for candidate in candidates_with_scores]
+        contents = []
+        for candidate in candidates_with_scores:
+            if candidate.metadata.get('title'):
+                contents.append(f"{candidate.metadata.get('title')}\n{candidate.content}\n{candidate.metadata.get('title')}")
+            else:
+                contents.append(candidate.content)
         rank_scores = self._model.predict(query, contents)
+        for candidate, content in zip(candidates_with_scores, contents):
+            candidate.content = content
+
         new_candidates_with_scores = self._rerank_with_scores(
             candidates_with_scores, rank_scores
         )

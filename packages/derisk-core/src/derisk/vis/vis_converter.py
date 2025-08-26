@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import logging
 import sys
 from abc import ABC
 from collections import defaultdict
@@ -12,6 +13,7 @@ from typing import List, Optional, Union, Dict, Type, Tuple
 
 from derisk.vis import Vis
 
+logger = logging.getLogger(__name__)
 
 def scan_vis_tags(vis_tag_paths: List[str]):
     """
@@ -49,20 +51,52 @@ class SystemVisTag(Enum):
     VisTools = "vis-tools"
     VisDashboard = "vis-dashboard"
     VisSelect = "vis-select"
+    VisConfirm = "vis-confirm"
+    VisRefs = "vis-refs"
 
 
 class VisProtocolConverter(ABC):
     # The default Vis component that needs to exist as the basis for organizing message structures can be overridden. If not overridden, the default component will be used
     SYSTEM_TAGS = [member.value for member in SystemVisTag]
 
-    def __init__(self, paths: Optional[List[str]] = None):
+
+
+    def __init__(self, paths: Optional[List[str]] = None, derisk_url: Optional[str] =None):
         """Create a new AgentManager."""
         self._owned_vis_tag: Dict[str, Tuple[Type[Vis], Vis]] = defaultdict()
         self._paths = paths or [""]  # TODO 取当前路径的.tags
+        self._derisk_url =derisk_url
         if paths:
             owned_tags = scan_vis_tags(self._paths)
             for _, tag in owned_tags.items():
-                self.register_vis_tag(tag)
+                try:
+                    self.register_vis_tag(tag)
+                except Exception as e:
+                    logger.warning(f"tag register faild!{_},{tag}",e)
+
+
+    @property
+    def derisk_url(self):
+        return self._derisk_url
+
+    @property
+    def render_name(self):
+        raise NotImplementedError
+
+    @property
+    def reuse_name(self):
+        return None
+    @property
+    def description(self) -> str:
+        return "Derisk可视化布局数据转换协议"
+
+    @property
+    def web_use(self) -> bool:
+        return True
+
+    @property
+    def incremental(self) -> bool:
+        return False
 
     def system_vis_tag_map(self):
         return {
@@ -75,6 +109,7 @@ class VisProtocolConverter(ABC):
             SystemVisTag.VisTool.value: SystemVisTag.VisTool.value,
             SystemVisTag.VisTools.value: SystemVisTag.VisTools.value,
             SystemVisTag.VisDashboard.value: SystemVisTag.VisDashboard.value,
+            SystemVisTag.VisRefs.value: SystemVisTag.VisRefs.value,
         }
 
     def vis(self, vis_tag):
@@ -114,14 +149,17 @@ class VisProtocolConverter(ABC):
         self._owned_vis_tag[tag_name] = (cls, inst)
         return tag_name
 
+
     async def visualization(
             self,
             messages: List["GptsMessage"],
             plans_map: Optional[Dict[str, "GptsPlan"]] = None,
             gpt_msg: Optional["GptsMessage"] = None,
             stream_msg: Optional[Union[Dict, str]] = None,
+            new_plans: Optional[List["GptsPlan"]] = None,
             is_first_chunk: bool = False,
             incremental: bool = False,
+            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         pass
 
@@ -129,6 +167,7 @@ class VisProtocolConverter(ABC):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         pass
 
@@ -143,14 +182,22 @@ class VisProtocolConverter(ABC):
 class DefaultVisConverter(VisProtocolConverter):
     """None Vis Render， Just retrun message info"""
 
+    @property
+    def render_name(self):
+        return "gpt_json_all"
+    @property
+    def web_use(self) -> bool:
+        return False
     async def visualization(
-        self,
-        messages: List["GptsMessage"],
-        plans_map: Optional[List["GptsPlan"]] = None,
-        gpt_msg: Optional["GptsMessage"] = None,
-        stream_msg: Optional[Union[Dict, str]] = None,
-        is_first_chunk: bool = False,
-        incremental: bool = False,
+            self,
+            messages: List["GptsMessage"],
+            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+            gpt_msg: Optional["GptsMessage"] = None,
+            stream_msg: Optional[Union[Dict, str]] = None,
+            new_plans: Optional[List["GptsPlan"]] = None,
+            is_first_chunk: bool = False,
+            incremental: bool = False,
+            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         from derisk.agent import ActionOutput
 
@@ -184,6 +231,7 @@ class DefaultVisConverter(VisProtocolConverter):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ):
         return await self.visualization(messages, plans_map)
 

@@ -52,7 +52,7 @@ from derisk.util.chat_util import transform_to_sse
 from derisk.util.fastapi import create_app
 from derisk.util.tracer import initialize_tracer, root_tracer
 from derisk.util.tracer.tracer_impl import TracerParameters
-from derisk.util.utils import LoggingParameters, setup_logging
+from derisk.util.logger import LoggingParameters, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -813,7 +813,6 @@ def initialize_apiserver(
     setup_logging(
         "derisk",
         log_config=log_config,
-        default_logger_filename=os.path.join(LOGDIR, "derisk_model_apiserver.log"),
     )
 
     trace_file = trace_config.file or os.path.join(

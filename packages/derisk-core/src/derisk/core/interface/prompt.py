@@ -18,6 +18,7 @@ from derisk.core.interface.storage import (
     StorageItem,
 )
 from derisk.util.formatting import formatter, no_strict_formatter
+from derisk.util.template_utils import render
 
 T = TypeVar("T", bound="BasePromptTemplate")
 
@@ -32,7 +33,7 @@ def _jinja2_formatter(template: str, **kwargs: Any) -> str:
             "Please install it with `pip install jinja2`."
         )
 
-    return Template(template).render(**kwargs)
+    return render(template, **kwargs)
 
 
 _DEFAULT_FORMATTER_MAPPING: Dict[str, Callable] = {
@@ -772,22 +773,26 @@ def _get_string_template_vars(template_str: str) -> Set[str]:
 
 def _get_jinja2_template_vars(template_str: str) -> Set[str]:
     """Get template variables from a template string."""
-    from jinja2 import Environment, meta
+    from jinja2 import meta
+    from jinja2.sandbox import SandboxedEnvironment
 
-    env = Environment()
-    ast = env.parse(template_str)
+    s_env = SandboxedEnvironment()
+    ast = s_env.parse(template_str)
     variables = meta.find_undeclared_variables(ast)
     return variables
 
 
 def get_template_vars(
-    template_str: str, template_format: str = "f-string"
+    template_str: str, template_format: str = "jinja2"
 ) -> List[str]:
     """Get template variables from a template string."""
     if template_format == "f-string":
         result = _get_string_template_vars(template_str)
     elif template_format == "jinja2":
-        result = _get_jinja2_template_vars(template_str)
+        try:
+            result = _get_jinja2_template_vars(template_str)
+        except:
+            result = []
     else:
         raise ValueError(f"Unsupported template format: {template_format}")
     return sorted(result)

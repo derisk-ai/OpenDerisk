@@ -110,6 +110,12 @@ def upgrade_database(
         engine: sqlalchemy engine
         target_version: target version, default is head(latest version)
     """
+    # 开启 SQL 输出 - 添加这行代码
+    alembic_cfg.set_main_option('show_sql', 'true')
+
+    # 提高日志级别（可选）
+    alembic_cfg.set_main_option('log_level', 'INFO')
+
     with engine.connect() as connection:
         alembic_cfg.attributes["connection"] = connection
         # Will create tables if not exists

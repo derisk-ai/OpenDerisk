@@ -12,6 +12,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from derisk.component import BaseComponent, ComponentType, SystemApp
 
 DERISK_TRACER_SPAN_ID = "DERISK-Trace-Span-Id"
+SOFA_TRACE_ID = "SOFA-TraceId"
+SOFA_RPC_ID = "SOFA-RpcId"
 
 # Compatibility with OpenTelemetry API
 _TRACE_ID_MAX_VALUE = 2**128 - 1
@@ -275,6 +277,13 @@ def _split_span_id(span_id: str) -> Tuple[int, int]:
 @dataclass
 class TracerContext:
     span_id: Optional[str] = None
+    conv_id: Optional[str] = None
+    cookie: Optional[str] = None
+    rpc_id: Optional[str] = None
+    entrance: Optional[str] = None
+    agent_id: Optional[str] = None
+    agent_hub_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 def _clean_for_json(data: Optional[str, Any] = None):
@@ -318,21 +327,32 @@ def _parse_span_id(body: Any) -> Optional[str]:
 
     from derisk._private.pydantic import BaseModel, model_to_dict
 
-    span_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    rpc_id: Optional[str] = None
     if isinstance(body, Request):
-        span_id = body.headers.get(DERISK_TRACER_SPAN_ID)
+        trace_id = body.headers.get(SOFA_TRACE_ID)
+        rpc_id = body.headers.get(SOFA_RPC_ID)
     elif isinstance(body, dict):
-        span_id = body.get(DERISK_TRACER_SPAN_ID) or body.get("span_id")
+        trace_id = body.get(SOFA_TRACE_ID, None)
+        rpc_id = body.get(SOFA_RPC_ID, None)
     elif isinstance(body, BaseModel):
         dict_body = model_to_dict(body)
-        span_id = dict_body.get(DERISK_TRACER_SPAN_ID) or dict_body.get("span_id")
-    if not span_id:
-        return None
-    else:
-        int_trace_id, int_span_id = _split_span_id(span_id)
-        if not int_trace_id:
-            return None
-        if _is_valid_span_id(int_span_id) and _is_valid_trace_id(int_trace_id):
-            return span_id
-        else:
-            return span_id
+        trace_id = dict_body.get(SOFA_TRACE_ID, None)
+        rpc_id = dict_body.get(SOFA_RPC_ID, None)
+    return f"{trace_id or new_trace_id()}:{rpc_id or '0.1'}"
+    # if not span_id:
+    #     return None
+    # else:
+    #     int_trace_id, int_span_id = _split_span_id(span_id)
+    #     if not int_trace_id:
+    #         return None
+    #     if _is_valid_span_id(int_span_id) and _is_valid_trace_id(int_trace_id):
+    #         return span_id
+    #     else:
+    #         return span_id
+
+
+def new_trace_id() -> str:
+    # todo: 按照站内规则重新生产traceId
+    # https://yuque.com/middleware/tracer/id_generate
+    return uuid.uuid4().hex

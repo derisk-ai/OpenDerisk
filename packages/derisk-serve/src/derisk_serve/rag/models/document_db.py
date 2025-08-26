@@ -1,7 +1,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, func
 
@@ -15,6 +15,7 @@ from derisk_serve.rag.api.schemas import (
     DocumentServeRequest,
     DocumentServeResponse,
 )
+from derisk_serve.rag.models.yuque_db import KnowledgeYuqueEntity
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class KnowledgeDocumentEntity(Model):
     status = Column(String(100))
     content = Column(Text)
     chunk_params = Column(Text)
+    doc_params = Column(Text)
     meta_data = Column(Text)
     result = Column(Text)
     vector_ids = Column(Text)
@@ -50,6 +52,7 @@ class KnowledgeDocumentEntity(Model):
             f"content='{self.content}', "
             f"meta_data='{self.meta_data}', "
             f"chunk_params='{self.chunk_params}', "
+            f"doc_params='{self.doc_params}', "
             f"result='{self.result}', summary='{self.summary}', "
             f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}', "
             f"questions='{self.questions}')"
@@ -75,6 +78,7 @@ class KnowledgeDocumentEntity(Model):
             "gmt_modified": self.gmt_modified,
             "questions": self.questions,
             "chunk_params": self.chunk_params,
+            "doc_params": self.doc_params,
         }
 
 
@@ -98,6 +102,8 @@ class KnowledgeDocumentDao(BaseDao):
             gmt_modified=datetime.now(),
             questions=document.questions,
             chunk_params=document.chunk_params or "",
+            doc_params=document.doc_params or "",
+            meta_data=document.meta_data or "",
         )
         session.add(knowledge_document)
         session.commit()
@@ -153,6 +159,53 @@ class KnowledgeDocumentDao(BaseDao):
         result = knowledge_documents.all()
         session.close()
         return result
+
+    def get_documents_by_yuque(
+        self,
+        knowledge_id: str,
+        group_login: Optional[str] = None,
+        book_slug: Optional[str] = None,
+        status: Optional[str] = None,
+    ):
+        """
+        Query failed documents that are associated with the specified Yuque configuration.
+
+        Args:
+            knowledge_id (str): Knowledge ID from the Yuque table.
+            group_login (str): Group login name from the Yuque table.
+            book_slug (str): Book slug from the Yuque table.
+
+        Returns:
+            List[Tuple[str, str]]: A list of (doc_id, status) tuples for failed documents.
+        """
+        session = self.get_raw_session()
+
+        # Build the query selecting only required fields
+        query = session.query(
+            KnowledgeDocumentEntity.doc_id, KnowledgeDocumentEntity.status
+        )
+
+        # Join with the Yuque table using doc_id as the key
+        query = query.join(
+            KnowledgeYuqueEntity,
+            KnowledgeDocumentEntity.doc_id == KnowledgeYuqueEntity.doc_id,
+        )
+
+        if group_login:
+            query = query.filter(KnowledgeYuqueEntity.group_login == group_login)
+        if book_slug:
+            query = query.filter(KnowledgeYuqueEntity.book_slug == book_slug)
+        if status:
+            query = query.filter(KnowledgeDocumentEntity.status == status)
+
+        # Apply filtering conditions
+        query = query.filter(KnowledgeYuqueEntity.knowledge_id == knowledge_id)
+
+        # Execute and close session
+        results = query.all()
+        session.close()
+
+        return results
 
     def document_by_id(self, document_id) -> KnowledgeDocumentEntity:
         session = self.get_raw_session()
@@ -362,6 +415,8 @@ class KnowledgeDocumentDao(BaseDao):
                 if value is not None:
                     if key in ["gmt_created", "gmt_modified"]:
                         continue
+                    if isinstance(value, dict):
+                        value = json.dumps(value, ensure_ascii=False)
                     setattr(entry, key, value)
             session.merge(entry)
             return self.to_response(entry)
@@ -493,6 +548,7 @@ class KnowledgeDocumentDao(BaseDao):
             content=request_dict.get("content"),
             result=request_dict.get("result"),
             summary=request_dict.get("summary"),
+            meta_data=json.dumps(request_dict.get("meta_data"), ensure_ascii=False),
             chunk_params=json.dumps(
                 request_dict.get("chunk_params"), ensure_ascii=False
             ),
@@ -520,7 +576,8 @@ class KnowledgeDocumentDao(BaseDao):
             content=entity.content,
             result=entity.result,
             summary=entity.summary,
-            chunk_params=json.loads(entity.chunk_params),
+            meta_data=json.loads(entity.meta_data) if entity.meta_data else {},
+            chunk_params=json.loads(entity.chunk_params) if entity.chunk_params else {},
             questions=entity.questions,
             gmt_created=entity.gmt_created,
             gmt_modified=entity.gmt_modified,
@@ -546,6 +603,8 @@ class KnowledgeDocumentDao(BaseDao):
             content=entity.content,
             result=entity.result,
             summary=entity.summary,
+            meta_data=json.loads(entity.meta_data) if entity.meta_data else {},
+            chunk_params=json.loads(entity.chunk_params) if entity.chunk_params else {},
             questions=entity.questions,
             gmt_created=str(entity.gmt_created),
             gmt_modified=str(entity.gmt_modified),
@@ -579,5 +638,9 @@ class KnowledgeDocumentDao(BaseDao):
             vector_ids=response_dict.get("vector_ids"),
             summary=response_dict.get("summary"),
             questions=response_dict.get("questions"),
+            meta_data=json.dumps(response_dict.get("meta_data"), ensure_ascii=False),
+            chunk_params=json.dumps(
+                response_dict.get("chunk_params"), ensure_ascii=False
+            ),
         )
         return entity

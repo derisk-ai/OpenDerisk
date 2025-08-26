@@ -14,9 +14,21 @@ logger = logging.getLogger(__name__)
 
 
 class GptVisLRConverter(GptVisConverter):
-    def __init__(self, paths: Optional[str] = None):
-        default_tag_paths = ["derisk_ext.vis.gptvis.tags"]
-        super().__init__(paths if paths else default_tag_paths)
+    @property
+    def web_use(self) -> bool:
+        return False
+
+    @property
+    def render_name(self):
+        return "gpt_vis_window"
+
+    @property
+    def description(self) -> str:
+        return "[视窗布局]黑客松版本视窗布局"
+
+    def __init__(self, paths: Optional[str] = None, **kwargs):
+        default_tag_paths = ["derisk_ext.vis.gptvis.tags", "derisk_ext.vis.common.tags"]
+        super().__init__(paths if paths else default_tag_paths, **kwargs)
 
     async def visualization(
             self,

@@ -34,6 +34,8 @@ class WriteOperation(str, Enum):
     """Write operation."""
 
     ADD = "add"
+    UPDATE = "update"
+    DELETE = "delete"
     RETRIEVAL = "retrieval"
 
 
@@ -760,6 +762,17 @@ class ShortTermMemory(Memory, Generic[T]):
         alpha: Optional[float] = None,
         beta: Optional[float] = None,
         gamma: Optional[float] = None,
+    ) -> List[T]:
+        """Read memory fragments by observation."""
+        return self._fragments
+
+    async def search(
+        self,
+        observation: str,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        gamma: Optional[float] = None,
+        **kwargs: Any,
     ) -> List[T]:
         """Read memory fragments by observation."""
         return self._fragments

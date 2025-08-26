@@ -33,6 +33,8 @@ def _get_logging_level() -> str:
 class LoggingParameters(BaseParameters):
     """Logging parameters."""
 
+    __cfg_type__ = "utils"
+
     level: Optional[str] = field(
         default="${env:DERISK_LOG_LEVEL:-INFO}",
         metadata={
@@ -218,8 +220,6 @@ def logging_str_to_uvicorn_level(log_level_str):
 
 class EndpointFilter(logging.Filter):
     """Disable access log on certain endpoint
-
-    source: https://github.com/encode/starlette/issues/864#issuecomment-1254987630
     """
 
     def __init__(

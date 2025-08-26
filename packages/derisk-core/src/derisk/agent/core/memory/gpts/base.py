@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from ...schema import Status
@@ -18,9 +19,9 @@ class GptsPlan:
     conv_session_id: str
     conv_round: int
     sub_task_id: str
-    sub_task_num: int
     task_uid: str
-    sub_task_content: Optional[str]
+    sub_task_num: Optional[int] = 0
+    sub_task_content: Optional[str] = ""
     task_parent: Optional[str] = None
     conv_round_id: Optional[str] = None
     sub_task_title: Optional[str] = None
@@ -34,13 +35,22 @@ class GptsPlan:
     action_input: Optional[str] = None
     result: Optional[str] = None
 
+    task_round_title: Optional[str] = None
+    task_round_description: Optional[str] = ""
+    planning_agent: Optional[str] = None
+    planning_model: Optional[str] = None
+    gmt_create: Optional[str] = None
+    created_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
+    updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
+
+
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsPlan":
         """Create a GptsPlan object from a dictionary."""
         return GptsPlan(
             conv_id=d["conv_id"],
             conv_session_id=d["conv_session_id"],
-            conv_round=d["conv_id"],
+            conv_round=d["conv_round"],
             task_uid=d["task_uid"],
             sub_task_num=d["sub_task_num"],
             sub_task_id=d["sub_task_id"],
@@ -54,12 +64,21 @@ class GptsPlan:
             max_retry_times=d["max_retry_times"],
             state=d["state"],
             result=d["result"],
+            task_round_title=d.get("task_round_title"),
+            task_round_description=d.get("task_round_description"),
+            planning_agent=d.get("planning_agent"),
+            planning_model=d.get("planning_model"),
+            created_at=d["created_at"],
+            updated_at=d["updated_at"],
         )
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a dictionary representation of the GptsPlan object."""
         return dataclasses.asdict(self)
 
+class GptsMessageType(str, Enum):
+    AgentMessage = "agent_message"
+    ActionApproval = "action_approval" # 用户同意执行某个动作
 
 @dataclasses.dataclass
 class GptsMessage:
@@ -73,6 +92,8 @@ class GptsMessage:
     role: str
     content: str
     rounds: int = 0
+    content_types: Optional[str] = None
+    message_type: Optional[str] = GptsMessageType.AgentMessage.value
     receiver: Optional[str] = None
     receiver_name: Optional[str] = None
     is_success: bool = True
@@ -93,6 +114,7 @@ class GptsMessage:
     created_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
     updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
 
+    observation: Optional[str] = None
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsMessage":
         """Create a GptsMessage object from a dictionary."""
@@ -108,6 +130,7 @@ class GptsMessage:
             avatar=d.get("avatar"),
             thinking=d["thinking"],
             content=d["content"],
+            message_type=d["message_type"],
             rounds=d["rounds"],
             is_success=d["is_success"],
             app_code=d["app_code"],
@@ -115,6 +138,7 @@ class GptsMessage:
             model_name=d["model_name"],
             current_goal=d["current_goal"],
             context=d["context"],
+            content_types=d.get("content_types"),
             review_info=d["review_info"],
             action_report=d["action_report"],
             resource_info=d["resource_info"],
@@ -123,6 +147,7 @@ class GptsMessage:
             show_message=d["show_message"],
             created_at=d["created_at"],
             updated_at=d["updated_at"],
+            observation=d.get("observation"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -149,6 +174,29 @@ class GptsPlansMemory(ABC):
         Args:
             conv_id: conversation id
 
+        Returns:
+            List[GptsPlan]: List of planning steps
+        """
+
+    @abstractmethod
+    def get_by_planner(self, conv_id:str, planner: str)-> List[GptsPlan]:
+        """Get plans by conv_id and planner.
+
+        Args:
+            conv_id: conversation id
+            planner: planner
+        Returns:
+            List[GptsPlan]: List of planning steps
+        """
+
+    @abstractmethod
+    def get_by_planner_and_round(self, conv_id:str, planner: str, round_id:str)-> List[GptsPlan]:
+        """Get plans by conv_id and planner.
+
+        Args:
+            conv_id: conversation id
+            planner: planner
+            round_id: round_id
         Returns:
             List[GptsPlan]: List of planning steps
         """
@@ -224,6 +272,30 @@ class GptsPlansMemory(ABC):
             model(str): Model name
             result(str): Plan step results
         """
+    @abstractmethod
+    def update_by_uid(
+        self,
+        conv_id: str,
+        task_uid: str,
+        state: str,
+        retry_times: int,
+        agent: Optional[str] = None,
+        model: Optional[str] = None,
+        result: Optional[str] = None,
+    ) -> None:
+        """Update planning step information.
+
+        Args:
+            conv_id(str): conversation id
+            task_uid(str): conversation round
+            state(str): the status to update to
+            retry_times(int): Latest number of retries
+            conv_round_uid(str): conversation round uid
+            agent(str): Agent's name
+            model(str): Model name
+            result(str): Plan step results
+        """
+
 
     @abstractmethod
     def remove_by_conv_id(self, conv_id: str) -> None:
@@ -234,11 +306,12 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_conv_and_content(self, conv_id: str, content: str) -> Optional[GptsPlan]:
-        """get plan by conversation id.
+    def remove_by_conv_planner(self, conv_id: str, planner:str) -> None:
+        """Remove plan by conversation id and planner.
 
         Args:
             conv_id(str): conversation id
+            planner(str): planner name
         """
 
 
