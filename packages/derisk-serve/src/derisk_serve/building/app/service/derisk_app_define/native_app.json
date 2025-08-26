@@ -44,7 +44,7 @@
     "llm_config": {
       "llm_strategy": "priority",
       "llm_strategy_value": [
-        "DeepSeek-r1",
+        "deepseek-r1",
         "QwQ-32B"
       ]
     },
@@ -105,7 +105,7 @@
     "llm_config": {
       "llm_strategy": "priority",
       "llm_strategy_value": [
-        "DeepSeek-r1",
+        "deepseek-r1",
         "QwQ-32B"
       ]
     },
