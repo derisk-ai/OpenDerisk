@@ -36,7 +36,7 @@
           "param_description": "模型选项",
           "param_render_type": "select",
           "param_type_options": null,
-          "param_default_value": "DeepSeek-R1"
+          "param_default_value": ""
         }
       ]
     },
@@ -44,7 +44,7 @@
     "llm_config": {
       "llm_strategy": "priority",
       "llm_strategy_value": [
-        "DeepSeek-r1",
+        "deepseek-r1",
         "QwQ-32B"
       ]
     },
@@ -84,7 +84,7 @@
         }, {
             "param_type": "model",
             "param_description": "模型选项",
-            "param_default_value": "DeepSeek-R1",
+            "param_default_value": "",
             "param_render_type": "select",
             "sub_type": null
         }, {
@@ -105,7 +105,7 @@
     "llm_config": {
       "llm_strategy": "priority",
       "llm_strategy_value": [
-        "DeepSeek-r1",
+        "deepseek-r1",
         "QwQ-32B"
       ]
     },
