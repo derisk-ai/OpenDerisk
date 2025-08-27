@@ -16,7 +16,11 @@ import { useDetailPanel } from "./chat-detail-content";
 import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
 
-const TaskChatContent: React.FC = ({ isScrollToTop }: any) => {
+interface TaskChatContentProps {
+  ctrl: any; // Replace 'any' with the actual type if known
+}
+
+const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   const scrollableRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const {
@@ -72,7 +76,7 @@ const TaskChatContent: React.FC = ({ isScrollToTop }: any) => {
           </div>
           <div className="w-full flex justify-center">
             {/* @ts-ignore */}
-            <ChatInputPanel />
+            <ChatInputPanel ctrl={ctrl} />
           </div>
         </div>
         {/* running */}

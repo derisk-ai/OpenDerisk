@@ -38,6 +38,9 @@ function ChatContent() {
       return new Promise<void>(resolve => {
         const initMessage = getInitMessage();
         const ctrl = new AbortController();
+         setTimeout(() => {
+            setCollapsed(true);
+         }, 50);
         setReplyLoading(true);
         if (history && history.length > 0) {
           const viewList = history?.filter(item => item.role === 'view');
@@ -128,9 +131,6 @@ function ChatContent() {
                 tempHistory[index].thinking = false;
               }
               setHistory([...tempHistory]);
-              setTimeout(() => {
-                setCollapsed(true);
-              }, 50);
             }
           },
           onDone: () => {
@@ -248,7 +248,7 @@ function ChatContent() {
         {/* 右侧主内容区 */}
         <div className='flex-1 h-full'>
            <Content className='flex flex-col flex-1 h-full'>
-            <ChatContentContainer ref={scrollRef} />
+            <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
         </div>
       </div>

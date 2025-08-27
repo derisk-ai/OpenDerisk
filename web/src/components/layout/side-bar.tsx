@@ -389,7 +389,7 @@ function SideBar() {
   const handleChat = async (app: IApp) => {
     const [, res] = await apiInterceptors(newDialogue({ app_code: app.app_code }));
     if (res) {
-      router.push(`/chat/?app_code=${app.app_code}&conv_uid=${res.conv_uid}&isNew=true`);
+      window.open(`/chat/?app_code=${app.app_code}&conv_uid=${res.conv_uid}&isNew=true`, '_blank');
     }
   };
 

@@ -289,8 +289,9 @@ export default function Chat() {
       setHistory([]);
     }
   }, [isChatDefault]);
-
+  
   const debouncedChat = useDebounceFn(handleChat, { wait: 500 });
+  // 初始化消息处理
   useAsyncEffect(async () => {
     const initMessage = getInitMessage();
     if (initMessage && initMessage.id === chatId && appInfo && chatInParams?.length > 0) {
@@ -308,13 +309,12 @@ export default function Chat() {
   const contentRender = () => {
       return isChatDefault ? (
         <Content>
-          {/* <ChatDefault /> */}
           <HomeChat />
         </Content>
       ) : (
         <Spin spinning={appInfoLoading}  wrapperClassName='w-full h-screen'>
           <Content className='flex flex-col h-full'>
-            <ChatContentContainer ref={scrollRef} />
+            <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
         </Spin>
       );
