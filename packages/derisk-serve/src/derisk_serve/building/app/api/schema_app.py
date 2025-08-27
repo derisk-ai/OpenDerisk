@@ -19,7 +19,7 @@ from derisk_serve.agent.app.recommend_question.recommend_question import (
     RecommendQuestion,
 )
 from derisk_serve.agent.model import NativeTeamContext
-from derisk_serve.building.config.api.schemas import Layout, LLMConfig
+from derisk_serve.building.config.api.schemas import Layout, LLMResource
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class GptsApp(BaseModel):
     all_resources: Optional[List[AgentResource]] = None
     resources: Optional[List[AgentResource]] = None
     ## 模型配置
-    llm_config: Optional[LLMConfig] = None
+    llm_config: Optional[LLMResource] = None
     ## 应用布局信息
     layout: Optional[Layout] = None
     ## 知识配置
