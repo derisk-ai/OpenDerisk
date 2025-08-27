@@ -248,7 +248,7 @@ function ChatContent() {
         {/* 右侧主内容区 */}
         <div className='flex-1 h-full'>
            <Content className='flex flex-col flex-1 h-full'>
-            <ChatContentContainer ref={scrollRef} />
+            <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
         </div>
       </div>
