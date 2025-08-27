@@ -1,7 +1,7 @@
 [
   {
     "app_code": "chat_knowledge",
-    "app_name": "Chat Knowledge",
+    "app_name": "知识助手",
     "app_describe": "Private knowledge base Q&A",
     "team_mode": "native_app",
     "language": "zh",
@@ -36,7 +36,7 @@
           "param_description": "模型选项",
           "param_render_type": "select",
           "param_type_options": null,
-          "param_default_value": ""
+          "param_default_value": "deepseek-r1"
         }
       ]
     },
@@ -55,7 +55,7 @@
   },
   {
     "app_code": "chat_normal",
-    "app_name": "Chat Normal",
+    "app_name": "智能助手",
     "app_describe": "Directly converse with the llm model.",
     "team_mode": "native_app",
     "language": "zh",
@@ -84,7 +84,7 @@
         }, {
             "param_type": "model",
             "param_description": "模型选项",
-            "param_default_value": "",
+            "param_default_value": "deepseek-r1",
             "param_render_type": "select",
             "sub_type": null
         }, {

@@ -26,7 +26,7 @@ from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..models.models import ServeDao, ServeEntity
 from ..models.models_details import AppDetailServeDao, AppDetailServeEntity
 from ...config.service.service import Service as AppConfigService, TEMP_VERSION_SUFFIX
-from ...config.api.schemas import ServeRequest as AppConfigRequest, LLMConfig, Layout
+from ...config.api.schemas import ServeRequest as AppConfigRequest, LLMResource, Layout
 from ...config.config import SERVE_SERVICE_COMPONENT_NAME as Config_SERVE_SERVICE_COMPONENT
 from ...recommend_question.models.models import ServeEntity as RecommendQuestionEntity
 from ...recommend_question.models.models import ServeDao as RecommendQuestionDao
@@ -124,7 +124,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         # 初始化模型策略
         if not request.llm_config:
             from derisk.agent import LLMStrategyType
-            request.llm_config = LLMConfig(llm_strategy=LLMStrategyType.Default.value)
+            request.llm_config = LLMResource(llm_strategy=LLMStrategyType.Default.value)
 
         # 冲突检测
         chek_app = self.get(request)
@@ -626,7 +626,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     app_resp.team_context.resources = None
 
             if app_resp.team_context.llm_strategy:
-                app_resp.llm_config = LLMConfig(
+                app_resp.llm_config = LLMResource(
                     llm_strategy=app_resp.team_context.llm_strategy,
                     llm_strategy_value=app_resp.team_context.llm_strategy_value
                 )
