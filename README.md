@@ -80,19 +80,18 @@ uv sync --all-packages --frozen \
 
 #### Start
 
-Configure the API_KEY in the derisk-proxy-deepseek.toml file, then run the following command to start.
+Configure the API_KEY in the `derisk-proxy-aliyun.toml` file, then run the following command to start.
 
 
 > Note: By default, we use the Telecom dataset from the OpenRCA dataset. You can download it via the link or the following command:
 
 > gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
 
-After downloading, modify the dataset path in the file [basic_prompt_Telecom.py](https://github.com/derisk-ai/OpenDerisk/blob/main/packages/derisk-ext/src/derisk_ext/ai_sre/resource/basic_prompt_Telecom.py) to the local absolute path.
-
+After downloading, move the datasets to the path `pilot/datasets/`
 
 Run the startup command:
 ```
-uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-deepseek.toml
+uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
 ```
 
 #### Visit Website
@@ -101,6 +100,28 @@ Open your browser and visit [`http://localhost:7777`](http://localhost:7777)
 <p align="left">
   <img src="./assets/index.jpg" width="100%" />
 </p>
+
+### How to Use?
+* AI-SRE(OpenRCA)
+  -  !Notice, We Use the OpenRCA Datasets[Telecom Dataset](https://drive.usercontent.google.com/download?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
+  -  You can download the dataset using next link:
+    ```
+      gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+    ```
+  - Put the datasets to the path ${derisk}/pilot/datasets。
+* Flame Graph Assistant
+  - Upload the flame graph (Java/Python) of your local application service process to the assistant for analysis and inquiries.
+* DataExpert
+  - Upload your metrics, logs, traces, or various Excel data sheets for conversational analysis.
+
+### Rapid Development
+* Agent Development
+    Refer to the implementation logic under `derisk-ext.agent.agents`.
+* Tool Development
+    * Local tool
+    * MCP
+* Other Development
+    Documentation is under preparation...
 
 #### Execution Results
 As shown in the figure below, this demonstrates a scenario where multiple agents collaborate to handle a complex operational diagnostic task.
@@ -111,14 +132,14 @@ As shown in the figure below, this demonstrates a scenario where multiple agents
 
 ### RoadMap
 - [x] 0530 V0.1 Version: Based on domain knowledge and MCP services, achieving anomaly awareness -> autonomous decision-making -> adaptive execution and issue resolution.
-  - [ ] Domain knowledge engine for technical risks
+  - [x] Domain knowledge engine for technical risks
   - [x] Reasoning engine driven by large models for anomaly awareness -> decision-making -> execution
   - [x] Automated troubleshooting and fixes
 
-- [ ] 0730 V0.2 Version
-  - [ ] MCP services and management for technical risks
-  - [ ] Support for custom binding of knowledge and MCP tools
-  - [ ] Support for 3+ DevOps domain MCP services
+- [x] 0830 V0.2 Version
+  - [x] MCP services and management for technical risks
+  - [x] Support for custom binding of knowledge and MCP tools
+  - [x] Support for 3+ DevOps domain MCP services
 
 - [ ] 0930 V0.3 Version
   - [ ] Support for integration with production environments
