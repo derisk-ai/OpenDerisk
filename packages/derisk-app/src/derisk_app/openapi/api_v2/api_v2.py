@@ -142,7 +142,7 @@ async def chat_app_stream_wrapper(request: ChatCompletionRequestBody = None):
         request (OpenAPIChatCompletionRequest): request
         token (APIToken): token
     """
-    async for output in multi_agents.app_chat(
+    async for output, agent_conv_id in multi_agents.app_chat(
         conv_uid=request.conv_uid,
         gpts_name=request.chat_param,
         user_query=request.messages,

@@ -253,9 +253,10 @@ class Agent(ABC):
 class AgentContext:
     """A class to represent the context of an Agent."""
 
-    user_id:str
+
     conv_id: str
     conv_session_id: str
+    user_id: Optional[str] = None
     trace_id: Optional[str] = None
     rpc_id: Optional[str] = None
     ## 当前对话的主Agent(应用)信息

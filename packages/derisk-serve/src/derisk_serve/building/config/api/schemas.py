@@ -85,7 +85,7 @@ class ChatInParamValue(BaseModel):
         description="The chat in param  value"
     )
 
-class LLMConfig(BaseModel):
+class LLMResource(BaseModel):
     llm_strategy: Optional[str] = Field(
         None, description="The team leader's llm strategy"
     )
@@ -139,7 +139,7 @@ class ServeRequest(BaseModel):
     gmt_modified: Optional[str] = Field(None, description="Modification time")
 
     ## 模型配置
-    llm_config: Optional[LLMConfig] = Field(None,  description="模型配置")
+    llm_config: Optional[LLMResource] = Field(None,  description="模型配置")
     ## 应用布局信息
     layout: Optional[Layout] = Field(None,  description="布局配置")
     ## 知识配置

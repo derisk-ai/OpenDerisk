@@ -15,7 +15,7 @@ from derisk.storage.metadata._base_dao import REQ, RES
 from derisk.vis.vis_manage import get_vis_manager
 from derisk_serve.agent.model import NativeTeamContext
 
-from ..api.schemas import ServeRequest, ServerResponse, Layout, LLMConfig
+from ..api.schemas import ServeRequest, ServerResponse, Layout, LLMResource
 from ..config import SERVER_APP_TABLE_NAME, ServeConfig
 from sqlalchemy import (
     Column,
@@ -132,7 +132,7 @@ def _load_resource(resource: Optional[str] = None):
 def _load_llm_config(llm_config_str: Optional[str] = None):
     if llm_config_str:
         llm_config_obj = json.loads(llm_config_str)
-        return LLMConfig(**llm_config_obj)
+        return LLMResource(**llm_config_obj)
     else:
         return None
 

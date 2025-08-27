@@ -88,6 +88,7 @@ class ComponentType(str, Enum):
     MODEL_CACHE_MANAGER = "derisk_model_cache_manager"
     PLUGIN_HUB = "derisk_plugin_hub"
     MULTI_AGENTS = "derisk_multi_agents"
+    AGENT_CHAT = "derisk_agent_chat"
     EXECUTOR_DEFAULT = "derisk_thread_pool_default"
     TRACER = "derisk_tracer"
     TRACER_SPAN_STORAGE = "derisk_tracer_span_storage"

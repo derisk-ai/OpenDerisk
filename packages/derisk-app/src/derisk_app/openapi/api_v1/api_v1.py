@@ -371,6 +371,20 @@ def get_hist_messages(conv_uid: str, user_name: str = None):
     instance: ConversationService = ConversationService.get_instance(CFG.SYSTEM_APP)
     return instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
 
+
+@router.post("/v1/chat/stop")
+async def chat_stop(
+        conv_session_id: str ,
+        user_token: UserRequest = Depends(get_user_from_headers),
+):
+    logger.info(f"chat_stop:{conv_session_id}")
+    try:
+        multi_agents.stop_chat(conv_session_id, user_token.user_id if user_token else None)
+    except Exception as e:
+        logger.exception("停止对话异常！")
+        return Result.failed(msg=f"停止对话失败！{str(e)}")
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
         background_tasks: BackgroundTasks,
@@ -407,16 +421,21 @@ async def chat_completions(
                     "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
             ):
                 in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
-                return StreamingResponse(
-                    multi_agents.quick_app_chat(
+
+                async def chat_wrapper():
+                    async for chunk, agent_conv_id in multi_agents.quick_app_chat(
                         conv_session_id=dialogue.conv_uid,
                         user_query=in_message,
                         model=dialogue.model_name,
                         model_tokens=dialogue.max_new_tokens,
                         temperature=dialogue.temperature,
                         chat_in_params=dialogue.chat_in_params,
+                        app_code=dialogue.app_code,
                         **dialogue.ext_info,
-                    ),
+                    ):
+                        yield chunk
+                return StreamingResponse(
+                    chat_wrapper(),
                     headers=headers,
                     media_type="text/event-stream",
                 )
@@ -428,9 +447,8 @@ async def chat_completions(
             dialogue.ext_info.update({"max_new_tokens": dialogue.max_new_tokens})
 
             in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
-
-            return StreamingResponse(
-                multi_agents.app_chat_v2(
+            async def chat_wrapper():
+                async for chunk, agent_conv_id in multi_agents.app_chat(
                     conv_uid=dialogue.conv_uid,
                     background_tasks=background_tasks,
                     gpts_name=dialogue.app_code,
@@ -440,7 +458,10 @@ async def chat_completions(
                     sys_code=dialogue.sys_code,
                     chat_in_params=dialogue.chat_in_params,
                     **dialogue.ext_info,
-                ),
+                ):
+                    yield chunk
+            return StreamingResponse(
+                chat_wrapper(),
                 headers=headers,
                 media_type="text/event-stream",
             )
