@@ -7,7 +7,11 @@ import { v4 as uuid } from 'uuid';
 import ChatHeader from '../header/chat-header';
 import ChatContent from './chat-content';
 
-const BasicChatContent: React.FC = ({ isScrollToTop }: any) => {
+interface BasicChatContentProps {
+  ctrl: any;
+}
+
+const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
   const scrollableRef = useRef<HTMLDivElement>(null);
   const {
     history,
@@ -62,7 +66,7 @@ const BasicChatContent: React.FC = ({ isScrollToTop }: any) => {
 
         <div className='w-full flex justify-center'>
           <div className='w-full'>
-            <ChatInputPanel ctrl={new AbortController()} />
+            <ChatInputPanel ctrl={ctrl} />
           </div>
         </div>
       </div>

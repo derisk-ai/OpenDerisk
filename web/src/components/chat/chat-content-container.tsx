@@ -17,7 +17,8 @@ import TaskChatContent from "./content/task-chat-content";
 import { ChatContentContext } from '@/contexts';
 
 // eslint-disable-next-line no-empty-pattern
-const ChatContentContainer = ({}, ref: React.ForwardedRef<any>) => {
+const ChatContentContainer = (props: { ctrl: any; }, ref: React.ForwardedRef<any>) => {
+  const { ctrl } = props;
   const { appInfo } = useContext(ChatContentContext);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isScrollToTop, setIsScrollToTop] = useState<boolean>(false);
@@ -101,7 +102,7 @@ const ChatContentContainer = ({}, ref: React.ForwardedRef<any>) => {
         ref={scrollRef}
         className="h-full w-full flex-1 flex flex-col overflow-hidden"
       >
-        {isDoubleVis ? <TaskChatContent /> : <BasicChatContent />}
+        {isDoubleVis ? <TaskChatContent ctrl={ctrl} /> : <BasicChatContent ctrl={ctrl} />}
       </div>
 
       {showScrollButtons && (

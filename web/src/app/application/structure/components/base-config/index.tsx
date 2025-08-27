@@ -471,7 +471,7 @@ function AppConfig() {
             <h2 className='font-semibold'>配置</h2>
           </div>
           <div className='flex items-center gap-1 cursor-pointer transition-colors ml-auto' onClick={handleToggleAll}>
-            <img src={isCollapsed ? '/icons/collapse.svg' : '/icons/uncollapse.svg'} alt='toggle' className='w-5 h-5'/>
+            <img src={isCollapsed ? '/icons/collapsed.svg' : '/icons/uncollapsed.svg'} alt='toggle' className='w-5 h-5'/>
           </div>
         </div>
         <div className='overflow-y-auto flex-1'>
