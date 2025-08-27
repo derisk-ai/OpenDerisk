@@ -23,9 +23,6 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
     setResourceValue
   } = useContext(ChatContentContext);
 
-  const searchParams = useSearchParams();
-  const select_param = searchParams?.get('select_param') ?? '';
-
   const [userInput, setUserInput] = useState<string>('');
   const [isFocus, setIsFocus] = useState<boolean>(false);
   const [isZhInput, setIsZhInput] = useState<boolean>(false);
