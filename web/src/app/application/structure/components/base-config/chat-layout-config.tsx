@@ -28,11 +28,6 @@ function ChatLayoutConfig({
     return null;
   }
 
-const currentValue = Form.useWatch(`resource_value`, form);
-useEffect(() => {
-  console.log(`字段 resource_value 当前值:`, currentValue);
-}, [currentValue]);
-
   const labelStyle = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
