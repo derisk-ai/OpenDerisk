@@ -4,6 +4,7 @@ import { AppContext } from '@/contexts';
 import { CaretLeftOutlined } from '@ant-design/icons';
 import { useDebounceFn, useRequest } from 'ahooks';
 import { Collapse } from 'antd';
+import { debounce } from 'lodash';
 import { useContext, useMemo } from 'react';
 
 function CharacterConfig() {
@@ -20,7 +21,7 @@ function CharacterConfig() {
     },
   });
 
-  const { run: handleSysPromptChange } = useDebounceFn(
+  const { run: updateSysPrompt } = useDebounceFn(
     template =>
       fetchUpdateApp({
         ...appInfo,
@@ -31,7 +32,7 @@ function CharacterConfig() {
     },
   );
 
-  const { run: handleUserPromptChange } = useDebounceFn(
+  const { run: updateUserPrompt } = useDebounceFn(
     template =>
       fetchUpdateApp({
         ...appInfo,
@@ -41,6 +42,15 @@ function CharacterConfig() {
       wait: 500,
     },
   );
+
+  const handleSysPromptChange = debounce((temp) => {
+    updateSysPrompt(temp);
+  }, 800);
+
+  const handleUserPromptChange = debounce((temp) => {
+    updateUserPrompt(temp);
+  }, 800);
+
   const systemPrompt = useMemo(() => {
     return system_prompt_template || '';
   }, [system_prompt_template]);
