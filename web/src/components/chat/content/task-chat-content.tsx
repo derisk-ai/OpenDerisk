@@ -17,7 +17,7 @@ import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
 
 interface TaskChatContentProps {
-  ctrl: any; // Replace 'any' with the actual type if known
+  ctrl: AbortController;
 }
 
 const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {

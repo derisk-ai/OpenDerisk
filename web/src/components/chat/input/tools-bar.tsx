@@ -1,4 +1,4 @@
-import { apiInterceptors, clearChatHistory } from '@/client/api';
+import { apiInterceptors, clearChatHistory, stopChat } from '@/client/api';
 import { ChatContentContext } from "@/contexts";
 import { ClearOutlined, CloseCircleOutlined, LoadingOutlined, PauseCircleOutlined, RedoOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
@@ -71,7 +71,8 @@ const ToolsBar: React.FC<{
           if (!canAbort) {
             return;
           }
-          ctrl.abort();
+          stopChat({ conv_session_id: chatId });
+          ctrl && ctrl.abort();
           setTimeout(() => {
             setCanAbort(false);
             setReplyLoading(false);
@@ -180,8 +181,6 @@ const ToolsBar: React.FC<{
     const resources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
     if (resources.length === 0) return null;
 
-   
-
     const extendedChatInParams = useMemo(() => {
       return chatInParams?.filter(i => i.param_type !== 'resource') || [];
     }, [chatInParams]);
@@ -190,8 +189,6 @@ const ToolsBar: React.FC<{
       () => appInfo?.layout?.chat_in_layout?.find(i => i.param_type === 'resource'),
       [appInfo?.layout?.chat_in_layout],
     );
-
-    
 
     const ImageRender = ({ item, handleDelete, index }: any) => {
       const fileName = item.image_url.file_name;

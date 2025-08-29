@@ -135,6 +135,3 @@ export const updateEvaluations = (data: updateDataSetRequest) => {
   });
 };
 
-// export const cancelFeedback = (data: CancelFeedbackAddParams) => {
-//   return POST<CancelFeedbackAddParams, Record<string, any>>(`/api/v1/conv/feedback/cancel`, data);
-// };

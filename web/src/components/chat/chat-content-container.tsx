@@ -17,7 +17,7 @@ import TaskChatContent from "./content/task-chat-content";
 import { ChatContentContext } from '@/contexts';
 
 // eslint-disable-next-line no-empty-pattern
-const ChatContentContainer = (props: { ctrl: any; }, ref: React.ForwardedRef<any>) => {
+const ChatContentContainer = (props: { ctrl: AbortController; }, ref: React.ForwardedRef<any>) => {
   const { ctrl } = props;
   const { appInfo } = useContext(ChatContentContext);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -32,7 +32,6 @@ const ChatContentContainer = (props: { ctrl: any; }, ref: React.ForwardedRef<any
 
   const handleScroll = () => {
     if (!scrollRef.current) return;
-    console.log('scrollRef.current', scrollRef.current);
     const container = scrollRef.current;
     const scrollTop = container.scrollTop;
     const scrollHeight = container.scrollHeight;
