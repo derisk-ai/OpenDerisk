@@ -102,8 +102,7 @@ const ChatContent: React.FC<{
   messages: any[];
 }> = ({ content, onLinkClick, messages }) => {
   const { t } = useTranslation();
-  const searchParams = useSearchParams();
-  const { context, model_name, role, thinking } = content;
+  const { context, role, thinking } = content;
   const isRobot = useMemo(() => role === "view", [role]);
 
   const { value, cachePluginContext } = useMemo<{

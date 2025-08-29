@@ -8,7 +8,7 @@ import ChatHeader from '../header/chat-header';
 import ChatContent from './chat-content';
 
 interface BasicChatContentProps {
-  ctrl: any;
+  ctrl: AbortController;
 }
 
 const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
@@ -38,6 +38,8 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
       scrollableRef.current?.scrollTo(0, scrollableRef.current?.scrollHeight);
     }, 50);
   }, [history, history[history.length - 1]?.context]);
+
+  console.log('Rendering content3...', ctrl);
 
   return (
     <div className="flex flex-1 h-full">

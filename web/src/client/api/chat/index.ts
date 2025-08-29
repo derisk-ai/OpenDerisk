@@ -42,3 +42,10 @@ export const stopTopic = (data: StopTopicParams) => {
   );
 };
 
+export const stopChat = (data: {conv_session_id: string}) => {
+  return POST<{conv_session_id: string}, null>(
+    `/api/v1/chat/stop?conv_session_id=${data.conv_session_id}`,
+    data,
+  );
+};
+
