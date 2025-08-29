@@ -7,7 +7,7 @@ import {
   STORAGE_USERINFO_KEY,
   STORAGE_USERINFO_VALID_TIME_KEY,
 } from "@/utils/constants/index";
-import { App, ConfigProvider, MappingAlgorithm, theme } from "antd";
+import { App, ConfigProvider, MappingAlgorithm, Spin, theme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import Head from "next/head";
@@ -110,7 +110,9 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
           colorPrimary: "#0C75FC",
           borderRadius: 4,
         },
-        algorithm: mode === "dark" ? antdDarkTheme : undefined,
+        // algorithm: mode === "dark" ? antdDarkTheme : undefined,
+        // 暂不支持 dark 
+        algorithm: undefined,
       }}
     >
       <App>{renderContent()}</App>
@@ -124,9 +126,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-theme="light" className="light">
       <body suppressHydrationWarning={true}>
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={
+          <App className="w-screen h-screen flex items-center justify-center">
+            <Spin />
+          </App>
+          }>
           <ChatContextProvider>
             <CssWrapper>
               <LayoutWrapper>{children}</LayoutWrapper>

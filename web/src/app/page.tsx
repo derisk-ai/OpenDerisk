@@ -16,7 +16,6 @@ export default function Home() {
     }
   },[pathname, router])
 
-
   return (
      <div className='h-screen flex flex-col items-center justify-center'>
       <div className='flex-1 flex flex-col justify-center items-center w-4/5'>

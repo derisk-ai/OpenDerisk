@@ -83,7 +83,7 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
   const scene = searchParams?.get('scene') ?? '';
   const db_param = searchParams?.get('db_param') ?? '';
   const [isContract, setIsContract] = useState(false);
-  const [model, setModel] = useState<string>('');
+  const [model, setModel] = useState<string>('light');
   const [isMenuExpand, setIsMenuExpand] = useState<boolean>(scene !== 'chat_dashboard');
   const [dbParam, setDbParam] = useState<string>(db_param);
   const [agent, setAgent] = useState<string>('');
@@ -115,7 +115,7 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
   });
 
   useEffect(() => {
-    setMode(getDefaultTheme());
+    // setMode(getDefaultTheme());
     try {
       const dialogInfo = JSON.parse(localStorage.getItem('cur_dialog_info') || '');
       setCurrentDialogInfo(dialogInfo);
