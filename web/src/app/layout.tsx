@@ -130,7 +130,7 @@ export default function RootLayout({
       <body suppressHydrationWarning={true}>
         <Suspense fallback={
           <App className="w-screen h-screen flex items-center justify-center">
-            <Spin size="large" />
+            <Spin />
           </App>
           }>
           <ChatContextProvider>
