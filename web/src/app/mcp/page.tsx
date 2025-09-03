@@ -88,7 +88,7 @@ const Mpc: React.FC = () => {
 
   const goMpcDetail = (id: string, name: string) => {
     return () => {
-      router.push(`/construct/mpc/${id}/${name}`);
+      router.push(`/mcp/detail/?id=${id}&name=${name}`);
     };
   };
   const onShowSizeChange: PaginationProps['onShowSizeChange'] = (current: number, pageSize: number) => {
@@ -190,7 +190,7 @@ const Mpc: React.FC = () => {
                     <div
                       key={index}
                       className='backdrop-filter backdrop-blur-lg cursor-pointer bg-white bg-opacity-70 border-white rounded-lg shadow p-4 relative w-full h-full dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60 hover:shadow-md transition-all border overflow-hidden'
-                      onClick={goMpcDetail(item?.id, item?.name)}
+                      onClick={goMpcDetail(item?.mcp_code, item?.name)}
                     >
                       <div className=' text-card-foreground  '>
                         <div className='p-4'>

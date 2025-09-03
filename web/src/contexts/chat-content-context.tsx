@@ -1,6 +1,6 @@
 import { ChartData, ChatHistoryResponse, IChatDialogueSchema, UserChatContent } from '@/types/chat';
 import { IApp } from '@/types/app';
-import { createContext} from 'react';
+import { createContext } from 'react';
 
 interface ChatContentProps {
   history: ChatHistoryResponse; // 会话记录列表
