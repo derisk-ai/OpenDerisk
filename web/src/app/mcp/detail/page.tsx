@@ -1,3 +1,4 @@
+"use client"
 import { ChatContext } from '@/contexts';
 import { apiInterceptors, getMPCListQuery, mcpToolList, mcpToolRun } from '@/client/api';
 import { DiffOutlined, RedoOutlined } from '@ant-design/icons';
@@ -7,12 +8,14 @@ import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useRequest } from 'ahooks';
-import { Button, Card, Form, Input, Select, Spin, message } from 'antd';
+import { Button, Card, Form, Input, Select, Spin, App } from 'antd';
 import classNames from 'classnames';
-import { useRouter } from 'next/router';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
+
 import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import './index.css';
+import '../index.css';
+
 const titleOption = [
   {
     label: 'Tools',
@@ -20,10 +23,13 @@ const titleOption = [
   },
 ];
 
-const MpcDetail: React.FC = () => {
+export default function MpcDetail() {
   const router = useRouter();
+  const params = useParams() as { id: string; name: string };
+  const searchParams = useSearchParams();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const [alignment, setAlignment] = useState<string | null>('Tools');
   const [requestType, setRequestType] = useState<string>('HTTP');
   const [mcpInfo, setMcpInfo] = useState<any>({});
@@ -31,7 +37,10 @@ const MpcDetail: React.FC = () => {
   const [connect, setConnect] = useState<any>('');
   const [toolList, setToolList] = useState<Array<{ name: string; description: string; param_schema: any }>>([]);
   const theme = mode === 'dark' ? githubDarkTheme : githubLightTheme;
-  const queryParams: any = router.query;
+  const queryParams = {
+    id: searchParams.get('id') || '',
+    name: searchParams.get('name') || ''
+  };
   const [form] = Form.useForm();
 
   const {
@@ -39,11 +48,7 @@ const MpcDetail: React.FC = () => {
     run: runMcpToolRun,
     data: runData,
   } = useRequest(
-    async (
-      params = {
-        name: queryParams.name,
-      },
-    ): Promise<any> => {
+    async (params: any): Promise<any> => {
       return await apiInterceptors(mcpToolRun(params));
     },
     {
@@ -69,6 +74,11 @@ const MpcDetail: React.FC = () => {
 
   const { loading: mcpQueryLoading } = useRequest(
     async (): Promise<any> => {
+      // 确保 name 参数存在再发起请求
+      if (!queryParams.name) {
+        console.error('Missing name parameter');
+        return Promise.reject('Missing name parameter');
+      }
       return await apiInterceptors(
         getMPCListQuery({
           name: queryParams.name,
@@ -91,54 +101,19 @@ const MpcDetail: React.FC = () => {
         name: queryParams.name,
       },
     ): Promise<any> => {
+      // 确保 name 参数存在再发起请求
+      if (!params.name) {
+        console.error('Missing name parameter for tool list');
+        return Promise.reject('Missing name parameter');
+      }
       return await apiInterceptors(mcpToolList(params));
     },
     {
       manual: false,
       onSuccess: data => {
         const [, , res] = data;
-        if (res?.success) {
-          // res?.data ||
-          setToolList([
-            {
-              name: 'list_servers',
-              description: 'List all registered MCP servers',
-              param_schema: {},
-            },
-            {
-              name: 'fetch_fetch',
-              description:
-                'Fetches a URL from the internet and optionally extracts its contents as markdown.\n\nAlthough originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.',
-              param_schema: {
-                url: {
-                  type: 'string',
-                  title: 'Url',
-                  description: 'URL to fetch',
-                  required: true,
-                },
-                max_length: {
-                  type: 'integer',
-                  title: 'Max Length',
-                  description: 'Maximum number of characters to return.',
-                  required: false,
-                  default: 5000,
-                },
-                start_index: {
-                  type: 'integer',
-                  title: 'Start Index',
-                  description:
-                    'On return output starting at this character index, useful if a previous fetch was truncated and more context is required.',
-                  required: false,
-                },
-                raw: {
-                  type: 'boolean',
-                  title: 'Raw',
-                  description: 'Get the actual HTML content of the requested page, without simplification.',
-                  required: false,
-                },
-              },
-            },
-          ]);
+        if (res?.data) {
+          setToolList(res?.data || []);
         }
       },
       debounceWait: 300,
@@ -191,12 +166,31 @@ const MpcDetail: React.FC = () => {
       return;
     }
 
-    await runMcpToolRun({ name: queryParams?.name, ..._params });
+    await runMcpToolRun({
+      name: queryParams?.name,
+  
+      params:{
+        name: selectUrl,
+        arguments: {
+          ..._params,
+        },
+      }
+     
+    });
   };
 
   const formData: any = useMemo(() => {
     return toolList?.find(item => item?.name === selectUrl)?.param_schema || {};
   }, [selectUrl]);
+
+  // 如果参数还未就绪，显示加载状态
+  if (!queryParams.name || !queryParams.id) {
+    return (
+      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto flex items-center justify-center'>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <Spin spinning={listLoading || runLoading || mcpQueryLoading}>
@@ -213,8 +207,11 @@ const MpcDetail: React.FC = () => {
                   style={{ position: 'absolute', height: '100%', width: '100%', inset: '0px', color: 'transparent' }}
                 />
               ) : (
-                <span className='ant-avatar ant-avatar-circle bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
-                  <span className='ant-avatar-string text-[10px]'>derisk</span>
+                <span
+                  style={{ borderRadius: '50%', lineHeight: '27px' }}
+                  className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'
+                >
+                  <span className='ant-avatar-string text-[10px]'>derisk22</span>
                 </span>
               )}
             </div>
@@ -250,18 +247,15 @@ const MpcDetail: React.FC = () => {
                   aria-label='text alignment'
                   className='p-1 h-12  '
                 >
-                  {titleOption?.map(item => {
-                    return (
-                      <>
-                        <ToggleButton
-                          className={`border-0 rounded-[6px] ${mode === 'light' ? 'text-black' : 'text-white'}`}
-                          value={item?.value}
-                        >
-                          {item?.label}
-                        </ToggleButton>
-                      </>
-                    );
-                  })}
+                  {titleOption?.map(item => (
+                    <ToggleButton
+                      key={item.value}
+                      className={`border-0 rounded-[6px] ${mode === 'light' ? 'text-black' : 'text-white'}`}
+                      value={item?.value}
+                    >
+                      {item?.label}
+                    </ToggleButton>
+                  ))}
                 </ToggleButtonGroup>
 
                 <div className='flex items-center gap-2'>
@@ -273,32 +267,29 @@ const MpcDetail: React.FC = () => {
                 <div className='rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden'>
                   {alignment === 'Tools' && (
                     <div className='p-5 pt-6 space-y-8'>
-                      {/* <div>
-                        <h2 className='text-xl md:text-2xl font-semibold mb-3'>About</h2>
-                        <p className='text-sm md:text-base leading-relaxed'>
-                          Magic empowers developers to create beautiful, modern UI components instantly by using natural
-                          language descriptions. It seamlessly integrates with popular IDEs like Cursor, Windsurf, and
-                          VSCode (with Cline), providing an AI-powered workflow that streamlines UI development. Access
-                          a vast library of pre-built, customizable components inspired by 21st.dev, and see your
-                          creations in real-time with full TypeScript and SVGL support. Enhance existing components with
-                          advanced features and animations to accelerate your UI development process.
-                        </p>
-                      </div> */}
                       {toolList?.map((item, index) => {
                         return (
                           <div
                             key={index}
                             onClick={() => handleSelectUsrl(item?.name)}
-                            className='cursor-pointer hover:text-[#0069fe] transition-all'
+                            style={{
+                              backgroundColor: selectUrl === item?.name ? '#0069fe' : '#fff',
+                              color: selectUrl === item?.name ? '#fff' : '#000',
+                            }} 
+                            className={`cursor-pointer transition-all p-2 rounded-lg ${
+                              selectUrl === item?.name ? '' : 'hover:text-[#0069fe]'
+                            }`}
+                            
                           >
                             <h2 className='text-xl md:text-2xl font-semibold mb-4 '>{item.name}</h2>
                             <ul>
-                              <li className='flex items-start gap-3 py-1 list-disc'>
+                              <li  className='flex items-start gap-3 py-1 list-disc'>
                                 <span
                                   className='w-2 h-2 rounded-full  mt-2 shrink-0'
                                   style={{
-                                    backgroundColor: selectUrl === item?.name ? '#0069fe' : '#000000',
+                                    backgroundColor: selectUrl === item?.name ? '#fff' : '#000',
                                   }}
+                                
                                 ></span>
                                 <span className='text-sm md:text-base'>{item?.description}</span>
                               </li>
@@ -384,4 +375,3 @@ const MpcDetail: React.FC = () => {
   );
 };
 
-export default MpcDetail;
