@@ -39,3 +39,10 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### Add New Vis Components
+
+To add a new visual component, follow these steps:
+
+1. Create a new file for your component in the `components/chat-content-components/VisComponents` directory.
+2. Implement the component using React and any necessary libraries.
+3. Update the `visComponentsRender` object in `config.tsx` to include your new component.
