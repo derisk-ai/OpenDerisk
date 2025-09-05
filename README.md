@@ -24,7 +24,7 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
     </a>
   </p>
 
-[**English**](README.md) | [**简体中文**](README.zh.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
+[**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
 ### Features
