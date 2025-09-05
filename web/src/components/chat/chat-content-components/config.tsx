@@ -1,5 +1,4 @@
-import React from 'react';
-import { AutoChart, BackEndChartType, getChartType } from '../auto-chart';
+import ErrorBoundary from '@/components/error-boundary';
 import { formatSql } from '@/utils';
 import { safeJsonParse } from '@/utils/json';
 import { LinkOutlined, ReadOutlined, SyncOutlined } from '@ant-design/icons';
@@ -7,43 +6,32 @@ import { Datum } from '@antv/ava';
 import { GPTVis, withDefaultChartCode } from '@antv/gpt-vis';
 import { Image, Table, Tabs, TabsProps, Tag } from 'antd';
 import 'katex/dist/katex.min.css';
+import React from 'react';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import ReferencesContent from './references-content';
-import VisAppLink from './vis-app-link';
-import VisChatLink from './vis-chat-link';
-import VisResponse from './vis-response';
+import { AutoChart, BackEndChartType, getChartType } from '../auto-chart';
 import AgentMessages from './agent-messages';
 import AgentPlans from './agent-plans';
 import { CodePreview } from './code-preview';
+import FileAttach from './file-attatch';
 import HtmlPreview from './html-preview';
+import ReferencesContent from './references-content';
 import SvgPreview from './svg-preview';
+import VisAppLink from './vis-app-link';
 import VisChart from './vis-chart';
+import VisChatLink from './vis-chat-link';
 import VisCode from './vis-code';
 import VisConvertError from './vis-convert-error';
 import VisDashboard from './vis-dashboard';
 import VisPlugin from './vis-plugin';
+import VisResponse from './vis-response';
 import { VisTabs, VisTabsData } from './vis-tabs';
 import { VisTasks, VisTasksData } from './vis-tasks';
 import { VisThinking } from './vis-thinking';
-import FileAttach from './file-attatch';
-
-// 工作空间组件
-import { VisRunningWindow } from './VisComponents/VisRunningWindow';
-import { VisPlanningWindow } from './VisComponents/VisPlanningWindow';
-import VisContentCard  from './VisComponents/VisContentCard';
-import MarkdownCard  from './VisComponents/MarkDownCard';
-import ErrorBoundary from '@/components/error-boundary';
-import VisRunningWindowMsgCard from './VisComponents/VisRunningWindowMsg';
-import VisPlanCard from './VisComponents/VisPlanCard';
-import VisRunningWindowStepCard from './VisComponents/VisRunningWindowStep';
-import VisStepListCard from './VisComponents/VisStepListCard';
-import ThinkCard from './VisComponents/ThinkCard';
-import VisMsgCard from './VisComponents/VisMsgCard';
-import VisStepCard from './VisComponents/VisStepCard';
-import VisReportCard from './VisComponents/VisReportCard';
+import { visComponentsRender } from './VisComponents/config';
+import MarkdownCard from './VisComponents/MarkDownCard';
 
 type MarkdownComponent = Parameters<typeof GPTVis>['0']['components'];
 
@@ -252,175 +240,10 @@ export const codeComponents = {
           return <CodePreview language={lang} code={content} />;
         }
       },
-      'nex-running-window': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisRunningWindow data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'derisk-running-window': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisRunningWindow data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'nex-planning-window': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisPlanningWindow data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
       'vis-thinking': ({ className, children }) => {
         const content = String(children);
         const _lang = className?.replace('language-', '') || 'javascript';
         return <VisThinking content={content} />;
-      },
-      'drsk-content': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisContentCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'derisk-llm-space': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisContentCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'drsk-thinking': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <ThinkCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'nex-report': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisReportCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'nex-msg': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisRunningWindowMsgCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'drsk-plan': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisPlanCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'nex-steps': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisStepListCard propsData={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'nex-step': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisRunningWindowStepCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'drsk-msg': ({ children }: any) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return <VisMsgCard data={data} />;
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
-      },
-      'drsk-step': ({ children }) => {
-        const content = String(children);
-        try {
-          const data = JSON.parse(content);
-          return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
-              <VisStepCard data={data} />
-            </ErrorBoundary>
-          );
-        } catch {
-          return <MarkdownCard content={content} />;
-        }
       },
       // 文件上传
       'vis-attatch': function ({ children }) {
@@ -436,6 +259,8 @@ export const codeComponents = {
           return <MarkdownCard content={content} />;
         }
       },
+      // 其他可视化组件
+      ...visComponentsRender,
       // Add HTML language processor
       html: ({ className, children }) => {
         const content = String(children);
@@ -493,7 +318,7 @@ export const codeComponents = {
 
 // Filter out any undefined or non-function properties from codeComponents to satisfy the type requirements
 const filteredCodeComponents = Object.fromEntries(
-  Object.entries(codeComponents).filter(([_, v]) => typeof v === 'function')
+  Object.entries(codeComponents).filter(([_, v]) => typeof v === 'function'),
 ) as { [key: string]: (props: any) => React.ReactNode };
 
 export const basicComponents: { [key: string]: (props: any) => React.ReactNode } = {
@@ -665,7 +490,6 @@ const extraComponents: MarkdownComponent = {
       </div>
     );
   },
- 
 };
 
 export const markdownComponents = {
