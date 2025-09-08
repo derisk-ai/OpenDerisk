@@ -42,6 +42,9 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— AIネイティブなリス
   <img src="./assets/arch_en.jpg" width="100%" />
 </p>
 
+#### 紹介文書
+- [OpenDerisk DeepWikiドキュメント](https://deepwiki.com/derisk-ai/OpenDerisk)
+
 このシステムはマルチエージェントアーキテクチャを採用しています。現在、コードは主に緑色でハイライトされた部分を実装しています。アラート認識はMicrosoftのオープンソース[OpenRCAデータセット](https://github.com/microsoft/OpenRCA)に基づいています。データセットのサイズは解凍後約26GBです。このデータセット上で、マルチエージェントの協調により根本原因分析と診断を実現し、Code-Agentが最終分析のために動的にコードを作成します。
 
 #### 技術実装
