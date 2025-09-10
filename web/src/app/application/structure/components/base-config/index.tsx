@@ -461,7 +461,7 @@ function AppConfig() {
 
   return (
     <div className='flex-1 border-r-1 p-4 border-r-[#D9D9D9] h-full overflow-y-auto'>
-      <Spin spinning={fetchUpdateAppLoading} 
+      <Spin spinning={false} 
         wrapperClassName="h-full w-full max-h-full" 
       >
         {/* 基础配置 */}

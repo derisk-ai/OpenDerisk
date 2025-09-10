@@ -8,18 +8,9 @@ import { debounce } from 'lodash';
 import { useContext, useMemo } from 'react';
 
 function CharacterConfig() {
-  const { collapsed, setCollapsed, appInfo, refreshAppInfo } = useContext(AppContext);
+  const { collapsed, setCollapsed, appInfo, fetchUpdateApp } = useContext(AppContext);
 
   const { system_prompt_template = '', user_prompt_template = '' } = appInfo || {};
-
-  const { run: fetchUpdateApp } = useRequest(async (app: any) => await updateApp(app), {
-    manual: true,
-    onSuccess: () => {
-      if (refreshAppInfo) {
-        refreshAppInfo();
-      }
-    },
-  });
 
   const { run: updateSysPrompt } = useDebounceFn(
     template =>
