@@ -12,6 +12,8 @@ function Header() {
   const { appInfo, queryAppInfo, refreshAppInfo, fetchUpdateAppLoading, refreshAppInfoLoading, setAppInfo, refetchVersionData, versionData } = useContext(AppContext);
   const router = useRouter();
 
+  console.log('appInfo in Header:', fetchUpdateAppLoading);
+
   // 发布应用
   const { runAsync: fetchPublishApp, loading: fetchPublishAppLoading } = useRequest(
     async params => await publishAppNew(params),
@@ -90,7 +92,18 @@ function Header() {
         <div>
           <div className='flex flex-row items-center space-x-2'>
             <div className='font-semibold text-lg'>{appInfo?.app_name || '--'}</div>
-            <div className='text-xs text-gray-500'>已自动保存：{appInfo?.updated_at ? appInfo.updated_at : '--'}</div>
+            <div className='text-xs text-gray-500 flex flex-row'>
+              <div>
+                {fetchUpdateAppLoading ? (
+                  <img src='/icons/loading.png' width={14} style={{ display: 'inline', marginRight: '4px' }} alt="loading"/>
+                ) : (
+                  <>
+                    <CheckCircleOutlined className='text-[green] mr-1' />
+                  </>
+                )}
+              </div>
+              <div>已自动保存：{appInfo?.updated_at ? appInfo.updated_at : '--'}</div>
+            </div>
           </div>
           {appInfo?.config_version && versionItems.length > 0 && (
             <Dropdown menu={menuProps}>
