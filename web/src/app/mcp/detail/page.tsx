@@ -18,7 +18,7 @@ import '../index.css';
 
 const titleOption = [
   {
-    label: 'Tools',
+    label: t('mcp_tools'),
     value: 'Tools',
   },
 ];
@@ -307,8 +307,8 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex'>
-                  <div className='flex-1'>{t('parameter_name')}</div>
-                  <div className='flex-1'>{t('parameter_value')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_name')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_value')}</div>
                 </div>
               }
             >
@@ -337,7 +337,7 @@ export default function MpcDetail() {
 
                     <Form.Item>
                       <Button type='primary' htmlType='submit' className='w-full' onClick={onGoRun}>
-                        {t('trial_run')}
+                        {t('mcp_trial_run')}
                       </Button>
                     </Form.Item>
                   </Form>
@@ -348,7 +348,7 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex justify-between'>
-                  {t('run_results')}{' '}
+                  {t('mcp_run_results')}{' '}
                   <Button type='text' icon={<DiffOutlined className='text-[18px]' />} onClick={handleCopy} />
                 </div>
               }

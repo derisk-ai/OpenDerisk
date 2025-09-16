@@ -88,7 +88,7 @@ export default function App() {
       manual: true,
       onSuccess: data => {
         if (data[2]?.success) {
-          message.success('操作成功');
+          message.success(t('app_operation_success'));
         }
         getListFiltered();
       },
@@ -127,10 +127,10 @@ export default function App() {
     modal.confirm({
       title: t('Tips'),
       icon: <WarningOutlined />,
-      content: `do you want delete the application?`,
-      okText: 'Yes',
+      content: t('app_delete_confirm'),
+      okText: t('app_delete_yes'),
       okType: 'danger',
-      cancelText: 'No',
+      cancelText: t('app_delete_no'),
       async onOk() {
         await apiInterceptors(delApp({ app_code: app.app_code }));
         getListFiltered();
@@ -198,7 +198,7 @@ export default function App() {
     {
       manual: true,
       onSuccess: () => {
-        message.success('更新成功');
+        message.success(t('app_update_success'));
       },
     },
   );

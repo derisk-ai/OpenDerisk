@@ -1,5 +1,7 @@
 import { Col, Form, FormInstance, Input, Row, Select } from 'antd';
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+
 export const MEDIA_RESOURCE_TYPES = [
   'image_file',
   'video_file',
@@ -23,6 +25,7 @@ function ChatLayoutConfig({
   resourceOptions: any[];
   modelOptions?: any[];
 }) {
+  const { t } = useTranslation();
 
   if (!selectedChatConfigs || selectedChatConfigs.length === 0) {
     return null;
@@ -51,7 +54,7 @@ function ChatLayoutConfig({
                   className='h-10'
                   options={item.sub_types?.map((sub: string) => ({ value: sub, label: sub })) || []}
                   disabled={!item.sub_types}
-                  placeholder={`请选择${item.param_description}`}
+                  placeholder={t('chat_layout_config_select_param', { desc: item.param_description })}
                   onBlur={() => onInputBlur(`${item.param_type}_value`)}
                 />
               </Form.Item>
@@ -60,7 +63,7 @@ function ChatLayoutConfig({
               <Form.Item name={`${item.param_type}_value`} initialValue={item.param_default_value}>
                 <Select
                   options={modelOptions} 
-                  placeholder={`请输入${item.param_description}`} 
+                  placeholder={t('chat_layout_config_input_param', { desc: item.param_description })}
                   className='h-10 flex-1'
                 />
               </Form.Item>
@@ -82,7 +85,7 @@ function ChatLayoutConfig({
                   type='number'
                   step={item.param_type === 'temperature' ? '0.01' : '1'}
                   disabled={!item.sub_types}
-                  placeholder={`请输入${item.param_description}`}
+                  placeholder={t('chat_layout_config_input_param', { desc: item.param_description })}
                   className='h-10'
                 />
               </Form.Item>
@@ -92,7 +95,7 @@ function ChatLayoutConfig({
                 <Input 
                   type='number' 
                   step={item.param_type === 'temperature' ? '0.01' : '1'} 
-                  placeholder={`请输入${item.param_description}`} 
+                  placeholder={t('chat_layout_config_input_param', { desc: item.param_description })}
                   className='h-10' 
                   onBlur={() => onInputBlur(`${item.param_type}_value`)}
                 />
@@ -115,7 +118,7 @@ function ChatLayoutConfig({
                   options={
                     item.sub_types ? item.sub_types.map((sub: string) => ({ value: sub, label: sub })) || [] : []
                   }
-                  placeholder={`请选择${item.param_description}`}
+                  placeholder={t('chat_layout_config_select_param', { desc: item.param_description })}
                 />
               </Form.Item>
             </Col>
@@ -124,7 +127,7 @@ function ChatLayoutConfig({
                 <Select
                   options={resourceOptions}
                   className='flex-1 h-10'
-                  placeholder={`请输入资源`}
+                  placeholder={t('chat_layout_config_input_resource')}
                   disabled={MEDIA_RESOURCE_TYPES.includes(form.getFieldValue(`${item.param_type}_sub_type`)) }
                 />
               </Form.Item>

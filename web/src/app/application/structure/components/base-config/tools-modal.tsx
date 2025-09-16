@@ -4,6 +4,7 @@ import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { getResourceV2 } from "@/client/api";
 import { useRequest } from "ahooks";
 import { AppContext } from "@/contexts";
+import { useTranslation } from 'react-i18next';
 
 interface ToolsModalProps {
   visible: boolean;
@@ -18,6 +19,7 @@ function ToolsModal({
   form,
   onToolsChange,
 }: ToolsModalProps) {
+  const { t } = useTranslation();
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [toolKey, setToolKey] = useState<string>("tool");
   const [mcpList, setMcpList] = useState<any[]>([]);
@@ -128,12 +130,12 @@ function ToolsModal({
 
   return (
     <Modal
-      title="关联技能"
+      title={t('tools_modal_title')}
       open={visible}
       onCancel={onCancel}
       footer={[
         <Button key="cancel" onClick={onCancel}>
-          取消
+          {t('tools_modal_cancel')}
         </Button>,
         <Button
           key="submit"
@@ -143,7 +145,7 @@ function ToolsModal({
             handleChange();
           }}
         >
-          完成
+          {t('tools_modal_finish')}
         </Button>,
       ]}
       width={600}
@@ -157,8 +159,8 @@ function ToolsModal({
             setToolKey(key);
           }}
           items={[
-            { label: "工具集", key: "tool" },
-            { label: "MCP", key: "mcp" },
+            { label: t('tools_modal_toolset'), key: "tool" },
+            { label: t('tools_modal_mcp'), key: "mcp" },
           ]}
         />
         {toolKey === "tool" ? (
@@ -167,12 +169,12 @@ function ToolsModal({
             className="flex flex-col gap-4 flex-1 mt-2"
             form={form}
           >
-            <Form.Item label="请选择技能" name="tools">
+            <Form.Item label={t('tools_modal_select_skill')} name="tools">
               <Select
                 mode="multiple"
                 allowClear
                 style={{ width: "100%" }}
-                placeholder="请选择技能"
+                placeholder={t('tools_modal_select_skill')}
                 value={selectedTools}
                 loading={loading}
                 options={appList}
@@ -187,7 +189,7 @@ function ToolsModal({
               <Card
                 key={mcp.unique_id || mcp.id}
                 size="small"
-                title={mcp.isNew ? `新建 MCP ${index + 1}` : mcp.name}
+                title={mcp.isNew ? t('tools_modal_new_mcp', { index: index + 1 }) : mcp.name}
                 extra={
                   <Button
                     type="text"
@@ -200,16 +202,16 @@ function ToolsModal({
                 className="border-gray-200"
               >
                 <Form layout="vertical" size="small">
-                  <Form.Item label="名称" className="mb-2">
+                  <Form.Item label={t('tools_modal_name')} className="mb-2">
                     <Input
-                      placeholder="请输入MCP名称"
+                      placeholder={t('tools_modal_input_mcp_name')}
                       value={mcp.name}
                       onChange={(e) => updateMcp(index, "name", e.target.value)}
                     />
                   </Form.Item>
-                  <Form.Item label="请求头" className="mb-2">
+                  <Form.Item label={t('tools_modal_header')} className="mb-2">
                     <Input
-                      placeholder="请输入Header"
+                      placeholder={t('tools_modal_input_header')}
                       value={(() => {
                         try {
                           return JSON.parse(mcp.value || "{}").headers || "";
@@ -229,11 +231,9 @@ function ToolsModal({
                       }}
                     />
                   </Form.Item>
-                  <Form.Item label="服务" className="mb-0">
+                  <Form.Item label={t('tools_modal_service')} className="mb-0">
                     <Input
-                      placeholder="请输入MCP服务链接"
-                      // value={mcp.mcp_servers || JSON.parse(mcp.value || '{}').mcp_servers}
-                      // onChange={(e) => updateMcp(index, 'mcp_servers', e.target.value)}
+                      placeholder={t('tools_modal_input_mcp_service')}
                       value={(() => {
                         try {
                           return (
@@ -265,7 +265,7 @@ function ToolsModal({
               icon={<PlusOutlined />}
               className="w-full h-10 border-gray-300 hover:border-blue-400 hover:text-blue-400"
             >
-              添加 MCP 配置
+              {t('tools_modal_add_mcp')}
             </Button>
           </div>
         )}
