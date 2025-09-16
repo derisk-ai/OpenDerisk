@@ -10,26 +10,22 @@ import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useRequest } from 'ahooks';
 import { Button, Card, Form, Input, Select, Spin, App } from 'antd';
 import classNames from 'classnames';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-
+import { useSearchParams } from 'next/navigation';
 import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../index.css';
 
-const titleOption = [
-  {
-    label: t('mcp_tools'),
-    value: 'Tools',
-  },
-];
-
 export default function MpcDetail() {
-  const router = useRouter();
-  const params = useParams() as { id: string; name: string };
   const searchParams = useSearchParams();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const titleOption = [
+    {
+      label: t('mcp_tools'),
+      value: 'Tools',
+    },
+  ];
   const [alignment, setAlignment] = useState<string | null>('Tools');
   const [requestType, setRequestType] = useState<string>('HTTP');
   const [mcpInfo, setMcpInfo] = useState<any>({});
@@ -374,4 +370,5 @@ export default function MpcDetail() {
     </Spin>
   );
 };
+
 
