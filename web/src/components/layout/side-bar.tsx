@@ -190,7 +190,6 @@ const MenuItem: React.FC<{
 function SideBar() {
   const { isMenuExpand, setIsMenuExpand, mode, setMode, dialogueList } = useContext(ChatContext);
   const pathname = usePathname();
-  const router = useRouter();
   const { t, i18n } = useTranslation();
   const [logo, setLogo] = useState<string>('/logo_zh_latest.png');
   const [appList, setAppList] = useState<IApp[]>([]);
@@ -259,11 +258,11 @@ function SideBar() {
   );
   // 暂时注释，后续完善中英文
   const handleChangeLang = useCallback(() => {
-    // const language = i18n.language === 'en' ? 'zh' : 'en';
-    // i18n.changeLanguage(language);
-    // if (language === 'zh') moment.locale('zh-cn');
-    // if (language === 'en') moment.locale('en');
-    // localStorage.setItem(STORAGE_LANG_KEY, language);
+    const language = i18n.language === 'en' ? 'zh' : 'en';
+    i18n.changeLanguage(language);
+    if (language === 'zh') moment.locale('zh-cn');
+    if (language === 'en') moment.locale('en');
+    localStorage.setItem(STORAGE_LANG_KEY, language);
   }, [i18n]);
   const settings = useMemo(() => {
     const items: SettingItem[] = [
@@ -324,7 +323,6 @@ function SideBar() {
         key: 'language',
         name: t('language'),
         icon: <GlobalOutlined />,
-        disable: true,
         items: [
           {
             key: 'en',
@@ -652,13 +650,13 @@ function SideBar() {
       {/* dialog */}
       <div className="text-base flex flex-row items-center font-medium text-sm py-1 px-2 border-t border-gray-300 dark:border-gray-700 mt-1">
         <ClockCircleOutlined className='mr-1 w-7 h-7' />
-         历史会话
+         {t('chat_history')}
       </div>
       
       {/* 筛选框 */}
       <div className='pb-1 px-3'>
         <Input.Search
-          placeholder="搜索会话..."
+          placeholder={t('search_session_placeholder')}
           value={searchValue}
           onChange={(e) => setSearchValue(e.target.value)}
           onSearch={handleSearch}
@@ -693,7 +691,7 @@ function SideBar() {
           ))
         ) : (
           <div className='px-8 text-gray-500 text-sm py-4'>
-            {searchValue ? '未找到匹配的会话' : '暂无历史会话'}
+            {searchValue ? t('no_matching_session') : t('no_history_session')}
           </div>
         )}
       </div>
@@ -708,7 +706,7 @@ function SideBar() {
         <div className='flex items-center justify-around pt-2 border-t border-dashed border-gray-200 dark:border-gray-700'>
           {settings.map(item => (
             <div key={item.key}>
-              <Popover content={item.disable ? `${item.name}敬请期待`: item.name}>
+              <Popover content={item.disable ? `${item.name}`: item.name}>
                 <div className={cls('flex-1 flex items-center justify-center cursor-pointer text-xl', { 'text-gray-400': item.disable })} onClick={item.onClick}>
                   {item.icon}
                 </div>

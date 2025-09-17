@@ -10,26 +10,22 @@ import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useRequest } from 'ahooks';
 import { Button, Card, Form, Input, Select, Spin, App } from 'antd';
 import classNames from 'classnames';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-
+import { useSearchParams } from 'next/navigation';
 import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../index.css';
 
-const titleOption = [
-  {
-    label: 'Tools',
-    value: 'Tools',
-  },
-];
-
 export default function MpcDetail() {
-  const router = useRouter();
-  const params = useParams() as { id: string; name: string };
   const searchParams = useSearchParams();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const titleOption = [
+    {
+      label: t('mcp_tools'),
+      value: 'Tools',
+    },
+  ];
   const [alignment, setAlignment] = useState<string | null>('Tools');
   const [requestType, setRequestType] = useState<string>('HTTP');
   const [mcpInfo, setMcpInfo] = useState<any>({});
@@ -307,8 +303,8 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex'>
-                  <div className='flex-1'>{t('parameter_name')}</div>
-                  <div className='flex-1'>{t('parameter_value')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_name')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_value')}</div>
                 </div>
               }
             >
@@ -337,7 +333,7 @@ export default function MpcDetail() {
 
                     <Form.Item>
                       <Button type='primary' htmlType='submit' className='w-full' onClick={onGoRun}>
-                        {t('trial_run')}
+                        {t('mcp_trial_run')}
                       </Button>
                     </Form.Item>
                   </Form>
@@ -348,7 +344,7 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex justify-between'>
-                  {t('run_results')}{' '}
+                  {t('mcp_run_results')}{' '}
                   <Button type='text' icon={<DiffOutlined className='text-[18px]' />} onClick={handleCopy} />
                 </div>
               }
@@ -374,4 +370,5 @@ export default function MpcDetail() {
     </Spin>
   );
 };
+
 

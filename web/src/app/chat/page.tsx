@@ -11,10 +11,12 @@ import { Flex, Layout, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
 import { ChatContentContext } from '@/contexts';
 import HomeChat from '@/components/chat/content/home-chat';
+import { useTranslation } from 'react-i18next';
 
 const { Content } = Layout;
 
 export default function Chat() {
+  const { t } = useTranslation();
 
   const searchParams = useSearchParams();
   const chatId = (searchParams?.get('conv_uid') || searchParams?.get('chatId')) ?? '';
