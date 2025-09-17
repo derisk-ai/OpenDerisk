@@ -23,23 +23,26 @@ const CustomUpload = ({ value, onChange }: IProps) => {
   };
 
   return (
-    <Upload
-      beforeUpload={() => false} // 阻止自动上传
-      onChange={handleChange}
-      showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
-      maxCount={1}
-      accept={'.png,.jpg,.jpeg,.gif'}
-      onRemove={() => {
-        onChange?.(null); // 移除图片时，清空 value
-      }}
-      className='customUploadBox'
-    >
-      <Button type='dashed' className='mb-2 w-full'>
-        {' '}
-        {t('upload_image')}
-      </Button>
-      {value && <img src={value} alt='preview' style={{ width: 100 }} />}
-    </Upload>
+    <div>
+      <div>{t('mcp_custom_upload_title')}</div>
+      <Upload
+        beforeUpload={() => false} // 阻止自动上传
+        onChange={handleChange}
+        showUploadList={{ showPreviewIcon: true, showRemoveIcon: true }}
+        maxCount={1}
+        accept={'.png,.jpg,.jpeg,.gif'}
+        onRemove={() => {
+          onChange?.(null); // 移除图片时，清空 value
+        }}
+        className='customUploadBox'
+      >
+        <Button type='dashed' className='mb-2 w-full'>
+          {' '}
+          {t('upload_image')}
+        </Button>
+        {value && <img src={value} alt='preview' style={{ width: 100 }} />}
+      </Upload>
+    </div>
   );
 };
 

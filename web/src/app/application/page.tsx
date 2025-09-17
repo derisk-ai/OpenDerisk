@@ -1,5 +1,9 @@
+'use client';
+import { useTranslation } from 'react-i18next';
+
 export default function Construct() {
+  const { t } = useTranslation();
   return (
-    <div>构建页面</div> 
+    <div>{t('application_construct_page')}</div> 
   )
 }

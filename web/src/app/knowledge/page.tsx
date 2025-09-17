@@ -32,12 +32,10 @@ import DocPanel from "@/components/knowledge/doc-panel";
 import classNames from "classnames";
 
 export default function Knowledge() {
-  const { setCurrentDialogInfo } = useContext(ChatContext);
   const [spaceList, setSpaceList] = useState<Array<ISpace> | null>([]);
   const [isAddShow, setIsAddShow] = useState<boolean>(false);
   const [isPanelShow, setIsPanelShow] = useState<boolean>(false);
   const [currentSpace, setCurrentSpace] = useState<ISpace>();
-
   const [activeStep, setActiveStep] = useState<number>(0);
   const [spaceName, setSpaceName] = useState<string>("");
   const [files, setFiles] = useState<Array<File>>([]);

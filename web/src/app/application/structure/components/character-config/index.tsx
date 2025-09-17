@@ -1,4 +1,3 @@
-import { updateApp } from '@/client/api';
 import PromptEditor from '@/components/PromptEditor';
 import { AppContext } from '@/contexts';
 import { CaretLeftOutlined } from '@ant-design/icons';
@@ -6,8 +5,10 @@ import { useDebounceFn, useRequest } from 'ahooks';
 import { Collapse } from 'antd';
 import { debounce } from 'lodash';
 import { useContext, useMemo, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 function CharacterConfig() {
+  const { t } = useTranslation();
   const { collapsed, setCollapsed, appInfo, refreshAppInfo, fetchUpdateApp } = useContext(AppContext);
 
   const { system_prompt_template = '', user_prompt_template = '' } = appInfo || {};
@@ -70,11 +71,11 @@ function CharacterConfig() {
 
   const items = [
     {
-      label: '系统提示词',
+      label: t('character_config_system_prompt'),
       children: <PromptEditor value={systemPrompt} onChange={handleSysPromptChange} />,
     },
     {
-      label: '用户提示词',
+      label: t('character_config_user_prompt'),
       children: <PromptEditor value={userPrompt} onChange={handleUserPromptChange} />,
     },
   ];
@@ -82,7 +83,7 @@ function CharacterConfig() {
   return (
     <div className='flex-1 border-r-1 p-4 relative border-r-[#D9D9D9] h-full flex flex-col'>
       <div className='p-4 pt-1'>
-        <h2 className='font-semibold text-[18px]'>提示词设定</h2>
+        <h2 className='font-semibold text-[18px]'>{t('character_config_title')}</h2>
       </div>
       <div className='[&_.ant-collapse-header-text]:font-bold overflow-y-auto flex-1'>
         <Collapse items={items} bordered={false} collapsible='header' defaultActiveKey={['0', '1']} />

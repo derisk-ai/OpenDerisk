@@ -127,6 +127,7 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
           </Form.Item>
         </Form>
       </Modal>
+      <div>{t('mcp_create_model_title')}</div>
     </>
   );
 };

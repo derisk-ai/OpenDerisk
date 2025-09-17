@@ -4,6 +4,7 @@ import { getResourceV2 } from "@/client/api";
 import { useRequest } from "ahooks";
 import { Select } from "antd";
 import { AppContext } from "@/contexts";
+import { useTranslation } from 'react-i18next';
 
 interface KnowledgeSelectModalProps {
   visible: boolean;
@@ -18,6 +19,7 @@ function KnowledgeSelectModal({
   form,
   onKnowledgeChange
 }: KnowledgeSelectModalProps) {
+  const { t } = useTranslation();
   const {
     data: knowledgeData,
     run: fetchKnowledgeData,
@@ -80,12 +82,12 @@ function KnowledgeSelectModal({
 
   return (
     <Modal
-      title="关联知识"
+      title={t('knowledge_modal_title')}
       open={visible}
       onCancel={onCancel}
       footer={[
         <Button key="cancel" onClick={onCancel}>
-          取消
+          {t('knowledge_modal_cancel')}
         </Button>,
         <Button
           key="submit"
@@ -94,7 +96,7 @@ function KnowledgeSelectModal({
             knowledgeChange(form.getFieldValue('knowledge'), knowledgeList);
           }}
         >
-          完成
+          {t('knowledge_modal_save')}
         </Button>,
       ]}
       width={600}
@@ -102,12 +104,12 @@ function KnowledgeSelectModal({
     >
       <div className="mt-[24px]">
         <Form layout="horizontal" className="flex flex-col gap-4" form={form}>
-          <Form.Item label="请选择知识库" name="knowledge">
+          <Form.Item label={t('knowledge_modal_select_knowledge')} name="knowledge">
             <Select
               mode="multiple"
               allowClear
               style={{ width: "100%" }}
-              placeholder="请选择知识库"
+              placeholder={t('knowledge_modal_select_knowledge_placeholder')}
               loading={loading}
               options={knowledgeList}
               optionFilterProp="label"

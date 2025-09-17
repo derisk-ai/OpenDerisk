@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 
 export default function ModelManage() {
   const { t } = useTranslation();
-  const { setCurrentDialogInfo, setModel } = useContext(ChatContext);
+  const { setModel } = useContext(ChatContext);
 
   const [models, setModels] = useState<Array<IModelData>>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -133,17 +133,17 @@ export default function ModelManage() {
             description={
               <div className='flex flex-col gap-1 relative text-xs bottom-4'>
                 <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>Host:</p>
+                  <p className='w-28 text-gray-500 mr-2'>{t('model_host')}</p>
                   <p className='flex-1 text-ellipsis'>{item.host}</p>
                 </div>
                 <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>Manage Host:</p>
+                  <p className='w-28 text-gray-500 mr-2'>{t('model_manage_host')}</p>
                   <p className='flex-1 text-ellipsis'>
                     {item.manager_host}:{item.manager_port}
                   </p>
                 </div>
                 <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>Last Heart Beat:</p>
+                  <p className='w-28 text-gray-500 mr-2'>{t('model_last_heartbeat')}</p>
                   <p className='flex-1 text-ellipsis'>{moment(item.last_heartbeat).format('YYYY-MM-DD HH:mm:ss')}</p>
                 </div>
               </div>
@@ -185,7 +185,7 @@ export default function ModelManage() {
             rightTopHover={false}
             Tags={
               <div>
-                <Tag color={item.healthy ? 'green' : 'red'}>{item.healthy ? 'Healthy' : 'Unhealthy'}</Tag>
+                <Tag color={item.healthy ? 'green' : 'red'}>{item.healthy ? t('model_healthy') : t('model_unhealthy')}</Tag>
                 <Tag>{item.worker_type}</Tag>
               </div>
             }

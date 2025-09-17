@@ -73,6 +73,8 @@
     "@types/react": "18",
     "@types/react-dom": "18",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@typescript-eslint/eslint-plugin": "^8.44.0",
+    "@typescript-eslint/parser": "^8.44.0",
     "eslint": "^9",
     "eslint-config-next": "15.4.2",
     "prettier": "^3.3.3",

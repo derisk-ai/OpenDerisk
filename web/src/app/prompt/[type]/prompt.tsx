@@ -378,7 +378,7 @@ const AddOrEditPrompt: React.FC = () => {
               router.replace('/prompt');
             }}
           />
-          <span className='font-medium text-sm'>{type === 'add' ? t('Add') : t('Edit')} Prompt</span>
+          <span className='font-medium text-sm'>{type === 'add' ? t('Add') : t('Edit')} {t('prompt_title')}</span>
         </Space>
         <Space>
           <Button type='primary' onClick={operateFn} loading={operateLoading}>
@@ -403,7 +403,7 @@ const AddOrEditPrompt: React.FC = () => {
                 <Card
                   title={
                   <Space>
-                    <span>LLM OUT</span>
+                    <span>{t('prompt_llm_out')}</span>
                     {errorMessage && <Alert message={errorMessage.msg} type={errorMessage.status} showIcon />}
                   </Space>
                   }
@@ -433,7 +433,7 @@ const AddOrEditPrompt: React.FC = () => {
             <Form form={topForm}>
               <div className='flex w-full gap-1 justify-between'>
                 <Form.Item
-                  label='Type'
+                  label={t('prompt_type')}
                   name='prompt_type'
                   className='w-2/5'
                   rules={[{ required: true, message: t('select_type') }]}
@@ -459,12 +459,12 @@ const AddOrEditPrompt: React.FC = () => {
                 </Form.Item>
               </div>
               {type === 'edit' && (
-                <Form.Item label='Code' name='prompt_code'>
+                <Form.Item label={t('prompt_code')} name='prompt_code'>
                   <Input disabled />
                 </Form.Item>
               )}
               <Form.Item
-                label='Name'
+                label={t('prompt_name')}
                 name='prompt_name'
                 className='m-0'
                 rules={[{ required: true, message: t('Please_input_prompt_name') }]}

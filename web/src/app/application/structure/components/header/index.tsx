@@ -5,8 +5,10 @@ import { useRequest } from 'ahooks';
 import { App, Dropdown, Modal } from 'antd';
 import { useRouter } from 'next/navigation';
 import { useContext, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 function Header() {
+  const { t } = useTranslation();
   const { modal } = App.useApp();
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const { appInfo, queryAppInfo, refreshAppInfo, fetchUpdateAppLoading, refreshAppInfoLoading, setAppInfo, refetchVersionData, versionData } = useContext(AppContext);
@@ -21,7 +23,7 @@ function Header() {
       manual: true,
       onSuccess: async () => {
         modal.success({
-          content: '应用发布成功',
+          content: t('header_publish_success'),
         });
         if (typeof refreshAppInfo === 'function') {
           await refreshAppInfo();
@@ -32,7 +34,7 @@ function Header() {
       },
       onError: () => {
         modal.error({
-          content: '应用发布失败，请稍后重试',
+          content: t('header_publish_failed'),
         });
       }
     },
@@ -125,14 +127,14 @@ function Header() {
         className='ant-btn  ant-btn-default ant-btn-color-default ant-btn-variant-outlined border-none text-white bg-button-gradient flex items-center cursor-pointer px-5 py-1 rounded hover:bg-button-hover transition-colors duration-200'
         onClick={() => setPublishModalOpen(true)}
       >
-        发布
+        {t('header_publish')}
       </button>
 
       <Modal
         title={
           <div className='flex gap-2'>
             <ExclamationCircleFilled style={{ color: '#faad14' }} />
-            发布应用
+            {t('header_publish_app')}
           </div>
         }
         open={publishModalOpen}
@@ -140,7 +142,7 @@ function Header() {
         okButtonProps={{ loading: refreshAppInfoLoading || fetchUpdateAppLoading || fetchPublishAppLoading }}
         onOk={handlePublishOk}
       >
-        <div className='pl-6'>确定要发布该应用吗？</div>
+        <div className='pl-6'>{t('header_publish_confirm')}</div>
       </Modal>
     </div>
   );
