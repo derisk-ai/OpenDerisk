@@ -168,5 +168,5 @@ The OpenDeRisk-AI community is dedicated to building AI-native risk intelligence
 Join our networking group on Dingding and share your experience with other developers!
 
 <div align="center" style="display: flex; gap: 20px;">
-    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="200" />
+    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
 </div>

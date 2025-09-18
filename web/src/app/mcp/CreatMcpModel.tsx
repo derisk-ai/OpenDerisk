@@ -1,11 +1,13 @@
 import { addMCP, apiInterceptors } from '@/client/api';
 import { PlusOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Button, Form, Input, Modal, message } from 'antd';
+import { Button, Form, Input, Modal, message, Select} from 'antd';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CustomUpload from './CustomUpload';
-interface CreatMpcModelProps {
+interface CreatMcpModelProps {
+  formData: any;
+  setFormData: (data: any) => void;
   onSuccess?: () => void;
 }
 
@@ -13,6 +15,8 @@ type FieldType = {
   name?: string;
   description?: string;
   type?: string;
+  sse_url?: string;
+  token?: string;
   email?: string;
   version?: string;
   author?: string;
@@ -20,12 +24,11 @@ type FieldType = {
   stdio_cmd?: string;
 };
 
-const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) => {
+const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) => {
   const { onSuccess } = props;
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form] = Form.useForm();
-
   const { loading, run: runAddMCP } = useRequest(
     async (params): Promise<any> => {
       return await apiInterceptors(addMCP(params));
@@ -63,10 +66,10 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
   return (
     <>
       <Button className='border-none text-white bg-button-gradient' icon={<PlusOutlined />} onClick={showModal}>
-        {t('create_MCP')}
+        {t('create_mcp')}
       </Button>
       <Modal
-        title={t('create_MCP')}
+        title={t('create_mcp')}
         closable={{ 'aria-label': 'Custom Close Button' }}
         open={isModalOpen}
         onOk={handleOk}
@@ -95,6 +98,23 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
             name='type'
             rules={[{ required: true, message: 'Please input your type!' }]}
           >
+            <Select>
+              <Select.Option value="http">http</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item<FieldType> 
+            label={t('mcp_url')}
+            name='sse_url'
+            rules={[{ required: true, message: 'Please input Mcp Url!' }]}
+          >
+            <Input />
+          </Form.Item>
+
+          <Form.Item<FieldType> 
+            label={t('mcp_token')}
+            name='token'
+          >  
             <Input />
           </Form.Item>
 
@@ -127,9 +147,8 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
           </Form.Item>
         </Form>
       </Modal>
-      <div>{t('mcp_create_model_title')}</div>
     </>
   );
 };
 
-export default CreatMpcModel;
+export default CreatMcpModel;
