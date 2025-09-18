@@ -5,7 +5,7 @@ import { Button, Form, Input, Modal, message } from 'antd';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CustomUpload from './CustomUpload';
-interface CreatMpcModelProps {
+interface CreatMcpModelProps {
   onSuccess?: () => void;
 }
 
@@ -20,7 +20,7 @@ type FieldType = {
   stdio_cmd?: string;
 };
 
-const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) => {
+const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) => {
   const { onSuccess } = props;
   const { t } = useTranslation();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -127,9 +127,8 @@ const CreatMpcModel: React.FC<CreatMpcModelProps> = (props: CreatMpcModelProps) 
           </Form.Item>
         </Form>
       </Modal>
-      <div>{t('mcp_create_model_title')}</div>
     </>
   );
 };
 
-export default CreatMpcModel;
+export default CreatMcpModel;

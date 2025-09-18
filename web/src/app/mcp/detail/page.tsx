@@ -1,6 +1,6 @@
 "use client"
 import { ChatContext } from '@/contexts';
-import { apiInterceptors, getMPCListQuery, mcpToolList, mcpToolRun } from '@/client/api';
+import { apiInterceptors, getMCPListQuery, mcpToolList, mcpToolRun } from '@/client/api';
 import { DiffOutlined, RedoOutlined } from '@ant-design/icons';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
@@ -15,7 +15,7 @@ import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../index.css';
 
-export default function MpcDetail() {
+export default function McpDetail() {
   const searchParams = useSearchParams();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
@@ -76,7 +76,7 @@ export default function MpcDetail() {
         return Promise.reject('Missing name parameter');
       }
       return await apiInterceptors(
-        getMPCListQuery({
+        getMCPListQuery({
           name: queryParams.name,
         }),
       );

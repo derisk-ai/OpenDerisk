@@ -153,5 +153,5 @@ OpenDeRisk-AI 社区致力于构建 AI 原生的风险智能系统。🛡️ 我
 加入钉钉群, 与我们一起交流讨论。 
 
 <div align="center" style="display: flex; gap: 20px;">
-    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="200" />
+    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
 </div>

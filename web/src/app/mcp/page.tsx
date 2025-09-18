@@ -1,5 +1,5 @@
 "use client"
-import { apiInterceptors, getMPCList, offlineMCP, startMCP } from '@/client/api';
+import { apiInterceptors, getMCPList, offlineMCP, startMCP } from '@/client/api';
 import { InnerDropdown } from '@/components/blurred-card';
 import { FolderOpenFilled } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
@@ -7,9 +7,9 @@ import { Form, Pagination, PaginationProps, Result, Spin, Tooltip, message } fro
 import { useRouter } from 'next/navigation';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import CreatMpcModel from './CreatMpcModel';
+import CreatMcpModel from './CreatMcpModel';
 
-const Mpc: React.FC = () => {
+const Mcp: React.FC = () => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
 
@@ -25,7 +25,7 @@ const Mpc: React.FC = () => {
 
   const router = useRouter();
 
-  const { loading, run: runGetMPCList } = useRequest(
+  const { loading, run: runGetMCPList } = useRequest(
     async (
       params = {
         filter: '',
@@ -35,7 +35,7 @@ const Mpc: React.FC = () => {
         page_size: 20,
       },
     ): Promise<any> => {
-      return await apiInterceptors(getMPCList(params, other));
+      return await apiInterceptors(getMCPList(params, other));
     },
     {
       manual: false,
@@ -57,7 +57,7 @@ const Mpc: React.FC = () => {
         const [, , res] = data;
         if (res?.success) {
           message.success(t('start_mcp_success'));
-          runGetMPCList(queryParams, paginationParams);
+          runGetMCPList(queryParams, paginationParams);
         }
       },
       throttleWait: 300,
@@ -74,7 +74,7 @@ const Mpc: React.FC = () => {
         const [, , res] = data;
         if (res?.success) {
           message.success(t('stop_mcp_success'));
-          runGetMPCList(queryParams, paginationParams);
+          runGetMCPList(queryParams, paginationParams);
         }
       },
       throttleWait: 300,
@@ -86,7 +86,7 @@ const Mpc: React.FC = () => {
     onSearch();
   };
 
-  const goMpcDetail = (id: string, name: string) => {
+  const goMcpDetail = (id: string, name: string) => {
     return () => {
       router.push(`/mcp/detail/?id=${id}&name=${name}`);
     };
@@ -95,7 +95,7 @@ const Mpc: React.FC = () => {
     setPaginationParams(pre => ({ ...pre, page: current, page_size: pageSize }));
 
     form?.validateFields().then(values => {
-      runGetMPCList(values, { page: current, page_size: pageSize });
+      runGetMCPList(values, { page: current, page_size: pageSize });
     });
   };
 
@@ -114,7 +114,7 @@ const Mpc: React.FC = () => {
   };
 
   const onSearch = () => {
-    runGetMPCList(queryParams, paginationParams);
+    runGetMCPList(queryParams, paginationParams);
   };
 
   return (
@@ -173,7 +173,7 @@ const Mpc: React.FC = () => {
           <div className='container mx-auto px-4 md:px-6 '>
             {/* top */}
             <div className='flex items-center gap-4 justify-end'>
-              <CreatMpcModel onSuccess={() => runGetMPCList(queryParams, paginationParams)}></CreatMpcModel>
+              <CreatMcpModel onSuccess={() => runGetMCPList(queryParams, paginationParams)}></CreatMcpModel>
             </div>
             <div className='flex flex-col md:flex-row md:items-center justify-between mb-6'>
               <div>
@@ -190,7 +190,7 @@ const Mpc: React.FC = () => {
                     <div
                       key={index}
                       className='backdrop-filter backdrop-blur-lg cursor-pointer bg-white bg-opacity-70 border-white rounded-lg shadow p-4 relative w-full h-full dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60 hover:shadow-md transition-all border overflow-hidden'
-                      onClick={goMpcDetail(item?.mcp_code, item?.name)}
+                      onClick={goMcpDetail(item?.mcp_code, item?.name)}
                     >
                       <div className=' text-card-foreground  '>
                         <div className='p-4'>
@@ -318,4 +318,4 @@ const Mpc: React.FC = () => {
   );
 };
 
-export default memo(Mpc);
+export default memo(Mcp);
