@@ -234,6 +234,29 @@ async def call_mcp_tool(
     except Exception as e:
         raise ValueError(f"MCP服务{mcp_name}:{tool_name}工具调用异常!", e)
 
+async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] = None):
+    """
+    测试连接MCP服务, 并确认是否可以调用工具。
+    :param mcp_name: MCP服务名称
+    :param headers: 连接头
+    :return: True or False
+    """ 
+    try: 
+        logger.info(f"connect_mcp:{mcp_name},{headers}")
+    
+        tool_list = await get_mcp_tool_list(
+            mcp_name=mcp_name,
+            server=server,
+            headers=headers,
+            use_cache=False
+        )
+        if tool_list and tool_list.tools:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logger.error(f"connect_mcp error: {e}")
+        return False
 
 def get_im_token(cookie: str):
     if not cookie or cookie == "":
