@@ -446,7 +446,7 @@ export const getMCPListQuery = (data: Record<string, string>) => {
 
 /** MCP Creat*/
 export const addMCP = (data: Record<string, string>) => {
-  return POST<Record<string, string>, []>('/api/v1/serve/mcp/', data);
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/create', data);
 };
 
 /** MCP Start*/
@@ -462,6 +462,11 @@ export const offlineMCP = (data: Record<string, string>) => {
 /** MCP tool run*/
 export const mcpToolRun = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/tool/run', data);
+};
+
+/** MCP delete */
+export const deleteMCP = (data: Record<string, string>) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/delete', data);
 };
 
 /** MCP tool list*/
