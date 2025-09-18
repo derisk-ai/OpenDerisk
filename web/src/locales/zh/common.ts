@@ -431,7 +431,7 @@ export const CommonZh: Resources['translation'] = {
   base_config_title: '基础配置',
   base_config_save_success: '保存成功',
   base_config_save_failed: '保存失败',
-  base_config_agent: '代理',
+  base_config_agent: '智能体',
   base_config_knowledge: '知识库',
   base_config_tools: '工具',
   base_config_config: '配置',
