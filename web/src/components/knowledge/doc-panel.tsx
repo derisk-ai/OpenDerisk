@@ -345,7 +345,7 @@ export default function DocPanel(props: IProps) {
                                         <Space
                                           onClick={() => {
                                             router.push(
-                                              `/construct/knowledge/chunk/?spaceName=${space.name}&id=${document.id}`
+                                              `/knowledge/chunk/?spaceName=${space.name}&id=${document.id}`
                                             );
                                           }}
                                         >
