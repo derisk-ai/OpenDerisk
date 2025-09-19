@@ -11,6 +11,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import remarkMermaidPlugin from 'remark-mermaid-plugin';
 import { AutoChart, BackEndChartType, getChartType } from '../auto-chart';
 import AgentMessages from './agent-messages';
 import AgentPlans from './agent-plans';
@@ -293,10 +294,14 @@ export const codeComponents = {
       const content = String(children);
       const lang = className?.replace('language-', '') || '';
       const { context, matchValues } = matchCustomeTagValues(content);
+      const match = /language-(.+)/.exec(className || '');
+
+      // 优化逻辑：只对有 lang 且不是 mermaid 的代码块使用 CodePreview，否则原样渲染
+      const shouldUseCodePreview = lang && (!match || (match && match[1] !== 'mermaid'));
 
       return (
         <>
-          {lang ? (
+          {shouldUseCodePreview ? (
             <CodePreview code={context} language={lang || 'javascript'} />
           ) : (
             <code {...props} style={style} className='p-1 mx-1 rounded bg-theme-light dark:bg-theme-dark text-sm'>
@@ -306,7 +311,8 @@ export const codeComponents = {
           <GPTVis
             components={markdownComponents}
             rehypePlugins={[rehypeRaw, rehypeKatex]}
-            remarkPlugins={[remarkGfm, remarkMath]}
+            // @ts-ignore
+            remarkPlugins={[remarkGfm, remarkMath, remarkMermaidPlugin]}
           >
             {matchValues.join('\n')}
           </GPTVis>
@@ -498,7 +504,7 @@ export const markdownComponents = {
 };
 
 export const markdownPlugins = {
-  remarkPlugins: [remarkGfm, [remarkMath, { singleDollarTextMath: true }]],
+  remarkPlugins: [remarkGfm, [remarkMath, { singleDollarTextMath: true }], remarkMermaidPlugin],
   rehypePlugins: [rehypeRaw, [rehypeKatex, { output: 'htmlAndMathml' }]],
 };
 
