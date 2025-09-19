@@ -319,8 +319,6 @@ async def app_list(
     except Exception as ex:
         return Result.failed(err_code="E110005", msg=f"query app error: {ex}")
 
-
-
 @router.post("/remove", response_model=Result)
 async def delete(
         gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
@@ -333,10 +331,6 @@ async def delete(
     except Exception as ex:
         logger.exception("app remove exception!")
         return Result.failed(err_code="E110006", msg=f"delete app error: {ex}")
-
-
-
-
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     """Initialize the endpoints"""

@@ -39,6 +39,16 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### Packaging static files 
+```
+1. cd web
+
+2. yarn build
+
+3. cp -r out/*  ../packages/derisk-app/src/derisk_app/static/web/
+```
+
+
 ### Add New Vis Components
 
 To add a new visual component, follow these steps:
