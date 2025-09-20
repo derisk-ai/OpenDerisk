@@ -130,9 +130,12 @@ class TongYiEmbeddings(BaseModel, Embeddings):
                 raise RuntimeError(resp["message"])
 
             # 提取并排序嵌入
-            batch_embeddings = resp["output"]["embeddings"]
-            sorted_embeddings = sorted(batch_embeddings, key=lambda e: e["text_index"])
-            embeddings.extend([result["embedding"] for result in sorted_embeddings])
+            out_put = resp["output"]
+            if out_put:
+                batch_embeddings = out_put["embeddings"]
+                if batch_embeddings:
+                    sorted_embeddings = sorted(batch_embeddings, key=lambda e: e["text_index"])
+                    embeddings.extend([result["embedding"] for result in sorted_embeddings])
 
         return embeddings
 
