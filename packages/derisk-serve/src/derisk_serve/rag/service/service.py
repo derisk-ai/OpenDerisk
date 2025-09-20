@@ -1197,6 +1197,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                 rerank_score_threshold=request.score_threshold,
                 retrieve_mode=request.mode,
                 llm_model=request.summary_model,
+                rerank=request.enable_rerank,
                 rerank_model=request.rerank_model,
                 metadata_filters=request.metadata_filters,
                 tag_filters=request.tag_filters,

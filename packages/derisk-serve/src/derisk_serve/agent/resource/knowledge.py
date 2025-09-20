@@ -41,7 +41,7 @@ class KnowledgeSpaceLoadResourceParameters(RetrieverResourceParameters):
         default=True, metadata={"help": _("Knowledge enable summary")}
     )
     summary_model: Optional[str] = dataclasses.field(
-        default="aisudio/DeepSeek-V3", metadata={"help": _("Knowledge summary model")}
+        default="deepseek-v3", metadata={"help": _("Knowledge summary model")}
     )
     summary_prompt: Optional[str] = dataclasses.field(
         default="你是一个内容总结专家，请根据query对检索到的文档进行总结，要求总结的内容和query是相关的。1.如果已知信息包含的图片、链接、表格、代码块等特殊markdown标签格式的信息，确保在答案中包含原文这些图片、链接、表格和代码标签，不要丢弃不要修改，如:图片格式：![image.png](xxx),链接格式:[xxx](xxx),表格格式:|xxx|xxx|xxx|,代码格式:```xxx```.2.如果无法从提供的内容中获取答案,请说:知识库中提供的内容不足以回答此问题 禁止胡乱编造.3.回答的时候最好按照1.2.3.点进行总结,并以markdwon格式显示.",

@@ -169,13 +169,18 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                 references=results,
                 raw_query=raw_query,
             )
+        else:
+            ## 非rerank模式下的出来
+            sub_queries = {}
+            sub_queries[query] = raw_query
+
         documents = []
         for chunks in list(query_to_candidates_map.values()):
             documents.extend([chunk for chunk in chunks])
         return KnowledgeSearchResponse(
             document_response_list=deduplicate_documents(documents),
             sub_queries=sub_queries,
-            references=[],
+            references={},
             raw_query=raw_query,
         )
 
