@@ -292,8 +292,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         knowledge_id = str(uuid.uuid4())
         request.knowledge_id = knowledge_id
-        request.gmt_created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        request.gmt_modified = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         self._dao.create(request)
 
         if request.create_yuque and request.create_yuque.enable_create_yuque:

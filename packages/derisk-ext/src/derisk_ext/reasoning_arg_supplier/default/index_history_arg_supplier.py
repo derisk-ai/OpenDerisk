@@ -16,9 +16,9 @@ _DESCRIPTION = "自定义参数引擎: index_history"
 _SEPARATOR = "\n\n--------------\n\n"
 
 MODEL_CONTEXT_LENGTH = {
-    "aistudio/DeepSeek-V3": 64000,
-    "aistudio/DeepSeek-R1": 64000,
-    "aistudio/QwQ-32B": 64000,
+    "deepseek-v3": 64000,
+    "deepseek-r1": 64000,
+    "QwQ-32B": 64000,
 }
 
 

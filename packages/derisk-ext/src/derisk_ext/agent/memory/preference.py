@@ -531,7 +531,7 @@ class PreferenceMemory(LongTermMemory):
             discard_strategy: str = DiscardStrategy.FIFO.value,
             llm_token_limit: int = 8192,
             similarity_threshold: float = 0.0,
-            condense_model: str = "aistudio/DeepSeek-V3",
+            condense_model: str = "deepseek-v3",
             condense_prompt: Optional[str] = None,
     ):
         """Discard memories based on the discard strategy."""

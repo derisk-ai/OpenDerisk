@@ -180,8 +180,8 @@ class KnowledgeFactory:
                 from dbgpt.rag.knowledge.factory import KnowledgeFactory
 
                 url_knowlege = KnowledgeFactory.create(
-                    datasource="",
-                    doc_token="",
+                    datasource="https://lark.alipay.com/dblore/ob/tru6wgawdwxlc9gg",
+                    doc_token="***",
                     knowledge_type=KnowledgeType.YUQUEURL,
                 )
         """

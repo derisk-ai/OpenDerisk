@@ -284,7 +284,7 @@ class KnowledgeSearchRequest(BaseModel):
     enable_rerank: Optional[bool] = True
     enable_summary: Optional[bool] = True
     enable_tag_filter: Optional[bool] = True
-    summary_model: Optional[str] = "aistudio/DeepSeek-V3"
+    summary_model: Optional[str] = "deepseek-v3"
     rerank_model: Optional[str] = "bge-reranker-v2-m3"
     summary_prompt: Optional[
         str

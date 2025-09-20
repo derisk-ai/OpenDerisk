@@ -19,9 +19,9 @@ _NAME = MEMORY_HISTORY_ARG_SUPPLIER_NAME
 _DESCRIPTION = "记忆参数引擎: memory"
 
 MODEL_CONTEXT_LENGTH = {
-    "aistudio/DeepSeek-V3": 64000,
-    "aistudio/DeepSeek-R1": 64000,
-    "aistudio/QwQ-32B": 64000,
+    "deepseek-v3": 64000,
+    "deepSeek-r1": 64000,
+    "QwQ-32B": 64000,
 }
 
 logger = logging.getLogger(__name__)

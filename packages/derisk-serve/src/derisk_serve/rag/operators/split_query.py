@@ -25,7 +25,7 @@ class SplitQueryOperator(MapOperator[IN, OUT]):
             prompt (Optional[str]): The prompt template. Defaults to None.
         """
         self._llm_client = llm_client
-        self._model_name = model_name or "deepseek_v3"
+        self._model_name = model_name or "deepseek-v3"
         self._prompt = prompt
         super().__init__(**kwargs)
 
