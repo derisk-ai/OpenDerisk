@@ -10,6 +10,8 @@ from derisk.agent import AWELTeamContext, AgentResource
 from derisk.agent.core.plan.base import SingleAgentContext, TeamContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.schema import DynamicParam
+from derisk.context.utils import build_by_agent_config
+from derisk.context.operator import GroupedConfigItem
 from derisk.storage.metadata import BaseDao, Model
 from derisk.storage.metadata._base_dao import REQ, RES
 from derisk.vis.vis_manage import get_vis_manager
@@ -59,6 +61,7 @@ class ServeEntity(Model):
     resource_knowledge = Column(String(2000), nullable=True, comment="当前版本配置的知识配置")
     resource_tool = Column(String(2000), nullable=True, comment="当前版本配置的工具配置")
     resource_agent = Column(String(2000), nullable=True, comment="当前版本配置的agent配置")
+    context_config = Column(String(2000), nullable=True, comment="上下文工程配置")
 
     gmt_create = Column(DateTime, default=datetime.now, comment="Record creation time")
     gmt_modified = Column(DateTime, default=datetime.now, comment="Record update time")
@@ -76,7 +79,7 @@ class ServeEntity(Model):
 
 
 def _load_team_context(
-        team_mode: str , team_context: Optional[str] = None
+        team_mode: str, team_context: Optional[Union[str, dict]] = None
 ) -> Optional[Union[
     str, AWELTeamContext, SingleAgentContext, NativeTeamContext, AutoTeamContext
 ]]:
@@ -156,6 +159,17 @@ def _load_variable(custom_variables: Optional[str] = None):
     else:
         return None
 
+def _load_context_config(context_config: str):
+    reference = None
+    if context_config:
+        try:
+            context_dict = json.loads(context_config)
+            reference =  GroupedConfigItem.model_validate(context_dict)
+        except Exception as e:
+            logger.exception(f"_load_context_config except: f{repr(e)}")
+            # raise
+
+    return build_by_agent_config(reference)
 
 class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
     """The DAO class for App"""
@@ -206,6 +220,8 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
 
             "system_prompt_template": request.system_prompt_template,
             "user_prompt_template": request.user_prompt_template,
+            "context_config": json.dumps(request.context_config.to_dict(),
+                                         ensure_ascii=False) if request.context_config else None,
         }
 
     def to_db_dict(self, request:ServeRequest):
@@ -272,6 +288,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             resource_knowledge=_load_resource(entity.resource_knowledge),
             resource_tool=_load_resource(entity.resource_tool),
             resource_agent=_load_resource(entity.resource_agent),
+            context_config=_load_context_config(entity.context_config),
             gmt_create=gmt_created_str,
             gmt_modified=gmt_modified_str,
         )

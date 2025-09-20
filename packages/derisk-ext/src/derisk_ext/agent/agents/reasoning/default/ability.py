@@ -5,9 +5,10 @@ from typing import cast, Union, get_args, Any, Optional, Type
 from derisk.agent import ConversableAgent
 from derisk.agent.core.agent import ContextEngineeringKey
 from derisk.agent.resource import FunctionTool
+from derisk.agent.resource.workflow import WorkflowResource
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
 
-AbilityType = Union[FunctionTool, ConversableAgent, KnowledgePackSearchResource]
+AbilityType = Union[FunctionTool, ConversableAgent, KnowledgePackSearchResource, WorkflowResource]
 
 
 def valid_ability_types() -> tuple[Any, ...]:
@@ -90,6 +91,29 @@ class Ability:
                     "name": "knowledge_ids",
                     "type": "Array",
                     "description": "需要检索相关知识库id列表,['id1','id2'], 如果都不涉及返回[]",
+                    "required": True,
+                },
+                {
+                    "name": "func",
+                    "type": "string",
+                    "description": "检索函数名, 默认为search, 如果是语义搜索知识,search；"
+                                   "如果是读取文档大纲，func为doc_ls；"
+                                   "如果是查询整个知识库目录, func为ls",
+                    "required": True,
+                },
+                {
+                    "name": "doc_uuids",
+                    "type": "Array",
+                    "description": "需要检索相关文档uuid列表, ['uuid1','uuid2'], 如果都不涉及返回[]; "
+                                   "如果func是doc_ls和read, 则doc_uuids为最相关的文档uuid列表；"
+                                   "如果func是search和ls, 则doc_uuids=[]",
+                    "required": True,
+                },
+                {
+                    "name": "header",
+                    "type": "string",
+                    "description": "具体文档大纲标题, 如果func是read, 则header为最相关的文档大纲标题；"
+                                   "如果func是search和ls, 则header=''",
                     "required": True,
                 },
             ]

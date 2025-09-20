@@ -23,7 +23,7 @@ class ReportAssistantAgent(ConversableAgent):
             key="derisk_agent_reporter_agent_profile_name",
         ),
         role=DynConfig(
-            "ReportExpert",
+            "Report Expert",
             category="agent",
             key="derisk_agent_reporter_agent_profile_role",
         ),

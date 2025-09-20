@@ -15,6 +15,7 @@ class KnowledgeTaskEntity(Model):
     task_id = Column(String(100))
     knowledge_id = Column(String(100))
     doc_id = Column(String(100))
+    doc_action = Column(String(100))
     doc_type = Column(String(100))
     doc_content = Column(String(100))
     yuque_token = Column(String(100))
@@ -36,7 +37,7 @@ class KnowledgeTaskEntity(Model):
     def __repr__(self):
         return (
             f"KnowledgeTaskEntity(id={self.id}, task_id='{self.task_id}', "
-            f"doc_id='{self.doc_id}', knowledge_id='{self.knowledge_id}', doc_type='{self.doc_type}', "
+            f"doc_id='{self.doc_id}', knowledge_id='{self.knowledge_id}', doc_type='{self.doc_type}', doc_action='{self.doc_action}', "
             f"doc_content='{self.doc_content}', yuque_token='{self.yuque_token}', group_login='{self.group_login}',"
             f"book_slug='{self.book_slug}', yuque_doc_id='{self.yuque_doc_id}', chunk_parameters='{self.chunk_parameters}',  "
             f"status='{self.status}', owner='{self.owner}', batch_id='{self.batch_id}', retry_times='{self.retry_times}', "
@@ -51,6 +52,7 @@ class KnowledgeTaskEntity(Model):
             "knowledge_id": self.knowledge_id,
             "doc_id": self.doc_id,
             "doc_type": self.doc_type,
+            "doc_action": self.doc_action,
             "doc_content": self.doc_content,
             "yuque_token": self.yuque_token,
             "group_login": self.group_login,
@@ -85,6 +87,7 @@ class KnowledgeTaskDao(BaseDao):
                         knowledge_id=task.knowledge_id,
                         doc_id=task.doc_id,
                         doc_type=task.doc_type,
+                        doc_action=task.doc_action,
                         doc_content=task.doc_content,
                         yuque_token=task.yuque_token,
                         group_login=task.group_login,

@@ -15,6 +15,7 @@ SERVE_APP_NAME_HUMP = "derisk_rag"
 SERVE_CONFIG_KEY_PREFIX = "derisk_rag"
 SERVE_SERVICE_COMPONENT_NAME = f"{SERVE_APP_NAME}_service"
 SERVE_GRAPH_SERVICE_COMPONENT_NAME = f"{SERVE_APP_NAME}_graph_service"
+SERVE_YUQUE_SERVICE_COMPONENT_NAME = f"{SERVE_APP_NAME}_yuque_service"
 
 
 @auto_register_resource(

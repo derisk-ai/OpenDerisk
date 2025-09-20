@@ -1,5 +1,4 @@
 import json
-from typing import Tuple, List, Optional, Dict
 
 from derisk.agent import AgentMessage, AgentContext
 from derisk.agent.core.reasoning.reasoning_engine import REASONING_LOGGER as LOGGER
@@ -52,8 +51,8 @@ _PROMPT_TEMPLATE = """
 ## 历史记录分析
 
 ### 已执行动作追踪（按时间排序）
-{% if history %}
-{{history}}
+{% if memory %}
+{{memory}}
 {% else %}
 无已执行动作记录
 {% endif %}
@@ -159,15 +158,19 @@ class SummaryReasoningEngine(DefaultReasoningEngine):
             res_thinking, res_content, model_name = None, None, None
             try:
                 # llm invoke
-                res_thinking, res_content, model_name = await agent.thinking(
+                out = await agent.thinking_inner(
                     messages, reply_message_id=current_step_message.message_id, received_message=current_step_message
                 )
+                res_thinking = out.thinking_content
+                res_content = out.content
+                model_name = out.llm_name
                 LOGGER.info(f"[ENGINE][{self.name}]res_thinking: [{res_thinking}]")
                 LOGGER.info(f"[ENGINE][{self.name}]res_content: [{res_content}]")
                 LOGGER.info(f"[ENGINE][{self.name}]model_name: [{model_name}]")
 
                 engine_output.model_thinking = res_thinking
                 engine_output.model_content = res_content
+                engine_output.model_metrics = out.metrics
                 engine_output.model_name = model_name
                 span.metadata["res_thinking"] = res_thinking
                 span.metadata["res_content"] = res_content

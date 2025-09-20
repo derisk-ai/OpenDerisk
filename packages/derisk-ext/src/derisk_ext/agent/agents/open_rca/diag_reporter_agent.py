@@ -123,7 +123,7 @@ class DiagRportAssistantAgent(ReportAssistantAgent):
             key="derisive_agent_expand_diag_reporter_agent_profile_name",
         ),
         role=DynConfig(
-            "Reporter",
+            "DiagReporter",
             category="agent",
             key="derisk_agent_expand_diag_reporter_agent_profile_role",
         ),

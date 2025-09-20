@@ -66,6 +66,24 @@ class AppDetailServeEntity(Model):
             f"gmt_modified='{self.updated_at}')"
         )
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "app_code": self.app_code,
+            "app_name": self.app_name,
+            "type": self.type,
+            "agent_name": self.agent_name,
+            "agent_role": self.agent_role,
+            "agent_describe": self.agent_describe,
+            "node_id": self.node_id,
+            "resources": AgentResource.from_json_list_str(self.resources),
+            "prompt_template": self.prompt_template,
+            "llm_strategy": self.llm_strategy,
+            "llm_strategy_value": self.llm_strategy_value,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
 
 class AppDetailServeDao(BaseDao[AppDetailServeEntity, AppDetailServeRequest, AppDetailServerResponse]):
     """The DAO class for App"""

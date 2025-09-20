@@ -145,6 +145,42 @@ class LocalWorkerManager(WorkerManager):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, func, *args)
 
+
+    async def load_model_storage(self):
+        try:
+            logger.info("There has model storage, start the model from storage")
+            startup_reqs = await self.run_blocking_func(
+                self.model_storage.all_models
+            )
+            for startup_req in startup_reqs:
+                try:
+                    need_load = True
+                    model_key = self._worker_key(startup_req.worker_type, startup_req.model)
+                    work = self.workers.get(model_key)
+                    if work:
+                        logger.info(f"{model_key} worker instances is exist！")
+                        need_load = False
+                        run_datas: List[WorkerRunData] =self.workers[model_key]
+                        # 如果模型已经加载除非api_key变化其他修改不进行热加载
+                        if hasattr( run_datas[0].model_params, "api_key"):
+                            if startup_req.params.get('api_key') != run_datas[0].model_params.api_key:
+                                logger.info(f"{model_key} api_key change， need restart！")
+                                need_load = True
+
+                    if need_load:
+                        # Update host and port
+                        startup_req.host = self.host
+                        startup_req.port = self.port
+                        logger.info(f"Start model {model_key} from storage")
+                        await self.model_startup(startup_req)
+                        logger.info(f"Start model {model_key} successfully")
+                except Exception as e:
+                    logger.warning(
+                        f"Start model {startup_req.model} error: {str(e)}"
+                    )
+        except Exception as e:
+            logger.warning(f"Load model storage error: {str(e)}")
+
     async def start(self):
         if len(self.workers) > 0:
             out = await self._start_all_worker(apply_req=None)
@@ -153,29 +189,27 @@ class LocalWorkerManager(WorkerManager):
         if self.register_func:
             await self.register_func(self.run_data)
         if self.send_heartbeat_func:
-            asyncio.create_task(
-                _async_heartbeat_sender(self.run_data, 20, self.send_heartbeat_func)
-            )
+            asyncio.create_task(_async_heartbeat_sender(self.run_data, 20, self.send_heartbeat_func))
         if self.model_storage:
-            try:
-                logger.info("There has model storage, start the model from storage")
-                startup_reqs = await self.run_blocking_func(
-                    self.model_storage.all_models
-                )
-                for startup_req in startup_reqs:
-                    try:
-                        # Update host and port
-                        startup_req.host = self.host
-                        startup_req.port = self.port
-                        logger.info(f"Start model {startup_req.model} from storage")
-                        await self.model_startup(startup_req)
-                        logger.info(f"Start model {startup_req.model} successfully")
-                    except Exception as e:
-                        logger.warning(
-                            f"Start model {startup_req.model} error: {str(e)}"
-                        )
-            except Exception as e:
-                logger.warning(f"Load model storage error: {str(e)}")
+            # 存储任务引用以便后续取消
+            self._periodic_task = None
+            async def periodic_task():
+                try:
+                    # 立即执行一次
+                    await self.load_model_storage()
+                    # 每30秒执行一次
+                    while True:
+                        await asyncio.sleep(30)
+                        await self.load_model_storage()
+                except asyncio.CancelledError:
+                    # 任务被取消
+                    pass
+                except Exception as e:
+                    print(f"Periodic task failed: {e}")
+                    # 可以选择重新启动任务或记录错误
+            # 启动任务
+            self._periodic_task = asyncio.create_task(periodic_task())
+
         for listener in self.start_listeners:
             if asyncio.iscoroutinefunction(listener):
                 await listener(self)

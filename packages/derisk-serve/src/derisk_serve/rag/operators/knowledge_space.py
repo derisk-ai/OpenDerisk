@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from abc import ABC
 from typing import List, Optional, Any
 
@@ -26,7 +27,7 @@ from derisk.util.function_utils import rearrange_args_by_type
 from derisk.util.i18n_utils import _
 from derisk_serve.rag.api.schemas import KnowledgeSearchResponse, DocumentSearchResponse
 from derisk_serve.rag.retriever.knowledge_space import KnowledgeSpaceRetriever
-
+logger = logging.getLogger(__name__)
 
 class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
     """knowledge space retriever operator."""
@@ -94,6 +95,8 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
         if not sub_queries:
             sub_queries = [raw_query]
         for knowledge_id in self._knowledge_ids:
+            import time
+            start = time.time()
             space_retriever = KnowledgeSpaceRetriever(
                 space_id=knowledge_id,
                 top_k=self._single_knowledge_top_k,
@@ -131,7 +134,8 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                         query_to_candidates_map[query] = [chunk]
                     else:
                         query_to_candidates_map[query].append(chunk)
-
+        logger.info(f"Knowledge {self._knowledge_ids} retrieval completed. "
+                     f"Found {len(query_to_candidates_map)} candidates. Time: {time.time() - start}")
         if self._rerank:
             if self._rerank_model:
                 rerank_embeddings = RerankEmbeddingFactory.get_instance(
@@ -153,7 +157,8 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                         for candidate in rerank_candidates_map[q]
                         if candidate.score >= self._score_threshold
                     ]
-
+            logger.info(f"Knowledge {self._knowledge_ids} rerank completed. "
+                        f"Found {len(query_to_candidates_map)} candidates. Time: {time.time() - start}")
             results = {}
             for q, rerank_candidates in rerank_candidates_map.items():
                 results[q] = [candidate.to_dict() for candidate in rerank_candidates]
@@ -169,18 +174,13 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
                 references=results,
                 raw_query=raw_query,
             )
-        else:
-            ## 非rerank模式下的出来
-            sub_queries = {}
-            sub_queries[query] = raw_query
-
         documents = []
         for chunks in list(query_to_candidates_map.values()):
             documents.extend([chunk for chunk in chunks])
         return KnowledgeSearchResponse(
             document_response_list=deduplicate_documents(documents),
             sub_queries=sub_queries,
-            references={},
+            references=[],
             raw_query=raw_query,
         )
 

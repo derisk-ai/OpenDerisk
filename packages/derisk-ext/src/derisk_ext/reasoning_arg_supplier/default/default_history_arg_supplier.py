@@ -17,9 +17,9 @@ _NAME = "DEFAULT_HISTORY_ARG_SUPPLIER"
 _DESCRIPTION = "默认参数引擎: history"
 
 MODEL_CONTEXT_LENGTH = {
-    "DeepSeek-V3": 64000,
-    "DeepSeek-R1": 64000,
-    "QwQ-32B": 64000,
+    "aistudio/DeepSeek-V3": 64000,
+    "aistudio/DeepSeek-R1": 64000,
+    "aistudio/QwQ-32B": 64000,
 }
 
 

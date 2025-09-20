@@ -216,7 +216,7 @@ class IndexStoreBase(ABC):
         topk: int,
         score_threshold: float,
         filters: Optional[MetadataFilters] = None,
-        # consistent_search: Optional[bool] = False,
+        consistent_search: Optional[bool] = False,
     ) -> List[Chunk]:
         """Async similar_search_with_score in vector database."""
         return await blocking_func_to_async_no_executor(
@@ -225,7 +225,7 @@ class IndexStoreBase(ABC):
             topk,
             score_threshold,
             filters,
-            # consistent_search
+            consistent_search,
         )
 
     def full_text_search(
