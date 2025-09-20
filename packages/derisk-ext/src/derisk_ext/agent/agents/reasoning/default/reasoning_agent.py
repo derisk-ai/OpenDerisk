@@ -701,12 +701,12 @@ class ReasoningAgent(ManagerAgent):
         result = []
         ## 总结助手排除
         summary_agent = self._find_summary_agent()
-
+        summary_agent_name = summary_agent.name if summary_agent else ""
         result.extend(
             [
                 ability
                 for agent in self.agents
-                if (ability := Ability.by(agent)) and agent.name != self.name and agent.name != summary_agent.name
+                if (ability := Ability.by(agent)) and agent.name != self.name and agent.name != summary_agent_name
             ]
         )
         result.extend(
