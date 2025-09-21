@@ -82,9 +82,10 @@ class ResourceParameters(BaseParameters):
         cls,
         parameters: Type["ResourceParameters"],
         version: Optional[str] = None,
+        cache_enable: bool = True
     ) -> Any:
         """Convert the parameters to configurations."""
-        desc_list = _get_parameter_descriptions(parameters)
+        desc_list = _get_parameter_descriptions(parameters, cache_enable = cache_enable)
         for desc in desc_list:
             if desc.param_name == "name" and not desc.default_value:
                 desc.default_value = str(_DEFAULT_RESOURCE_NAME)
