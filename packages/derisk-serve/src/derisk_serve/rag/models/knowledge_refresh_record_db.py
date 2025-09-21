@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from derisk.storage.metadata import Model, BaseDao
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ class KnowledgeRefreshRecordEntity(Model):
     status = Column(String(100))
     operator = Column(String(100))
     error_msg = Column(String(100))
+    context = Column(Text)
     gmt_created = Column(DateTime, name="gmt_create")
     gmt_modified = Column(DateTime)
 
@@ -25,8 +26,8 @@ class KnowledgeRefreshRecordEntity(Model):
         return (
             f"KnowledgeRefreshRecordEntity(id={self.id}, refresh_id='{self.refresh_id}',"
             f"knowledge_id='{self.knowledge_id}', refresh_time='{self.refresh_time}', host='{self.host}',"
-            f"status='{self.status}', operator='{self.operator}', error_msg='{self.error_msg}'),"
-            f"gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
+            f"status='{self.status}', operator='{self.operator}', error_msg='{self.error_msg}'), "
+            f"context='{self.context}', gmt_created='{self.gmt_created}', gmt_modified='{self.gmt_modified}')"
         )
 
     def to_dict(self):
@@ -39,6 +40,7 @@ class KnowledgeRefreshRecordEntity(Model):
             "status": self.status,
             "operator": self.operator,
             "error_msg": self.error_msg,
+            "context": self.context,
             "gmt_created": self.gmt_created,
             "gmt_modified": self.gmt_modified,
         }
@@ -49,12 +51,9 @@ class KnowledgeRefreshRecordDao(BaseDao):
         self, records: List, batch_size: Optional[int] = 200
     ):
         session = self.get_raw_session()
-
         try:
             for i in range(0, len(records), batch_size):
-                # Slice the tasks list to get the current batch
                 batch = records[i : i + batch_size]
-
                 records = [
                     KnowledgeRefreshRecordEntity(
                         refresh_id=record.refresh_id,
@@ -64,26 +63,21 @@ class KnowledgeRefreshRecordDao(BaseDao):
                         status=record.status,
                         operator=record.operator,
                         error_msg=record.error_msg,
+                        context=record.context,
                         gmt_created=datetime.now(),
                         gmt_modified=datetime.now(),
                     )
                     for record in batch
                 ]
-
-                # Add current batch to the session
                 session.add_all(records)
-
-                # Commit the current batch
                 session.commit()
 
         except Exception as e:
-            # If there is an error, rollback the session
             session.rollback()
             logger.error(f"Error in create_knowledge_refresh_records: {str(e)}")
             raise
 
         finally:
-            # Always ensure the session is closed
             session.close()
 
     def get_knowledge_refresh_records(

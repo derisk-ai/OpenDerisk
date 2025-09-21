@@ -1,5 +1,5 @@
 """Long-term memory module."""
-
+import logging
 from concurrent.futures import Executor
 from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional
@@ -10,6 +10,7 @@ from derisk.storage.vector_store.base import VectorStoreBase
 from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters
 from derisk.util.annotations import immutable, mutable
 from derisk.util.executor_utils import blocking_func_to_async
+from derisk.util.string_utils import determine
 
 from .base import DiscardedMemoryFragments, Memory, T, WriteOperation
 
@@ -20,6 +21,14 @@ _METADATA_LAST_ACCESSED_AT = "last_accessed_at"
 _METADATA_SESSION_ID = "session_id"
 _METADAT_IMPORTANCE = "importance"
 
+COMP_RATE = {
+    "math": 1.2,
+    "code": 3.67,
+    "zh": 1.86,
+    "en": 2
+}
+
+logger = logging.getLogger(__name__)
 
 class LongTermRetriever(TimeWeightedEmbeddingRetriever):
     """Long-term retriever with persistence support."""
@@ -326,3 +335,26 @@ class LongTermMemory(Memory, Generic[T]):
         TODO: Implement this method.
         """
         return []
+
+    def _calculate_total_tokens(self, retrieved_memories):
+        """Calculate the total number of tokens in the retrieved memories."""
+        try:
+            memory_texts = "".join(
+                [retrieved_memory.raw_observation for retrieved_memory in retrieved_memories]
+            )
+            return self._calculate_tokens(memory_texts)
+        except Exception as e:
+            memories = [retrieved_memory.raw_observation for retrieved_memory in
+             retrieved_memories]
+            logger.error(f"Calculate total tokens failed current memories:{memories}, {e}")
+            return 0
+
+    def _calculate_tokens(self, text: str):
+        """Calculate the number of tokens in the texts."""
+        lang = determine(text)
+        logger.info(
+            # f"Session Memory-{self.session_id} "
+            f"Language detected: {lang}, "
+            f"Compression rate: {COMP_RATE[lang]}"
+        )
+        return len(text) / COMP_RATE[lang]

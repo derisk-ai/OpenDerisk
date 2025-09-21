@@ -43,6 +43,7 @@ class ToolParameter(BaseModel):
     )
     type: str = Field(..., description="Parameter type", examples=["string", "integer"])
     description: str = Field(..., description="Parameter description")
+    enum: Optional[list] = Field(None, description="Enumeration of parameter values")
     required: bool = Field(True, description="Whether the parameter is required")
     default: Optional[Any] = Field(
         _MISSING, description="Default value for the parameter"
@@ -118,14 +119,15 @@ class BaseTool(Resource[ToolResourceParameters], ABC):
         else:
             parameters = []
             for key, value in self.args.items():
-                parameters.append(
-                    {
-                        "name": key,
-                        "type": value.type,
-                        "description": value.description,
-                        "required": value.required,
-                    }
-                )
+                param = {
+                    "name": key,
+                    "type": value.type,
+                    "description": value.description,
+                    "required": value.required,
+                }
+                if value.enum:
+                    param['enum'] = value.enum
+                parameters.append(param)
             parameters_string = json.dumps(parameters, ensure_ascii=False)
         return (
             template.format(
@@ -317,6 +319,7 @@ def _parse_args(
                 param_name = v.get("name", k)
                 param_title = v.get("title", param_name.replace("_", " ").title())
                 param_type = v["type"]
+                param_enum = v.get("enum", None)
                 param_description = v.get("description", param_title)
                 param_default = v.get("default", _MISSING)
                 param_required = v.get("required", param_default is _MISSING)
@@ -325,6 +328,7 @@ def _parse_args(
                     title=param_title,
                     type=param_type,
                     description=param_description,
+                    enum=param_enum,
                     default=param_default,
                     required=param_required,
                 )

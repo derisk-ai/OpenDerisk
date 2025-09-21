@@ -46,6 +46,12 @@ class TaskStatusType(Enum):
     FINISHED = "FINISHED"
 
 
+class DirectoryModeType(Enum):
+
+    DOCUMENT = "document"
+    BOOK = "book"
+
+
 class KnowledgeType(Enum):
     """Knowledge Type Enum."""
 

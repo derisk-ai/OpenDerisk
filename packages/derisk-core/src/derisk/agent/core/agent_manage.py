@@ -71,7 +71,8 @@ class AgentManager(BaseComponent):
         self._core_agents = list(core_agents)
 
         """Register Extend Agent"""
-        for _, agent in scan_agents("derisk_ext.agent.agents").items():
+        ext_agents = scan_agents("derisk_ext.agent.agents").items()
+        for _, agent in ext_agents:
             try:
                 self.register_agent(agent)
             except Exception as e:
@@ -89,6 +90,7 @@ class AgentManager(BaseComponent):
 
         self.register_agent(ReActPlanChatManager)
         self.register_agent(AutoPlanChatManager)
+
 
     def register_agent(
         self, cls: Type[ConversableAgent], ignore_duplicate: bool = False

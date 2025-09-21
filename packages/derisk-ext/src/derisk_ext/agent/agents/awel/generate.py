@@ -249,7 +249,7 @@ def _build_operator(cls: Type[OperatorType], values: Dict[str, Any]) -> Operator
 async def _build_awel(messages: list[ModelMessage], flow_service=None, **kwargs) -> DAG:
     # =============== 第一步 调用模型 生成JSON =============== #
     out: ModelOutput = await _llm_client().generate(request=ModelRequest(
-        model="DeepSeek-V3",
+        model="DeepSeek-v3",
         messages=messages,
         trace_id=kwargs.get("trace_id", ""),
         rpc_id=kwargs.get("rpc_id", ""),

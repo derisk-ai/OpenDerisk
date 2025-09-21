@@ -87,6 +87,7 @@ def parse_model_request(
         default_model (str): default model name
         stream (bool, optional): whether stream. Defaults to True.
     """
+    param_context = params.get('context')
     context = ModelRequestContext(
         stream=stream,
         user_name=params.get("user_name"),
@@ -94,6 +95,7 @@ def parse_model_request(
         is_reasoning_model=params.get("is_reasoning_model", False),
         trace_id=params.get("trace_id"),
         rpc_id=params.get("rpc_id"),
+        extra=param_context.get("extra") if param_context else None
     )
     request = ModelRequest.build_request(
         default_model,

@@ -24,6 +24,8 @@ from .actions.rag_action import AgenticRAGAction, AgenticRAGState
 from .actions.react_action import Terminate
 from ..core.memory.gpts import GptsPlan
 from ..core.schema import Status
+from ...context.event import MemoryWritePayload, AfterMemoryWriteEvent
+from ...context.manager import push_context_event
 from ...util.json_utils import serialize
 from ...util.tracer import root_tracer
 from ...vis import Vis, SystemVisTag
@@ -96,17 +98,17 @@ class RAGAgent(ConversableAgent):
         name=DynConfig(
             "AgenticRAGAssistant",
             category="agent",
-            key="derisk_agent_expand_rag_assistant_agent_name",
+            key="dbgpt_agent_expand_rag_assistant_agent_name",
         ),
         role=DynConfig(
             "AgenticRAGAssistant",
             category="agent",
-            key="derisk_agent_expand_rag_assistant_agent_role",
+            key="dbgpt_agent_expand_rag_assistant_agent_role",
         ),
         goal=DynConfig(
             _RAG_GOAL,
             category="agent",
-            key="derisk_agent_expand_plugin_assistant_agent_goal",
+            key="dbgpt_agent_expand_plugin_assistant_agent_goal",
         ),
         system_prompt_template=_AGENTIC_RAG_SYSTEM_TEMPLATE,
         user_prompt_template=_FINIAL_SUMMARY_TEMPLATE,
@@ -323,7 +325,7 @@ class RAGAgent(ConversableAgent):
                 ) as span:
                     # 4.Reply information verification
                     check_pass, reason = await self.verify(
-                        reply_message, sender, reviewer
+                        reply_message, sender, reviewer,received_message=received_message
                     )
                     is_success = check_pass
                     span.metadata["check_pass"] = check_pass
@@ -453,7 +455,6 @@ class RAGAgent(ConversableAgent):
             return self.current_profile.format_system_prompt(
                 template_env=self.template_env,
                 language=self.language,
-                most_recent_memories=most_recent_memories or "",
                 resource_vars=resource_vars,
                 is_retry_chat=is_retry_chat,
                 **kwargs,
@@ -467,7 +468,6 @@ class RAGAgent(ConversableAgent):
             return self.current_profile.format_user_prompt(
                 template_env=self.template_env,
                 language=self.language,
-                most_recent_memories=most_recent_memories or "",
                 resource_vars=resource_vars,
                 **kwargs,
             )
@@ -525,29 +525,30 @@ class RAGAgent(ConversableAgent):
                     plan_num = plans[-1].conv_round
                 conv_round_id = uuid.uuid4().hex
                 task_uid = uuid.uuid4().hex
-                step_plan: GptsPlan = GptsPlan(
-                    conv_id=self.agent_context.conv_id,
-                    conv_session_id=self.agent_context.conv_session_id,
-                    conv_round=plan_num + 1,
-                    conv_round_id=conv_round_id,
-                    sub_task_id=task_uid,
-                    sub_task_num=0,
-                    task_uid=task_uid,
-                    sub_task_content=f"{last_out.action}",
-                    sub_task_title=f"{last_out.action}",
-                    sub_task_agent="",
-                    state=Status.COMPLETE.value,
-                    action="",
-                    task_round_title=f"{last_out.thoughts}",
-                    task_round_description=f"{last_out.thoughts}",
-                    planning_agent=self.name,
-                    planning_model=message.model_name,
-                )
-                step_plans.append(step_plan)
-                action_plan_map[action.action_uid] = step_plan
-                await self.memory.gpts_memory.append_plans(
-                    conv_id=self.agent_context.conv_id,
-                    plans=[step_plan])
+                if self.state == AgenticRAGState.REFLECTION.value:
+                    step_plan: GptsPlan = GptsPlan(
+                        conv_id=self.agent_context.conv_id,
+                        conv_session_id=self.agent_context.conv_session_id,
+                        conv_round=plan_num + 1,
+                        conv_round_id=conv_round_id,
+                        sub_task_id=task_uid,
+                        sub_task_num=0,
+                        task_uid=task_uid,
+                        sub_task_content=f"{last_out.action}",
+                        sub_task_title=f"{last_out.action}",
+                        sub_task_agent="",
+                        state=Status.COMPLETE.value,
+                        action="",
+                        task_round_title=f"{last_out.thoughts}",
+                        task_round_description=f"{last_out.thoughts}",
+                        planning_agent=self.name,
+                        planning_model=message.model_name,
+                    )
+                    step_plans.append(step_plan)
+                    action_plan_map[action.action_uid] = step_plan
+                    await self.memory.gpts_memory.append_plans(
+                        conv_id=self.agent_context.conv_id,
+                        plans=[step_plan])
                 self.state = last_out.state
                 span.metadata["action_out"] = last_out.to_dict() if last_out else None
                 if last_out.resource_value:
@@ -630,7 +631,9 @@ class RAGAgent(ConversableAgent):
                 action_result=action_output.observations,
             )
         await self.memory.write(fragment)
-
+        await push_context_event(AfterMemoryWriteEvent(payload=MemoryWritePayload(
+            fragment=fragment,
+        )), agent=self)
         action_output.memory_fragments = {
             "memory": fragment.raw_observation,
             "id": fragment.id,

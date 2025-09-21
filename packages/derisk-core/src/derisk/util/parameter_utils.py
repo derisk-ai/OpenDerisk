@@ -607,7 +607,7 @@ def _get_parameter_descriptions(
 
     from derisk.util.configure.manager import ConfigurationManager
 
-    return ConfigurationManager.parse_description(dataclass_type)
+    return ConfigurationManager.parse_description(dataclass_type, **kwargs)
 
     # # Get descriptions from parent classes
     # parent_descriptions = {}

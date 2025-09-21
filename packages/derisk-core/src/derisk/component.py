@@ -105,6 +105,7 @@ class ComponentType(str, Enum):
     FILE_STORAGE_CLIENT = "derisk_file_storage_client"
     VIS_CONVERTER_PACKAGE = "vis_converter_package"
     REASONING_MANAGER = "derisk_reasoning_manager"
+    CONTEXT_MANAGER = "derisk_context_manager"
 
 
 
@@ -115,7 +116,7 @@ _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 class BaseComponent(LifeCycle, ABC):
     """Abstract Base Component class. All custom components should extend this."""
 
-    name = "base_derisk_component"
+    name = "base_dbgpt_component"
 
     def __init__(self, system_app: Optional[SystemApp] = None):
         if system_app is not None:

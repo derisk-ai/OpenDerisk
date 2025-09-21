@@ -5,7 +5,7 @@ from typing import Union, Optional, Any, List, AsyncGenerator, Tuple, Coroutine
 from fastapi import BackgroundTasks
 
 from derisk.core import HumanMessage
-from derisk_serve.agent.agents.chat.agent_chat import AgentChat
+from derisk_serve.agent.agents.chat.agent_chat import AgentChat, _format_vis_msg
 from derisk_serve.building.config.api.schemas import ChatInParamValue
 
 logger = logging.getLogger(__name__)
@@ -91,13 +91,16 @@ class SimpleAgentChat(AgentChat):
             if agent_task:
                 logger.info(f"Cancelling chat with {gpts_name} (Conversation ID: {agent_conv_id})")
                 agent_task.cancel()
-            raise
+            yield _format_vis_msg("Client connection terminated!"), agent_conv_id
 
         except Exception as e:
             error_msg = f"Chat with {gpts_name} failed (Conversation ID: {agent_conv_id}) - {str(e)}"
             logger.exception(error_msg)
             error_info = str(e)
-            yield error_info, agent_conv_id
+            if agent_task:
+                logger.info(f"Exception chat with {gpts_name} (Conversation ID: {agent_conv_id})")
+                agent_task.cancel()
+            yield _format_vis_msg(error_info), agent_conv_id
 
         finally:
             logger.info(f"Saving conversation history for session {conv_uid}")

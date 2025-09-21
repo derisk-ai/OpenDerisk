@@ -15,6 +15,7 @@ from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.schema import DynamicParam
 from derisk.agent.resource.base import AgentResource
+from derisk.context.operator import GroupedConfigItem
 from derisk_serve.agent.app.recommend_question.recommend_question import (
     RecommendQuestion,
 )
@@ -161,6 +162,8 @@ class GptsApp(BaseModel):
     agent:Optional[str] = None
     ## 标记当前是否为推理引擎Agent
     is_reasoning_engine_agent: bool = False
+    ## 上下文工程配置
+    context_config: Optional[GroupedConfigItem] = None
 
     creator: Optional[str] = None
     editor: Optional[str] = None
@@ -189,6 +192,7 @@ class GptsApp(BaseModel):
             app_code=d.get("app_code", None),
             app_name=d["app_name"],
             language=d["language"],
+            app_hub_code=d.get("app_hub_code", None),
             app_describe=d["app_describe"],
             team_mode=d["team_mode"],
             team_context=d.get("team_context", None),

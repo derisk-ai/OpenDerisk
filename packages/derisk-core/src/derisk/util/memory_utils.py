@@ -3,8 +3,8 @@ import json
 from pympler import asizeof
 
 MODEL_CONTEXT_LENGTH = {
-    "DeepSeek-V3": 64000,
-    "DeepSeek-R1": 64000,
+    "deepseek-v3": 64000,
+    "deepseek-r1": 64000,
     "QwQ-32B": 64000,
 }
 

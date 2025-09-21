@@ -603,6 +603,7 @@ class KnowledgeDocumentDao(BaseDao):
             content=entity.content,
             result=entity.result,
             summary=entity.summary,
+            doc_token=entity.doc_token,
             meta_data=json.loads(entity.meta_data) if entity.meta_data else {},
             chunk_params=json.loads(entity.chunk_params) if entity.chunk_params else {},
             questions=entity.questions,

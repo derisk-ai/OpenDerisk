@@ -93,11 +93,20 @@ class BackGroundAgentChat(AgentChat):
             await state.update(error=str(e))
             current_agent_conv_id = (await state.get_state())[0]
             await task_queue.put((_format_vis_msg(str(e)), current_agent_conv_id))
+            # 发生异常时抛出以中断处理
+            raise
 
     async def _stream_response(self, state: ChatState, task_queue: asyncio.Queue,
-                               processing_complete: asyncio.Event) -> AsyncGenerator[str, None]:
+                               processing_complete: asyncio.Event,
+                               processor_task: asyncio.Task) -> AsyncGenerator[str, None]:
         """生成响应流"""
         while not (processing_complete.is_set() and task_queue.empty()):
+            # 首先检查处理任务是否有异常
+            if processor_task.done():
+                exc = processor_task.exception()
+                if exc:
+                    raise exc
+
             try:
                 timeout = 1.0 if not processing_complete.is_set() else 0.1
                 chunk, agent_conv_id = await asyncio.wait_for(
@@ -169,10 +178,15 @@ class BackGroundAgentChat(AgentChat):
             )
 
             try:
-                async for chunk, agent_conv_id in self._stream_response(state, task_queue, processing_complete):
+                async for chunk, agent_conv_id in self._stream_response(state, task_queue, processing_complete, processor_task):  # 传入 processor_task
                     yield chunk, agent_conv_id
             except asyncio.CancelledError:
                 logger.info(f"Client disconnected: {conv_uid}")
+                processor_task.cancel()  # 确保取消处理任务
+            except Exception as e:
+                processor_task.cancel()
+                logger.exception(f"Chat [{conv_uid}] exception！")
+                raise
             finally:
                 processing_complete.set()
                 # 添加清理任务

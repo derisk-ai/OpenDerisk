@@ -179,3 +179,21 @@ class RetrieverResource(Resource[ResourceParameters]):
             List[Chunk]: list of chunks
         """
         return await self.retriever.aretrieve_with_scores(query, score, filters)
+
+    async def read_document(
+        self,
+        *,
+        query: str,
+        selected_knowledge_ids: Optional[List[str]] = None,
+        doc_uuids: Optional[List[str]] = None,
+        header: Optional[str] = None,
+        **kwargs,
+    ) -> Any:
+        """Read document content.
+        Args:
+            query(str): The question.
+            selected_knowledge_ids(Optional[List[str]]): selected_knowledge_ids.
+            doc_uuids(Optional[List[str]]): doc_uuids.
+            header(Optional[str]): header.
+        """
+        return ""

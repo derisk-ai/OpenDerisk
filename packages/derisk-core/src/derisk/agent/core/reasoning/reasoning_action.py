@@ -14,9 +14,11 @@ from derisk.agent import (
 )
 from derisk.agent.core.reasoning.reasoning_engine import REASONING_LOGGER as LOGGER
 from derisk.agent.resource import ResourcePack
+from derisk.context.manager import Manager
 from derisk.util.tracer import root_tracer
 from derisk.vis import SystemVisTag
-from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
+from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource, \
+    KnowledgeActionOperation
 from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
 
 
@@ -102,17 +104,25 @@ class AgentAction(Action[AgentActionInput]):
         ## 构建一个独立的对话消息轮次(不依赖对话循环)
         await sender.send(message=message, recipient=recipient, request_reply=False)
 
-        answer: AgentMessage = await recipient.generate_reply(received_message=message, sender=sender, recipient=recipient)
-        await recipient.send(message=answer, recipient=sender, request_reply=False)
-        ask_user = True if answer and answer.action_report and answer.action_report.ask_user else False
-        return ActionOutput.from_dict({
-            "is_exe_success": True,
-            "action": action_input.agent_name,
-            "action_name": self.name,
-            "action_input": action_input.content,
-            "content": answer.message_id,
-            "ask_user": ask_user,
-        })
+        with Manager.new_window():
+            answer: AgentMessage = await recipient.generate_reply(
+                received_message=message,
+                sender=sender,
+                recipient=recipient,
+                is_retry_chat=kwargs.get("is_retry_chat", False),
+                require_approval=kwargs.get("require_approval", True),
+            )
+            await recipient.send(message=answer, recipient=sender, request_reply=False)
+            ask_user = True if answer and answer.action_report and answer.action_report.ask_user else False
+            return ActionOutput.from_dict({
+                "is_exe_success": True,
+                "action": action_input.agent_name,
+                "action_name": self.name,
+                "action_input": action_input.content,
+                "content": answer.message_id,
+                "observations": answer.message_id,
+                "ask_user": ask_user,
+            })
 
 
 class KnowledgeRetrieveActionInput(BaseModel):
@@ -120,6 +130,11 @@ class KnowledgeRetrieveActionInput(BaseModel):
     knowledge_ids: Optional[List[str]] = Field(
         None, description="selected knowledge ids"
     )
+    func: Optional[str] = Field("search", description="search(语义搜索知识) | read(读取文档内容) | doc_ls(查文档大纲目录) | ls(查阅知识库目录)")
+    doc_uuids: Optional[List[str]] = Field(
+        None, description="selected doc uuids"
+    )
+    header: Optional[str] = Field("header", description="具体文档大纲标题")
     intention: Optional[str] = Field("", description="Summary of intention to the user")
     thought: Optional[str] = Field("", description="Summary of thoughts to the user")
     # space_ids: list[str] = Field(..., description="knowledge space id list")
@@ -149,6 +164,193 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
 
         return _unpack(self.resource)
 
+
+    async def _retrieve_doc_directory(
+            self,
+            resource: Optional[AgentResource] = None,
+            agent: Optional[ConversableAgent] = None,
+    ) -> ActionOutput:
+        output_dict = {
+            "is_exe_success": True,
+            "action": "查阅文档目录大纲",
+            "action_name": self.name,
+            "action_input": self.action_input.query,
+        }
+        try:
+            summary_res = await resource.get_directory(
+                query=self.action_input.query,
+                selected_knowledge_ids=self.action_input.knowledge_ids,
+                doc_uuids=self.action_input.doc_uuids,
+            )
+            summary: str = (
+                str(summary_res.directory)
+                if summary_res
+                   and isinstance(summary_res, KnowledgeSearchResponse)
+                   and summary_res.directory
+                else "未找到相关目录知识"
+            )
+            output_dict["content"] = summary
+            output_dict["view"] = summary
+            output_dict["resource_value"] = (
+                summary_res.dict()
+                if isinstance(summary_res, KnowledgeSearchResponse)
+                else None
+            )
+            LOGGER.info(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
+            )
+        except Exception as e:
+            output_dict["is_exe_success"] = False
+            output_dict["content"] = "知识目录检索失败"
+            output_dict["view"] = "知识目录检索失败"
+            LOGGER.exception(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
+            )
+        action_output = ActionOutput.from_dict(output_dict)
+        return action_output
+
+
+    async def _retrieve_book_directory(self,
+            resource: Optional[AgentResource] = None,
+            agent: Optional[ConversableAgent] = None,
+    ) -> ActionOutput:
+        output_dict = {
+            "is_exe_success": True,
+            "action": "检索语雀知识库目录",
+            "action_name": self.name,
+            "action_input": self.action_input.query,
+        }
+        try:
+            summary_res = await resource.get_directory(
+                query=self.action_input.query,
+                selected_knowledge_ids=self.action_input.knowledge_ids,
+                directory_mode="book",
+            )
+            summary: str = (
+                str(summary_res.book_directory)
+                if summary_res
+                   and isinstance(summary_res, KnowledgeSearchResponse)
+                   and summary_res.book_directory
+                else "未找到相关语雀知识库目录知识"
+            )
+            output_dict["content"] = summary
+            output_dict["view"] = summary
+            output_dict["resource_value"] = (
+                summary_res.dict()
+                if isinstance(summary_res, KnowledgeSearchResponse)
+                else None
+            )
+            LOGGER.info(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
+            )
+        except Exception as e:
+            output_dict["is_exe_success"] = False
+            output_dict["content"] = "book目录检索失败"
+            output_dict["view"] = "book目录检索失败"
+            LOGGER.exception(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
+            )
+        action_output = ActionOutput.from_dict(output_dict)
+        return action_output
+
+
+    async def _read_document(self,
+            resource: Optional[AgentResource] = None,
+            agent: Optional[ConversableAgent] = None,
+    ) -> ActionOutput:
+        output_dict = {
+            "is_exe_success": True,
+            "action": "读取文档内容",
+            "action_name": self.name,
+            "action_input": self.action_input.query,
+        }
+        try:
+            summary_res = await resource.read_document(
+                query=self.action_input.query,
+                selected_knowledge_ids=self.action_input.knowledge_ids,
+                doc_uuids=self.action_input.doc_uuids,
+                header=self.action_input.header
+            )
+            summary: str = (
+                "\n".join(summary_res.document_contents)
+                if summary_res
+                   and isinstance(summary_res, KnowledgeSearchResponse)
+                   and summary_res.document_contents
+                else "未找到相关单个文档知识"
+            )
+            output_dict["content"] = summary
+            output_dict["view"] = summary
+            output_dict["resource_value"] = (
+                summary_res.dict()
+                if isinstance(summary_res, KnowledgeSearchResponse)
+                else None
+            )
+            LOGGER.info(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
+            )
+        except Exception as e:
+            output_dict["is_exe_success"] = False
+            output_dict["content"] = "单个文档检索失败"
+            output_dict["view"] = "单个文档检索失败"
+            LOGGER.exception(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
+            )
+        action_output = ActionOutput.from_dict(output_dict)
+        return action_output
+
+
+    async def _retrieve_knowledge_summary(self,
+            resource: Optional[AgentResource] = None,
+            agent: Optional[ConversableAgent] = None,
+    )-> ActionOutput:
+        output_dict = {
+            "is_exe_success": True,
+            "action": "知识检索",
+            "action_name": self.name,
+            "action_input": self.action_input.query,
+        }
+        try:
+            summary_res = await resource.get_summary(
+                query=self.action_input.query,
+                selected_knowledge_ids=self.action_input.knowledge_ids,
+            )
+            summary: str = (
+                summary_res.summary_content
+                if summary_res
+                   and isinstance(summary_res, KnowledgeSearchResponse)
+                   and summary_res.summary_content
+                else "未找到相关知识"
+            )
+            output_dict["content"] = summary
+            output_dict["view"] = summary
+            output_dict["resource_value"] = (
+                summary_res.dict()
+                if isinstance(summary_res, KnowledgeSearchResponse)
+                else None
+            )
+            LOGGER.info(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
+            )
+        except Exception as e:
+            output_dict["is_exe_success"] = False
+            output_dict["content"] = "知识检索失败"
+            output_dict["view"] = "知识检索失败"
+            LOGGER.exception(
+                f"[ACTION]---------->   "
+                f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
+            )
+        action_output = ActionOutput.from_dict(output_dict)
+        return action_output
+
+
+
     async def run(
         self,
         ai_message: str = None,
@@ -170,45 +372,27 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             resource = self._inited_resource()
             if not resource:
                 raise RuntimeError("knowledge resource is empty or not init")
-            output_dict = {
-                "is_exe_success": True,
-                "action": "知识检索",
-                "action_name": self.name,
-                "action_input": self.action_input.query,
-            }
-            try:
-                summary_res = await resource.get_summary(
-                    query=self.action_input.query,
-                    selected_knowledge_ids=self.action_input.knowledge_ids,
+            if self.action_input.func == KnowledgeActionOperation.DOC_LS.action:
+                # func1: 查文档目录大纲
+                return await self._retrieve_doc_directory(
+                    resource=resource, agent=agent
                 )
-                summary: str = (
-                    summary_res.summary_content
-                    if summary_res
-                       and isinstance(summary_res, KnowledgeSearchResponse)
-                       and summary_res.summary_content
-                    else "未找到相关知识"
+            elif self.action_input.func == KnowledgeActionOperation.LS.action:
+                # func2: 查知识库目录
+                return await self._retrieve_book_directory(
+                    resource=resource, agent=agent
                 )
-                output_dict["content"] = summary
-                output_dict["view"] = summary
-                output_dict["resource_value"] = (
-                    summary_res.dict()
-                    if isinstance(summary_res, KnowledgeSearchResponse)
-                    else None
+            elif self.action_input.func ==KnowledgeActionOperation.READ.action:
+                # func3: 检索文档内容
+                return await self._read_document(
+                    resource=resource, agent=agent
                 )
-                LOGGER.info(
-                    f"[ACTION]---------->   "
-                    f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
+            else:
+                # func4: 默认的检索所有知识
+                return await self._retrieve_knowledge_summary(
+                    resource=resource, agent=agent
                 )
-            except Exception as e:
-                output_dict["is_exe_success"] = False
-                output_dict["content"] = "知识检索失败"
-                output_dict["view"] = "知识检索失败"
-                LOGGER.exception(
-                    f"[ACTION]---------->   "
-                    f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
-                )
-            action_output = ActionOutput.from_dict(output_dict)
-            return action_output
+
 
 
 class UserConfirmAction(Action[None]):

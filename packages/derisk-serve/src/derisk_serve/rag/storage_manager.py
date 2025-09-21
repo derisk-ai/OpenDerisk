@@ -160,6 +160,39 @@ class StorageManager(BaseComponent):
             b=rag_config.bm25_b,
         )
 
+    def create_search_store(self, index_name: Optional[str] = None) -> FullTextStoreBase:
+        """Create Search store."""
+        app_config = self.system_app.config.configs.get("app_config")
+        storage_config = app_config.rag.storage
+        if index_name is None:
+            index_name = app_config.rag.storage.full_text.index_name
+        logger.info(f"search store index_name is {index_name}")
+        if index_name in self._store_cache:
+            return self._store_cache[index_name]
+        with self._cache_lock:
+            embedding_factory = self.system_app.get_component(
+                "embedding_factory", EmbeddingFactory
+            )
+            embedding_fn = embedding_factory.create()
+            account = storage_config.full_text.account
+            secret = storage_config.full_text.secret
+
+            from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
+            zsearch_config = ZSearchStoreConfig(
+                index_name=index_name,
+                account=account,
+                secret=secret,
+            )
+            from derisk_ext.storage.full_text.zsearch import ZsearchStore
+            new_store = ZsearchStore(
+                name=index_name,
+                embedding_fn=embedding_fn,
+                vector_store_config=zsearch_config
+            )
+            self._store_cache[index_name] = new_store
+            return new_store
+
+
     @property
     def get_vector_supported_types(self) -> List[str]:
         """Get all supported types."""

@@ -259,7 +259,7 @@ class ReActPlanChatManager(ManagerAgent):
                         continue
 
                     task_in_message = AgentMessage.init_new(
-                        content=f"任务目标:{agent_goal}\n参数补充:{task.sub_task_content}",
+                        content=f"任务目标:{agent_goal}\n参数信息:{task.sub_task_content}",
                         current_goal=agent_goal,
                         goal_id=task.task_uid,
                         rounds=plan_in_rounds + task_round_init,
@@ -354,12 +354,13 @@ class ReActPlanChatManager(ManagerAgent):
         return is_success, reply_message
 
     async def thinking(
-            self,
-            messages: List[AgentMessage],
-            reply_message_id: str,
-            sender: Optional[Agent] = None,
-            prompt: Optional[str] = None,
-            received_message: Optional[AgentMessage] = None,
+        self,
+        messages: List[AgentMessage],
+        reply_message_id: str,
+        sender: Optional[Agent] = None,
+        prompt: Optional[str] = None,
+        received_message: Optional[AgentMessage] = None,
+        **kwargs
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Think and reason about the current task goal."""
         # TeamManager, which is based on processes and plans by default, only needs to

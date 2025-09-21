@@ -167,7 +167,7 @@ class VisProtocolConverter(ABC):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ):
         pass
 
@@ -231,7 +231,7 @@ class DefaultVisConverter(VisProtocolConverter):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ):
         return await self.visualization(messages, plans_map)
 

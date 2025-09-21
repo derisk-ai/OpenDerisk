@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Optional, List, Dict, Tuple
-from typing_extensions import deprecated
+from typing import Any, Optional, List, Dict, Tuple, Type
 
 from openai import BaseModel
 from pydantic import Field
 
 from derisk.agent import AgentMessage, Action, Agent, AgentContext
+from derisk.core import ModelInferenceMetrics
 from derisk.util.logger import setup_logging, LoggingParameters
 
 REASONING_LOGGER = setup_logging("reasoning", LoggingParameters(file="reasoning.log"))
@@ -88,9 +88,12 @@ class ReasoningEngineOutput:
 
         self.references: Optional[List[dict]] = None
 
+        # 模型指标
+        self.model_metrics: Optional[ModelInferenceMetrics] = None
+
 
 class ReasoningEngine(ABC):
-    _registry: dict[str, "ReasoningEngine"] = {}
+    _registry: dict[str, Type["ReasoningEngine"]] = {}
 
     @classmethod
     def register(cls, subclass):
@@ -109,7 +112,7 @@ class ReasoningEngine(ABC):
         instance = subclass()
         if instance.name in cls._registry:
             raise ValueError(f"Engine {instance.name} already registered!")
-        cls._registry[instance.name] = instance
+        cls._registry[instance.name] = subclass
         return subclass
 
     @classmethod
@@ -121,7 +124,7 @@ class ReasoningEngine(ABC):
             reasoning engine name
         """
 
-        return cls._registry.get(name)
+        return cls._registry.get(name)()
 
     @classmethod
     def get_all_reasoning_engines(cls) -> dict[str, "ReasoningEngine"]:
@@ -129,7 +132,7 @@ class ReasoningEngine(ABC):
         Get all reasoning engines
         :return:
         """
-        return cls._registry
+        return {name: clz() for name, clz in cls._registry.items()}
 
     @property
     @abstractmethod

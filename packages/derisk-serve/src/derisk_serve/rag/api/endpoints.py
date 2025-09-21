@@ -20,7 +20,6 @@ from derisk.component import SystemApp
 from derisk.util import PaginationResult, pypantic_utils
 from derisk_app.openapi.api_view_model import APIToken
 from derisk_ext.rag.chunk_manager import ChunkParameters
-from derisk_ext.vis.derisk.derisk_info_schema import MessageStage
 from derisk_serve.core import Result, blocking_func_to_async
 from derisk_serve.rag.api.schemas import (
     DocumentServeRequest,
@@ -37,8 +36,9 @@ from derisk_serve.rag.api.schemas import (
     UpdateTocRequest, CreateBookRequest, KnowledgeSetting, QueryGraphProjectRequest, CreateGraphRelationRequest,
 )
 from derisk_serve.rag.config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig, SERVE_GRAPH_SERVICE_COMPONENT_NAME
+from derisk_serve.rag.service.graph.graph_service import GraphService
 from derisk_serve.rag.service.service import Service
-
+from derisk_serve.rag.service.yuque_service import YuqueService
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,11 @@ global_system_app: Optional[SystemApp] = None
 def get_service() -> Service:
     """Get the service instance"""
     return global_system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, Service)
+
+def get_graph_service() -> GraphService:
+    """Get the graph service instance"""
+    return global_system_app.get_component(SERVE_GRAPH_SERVICE_COMPONENT_NAME, GraphService)
+
 
 get_bearer_token = HTTPBearer(auto_error=False)
 
@@ -226,6 +231,7 @@ async def query(
 async def query_page(
     page: int = Query(default=1, description="current page"),
     page_size: int = Query(default=20, description="page size"),
+    is_public: Optional[str] = Query(default=None, description="is_public"),
     service: Service = Depends(get_service),
 ) -> Result[PaginationResult[SpaceServeResponse]]:
     """Query Space entities
@@ -233,11 +239,15 @@ async def query_page(
     Args:
         page (int): The page number
         page_size (int): The page size
+        is_public (str): The is_public
         service (Service): The service
     Returns:
         ServerResponse: The response
     """
-    return Result.succ(service.get_list_by_page({}, page, page_size))
+    request = {}
+    if is_public:
+        request["knowledge_type"] = "PUBLIC"
+    return Result.succ(service.get_list_by_page(request, page, page_size))
 
 
 @router.get(
@@ -567,6 +577,23 @@ async def get_book_dir(
 
         return Result.failed(err_code="E000X", msg=f"get book dir error {str(e)}")
 
+
+@router.post("/spaces/{knowledge_id}/documents/yuque/reimport")
+async def reimport_yuque_knowledge(
+    knowledge_id: str,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"reimport_yuque_knowledge params: {knowledge_id},{token}")
+
+    try:
+        return Result.succ(await service.reimport_yuque_knowledge(knowledge_id=knowledge_id))
+    except Exception as e:
+        logger.error(f"reimport_yuque_knowledge error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"reimport yuque knowledge error {str(e)}")
+
+
 @router.get("/spaces/{knowledge_id}/documents/yuque/dir")
 async def get_yuque_dir(
     knowledge_id: str,
@@ -581,6 +608,58 @@ async def get_yuque_dir(
         logger.error(f"get_yuque_dir error {e}")
 
         return Result.failed(err_code="E000X", msg=f"get yuque dir error {str(e)}")
+
+
+@router.get("/spaces/{knowledge_id}/documents/ls")
+async def list_docs(
+    knowledge_id: str,
+    token: APIToken = Depends(check_api_key),
+    doc_type: Optional[str] = None,
+    display_tree: Optional[bool] = True,
+    service: Service = Depends(get_service),
+):
+    logger.info(f"ls_docs params: {knowledge_id},{token}")
+
+    try:
+        return Result.succ(await service.list_docs(knowledge_id=knowledge_id, doc_type=doc_type, display_tree=display_tree))
+    except Exception as e:
+        logger.error(f"list_docs error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"list docs error {str(e)}")
+
+
+@router.get("/spaces/{knowledge_id}/documents/read")
+async def read_doc(
+    knowledge_id: str,
+    file_path: str,
+    doc_id: Optional[str] = None,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"read_doc params: {knowledge_id},{token}")
+
+    try:
+        return Result.succ(await service.read_doc(knowledge_id=knowledge_id, doc_id=doc_id, file_path=file_path))
+    except Exception as e:
+        logger.error(f"read_doc error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"read doc error {str(e)}")
+
+@router.post("/spaces/{knowledge_id}/documents/write")
+async def write_doc(
+    knowledge_id: str,
+    request: CreateDocRequest = None,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(f"write_doc params: {knowledge_id},{token}")
+
+    try:
+        return Result.succ(await service.check_exists_and_write_doc(knowledge_id=knowledge_id, request=request))
+    except Exception as e:
+        logger.error(f"write_doc error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"write doc error {str(e)}")
 
 
 @router.get("/spaces/{knowledge_id}/documents/yuque/{group_login}/{book_slug}/docs")
@@ -739,6 +818,30 @@ def get_yuque_knowledge_outlines(
 
         return Result.failed(
             err_code="E000X", msg=f"get yuque knowledge outlines error {str(e)}"
+        )
+
+@router.get("/spaces/{knowledge_id}/documents/{doc_id}/outlines/all")
+def get_yuque_knowledge_all_outlines(
+    knowledge_id: str,
+    doc_id: str,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(
+        f"get_yuque_knowledge_all_outlines params: {knowledge_id}, {doc_id}, {token}"
+    )
+
+    try:
+        return Result.succ(
+            service.get_yuque_knowledge_all_outlines(
+                knowledge_id=knowledge_id, doc_id=doc_id
+            )
+        )
+    except Exception as e:
+        logger.error(f"get_yuque_knowledge_all_outlines error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"get yuque knowledge all outlines error {str(e)}"
         )
 
 @router.post("/spaces/{knowledge_id}/documents/{group_login}/{book_slug}")
@@ -1038,6 +1141,34 @@ async def chunk_list(
         return Result.failed(err_code="E000X", msg=f"get chunk  error! {str(e)}")
 
 
+@router.get("/spaces/{knowledge_id}/documents/{doc_id}/full_text")
+async def get_full_text(
+    knowledge_id: str,
+    doc_id: str,
+    service: Service = Depends(get_service),
+) -> Result[ChunkServeResponse]:
+    """Query Space entities
+
+    Args:
+        page (int): The page number
+        page_size (int): The page size
+        service (Service): The service
+    Returns:
+        ServerResponse: The response
+    """
+    logger.info(f"get_full_text params: {knowledge_id}, {doc_id}")
+    try:
+        request = ChunkEditRequest()
+        request.knowledge_id = knowledge_id
+        request.doc_id = doc_id
+
+        return Result.succ(service.get_full_text(request=request))
+    except Exception as e:
+        logger.error(f"get_full_text error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"get full text  error! {str(e)}")
+
+
 @router.put("/spaces/{knowledge_id}/documents/{doc_id}/chunks/{chunk_id}")
 async def edit_chunk(
     knowledge_id: str,
@@ -1080,6 +1211,29 @@ async def delete_chunk(
 
         return Result.failed(err_code="E000X", msg=f"delete chunk  error! {str(e)}")
 
+@router.post("/spaces/{knowledge_id}/documents/{group_login}/{book_slug}/refresh")
+async def refresh_book(
+    knowledge_id: str,
+    group_login: str,
+    book_slug: str,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+):
+    logger.info(
+        f"refresh_book params: {knowledge_id}, {group_login}, {book_slug}, {token}"
+    )
+
+    try:
+        asyncio.create_task(service.refresh_knowledge_v2(knowledge_id=knowledge_id, group_login=group_login, book_slug=book_slug))
+
+        return Result.succ(True)
+    except Exception as e:
+        logger.error(f"refresh_book error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"refresh book docs error {str(e)}"
+        )
+
 
 @router.post("/spaces/{knowledge_id}/refresh")
 async def refresh_knowledge(
@@ -1087,13 +1241,54 @@ async def refresh_knowledge(
     token: APIToken = Depends(check_api_key),
     service: Service = Depends(get_service),
 ) -> Result[Any]:
+    """
+    保鲜知识库：已导入的知识库和原始知识库保持一致
+    """
     logger.info(f"refresh_knowledge params: {knowledge_id}, {token}")
     try:
+
         return Result.succ(await service.refresh_knowledge(knowledge_id=knowledge_id))
     except Exception as e:
         logger.error(f"refresh_knowledge error {e}")
 
         return Result.failed(err_code="E000X", msg=f"refresh knowledge error! {str(e)}")
+
+
+@router.post("/spaces/{knowledge_id}/refresh/v2")
+async def refresh_knowledge_v2(
+    knowledge_id: str,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result[Any]:
+    """
+    托管知识库：和原始知识库保持一致
+    """
+    logger.info(f"refresh_knowledge_v2 params: {knowledge_id}, {token}")
+    try:
+        asyncio.create_task(service.refresh_knowledge_v2(knowledge_id=knowledge_id))
+
+        return Result.succ(True)
+    except Exception as e:
+        logger.error(f"refresh_knowledge_v2 error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"refresh knowledge v2 error! {str(e)}")
+
+
+@router.post("/spaces/refresh/scheduled")
+async def start_scheduled_refresh(
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result[Any]:
+    """
+    手动触发一次：定时同步知识库
+    """
+    logger.info(f"start_scheduled_refresh params: {token}")
+    try:
+        return Result.succ(await service.start_scheduled_refresh())
+    except Exception as e:
+        logger.error(f"start_scheduled_refresh error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"start scheduled refresh error! {str(e)}")
 
 
 @router.delete("/spaces/refresh/records")
@@ -1199,6 +1394,27 @@ def get_yuque_toc(
             err_code="E000X", msg=f"get yuque toc error! {str(e)}"
         )
 
+
+@router.get("/yuque/repos/{group_login}/{book_slug}/outline")
+def get_yuque_outline(
+    group_login: Optional[str] = None,
+    book_slug: Optional[str] = None,
+    yuque_token: Optional[str] = None,
+    token: APIToken = Depends(check_api_key),
+    service: Service = Depends(get_service),
+) -> Result[Any]:
+    logger.info(f"get_yuque_outline params: {group_login}, {book_slug}, {yuque_token}, {token}")
+    try:
+        return Result.succ(
+            service.get_beautify_yuque_book_outline(group_login=group_login, book_slug=book_slug, yuque_token=yuque_token)
+        )
+    except Exception as e:
+        logger.error(f"get_yuque_outline error {e}")
+
+        return Result.failed(
+            err_code="E000X", msg=f"get yuque outline error! {str(e)}"
+        )
+
 @router.get("/yuque/docs/{group_login}/{book_slug}/{doc_slug}")
 def get_yuque_doc(
     group_login: Optional[str] = None,
@@ -1254,12 +1470,100 @@ async def backup_all_public_knowledge(
         return Result.failed(err_code="E000X", msg=f"backup all public knowledge error! {str(e)}")
 
 
+@router.get("/graph/projects")
+async def get_graph_projects(
+    user_token: str,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"get_graph_projects params:  {user_token}, {token}")
+    try:
+        request = QueryGraphProjectRequest(user_token=user_token)
+        return Result.succ(graph_service.get_graph_projects(request=request))
+    except Exception as e:
+        logger.error(f"get_graph_projects error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"get graph projects error! {str(e)}")
+
+@router.post("/graph/{project_id}/node/init")
+async def init_graph_nodes(
+    project_id: str,
+    request: CreateGraphRelationRequest,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"init_graph_nodes params:  {request}, {token}")
+    try:
+        request.project_id = project_id
+        return Result.succ(graph_service.init_graph_nodes(request=request))
+    except Exception as e:
+        logger.error(f"init_graph_nodes error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"init graph nodes error! {str(e)}")
+
+@router.post("/spaces/{knowledge_id}/graph/init")
+async def init_graph_relation(
+    knowledge_id: str,
+    request: CreateGraphRelationRequest,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"init_graph_relation params:  {request}, {token}")
+    try:
+        request.knowledge_id = knowledge_id
+        return Result.succ(graph_service.create_graph_relation(request=request))
+    except Exception as e:
+        logger.error(f"init_graph_relation error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"init graph relation error! {str(e)}")
+
+@router.post("/spaces/{knowledge_id}/graph/relation")
+async def create_graph_relation(
+    knowledge_id: str,
+    request: CreateGraphRelationRequest,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"create_graph_relation params:  {request}, {token}")
+    try:
+        request.knowledge_id = knowledge_id
+        return Result.succ(graph_service.create_graph_relation(request=request))
+    except Exception as e:
+        logger.error(f"create_graph_relation error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"create graph relation error! {str(e)}")
 
 
+@router.get("/spaces/{knowledge_id}/graph/relation")
+async def get_graph_relation(
+    knowledge_id: str,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"get_graph_relation params:  {knowledge_id}, {token}")
+    try:
+        return Result.succ(graph_service.get_graph_relation(knowledge_id=knowledge_id))
+    except Exception as e:
+        logger.error(f"get_graph_relation error {e}")
+
+        return Result.failed(err_code="E000X", msg=f"get graph relation error! {str(e)}")
 
 
+@router.post("/spaces/{knowledge_id}/graph/full")
+async def get_full_graph(
+    knowledge_id: str,
+    request: CreateGraphRelationRequest,
+    token: APIToken = Depends(check_api_key),
+    graph_service: GraphService = Depends(get_graph_service),
+) -> Result[Any]:
+    logger.info(f"get_full_graph params:  {request}, {token}")
+    try:
+        request.knowledge_id = knowledge_id
+        return Result.succ(graph_service.get_full_graph(request=request))
+    except Exception as e:
+        logger.error(f"get_full_graph error {e}")
 
-
+        return Result.failed(err_code="E000X", msg=f"get full graph error! {str(e)}")
 
 
 @router.post("/settings")
@@ -1310,28 +1614,73 @@ async def knowledge_setting(
         ServerResponse: The response
     """
     try:
-        knowledge_space = service.get({
-            "knowledge_id": knowledge_id
-        })
-        results = []
-        if not knowledge_space:
-            raise HTTPException(status_code=404, detail="Knowledge space not found")
-        space_context = json.loads(knowledge_space.context) if knowledge_space.context else {}
-        default_context = pypantic_utils.parse_model(KnowledgeSetting)
-        for param in default_context:
-            if param["name"] == "refresh" and knowledge_space.refresh is not None:
-                param["value"] = knowledge_space.refresh
-            elif param["name"] in space_context:
-                param["value"] = space_context[param["name"]]
-            results.append(param)
-        return Result.succ(results)
+        return Result.succ(service.get_knowledge_settings(knowledge_id=knowledge_id))
     except Exception as e:
         logger.error(f"get knowledge setting error {e}")
         return Result.failed(err_code="E000X", msg=f"knowledge settings error! {str(e)}")
+
+
+@router.put(
+    "/spaces/{knowledge_id}/settings",
+)
+async def knowledge_setting(
+    knowledge_id: str,
+    request: KnowledgeSetting,
+    service: Service = Depends(get_service),
+):
+    """Query Space entities
+
+    Args:
+        knowledge_id (str): knowledge id
+        service (Service): The service
+    Returns:
+        ServerResponse: The response
+    """
+    try:
+        return Result.succ(service.update_knowledge_settings(knowledge_id=knowledge_id, request=request))
+    except Exception as e:
+        logger.error(f"update knowledge setting error {e}")
+        return Result.failed(err_code="E000X", msg=f"update knowledge settings error! {str(e)}")
+
+
+
+@router.get(
+    "/trace/flows",
+    response_model=Result[List],
+)
+async def query_flows(
+    message_id: Optional[str] = Query(default=None, description="message_id"),
+    conv_id: Optional[str] = Query(default=None, description="conv_id"),
+    app_code: Optional[str] = Query(default=None, description="app_code"),
+    service: Service = Depends(get_service),
+) -> Result[List]:
+    """Query Space entities
+
+    Args:
+        message_id (int): The page number
+        conv_id (int): The page size
+        app_code (int): The page size
+        service (Service): The service
+    Returns:
+        ServerResponse: The response
+    """
+    try:
+        request = {
+            "message_id": message_id,
+            "conv_id": conv_id,
+            "app_code": app_code,
+        }
+        return Result.succ(service.get_rag_flow_stages(request))
+    except Exception as e:
+        logger.error(f"get rag flow error {e}")
+
+
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     """Initialize the endpoints"""
     global global_system_app
     system_app.register(Service, config=config)
+    system_app.register(GraphService, config=config)
+    system_app.register(YuqueService, config=config)
     global_system_app = system_app
 
 

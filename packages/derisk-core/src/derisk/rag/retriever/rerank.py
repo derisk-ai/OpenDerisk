@@ -1,5 +1,5 @@
 """Rerank module for RAG retriever."""
-
+import logging
 from abc import ABC, abstractmethod
 from typing import Callable, List, Optional
 
@@ -9,7 +9,7 @@ from derisk.util.executor_utils import blocking_func_to_async_no_executor
 from derisk.util.i18n_utils import _
 
 RANK_FUNC = Callable[[List[Chunk]], List[Chunk]]
-
+logger = logging.getLogger(__name__)
 
 class Ranker(ABC):
     """Base Ranker."""
@@ -284,22 +284,27 @@ class RerankEmbeddingsRanker(Ranker):
         Returns:
             List[Chunk], reranked candidates
         """
-        if not candidates_with_scores or not query:
-            return candidates_with_scores
-        contents = []
-        for candidate in candidates_with_scores:
-            if candidate.metadata.get('title'):
-                contents.append(f"{candidate.metadata.get('title')}\n{candidate.content}\n{candidate.metadata.get('title')}")
-            else:
-                contents.append(candidate.content)
-        rank_scores = self._model.predict(query, contents)
-        for candidate, content in zip(candidates_with_scores, contents):
-            candidate.content = content
+        try:
+            if not candidates_with_scores or not query:
+                return candidates_with_scores
+            contents = []
+            for candidate in candidates_with_scores:
+                if candidate.metadata.get('title'):
+                    contents.append(f"{candidate.metadata.get('title')}\n{candidate.content}\n{candidate.metadata.get('title')}")
+                else:
+                    contents.append(candidate.content)
+            rank_scores = self._model.predict(query, contents)
+            for candidate, content in zip(candidates_with_scores, contents):
+                candidate.content = content
 
-        new_candidates_with_scores = self._rerank_with_scores(
-            candidates_with_scores, rank_scores
-        )
-        return new_candidates_with_scores[: self.topk]
+            new_candidates_with_scores = self._rerank_with_scores(
+                candidates_with_scores, rank_scores
+            )
+            return new_candidates_with_scores[: self.topk]
+        except Exception as e:
+            logger.error("Rerank Embeddings rank "
+                         " error: {}".format(e))
+            return candidates_with_scores[: self.topk]
 
     async def arank(
         self, candidates_with_scores: List[Chunk], query: Optional[str] = None

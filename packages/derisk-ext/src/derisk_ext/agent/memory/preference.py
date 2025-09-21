@@ -13,7 +13,7 @@ from derisk.storage.vector_store.base import VectorStoreBase
 from derisk.storage.vector_store.filters import MetadataFilters, MetadataFilter, FilterCondition
 from derisk.util.annotations import mutable
 from derisk.util.id_generator import new_id
-from derisk_ext.agent.memory.session import SessionMemoryFragment, MemoryType
+from derisk_ext.agent.memory.session import SessionMemoryFragment, MemoryType, DiscardStrategy
 
 _FORGET_PLACEHOLDER = "[FORGET]"
 _MERGE_PLACEHOLDER = "[MERGE]"
@@ -450,7 +450,15 @@ class PreferenceMemory(LongTermMemory):
                     metadata=retrieved_chunk.metadata,
                 )
             )
-        return retrieved_memories
+        preference_memories = await self.discard_memories(
+            retrieved_memories=retrieved_memories,
+            discard_strategy=discard_strategy,
+            llm_token_limit=llm_token_limit,
+            similarity_threshold=score_threshold,
+            condense_model=condense_model,
+            condense_prompt=condense_prompt,
+        )
+        return preference_memories
 
     def list(
         self,
@@ -515,6 +523,68 @@ class PreferenceMemory(LongTermMemory):
                     )
                 )
         return memory_fragments
+
+
+    async def discard_memories(
+            self,
+            retrieved_memories: List[SessionMemoryFragment],
+            discard_strategy: str = DiscardStrategy.FIFO.value,
+            llm_token_limit: int = 8192,
+            similarity_threshold: float = 0.0,
+            condense_model: str = "deepseek-v3",
+            condense_prompt: Optional[str] = None,
+    ):
+        """Discard memories based on the discard strategy."""
+        while self._calculate_total_tokens(retrieved_memories) > llm_token_limit:
+            logger.info(
+                f"Preference Memory-{self._agent_id} "
+                f"Discarding memories with {discard_strategy}"
+            )
+            if discard_strategy == DiscardStrategy.FIFO.value:
+                retrieved_memories.sort(key=lambda x: x.create_time)
+                discard_fragment = retrieved_memories.pop(0)
+                logger.info("FIFO Discarded memory fragment: %s",
+                            discard_fragment.raw_observation)
+            elif discard_strategy == DiscardStrategy.LRU.value:
+                retrieved_memories.sort(key=lambda x: x.last_accessed_time)
+                discard_fragment = retrieved_memories.pop(0)
+                logger.info("LRU Discarded memory fragment: %s",
+                            discard_fragment.raw_observation)
+            elif discard_strategy == DiscardStrategy.SIMILARITY.value:
+                low_similarity_memories = [m for m in retrieved_memories if
+                                           m.similarity < similarity_threshold]
+                if low_similarity_memories:
+                    retrieved_memories.remove(
+                        min(low_similarity_memories, key=lambda x: x.similarity))
+                else:
+                    retrieved_memories.remove(
+                        min(retrieved_memories, key=lambda x: x.similarity))
+            elif discard_strategy == DiscardStrategy.IMPORTANCE.value:
+                retrieved_memories.sort(key=lambda x: x.importance)
+                retrieved_memories.pop(0)
+            elif discard_strategy == DiscardStrategy.CONDENSE.value:
+                from derisk_ext.rag.transformer.memory_extractor import \
+                    MemoryCondenseExtractor
+                memory_extractor = MemoryCondenseExtractor(
+                    llm_client=self._llm_client,
+                    model_name=condense_model,
+                    prompt=condense_prompt,
+                )
+                memory_texts = "\n".join(
+                    [m.raw_observation for m in retrieved_memories]
+                )
+
+                condense_content = await memory_extractor.extract(memory_texts)
+                from derisk.agent import AgentMemoryFragment
+                retrieved_memories = [AgentMemoryFragment.build_from(
+                    observation=condense_content,
+                    importance=retrieved_memories[0].importance,
+                    similarity=retrieved_memories[0].similarity,
+                    create_time=retrieved_memories[0].create_time,
+                    last_accessed_time=retrieved_memories[0].last_accessed_time,
+                    rounds=retrieved_memories[0].rounds,
+                )]
+        return retrieved_memories
 
 
     @property

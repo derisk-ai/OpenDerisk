@@ -623,7 +623,7 @@ class ActionBranchOperator(BranchOperator[AgentGenerateContext, AgentGenerateCon
 
         model_out: ModelOutput = await _llm_client().generate(
             request=ModelRequest(
-                model="DeepSeek-V3",
+                model="deepseek-v3",
                 messages=[ModelMessage(role="human", content=prompt)],
                 trace_id="",
                 rpc_id="",

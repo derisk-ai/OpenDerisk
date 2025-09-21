@@ -17,6 +17,8 @@ from .memory.agent_memory import (
 )
 from .memory.llm import LLMImportanceScorer, LLMInsightExtractor
 from .profile import Profile, ProfileConfig
+from ...context.event import AfterMemoryWriteEvent, MemoryWritePayload
+from ...context.manager import push_context_event
 
 from ...util import BaseParameters
 from ...util.template_utils import render
@@ -266,6 +268,7 @@ class Role(ABC, BaseModel):
         current_retry_counter: Optional[int] = None,
         reply_message: Optional[AgentMessage] = None,
         agent_id: Optional[str] = None,
+        condense: bool = False,
     ) -> AgentMemoryFragment:
         """Write the memories to the memory.
 
@@ -281,6 +284,7 @@ class Role(ABC, BaseModel):
             current_retry_counter(int): The current retry counter.
             reply_message(AgentMessage): The reply message.
             agent_id(str): The agent id.
+            condense(bool): 是否是压缩后的内容
 
         Returns:
             AgentMemoryFragment: The memory fragment created.
@@ -291,7 +295,7 @@ class Role(ABC, BaseModel):
         mem_thoughts = action_output.thoughts or ai_message
         action = action_output.action
         action_input = action_output.action_input
-        observation = check_fail_reason or action_output.observations
+        observation = check_fail_reason or action_output.content_summary or action_output.observations
 
         memory_map = {
             "question": question,
@@ -321,10 +325,16 @@ class Role(ABC, BaseModel):
                 task_goal=question,
                 thought=mem_thoughts,
                 action=action_output.action,
-                action_result=action_output.observations,
+                action_result=action_output.content_summary or action_output.observations,
+                agent_type=self.role,
+                condense=condense,
+                user_input=question,
+                ai_message=ai_message,
             )
         await self.memory.write(fragment)
-
+        await push_context_event(AfterMemoryWriteEvent(payload=MemoryWritePayload(
+            fragment=fragment,
+        )), agent=self)
         action_output.memory_fragments = {
             "memory": fragment.raw_observation,
             "id": fragment.id,

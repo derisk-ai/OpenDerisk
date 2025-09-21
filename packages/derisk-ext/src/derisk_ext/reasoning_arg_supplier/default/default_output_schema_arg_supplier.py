@@ -10,7 +10,7 @@ _NAME = "DEFAULT_OUTPUT_SCHEMA_ARG_SUPPLIER"
 _DESCRIPTION = "默认参数引擎: output_schema"
 _DEFAULT_OUTPUT_SCHEMA = """严格按以下JSON格式输出，确保可直接解析：
 {
-  "reason": "详细解释状态判定和plan拆解依据（需引用具体分析结论或执行结果，至少150字）",
+  "reason": "详细解释状态判定和plan拆解依据（需引用具体分析结论或执行结果）",
   "status": "planing (仅当需要执行下一步动作时) | done (仅当任务可终结时) | abort (仅当任务异常或无法推进或需要用户提供更多信息时)",
   "plans"?: [{
     "reason": "必须执行的具体依据（需关联前置分析或执行结果）"

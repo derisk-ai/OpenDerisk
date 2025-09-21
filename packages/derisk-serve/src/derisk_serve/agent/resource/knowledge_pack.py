@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+from enum import Enum
 from typing import Any, List, Optional, Type, cast, Tuple, Dict
 
 from derisk import SystemApp
@@ -9,16 +10,72 @@ from derisk.agent.resource.knowledge import (
     RetrieverResourceParameters,
 )
 from derisk.core import Chunk
+from derisk.rag.knowledge.base import DirectoryModeType
 from derisk.rag.transformer.tag_extractor import MetadataTag
+from derisk.storage.vector_store.filters import MetadataFilters, MetadataFilter, \
+    FilterCondition
 from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
 from derisk_serve.rag.api.schemas import (
     KnowledgeSearchRequest,
-    KnowledgeSearchResponse,
+    KnowledgeSearchResponse, KnowledgeSearchDirectoryRequest,
 )
 from derisk_serve.rag.service.service import Service
+from derisk_serve.rag.service.yuque_service import YuqueService
 
 logger = logging.getLogger(__name__)
+
+class KnowledgeActionOperation(Enum):
+    SEARCH = {
+        "action_name": "search",
+        "action_value": "知识搜索",
+        "description": "根据用户问题语义搜索知识库",
+        "avatar": "",
+    }
+    LS = {
+        "action_name": "ls",
+        "action_value": "查阅知识库目录",
+        "description": "查阅知识库目录",
+        "avatar": "",
+    }
+    DOC_LS = {
+        "action_name": "doc_ls",
+        "action_value": "查阅文档目录大纲",
+        "description": "查阅文档目录大纲",
+        "avatar": "",
+    }
+    READ = {
+        "action_name": "read",
+        "action_value": "按需读取文档内容",
+        "description": "按需读取文档内容",
+        "avatar": "",
+    }
+
+    @property
+    def action(self):
+        return self.value["action_name"]
+
+    @property
+    def action_desc(self):
+        return self.value["action_value"]
+
+    @property
+    def description(self):
+        return self.value["description"]
+
+    @staticmethod
+    def get_action_desc(action_name: str):
+        for action in KnowledgeActionOperation:
+            if action.action == action_name:
+                return action.action_desc
+        raise ValueError(f"action {action_name} not found")
+
+    @staticmethod
+    def get_description():
+        action_descriptions = []
+        for action in KnowledgeActionOperation:
+            action_descriptions.append(f"{action.action}({action.description})")
+        return "|".join(action_descriptions)
 
 
 @dataclasses.dataclass
@@ -70,7 +127,7 @@ class KnowledgePackLoadResourceParameters(RetrieverResourceParameters):
         default=False, metadata={"help": _("enable rewrite query")}
     )
     rewrite_query_model: Optional[str] = dataclasses.field(
-        default="",
+        default="deepseek-v3",
         metadata={"help": _("rewrite query model")},
     )
     rewrite_query_prompt: Optional[str] = dataclasses.field(
@@ -187,10 +244,11 @@ class KnowledgePackSearchResource(RetrieverResource):
             ]
             # knowledge = knowledges[0]
             self._rag_service = Service.get_instance(system_app)
+            self._yuque_service = YuqueService.get_instance(system_app)
             super().__init__(name)
             self.knowledge_spaces = []
             for knowledge_id in self._knowledge_ids:
-                knowledge_space = get_knowledge_spaces_info(knowledge_id=knowledge_id)
+                knowledge_space = self.get_knowledge_spaces_info(knowledge_id=knowledge_id)
                 if not knowledge_space:
                     raise ValueError(
                         f"Knowledge {knowledge_id} not found, "
@@ -205,7 +263,7 @@ class KnowledgePackSearchResource(RetrieverResource):
                 self._retriever_desc = None
         else:
             self._knowledge_ids = None
-            self.knowledge_space = None
+            self.knowledge_spaces = None
             super().__init__(name)
 
     @property
@@ -228,7 +286,9 @@ class KnowledgePackSearchResource(RetrieverResource):
             desc += (
                 f"{i + 1}. name:{knowledge_space.name}, "
                 f"knowledge_id:{knowledge_space.knowledge_id}, "
-                f"知识库描述:{knowledge_space.desc}\n"
+                f"知识库描述:{knowledge_space.desc},"
+                # f"文档层级树内容:{knowledge_space.doc_tree},"
+                f"func: {KnowledgeActionOperation.get_description()}, "
             )
         return desc
 
@@ -306,11 +366,13 @@ class KnowledgePackSearchResource(RetrieverResource):
             )
         return candidates
 
-    async def get_summary(
+    async def get_directory(
         self,
         *,
         query: str,
         selected_knowledge_ids: Optional[List[str]] = None,
+        directory_mode: Optional[str] = DirectoryModeType.DOCUMENT.value,
+        doc_uuids: Optional[List[str]] = None,
         **kwargs,
     ) -> KnowledgeSearchResponse:
         """Get the summary.
@@ -321,6 +383,56 @@ class KnowledgePackSearchResource(RetrieverResource):
         search_res: KnowledgeSearchResponse = await self._retrieve(
             query=query,
             knowledge_ids=selected_knowledge_ids,
+            retrieve_directory=True,
+            directory_mode=directory_mode,
+            doc_uuids=doc_uuids
+        )
+        return search_res
+
+    async def read_document(
+        self,
+        *,
+        query: str,
+        selected_knowledge_ids: Optional[List[str]] = None,
+        doc_uuids: Optional[List[str]] = None,
+        header: Optional[str] = None,
+        **kwargs,
+    ) -> KnowledgeSearchResponse:
+        """Read document content.
+        Args:
+            query(str): The question.
+            selected_knowledge_ids(Optional[List[str]]): selected_knowledge_ids.
+            doc_uuids(Optional[List[str]]): doc_uuids.
+            header(Optional[str]): header.
+        """
+        search_res = await self._yuque_service.read_document(
+                knowledge_ids=selected_knowledge_ids,
+                doc_uuids=doc_uuids,
+                header=header,
+            )
+        search_res.raw_query = query
+        search_res.doc_uuids = doc_uuids
+        return search_res
+
+    async def get_summary(
+        self,
+        *,
+        query: str,
+        selected_knowledge_ids: Optional[List[str]] = None,
+        retrieve_document: Optional[bool] = False,
+        doc_uuids: Optional[List[str]] = None,
+        **kwargs,
+    ) -> KnowledgeSearchResponse:
+        """Get the summary.
+        Args:
+            query(str): The question.
+            selected_knowledge_ids(Optional[List[str]]): selected_knowledge_ids.
+        """
+        search_res: KnowledgeSearchResponse = await self._retrieve(
+            query=query,
+            knowledge_ids=selected_knowledge_ids,
+            retrieve_document=retrieve_document,
+            doc_uuids=doc_uuids
         )
         return search_res
 
@@ -349,6 +461,10 @@ class KnowledgePackSearchResource(RetrieverResource):
         self,
         query: str,
         knowledge_ids: Optional[List[str]] = None,
+        retrieve_directory: Optional[bool] = False,
+        directory_mode: Optional[str] = DirectoryModeType.DOCUMENT.value,
+        retrieve_document: Optional[bool] = False,
+        doc_uuids: Optional[List[str]] = None,
     ) -> KnowledgeSearchResponse:
         """Retrieve knowledge chunks.
 
@@ -373,58 +489,95 @@ class KnowledgePackSearchResource(RetrieverResource):
         if not selected_knowledge_ids:
             logger.info("no knowledge space selected, use all knowledge spaces")
             selected_knowledge_ids = self._knowledge_ids
-        request = KnowledgeSearchRequest(
-            knowledge_ids=selected_knowledge_ids,
-            query=query,
-            top_k=self._top_k,
-            score_threshold=self._similarity_score_threshold,
-            single_knowledge_top_k=self._single_knowledge_top_k,
-            enable_rerank=self._enable_rerank,
-            rerank_model=self._rerank_model,
-            enable_summary=self._enable_summary,
-            summary_model=self._summary_model,
-            summary_prompt=self._summary_prompt,
-            split_query_model=self._split_query_model,
-            split_query_prompt=self._split_query_prompt,
-            enable_split_query=self._enable_split_query,
-            tag_filters=self._tag_filters,
-            mode=self._retrieve_mode,
+
+        if retrieve_directory:
+            # ls目录
+            search_res = await self._rag_service.knowledge_search_directory(
+                KnowledgeSearchDirectoryRequest(
+                    knowledge_ids=selected_knowledge_ids,
+                    query=query,
+                    directory_mode=directory_mode,
+                    doc_uuids=doc_uuids
+                )
+            )
+            search_res.raw_query = query
+            search_res.doc_uuids = doc_uuids
+            return search_res
+
+        else:
+            # 检索语义知识
+            request = KnowledgeSearchRequest(
+                knowledge_ids=selected_knowledge_ids,
+                query=query,
+                top_k=self._top_k,
+                score_threshold=self._similarity_score_threshold,
+                single_knowledge_top_k=self._single_knowledge_top_k,
+                enable_rerank=self._enable_rerank,
+                rerank_model=self._rerank_model,
+                enable_summary=self._enable_summary,
+                summary_model=self._summary_model,
+                summary_prompt=self._summary_prompt,
+                split_query_model=self._split_query_model,
+                split_query_prompt=self._split_query_prompt,
+                enable_split_query=self._enable_split_query,
+                tag_filters=self._tag_filters,
+                mode=self._retrieve_mode
+            )
+            if doc_uuids:
+                logger.info(f"doc_uuids: {doc_uuids}")
+                doc_ids = []
+                for doc_uuid in doc_uuids:
+                    yuque = self._yuque_service.get_yuque_by_uuid(doc_uuid)
+                    if not yuque and not yuque.doc_id:
+                        continue
+                    doc_ids.append(yuque.doc_id)
+                request.metadata_filters = MetadataFilters(
+                    filters=[
+                        MetadataFilter(key="doc_id", value=doc_id) for doc_id in doc_ids
+                    ],
+                    condition=FilterCondition.OR
+                )
+            search_res = await self._rag_service.knowledge_search(request)
+            if not request.enable_summary:
+                search_res.summary_content = ""
+                url_to_index = {}
+                for sub_query, candidates in search_res.references.items():
+                    text = ""
+                    for i, chunk in enumerate(candidates):
+                        yuque_url = (
+                            chunk.get("metadata").get("yuque_url")
+                            if chunk.get("metadata")
+                            else ""
+                        )
+                        title = (
+                            chunk.get("metadata").get("title")
+                            if chunk.get("metadata")
+                            else ""
+                        )
+                        if yuque_url in url_to_index:
+                            index = url_to_index[yuque_url]
+                        else:
+                            index = len(url_to_index) + 1
+                            url_to_index[yuque_url] = index
+                        text += f"{chunk.get('content')}-([{index}]-link:{yuque_url},title:{title})\n"
+                    text = f"\n{sub_query}:\n" + text
+                    search_res.summary_content += text
+            return search_res
+
+
+    def get_knowledge_spaces_info(self, **kwargs):
+        from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
+        from derisk_app.knowledge.service import KnowledgeService
+
+        knowledge_space_service = KnowledgeService()
+        knowledge_spaces = knowledge_space_service.get_knowledge_space(
+            KnowledgeSpaceRequest(**kwargs)
         )
-        search_res = await self._rag_service.knowledge_search(request)
-        if not request.enable_summary:
-            search_res.summary_content = ""
-            url_to_index = {}
-            for sub_query, candidates in search_res.references.items():
-                text = ""
-                for i, chunk in enumerate(candidates):
-                    yuque_url = (
-                        chunk.get("metadata").get("yuque_url")
-                        if chunk.get("metadata")
-                        else ""
-                    )
-                    title = (
-                        chunk.get("metadata").get("title")
-                        if chunk.get("metadata")
-                        else ""
-                    )
-                    if yuque_url in url_to_index:
-                        index = url_to_index[yuque_url]
-                    else:
-                        index = len(url_to_index) + 1
-                        url_to_index[yuque_url] = index
-                    text += f"{chunk.get('content')}-([{index}]-link:{yuque_url},title:{title})\n"
-                text = f"\n{sub_query}:\n" + text
-                search_res.summary_content += text
-        return search_res
 
+        # for knowledge_space in knowledge_spaces:
+        #     knowledge_id = knowledge_space.knowledge_id
+        #     knowledge_space.doc_tree = self._rag_service.get_doc_tree_from_knowledge_id(
+        #         knowledge_id=knowledge_id
+        #     )
 
-def get_knowledge_spaces_info(**kwargs):
-    from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
-    from derisk_app.knowledge.service import KnowledgeService
-
-    knowledge_space_service = KnowledgeService()
-    knowledge_spaces = knowledge_space_service.get_knowledge_space(
-        KnowledgeSpaceRequest(**kwargs)
-    )
-
-    return knowledge_spaces
+        return knowledge_spaces

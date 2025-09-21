@@ -20,9 +20,11 @@ class LLMExtractor(ExtractorBase, ABC):
         self._model_name = model_name
         self._prompt_template = prompt_template
 
-    async def extract(self, text: str, limit: Optional[int] = None) -> Union[str, List]:
+    async def extract(self, text: str,
+                      limit: Optional[int] = None,
+                      max_tokens: Optional[int] = None) -> Union[str, List]:
         """Extract by LLM."""
-        return await self._extract(text, None, limit)
+        return await self._extract(text, None, limit, max_tokens=max_tokens)
 
     async def batch_extract(
         self,
@@ -51,7 +53,9 @@ class LLMExtractor(ExtractorBase, ABC):
         return results
 
     async def _extract(
-        self, text: str, history: str = None, limit: Optional[int] = None
+        self, text: str, history: str = None,
+            limit: Optional[int] = None,
+            max_tokens: Optional[int] = None,
     ) -> List:
         """Inner extract by LLM."""
         # limit check
@@ -75,7 +79,12 @@ class LLMExtractor(ExtractorBase, ABC):
             logger.info(f"Using model {self._model_name} to extract")
 
         model_messages = ModelMessage.from_base_messages(messages)
-        request = ModelRequest(model=self._model_name, messages=model_messages)
+        request = ModelRequest(
+            model=self._model_name,
+            messages=model_messages,
+        )
+        if max_tokens:
+            request.max_new_tokens = max_tokens
         response = await self._llm_client.generate(request=request)
 
         if not response.success:

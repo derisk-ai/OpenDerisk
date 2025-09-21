@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from typing import Tuple, Optional
 
@@ -17,10 +18,14 @@ from derisk.agent.core.reasoning.reasoning_engine import (
 )
 from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
 from derisk.agent.resource import FunctionTool
+from derisk.agent.resource.workflow import WorkflowResource
+from derisk.core.workflow.workflow_action import WorkflowAction, WorkflowActionInput
 from derisk.util.json_utils import find_json_objects
 from derisk.util.string_utils import is_number
 from derisk_ext.agent.agents.reasoning.default.ability import Ability
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
+
+logger = logging.getLogger("reasoning")
 
 def is_str_list(origin) -> bool:
     return isinstance(origin, list) and not any(item for item in origin if not isinstance(item, str))
@@ -59,34 +64,15 @@ def parse_actions(
 
     result = ReasoningModelOutput.model_validate(json_parsed)
 
-    # # Remove non-JSON parts.
-    # json_matches = re.search(r"```json\s*({.*})\s*```", text, re.IGNORECASE | re.DOTALL)
-    # if json_matches:
-    #     text = json_matches[1]
-    #
-    # def _load() -> ReasoningModelOutput:
-    #     _SPLITER = " "
-    #     json_parsed = json.loads(text)
-    #     if "summary" in json_parsed and isinstance(json_parsed["summary"], list):
-    #         json_parsed["summary"] = _SPLITER.join(json_parsed["summary"])
-    #
-    #     if "conclusion" in json_parsed and isinstance(json_parsed["conclusion"], list):
-    #         json_parsed["conclusion"] = _SPLITER.join(json_parsed["conclusion"])
-    #
-    #     return ReasoningModelOutput.model_validate(json_parsed)
-    #
-    # try:
-    #     result = _load()
-    # except Exception:
-    #     # todo 待优化: 模型返回结果可能包含换行等特殊字符导致解析失败 直接替换可能带来其他问题
-    #     text = text.replace("\n", " ")
-    #     result = _load()
-
     assert result, "failed to parse model output: " + text
 
     done = True if result.status in ["done", "abort"] else False
     answer = result.answer or result.summary or (result.reason if done else None)
     actions = format_actions(plans=result.plans, abilities=abilities)
+    if result.plans and actions and len(result.plans) != len(actions):
+        logger.info(f"parse_actions, plan({len(result.plans)}) != action({len(actions)}), "
+                    f"actions:[{[{'action':action.name,'input':action.action_input} for action in actions]}],"
+                    f"plans:[{[plan.to_dict() for plan in result.plans]}]")
     return result, done, answer, actions
 
 
@@ -111,9 +97,22 @@ def transfer_knowledge_retrieve_action_input(
     plan: ReasoningPlan,
 ) -> KnowledgeRetrieveActionInput:
     return KnowledgeRetrieveActionInput(
-        query=plan.parameters["query"],
+        query=plan.parameters.get("query") if plan.parameters.get("query") else plan.intention,
         knowledge_ids=plan.parameters["knowledge_ids"],
+        func=plan.parameters.get("func"),
+        doc_uuids=plan.parameters.get("doc_uuids"),
+        header=plan.parameters.get("header"),
         intention=plan.intention,
+        thought=plan.reason,
+    )
+
+
+def transfer_workflow_action_input(plan: ReasoningPlan) -> WorkflowActionInput:
+    intention: str = plan.intention
+    parameter: str = json.dumps(plan.parameters) if plan.parameters else None
+    return WorkflowActionInput(
+        id=plan.id,
+        query="\n\n".join([s for s in [intention, parameter] if s]),
         thought=plan.reason,
     )
 
@@ -128,9 +127,10 @@ def format_action(
             KnowledgeRetrieveAction,
             transfer_knowledge_retrieve_action_input,
         ),
+        WorkflowResource: (WorkflowAction, transfer_workflow_action_input),
     }
 
-    if (not plan) or (not ability) or (not ability.name in plan.id):
+    if (not plan) or (not ability) or (not ability.name.strip() == plan.id.strip()):
         return None
 
     if not ability.actual_type in _dict:
@@ -230,7 +230,7 @@ def parse_action_id(id: str) -> tuple[Optional[str], Optional[str], Optional[str
         return None, None, None
 
     task_id = id[:idx1]  # todo: 待校验task_id合法性
-    step_part = id[idx1 + 1 :]
+    step_part = id[idx1 + 1:]
     if re.match("^\w+$", step_part):  # 不含.-等step_id、action_id分隔符
         # `task_id-`后面跟的是数字 说明id是step_id
         return task_id, id, None
@@ -303,6 +303,7 @@ if __name__ == "__main__":
                 assert (le[j] is None and la[j] is None) or (
                     le[j] is not None and la[j] is not None and le[j] == la[j]
                 ), f"第{i}个测试用例的第{j}个值不相等"
+
 
     # test_parse_action_id()
 

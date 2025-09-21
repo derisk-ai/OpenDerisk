@@ -115,6 +115,7 @@ class GptsMessage:
     updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
 
     observation: Optional[str] = None
+    metrics: Optional[str] = None
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsMessage":
         """Create a GptsMessage object from a dictionary."""
@@ -148,6 +149,7 @@ class GptsMessage:
             created_at=d["created_at"],
             updated_at=d["updated_at"],
             observation=d.get("observation"),
+            metrics=d.get("metrics"),
         )
 
     def to_dict(self) -> Dict[str, Any]:

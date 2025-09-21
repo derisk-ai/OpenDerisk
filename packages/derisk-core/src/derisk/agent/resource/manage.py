@@ -153,6 +153,7 @@ class ResourceManager(BaseComponent):
             configs: Any = parameter_class.to_configurations(
                 parameter_class,
                 version=version,
+                cache_enable= kwargs['cache_enable'] if 'cache_enable' in kwargs else None
             )
             all_instance_options = []
             if (

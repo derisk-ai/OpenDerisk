@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union, Dict, Tuple, Any
 
 from ..llm import LLMStrategy, LLMStrategyType, register_llm_strategy_cls
 
@@ -11,34 +11,30 @@ logger = logging.getLogger(__name__)
 
 class LLMStrategyPriority(LLMStrategy):
     """Priority strategy for llm model service."""
+    async def models(self) -> List[str]:
+        all_models = await self._llm_client.models()
+        return [item.model for item in all_models]
 
     @property
     def type(self) -> LLMStrategyType:
         """Return the strategy type."""
         return LLMStrategyType.Priority
 
-    async def next_llm(self, excluded_models: Optional[List[str]] = None) -> str:
-        """Return next available llm model name."""
+    def my_models(self)-> Optional[List[str]]:
+        if not self._context:
+            raise ValueError("No context provided for priority strategy!")
         try:
-            all_models = await self._llm_client.models()
-            all_model_names = [item.model for item in all_models]
+            context: Union[str, List[str]] = self._context
+            # 如果是字符串，先解析
+            if isinstance(context, str):
+                context = json.loads(context)
 
-            if not self._context:
-                raise ValueError("No context provided for priority strategy!")
-            if isinstance(self._context, str):
-                priority = json.loads(self._context)
-            else:
-                priority = self._context
-            logger.info(f"Use {self.type} llm strategy! value:{self._context}")
-            can_uses = self._excluded_models(all_model_names, priority, excluded_models)
+            # 确保是字符串列表
+            return [str(item) for item in context]
 
-            if can_uses and len(can_uses) > 0:
-                return can_uses[0]
-            else:
-                raise ValueError("No model service available!")
-        except Exception as e:
-            logger.error(f"{self.type} get next llm failed!{str(e)}")
-            raise ValueError(f"Failed to allocate model service,{str(e)}!")
+        except json.JSONDecodeError:
+            logger.error(f"模型策略[{self.type}]获取配置模型列表时异常!")
+            raise ValueError(f"模型策略[{self.type}]获取配置模型列表时异常!「{self._context}」")
 
 
 register_llm_strategy_cls(LLMStrategyType.Priority, LLMStrategyPriority)

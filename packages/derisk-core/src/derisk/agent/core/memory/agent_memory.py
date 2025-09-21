@@ -58,6 +58,10 @@ class AgentMemoryFragment(MemoryFragment):
         thought: Optional[str] = None,
         action: Optional[str] = None,
         action_result: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        condense: Optional[bool] = False,
+        user_input: Optional[str] = None,
+        ai_message: Optional[str] = None,
     ):
         """Create a memory fragment."""
         if not memory_id:
@@ -80,6 +84,10 @@ class AgentMemoryFragment(MemoryFragment):
         self._thought: Optional[str] = thought
         self._action: Optional[str] = action
         self._action_result: Optional[str] = action_result
+        self._agent_type: Optional[str] = agent_type
+        self._condense: Optional[bool] = condense
+        self._user_input: Optional[bool] = user_input
+        self._ai_message: Optional[bool] = ai_message
 
     @property
     def id(self) -> int:
@@ -131,6 +139,15 @@ class AgentMemoryFragment(MemoryFragment):
             Optional[str]: str.
         """
         return self._agent_id
+
+    @property
+    def agent_type(self) -> Optional[str]:
+        """Return the agent_type.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._agent_type
 
     @property
     def session_id(self) -> Optional[str]:
@@ -186,6 +203,24 @@ class AgentMemoryFragment(MemoryFragment):
         """
         return self._action_result
 
+    @property
+    def user_input(self) -> Optional[str]:
+        """Return the user_input.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._user_input
+
+    @property
+    def ai_message(self) -> Optional[str]:
+        """Return the ai_message.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._ai_message
+
     def update_embeddings(self, embeddings: List[float]) -> None:
         """Update the embeddings of the memory fragment.
 
@@ -226,6 +261,15 @@ class AgentMemoryFragment(MemoryFragment):
             Optional[float]: Importance of the memory fragment
         """
         return self._importance
+
+    @property
+    def condense(self) -> Optional[float]:
+        """Return condense of the memory fragment.
+
+        Returns:
+            Optional[float]: Condense of the memory fragment
+        """
+        return self._condense
 
     def update_importance(self, importance: float) -> Optional[float]:
         """Update the importance of the memory fragment.
@@ -283,6 +327,10 @@ class AgentMemoryFragment(MemoryFragment):
         thought: Optional[str] = None,
         action: Optional[str] = None,
         action_result: Optional[str] = None,
+        agent_type: Optional[str] = None,
+        condense: Optional[bool] = None,
+        user_input: Optional[bool] = None,
+        ai_message: Optional[bool] = None,
         **kwargs,
     ) -> "AgentMemoryFragment":
         """Build a memory fragment from the given parameters."""
@@ -303,6 +351,10 @@ class AgentMemoryFragment(MemoryFragment):
             action=action,
             action_result=action_result,
             role=role,
+            agent_type=agent_type,
+            condense=condense,
+            user_input=user_input,
+            ai_message=ai_message,
         )
 
     def copy(self: "AgentMemoryFragment") -> "AgentMemoryFragment":
@@ -324,6 +376,10 @@ class AgentMemoryFragment(MemoryFragment):
             action=self._action,
             action_result=self._action_result,
             role=self.role,
+            agent_type=self.agent_type,
+            condense=self.condense,
+            user_input=self.user_input,
+            ai_message=self.ai_message,
         )
 
     def to_dict(self):
@@ -343,7 +399,11 @@ class AgentMemoryFragment(MemoryFragment):
             "task_goal": self._task_goal,
             "thought": self._thought,
             "action": self._action,
-            "action_result": self._action_result
+            "action_result": self._action_result,
+            "agent_type": self._agent_type,
+            "condense": self._condense,
+            "user_input": self._user_input,
+            "ai_message": self._ai_message,
         }
 
 

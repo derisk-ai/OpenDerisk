@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from derisk.agent import AgentMessage, AgentContext, Agent
+from derisk.agent import AgentMessage, AgentContext
 
 
 class ReasoningArgSupplier(ABC):
@@ -69,17 +69,17 @@ class ReasoningArgSupplier(ABC):
     @property
     def params(self):
         """Return the params of the reasoning-arg-supplier."""
-        return  None
+        return None
 
     @abstractmethod
     async def supply(
         self,
         prompt_param: dict,
         agent: Any,
-            agent_context: Optional[AgentContext] = None,
-            received_message: Optional[AgentMessage] = None,
-            step_id: Optional[str] = None,
-            current_step_message: Optional[AgentMessage] = None,
+        agent_context: Optional[AgentContext] = None,
+        received_message: Optional[AgentMessage] = None,
+        step_id: Optional[str] = None,
+        current_step_message: Optional[AgentMessage] = None,
         **kwargs,
     ) -> None:
         """Supply the arg value"""

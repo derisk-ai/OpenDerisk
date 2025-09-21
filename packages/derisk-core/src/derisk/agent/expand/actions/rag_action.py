@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Any
 
@@ -10,7 +9,7 @@ from derisk.vis.schema import StepInfo, VisStepContent
 from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
 from .tool_action import ToolAction
 from ...core.schema import Status
-from ...resource import ResourcePack, ToolPack, BaseTool
+from ...resource import ResourcePack
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
 

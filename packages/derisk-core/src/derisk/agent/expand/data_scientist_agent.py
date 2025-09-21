@@ -105,7 +105,7 @@ class DataScientistAgent(ConversableAgent):
         return dbs[0]
 
     async def correctness_check(
-        self, message: AgentMessage
+        self, message: AgentMessage, **kwargs
     ) -> Tuple[bool, Optional[str]]:
         """Verify whether the current execution results meet the target expectations."""
         action_out = message.action_report

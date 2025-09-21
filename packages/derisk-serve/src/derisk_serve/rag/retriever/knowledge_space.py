@@ -215,9 +215,11 @@ class KnowledgeSpaceRetriever(BaseRetriever):
             logger.info(f"Knowledge {self._knowledge_id} Starting Hybrid retrieval")
             tasks = []
             import asyncio
+            import time
+            start = time.time()
             tasks.append(self.semantic_retrieve(query, score_threshold, filters))
-            # tasks.append(self.full_text_retrieve(query, self._top_k, filters))
-            tasks.append(self.tree_index_retrieve(query, self._top_k, filters))
+            tasks.append(self.full_text_retrieve(query, self._top_k, filters))
+            # tasks.append(self.tree_index_retrieve(query, self._top_k, filters))
             results = await asyncio.gather(*tasks)
             semantic_candidates = results[0]
             full_text_candidates = results[1]
@@ -226,6 +228,7 @@ class KnowledgeSpaceRetriever(BaseRetriever):
                 f"Knowledge {self._knowledge_id} Hybrid retrieval completed. "
                 f"Found {len(semantic_candidates)} semantic candidates "
                 f"and Found {len(full_text_candidates)} full text candidates."
+                f"Time: {time.time() - start}"
                 # f"and Found {len(tree_candidates)} tree candidates."
             )
             candidates = semantic_candidates + full_text_candidates
@@ -236,6 +239,8 @@ class KnowledgeSpaceRetriever(BaseRetriever):
                 if chunk.metadata.get("data_type") in EXCEL_TYPES:
                     _add_excel_headers(chunk)
             return list(unique_candidates.values())
+        else:
+            raise ValueError(f"Unsupported retrieve mode: {self._retrieve_mode}")
 
     async def semantic_retrieve(
         self,
@@ -253,9 +258,14 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         Return:
             List[Chunk]: list of chunks with score.
         """
-        return await self._retriever_chain.aretrieve_with_scores(
+        import time
+        start = time.time()
+        candidates = await self._retriever_chain.aretrieve_with_scores(
             query, score_threshold, filters
         )
+        logger.info(f"Knowledge {self._knowledge_id} Semantic retrieval completed. "
+                    f"Found {len(candidates)} candidates. Time: {time.time() - start}")
+        return candidates
 
     async def full_text_retrieve(
         self,
@@ -277,10 +287,16 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         Return:
             List[Chunk]: list of chunks with score.
         """
+        import time
+        start = time.time()
         if self._storage_connector.is_support_full_text_search():
-            return await self._storage_connector.afull_text_search(
+            candidates = await self._storage_connector.afull_text_search(
                 query, top_k, filters
             )
+            logger.info(f"Knowledge {self._knowledge_id} Full text retrieval completed. "
+                        f"Found {len(candidates)} candidates. Time: {time.time() - start}"
+                        )
+            return candidates
         else:
             logger.warning(
                 "Full text search is not supported for this storage connector."

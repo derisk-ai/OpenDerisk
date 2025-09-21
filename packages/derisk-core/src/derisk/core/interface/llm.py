@@ -24,7 +24,7 @@ from derisk.core.interface.media import MediaContent, MediaContentType, MediaObj
 from derisk.core.interface.message import ModelMessage, ModelMessageRoleType
 from derisk.util import BaseParameters
 from derisk.util.annotations import PublicAPI
-from derisk.util.model_utils import GPUInfo
+from derisk.util.model_utils import GPUInfo, TokenDetails
 from derisk.vis import Vis
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,9 @@ class ModelInferenceMetrics:
     avg_gpu_infos: Optional[List[GPUInfo]] = None
     """Average memory usage across all collection points"""
 
+    prompt_tokens_details: Optional[TokenDetails] = None
+    """The  tokens details (such as cached_tokens)."""
+
     @staticmethod
     def create_metrics(
         last_metrics: Optional["ModelInferenceMetrics"] = None,
@@ -104,6 +107,7 @@ class ModelInferenceMetrics:
         prompt_tokens = last_metrics.prompt_tokens if last_metrics else None
         completion_tokens = last_metrics.completion_tokens if last_metrics else None
         total_tokens = last_metrics.total_tokens if last_metrics else None
+
         speed_per_second = last_metrics.speed_per_second if last_metrics else None
         prefill_tokens_per_second = (
             last_metrics.prefill_tokens_per_second if last_metrics else None
@@ -118,6 +122,11 @@ class ModelInferenceMetrics:
             start_time_ms = time.time_ns() // 1_000_000
         current_time_ms = time.time_ns() // 1_000_000
         end_time_ms = current_time_ms
+
+        # 计算速度
+        if start_time_ms and end_time_ms and completion_tokens:
+            cost_seconds = (end_time_ms - start_time_ms) // 1000
+            speed_per_second = round(completion_tokens / cost_seconds, 2)
 
         return ModelInferenceMetrics(
             start_time_ms=start_time_ms,
@@ -153,8 +162,8 @@ class ModelInferenceMetrics:
         first_token_latency = None
         if self.first_token_time_ms is not None and self.start_time_ms is not None:
             first_token_latency = (
-                self.first_token_time_ms - self.start_time_ms
-            ) / 1000.0
+                                      self.first_token_time_ms - self.start_time_ms
+                                  ) / 1000.0
 
         # Add section header
         lines.append("=== Model Inference Metrics ===")
@@ -243,6 +252,10 @@ class ModelRequestContext:
 
     is_reasoning_model: Optional[bool] = False
     """Whether the model is a reasoning model."""
+
+    def to_dict(self) -> Dict:
+        """Convert the model inference metrics to dict."""
+        return asdict(self)
 
 
 @dataclass
@@ -468,6 +481,9 @@ class ModelRequest:
 
     messages: _ModelMessageType
     """The input messages."""
+
+    incremental: bool = False
+    """Control whether the model output is incremental content."""
 
     temperature: Optional[float] = None
     """The temperature of the model inference."""
@@ -723,7 +739,7 @@ class ModelExtraMedata(BaseParameters):
         default=None,
         metadata={
             "help": "The chat template, see: "
-            "https://huggingface.co/docs/transformers/main/en/chat_templating"
+                    "https://huggingface.co/docs/transformers/main/en/chat_templating"
         },
     )
 

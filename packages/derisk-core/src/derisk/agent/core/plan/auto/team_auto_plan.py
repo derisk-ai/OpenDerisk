@@ -326,6 +326,7 @@ class AutoPlanChatManager(ManagerAgent):
         sender: Optional[Agent] = None,
         prompt: Optional[str] = None,
         received_message: Optional[AgentMessage] = None,
+        **kwargs
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Think and reason about the current task goal."""
         # TeamManager, which is based on processes and plans by default, only needs to

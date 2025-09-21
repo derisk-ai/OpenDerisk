@@ -24,21 +24,22 @@ _METADATA_LAST_ACCESSED_AT = "last_accessed_at"
 _METADATA_CREATE_TIME = "create_time"
 _METADATA_SESSION_ID = "session_id"
 _METADATA_AGENT_ID = "agent_id"
+_METADATA_AGENT_TYPE = "agent_type"
 _METADAT_IMPORTANCE = "importance"
+_METADAT_CONDENSE = "condense"
+_METADAT_USER_INPUT = "user_input"
+_METADAT_AI_MESSAGE = "ai_message"
 _MEMORY_ID = "memory_id"
 _MESSAGE_ID = "message_id"
 _ROLE = "role"
 _TASK_GOAL = "task_goal"
 _THOUGHT = "thought"
 _ACTION = "action"
+_ANSWER_ACTION = "answer"
 _ACTION_RESULT = "action_result"
+_REASON_AGENT = "ReasoningPlanner"
 
-COMP_RATE = {
-            "math": 1.2,
-            "code": 3.67,
-            "zh": 1.86,
-            "en": 2
-        }
+
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +64,25 @@ class SessionMemoryFragment(MemoryFragment):
     """Session memory fragment for Session memory."""
 
     def __init__(
-        self,
-        observation: str,
-        embeddings: Optional[List[float]] = None,
-        memory_id: Optional[int] = None,
-        importance: Optional[float] = None,
-        last_accessed_time: Optional[datetime] = None,
-        rounds: Optional[int] = None,
-        is_insight: bool = False,
-        create_time: Optional[datetime] = None,
-        similarity: Optional[float] = None,
-        message_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        role: Optional[str] = None,
-        task_goal: Optional[str] = None,
-        thought: Optional[str] = None,
-        action: Optional[str] = None,
-        action_result: Optional[str] = None,
+            self,
+            observation: str,
+            embeddings: Optional[List[float]] = None,
+            memory_id: Optional[int] = None,
+            importance: Optional[float] = None,
+            last_accessed_time: Optional[datetime] = None,
+            rounds: Optional[int] = None,
+            is_insight: bool = False,
+            create_time: Optional[datetime] = None,
+            similarity: Optional[float] = None,
+            message_id: Optional[str] = None,
+            agent_id: Optional[str] = None,
+            role: Optional[str] = None,
+            task_goal: Optional[str] = None,
+            thought: Optional[str] = None,
+            action: Optional[str] = None,
+            action_result: Optional[str] = None,
+            agent_type: Optional[str] = None,
+            condense: Optional[bool] = False,
     ):
         """Create a Session memory fragment.
 
@@ -101,6 +104,8 @@ class SessionMemoryFragment(MemoryFragment):
             thought(Optional[str]): Thought associated with the memory fragment
             action(Optional[str]): Action associated with the memory fragment
             action_result(Optional[str]): Action result associated with the memory fragment
+            agent_type(Optional[str]):agent_type associated with the memory fragment
+            condense(Optional[bool]):condense associated with the memory fragment
         Raises:
             ValueError: If memory_id is not provided and cannot be generated.
         Raises:
@@ -125,6 +130,8 @@ class SessionMemoryFragment(MemoryFragment):
         self._thought = thought
         self._action = action
         self._action_result = action_result
+        self._agent_type = agent_type
+        self._condense = condense
 
     @property
     def id(self) -> int:
@@ -150,7 +157,7 @@ class SessionMemoryFragment(MemoryFragment):
         self._embeddings = embeddings
 
     def calculate_current_embeddings(
-        self, embedding_func: Callable[[List[str]], List[List[float]]]
+            self, embedding_func: Callable[[List[str]], List[List[float]]]
     ) -> List[float]:
         """Calculate the embeddings of the memory fragment.
 
@@ -217,6 +224,15 @@ class SessionMemoryFragment(MemoryFragment):
             Optional[str]: str.
         """
         return self._agent_id
+
+    @property
+    def agent_type(self) -> Optional[str]:
+        """Return the agent_type.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._agent_type
 
     @property
     def role(self) -> Optional[str]:
@@ -311,25 +327,36 @@ class SessionMemoryFragment(MemoryFragment):
         """
         return self._action_result
 
+    @property
+    def condense(self) -> Optional[bool]:
+        """Return to condense.
+
+        Returns:
+            Optional[bool]: str.
+        """
+        return self._condense
+
     @classmethod
     def build_from(
-        cls: Type["SessionMemoryFragment"],
-        observation: str,
-        embeddings: Optional[List[float]] = None,
-        memory_id: Optional[int] = None,
-        importance: Optional[float] = None,
-        is_insight: bool = False,
-        last_accessed_time: Optional[datetime] = None,
-        create_time: Optional[datetime] = None,
-        similarity: Optional[float] = None,
-        rounds: Optional[int] = None,
-        message_id: Optional[str] = None,
-        role: Optional[str] = None,
-        task_goal: Optional[str] = None,
-        thought: Optional[str] = None,
-        action: Optional[str] = None,
-        action_result: Optional[str] = None,
-        **kwargs,
+            cls: Type["SessionMemoryFragment"],
+            observation: str,
+            embeddings: Optional[List[float]] = None,
+            memory_id: Optional[int] = None,
+            importance: Optional[float] = None,
+            is_insight: bool = False,
+            last_accessed_time: Optional[datetime] = None,
+            create_time: Optional[datetime] = None,
+            similarity: Optional[float] = None,
+            rounds: Optional[int] = None,
+            message_id: Optional[str] = None,
+            role: Optional[str] = None,
+            task_goal: Optional[str] = None,
+            thought: Optional[str] = None,
+            action: Optional[str] = None,
+            action_result: Optional[str] = None,
+            agent_type: Optional[str] = None,
+            condense: Optional[bool] = False,
+            **kwargs,
     ) -> "SessionMemoryFragment":
         """Build a memory fragment from the given parameters."""
         return cls(
@@ -348,6 +375,8 @@ class SessionMemoryFragment(MemoryFragment):
             thought=thought,
             action=action,
             action_result=action_result,
+            agent_type=agent_type,
+            condense=condense,
         )
 
     def copy(self: "SessionMemoryFragment") -> "SessionMemoryFragment":
@@ -368,6 +397,8 @@ class SessionMemoryFragment(MemoryFragment):
             thought=self._thought,
             action=self._action,
             action_result=self._action_result,
+            agent_type=self._agent_type,
+            condense=self._condense,
         )
 
     def to_dict(self):
@@ -387,7 +418,9 @@ class SessionMemoryFragment(MemoryFragment):
             "task_goal": self._task_goal,
             "thought": self._thought,
             "action": self._action,
-            "action_result": self._action_result
+            "action_result": self._action_result,
+            "agent_type": self._agent_type,
+            "condense": self._condense,
         }
 
 
@@ -400,18 +433,18 @@ class SessionMemory(LongTermMemory):
     """
 
     def __init__(
-        self,
-        session_id: str,
-        agent_id: str,
-        vector_store: VectorStoreBase,
-        executor: Executor,
-        kg_store: Optional[KnowledgeGraphBase] = None,
-        gpts_memory: Optional[GptsMemory] = None,
-        now: Optional[datetime] = None,
-        reflection_threshold: Optional[float] = None,
-        _default_importance: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        llm_client: Optional[LLMClient] = None,
+            self,
+            session_id: str,
+            agent_id: str,
+            vector_store: VectorStoreBase,
+            executor: Executor,
+            kg_store: Optional[KnowledgeGraphBase] = None,
+            gpts_memory: Optional[GptsMemory] = None,
+            now: Optional[datetime] = None,
+            reflection_threshold: Optional[float] = None,
+            _default_importance: Optional[float] = None,
+            metadata: Optional[Dict[str, Any]] = None,
+            llm_client: Optional[LLMClient] = None,
     ):
         """Create a session memory.
 
@@ -442,15 +475,14 @@ class SessionMemory(LongTermMemory):
             "memory_type": self.memory_type
         }
 
-
     def initialize(
-        self,
-        name: Optional[str] = None,
-        llm_client: Optional[LLMClient] = None,
-        importance_scorer: Optional[ImportanceScorer] = None,
-        insight_extractor: Optional[InsightExtractor] = None,
-        real_memory_fragment_class: Optional[Type[T]] = None,
-        session_id: Optional[str] = None,
+            self,
+            name: Optional[str] = None,
+            llm_client: Optional[LLMClient] = None,
+            importance_scorer: Optional[ImportanceScorer] = None,
+            insight_extractor: Optional[InsightExtractor] = None,
+            real_memory_fragment_class: Optional[Type[T]] = None,
+            session_id: Optional[str] = None,
     ) -> None:
         """Initialize memory.
 
@@ -464,7 +496,7 @@ class SessionMemory(LongTermMemory):
         self.session_id = session_id
 
     def structure_clone(
-        self: "SessionMemory[T]", now: Optional[datetime] = None
+            self: "SessionMemory[T]", now: Optional[datetime] = None
     ) -> "SessionMemory[T]":
         """Return a structure clone of the memory."""
         now = now or self.now
@@ -485,16 +517,17 @@ class SessionMemory(LongTermMemory):
 
     @mutable
     async def write(
-        self,
-        memory_fragment: MemoryFragment,
-        now: Optional[datetime] = None,
-        op: WriteOperation = WriteOperation.ADD,
-        enable_message_condense: bool = False,
-        message_condense_model: str = "DeepSeek-V3",
-        message_condense_prompt: Optional[str] = None,
-        check_fail_reason: Optional[str] = None,
-        llm_token_limit: int = 56000,
-        **kwargs,
+            self,
+            memory_fragment: AgentMemoryFragment,
+            now: Optional[datetime] = None,
+            op: WriteOperation = WriteOperation.ADD,
+            enable_message_condense: bool = False,
+            message_condense_model: str = "deepseek-v3",
+            message_condense_prompt: Optional[str] = None,
+            check_fail_reason: Optional[str] = None,
+            llm_token_limit: int = 56000,
+            condense_max_token: int = 4000,
+            **kwargs,
     ) -> Optional[DiscardedMemoryFragments[SessionMemoryFragment]]:
         """Write a memory fragment to the memory."""
         last_accessed_time = memory_fragment.last_accessed_time or now or self.now
@@ -526,6 +559,16 @@ class SessionMemory(LongTermMemory):
             metadata[_METADATA_SESSION_ID] = self.session_id
         if memory_fragment.agent_id:
             metadata[_METADATA_AGENT_ID] = memory_fragment.agent_id
+        if memory_fragment.agent_type:
+            metadata[_METADATA_AGENT_TYPE] = memory_fragment.agent_type
+        if memory_fragment.condense:
+            metadata[_METADAT_CONDENSE] = memory_fragment.condense
+        if memory_fragment.user_input:
+            metadata[_METADAT_USER_INPUT] = memory_fragment.user_input
+        if memory_fragment.ai_message:
+            metadata[_METADAT_AI_MESSAGE] = memory_fragment.ai_message
+        msg_content = (f"TaskGoal:{memory_fragment.task_goal}\n"
+                       f"ActionResult:{memory_fragment.action_result}")
         if enable_message_condense:
             memory_extractor = MemoryCondenseExtractor(
                 llm_client=self._llm_client,
@@ -533,12 +576,14 @@ class SessionMemory(LongTermMemory):
                 prompt=message_condense_prompt,
             )
             raw_msg = memory_fragment.raw_observation
-            while self._calculate_tokens(text=msg_content) > llm_token_limit:
-                msg_content = msg_content[llm_token_limit]
             try:
                 msg_content = await memory_extractor.extract(
-                    text=msg_content, limit=llm_token_limit
+                    text=msg_content, max_tokens=condense_max_token
                 )
+                logger.info(f"After Write Message condense text: {msg_content}")
+                while self._calculate_tokens(text=msg_content) > llm_token_limit:
+                    msg_content = msg_content[-llm_token_limit:]
+                    logger.info(f"Exceed llm token After Write Message condense text: {msg_content}")
             except Exception as e:
                 logger.error("Failed to condense message content: %s", e)
                 msg_content = raw_msg
@@ -555,7 +600,7 @@ class SessionMemory(LongTermMemory):
 
     @mutable
     async def write_batch(
-        self, memory_fragments: List[T], now: Optional[datetime] = None
+            self, memory_fragments: List[T], now: Optional[datetime] = None
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a batch of memory fragments to the memory.
 
@@ -567,31 +612,31 @@ class SessionMemory(LongTermMemory):
             await self.write(memory_fragment, now=current_datetime)
 
     async def read(
-        self,
-        observation: str,
-        alpha: Optional[float] = None,
-        beta: Optional[float] = None,
-        gamma: Optional[float] = None,
+            self,
+            observation: str,
+            alpha: Optional[float] = None,
+            beta: Optional[float] = None,
+            gamma: Optional[float] = None,
     ) -> List[T]:
 
         """Read memory fragments related to the observation."""
         return await self.search(observation=observation)
 
     async def search(
-        self,
-        observation: str,
-        top_k: int = 20,
-        retrieve_strategy: str = "semantic",
-        score_threshold: float = 0.0,
-        discard_strategy: str = DiscardStrategy.FIFO.value,
-        llm_token_limit: int = 4096,
-        condense_prompt: str = "",
-        condense_model: str = "DeepSeek-V3",
-        enable_global_session: bool = False,
-        session_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        metadata_filters: Optional[MetadataFilters] = None,
+            self,
+            observation: str,
+            top_k: int = 20,
+            retrieve_strategy: str = "semantic",
+            score_threshold: float = 0.0,
+            discard_strategy: str = DiscardStrategy.FIFO.value,
+            llm_token_limit: int = 4096,
+            condense_prompt: str = "",
+            condense_model: str = "deepseek-v3",
+            enable_global_session: bool = False,
+            session_id: Optional[str] = None,
+            agent_id: Optional[str] = None,
+            user_id: Optional[str] = None,
+            metadata_filters: Optional[MetadataFilters] = None,
     ) -> List[MemoryFragment]:
         """Search memory fragments related to the observation.
 
@@ -671,52 +716,61 @@ class SessionMemory(LongTermMemory):
         unique_memories = list(
             {chunk.content: chunk for chunk in related_memories}.values()
         )
-        # todo rerank
         agent_id_memory_map = {}
         if enable_global_session:
             for retrieved_chunk in unique_memories:
                 chunk_agent_id = retrieved_chunk.metadata.get(_METADATA_AGENT_ID)
                 if chunk_agent_id not in agent_id_memory_map:
                     agent_id_memory_map[chunk_agent_id] = []
-                agent_id_memory_map[chunk_agent_id].append(retrieved_chunk)
-        sub_agent_memory_map = {}
+                if retrieved_chunk.metadata.get(_ACTION) == _ANSWER_ACTION:
+                    agent_id_memory_map[chunk_agent_id].append(retrieved_chunk)
+        not_empty_memories = []
         for retrieved_chunk in unique_memories:
             task_goal = retrieved_chunk.metadata.get(_TASK_GOAL)
-            thought = retrieved_chunk.metadata.get(_THOUGHT)
+            # thought = retrieved_chunk.metadata.get(_THOUGHT)
             action = retrieved_chunk.metadata.get(_ACTION)
             observation = retrieved_chunk.metadata.get(_ACTION_RESULT)
             memory_content = []
             if task_goal:
                 memory_content.append(f"TaskGoal: {task_goal}")
             if enable_global_session and agent_id != retrieved_chunk.metadata.get(
-                _METADATA_AGENT_ID
-            ):
-                sub_agent_memories = agent_id_memory_map.get(retrieved_chunk.metadata.get(
                     _METADATA_AGENT_ID
-                ))
-                if sub_agent_memories:
-                    sub_agent_answer_memories = [sub_agent_memory
-                        for sub_agent_memory in sub_agent_memories if sub_agent_memory.metadata.get(_ACTION) == 'answer'
-                    ]
-                    if sub_agent_answer_memories:
-                        retrieved_chunk = sub_agent_answer_memories[0]
-                        task_result = retrieved_chunk.metadata.get(_ACTION_RESULT)
-                        sub_agent_id = retrieved_chunk.metadata.get(
-                            _METADATA_AGENT_ID
+            ):
+                if agent_id_memory_map.values() and retrieved_chunk.metadata.get(
+                        _ACTION) == _ANSWER_ACTION:
+                    if action:
+                        memory_content.append(f"Action: {action}")
+                    if observation:
+                        memory_content.append(f"ActionResult: {observation}")
+                        logger.info(f"Reasoning SubAgent memories:{observation}")
+                elif not agent_id_memory_map.values():
+                    logger.info(
+                        f"Other SubAgent memories:{agent_id_memory_map.values()}"
+                    )
+                    if action:
+                        memory_content.append(f"Action: {action}")
+                    if observation:
+                        memory_content.append(f"ActionResult: {observation}")
+                else:
+                    if retrieved_chunk.metadata.get(
+                            _METADATA_AGENT_TYPE) == _REASON_AGENT:
+                        logger.info(
+                            f"SubAgent {retrieved_chunk.metadata.get('role')} memories are not answer, is filtered"
                         )
-                        logger.info(f"SubAgent memories TaskResult:{task_result}")
-                        if sub_agent_id in sub_agent_memory_map:
-                            continue
-                        else:
-                            sub_agent_memory_map[sub_agent_id] = task_result
-                        if task_result:
-                            memory_content.append(f"ActionResult: {task_result}")
+                        if action:
+                            memory_content.append(f"Action: {action}")
+                        if observation:
+                            memory_content.append(f"ActionResult: {observation}")
+                        self._add_not_empty_memory(
+                            not_empty_memories, retrieved_chunk, memory_content
+                        )
+                        continue
                     else:
+                        if action:
+                            memory_content.append(f"Action: {action}")
                         if observation:
                             memory_content.append(f"ActionResult: {observation}")
             else:
-                if thought:
-                    memory_content.append(f"Thought: {thought}")
                 if action:
                     memory_content.append(f"Action: {action}")
                 if observation:
@@ -741,10 +795,17 @@ class SessionMemory(LongTermMemory):
                     action=retrieved_chunk.metadata.get(_ACTION, None),
                     action_result=retrieved_chunk.metadata.get(
                         _ACTION_RESULT, None
-                    )
+                    ),
+                    user_input=retrieved_chunk.metadata.get(_METADAT_USER_INPUT, None),
+                    ai_message=retrieved_chunk.metadata.get(_METADAT_AI_MESSAGE, None),
+                    condense=retrieved_chunk.metadata.get(_METADAT_CONDENSE, None)
                 )
             )
-        retrieved_memories.sort(key=lambda x: x.rounds or 0)
+        if not_empty_memories and not retrieved_memories:
+            logger.info(f"Session retrieved Memory-is empty, return "
+                        f"not_empty_memories nums:{len(not_empty_memories)}")
+            retrieved_memories = not_empty_memories
+        retrieved_memories.sort(key=lambda x: (x.rounds or 0, x.create_time))
         session_memories = await self.discard_memories(
             retrieved_memories=retrieved_memories,
             discard_strategy=discard_strategy,
@@ -756,11 +817,11 @@ class SessionMemory(LongTermMemory):
         return session_memories
 
     def list(
-        self,
-        session_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
-        message_id: Optional[str] = None,
-        metadata_filters: Optional[MetadataFilters] = None
+            self,
+            session_id: Optional[str] = None,
+            agent_id: Optional[str] = None,
+            message_id: Optional[str] = None,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """List all memories in the session memory.
 
@@ -820,14 +881,15 @@ class SessionMemory(LongTermMemory):
         return memory_fragments
 
     async def discard_memories(
-        self,
-        retrieved_memories: List[SessionMemoryFragment],
-        discard_strategy: str = DiscardStrategy.FIFO.value,
-        llm_token_limit: int = 8192,
-        similarity_threshold: float = 0.0,
-        condense_model: str = "DeepSeek-V3",
-        condense_prompt: Optional[str] = None,
-        ):
+            self,
+            retrieved_memories: List[SessionMemoryFragment],
+            discard_strategy: str = DiscardStrategy.FIFO.value,
+            llm_token_limit: int = 8192,
+            similarity_threshold: float = 0.0,
+            condense_model: str = "deepseek-v3",
+            condense_prompt: Optional[str] = None,
+            condense_max_token: Optional[int] = 4000,
+    ):
         """Discard memories based on the discard strategy."""
         while self._calculate_total_tokens(retrieved_memories) > llm_token_limit:
             logger.info(
@@ -865,7 +927,18 @@ class SessionMemory(LongTermMemory):
                 memory_texts = "\n".join(
                     [m.raw_observation for m in retrieved_memories]
                 )
-                condense_content = await memory_extractor.extract(memory_texts)
+
+                # condense_content = memory_texts
+                try:
+                    condense_content = await memory_extractor.extract(
+                        memory_texts, max_tokens=condense_max_token
+                    )
+                    while self._calculate_tokens(text=condense_content) > llm_token_limit:
+                        condense_content = condense_content[-llm_token_limit:]
+                        logger.info(f"After Search Message condense text: {condense_content}")
+                except Exception as e:
+                    logger.error("Failed to condense message content: %s", e)
+                    condense_content = memory_texts[-llm_token_limit:]
                 retrieved_memories = [AgentMemoryFragment.build_from(
                     observation=condense_content,
                     importance=retrieved_memories[0].importance,
@@ -877,11 +950,11 @@ class SessionMemory(LongTermMemory):
         return retrieved_memories
 
     async def _semantic_search(
-        self,
-        query: str,
-        top_k: int = 20,
-        score_threshold: float = 0.0,
-        metadata_filters: Optional[MetadataFilters] = None
+            self,
+            query: str,
+            top_k: int = 20,
+            score_threshold: float = 0.0,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """Perform semantic search on the session memory."""
         tasks = []
@@ -910,10 +983,10 @@ class SessionMemory(LongTermMemory):
         return related_memories
 
     async def _keyword_search(
-        self,
-        query: str,
-        top_k: int = 20,
-        metadata_filters: Optional[MetadataFilters] = None
+            self,
+            query: str,
+            top_k: int = 20,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """Perform keyword search on the session memory."""
         tasks = []
@@ -938,9 +1011,9 @@ class SessionMemory(LongTermMemory):
         return related_memories
 
     async def _sliding_window_search(
-        self,
-        window_size: int = 50,
-        metadata_filters: Optional[MetadataFilters] = None
+            self,
+            window_size: int = 50,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """Perform sliding window search on the session memory."""
         related_memories = []
@@ -960,28 +1033,11 @@ class SessionMemory(LongTermMemory):
                 return []
         return related_memories
 
-    def _calculate_total_tokens(self, retrieved_memories):
-        """Calculate the total number of tokens in the retrieved memories."""
-        memory_texts = "".join([
-            retrieved_memory.raw_observation for retrieved_memory in retrieved_memories
-        ])
-        return self._calculate_tokens(memory_texts)
-
-    def _calculate_tokens(self, text: str):
-        """Calculate the number of tokens in the texts."""
-        lang = determine(text)
-        logger.info(
-            f"Session Memory-{self.session_id} "
-            f"Language detected: {lang}, "
-            f"Compression rate: {COMP_RATE[lang]}"
-        )
-        return len(text) / COMP_RATE[lang]
-
     async def _graph_search(
-        self, query: str,
-        top_k: int = 20,
-        score_threshold: float = 0.0,
-        metadata_filters: Optional[MetadataFilters] = None
+            self, query: str,
+            top_k: int = 20,
+            score_threshold: float = 0.0,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """Perform graph search on the session memory."""
         tasks = []
@@ -1004,11 +1060,11 @@ class SessionMemory(LongTermMemory):
         return related_memories
 
     async def _hybrid_search(
-        self,
-        query: str,
-        top_k: int = 20,
-        score_threshold: float = 0.0,
-        metadata_filters: Optional[MetadataFilters] = None
+            self,
+            query: str,
+            top_k: int = 20,
+            score_threshold: float = 0.0,
+            metadata_filters: Optional[MetadataFilters] = None
     ):
         """Perform hybrid search on the session memory."""
         try:
@@ -1050,3 +1106,49 @@ class SessionMemory(LongTermMemory):
     @session_id.setter
     def session_id(self, value):
         pass
+
+    def _add_not_empty_memory(
+            self,
+            not_empty_memories: List[AgentMemoryFragment],
+            retrieved_chunk: Chunk,
+            memory_content: List[str],
+            ):
+        """
+        Add not empty memory to not_empty_memories
+        Args:
+            not_empty_memories:
+            retrieved_chunk:
+            memory_content:
+
+        Returns:
+
+        """
+        not_empty_memories.append(AgentMemoryFragment.build_from(
+            observation="\n".join(memory_content),
+            importance=retrieved_chunk.score,
+            similarity=retrieved_chunk.score,
+            create_time=retrieved_chunk.metadata.get(
+                _METADATA_CREATE_TIME, None
+            ),
+            last_accessed_time=retrieved_chunk.metadata.get(
+                _METADATA_LAST_ACCESSED_AT, None),
+            rounds=retrieved_chunk.metadata.get("rounds", None),
+            agent_id=retrieved_chunk.metadata.get(_METADATA_AGENT_ID,
+                                                  None),
+            role=retrieved_chunk.metadata.get("role", None),
+            session_id=retrieved_chunk.metadata.get(
+                _METADATA_SESSION_ID, None),
+            message_id=retrieved_chunk.metadata.get(_MESSAGE_ID, None),
+            task_goal=retrieved_chunk.metadata.get(_TASK_GOAL, None),
+            thought=retrieved_chunk.metadata.get(_THOUGHT, None),
+            action=retrieved_chunk.metadata.get(_ACTION, None),
+            action_result=retrieved_chunk.metadata.get(
+                _ACTION_RESULT, None
+            ),
+            user_input=retrieved_chunk.metadata.get(_METADAT_USER_INPUT,
+                                                    None),
+            ai_message=retrieved_chunk.metadata.get(_METADAT_AI_MESSAGE,
+                                                    None),
+            condense=retrieved_chunk.metadata.get(_METADAT_CONDENSE,
+                                                  None)
+        ))

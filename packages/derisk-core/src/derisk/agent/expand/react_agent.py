@@ -94,17 +94,17 @@ class ReActAgent(ConversableAgent):
         name=DynConfig(
             "ReAct",
             category="agent",
-            key="derisk_agent_expand_plugin_assistant_agent_name",
+            key="dbgpt_agent_expand_plugin_assistant_agent_name",
         ),
         role=DynConfig(
             "ReActToolMaster",
             category="agent",
-            key="derisk_agent_expand_plugin_assistant_agent_role",
+            key="dbgpt_agent_expand_plugin_assistant_agent_role",
         ),
         goal=DynConfig(
             _REACT_DEFAULT_GOAL,
             category="agent",
-            key="derisk_agent_expand_plugin_assistant_agent_goal",
+            key="dbgpt_agent_expand_plugin_assistant_agent_goal",
         ),
         system_prompt_template=_REACT_SYSTEM_TEMPLATE,
         user_prompt_template=_REACT_USER_TEMPLATE,

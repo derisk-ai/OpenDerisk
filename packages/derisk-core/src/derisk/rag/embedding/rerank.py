@@ -342,6 +342,110 @@ class OpenAPIRerankEmbeddings(BaseModel, RerankEmbeddings):
 
 
 @dataclass
+class TongyiRerankEmbeddingsParameters(OpenAPIRerankerDeployModelParameters):
+    """SiliconFlow Rerank Embeddings Parameters."""
+
+    provider: str = "proxy/tongyi"
+
+    api_url: str = field(
+        default="https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+        metadata={
+            "help": _("The URL of the rerank API."),
+        },
+    )
+    api_key: Optional[str] = field(
+        default="${env:SILICONFLOW_API_KEY}",
+        metadata={
+            "help": _("The API key for the rerank API."),
+        },
+    )
+
+
+class TongYiRerankEmbeddings(OpenAPIRerankEmbeddings):
+
+    @classmethod
+    def param_class(cls) -> Type[TongyiRerankEmbeddingsParameters]:
+        """Get the parameter class."""
+        return TongyiRerankEmbeddingsParameters
+    def predict(self, query: str, candidates: List[str]) -> List[float]:
+        """Predict the rank scores of the candidates.
+
+        Args:
+            query: The query text.
+            candidates: The list of candidate texts.
+
+        Returns:
+            List[float]: The rank scores of the candidates.
+        """
+        if not candidates:
+            return []
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        current_span_id = root_tracer.get_current_span_id()
+        if self.pass_trace_id and current_span_id:
+            # Set the trace ID if available
+            headers[DERISK_TRACER_SPAN_ID] = current_span_id
+        input_dict = {
+            "query": query,
+            "documents": candidates
+        }
+        parameters = {
+            "return_documents": True,
+            "top_n": 5
+        }
+        data = {"model": self.model_name, "input": input_dict, "parameters": parameters}
+        response = self.session.post(  # type: ignore
+            self.api_url, json=data, timeout=self.timeout, headers=headers
+        )
+        response.raise_for_status()
+        return self._parse_results(response.json())
+
+    async def apredict(self, query: str, candidates: List[str]) -> List[float]:
+        """Predict the rank scores of the candidates asynchronously."""
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        current_span_id = root_tracer.get_current_span_id()
+        if self.pass_trace_id and current_span_id:
+            # Set the trace ID if available
+            headers[DERISK_TRACER_SPAN_ID] = current_span_id
+        async with aiohttp.ClientSession(
+            headers=headers, timeout=aiohttp.ClientTimeout(total=self.timeout)
+        ) as session:
+            input_dict = {
+                "query": query,
+                "documents": candidates
+            }
+            parameters = {
+                "return_documents": True,
+                "top_n": 5
+            }
+            data = {"model": self.model_name, "input": input_dict, "parameters": parameters}
+            async with session.post(self.api_url, json=data) as resp:
+                resp.raise_for_status()
+                response_data = await resp.json()
+                return self._parse_results(response_data)
+
+    def _parse_results(self, response: Dict[str, Any]) -> List[float]:
+        """Parse the response from the API.
+
+        Args:
+            response: The response from the API.
+
+        Returns:
+            List[float]: The rank scores of the candidates.
+        """
+        output = response.get("output")
+        if not output:
+            raise RuntimeError("Cannot find output in the response")
+        results = output.get("results")
+        if not results:
+            raise RuntimeError("Cannot find results in the response")
+        if not isinstance(results, list):
+            raise RuntimeError("Results should be a list")
+        # Sort by index, 0 in the first element
+        results = sorted(results, key=lambda x: x.get("index", 0))
+        scores = [float(result.get("relevance_score")) for result in results]
+        return scores
+
+@dataclass
 class SiliconFlowRerankEmbeddingsParameters(OpenAPIRerankerDeployModelParameters):
     """SiliconFlow Rerank Embeddings Parameters."""
 
@@ -421,4 +525,7 @@ register_embedding_adapter(
 )
 register_embedding_adapter(
     SiliconFlowRerankEmbeddings, supported_models=RERANKER_COMMON_HF_MODELS
+)
+register_embedding_adapter(
+    TongYiRerankEmbeddings, supported_models=RERANKER_COMMON_HF_MODELS
 )

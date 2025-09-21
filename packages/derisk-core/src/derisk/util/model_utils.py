@@ -50,6 +50,9 @@ class GPUInfo:
     cached_memory_gb: float
     available_memory_gb: float
 
+@dataclass
+class TokenDetails:
+    cached_tokens: int = 0
 
 def _get_current_cuda_memory() -> List[GPUInfo]:
     try:
