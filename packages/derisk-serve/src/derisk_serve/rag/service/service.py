@@ -1,5 +1,7 @@
 import asyncio
 import concurrent
+import dataclasses
+import inspect
 import json
 import logging
 import os
@@ -30,7 +32,7 @@ from derisk.rag.embedding.embedding_factory import (
     RerankEmbeddingFactory,
 )
 from derisk.rag.knowledge import ChunkStrategy, KnowledgeType
-from derisk.rag.knowledge.base import TaskStatusType
+from derisk.rag.knowledge.base import TaskStatusType, DirectoryModeType
 from derisk.rag.retriever import RetrieverStrategy
 from derisk.rag.retriever.rerank import RerankEmbeddingsRanker, RetrieverNameRanker
 from derisk.rag.transformer.summary_extractor import SummaryExtractor
@@ -39,6 +41,7 @@ from derisk.storage.metadata import BaseDao
 from derisk.storage.metadata._base_dao import QUERY_SPEC
 from derisk.storage.vector_store.filters import FilterCondition, MetadataFilters, \
     MetadataFilter
+from derisk.util import pypantic_utils
 from derisk.util.pagination_utils import PaginationResult
 from derisk.util.string_utils import remove_trailing_punctuation
 from derisk.util.tracer import root_tracer, trace
@@ -49,6 +52,7 @@ from derisk_ext.rag.knowledge import KnowledgeFactory
 from derisk_ext.rag.transformer.image_extractor import ImageExtractor
 from derisk_ext.rag.yuque_index.ant_yuque_loader import AntYuqueLoader
 from derisk_serve.core import BaseService, blocking_func_to_async
+from .graph.graph_service import KnowledgeGraphType
 
 from ..api.schemas import (
     ChunkServeRequest,
@@ -69,8 +73,13 @@ from ..api.schemas import (
     DocumentSearchResponse,
     StrategyDetail,
     ParamDetail,
-    ChunkEditRequest, YuqueOutlines, OutlineChunk, KnowledgeTaskRequest, KnowledgeTaskResponse, SettingsRequest,
+    ChunkEditRequest, YuqueOutlines, OutlineChunk, KnowledgeTaskRequest,
+    KnowledgeTaskResponse, SettingsRequest,
     TextBook, CreateDocRequest, UpdateTocRequest, CreateBookRequest,
+    KnowledgeSearchDirectoryRequest,
+    TextBook, CreateDocRequest, UpdateTocRequest, CreateBookRequest, ChunkServeResponse,
+    RefreshContext, RefreshInfo,
+    RefreshModeType, RefreshScopeType, KnowledgeSetting, KnowledgeWriteRequest,
 )
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..domain.index import DomainGeneralIndex
@@ -101,7 +110,7 @@ logger = logging.getLogger(__name__)
 
 
 BASE_YUQUE_URL = "https://yuque.com"
-REFRESH_OPERATOR = "derisk"
+REFRESH_OPERATOR = "DERISK"
 DEFAULT_EMPTY_HOST = "empty_host"
 REFRESH_HOUR = "REFRESH_HOUR"
 DEFAULT_CHUNK_STRATEGY = "Automatic"
@@ -120,6 +129,11 @@ class SyncStatus(Enum):
 class KnowledgeAccessLevel(Enum):
     PRIVATE = "PRIVATE"
     PUBLIC = "PUBLIC"
+
+class DocActionType(Enum):
+    CREATE = "文档创建"
+    UPDATE = "文档更新"
+    DELETE = "文档删除"
 
 
 class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeResponse]):
@@ -158,6 +172,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         self._knowledge_id_stores = {}
         self._max_yuque_length = 20
         self._max_semaphore = 20
+        self._max_workers = 20
         self._semaphore = Semaphore(self._max_semaphore)
         self._default_page = 1
         self._default_page_size = 10000
@@ -213,6 +228,34 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         """Get the FileStorageClient instance"""
         return FileStorageClient.get_instance(self.system_app)
 
+
+    def create_yuque_space_and_relation(self, knowledge_id: str, request: SpaceServeRequest):
+        logger.info(f"create_yuque_space_and_relation request is {request}")
+
+        # 1.创建语雀知识库
+        dest_group_token = request.create_yuque.yuque_token
+        dest_group_login = request.create_yuque.yuque_group_login
+        book_slug = request.create_yuque.yuque_book_slug if request.create_yuque.yuque_book_slug else (str(uuid.uuid4()).replace("-", ""))
+        book_name = request.name
+        book_desc = request.desc
+
+        # 检查是否存在，不存在就创建
+        self.check_book_exist_and_create(dest_group_token, dest_group_login, book_slug, book_name, book_desc)
+
+        # 2.创建知识库同步的关联关系
+        setting = self.get_knowledge_settings(knowledge_id=knowledge_id)
+        setting = self._convert_settings_to_entity(setting)
+        setting.yuque = [
+            {
+            "group_login": dest_group_login,
+            "book_slug": book_slug,
+            "token": dest_group_token
+            }
+        ]
+        self.update_knowledge_settings(knowledge_id=knowledge_id, request=setting)
+
+        return True
+
     def create_space(self, request: SpaceServeRequest) -> str:
         """Create a new Space entity
 
@@ -249,9 +292,13 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         knowledge_id = str(uuid.uuid4())
         request.knowledge_id = knowledge_id
-        request.gmt_created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        request.gmt_modified = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         self._dao.create(request)
+
+        if request.create_yuque and request.create_yuque.enable_create_yuque:
+            # 创建语雀知识库以及绑定映射关系
+            self.create_yuque_space_and_relation(knowledge_id=knowledge_id, request=request)
+
         return knowledge_id
 
     def update_document_by_space_name(self, knowledge_id: str, space_name: str):
@@ -420,6 +467,29 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         return res
 
 
+    def update_file_params_to_doc(self, request: KnowledgeDocumentRequest):
+        logger.info(f"update_file_params_to_doc file_params is {request.file_params}")
+
+        meta_data = json.loads(request.file_params) if request.file_params else {}
+        docs = self._document_dao.get_knowledge_documents(
+            query=KnowledgeDocumentEntity(doc_id=request.doc_id, knowledge_id=request.knowledge_id))
+        if not docs:
+            raise Exception(f"doc_id:{request.doc_id} not found")
+        doc = docs[0]
+        if doc.doc_type != KnowledgeType.DOCUMENT.name:
+            logger.info("doc_type is not document, skip update")
+
+            return True
+        if meta_data:
+            logger.info(f"update meta_data {meta_data}")
+
+            doc.meta_data = json.dumps(meta_data)
+            self._document_dao.update_knowledge_document(document=doc)
+
+        return True
+
+
+
     async def sync_single_document(self, request: KnowledgeDocumentRequest):
         logger.info(f"sync_single_document request is {request}")
 
@@ -431,6 +501,9 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                 chunk_size=512,
                 chunk_overlap=50,
             )
+        if request.file_params:
+            # 处理表格文件指定列参数
+            self.update_file_params_to_doc(request)
 
         # async run
         asyncio.create_task(
@@ -942,6 +1015,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             logger.info(f"Downloaded file to {local_file_path}")
             knowledge_content = local_file_path
         knowledge = None
+        meta_data = {}
         if not space.domain_type or (
             space.domain_type.lower() == BusinessFieldType.NORMAL.value.lower()
         ):
@@ -982,6 +1056,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         doc.doc_params = self.update_doc_params(doc, extract_image)
 
         chunk_entities = []
+        chunk_metadata = meta_data or {}
         for chunk_doc in chunks:
             if chunk_doc.metadata:
                 chunk_doc.metadata["doc_id"] = doc.doc_id
@@ -994,6 +1069,9 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                     "%Y-%m-%d %H:%M:%S"
                 )
                 chunk_doc.metadata["doc_type"] = doc.doc_type
+                for key, value in chunk_metadata.items():
+                    if key not in chunk_doc.metadata:
+                        chunk_doc.metadata[key] = value
             chunk_entities.append(
                 DocumentChunkEntity(
                     chunk_id=chunk_doc.chunk_id,
@@ -1100,7 +1178,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                         vlm_model = context.get("vlm_model") if context else None
                         image_extractor = ImageExtractor(
                             llm_client=self.llm_client,
-                            model_name=vlm_model or "Qwen2.5-VL-72B-Instruct"
+                            model_name=vlm_model or "aistudio/Qwen2.5-VL-72B-Instruct"
                         )
                         chunks = await domain_index.transform(
                             chunks=chunks,
@@ -1172,6 +1250,170 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         return await space_retriever.aretrieve_with_scores(
             request.query, request.score_threshold
         )
+
+
+    def filter_book_outline(self, import_uuids: [], doc_tree: []):
+        uuid_map = {}
+
+        def build_uuid_map(nodes):
+            for node in nodes:
+                uuid_map[node['uuid']] = node
+                build_uuid_map(node['children'])
+
+        build_uuid_map(doc_tree)
+
+        # 收集需要保留的UUID（包含所有父节点）
+        retained_uuids = set()
+        for uuid in import_uuids:
+            current_uuid = uuid
+            while current_uuid in uuid_map:
+                if current_uuid in retained_uuids:
+                    break
+                retained_uuids.add(current_uuid)
+                parent_uuid = uuid_map[current_uuid]['parent_uuid']
+                if not parent_uuid: break
+                current_uuid = parent_uuid
+
+        # 递归过滤树结构
+        def filter_nodes(nodes):
+            filtered = []
+            for node in nodes:
+                if node['uuid'] in retained_uuids:
+                    new_node = {
+                        **node,
+                        'children': filter_nodes(node['children'])
+                    }
+                    filtered.append(new_node)
+            return filtered
+
+        return filter_nodes(doc_tree)
+
+
+    def get_book_outlines(self, knowledge_id: str, query: str):
+        logger.info(f"get_book_outlines knowledge_id is {knowledge_id}, query is {query}")
+
+        # get all book outlines
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id))
+        if not yuque_docs:
+            logger.info("get_doc_tree_from_knowledge_id yuque_docs is empty, no need to get doc tree")
+
+            return None
+
+        # get doc tree -- todo 暂时只取一个有数据的语雀book
+        yuque_doc = next(
+            (d for d in yuque_docs
+             if d.book_slug and d.group_login and d.group_login_name),
+            None
+        )
+
+        # 完整的目录树
+        book_outline = self.get_yuque_outline(yuque_doc.group_login, yuque_doc.book_slug, yuque_doc.token)
+
+        # 过滤
+        import_uuids = [yuque_doc.doc_uuid for yuque_doc in yuque_docs]
+        filter_book_outline = self.filter_book_outline(import_uuids, book_outline)
+
+        # 格式化输出文档树
+        beautify_book_outline = self.generate_tree_structure(filter_book_outline)
+        logger.info(f"beautify_book_outline is \n{beautify_book_outline}")
+
+        return beautify_book_outline, yuque_doc.group_login_name
+
+
+    def get_doc_id_from_doc_uuid(self, doc_uuid: str, knowledge_id: str):
+
+        self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id, doc_uuid=doc_uuid))
+
+
+    async def knowledge_search_directory(self, request: KnowledgeSearchDirectoryRequest):
+        logger.info(f"knowledge_search_directory request is {request}")
+
+        doc_id = None
+        search_response = KnowledgeSearchResponse()
+        if request.directory_mode == DirectoryModeType.DOCUMENT.value:
+            # 检索文档内部的大纲目录
+            if request.doc_uuids:
+                try:
+                    doc_uuid = request.doc_uuids[0]
+                    yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=request.knowledge_ids[0], doc_uuid=doc_uuid))
+                    if yuque_docs:
+                        doc_id = yuque_docs[0].doc_id
+                        doc_title = yuque_docs[0].title
+                    logger.info(f"find doc id by doc uuid: {doc_id}, {doc_title}")
+                except Exception as e:
+                    logger.error(f"knowledge_search_directory doc_uuid is empty, {e}")
+
+            # 兜底获取文档id
+            if not doc_id:
+                docs = self._document_dao.get_knowledge_documents(query=KnowledgeDocumentEntity(knowledge_id=request.knowledge_ids[0]))
+                if docs:
+                    doc_id = docs[0].doc_id
+                    doc_title = docs[0].doc_name
+                logger.info(f"find doc id by default value : {doc_id}")
+            outlines = self.get_yuque_knowledge_all_outlines(knowledge_id=request.knowledge_ids[0], doc_id=doc_id)
+            search_response.directory = outlines
+            search_response.doc_uuids = request.doc_uuids
+            search_response.doc_titles = [doc_title]
+
+            return search_response
+        elif request.directory_mode == DirectoryModeType.BOOK.value:
+            # 检索语雀知识库目录
+            book_outlines, group_login_name = self.get_book_outlines(knowledge_id=request.knowledge_ids[0], query=request.query)
+            search_response.book_directory = book_outlines
+            search_response.group_login_name = group_login_name
+
+            return search_response
+        else:
+            raise Exception("directory_mode is not support")
+
+
+    async def read_document(
+            self,
+            knowledge_ids: List[str],
+            doc_uuids: List[str],
+            header: Optional[str] = None,
+    ) -> KnowledgeSearchResponse:
+        """Read document content.
+
+        Args:
+            knowledge_ids(List[str]): knowledge_ids.
+            doc_uuids(List[str]): doc_uuids.
+            header(Optional[str]): header.
+        """
+        logger.info(
+            f"read_document knowledge_ids is {knowledge_ids}, "
+            f"doc_uuids is {doc_uuids}, header is {header}"
+        )
+
+        if not knowledge_ids or not doc_uuids:
+            raise Exception("knowledge_ids or doc_uuids is empty")
+
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(
+            query=KnowledgeYuqueEntity(
+                knowledge_id=knowledge_ids[0]), doc_uuids=doc_uuids
+        )
+        if not yuque_docs:
+            raise Exception("yuque_docs is empty")
+
+        contents = []
+        doc_titles = []
+        for yuque_doc in yuque_docs:
+            token = yuque_doc.token
+            yuque_url = f"{BASE_YUQUE_URL}/{yuque_doc.group_login}/{yuque_doc.book_slug}/{yuque_doc.doc_slug}"
+            doc_detail = self.get_yuque_doc_form_url(yuque_url=yuque_url, yuque_token=token)
+            content = doc_detail.get("body")
+            from derisk_ext.rag.retriever.doc_tree import DocumentOutlineParser
+            parser = DocumentOutlineParser()
+            tree_nodes = parser.get_outlines_from_body(content)
+            if tree_nodes and header:
+                tree_node, content = parser.find_similar_header_node(tree_nodes, header)
+                if tree_node:
+                    content = parser.display([tree_node])
+            contents.append(content)
+            doc_titles.append(yuque_doc.title)
+
+        return KnowledgeSearchResponse(document_contents=contents, doc_titles=doc_titles)
+
 
     async def knowledge_search(self, request: KnowledgeSearchRequest) -> List[Chunk]:
         """Retrieve the service."""
@@ -1514,6 +1756,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             yuque_doc_slug=request.yuque_doc_id,
             yuque_doc_uuid=request.yuque_doc_uuid,
             extract_image=request.extract_image,
+            tags=request.tags,
         )
 
     def get_yuque_doc_form_url(self, yuque_url: str, yuque_token: str):
@@ -1831,6 +2074,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                 task_id=str(uuid.uuid4()),
                 knowledge_id=request.knowledge_id,
                 doc_type=KnowledgeType.YUQUEURL.name,
+                doc_action=DocActionType.CREATE.name,
                 doc_content=self.build_yuque_url(request),
                 yuque_token=request.yuque_token,
                 group_login=request.group_login,
@@ -2064,6 +2308,38 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         self._task_dao.update_knowledge_task_batch(tasks=[task])
         return True
 
+    async def start_split_task(
+        self, task: KnowledgeTaskEntity
+    ):
+        start_time = timeit.default_timer()
+        method_name = inspect.currentframe().f_code.co_name
+        logger.info(f"{method_name}, task id is {task.task_id}")
+
+        if not task.start_time:
+            task.start_time = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),)
+        try:
+            # 开始切分
+            asyncio.create_task(
+                self.split_yuque_knowledge(
+                    request=YuqueRequest(
+                        knowledge_id=task.knowledge_id,
+                        doc_id=task.doc_id
+                    )
+                )
+            )
+        except Exception as e:
+            logger.error(f"start_split_task error, {str(e)}")
+            task.error_msg = str(e)
+
+        # 更新任务表
+        task.host = self.get_host_ip()
+        task.status = TaskStatusType.RUNNING.name
+        task.gmt_modified = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),)
+        self._task_dao.update_knowledge_task_batch(tasks=[task])
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+
     def check_timeout(self, task: KnowledgeTaskEntity):
         start_time = task.start_time
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2072,7 +2348,8 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             - datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
         )
         is_timeout = difference > timedelta(minutes=3)
-        logger.info(f"check_timeout is timeout {is_timeout}")
+        if is_timeout:
+            logger.info(f"check_timeout is: {is_timeout}")
 
         return is_timeout
 
@@ -2225,6 +2502,34 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         return self._knowledge_id_stores
 
+    async def check_doc_create_task(self, task: KnowledgeTaskEntity, knowledge_id_stores: Optional[dict] = None):
+        if task.status == TaskStatusType.TODO.name:
+            # 未开始
+            await self.start_task(task=task, knowledge_id_stores=knowledge_id_stores)
+        elif task.status == TaskStatusType.RUNNING.name:
+            # 已开始，有doc_id
+            await self.check_doc_sync_status(task=task)
+        elif task.status == TaskStatusType.FAILED.name:
+            # 已开始，没有doc_id
+            await self.retry_task(task=task, knowledge_id_stores=knowledge_id_stores)
+        else:
+            # 异常情况
+            self.end_task(task=task, error_msg="task status is abnormal, force task end")
+
+    async def check_doc_update_task(self, task: KnowledgeTaskEntity, knowledge_id_stores: Optional[dict] = None):
+        if task.status == TaskStatusType.TODO.name:
+            # 切分任务未开始，后台执行
+            await self.start_split_task(task=task)
+        elif task.status == TaskStatusType.RUNNING.name:
+            # 切分任务进行中，判断是否结束
+            await self.check_doc_sync_status(task=task)
+        elif task.status == TaskStatusType.FAILED.name:
+            # 切分任务已失败，重试任务
+            await self.retry_task(task=task, knowledge_id_stores=knowledge_id_stores)
+        else:
+            # 异常情况，直接结束
+            self.end_task(task=task, error_msg="task status is abnormal, force task end")
+
     async def auto_sync(self):
         # get task
         tasks = self._task_dao.get_knowledge_tasks_by_status(
@@ -2245,34 +2550,18 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             task.host = current_host
             self._task_dao.update_knowledge_task_batch(tasks=[task])
         elif current_host != task.host:
-            logger.info(
-                f"current host is {current_host}, task host is {task.host}, break"
-            )
-
             return True
         else:
             try:
                 # init knowledge id index store
                 knowledge_id_stores = self.init_knowledge_id_stores()
 
-                if task.status == TaskStatusType.TODO.name:
-                    # 未开始
-                    await self.start_task(
-                        task=task, knowledge_id_stores=knowledge_id_stores
-                    )
-                elif task.status == TaskStatusType.RUNNING.name:
-                    # 已开始，有doc_id
-                    await self.check_doc_sync_status(task=task)
-                elif task.status == TaskStatusType.FAILED.name:
-                    # 已开始，没有doc_id
-                    await self.retry_task(
-                        task=task, knowledge_id_stores=knowledge_id_stores
-                    )
+                if task.doc_action == DocActionType.UPDATE.name:
+                    # 切分文档
+                    await self.check_doc_update_task(task=task, knowledge_id_stores=knowledge_id_stores)
                 else:
-                    # 异常情况
-                    self.end_task(
-                        task=task, error_msg="task status is abnormal, force task end"
-                    )
+                    # 同步文档
+                    await self.check_doc_create_task(task=task, knowledge_id_stores=knowledge_id_stores)
             except Exception as e:
                 logger.error(f"auto_sync error, {str(e)}")
 
@@ -2288,6 +2577,25 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             return False
 
         return True
+
+
+    def _convert_settings_to_entity(self, settings: List[dict]) -> KnowledgeSetting:
+        setting = KnowledgeSetting()
+        if not settings:
+            return setting
+
+        # 获取原始值
+        setting_dict = {obj.get("name"): obj.get("value") for obj in settings}
+
+        # 更新值
+        setting = KnowledgeSetting(**{
+            k: v for k, v in setting_dict.items()
+            if k in {f.name for f in dataclasses.fields(KnowledgeSetting)}
+        })
+
+        return setting
+
+
 
     async def auto_refresh(self):
         logger.info(f"auto_refresh start {datetime.now()}")
@@ -2337,9 +2645,12 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         # 再启动保鲜
         knowledge_id = record.knowledge_id
         refresh_id = record.refresh_id
-        refresh = await self.refresh_knowledge(
-            knowledge_id=knowledge_id, refresh_id=refresh_id
+
+        settings = self.get_knowledge_settings(
+            knowledge_id=knowledge_id
         )
+        setting = self._convert_settings_to_entity(settings)
+        refresh = await self.auto_refresh_with_setting(knowledge_id, setting)
         if refresh:
             status = TaskStatusType.SUCCEED.name
         else:
@@ -2396,10 +2707,10 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                         f"Failed to insert record {record.refresh_id}, {record.knowledge_id} error: {e}"
                     )
 
-    def init_refresh_records(self):
+    def init_refresh_records(self, refresh_time: Optional[str] = None):
         logger.info(f"init_refresh_records start {datetime.now()}")
 
-        # 查找需要保鲜的知识空间
+        # 查找需要定时保鲜的知识空间
         spaces = self._dao.get_knowledge_space(
             query=KnowledgeSpaceEntity(refresh="true")
         )
@@ -2414,7 +2725,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         records = []
         for knowledge_id in knowledge_ids:
             refresh_id = str(uuid.uuid4())
-            refresh_time = datetime.now().strftime("%Y-%m-%d")
+            refresh_time = refresh_time if refresh_time else datetime.now().strftime("%Y-%m-%d")
             status = TaskStatusType.TODO.name
             operator = REFRESH_OPERATOR
             host = DEFAULT_EMPTY_HOST
@@ -2975,7 +3286,7 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         if user_details.get("type") == "Group":
             # 团队空间授权token，获取group名字
-            group_login = user_details.get("login")
+            group_login = user_details.get("login") if group_login is None else group_login
             group_name = user_details.get("name")
         elif user_details.get("type") == "User":
             user_id = user_details.get("login")
@@ -3284,6 +3595,52 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         return group_books
 
+    async def split_all_docs(self, docs, knowledge_id: str):
+        # 1. 构造协程列表
+        tasks = [
+            self.split_yuque_knowledge(
+                request=YuqueRequest(
+                    knowledge_id=knowledge_id,
+                    doc_id=doc.doc_id
+                )
+            )
+            for doc in docs
+        ]
+
+        # 2. 并发执行
+        doc_ids = await asyncio.gather(*tasks)
+
+        # 3. 使用结果
+        return doc_ids
+
+    async def reimport_yuque_knowledge(self, knowledge_id: str):
+        logger.info(f"reimport_yuque_knowledge knowledge_id is {knowledge_id}")
+
+        # get docs
+        docs = self._document_dao.get_knowledge_documents(query=KnowledgeDocumentEntity(knowledge_id=knowledge_id),
+                                                          page=self._default_page, page_size=self._default_page_size)
+        if not docs:
+            logger.info(f"reimport_yuque_knowledge docs is empty {knowledge_id}")
+
+            return
+
+        # reload docs
+        sem = asyncio.Semaphore(self._max_yuque_length)
+
+        async def split_with_limit(doc):
+            async with sem:
+                return await self.split_yuque_knowledge(
+                    request=YuqueRequest(knowledge_id=knowledge_id, doc_id=doc.doc_id)
+                )
+
+        doc_ids = await asyncio.gather(*(split_with_limit(doc) for doc in docs))
+        logger.info(f"reimport_yuque_knowledge doc_ids len is {doc_ids}")
+
+        return True
+
+
+
+
 
     async def get_yuque_dir(self, knowledge_id: str):
         logger.info(f"get_yuque_dir space_id: {knowledge_id}")
@@ -3307,6 +3664,317 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         logger.info(f"get_yuque_dir cost time is {cost_time} seconds")
 
         return yuque_dir_detail
+
+
+
+    async def get_yuque_docs(self, knowledge_id: str):
+        logger.info(f"get_yuque_docs knowledge_id is {knowledge_id}")
+
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id))
+        if not yuque_docs:
+            return []
+
+        docs = [TextBook(doc_name=yuque_doc.title, doc_id=yuque_doc.doc_id, children=[]) for yuque_doc in yuque_docs if yuque_doc.doc_id and yuque_doc.title]
+        logger.info(f"get_yuque_docs docs len is {len(docs)}")
+
+        return docs
+
+
+    def find_title_tags(self, doc_ids: []):
+        docs = self._document_dao.documents_by_doc_ids(doc_ids=doc_ids)
+        title_tags = {doc.doc_name.rsplit('_', 1)[0]: doc.meta_data for doc in docs if doc.doc_name}
+
+        return title_tags
+
+    async def list_docs(self, knowledge_id: str, doc_type: Optional[str] = None, display_tree: Optional[bool] = True):
+        logger.info(f"list_docs knowledge_id is {knowledge_id}, doc_type is {doc_type}")
+
+        if not knowledge_id:
+            raise Exception("knowledge_id is required")
+        if not doc_type:
+            doc_type = KnowledgeType.YUQUEURL.name
+
+        if doc_type == KnowledgeType.YUQUEURL.name:
+            yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id))
+            if not yuque_docs:
+                return ""
+            logger.info(f"get_yuque_docs docs len is {len(yuque_docs)}")
+
+            if display_tree:
+                group_login, book_slug, yuque_token = yuque_docs[0].group_login, yuque_docs[0].book_slug, yuque_docs[0].token
+                doc_ids = [doc.doc_id for doc in yuque_docs]
+                title_tags = self.find_title_tags(doc_ids)
+                doc_tree = self.get_beautify_yuque_book_outline(group_login=group_login, book_slug=book_slug, yuque_token=yuque_token, show_uuid=False, show_tags=True, title_tags=title_tags)
+
+                return doc_tree
+            else:
+                docs = self.get_yuque_docs(knowledge_id=knowledge_id)
+        elif doc_type == KnowledgeType.TEXT.name or doc_type == KnowledgeType.DOCUMENT.name:
+            if display_tree:
+                docs = self._document_dao.get_knowledge_documents(query=KnowledgeDocumentEntity(knowledge_id=knowledge_id, doc_type=doc_type),
+                    page=self._default_page, page_size=self._default_page_size)
+                texts = [doc.doc_name for doc in docs]
+                doc_tree = self.get_beautify_text_outline(texts=texts)
+
+                return doc_tree
+            else:
+                docs = await self.get_texts_dir(knowledge_id=knowledge_id, doc_type=doc_type)
+        else:
+            raise Exception(f"doc_type is not supported, doc_type is {doc_type}")
+        logger.info(f"list_docs docs len is {len(docs)}")
+
+        return docs
+
+
+    async def read_doc(self, knowledge_id: str, doc_id: Optional[str] = None, file_path: Optional[str] = None):
+        logger.info(f"read_doc knowledge_id is {knowledge_id}, doc_id is {doc_id}")
+
+        if file_path:
+            title = file_path.split("/")[-1]
+            yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id, title=title))
+            if not yuque_docs:
+                yuque_docs = self._document_dao.get_knowledge_documents(query=KnowledgeDocumentEntity(knowledge_id=knowledge_id, doc_name=title))
+                if not yuque_docs:
+                    raise Exception(f"doc not found, doc title is {title}")
+            doc_id = yuque_docs[0].doc_id
+
+        if doc_id:
+            docs = self._document_dao.get_knowledge_documents(query=KnowledgeDocumentEntity(knowledge_id=knowledge_id, doc_id=doc_id))
+            if not docs:
+                return None
+            chunks = self._chunk_dao.get_document_chunks(query=DocumentChunkEntity(knowledge_id=knowledge_id, doc_id=doc_id))
+            if not chunks:
+                return None
+            content = [chunk.content for chunk in chunks]
+            content = "\n".join(content)
+
+            return TextBook(doc_name=docs[0].doc_name, content=content, tags=docs[0].meta_data)
+
+    async def write(self, knowledge_id: str, request: KnowledgeWriteRequest):
+        logger.info(f"write knowledge_id is {knowledge_id}, request is {request}")
+        space = self._dao.get_one({
+            "knowledge_id": knowledge_id
+        })
+        # file_path: eg: "/appName/errorCode/title"
+        file_path = request.file_path
+        full_dir_path = os.path.dirname(file_path)
+        document_title = os.path.basename(file_path)
+
+        if not space:
+            raise Exception("space is not exist")
+        setting = json.loads(space.context) if space.context else {}
+        yuque_setting = setting.get("yuque")
+        if yuque_setting:
+            yuque_setting = json.loads(yuque_setting)
+            group_login = yuque_setting[0].get("group_login")
+            book_slug = yuque_setting[0].get("book_slug")
+
+        self.create_yuque_doc(
+            group_login=group_login, book_slug=book_slug, request=request
+        )
+        return True
+
+
+
+    def find_target_uuid_from_tocs(self, tocs: [], title: str, parent_uuid: str):
+        for toc in tocs:
+            if toc["title"] == title and (toc["parent_uuid"] == parent_uuid or not parent_uuid):
+                return toc["uuid"]
+        raise Exception(f"title not found, title is {title}")
+
+    def get_target_uuid_from_new_create_paths(self, group_login: str, book_slug: str, token: str, paths: [], target_uuid: str):
+        for path in paths:
+            update_request = UpdateTocRequest(token=token, action="appendNode", action_mode="child", type="TITLE", title=path, target_uuid=target_uuid)
+            tocs = self.update_yuque_toc(group_login=group_login, book_slug=book_slug, request=update_request)
+
+            target_uuid = self.find_target_uuid_from_tocs(tocs=tocs, title=path, parent_uuid=target_uuid)
+            logger.info(f"create path {path}, target_uuid is {target_uuid}")
+
+        return target_uuid
+
+    def find_target_uuid_from_file_path(self, file_path: str, group_login: str, book_slug: str, token: str):
+        logger.info(f"find_target_uudi_from_file_path file_path is {file_path}, group_login is {group_login}, book_slug is {book_slug}, token is {token}")
+
+        # 根目录
+        target_uuid = ""
+        paths = file_path.split("/")
+        if paths:
+            paths.pop(0)
+            paths.pop(-1)
+        if len(paths) <= 0:
+            return target_uuid
+
+        # 分层次遍历目录树，找到目标uuid
+        outlines = self.get_yuque_outline(group_login, book_slug, token)
+        need_create_target_uuid = ""
+        exists_paths = []
+        for path in paths:
+            if not path:
+                raise Exception(f"file_path is invalid, file_path is {file_path}")
+            path_exist = False
+            for outline in outlines:
+                if path == outline.get("title"):
+                    logger.info(f"all paths is {paths}, current path {path} already exists")
+
+                    outlines = outline.get("children")
+                    path_exist = True
+                    exists_paths.append(path)
+                    target_uuid = outline.get("uuid")
+                    need_create_target_uuid = target_uuid
+                    break
+            if not path_exist:
+                # need to create path
+                logger.info(f"all paths is {paths}, current path {path} not exists")
+
+                need_create_paths = [path for path in paths if path not in exists_paths]
+                target_uuid = self.get_target_uuid_from_new_create_paths(group_login, book_slug, token, need_create_paths, need_create_target_uuid)
+                logger.info(f"create_paths success, target_uuid is {target_uuid}")
+
+                break
+            else:
+                # path exists
+                continue
+
+        return target_uuid
+
+
+    def check_file_path_exists(self, file_path: str, group_login: str, book_slug: str, token: str):
+        logger.info(f"check_file_path_exists file_path is {file_path}, group_login is {group_login}, book_slug is {book_slug}, token is {token}")
+
+        # 根目录
+        paths = file_path.split("/")
+        if paths:
+            paths.pop(0)
+        if len(paths) <= 0:
+            raise Exception(f"file_path is invalid, file_path is {file_path}")
+
+        # 广度遍历目录树，判断文档是否存在: 如果存在，返回文档的slug; 如果不存在，返回false
+        outlines = self.get_yuque_outline(group_login, book_slug, token)
+        doc_slug = ""
+        for path in paths:
+            if not path:
+                raise Exception(f"file_path is invalid, file_path is {file_path}")
+            path_exist = False
+            for outline in outlines:
+                if path == outline.get("title"):
+                    logger.info(f"current path {path} already exists")
+
+                    outlines = outline.get("children")
+                    doc_slug = outline.get("slug") if outline.get("type") == "DOC" else ""
+                    path_exist = True
+                    break
+            if not path_exist:
+                logger.info(f"current path {path} not exists")
+
+                return False, None
+
+        return True, doc_slug
+
+
+    async def update_doc(self, knowledge_id: str, request: CreateDocRequest, exists_doc_slug: str):
+        logger.info(f"update_doc knowledge_id is {knowledge_id}, request is {request}")
+
+        # 更新语雀原始文档
+        request.slug = exists_doc_slug
+        request.title = request.file_path.split("/")[-1]
+        request.public = 1
+        request.format = "markdown"
+        request.body = request.content
+        self.update_yuque_doc(request.group_login, request.book_slug, request)
+
+        # 更新平台记录
+        docs = self._yuque_dao.get_knowledge_yuque(
+            query=KnowledgeYuqueEntity(knowledge_id=knowledge_id, title=request.title, group_login=request.group_login,
+                                       book_slug=request.book_slug, doc_slug=exists_doc_slug))
+        if not docs:
+            raise Exception(f"update_doc doc not found, doc title is {request.title}")
+
+        asyncio.create_task(
+            self.split_yuque_knowledge(request=YuqueRequest(
+                knowledge_id=knowledge_id,
+                doc_id=docs[0].doc_id,
+                tags=request.tags
+            ))
+        )
+
+        return [docs[0].doc_id]
+
+    async def check_exists_and_write_doc(self, knowledge_id: str, request: CreateDocRequest):
+        logger.info(f"check_exists_and_write_doc knowledge_id is {knowledge_id}, request is {request}")
+
+        # 1.获取默认的写入知识库配置
+        setting = self.get_space_context_by_space_id(knowledge_id=knowledge_id)
+        yuque_setting = setting.get("yuque")
+        if yuque_setting and not request.token:
+            request.token = yuque_setting[0].get("token")
+            request.group_login = yuque_setting[0].get("group_login")
+            request.book_slug = yuque_setting[0].get("book_slug")
+
+        # 2.判断文档的路径file_path是否存在
+        exists, exists_doc_slug = self.check_file_path_exists(request.file_path, request.group_login, request.book_slug, request.token)
+        if exists:
+            # 3.文档存在，更新文档内容、更新平台内容
+            return await self.update_doc(knowledge_id, request, exists_doc_slug)
+        else:
+            # 4.文档不存在，创建文档、更新到指定目录、同时写入到平台
+            yuque_doc_id = await self.write_doc(
+                knowledge_id=knowledge_id,
+                request=request
+            )
+            yuque_request = YuqueRequest(
+                knowledge_id=knowledge_id,
+                group_login=request.group_login,
+                book_slug=request.book_slug,
+                yuque_doc_id=str(yuque_doc_id),
+                yuque_token=request.token,
+                chunk_parameters=ChunkParameters(
+                    chunk_strategy="Automatic",
+                ),
+                tags=request.tags,
+            )
+
+            return await self.create_batch_yuque_knowledge_and_sync(requests=[yuque_request])
+
+
+    async def write_doc(self, knowledge_id: str, request: CreateDocRequest):
+        logger.info(f"write_doc knowledge_id is {knowledge_id}, request is {request}")
+
+        if not knowledge_id:
+            raise Exception("knowledge_id is required")
+        if not request.group_login:
+            raise Exception("group_login is required")
+        if not request.book_slug:
+            raise Exception("book_slug is required")
+        if not request.file_path:
+            raise Exception("file_path is required")
+        if not request.file_path.startswith("/"):
+            raise Exception("file_path must start with /")
+
+        if not request.token:
+            # 用知识空间的token当作默认token
+            yuques = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id))
+            if not yuques:
+                raise Exception("token is required")
+            request.token = yuques[0].token
+
+        # 新建文档 + 更新文档到指定目录
+        request.slug = str(uuid.uuid4()).replace('-', '')
+        request.title = request.file_path.split("/")[-1]
+        request.body = request.content
+        request.format = "markdown"
+        request.public = 1
+        yuque_doc_id = self.create_yuque_doc(group_login=request.group_login, book_slug=request.book_slug, request=request)
+
+        # 判断目录是否存在，不存在就新建
+        target_uuid = self.find_target_uuid_from_file_path(file_path=request.file_path, group_login=request.group_login, book_slug=request.book_slug, token=request.token)
+        if request.target_uuid:
+            target_uuid = request.target_uuid
+
+        # 更新到指定目录下
+        update_request = UpdateTocRequest(token=request.token, action="appendNode", action_mode="child", target_uuid=target_uuid, doc_ids=[yuque_doc_id])
+        self.update_yuque_toc(group_login=request.group_login, book_slug=request.book_slug, request=update_request)
+
+        return request.slug
 
 
     def get_all_yuque_docs_by_group_and_book(self, group_login: str, book_slug: str, yuque_token: str):
@@ -3418,11 +4086,11 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         self,
         group_login: str,
         book_slug: str,
-        import_doc_uuid_dict: dict,
+        import_doc_slug_dict: dict,
         toc: dict,
-        import_doc_uuid_knowledge_tasks: Optional[dict] = None,
+        import_doc_slug_knowledge_tasks: Optional[dict] = None,
     ):
-        doc_uuid = str(toc.get("uuid"))
+        doc_slug = str(toc.get("slug"))
 
         # init status dict
         doc_sync_info_dict = {
@@ -3433,12 +4101,12 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         }
 
         # update doc sync info
-        if (len(import_doc_uuid_dict.keys()) > 0) and (
-            doc_uuid in import_doc_uuid_dict.keys()
+        if (len(import_doc_slug_dict.keys()) > 0) and (
+            doc_slug in import_doc_slug_dict.keys()
         ):
-            logger.info(f"update_doc_sync_info_dict {doc_uuid} need to update")
+            logger.info(f"update_doc_sync_info_dict {doc_slug} need to update")
 
-            doc = import_doc_uuid_dict.get(doc_uuid)
+            doc = import_doc_slug_dict.get(doc_slug)
             doc_sync_info_dict["selected"] = True
             doc_sync_info_dict["file_id"] = str(doc.doc_id)
             if doc.status == SyncStatus.FINISHED.name:
@@ -3454,14 +4122,14 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
                 doc_sync_info_dict["file_status"] = "error"
                 doc_sync_info_dict["progress"] = "0"
 
-        if import_doc_uuid_knowledge_tasks:
+        if import_doc_slug_knowledge_tasks:
             logger.info(
-                f"update_doc_sync_info_dict offline tasks len is {len(import_doc_uuid_knowledge_tasks.keys())}"
+                f"update_doc_sync_info_dict offline tasks len is {len(import_doc_slug_knowledge_tasks.keys())}"
             )
 
-            if doc_uuid in import_doc_uuid_knowledge_tasks.keys():
+            if doc_slug in import_doc_slug_knowledge_tasks.keys():
                 logger.info(
-                    f"update_doc_sync_info_dict find doc_uuid in knowledge_task {doc_uuid}, {import_doc_uuid_knowledge_tasks[doc_uuid].task_id}"
+                    f"update_doc_sync_info_dict find doc_uuid in knowledge_task {doc_slug}, {import_doc_slug_knowledge_tasks[doc_slug].task_id}"
                 )
 
                 doc_sync_info_dict["selected"] = True
@@ -3474,19 +4142,20 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         self,
         group_login: str,
         book_slug: str,
-        import_doc_uuid_dict: dict,
+        import_doc_slug_dict: dict,
         toc: dict,
-        import_doc_uuid_knowledge_tasks: Optional[dict] = None,
+        import_doc_slug_knowledge_tasks: Optional[dict] = None,
     ):
         # update status dict
         doc_sync_info_dict = self.update_doc_sync_info_dict(
             group_login=group_login,
             book_slug=book_slug,
-            import_doc_uuid_dict=import_doc_uuid_dict,
+            import_doc_slug_dict=import_doc_slug_dict,
             toc=toc,
-            import_doc_uuid_knowledge_tasks=import_doc_uuid_knowledge_tasks,
+            import_doc_slug_knowledge_tasks=import_doc_slug_knowledge_tasks,
         )
 
+        # 后续统一用yuque_doc_id作为唯一标识，全局替换掉uuid/doc_slug--todo
         if toc.get("child_uuid") == "":
             doc_slug = toc.get("slug")
         else:
@@ -3565,6 +4234,75 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         return import_doc_uuid_knowledge_tasks
 
+    def get_import_doc_slug_knowledge_tasks(
+        self,
+        knowledge_id: str,
+        group_login: str,
+        book_slug: str,
+        table_of_contents: Optional[Any] = None,
+    ) -> dict:
+        logger.info(
+            f"get_import_doc_slug_knowledge_tasks knowledge_id: {knowledge_id}, group_login: {group_login}, book_slug: {book_slug}"
+        )
+
+        if knowledge_id is None:
+            raise Exception("knowledge_id is None")
+        if group_login is None:
+            raise Exception("group_login is None")
+        if book_slug is None:
+            raise Exception("book_slug is None")
+
+        # 从任务表获取离线的导入任务, 过滤掉已经同步过的
+        tasks = self._task_dao.get_knowledge_tasks(
+            query=KnowledgeTaskEntity(
+                knowledge_id=knowledge_id, group_login=group_login, book_slug=book_slug
+            ),
+            ignore_status=[
+                TaskStatusType.SUCCEED.name,
+                TaskStatusType.FINISHED.name,
+                TaskStatusType.RUNNING.name,
+            ],
+            page=self._default_page,
+            page_size=self._default_page_size,
+        )
+        import_doc_slug_knowledge_tasks = {task.yuque_doc_id : task for task in tasks}
+        logger.info(
+            f"import_doc_slug_knowledge_tasks dict len is {len(import_doc_slug_knowledge_tasks.keys())}"
+        )
+
+        return import_doc_slug_knowledge_tasks
+
+
+
+    def get_import_doc_slug_dict(self, knowledge_id: str, group_login: str, book_slug: str):
+        logger.info(f"get_import_doc_slug_dict knowledge_id is {knowledge_id}, group_login is {group_login}, book_slug is {book_slug}")
+
+        # get yuque docs
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(
+            query=KnowledgeYuqueEntity(knowledge_id=knowledge_id, group_login=group_login, book_slug=book_slug)
+        )
+        # get doc_id dict
+        doc_ids = [doc.doc_id for doc in yuque_docs if doc.doc_id is not None]
+        docs = self._document_dao.get_documents(
+            query=KnowledgeDocumentEntity(id=None), doc_ids=doc_ids
+        )
+        doc_id_dict = {doc.doc_id: doc for doc in docs if doc.doc_id is not None}
+
+        if not doc_id_dict:
+            return {}
+
+        # get doc_slug dict
+        import_doc_slug_dict = {
+            yuque_doc.doc_slug: doc_id_dict[yuque_doc.doc_id]
+            for yuque_doc in yuque_docs
+            if yuque_doc.doc_id in doc_id_dict.keys()
+        }
+        logger.info(f"get_import_doc_slug_dict is {import_doc_slug_dict}")
+
+        return import_doc_slug_dict
+
+
+
     def get_yuque_doc_details_by_book(
         self,
         knowledge_id: Optional[str] = None,
@@ -3593,24 +4331,27 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         # get import doc slug dict
         if knowledge_id is None:
             knowledge_id = ""
-        import_doc_uuid_dict = self.get_import_doc_uuid_dict(knowledge_id=knowledge_id)
+        # import_doc_uuid_dict = self.get_import_doc_uuid_dict(knowledge_id=knowledge_id)
+        # 用 doc_slug 信息来唯一标识文档
+        import_doc_slug_dict = self.get_import_doc_slug_dict(knowledge_id=knowledge_id, group_login=group_login, book_slug=book_slug)
 
         # get import doc uuid by offline knowledge tasks
-        import_doc_uuid_knowledge_tasks = self.get_import_doc_uuid_knowledge_tasks(
+        import_doc_slug_knowledge_tasks = self.get_import_doc_slug_knowledge_tasks(
             knowledge_id=knowledge_id,
             group_login=group_login,
             book_slug=book_slug,
             table_of_contents=table_of_contents,
         )
+        import_doc_uuid_knowledge_tasks = None
 
         yuque_doc_details = []
         for toc in table_of_contents:
             yuque_doc_detail = self.create_yuque_doc_detail(
                 group_login,
                 book_slug,
-                import_doc_uuid_dict,
+                import_doc_slug_dict,
                 toc,
-                import_doc_uuid_knowledge_tasks,
+                import_doc_slug_knowledge_tasks,
             )
             yuque_doc_details.append(yuque_doc_detail)
 
@@ -3985,6 +4726,10 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         # update doc status
         document.status = SyncStatus.TODO.name
+        meta_data = {}
+        for tag in request.tags if request.tags else []:
+            meta_data[tag.get("name")] = tag.get("value")
+        document.meta_data = json.dumps(meta_data, ensure_ascii=False)
         self._document_dao.update_knowledge_document(document)
 
         # async run
@@ -4127,6 +4872,36 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         )
 
         return yuque_outlines
+
+    def get_yuque_knowledge_all_outlines(self, knowledge_id: str, doc_id: str):
+        logger.info(f"get_yuque_knowledge_all_outlines start, {knowledge_id} {doc_id}")
+
+        if knowledge_id is None or doc_id is None:
+            raise Exception(
+                "knowledge_id and doc_id is required: " + knowledge_id + " " + doc_id
+            )
+
+        # get yuque info
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(
+            query=KnowledgeYuqueEntity(doc_id=doc_id, knowledge_id=knowledge_id)
+        )
+        if yuque_docs is None or len(yuque_docs) == 0:
+            logger.error(f"yuque document is None, {doc_id}")
+
+            raise Exception("yuque document not found by " + doc_id)
+        yuque_doc = yuque_docs[0]
+
+        # get outlines
+        web_reader = AntYuqueLoader(access_token=yuque_doc.token)
+        outlines = web_reader.get_outlines_by_group_book_slug(
+            group_login=yuque_doc.group_login,
+            book_slug=yuque_doc.book_slug,
+            doc_slug=yuque_doc.doc_slug,
+        )
+        logger.info(f"get_yuque_knowledge_outlines outlines is {outlines}")
+
+        return outlines
+
 
     def delete_yuque_book(self, knowledge_id: str, group_login: str, book_slug: str):
         # get yuque doc_id
@@ -4917,6 +5692,52 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         return chunk_responses
 
+
+    def get_file_download_url(self, doc: KnowledgeDocumentEntity):
+        doc_name = doc.doc_name
+        params = None
+        if doc_name:
+            # 强制命名 文件名
+            params = {
+                'response-content-disposition': f'attachment; filename="{doc_name}"'
+            }
+        public_url = self.get_fs().get_public_url(doc.content, params=params)
+        logger.info(f"public_url is {public_url}")
+
+        return public_url
+
+
+    def get_full_text(self, request: ChunkEditRequest):
+        logger.info(f"get_full_text request is {request}")
+
+        if not request.knowledge_id or not request.doc_id:
+            raise Exception("knowledge_id and doc_id is required")
+
+        # get doc
+        docs = self._document_dao.get_knowledge_documents(
+            query=KnowledgeDocumentEntity(doc_id=request.doc_id, knowledge_id=request.knowledge_id)
+        )
+        if not docs:
+            raise Exception(f"doc {request.doc_id} is not existed")
+        doc = docs[0]
+
+        # get full text
+        doc_type = doc.doc_type
+        yuque_url = ""
+        if doc_type == KnowledgeType.YUQUEURL.name:
+            doc_detail = self.get_yuque_doc_form_url(yuque_url=doc.content, yuque_token=doc.doc_token)
+            content = doc_detail.get("body_lake")
+            yuque_url = doc.content
+        elif doc_type == KnowledgeType.TEXT.name:
+            content = doc.content
+        elif doc_type == KnowledgeType.DOCUMENT.name:
+            content = self.get_file_download_url(doc=doc)
+        else:
+            raise Exception(f"doc type {doc_type} is not supported")
+
+        return ChunkServeResponse(doc_id=request.doc_id, doc_name=doc.doc_name, content=content, yuque_url=yuque_url, doc_type=doc_type)
+
+
     def get_new_vector_id(
         self,
         old_vector_id: Optional[str] = None,
@@ -5139,6 +5960,228 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         logger.info(f"refresh_single_doc result is {refresh}")
         return refresh
 
+
+    def is_doc_need_update(self, group_login: str, book_slug: str, doc_slug:str, token: str, current_version_id: str):
+        # 找到原始文档版本
+        latest_version_id = self.find_version_from_yuque_info(
+            token=token, group_login=group_login, book_slug=book_slug, doc_slug=doc_slug
+        )
+        if latest_version_id and latest_version_id == current_version_id:
+            return False
+        logger.info(f"#is_doc_update# need to update: latest_version_id is {latest_version_id}, current_version_id is {current_version_id}")
+
+        return True
+
+    async def a_is_doc_need_update(self, group_login: str, book_slug: str, doc_slug: str, token: str, current_version_id: str):
+        return await blocking_func_to_async(
+            self._system_app,
+            self.is_doc_need_update,
+            group_login,
+            book_slug,
+            doc_slug,
+            token,
+            current_version_id
+        )
+
+
+    def print_cost_time(self, start_time: float, end_time: float, method_name: Optional[str] = None):
+        if not start_time:
+            logger.info("start_time is None, log info None")
+        if not end_time:
+            end_time = timeit.default_timer()
+
+        cost_time = round(end_time - start_time, 2)
+        logger.info(f"#{method_name}# cost time is {cost_time} seconds")
+
+        return True
+
+    async def aprint_cost_time(self, start_time: float, end_time: float, method_name: Optional[str] = None):
+        return await blocking_func_to_async(
+            self._system_app,
+            self.print_cost_time,
+            start_time,
+            end_time,
+            method_name,
+        )
+
+    async def delete_doc_ids(self, knowledge_id: str, doc_ids: []):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# knowledge_id is {knowledge_id}, doc_ids len is {len(doc_ids)}")
+
+        if not knowledge_id:
+            raise Exception("knowledge_id is required")
+        if not doc_ids:
+            return True
+        tasks = [self.adelete_document_by_doc_id(knowledge_id=knowledge_id, doc_id=doc_id) for doc_id in doc_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for doc_id, result in zip(doc_ids, results):
+            if isinstance(result, Exception):
+                logger.error(f"#{method_name}# delete doc_id error, doc_id is {doc_id}, result is {result}")
+
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+
+    def add_offline_update_tasks(self, knowledge_id: str, token: str, group_login: str, book_slug: str, owner: str, doc_ids: []):
+        tasks = []
+        datetime_str = datetime.now().strftime("%Y%m%d%H%M%S")
+        microsecond_str = f"{datetime.now().microsecond:06d}"
+        batch_id = f"{datetime_str}{microsecond_str}"
+        logger.info(f"add_offline_update_tasks knowledge_id is {knowledge_id}, batch_id is {batch_id}, doc_ids len is {len(doc_ids)}")
+
+        for doc_id in doc_ids:
+            task = KnowledgeTaskEntity(
+                task_id=str(uuid.uuid4()),
+                knowledge_id=knowledge_id,
+                doc_id=doc_id,
+                doc_type=KnowledgeType.YUQUEURL.name,
+                doc_action=DocActionType.UPDATE.name,
+                yuque_token=token,
+                group_login=group_login,
+                book_slug=book_slug,
+                status=TaskStatusType.TODO.name,
+                owner=owner,
+                batch_id=batch_id,
+                retry_times=0,
+            )
+            tasks.append(task)
+        self._task_dao.create_knowledge_task(tasks=tasks)
+
+        return True
+
+    async def split_doc_ids(self, knowledge_id: str, token: str, group_login: str, book_slug: str, doc_ids: []):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# knowledge_id is {knowledge_id}, doc_ids len is {len(doc_ids)}")
+
+        # 直接添加到离线任务表中
+        self.add_offline_update_tasks(knowledge_id=knowledge_id, token=token, group_login=group_login, book_slug=book_slug, owner=REFRESH_OPERATOR, doc_ids=doc_ids)
+
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+    async def add_offline_tasks(self, knowledge_id: str, token: str, group_login: str, book_slug: str, doc_slugs: []):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# knowledge_id is {knowledge_id}, token is {token}, group_login is {group_login}, book_slug is {book_slug}, doc_slugs len is {len(doc_slugs)}")
+
+        chunk_parameters = self.get_default_chunk_parameters()
+        requests = [
+            YuqueRequest(knowledge_id=knowledge_id, yuque_token=token, group_login=group_login, book_slug=book_slug,
+                         yuque_doc_id=doc_slug, chunk_parameters=chunk_parameters, owner="DERISK")
+            for doc_slug in doc_slugs
+        ]
+
+        is_success = self.offline_create_batch_yuque_knowledge_and_sync(
+            requests=requests
+        )
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+
+        return is_success
+
+    async def a_get_classify_docs(self, source_doc_slugs, current_doc_slugs, current_doc_ids, group_login, book_slug, token):
+        return await blocking_func_to_async(
+            self._system_app,
+            self.get_classify_docs,
+            source_doc_slugs, current_doc_slugs, current_doc_ids, group_login, book_slug, token
+        )
+
+    def get_classify_docs(self, source_doc_slugs, current_doc_slugs, current_doc_ids, group_login, book_slug, token):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# source_doc_slugs len is {len(source_doc_slugs)}, current_doc_slugs len is {len(current_doc_slugs)}")
+        def process_doc(doc_slug, self, group_login, book_slug, token, current_doc_slugs, current_doc_ids):
+            if doc_slug not in current_doc_slugs:
+                return (DocActionType.CREATE.name, doc_slug)
+            else:
+                current_version = current_doc_slugs[doc_slug]
+                if self.is_doc_need_update(group_login, book_slug, doc_slug, token, current_version):
+                    doc_id = current_doc_ids[doc_slug]
+                    return (DocActionType.UPDATE.name, doc_id)
+            return None
+
+        # 要考虑语雀的访问频率超限错误码429
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            new_doc_slugs = []
+            update_doc_ids = []
+            futures = [
+                executor.submit(
+                    process_doc,
+                    doc_slug,
+                    self,
+                    group_login,
+                    book_slug,
+                    token,
+                    current_doc_slugs,
+                    current_doc_ids
+                ) for doc_slug in source_doc_slugs
+            ]
+            # 收集結果
+            for future in futures:
+                result = future.result()
+                if result:
+                    action, value = result
+                    if action == DocActionType.CREATE.name:
+                        # 文档新增，需要加入离线队列
+                        new_doc_slugs.append(value)
+                    elif action == DocActionType.UPDATE.name:
+                        # 文档内容更新，需要重新分段
+                        update_doc_ids.append(value)
+        self.print_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return new_doc_slugs, update_doc_ids
+
+
+    async def add_refresh_record(self, knowledge_id: str, refresh_scope: str, refresh_infos: []):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# knowledge_id is {knowledge_id}, refresh_scope is {refresh_scope}, refresh_infos len is {len(refresh_infos)}")
+
+        context = RefreshContext(refresh_mode=RefreshModeType.REFRESH_FULL_MIRROR.name, refresh_mode_desc=RefreshModeType.REFRESH_FULL_MIRROR.value,
+                                 refresh_scope=refresh_scope, refresh_infos=refresh_infos)
+        json_context = json.dumps(context.to_dict(), ensure_ascii=False)
+        refresh_id = str(uuid.uuid4())
+        record = KnowledgeRefreshRecordEntity(refresh_id=refresh_id, knowledge_id=knowledge_id,
+                                              refresh_time=datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f"),
+                                              status=TaskStatusType.SUCCEED.name, operator=REFRESH_OPERATOR,
+                                              host=self.get_host_ip(), context=json_context)
+        # 托管信息写入
+        self._refresh_record_dao.create_knowledge_refresh_records(records=[record])
+        logger.info(f"#{method_name}# add_refresh_record success, refresh_id is {refresh_id}")
+
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+
+    async def check_doc_diff_refresh(self, knowledge_id: str, group_login: str, book_slug: str, token: str, yuque_docs: List[KnowledgeYuqueEntity], tocs: []):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+
+        delete_doc_ids = []
+        update_doc_ids = []
+        add_doc_slugs = []
+        try:
+            current_doc_slugs = {yuque_doc.doc_slug : yuque_doc.latest_version_id for yuque_doc in yuque_docs}
+            current_doc_ids = {yuque_doc.doc_slug : yuque_doc.doc_id for yuque_doc in yuque_docs}
+            source_doc_slugs = [toc.get("slug") for toc in tocs if toc.get("type") == "DOC"]
+            logger.info(f"#{method_name}# current_doc_slugs len is {current_doc_slugs}, source_doc_slugs len is {source_doc_slugs}")
+
+            # 获取新增、更新、删除的文档
+            delete_doc_ids = [current_doc_ids[doc_slug] for doc_slug in current_doc_ids.keys() if doc_slug not in source_doc_slugs]
+            add_doc_slugs, update_doc_ids = await self.a_get_classify_docs(source_doc_slugs, current_doc_slugs, current_doc_ids, group_login, book_slug, token)
+            logger.info(f"#{method_name}# add_doc_slugs len is {len(add_doc_slugs)}, update_doc_ids len is {len(update_doc_ids)}, delete_doc_ids len is {len(delete_doc_ids)}")
+
+            # 后台执行删除、更新、新增操作
+            asyncio.create_task(self.delete_doc_ids(knowledge_id=knowledge_id, doc_ids=delete_doc_ids))
+            asyncio.create_task(self.split_doc_ids(knowledge_id=knowledge_id, token=token, group_login=group_login, book_slug=book_slug, doc_ids=update_doc_ids))
+            asyncio.create_task(self.add_offline_tasks(knowledge_id=knowledge_id, token=token, group_login=group_login, book_slug=book_slug, doc_slugs=add_doc_slugs))
+        except Exception as e:
+            logger.error(f"#{method_name}# error is {e}")
+
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return delete_doc_ids, update_doc_ids, add_doc_slugs
+
+
     async def refresh_doc_id(self, knowledge_id: str, doc_id: str):
         logger.info(
             f"refresh_doc_id knowledge_id is {knowledge_id}, doc_id is {doc_id}"
@@ -5309,6 +6352,73 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
 
         return refresh
 
+    async def refresh_knowledge_v2(self, knowledge_id: str, group_login: Optional[str] = None, book_slug: Optional[str] = None):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"#{method_name}# knowledge_id is {knowledge_id}, gropu_login is {group_login}, book_slug is {book_slug}")
+
+        if not knowledge_id:
+            raise Exception("knowledge_id is required")
+
+        refresh_scope = (
+            RefreshScopeType.BOOK.name if book_slug else
+            RefreshScopeType.GROUP.name if group_login else
+            RefreshScopeType.SPACE.name
+        )
+        # 获取所有的group, book
+        query = KnowledgeYuqueEntity(knowledge_id=knowledge_id)
+        if group_login:
+            query.group_login = group_login
+        if book_slug:
+            query.book_slug = book_slug
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(query=query)
+        if not yuque_docs:
+            logger.info("refresh_knowledge_v2 yuque_docs is empty, no need to refresh")
+            return True
+
+        # book维度托管
+        book_slug_dict = {yuque_doc.book_slug : yuque_doc.group_login for yuque_doc in yuque_docs if yuque_doc.book_slug and yuque_doc.group_login}
+        logger.info(f"book_slug_dict is {book_slug_dict}")
+
+        book_slug_token_dict = {yuque_doc.book_slug : yuque_doc.token for yuque_doc in yuque_docs if yuque_doc.book_slug and yuque_doc.token}
+        refresh_infos = []
+        for book_slug in book_slug_dict.keys():
+            group_login = book_slug_dict[book_slug]
+            token = book_slug_token_dict[book_slug]
+            # 找到原始book文档列表
+            tocs = self.get_yuque_toc(group_login, book_slug, token)
+            current_docs = [yuque_doc for yuque_doc in yuque_docs if yuque_doc.book_slug == book_slug and yuque_doc.group_login == group_login]
+
+            # 获取差异的文档信息
+            delete_doc_ids, update_doc_ids, add_doc_slugs = await self.check_doc_diff_refresh(
+                knowledge_id=knowledge_id, group_login=group_login, book_slug=book_slug, token=token,
+                yuque_docs=current_docs, tocs=tocs
+            )
+
+            # 记录保鲜信息
+            refresh_info = RefreshInfo(group_login=group_login, book_slug=book_slug,
+                                   delete_doc_len=len(delete_doc_ids), update_doc_len=len(update_doc_ids), add_doc_len=len(add_doc_slugs),
+                                   delete_doc_ids=delete_doc_ids, update_doc_ids=update_doc_ids, add_doc_slugs=add_doc_slugs)
+            refresh_infos.append(refresh_info)
+
+        # 更新保鲜记录表
+        await self.add_refresh_record(knowledge_id=knowledge_id, refresh_scope=refresh_scope, refresh_infos=refresh_infos)
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+
+    async def start_scheduled_refresh(self):
+
+        # 手动初始化要定时同步的空间
+        self.init_refresh_records(refresh_time=datetime.now().strftime("%Y-%m-%d-%H-%M"))
+
+        # 开始自动同步
+        await self.auto_refresh()
+
+        return True
+
+
+
     def delete_refresh_records(
         self, refresh_id: Optional[str] = None, refresh_time: Optional[str] = None
     ):
@@ -5318,6 +6428,17 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             refresh_id=refresh_id, refresh_time=refresh_time
         )
         return True
+
+
+    def update_yuque_doc(self, group_login: Optional[str] = None, book_slug: Optional[str] = None, request: Optional[CreateDocRequest] = None):
+        if not request.slug:
+            raise Exception("update_yuque_doc slug is required")
+        web_reader = AntYuqueLoader(access_token=request.token)
+        yuque_doc = web_reader.update_yuque_doc(group_login, book_slug, request.slug, request)
+        if not yuque_doc:
+            raise Exception("update_yuque_doc failed")
+
+        return yuque_doc
 
 
     def update_yuque_docs(self, group_login: Optional[str] = None, book_slug: Optional[str] = None, request: Optional[CreateDocRequest] = None):
@@ -5382,9 +6503,127 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         # 查询语雀目录
         web_reader = AntYuqueLoader(access_token=yuque_token)
         tocs = web_reader.get_toc_by_group_login_and_book_slug(group_login, book_slug)
-        logger.info(f"get_yuque_toc res is {tocs}")
+        logger.info(f"get_yuque_toc res len is {len(tocs)}")
 
         return tocs
+
+
+    def get_doc_tree_from_knowledge_id(self, knowledge_id: Optional[str] = None):
+
+        # get yuque docs
+        yuque_docs = self._yuque_dao.get_knowledge_yuque(query=KnowledgeYuqueEntity(knowledge_id=knowledge_id))
+        if not yuque_docs:
+            logger.info("get_doc_tree_from_knowledge_id yuque_docs is empty, no need to get doc tree")
+
+            return None
+
+        # get doc tree -- todo 暂时只取一个语雀book
+        yuque_doc = yuque_docs[0]
+
+        return self.get_yuque_outline(yuque_doc.group_login, yuque_doc.book_slug, yuque_doc.token)
+
+
+    def get_yuque_outline(self, group_login: Optional[str] = None, book_slug: Optional[str] = None, yuque_token: Optional[str] = None):
+        logger.info(f"get_yuque_outline start group_login is {group_login}, book_slug is {book_slug}, yuque_token is {yuque_token}")
+
+        if not group_login or not book_slug or not yuque_token:
+            raise Exception("group_login and book_slug and yuque_token are required")
+
+        # 查询语雀目录
+        web_reader = AntYuqueLoader(access_token=yuque_token)
+        tocs = web_reader.get_toc_by_group_login_and_book_slug(group_login, book_slug)
+        logger.info(f"get_yuque_toc res len is {len(tocs)}")
+
+        # 构建目录树
+        return web_reader.build_toc_tree(tocs)
+
+
+    def generate_tree_structure(self, transformed_data, show_uuid: Optional[bool] = True,
+                                show_tags: Optional[bool] = False, title_tags: Optional[dict] = None):
+        """生成带完整路径信息的目录树可视化文本"""
+        output = []
+
+        def _build_node(node, prefix="", is_last=True, parent_path=""):
+            """递归构建节点并携带路径信息"""
+            current_path = f"{parent_path}/{node['title']}" if parent_path else f"/{node['title']}"
+
+            # 生成连接符号
+            connector = "└── " if is_last else "├── "
+
+            # 构建基础行内容
+            if show_uuid:
+                line_base = f"{prefix}{connector}{node['title']} (uuid: {node['uuid']})"
+            elif show_tags:
+                try:
+                    if title_tags.get(node['title'], None) not in (None, '{}'):
+                        line_base = f"{prefix}{connector}doc_name: {node['title']} tags: {title_tags[node['title']]}"
+                    else:
+                        line_base = f"{prefix}{connector}doc_name: {node['title']}"
+                except KeyError:
+                    line_base = f"{prefix}{connector}doc_name: {node['title']}"
+            else:
+                line_base = f"{prefix}{connector}{node['title']}"
+
+            # 添加路径信息
+            full_line = f"{line_base} file_path: {current_path}"
+            output.append(full_line)
+
+            # 生成子节点前缀
+            extension = "    " if is_last else "│   "
+            child_prefix = prefix + extension
+
+            # 递归处理子节点
+            children = node["children"]
+            for index, child in enumerate(children):
+                _build_node(
+                    child,
+                    prefix=child_prefix,
+                    is_last=index == len(children) - 1,
+                    parent_path=current_path
+                )
+
+        # 处理根节点
+        for index, node in enumerate(transformed_data):
+            _build_node(
+                node,
+                prefix="",
+                is_last=index == len(transformed_data) - 1,
+                parent_path=""
+            )
+
+        return "\n".join(output)
+
+    def generate_text_tree_structure(self, texts: Optional[List] = None):
+        if not texts:
+            return ""
+        lines = []
+        for i, text in enumerate(texts):
+            if i == len(texts) - 1:
+                lines.append(f"└── {text}")
+            else:
+                lines.append(f"├── {text}")
+        return "\n".join(lines)
+
+    def get_beautify_yuque_book_outline(self, group_login: Optional[str] = None, book_slug: Optional[str] = None, yuque_token: Optional[str] = None,
+                                        show_uuid: Optional[bool] = True, show_tags: Optional[bool] = False, title_tags: Optional[dict] = None):
+        logger.info(f"get_beautify_yuque_doc request is {group_login}, {book_slug}, {yuque_token}")
+
+        book_outline = self.get_yuque_outline(group_login, book_slug, yuque_token)
+
+        # 格式化输出文档树
+        beautify_book_outline = self.generate_tree_structure(book_outline, show_uuid=show_uuid, show_tags=show_tags, title_tags=title_tags)
+        logger.info(f"beautify_book_outline is \n{beautify_book_outline}")
+
+        return beautify_book_outline
+
+    def get_beautify_text_outline(self, texts: Optional[List] = None):
+        logger.info(f"get_beautify_text_outline request is {texts}")
+
+        # 格式化输出文档树
+        beautify_text_outline = self.generate_text_tree_structure(texts=texts)
+        logger.info(f"beautify_text_outline is \n{beautify_text_outline}")
+
+        return beautify_text_outline
 
 
     def get_yuque_doc(self, group_login: Optional[str] = None, book_slug: Optional[str] = None, doc_slug:Optional[str]=None, yuque_token: Optional[str] = None):
@@ -5920,6 +7159,94 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         return True
 
 
+    def get_knowledge_settings(self, knowledge_id: str):
+        logger.info(f"get_knowledge_settings knowledge_id is {knowledge_id}")
+
+        knowledge_space = self.get({
+            "knowledge_id": knowledge_id
+        })
+        if not knowledge_space:
+            raise HTTPException(status_code=404, detail="Knowledge space not found")
+        space_context = json.loads(knowledge_space.context) if knowledge_space.context else {}
+        default_context = pypantic_utils.parse_model(KnowledgeSetting)
+        if not space_context:
+            return default_context
+
+        results = []
+        for param in default_context:
+            param["value"] = space_context[param["name"]] if space_context.get(param["name"]) else param["value"]
+            results.append(param)
+
+        return results
+
+    async def auto_refresh_with_setting(self, knowledge_id: str, request: KnowledgeSetting):
+        method_name = inspect.currentframe().f_code.co_name
+        start_time = timeit.default_timer()
+        logger.info(f"{method_name} knowledge_id is {knowledge_id}, request is {request}")
+
+        if not request.enable_refresh:
+            logger.info("enable_refresh is false, no need to auto refresh")
+            return True
+
+        refresh_mode = request.refresh_mode
+        if refresh_mode == RefreshModeType.REFRESH_EXISTING_ONLY.name:
+            task = self.refresh_knowledge(knowledge_id=knowledge_id)
+        elif refresh_mode == RefreshModeType.REFRESH_FULL_MIRROR.name:
+            if request.refresh_scope == RefreshScopeType.SPACE.name:
+                task = self.refresh_knowledge_v2(knowledge_id=knowledge_id)
+            elif request.refresh_scope == RefreshScopeType.GROUP.name:
+                task = self.refresh_knowledge_v2(knowledge_id=knowledge_id, group_login=request.refresh_group_login)
+            elif request.refresh_scope == RefreshScopeType.BOOK.name:
+                task = self.refresh_knowledge_v2(knowledge_id=knowledge_id, group_login=request.refresh_group_login, book_slug=request.refresh_book_slug)
+            else:
+                raise Exception(f"refresh_scope {request.refresh_scope} is not supported")
+        else:
+            raise Exception(f"refresh_mode {refresh_mode} is not supported")
+
+        asyncio.create_task(task)
+        await self.aprint_cost_time(method_name=method_name, start_time=start_time, end_time=timeit.default_timer())
+        return True
+
+
+    def update_knowledge_settings(self, knowledge_id: str, request: KnowledgeSetting):
+        logger.info(f"update_knowledge_settings knowledge_id is {knowledge_id}, request is {request}")
+
+        # 查询知识库
+        knowledge_space = self._dao.get_knowledge_space(query=KnowledgeSpaceEntity(knowledge_id=knowledge_id))
+        if not knowledge_space:
+            raise HTTPException(status_code=404, detail="Knowledge space not found")
+        knowledge_space = knowledge_space[0]
+
+        # 更新知识库上下文
+        if not request:
+            return True
+        if request.enable_refresh and request.enable_immediately_refresh:
+            # 立即刷新一次: 根据配置执行对应的保鲜操作
+            asyncio.create_task(self.auto_refresh_with_setting(knowledge_id, request))
+
+        # 原来有其他的配置信息，合并参数再写入
+        new_context_dict = dataclasses.asdict(request)
+        existing_context_dict = {}
+        if knowledge_space.context:
+            try:
+                existing_context_dict = json.loads(knowledge_space.context)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse existing context as JSON, {knowledge_space.context}")
+                raise Exception("Failed to parse existing context as JSON")
+
+        merged_dict = {**existing_context_dict, **new_context_dict}
+        knowledge_space.context = json.dumps(merged_dict, ensure_ascii=False)
+
+        # 更新定时同步标识
+        refresh = "false"
+        if request.enable_refresh and request.enable_scheduled_refresh:
+            refresh = "true"
+        knowledge_space.refresh = refresh
+
+        self._dao.update_knowledge_space(space=knowledge_space)
+        return True
+
+
 
     def get_rag_flows(self, request: QUERY_SPEC):
         """Get rag flows"""
@@ -5943,6 +7270,9 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
             )
         return flow_res
 
+    def get_rag_flow_stages(self, request: QUERY_SPEC):
+        """Get rag flows"""
+        return []
 
     def get_rag_flow(self, request: QUERY_SPEC):
         """Get rag flow"""

@@ -5,7 +5,83 @@ from derisk.agent import Resource, ResourceType
 from derisk.agent.resource import ResourceParameters
 from derisk.core import Chunk
 from derisk.util.i18n_utils import _
+CODE_CONDENSE_PROMPT =  """你是一个专门压缩代码的系统。请仅针对Observation
+后面的内容进行压缩，保留关键信息的同时减少冗余。其他部分保持不变。
+特别注意，你需要识别是文本压缩还是代码压缩，当Observation包含代码时，请根据Question
+中的问题来精简压缩代码，只保留与问题直接相关的部分。
+示例（代码压缩）:
+输入:
+Question: How do I calculate the factorial of a number in Java?
+Thoughts: I need to find a Java function for calculating factorial.
+Action: Search for "Java factorial function"
+Observation:
+Here's a Java function to calculate the factorial of a number:
+public class MathUtils {{
+    public static long factorial(int n) {{
+        if (n == 0 || n == 1) {{
+            return 1;
+        }} else {{
+            return n * factorial(n - 1);
+        }}
+    }}
 
+    public static void main(String[] args) {{
+        int num = 5;
+        long result = factorial(num);
+        System.out.println("The factorial of " + num + " is " + result);
+    }}
+
+    // Additional helper method
+    public static boolean isPrime(int n) {{
+        if (n < 2) {{
+            return false;
+        }}
+        for (int i = 2; i <= Math.sqrt(n); i++) {{
+            if (n % i == 0) {{
+                return false;
+            }}
+        }}
+        return true;
+    }}
+}}
+输出:
+Observation:
+public class MathUtils {{
+    public static long factorial(int n) {{
+        if (n == 0 || n == 1) {{
+            return 1;
+        }} else {{
+            return n * factorial(n - 1);
+        }}
+    }}
+
+    public static void main(String[] args) {{
+        int num = 5;
+        long result = factorial(num);
+        System.out.println("The factorial of " + num + " is " + result);
+    }}
+}}
+
+{text}
+"""
+
+TEXT_CONDENSE_PROMPT = """
+你是一个专门压缩AI代理执行历史中Observation部分的系统。请仅针对Observation
+后面的内容进行文本压缩，保留关键信息的同时减少冗余。其他部分保持不变。
+请根据Question中的问题来精简压缩文本，只保留与问题直接相关的部分。
+
+示例1（文本压缩）: 输入: Question: What is the capital of France? Thoughts: I need to search 
+for the capital city of France. Action: Search for "capital of France" Observation: 
+The capital of France is Paris. Paris is located in northern France and is the 
+country's largest city. It is a global center for art, fashion, gastronomy and 
+culture. Its 19th-century cityscape is crisscrossed by wide boulevards and the River 
+Seine.
+
+输出: Observation: Paris is 
+the capital of France. It's the largest city, located in northern France, known for 
+art, fashion, and culture.
+{text}
+"""
 
 @dataclasses.dataclass
 class MemoryParameters(ResourceParameters):
@@ -44,8 +120,18 @@ class MemoryParameters(ResourceParameters):
         default=False, metadata={"help": _("是否开启消息压缩"), "label": _("消息压缩")}
     )
     message_condense_model: Optional[str] = dataclasses.field(
-        default="DeepSeek-V3",
+        default="deepseek-v3",
         metadata={"help": _("消息压缩模型"), "label": _("压缩模型")}
+    )
+    message_condense_strategy: Optional[str] = dataclasses.field(
+        default="text", metadata={"help": _("压缩策略"), "label": _("压缩策略")
+            , "options": [
+                {"name":"text","desc":"文本压缩"}, {"name":"code", "desc":"代码压缩"}
+            ]}
+    )
+    condense_max_token: Optional[int] = dataclasses.field(
+        default=5000,
+        metadata={"help": _("压缩模型最大输出token"), "label": _("压缩模型最大输出token")}
     )
     message_condense_prompt: Optional[str] = dataclasses.field(
         default="""你是一个专门压缩AI代理执行历史中Observation部分的系统。请仅针对Observation
@@ -142,7 +228,7 @@ class MemoryResource(Resource[ResourceParameters]):
         top_k: int = 50,
         score_threshold: Optional[float] = 0.0,
         enable_message_condense: bool = False,
-        message_condense_model: Optional[str] = "DeepSeek-V3",
+        message_condense_model: Optional[str] = "deepseek-v3",
         message_condense_prompt: Optional[str] = None,
         **kwargs,
     ):
@@ -216,9 +302,10 @@ class MemoryResource(Resource[ResourceParameters]):
             top_k=50,
             score_threshold=0.0,
             enable_message_condense=False,
-            message_condense_model="DeepSeek-V3",
+            message_condense_model="deepseek-v3",
             message_condense_prompt=None,
             name="MemoryResource",
+            condense_max_token=5000,
         )
 
 

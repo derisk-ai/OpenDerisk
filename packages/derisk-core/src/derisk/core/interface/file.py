@@ -233,7 +233,7 @@ class StorageBackend(ABC):
         """
 
     def get_public_url(
-        self, fm: FileMetadata, expire: Optional[int] = None
+        self, fm: FileMetadata, expire: Optional[int] = None, params: Optional[Dict] = None
     ) -> Optional[str]:
         """Generate a public URL for an existing file.
 
@@ -527,6 +527,7 @@ class FileStorageSystem:
         self,
         uri: str,
         expire: Optional[int] = None,
+        params: Optional[Dict] = None
     ) -> str:
         """Generate a public URL for an existing file.
 
@@ -553,7 +554,7 @@ class FileStorageSystem:
         if not backend:
             raise ValueError(f"Unsupported storage type: {metadata.storage_type}")
 
-        pub_url = backend.get_public_url(metadata, expire)
+        pub_url = backend.get_public_url(metadata, expire, params)
         return pub_url if pub_url else uri
 
     def list_files(
@@ -808,6 +809,7 @@ class FileStorageClient(BaseComponent):
         self,
         uri: str,
         expire: Optional[int] = None,
+        params: Optional[Dict] = None
     ) -> str:
         """Generate a public URL for an existing file.
 
@@ -819,7 +821,7 @@ class FileStorageClient(BaseComponent):
         Returns:
             str: The generated public URL
         """
-        return self.storage_system.get_public_url(uri, expire)
+        return self.storage_system.get_public_url(uri, expire, params)
 
 
 class SimpleDistributedStorage(StorageBackend):

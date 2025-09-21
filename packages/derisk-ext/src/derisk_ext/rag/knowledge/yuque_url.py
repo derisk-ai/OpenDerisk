@@ -62,7 +62,7 @@ class YUQUEURLKnowledge(Knowledge):
                 book = web_reader.single_doc(
                     group=group, book_slug=book_slug, doc_id=doc_id
                 )
-                yuque_url = f"https://yuque.com/{group}/{book_slug}/{doc_id}"
+                yuque_url = f"https://yuque.antfin.com/{group}/{book_slug}/{doc_id}"
 
                 if book['type'] == 'Sheet':
                     logger.info(f"yuque url {yuque_url} type is sheet, need sheet split method")

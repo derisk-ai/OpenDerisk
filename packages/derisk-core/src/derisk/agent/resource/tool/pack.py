@@ -137,6 +137,8 @@ class ToolPack(ResourcePack):
                         tool_args[name]["title"] = value["title"]
                     if "default" in value:
                         tool_args[name]["default"] = value["default"]
+                    if "enum" in value:
+                        tool_args[name]["enum"] = value["enum"]
                 else:
                     tool_args[name] = {
                         "name": name,

@@ -134,6 +134,7 @@ async def app_resources(
             type=type,
             query=query,
             name=name,
+            cache_enable=False,
             user_code=user_code,
             sys_code=sys_code,
 

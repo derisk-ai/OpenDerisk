@@ -88,4 +88,4 @@ class AppConfig:
             if os.getenv("LANG") and cast(str, os.getenv("LANG")).startswith("zh")
             else default
         )
-        return self.get("derisk.app.global.language", env_lang)
+        return self.get("dbgpt.app.global.language", env_lang)

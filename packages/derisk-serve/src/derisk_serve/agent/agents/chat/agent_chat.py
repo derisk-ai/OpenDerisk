@@ -79,13 +79,17 @@ def _build_conversation(
         conv_storage=conv_serve.conv_storage,
         message_storage=conv_serve.message_storage,
     )
+
+
 # 使用类型别名简化复杂类型注解
 AgentContextType = Union[str, AutoTeamContext]
+
 
 class AgentChat(BaseComponent, ABC):
     name = ComponentType.AGENT_CHAT
 
-    def __init__(self, system_app:SystemApp, gpts_memory: Optional[GptsMemory] = None, llm_provider: Optional[DefaultLLMClient] = None):
+    def __init__(self, system_app: SystemApp, gpts_memory: Optional[GptsMemory] = None,
+                 llm_provider: Optional[DefaultLLMClient] = None):
         self.gpts_conversations = GptsConversationsDao()
         self.gpts_messages_dao = GptsMessagesDao()
 
@@ -100,9 +104,12 @@ class AgentChat(BaseComponent, ABC):
 
         super().__init__(system_app)
         self.system_app = system_app
+        self.agent_manage = get_agent_manager(system_app)
 
     def init_app(self, system_app: SystemApp):
         self.system_app = system_app
+
+
     def after_start(self):
         if not self.llm_provider:
             worker_manager = CFG.SYSTEM_APP.get_component(
@@ -131,10 +138,10 @@ class AgentChat(BaseComponent, ABC):
         """统一保存对话结果的逻辑"""
         if not final_message:
             try:
-                final_message =  await self.memory.vis_final(agent_conv_id)
+                final_message = await self.memory.vis_final(agent_conv_id)
             except Exception as e:
                 logger.exception(f"获取{agent_conv_id}最终消息异常: {str(e)}")
-
+                final_message = str(e)
         if callable(chat_call_back):
             final_report = None
             try:
@@ -149,14 +156,14 @@ class AgentChat(BaseComponent, ABC):
         if err_msg:
             if not final_message:
                 final_message = ""
-            current_message.add_view_message(final_message + "\n" + err_msg)
+            current_message.add_view_message(final_message)
         else:
             current_message.add_view_message(final_message)
         current_message.end_current_round()
         current_message.save_to_storage()
 
     async def _initialize_conversation(
-        self, conv_session_id: str, app_code: str, user_query: Union[str, HumanMessage] , user_code: Optional[str] = None
+        self, conv_session_id: str, app_code: str, user_query: Union[str, HumanMessage], user_code: Optional[str] = None
     ) -> StorageConversation:
         """初始化会话"""
         conv_serve = ConversationServe.get_instance(CFG.SYSTEM_APP)
@@ -176,7 +183,6 @@ class AgentChat(BaseComponent, ABC):
         )
         return current_message
 
-
     async def _initialize_agent_conversation(self, conv_session_id: str, **ext_info):
         gpts_conversations: List[GptsConversationsEntity] = (
             self.gpts_conversations.get_by_session_id_asc(conv_session_id)
@@ -194,7 +200,6 @@ class AgentChat(BaseComponent, ABC):
             gpt_chat_order = "1" if not gpts_conversations else str(len(gpts_conversations) + 1)
             agent_conv_id = conv_session_id + "_" + gpt_chat_order
         return agent_conv_id, gpts_conversations
-
 
     @abstractmethod
     async def chat(
@@ -329,11 +334,13 @@ class AgentChat(BaseComponent, ABC):
                             historical_dialogues.append(temps[0])
                             historical_dialogues.append(temps[-1])
 
+            user_goal = json.dumps(user_query.to_dict(), ensure_ascii=False)
+            user_goal = user_goal[:min(len(user_goal), 6500)] if user_goal else ""
             self.gpts_conversations.add(
                 GptsConversationsEntity(
                     conv_id=agent_conv_id,
                     conv_session_id=conv_id,
-                    user_goal=json.dumps(user_query.to_dict(), ensure_ascii=False),
+                    user_goal=user_goal,
                     gpts_name=gpts_name,
                     team_mode=gpt_app.team_mode,
                     state=Status.RUNNING.value,
@@ -397,7 +404,7 @@ class AgentChat(BaseComponent, ABC):
                     )
                 )
                 ## TEST FILE WRITE
-                WRITE_TO_FILE = True
+                WRITE_TO_FILE = False
                 if WRITE_TO_FILE:
                     from derisk.configs.model_config import DATA_DIR
                     import os
@@ -514,10 +521,7 @@ class AgentChat(BaseComponent, ABC):
             gpts_memory=self.memory,
             llm_client=llm_client,
         )
-        # from derisk_ext.agent.memory.enhanced_agent import EnhancedAgentMemory
-        # agent_memory = AgentMemory(
-        #     session_memory=session_memory, gpts_memory=self.memory
-        # )
+
         agent_memory = AgentMemory(
             memory=session_memory, gpts_memory=self.memory
         )
@@ -575,7 +579,28 @@ class AgentChat(BaseComponent, ABC):
                 employees: List[ConversableAgent] = await self._build_employees(
                     context, agent_memory, rm, [deepcopy(item) for item in app.details]
                 )
-
+            # extra_agents 表示动态添加的子Agent
+            if "extra_agents" in kwargs and kwargs.get("extra_agents"):
+                app_service = get_app_service()
+                employees.extend(
+                    [
+                        await self._build_agent_by_gpts(
+                            context,
+                            agent_memory,
+                            rm,
+                            deepcopy(await app_service.app_detail(extra_agent, building_mode=False)),
+                        )
+                        for extra_agent in kwargs.get("extra_agents")
+                        if extra_agent and not next(
+                        (
+                            employee
+                            for employee in employees
+                            if employee.name == extra_agent
+                        ),
+                        None,
+                    )
+                    ]
+                )
             team_mode = TeamMode(app.team_mode)
             ## 模型服务
             if not self.llm_provider:
@@ -594,7 +619,8 @@ class AgentChat(BaseComponent, ABC):
                     llm_config = LLMConfig(
                         llm_client=self.llm_provider,
                         llm_strategy=LLMStrategyType(app.llm_config.llm_strategy),
-                        strategy_context=app.llm_config.llm_strategy_value
+                        strategy_context=app.llm_config.llm_strategy_value,
+                        llm_param=app.llm_config.llm_param,
                     )
                     ## 处理agent资源内容
                     depend_resource = await blocking_func_to_async(
@@ -638,7 +664,8 @@ class AgentChat(BaseComponent, ABC):
                 llm_config = LLMConfig(
                     llm_client=self.llm_provider,
                     llm_strategy=LLMStrategyType(app.llm_config.llm_strategy),
-                    strategy_context=app.llm_config.llm_strategy_value
+                    strategy_context=app.llm_config.llm_strategy_value,
+                    llm_param=app.llm_config.llm_param,
                 )
 
                 if app.all_resources:
@@ -816,7 +843,8 @@ class AgentChat(BaseComponent, ABC):
                 )
                 user_query.content = new_content
 
-            self.agent_manage = get_agent_manager()
+            if not self.agent_manage:
+                self.agent_manage = get_agent_manager()
 
             from derisk.agent.core.agent import ENV_CONTEXT_KEY
             from derisk.agent.core.agent import LLM_CONTEXT_KEY
@@ -911,12 +939,12 @@ class AgentChat(BaseComponent, ABC):
             if not app_link_start:
                 self.gpts_conversations.update(conv_uid, gpts_status)
         except Exception as e:
-            logger.error(f"chat abnormal termination！{str(e)}", e)
+            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}", e)
             self.gpts_conversations.update(conv_uid, Status.FAILED.value)
             raise ValueError(f"The conversation is abnormal!{str(e)}")
         finally:
-            if not app_link_start:
-                await self.memory.complete(conv_uid)
+            logger.info(f"inner chat final!{conv_uid}")
+            await self.memory.complete(conv_uid)
 
         return conv_uid
 
@@ -936,7 +964,7 @@ class AgentChat(BaseComponent, ABC):
                 yield item
                 await asyncio.sleep(0.005)
 
-    async def stop_chat(self, conv_session_id: str, user_id:Optional[str] = None):
+    async def stop_chat(self, conv_session_id: str, user_id: Optional[str] = None):
         """停止对话.
 
         Args:
@@ -947,6 +975,18 @@ class AgentChat(BaseComponent, ABC):
         convs = self.gpts_conversations.get_by_session_id_asc(conv_session_id)
         if convs:
             await self.memory.stop(conv_id=convs[-1].conv_id)
+        else:
+            raise ValueError(f"未找到会话[{conv_session_id}]")
+
+
+    async def stop_chat_with_conv_id(self, conv_id: str, user_id: Optional[str] = None):
+        """停止对话.
+
+        Args:
+            conv_session_id:会话id(当前会话的conversation_session_id)
+        """
+        logger.info(f"stop_chat conv_id:{conv_id}")
+        await self.memory.stop(conv_id=conv_id)
 
     async def retry_chat(self, conv_id: str):
         """重试对话, 对于运行中且最终消息超过5分钟的 可以基于已有对话记录继续运行
@@ -963,31 +1003,43 @@ class AgentChat(BaseComponent, ABC):
             conv_id: 对话id(当前对话的agent_conv_id 非conversation_session_id)
             vis_render: 可视化协议名称（决定返回数据的格式）
         """
-        gpts_conversation: GptsConversationsEntity = self.gpts_conversations.get_by_conv_id(conv_id)
-
-        current_vis_render = vis_render or gpts_conversation.vis_render or "nex_vis_window"
-
-        app_config = self.system_app.config.configs.get("app_config")
-        web_config = app_config.service.web
-        vis_manager = get_vis_manager()
-
-        vis_convert: VisProtocolConverter = vis_manager.get_by_name(current_vis_render)(derisk_url=web_config.web_url)
-
-        ## 重新初始化对话memory数据
-        self.memory.init(conv_id=conv_id, vis_converter=vis_convert)
-        await self.memory.load_persistent_memory(conv_id)
-        ## 构建Agent应用实例并挂载到memory，获取对应头像等信息
-        context: AgentContext = AgentContext(
-            conv_id=conv_id,
-            conv_session_id=gpts_conversation.conv_session_id,
-            trace_id=uuid.uuid4().hex,
-            rpc_id="",
-            gpts_app_code=gpts_conversation.gpts_name,
+        from derisk.agent.core.memory.gpts.disk_cache_gpts_memory import DiskGptsMemory
+        gpts_memory = GptsMemory(
+            plans_memory=MetaDerisksPlansMemory(),
+            message_memory=MetaDerisksMessageMemory(),
         )
         try:
-            await self.build_agent_by_app_code(gpts_conversation.gpts_name, context)
-        except Exception as e:
-            logger.warning(f"查询会话时，恢复agent对象异常！{str(e)}")
+            gpts_conversation: GptsConversationsEntity = self.gpts_conversations.get_by_conv_id(conv_id)
+            is_final = False
+            if gpts_conversation.state in [Status.COMPLETE.value, Status.FAILED.value]:
+                is_final = True
+            current_vis_render = vis_render or gpts_conversation.vis_render or "nex_vis_window"
 
-        # 返回对应协议的最终消息内容
-        return await self.memory.vis_final(conv_id), await self.memory.user_answer(conv_id), current_vis_render
+            app_config = self.system_app.config.configs.get("app_config")
+            web_config = app_config.service.web
+            vis_manager = get_vis_manager()
+
+            vis_convert: VisProtocolConverter = vis_manager.get_by_name(current_vis_render)(
+                derisk_url=web_config.web_url)
+
+            ## 重新初始化对话memory数据
+            gpts_memory.init(conv_id=conv_id, vis_converter=vis_convert)
+            await gpts_memory.load_persistent_memory(conv_id)
+            ## 构建Agent应用实例并挂载到memory，获取对应头像等信息
+            # context: AgentContext = AgentContext(
+            #     conv_id=conv_id,
+            #     conv_session_id=gpts_conversation.conv_session_id,
+            #     trace_id=uuid.uuid4().hex,
+            #     rpc_id="",
+            #     gpts_app_code=gpts_conversation.gpts_name,
+            # )
+            # try:
+            #     await self.build_agent_by_app_code(gpts_conversation.gpts_name, context)
+            # except Exception as e:
+            #     logger.warning(f"查询会话时，恢复agent对象异常！{str(e)}")
+
+            # 返回对应协议的最终消息内容
+            return await gpts_memory.vis_final(conv_id), await gpts_memory.user_answer(
+                conv_id), current_vis_render, is_final
+        finally:
+            gpts_memory.clear(conv_id)

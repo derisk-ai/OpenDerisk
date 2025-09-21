@@ -4,10 +4,10 @@ import logging
 from abc import ABC
 from collections import defaultdict
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, Tuple
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
-from derisk.core import LLMClient, ModelMetadata, ModelRequest
+from derisk.core import LLMClient, ModelRequest
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,8 @@ def _build_model_request(input_value: Dict) -> ModelRequest:
         "span_id": input_value.get("span_id", None),
         "trace_id": input_value.get("trace_id", None),
         "rpc_id": input_value.get("rpc_id", None),
+        "context": input_value.get("context", None),
+        "incremental": input_value.get("incremental", False),
     }
 
     return ModelRequest(**parm)
@@ -71,9 +73,32 @@ class LLMStrategyType(Enum):
 
 
 class LLMStrategy(ABC):
-    def __init__(self, llm_client: LLMClient, context: Optional[str] = None):
+    def __init__(self, llm_client: LLMClient, context: Optional[str] = None, llm_config: Optional[Dict[str,Any]] = None):
         self._llm_client = llm_client
         self._context = context
+        self._llm_config = llm_config
+
+    async def all_models(self) -> List[str]:
+        all_models = await self._llm_client.models()
+        return [item.model for item in all_models]
+
+
+    def my_models(self)-> Optional[List[str]]:
+        return None
+    @property
+    def llm_config(self) -> Optional[Dict[str,Any]]:
+        return self._llm_config
+
+    def model_config(self, model_name:str):
+        if self.llm_config and model_name in self.llm_config:
+            return self.llm_config[model_name]
+        return None
+
+
+    @property
+    def context(self):
+        return self._context
+
 
     @property
     def type(self) -> LLMStrategyType:
@@ -103,7 +128,7 @@ class LLMStrategy(ABC):
 
         return can_uses
 
-    async def next_llm(self, excluded_models: Optional[List[str]] = None):
+    async def next_llm(self, excluded_models: Optional[List[str]] = None)-> Tuple[str, Optional[Dict[str, Any]]]:
         """Return next available llm model name.
 
         Args:
@@ -115,12 +140,11 @@ class LLMStrategy(ABC):
         if not excluded_models:
             excluded_models = []
         try:
-            all_models = await self._llm_client.models()
-            all_model_names = [item.model for item in all_models]
-
-            can_uses = self._excluded_models(all_model_names, None, excluded_models)
+            all_models = await self.all_models()
+            my_model = self.my_models()
+            can_uses = self._excluded_models(all_models, my_model, excluded_models)
             if can_uses and len(can_uses) > 0:
-                return can_uses[0]
+                return can_uses[0], self.model_config(can_uses[0])
             else:
                 raise ValueError("No model service available!")
 
@@ -130,7 +154,7 @@ class LLMStrategy(ABC):
 
 
 ### Model selection strategy registration, built-in strategy registration by default
-llm_strategies: Dict[LLMStrategyType, List[Type[LLMStrategy]]] = defaultdict(
+llm_strategies: Dict[LLMStrategyType, Type[LLMStrategy]] = defaultdict(
     Type[LLMStrategy]
 )
 
@@ -158,4 +182,5 @@ class LLMConfig(BaseModel):
 
     llm_client: Optional[LLMClient] = Field(default_factory=LLMClient)
     llm_strategy: LLMStrategyType = Field(default=LLMStrategyType.Default)
+    llm_param: Optional[dict] = defaultdict(dict)
     strategy_context: Optional[Any] = None

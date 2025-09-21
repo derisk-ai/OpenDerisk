@@ -869,33 +869,18 @@ class OpenAPIEmbeddings(BaseModel, Embeddings):
                 corresponds to a single input text.
         """
         # Call OpenAI Embedding API
-        batch_size = 64  # 根据实际情况调整批次大小
-        all_embeddings = []
-
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i:i + batch_size]
-
-            # 调用 API
-            headers = {}
-            current_span_id = root_tracer.get_current_span_id()
-            if self.pass_trace_id and current_span_id:
-                headers[DERISK_TRACER_SPAN_ID] = current_span_id
-
-            try:
-                res = self.session.post(
-                    self.api_url,
-                    json={"input": batch_texts, "model": self.model_name},
-                    timeout=self.timeout,
-                    headers=headers,
-                )
-                batch_embeddings = _handle_request_result(res)
-                all_embeddings.extend(batch_embeddings)
-            except Exception as e:
-                # 处理单个批次失败的情况
-                print(f"Error processing batch {i // batch_size}: {e}")
-                # 可以选择重试或记录错误
-
-        return all_embeddings
+        headers = {}
+        current_span_id = root_tracer.get_current_span_id()
+        if self.pass_trace_id and current_span_id:
+            # Set the trace ID if available
+            headers[DERISK_TRACER_SPAN_ID] = current_span_id
+        res = self.session.post(  # type: ignore
+            self.api_url,
+            json={"input": texts, "model": self.model_name},
+            timeout=self.timeout,
+            headers=headers,
+        )
+        return _handle_request_result(res)
 
     def embed_query(self, text: str) -> List[float]:
         """Compute query embeddings using a OpenAPI embedding model.
