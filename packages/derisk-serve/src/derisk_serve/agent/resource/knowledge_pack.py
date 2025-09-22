@@ -539,7 +539,7 @@ class KnowledgePackSearchResource(RetrieverResource):
                 )
             search_res = await self._rag_service.knowledge_search(request)
             if not request.enable_summary:
-                search_res.summary_content = ""
+                search_res.summary_content = search_res.summary_content or ""
                 url_to_index = {}
                 for sub_query, candidates in search_res.references.items():
                     text = ""
