@@ -1421,6 +1421,9 @@ class Service(BaseService[KnowledgeSpaceEntity, SpaceServeRequest, SpaceServeRes
         if request.mode == RetrieverStrategy.EXACT.value:
             request.enable_split_query = False
             request.enable_summary = False
+        if not self._serve_config.rerank_model:
+            request.enable_rerank = False
+            request.enable_summary = False
         search_task = self.build_knowledge_search_dag(request=request)
         return await search_task.call(call_data={"query": request.query})
 

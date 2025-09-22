@@ -180,6 +180,9 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
             sub_queries[query] = raw_query
 
         documents = []
+        summary_content = "".join(
+            [chunk.content for chunk in query_to_candidates_map.get(query)]
+        )
         for chunks in list(query_to_candidates_map.values()):
             documents.extend([chunk for chunk in chunks])
         return KnowledgeSearchResponse(
@@ -187,6 +190,7 @@ class SpaceRetrieverOperator(RetrieverOperator[IN, OUT], ABC):
             sub_queries=sub_queries,
             references={},
             raw_query=raw_query,
+            summary_content=summary_content
         )
 
 
