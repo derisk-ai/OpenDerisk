@@ -42,7 +42,7 @@ function AppConfig() {
   const [selectedKnowledgeList, setSelectedKnowledgeList] = useState<any[]>([]);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
 
-  useEffect(() => {
+    useEffect(() => {
     // 初始化应用信息
     if (appInfo) {
       const { resource_knowledge, resources, layout } = appInfo || {};
@@ -58,6 +58,30 @@ function AppConfig() {
       });
 
       const toolsList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolHttpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(http)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolTrList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(tr)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const mcpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(mcp)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolLocalList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(local)') || []).map((item: any) => {
         const { value } = item || {};
         const key = JSON.parse(value || '{}')?.key;
         return key;
@@ -119,6 +143,10 @@ function AppConfig() {
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         knowledge: knowledgeList?.map((item: { value: any }) => item.value),
         tools: toolsList,
+        "tool(mcp)": mcpList, 
+        // "tool(http)": toolHttpList,
+        // "tool(tr)": toolTrList,
+        "tool(local)": toolLocalList,
         chat_layout: appInfo?.layout?.chat_layout?.name || '',
         chat_in_layout: chat_in_layout_list || [],
         agents: agentsList,
