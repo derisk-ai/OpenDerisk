@@ -201,9 +201,9 @@ const ChatContent: React.FC<{
       {!isRobot && (
         <div className='flex flex-1 justify-end items-start pb-4' style={{ gap: 12 }}>
           <span
-            className='break-words text-right'
+            className='break-words'
             style={{
-              maxWidth: '100%',
+              maxWidth: '80%',
               minWidth: 0,
             }}
           >
