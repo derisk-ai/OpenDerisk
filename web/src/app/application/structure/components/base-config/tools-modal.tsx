@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState, useMemo } from "react";
-import { Modal, Button, Form, Select, Tabs, Input, Card, Space } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Modal, Button, Form, Select, Tabs } from "antd";
 import { getResourceV2 } from "@/client/api";
 import { useRequest } from "ahooks";
 import { AppContext } from "@/contexts";
@@ -20,9 +19,7 @@ function ToolsModal({
 }: ToolsModalProps) {
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [toolKey, setToolKey] = useState<string>("tool");
-  const [mcpList, setMcpList] = useState<any[]>([]);
   const { appInfo } = useContext(AppContext);
-  const { resource_tool } = appInfo || {};
 
   const {
     data: appToolsData,
@@ -32,11 +29,53 @@ function ToolsModal({
     manual: true,
   });
 
+  const {
+    data: httpToolsData,
+    run: fetchHttpToolsData,
+    loading: httpLoading,
+  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
+    manual: true,
+  });
+
+  const {
+    data: trToolsData,
+    run: fetchTrToolsData,
+    loading: trLoading,
+  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
+    manual: true,
+  });
+
+  const {
+    data: localToolsData,
+    run: fetchLocalToolsData,
+    loading: localLoading,
+  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
+    manual: true,
+  });
+
+  const {
+    data: mcpToolsData,
+    run: fetchMcpToolsData,
+    loading: mcpLoading,
+  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
+    manual: true,
+  });
+
   useEffect(() => {
     if (visible) {
-      fetchToolsData("tool");
+      if (toolKey === 'tool') {
+        fetchToolsData(toolKey);
+      }else if (toolKey === 'tool(local)') {
+        fetchLocalToolsData(toolKey);
+      }else if (toolKey === 'tool(http)') {
+        fetchHttpToolsData(toolKey);
+      } else if (toolKey === 'tool(tr)') {
+        fetchTrToolsData(toolKey);
+      } else if (toolKey === 'tool(mcp)') {
+        fetchMcpToolsData(toolKey);
+      }
     }
-  }, [visible, fetchToolsData]);
+  }, [visible, toolKey, fetchToolsData, fetchHttpToolsData, fetchTrToolsData, fetchLocalToolsData, fetchMcpToolsData]);
 
   const appList = useMemo(() => {
     return (
@@ -54,76 +93,234 @@ function ToolsModal({
     );
   }, [appToolsData]);
 
-  // 过滤出 MCP 数据
-  const existingMcpData = useMemo(() => {
-    return resource_tool?.filter((item: { type: string; }) => item.type === "tool(mcp(sse))");
-  }, []);
+  const httpAppList = useMemo(() => {
+    return (
+      httpToolsData?.data?.data
+        ?.flatMap(
+          (item: any) =>
+            item.valid_values?.map((option: any) => ({
+              ...option,
+              value: option.label,
+              label: option.label,
+              selected: true,
+            })) || []
+        )
+    );
+  }, [httpToolsData]);
 
-  useEffect(() => {
-    if (visible) {
-      fetchToolsData("tool");
-      setMcpList(existingMcpData);
-    }
-  }, [visible, fetchToolsData, existingMcpData]);
+  const trAppList = useMemo(() => {
+    return (
+      trToolsData?.data?.data
+        ?.flatMap(
+          (item: any) =>
+            item.valid_values?.map((option: any) => ({
+              ...option,
+              value: option.label,
+              label: option.label,
+              selected: true,
+            })) || []
+        )
+    );
+  }, [trToolsData]);
 
-  const addNewMcp = () => {
-    const newMcp = {
-      id: Date.now(),
-      type: "tool(mcp(sse))",
-      unique_id: null,
-      name: "",
-      value: "",
-      isNew: true,
-    };
+  const localAppList = useMemo(() => {
+    return (
+      localToolsData?.data?.data
+        ?.flatMap(
+          (item: any) =>
+            item.valid_values?.map((option: any) => ({
+              ...option,
+              value: option.label,
+              label: option.label,
+              selected: true,
+            })) || []
+        )
+    );
+  }, [localToolsData]);
 
-    setMcpList([...(mcpList || []), newMcp]);
-  };
+  const mcpAppList = useMemo(() => {
+    return (
+      mcpToolsData?.data?.data
+        ?.flatMap(
+          (item: any) =>
+            item.valid_values?.map((option: any) => ({
+              ...option,
+              value: option.label,
+              label: option.label,
+              selected: true,
+            })) || []
+        )
+    );
+  }, [mcpToolsData]);
 
-  const removeMcp = (index: number) => {
-    const newList = mcpList.filter((_, i) => i !== index);
-    setMcpList(newList);
-  };
-
-  const updateMcp = (index: number, field: string, value: string) => {
-    const newList = [...mcpList];
-    newList[index] = { ...newList[index], [field]: value };
-    setMcpList(newList);
-  };
 
   const handleChange = () => {
+    const allToolsList = [];
+    
+    // 处理 tool 类型
     const tools = form.getFieldValue('tools') || [];
-    const toolsList =
-      tools?.map((item: any) => {
-        // 查找 appInfo.resource_tool 里是否已存在 type 为 "tool" 且 name 为 item
-        const existed = (appInfo?.resource_tool || []).find(
-          (t: any) =>
-            t.type === 'tool' &&
-            (() => {
-              try {
-                const val = JSON.parse(t.value || '{}');
-                return val.name === item;
-              } catch {
-                return false;
-              }
-            })(),
-        );
-        if (existed) {
-          return existed;
-        }
-        const tool = appList?.find((v: any) => v.label === item);
-        if (tool) {
-          const { selected, ...rest } = tool;
-          return {
-            type: 'tool',
-            name: rest.label,
-            value: JSON.stringify({
-              ...rest,
-              value: tool.key,
-            }),
-          };
-        }
-      }) || [];
-    onToolsChange([...toolsList, ...(mcpList || [])]);
+    const toolsList = tools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.name === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = appList?.find((v: any) => v.label === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+    
+    // 处理 tool(http) 类型
+    const httpTools = form.getFieldValue('tool(http)') || [];
+    const httpToolsList = httpTools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool(http)' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.name === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = httpAppList?.find((v: any) => v.label === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool(http)',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+    
+    // 处理 tool(tr) 类型
+    const trTools = form.getFieldValue('tool(tr)') || [];
+    const trToolsList = trTools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool(tr)' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.name === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = trAppList?.find((v: any) => v.label === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool(tr)',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+
+    // 处理 tool(local) 类型
+    const localTools = form.getFieldValue('tool(local)') || [];
+    const localToolsList = localTools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool(local)' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.name === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = localAppList?.find((v: any) => v.label === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool(local)',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+
+    // 处理 tool(mcp) 类型
+    const mcpTools = form.getFieldValue('tool(mcp)') || [];
+    const mcpToolsList = mcpTools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool(mcp)' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.name === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = mcpAppList?.find((v: any) => v.label === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool(mcp)',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+    
+    // 合并所有工具
+    allToolsList.push(...toolsList, ...httpToolsList, ...trToolsList, ...localToolsList, ...mcpToolsList);
+    
+    onToolsChange([...allToolsList]);
   };
 
   return (
@@ -151,124 +348,140 @@ function ToolsModal({
     >
       <div className="gap-4">
         <Tabs
-          defaultActiveKey="tool"
+          activeKey={toolKey}
           tabPosition="top"
           onChange={(key) => {
             setToolKey(key);
           }}
           items={[
-            { label: "工具集", key: "tool" },
-            { label: "MCP", key: "mcp" },
-          ]}
-        />
-        {toolKey === "tool" ? (
-          <Form
-            layout="horizontal"
-            className="flex flex-col gap-4 flex-1 mt-2"
-            form={form}
-          >
-            <Form.Item label="请选择技能" name="tools">
-              <Select
-                mode="multiple"
-                allowClear
-                style={{ width: "100%" }}
-                placeholder="请选择技能"
-                value={selectedTools}
-                loading={loading}
-                options={appList}
-                onChange={setSelectedTools}
-                optionFilterProp="label"
-              />
-            </Form.Item>
-          </Form>
-        ) : (
-          <div className="flex flex-col gap-4 mt-2">
-            {mcpList?.map((mcp, index) => (
-              <Card
-                key={mcp.unique_id || mcp.id}
-                size="small"
-                title={mcp.isNew ? `新建 MCP ${index + 1}` : mcp.name}
-                extra={
-                  <Button
-                    type="text"
-                    icon={<DeleteOutlined />}
-                    onClick={() => removeMcp(index)}
-                    danger
-                    size="small"
-                  />
-                }
-                className="border-gray-200"
-              >
-                <Form layout="vertical" size="small">
-                  <Form.Item label="名称" className="mb-2">
-                    <Input
-                      placeholder="请输入MCP名称"
-                      value={mcp.name}
-                      onChange={(e) => updateMcp(index, "name", e.target.value)}
-                    />
-                  </Form.Item>
-                  <Form.Item label="请求头" className="mb-2">
-                    <Input
-                      placeholder="请输入Header"
-                      value={(() => {
-                        try {
-                          return JSON.parse(mcp.value || "{}").headers || "";
-                        } catch {
-                          return "";
-                        }
-                      })()}
-                      onChange={(e) => {
-                        let valueObj: { [key: string]: any } = {};
-                        try {
-                          valueObj = JSON.parse(mcp.value || "{}");
-                        } catch {
-                          valueObj = {};
-                        }
-                        valueObj.headers = e.target.value;
-                        updateMcp(index, "value", JSON.stringify(valueObj));
-                      }}
-                    />
-                  </Form.Item>
-                  <Form.Item label="服务" className="mb-0">
-                    <Input
-                      placeholder="请输入MCP服务链接"
-                      // value={mcp.mcp_servers || JSON.parse(mcp.value || '{}').mcp_servers}
-                      // onChange={(e) => updateMcp(index, 'mcp_servers', e.target.value)}
-                      value={(() => {
-                        try {
-                          return (
-                            JSON.parse(mcp.value || "{}").mcp_servers || ""
-                          );
-                        } catch {
-                          return "";
-                        }
-                      })()}
-                      onChange={(e) => {
-                        let valueObj: { [key: string]: any } = {};
-                        try {
-                          valueObj = JSON.parse(mcp.value || "{}");
-                        } catch {
-                          valueObj = {};
-                        }
-                        valueObj.mcp_servers = e.target.value;
-                        updateMcp(index, "value", JSON.stringify(valueObj));
-                      }}
+            { 
+              label: "工具集", 
+              key: "tool",
+              children: (
+                <Form
+                  layout="horizontal"
+                  className="flex flex-col gap-4 flex-1 mt-2"
+                  form={form}
+                >
+                  <Form.Item label="请选择技能" name="tools">
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      style={{ width: "100%" }}
+                      placeholder="请选择技能"
+                      value={selectedTools}
+                      loading={loading}
+                      options={appList}
+                      onChange={setSelectedTools}
+                      optionFilterProp="label"
                     />
                   </Form.Item>
                 </Form>
-              </Card>
-            ))}
-
-            <Button
-              type="dashed"
-              onClick={addNewMcp}
-              icon={<PlusOutlined />}
-              className="w-full h-10 border-gray-300 hover:border-blue-400 hover:text-blue-400"
-            >
-              添加 MCP 配置
-            </Button>
-          </div>
-        )}
+              )
+            },
+            { 
+              label: "MCP", 
+              key: "tool(mcp)",
+              children: (
+                <Form
+                  layout="horizontal"
+                  className="flex flex-col gap-4 flex-1 mt-2"
+                  form={form}
+                >
+                  <Form.Item label="请选择MCP技能" name="tool(mcp)">
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      style={{ width: "100%" }}
+                      placeholder="请选择MCP技能"
+                      value={selectedTools}
+                      loading={mcpLoading}
+                      options={mcpAppList}
+                      onChange={setSelectedTools}
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Form>
+              )
+            },
+//             {
+//               label: "API",
+//               key: "tool(http)",
+//               children: (
+//                 <Form
+//                   layout="horizontal"
+//                   className="flex flex-col gap-4 flex-1 mt-2"
+//                   form={form}
+//                 >
+//                   <Form.Item label="请选择API技能" name="tool(http)">
+//                     <Select
+//                       mode="multiple"
+//                       allowClear
+//                       style={{ width: "100%" }}
+//                       placeholder="请选择API技能"
+//                       value={selectedTools}
+//                       loading={httpLoading}
+//                       options={httpAppList}
+//                       onChange={setSelectedTools}
+//                       optionFilterProp="label"
+//                     />
+//                   </Form.Item>
+//                 </Form>
+//               )
+//             },
+//             {
+//               label: "TR",
+//               key: "tool(tr)",
+//               children: (
+//                 <Form
+//                   layout="horizontal"
+//                   className="flex flex-col gap-4 flex-1 mt-2"
+//                   form={form}
+//                 >
+//                   <Form.Item label="请选择TR技能" name="tool(tr)">
+//                     <Select
+//                       mode="multiple"
+//                       allowClear
+//                       style={{ width: "100%" }}
+//                       placeholder="请选择TR技能"
+//                       value={selectedTools}
+//                       loading={trLoading}
+//                       options={trAppList}
+//                       onChange={setSelectedTools}
+//                       optionFilterProp="label"
+//                     />
+//                   </Form.Item>
+//                 </Form>
+//               )
+//             },
+            { 
+              label: "Local", 
+              key: "tool(local)",
+              children: (
+                <Form
+                  layout="horizontal"
+                  className="flex flex-col gap-4 flex-1 mt-2"
+                  form={form}
+                >
+                  <Form.Item label="请选择Local技能" name="tool(local)">
+                    <Select
+                      mode="multiple"
+                      allowClear
+                      style={{ width: "100%" }}
+                      placeholder="请选择Local技能"
+                      value={selectedTools}
+                      loading={localLoading}
+                      options={localAppList}
+                      onChange={setSelectedTools}
+                      optionFilterProp="label"
+                    />
+                  </Form.Item>
+                </Form>
+              )
+            },
+            
+          ]}
+        />
       </div>
     </Modal>
   );

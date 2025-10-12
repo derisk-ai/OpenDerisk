@@ -29,13 +29,13 @@ class ConversationCache:
     """单个会话的所有缓存数据"""
 
     def __init__(
-            self,
-            conv_id: str,
-            vis_converter: VisProtocolConverter,
-            start_round: int = 0,
-            *,
-            ttl: int = 3600,
-            maxsize: int = 1000
+        self,
+        conv_id: str,
+        vis_converter: VisProtocolConverter,
+        start_round: int = 0,
+        *,
+        ttl: int = 3600,
+        maxsize: int = 1000
     ):
         self.conv_id = conv_id
 
@@ -58,8 +58,6 @@ class ConversationCache:
         """更新缓存访问时间（续期TTL）"""
         self.messages.expire()
         self.plans.expire()
-        if self.stop_flag:
-            raise ValueError("当前会话已经停止！")
 
     def is_expired(self, current_time: float) -> bool:
         """判断会话是否过期（示例逻辑）"""
@@ -67,7 +65,7 @@ class ConversationCache:
 
     def update_vis_converter(self, converter: VisProtocolConverter):
         logger.info(f"update_vis_converter：{self.conv_id},{converter}")
-        self.vis_converter =converter
+        self.vis_converter = converter
 
     def clear(self):
         """清理所有资源"""
@@ -99,14 +97,14 @@ class GptsMemory:
     """会话全局消息记忆管理"""
 
     def __init__(
-            self,
-            plans_memory: GptsPlansMemory = DefaultGptsPlansMemory(),
-            message_memory: GptsMessageMemory = DefaultGptsMessageMemory(),
-            executor: Executor = ThreadPoolExecutor(max_workers=2),
-            default_vis_converter: VisProtocolConverter = DefaultVisConverter(),
-            *,
-            cache_ttl: int = 1800,
-            cache_maxsize: int = 1000
+        self,
+        plans_memory: GptsPlansMemory = DefaultGptsPlansMemory(),
+        message_memory: GptsMessageMemory = DefaultGptsMessageMemory(),
+        executor: Executor = ThreadPoolExecutor(max_workers=2),
+        default_vis_converter: VisProtocolConverter = DefaultVisConverter(),
+        *,
+        cache_ttl: int = 3600,
+        cache_maxsize: int = 1000
     ):
         # 持久化存储
         self._plans_memory = plans_memory
@@ -186,10 +184,10 @@ class GptsMemory:
         # raise KeyError(f"Conversation {conv_id} not initialized")
 
     def _get_or_create_cache(
-            self,
-            conv_id: str,
-            start_round: int = 0,
-            vis_converter: Optional[VisProtocolConverter] = None,
+        self,
+        conv_id: str,
+        start_round: int = 0,
+        vis_converter: Optional[VisProtocolConverter] = None,
     ) -> ConversationCache:
         """获取或创建会话缓存"""
         if conv_id not in self._conversations:
@@ -250,10 +248,10 @@ class GptsMemory:
                     new_message = ne_item
                     new_message.sender = cu_item.sender
                     new_message.current_goal = (
-                            ne_item.current_goal or cu_item.current_goal
+                        ne_item.current_goal or cu_item.current_goal
                     )
                     new_message.resource_info = (
-                            ne_item.resource_info or cu_item.resource_info
+                        ne_item.resource_info or cu_item.resource_info
                     )
                     new_messages.append(new_message)
                     i += 2  # 两个消息合并为一个
@@ -290,7 +288,11 @@ class GptsMemory:
     def vis_converter(self, agent_conv_id: str):
         """Return the vis converter"""
         cache = self._get_cache(agent_conv_id)
-        return cache.vis_converter
+        if cache:
+            return cache.vis_converter
+        else:
+            logger.error(f"{agent_conv_id} cache is cleaned!")
+            return None
 
     async def next_message_rounds(self, conv_id: str, new_init_round: Optional[int] = None) -> int:
         """获取下一个消息轮次"""
@@ -312,11 +314,14 @@ class GptsMemory:
         if not vis_convert:
             logger.warning(f"{conv_id} vis_convert is None!临时构建默认渲染器！")
             vis_convert = DefaultVisConverter()
-        return await vis_convert.final_view(
+        final_view = await vis_convert.final_view(
             messages=messages,
             plans_map=plans,
             senders_map=dict(cache.senders)
         )
+        if cache.stop_flag:
+            final_view = final_view
+        return final_view
 
     async def user_answer(self, conv_id: str) -> str:
         messages = await self.get_messages(conv_id)
@@ -340,14 +345,14 @@ class GptsMemory:
         return final_content
 
     async def vis_messages(
-            self,
-            conv_id: str,
-            gpt_msg: Optional[GptsMessage] = None,
-            stream_msg: Optional[Union[Dict, str]] = None,
-            new_plans: Optional[List[GptsPlan]] = None,
-            is_first_chunk: bool = False,
-            incremental: bool = False,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        conv_id: str,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
     ) -> Any:
         """生成消息可视化视图"""
         cache = self._get_cache(conv_id)
@@ -370,8 +375,8 @@ class GptsMemory:
         )
 
     async def chat_messages(
-            self,
-            conv_id: str,
+        self,
+        conv_id: str,
     ) -> Generator[Any, None, None]:
         """获取对话消息流"""
         cache = self._get_cache(conv_id)
@@ -386,6 +391,7 @@ class GptsMemory:
 
     async def complete(self, conv_id: str):
         """标记对话完成"""
+        logger.info(f"完成会话[{conv_id}]")
         cache = self._get_cache(conv_id)
         await cache.channel.put("[DONE]")
 
@@ -402,21 +408,22 @@ class GptsMemory:
             return False
 
     async def append_message(
-            self,
-            conv_id: str,
-            message: GptsMessage,
-            incremental: bool = False,
-            save_db: bool = True,
-            sender: Optional["ConversableAgent"] = None
+        self,
+        conv_id: str,
+        message: GptsMessage,
+        incremental: bool = False,
+        save_db: bool = True,
+        sender: Optional["ConversableAgent"] = None
     ):
         """追加消息"""
         cache = self._get_cache(conv_id)
 
         message.updated_at = datetime.now()
         # 缓存消息
-        cache.messages[message.message_id] = message
-        if message.message_id not in cache.message_ids:
-            cache.message_ids.append(message.message_id)
+        if cache:
+            cache.messages[message.message_id] = message
+            if message.message_id not in cache.message_ids:
+                cache.message_ids.append(message.message_id)
 
         # 持久化存储
         if save_db:
@@ -438,7 +445,7 @@ class GptsMemory:
         ]
 
     async def get_agent_history_memory(
-            self, conv_id: str, agent_role: str
+        self, conv_id: str, agent_role: str
     ) -> List[ActionOutput]:
         """获取代理历史记忆"""
         agent_messages = await blocking_func_to_async(
@@ -465,20 +472,20 @@ class GptsMemory:
         return [m["action_output"] for m in new_list if m["action_output"]]
 
     async def append_plans(
-            self,
-            conv_id: str,
-            plans: List[GptsPlan],
-            incremental: bool = False,
-            sender: Optional["ConversableAgent"] = None,
-            need_storage: bool = True
+        self,
+        conv_id: str,
+        plans: List[GptsPlan],
+        incremental: bool = False,
+        sender: Optional["ConversableAgent"] = None,
+        need_storage: bool = True
     ):
         """追加计划"""
         cache = self._get_cache(conv_id)
-
-        # 更新缓存
-        for plan in plans:
-            plan.created_at = datetime.now()
-            cache.plans[plan.task_uid] = plan
+        if cache:
+            # 更新缓存
+            for plan in plans:
+                plan.created_at = datetime.now()
+                cache.plans[plan.task_uid] = plan
         # 推送显示
         await self.push_message(
             conv_id, new_plans=plans, incremental=incremental, sender=sender
@@ -490,10 +497,10 @@ class GptsMemory:
             )
 
     async def update_plan(
-            self,
-            conv_id: str,
-            plan: GptsPlan,
-            incremental: bool = False
+        self,
+        conv_id: str,
+        plan: GptsPlan,
+        incremental: bool = False
     ):
         """更新计划"""
         logger.info(f"update_plan:{conv_id},{plan}")
@@ -527,7 +534,7 @@ class GptsMemory:
         cache = self._get_cache(conv_id)
         return list(cache.plans.values())
 
-    async def get_plan(self, conv_id: str, task_uid:str) -> Optional[GptsPlan]:
+    async def get_plan(self, conv_id: str, task_uid: str) -> Optional[GptsPlan]:
         """获取所有计划"""
         cache = self._get_cache(conv_id)
         for item in list(cache.plans.values()):
@@ -535,7 +542,7 @@ class GptsMemory:
                 return item
         return None
 
-    async def get_planner_plans(self, conv_id: str, planner:str) -> List[GptsPlan]:
+    async def get_planner_plans(self, conv_id: str, planner: str) -> List[GptsPlan]:
         """获取所有计划"""
         cache = self._get_cache(conv_id)
         planner_plans: List = []
@@ -544,7 +551,7 @@ class GptsMemory:
                 planner_plans.append(item)
         return planner_plans
 
-    async def get_by_planner_and_round(self, conv_id:str, planner: str, round_id:str)-> List[GptsPlan]:
+    async def get_by_planner_and_round(self, conv_id: str, planner: str, round_id: str) -> List[GptsPlan]:
         cache = self._get_cache(conv_id)
         planner_plans: List = []
         for item in list(cache.plans.values()):
@@ -552,21 +559,24 @@ class GptsMemory:
                 planner_plans.append(item)
         return planner_plans
 
-
     async def push_message(
-            self,
-            conv_id: str,
-            gpt_msg: Optional[GptsMessage] = None,
-            stream_msg: Optional[Union[Dict, str]] = None,
-            new_plans: Optional[List[GptsPlan]] = None,
-            is_first_chunk: bool = False,
-            incremental: bool = False,
-            sender: Optional["ConversableAgent"] = None
+        self,
+        conv_id: str,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        sender: Optional["ConversableAgent"] = None
     ):
         """推送消息（兼容原版逻辑）"""
         cache = self._get_cache(conv_id)
-        if not  cache:
+        if not cache:
             return
+
+        if cache.stop_flag:
+            raise ValueError("当前会话已经停止！")
+
         # 更新发送者缓存
         if sender:
             cache.senders[sender.name] = sender

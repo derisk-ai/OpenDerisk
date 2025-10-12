@@ -18,6 +18,7 @@ from typing import (
     get_origin,
 )
 
+from ..schema import ActionInferenceMetrics
 from ...._private.pydantic import (
     BaseModel,
     field_default,
@@ -44,6 +45,7 @@ class ActionOutput(BaseModel):
     """Action output model."""
 
     content: str
+    content_summary: Optional[str] = None # content总结
     is_exe_success: bool = True
     view: Optional[str] = None  # 给人看的信息
     simple_view: Optional[str] = None # 最简单的给人看的消息，比如不带参数的工具结果，没有代码的执行结果
@@ -77,6 +79,10 @@ class ActionOutput(BaseModel):
     # 输出文件列表
     output_files: Optional[List[Any]] = None
     state: Optional[str] = None
+
+    # 当前Action的运行指标
+    metrics: Optional[ActionInferenceMetrics] = None
+
 
     @model_validator(mode="before")
     @classmethod

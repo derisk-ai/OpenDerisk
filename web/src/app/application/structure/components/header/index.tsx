@@ -5,12 +5,16 @@ import { useRequest } from 'ahooks';
 import { App, Dropdown, Modal } from 'antd';
 import { useRouter } from 'next/navigation';
 import { useContext, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 function Header() {
+  const { t } = useTranslation();
   const { modal } = App.useApp();
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const { appInfo, queryAppInfo, refreshAppInfo, fetchUpdateAppLoading, refreshAppInfoLoading, setAppInfo, refetchVersionData, versionData } = useContext(AppContext);
   const router = useRouter();
+
+  console.log('appInfo in Header:', fetchUpdateAppLoading);
 
   // 发布应用
   const { runAsync: fetchPublishApp, loading: fetchPublishAppLoading } = useRequest(
@@ -19,7 +23,7 @@ function Header() {
       manual: true,
       onSuccess: async () => {
         modal.success({
-          content: '应用发布成功',
+          content: t('header_publish_success'),
         });
         if (typeof refreshAppInfo === 'function') {
           await refreshAppInfo();
@@ -30,7 +34,7 @@ function Header() {
       },
       onError: () => {
         modal.error({
-          content: '应用发布失败，请稍后重试',
+          content: t('header_publish_failed'),
         });
       }
     },
@@ -90,7 +94,18 @@ function Header() {
         <div>
           <div className='flex flex-row items-center space-x-2'>
             <div className='font-semibold text-lg'>{appInfo?.app_name || '--'}</div>
-            <div className='text-xs text-gray-500'>已自动保存：{appInfo?.updated_at ? appInfo.updated_at : '--'}</div>
+            <div className='text-xs text-gray-500 flex flex-row'>
+              <div>
+                {fetchUpdateAppLoading ? (
+                  <img src='/icons/loading.png' width={14} style={{ display: 'inline', marginRight: '4px' }} alt="loading"/>
+                ) : (
+                  <>
+                    <CheckCircleOutlined className='text-[green] mr-1' />
+                  </>
+                )}
+              </div>
+              <div>已自动保存：{appInfo?.updated_at ? appInfo.updated_at : '--'}</div>
+            </div>
           </div>
           {appInfo?.config_version && versionItems.length > 0 && (
             <Dropdown menu={menuProps}>
@@ -112,14 +127,14 @@ function Header() {
         className='ant-btn  ant-btn-default ant-btn-color-default ant-btn-variant-outlined border-none text-white bg-button-gradient flex items-center cursor-pointer px-5 py-1 rounded hover:bg-button-hover transition-colors duration-200'
         onClick={() => setPublishModalOpen(true)}
       >
-        发布
+        {t('header_publish')}
       </button>
 
       <Modal
         title={
           <div className='flex gap-2'>
             <ExclamationCircleFilled style={{ color: '#faad14' }} />
-            发布应用
+            {t('header_publish_app')}
           </div>
         }
         open={publishModalOpen}
@@ -127,7 +142,7 @@ function Header() {
         okButtonProps={{ loading: refreshAppInfoLoading || fetchUpdateAppLoading || fetchPublishAppLoading }}
         onOk={handlePublishOk}
       >
-        <div className='pl-6'>确定要发布该应用吗？</div>
+        <div className='pl-6'>{t('header_publish_confirm')}</div>
       </Modal>
     </div>
   );

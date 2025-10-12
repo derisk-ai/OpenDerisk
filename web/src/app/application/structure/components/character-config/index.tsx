@@ -1,43 +1,53 @@
-import { updateApp } from '@/client/api';
 import PromptEditor from '@/components/PromptEditor';
 import { AppContext } from '@/contexts';
 import { CaretLeftOutlined } from '@ant-design/icons';
 import { useDebounceFn, useRequest } from 'ahooks';
 import { Collapse } from 'antd';
 import { debounce } from 'lodash';
-import { useContext, useMemo } from 'react';
+import { useContext, useMemo, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 function CharacterConfig() {
-  const { collapsed, setCollapsed, appInfo, refreshAppInfo } = useContext(AppContext);
+  const { t } = useTranslation();
+  const { collapsed, setCollapsed, appInfo, refreshAppInfo, fetchUpdateApp } = useContext(AppContext);
 
   const { system_prompt_template = '', user_prompt_template = '' } = appInfo || {};
 
-  const { run: fetchUpdateApp } = useRequest(async (app: any) => await updateApp(app), {
-    manual: true,
-    onSuccess: () => {
-      if (refreshAppInfo) {
-        refreshAppInfo();
-      }
-    },
-  });
+  // 本地状态管理用户输入，避免接口返回数据覆盖导致的闪动
+  const [localSystemPrompt, setLocalSystemPrompt] = useState('');
+  const [localUserPrompt, setLocalUserPrompt] = useState('');
+
+  // 初始化本地状态
+  useEffect(() => {
+    if (system_prompt_template && !localSystemPrompt) {
+      setLocalSystemPrompt(system_prompt_template);
+    }
+    if (user_prompt_template && !localUserPrompt) {
+      setLocalUserPrompt(user_prompt_template);
+    }
+  }, [system_prompt_template, user_prompt_template, localSystemPrompt, localUserPrompt]);
 
   const { run: updateSysPrompt } = useDebounceFn(
-    template =>
+    template => {
+      setLocalSystemPrompt(template); // 立即更新本地状态
       fetchUpdateApp({
         ...appInfo,
         system_prompt_template: template,
-      }),
+      });
+    },
     {
       wait: 500,
     },
   );
 
   const { run: updateUserPrompt } = useDebounceFn(
-    template =>
+    template => {
+      setLocalUserPrompt(template); // 立即更新本地状态
       fetchUpdateApp({
         ...appInfo,
         user_prompt_template: template,
-      }),
+      });
+    },
     {
       wait: 500,
     },
@@ -52,20 +62,20 @@ function CharacterConfig() {
   }, 800);
 
   const systemPrompt = useMemo(() => {
-    return system_prompt_template || '';
-  }, [system_prompt_template]);
+    return localSystemPrompt || system_prompt_template || '';
+  }, [localSystemPrompt, system_prompt_template]);
 
   const userPrompt = useMemo(() => {
-    return user_prompt_template || '';
-  }, [user_prompt_template]);
+    return localUserPrompt || user_prompt_template || '';
+  }, [localUserPrompt, user_prompt_template]);
 
   const items = [
     {
-      label: '系统提示词',
+      label: t('character_config_system_prompt'),
       children: <PromptEditor value={systemPrompt} onChange={handleSysPromptChange} />,
     },
     {
-      label: '用户提示词',
+      label: t('character_config_user_prompt'),
       children: <PromptEditor value={userPrompt} onChange={handleUserPromptChange} />,
     },
   ];
@@ -73,7 +83,7 @@ function CharacterConfig() {
   return (
     <div className='flex-1 border-r-1 p-4 relative border-r-[#D9D9D9] h-full flex flex-col'>
       <div className='p-4 pt-1'>
-        <h2 className='font-semibold text-[18px]'>提示词设定</h2>
+        <h2 className='font-semibold text-[18px]'>{t('character_config_title')}</h2>
       </div>
       <div className='[&_.ant-collapse-header-text]:font-bold overflow-y-auto flex-1'>
         <Collapse items={items} bordered={false} collapsible='header' defaultActiveKey={['0', '1']} />

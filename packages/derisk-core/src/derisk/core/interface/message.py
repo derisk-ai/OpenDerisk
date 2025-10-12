@@ -1214,7 +1214,7 @@ class StorageConversation(OnceConversation, StorageItem):
     def __init__(
         self,
         conv_uid: str,
-        chat_mode: str = "chat_normal",
+        chat_mode: str = "chat_agent",
         user_name: Optional[str] = None,
         sys_code: Optional[str] = None,
         message_ids: Optional[List[str]] = None,

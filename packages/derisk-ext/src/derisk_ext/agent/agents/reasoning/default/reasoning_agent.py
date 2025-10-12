@@ -29,7 +29,7 @@ from derisk.agent.core.reasoning.reasoning_engine import (
     ReasoningEngine,
     DEFAULT_REASONING_PLANNER_NAME,
 )
-from derisk.agent.core.reasoning.reasoning_parser import parse_action_reports, parse_actions
+from derisk.agent.core.reasoning.reasoning_parser import parse_action_reports
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status
 from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
@@ -37,6 +37,8 @@ from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
 from derisk.agent.resource import ResourcePack, ToolPack, BaseTool
 from derisk.agent.resource.memory import MemoryResource
 from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
+from derisk.context.event import ActionPayload, AfterActionEvent
+from derisk.context.manager import push_context_event
 from derisk.util.chat_util import run_async_tasks
 from derisk.util.json_utils import serialize
 from derisk.vis import SystemVisTag, Vis
@@ -109,7 +111,9 @@ class ReasoningAgent(ManagerAgent):
     received_message: AgentMessage = None
     sender: Agent = None
     approved_action_reports: List[ActionOutput] = []
+    is_retry_chat: bool = False
     is_reasoning_agent: bool = True
+    system_prompt: str = None  # Context推理引擎缓存系统提示词 理论上系统提示词在对话过程中应该是不变的
 
     def __init__(self, **kwargs):
         """Create a new instance of ReasoningAgent."""
@@ -121,6 +125,7 @@ class ReasoningAgent(ManagerAgent):
         step_ctx: dict = self._ctx.get(self.current_retry_counter, {})
         step_ctx[key] = value
         self._ctx[self.current_retry_counter] = step_ctx
+        LOGGER.info(f"set context, round=[{self.current_retry_counter}], key=[{key}]")
 
     def _get(self, key: str, cls: Type[T] = None) -> T:
         return self._ctx.get(self.current_retry_counter, {}).get(key)
@@ -134,6 +139,7 @@ class ReasoningAgent(ManagerAgent):
         self.received_message = received_message
         self.sender = sender
         self.approved_action_reports: List[ActionOutput] = await self._parse_approved_action_report()
+        self.is_retry_chat = kwargs.get("is_retry_chat", False)
 
         await self._init_runtime_context()
 
@@ -148,15 +154,15 @@ class ReasoningAgent(ManagerAgent):
         self._ctx = {}
 
     async def _load_thinking_messages(
-            self,
-            received_message: AgentMessage,
-            sender: Agent,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            context: Optional[Dict[str, Any]] = None,
-            is_retry_chat: bool = False,
-            force_use_historical: bool = False,
-            **kwargs
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        is_retry_chat: bool = False,
+        force_use_historical: bool = False,
+        **kwargs
     ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
         """组装模型消息 返回: 模型消息、resource_info、系统提示词、用户提示词"""
 
@@ -228,6 +234,7 @@ class ReasoningAgent(ManagerAgent):
         for idx, action_uid in enumerate([action_uid for action in output.actions if (action_uid := action.action_uid)]):
             action_tasks.append(self._run_action(action_uid, idx=idx))
         await run_async_tasks(action_tasks)
+
         # Action执行完毕
         await self._after_act()
 
@@ -293,6 +300,7 @@ class ReasoningAgent(ManagerAgent):
                     # "action_id": received_action_id + "-answer",
                     "extra": (self.received_message.context or {}) | {"title": "结论"},
                     "content": output.answer,
+                    "observations": output.answer,
                     "action": self.name,
                     "action_name": AgentAction().name,
                     "action_input": self.received_message.content,
@@ -410,22 +418,25 @@ class ReasoningAgent(ManagerAgent):
         action_size = len(self._get(CtxKey.ACTIONS))
         action_item_ms = _current_ms()
         try:
-            await self._update_action_plan(action_uid=action_uid, state=Status.RUNNING)
-
             LOGGER.info(
-                f"[AGENT][执行Action:开始] ----> agent:[{self.name}], step:{self.current_retry_counter}, "
+                f"[AGENT][V2执行Action:开始] ----> agent:[{self.name}], step:{self.current_retry_counter}, "
                 f"Action:[{action.name}][{idx}]/[{action_size}][{action_uid}]"
             )
+            await self._update_action_plan(action_uid=action_uid, state=Status.RUNNING)
 
             require_approval = not (self.recovering and any((1 for approved_action_report in self.approved_action_reports if approved_action_report)))
-            action_report = await action.run(
-                agent=self,
-                message_id=reply_message.message_id,
-                resource=self.resource,
-                message=reply_message,
-                require_approval=require_approval,
-            ) if self.action_counter.add_and_count(
-                action) else format_action_report_by_max_count(action_report)
+            try:
+                action_report = await action.run(
+                    agent=self,
+                    message_id=reply_message.message_id,
+                    resource=self.resource,
+                    message=reply_message,
+                    require_approval=require_approval,
+                    is_retry_chat=self.is_retry_chat,
+                ) if self.action_counter.add_and_count(action) else format_action_report_by_max_count(action_report)
+            except Exception as e:
+                action_report.is_exe_success = False
+                action_report.content = "执行失败: " + repr(e)
 
             # 动作执行后 更新message并展示/落表
             action_report.action = action_report.action or action.name
@@ -434,6 +445,7 @@ class ReasoningAgent(ManagerAgent):
             action_report.action_reason = action_report.action_reason or action.reason
             action_report.state = Status.WAITING.value if action_report.ask_user else Status.COMPLETE.value if action_report.is_exe_success else Status.FAILED.value
             action_report.cost_ms = action_report.cost_ms or (_current_ms() - action_item_ms)
+            await push_context_event(event=AfterActionEvent(payload=ActionPayload(action_output=action_report)), agent=self)
             self._get(CtxKey.ACTION_REPORTS)[action_uid] = action_report
             await self._update_action_plan(
                 action_uid=action_uid,
@@ -443,14 +455,14 @@ class ReasoningAgent(ManagerAgent):
             await self._push_action_message()
         except Exception as e:
             action_success = False
-            LOGGER.info(
-                f"[AGENT][执行Action:异常] <---- "
+            LOGGER.exception(
+                f"[AGENT][V2执行Action:异常] <---- "
                 f"agent:[{self.name}], Action:[{action.name}][{idx}]/[{action_size}], except:[{repr(e)}]"
             )
             raise ReasoningActionException(repr(e))
         finally:
             LOGGER.info(
-                f"[AGENT][执行Action:结束] <---- "
+                f"[AGENT][V2执行Action:结束] <---- "
                 f"agent:[{self.name}], step:{self.current_retry_counter}, Action:[{action.name}][{idx}]/[{action_size}], "
                 f"success:[{action_success}], content:[{action_report.content if action_report else None}]"
             )
@@ -459,7 +471,7 @@ class ReasoningAgent(ManagerAgent):
                 f"[DIGEST][ACTION]"
                 f"agent_name=[{self.name.replace('[', '(').replace(']', ')')}],"  # 监控采集配的是左起'['、右至']'，统一替换以兼容
                 f"received_message_id=[{self.received_message.message_id}],"
-                f"current_step_message_id=[{self._get(CtxKey.REPLY_MESSAGE, AgentMessage).message_id}],"
+                f"current_step_message_id=[{reply_message.message_id}],"
                 f"reasoning_engine_name=[{self.reasoning_engine.name}],"
                 f"step_counter=[{self.current_retry_counter}],"  # 第几个step(轮次)
                 f"retry_counter=[{0}],"  # 模型连续重试了几次
@@ -687,11 +699,14 @@ class ReasoningAgent(ManagerAgent):
     @property
     def abilities(self) -> list[Ability]:
         result = []
+        ## 总结助手排除
+        summary_agent = self._find_summary_agent()
+        summary_agent_name = summary_agent.name if summary_agent else ""
         result.extend(
             [
                 ability
                 for agent in self.agents
-                if (ability := Ability.by(agent)) and agent.name != self.name
+                if (ability := Ability.by(agent)) and agent.name != self.name and agent.name != summary_agent_name
             ]
         )
         result.extend(
@@ -1139,6 +1154,7 @@ class ReasoningAgent(ManagerAgent):
 
         return parse_action_reports(approval_message.action_report)
 
+
 async def _format_vis_content(action: Action, output: ActionOutput = None) -> Any:
     if isinstance(action, AgentAction):
         content = VisTaskContent(task_uid=uuid.uuid4().hex)
@@ -1227,6 +1243,7 @@ def format_action_id(
 ) -> str:
     """
     组装action_id
+    <a href='https://yuque.antfin.com/derisk/yydv2v/gfy12ght43enpgx0?singleDoc#'>《action_id原理》</a>
     :param step_counter: action位于当前agent的第几轮step
     :param action_idx:  action位于当前agent当前step轮次的第几个action
     :param received_action_id: 接收到的action_id，表示从哪个action_id派生而来

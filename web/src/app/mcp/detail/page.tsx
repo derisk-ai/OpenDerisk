@@ -1,6 +1,6 @@
 "use client"
 import { ChatContext } from '@/contexts';
-import { apiInterceptors, getMPCListQuery, mcpToolList, mcpToolRun } from '@/client/api';
+import { apiInterceptors, getMCPListQuery, mcpToolList, mcpToolRun } from '@/client/api';
 import { DiffOutlined, RedoOutlined } from '@ant-design/icons';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
@@ -10,26 +10,22 @@ import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useRequest } from 'ahooks';
 import { Button, Card, Form, Input, Select, Spin, App } from 'antd';
 import classNames from 'classnames';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-
+import { useSearchParams } from 'next/navigation';
 import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../index.css';
 
-const titleOption = [
-  {
-    label: 'Tools',
-    value: 'Tools',
-  },
-];
-
 export default function MpcDetail() {
-  const router = useRouter();
-  const params = useParams() as { id: string; name: string };
   const searchParams = useSearchParams();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const titleOption = [
+    {
+      label: t('mcp_tools'),
+      value: 'Tools',
+    },
+  ];
   const [alignment, setAlignment] = useState<string | null>('Tools');
   const [requestType, setRequestType] = useState<string>('HTTP');
   const [mcpInfo, setMcpInfo] = useState<any>({});
@@ -60,7 +56,7 @@ export default function MpcDetail() {
           message.success(t('success'));
           if (res?.data !== null && typeof res?.data === 'object') {
             try {
-              setConnect(JSON.stringify(res) || '');
+              setConnect(res || '');
             } catch (error) {
               console.log(error);
               setConnect('');
@@ -80,7 +76,7 @@ export default function MpcDetail() {
         return Promise.reject('Missing name parameter');
       }
       return await apiInterceptors(
-        getMPCListQuery({
+        getMCPListQuery({
           name: queryParams.name,
         }),
       );
@@ -281,19 +277,27 @@ export default function MpcDetail() {
                             }`}
                             
                           >
-                            <h2 className='text-xl md:text-2xl font-semibold mb-4 '>{item.name}</h2>
-                            <ul>
-                              <li  className='flex items-start gap-3 py-1 list-disc'>
-                                <span
-                                  className='w-2 h-2 rounded-full  mt-2 shrink-0'
-                                  style={{
-                                    backgroundColor: selectUrl === item?.name ? '#fff' : '#000',
-                                  }}
-                                
-                                ></span>
-                                <span className='text-sm md:text-base'>{item?.description}</span>
-                              </li>
-                            </ul>
+                            <div className='p-4 rounded-lg border transition-all hover:shadow-md' 
+                               style={{
+                               backgroundColor: selectUrl === item?.name ? '#0069fe' : '#f9f9f9',
+                               color: selectUrl === item?.name ? '#fff' : '#333',
+                               }}>
+                              <h2 
+                              className='text-lg md:text-xl font-bold mb-2 p-2 rounded' 
+                              style={{
+                                backgroundColor: selectUrl === item?.name ? '#0056d2' : '#e6f7ff',
+                                color: selectUrl === item?.name ? '#fff' : '#0056d2',
+                              }}>
+                              {item.name}
+                              </h2>
+                              <p 
+                              className='text-sm md:text-base leading-relaxed' 
+                              style={{
+                                color: selectUrl === item?.name ? '#d1eaff' : '#888',
+                              }}>
+                              {item?.description}
+                              </p>
+                            </div>
                           </div>
                         );
                       })}
@@ -307,8 +311,8 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex'>
-                  <div className='flex-1'>{t('parameter_name')}</div>
-                  <div className='flex-1'>{t('parameter_value')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_name')}</div>
+                  <div className='flex-1'>{t('mcp_parameter_value')}</div>
                 </div>
               }
             >
@@ -337,7 +341,7 @@ export default function MpcDetail() {
 
                     <Form.Item>
                       <Button type='primary' htmlType='submit' className='w-full' onClick={onGoRun}>
-                        {t('trial_run')}
+                        {t('mcp_trial_run')}
                       </Button>
                     </Form.Item>
                   </Form>
@@ -348,7 +352,7 @@ export default function MpcDetail() {
             <Card
               title={
                 <div className='flex justify-between'>
-                  {t('run_results')}{' '}
+                  {t('mcp_run_results')}{' '}
                   <Button type='text' icon={<DiffOutlined className='text-[18px]' />} onClick={handleCopy} />
                 </div>
               }
@@ -374,4 +378,3 @@ export default function MpcDetail() {
     </Spin>
   );
 };
-

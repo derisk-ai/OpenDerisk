@@ -25,8 +25,11 @@ class KnowledgeSpaceEntity(Model):
     sys_code = Column(String(128))
     context = Column(Text)
     refresh = Column(String(100))
-    gmt_created = Column(DateTime, name="gmt_create")
-    gmt_modified = Column(DateTime)
+    gmt_created = Column(DateTime, default=datetime.utcnow, name="gmt_create")
+    gmt_modified = Column(DateTime,
+                          default=datetime.utcnow,
+                          onupdate=datetime.utcnow,
+                          comment="last update time", )
 
     def __repr__(self):
         return (
@@ -208,14 +211,10 @@ class KnowledgeSpaceDao(BaseDao):
             if isinstance(request, SpaceServeRequest)
             else request
         )
-        if "vector_type" in request_dict:
-            request_dict.pop("vector_type")
-        if "name_or_tag" in request_dict:
-            request_dict.pop("name_or_tag")
-        if "gmt_created" in request_dict:
-            request_dict.pop("gmt_created")
-        if "gmt_modified" in request_dict:
-            request_dict.pop("gmt_modified")
+        pop_keys = ["vector_type", "name_or_tag", "create_yuque"]
+        for key in pop_keys:
+            if key in request_dict:
+                request_dict.pop(key)
         entity = KnowledgeSpaceEntity(**request_dict)
         return entity
 
@@ -265,4 +264,8 @@ class KnowledgeSpaceDao(BaseDao):
             tags=entity.tags,
             knowledge_type=entity.knowledge_type,
             refresh=entity.refresh,
+            gmt_modified=entity.gmt_modified.strftime("%Y-%m-%d %H:%M:%S") if entity.gmt_created is not None else None,
+            gmt_create=entity.gmt_created.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ) if entity.gmt_created is not None else None,
         )

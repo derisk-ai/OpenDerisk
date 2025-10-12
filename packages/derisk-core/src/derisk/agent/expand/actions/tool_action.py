@@ -3,6 +3,7 @@
 import datetime
 import json
 import logging
+import time
 import uuid
 from typing import Optional
 
@@ -15,7 +16,7 @@ from derisk.vis.vis_converter import (
     SystemVisTag,
 )
 from ...core.action.base import Action, ActionOutput
-from ...core.schema import Status
+from ...core.schema import Status, ActionInferenceMetrics
 from ...resource import BaseTool
 from ...resource.base import AgentResource, Resource, ResourceType
 from ...resource.tool.pack import ToolPack
@@ -111,6 +112,8 @@ class ToolAction(Action[ToolInput]):
             need_vis_render (bool, optional): Whether need visualization rendering.
                 Defaults to True.
         """
+        metrics = ActionInferenceMetrics()
+        metrics.start_time_ms = time.time_ns() // 1_000_000
         try:
             param: ToolInput = self.action_input or self._input_convert(
                 ai_message, ToolInput
@@ -133,6 +136,8 @@ class ToolAction(Action[ToolInput]):
             message_id=message_id,
             require_approval=kwargs.get("require_approval", False),
         )
+        metrics.end_time_ms = time.time_ns() // 1_000_000
+        metrics.result_tokens = len(action_out.content)
         return action_out
 
     async def run_tool(
@@ -227,10 +232,10 @@ class ToolAction(Action[ToolInput]):
                 action=name,
                 action_name=self.name,
                 action_input=json.dumps(args, ensure_ascii=False),
-                content=str(tool_result),
+                content=str(tool_result) or "无",
                 view=view,
                 observations=str(tool_result),
-                ask_user=ask_user,
+                ask_user=ask_user and require_approval,
                 terminate=is_terminal,
                 cost_ms=int((datetime.datetime.now().timestamp() - start_time) * 1000)
             )

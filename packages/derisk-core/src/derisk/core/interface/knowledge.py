@@ -13,6 +13,10 @@ class Document(BaseModel):
     doc_id: Optional[str] = Field(default=None, description="document id")
 
     content: str = Field(default="", description="document text content")
+    doc_name: Optional[str] = Field(default="", description="document name")
+    doc_link: Optional[str] = Field(default="", description="document link")
+    doc_type: Optional[str] = Field(default="", description="document type")
+    score: Optional[float] = Field(default=0.0, description="document score")
 
     metadata: Dict[str, Any] = Field(
         default_factory=dict,

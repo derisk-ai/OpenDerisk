@@ -27,7 +27,7 @@ const DeleteBtn: React.FC<{ record: IPrompt; refresh: () => void }> = ({ record,
     {
       manual: true,
       onSuccess: async () => {
-        message.success('删除成功');
+        message.success(t('prompt_delete_success'));
         await refresh();
       },
     },
@@ -35,7 +35,7 @@ const DeleteBtn: React.FC<{ record: IPrompt; refresh: () => void }> = ({ record,
 
 
   return (
-    <Popconfirm title='确认删除吗？' onConfirm={async () => await deletePromptRun(record)}>
+    <Popconfirm title={t('prompt_delete_confirm')} onConfirm={async () => await deletePromptRun(record)}>
       <Button loading={deleteLoading}>{t('Delete')}</Button>
     </Popconfirm>
   );
@@ -131,7 +131,7 @@ const Prompt = () => {
   const items: SegmentedProps['options'] = [
     {
       value: 'common',
-      label: t('Public') + ' Prompts',
+      label: t('prompt_public_prompts'),
     },
   ];
 
@@ -153,7 +153,7 @@ const Prompt = () => {
               onClick={handleAddBtn}
               icon={<PlusOutlined />}
             >
-              {t('Add')} Prompts
+              {t('prompt_add_prompts')}
             </Button>
           </div>
         </div>

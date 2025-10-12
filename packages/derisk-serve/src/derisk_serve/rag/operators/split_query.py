@@ -25,7 +25,7 @@ class SplitQueryOperator(MapOperator[IN, OUT]):
             prompt (Optional[str]): The prompt template. Defaults to None.
         """
         self._llm_client = llm_client
-        self._model_name = model_name or ""
+        self._model_name = model_name or "deepseek-v3"
         self._prompt = prompt
         super().__init__(**kwargs)
 
@@ -41,9 +41,7 @@ class SplitQueryOperator(MapOperator[IN, OUT]):
         query = input_value.get("query")
         spilt_queries = [query]
         try:
-            spilt_queries = (
-                 await self._split_v2(query)
-            )
+            spilt_queries = await self._split_v2(query)
         except Exception as e:
             logger.error(f"Split query error: {e}")
         result = {
@@ -51,6 +49,7 @@ class SplitQueryOperator(MapOperator[IN, OUT]):
             "sub_queries": spilt_queries,
         }
         return result
+
 
     async def _split_v2(self, query: str) -> list[str]:
         messages = HumanPromptTemplate.from_template(self._prompt).format_messages(query=query)

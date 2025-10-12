@@ -336,6 +336,7 @@ class DefaultModelWorker(ModelWorker):
                 is_stream=False,
             )
             previous_response = ""
+
             last_metrics = ModelInferenceMetrics.create_metrics()
             is_first_generate = True
             output = await generate_stream_func(
@@ -520,6 +521,7 @@ def _new_metrics_from_model_output(
     last_metric: ModelInferenceMetrics,
     is_first_generate: bool,
     usage: Optional[Dict] = None,
+    is_proxy_llm: bool = True,
 ) -> ModelInferenceMetrics:
     metrics = ModelInferenceMetrics.create_metrics(last_metric)
     metrics.collect_index = last_metric.collect_index + 1
@@ -563,33 +565,34 @@ def _new_metrics_from_model_output(
         total_tokens = prompt_tokens + completion_tokens
         metrics.total_tokens = total_tokens
 
-    if total_tokens:
+    if completion_tokens:
         # time cost(seconds)
         duration = (metrics.current_time_ms - metrics.start_time_ms) / 1000.0
-        metrics.speed_per_second = total_tokens / duration
+        metrics.speed_per_second = completion_tokens / duration
 
-    current_gpu_infos = _get_current_cuda_memory()
-    metrics.current_gpu_infos = current_gpu_infos
-    if not metrics.avg_gpu_infos:
-        metrics.avg_gpu_infos = current_gpu_infos
-    elif current_gpu_infos:
-        for i, last_avg in enumerate(metrics.avg_gpu_infos):
-            allocated_memory_gb = (
-                last_avg.allocated_memory_gb * (metrics.collect_index - 1)
-                + current_gpu_infos[i].allocated_memory_gb
-            )
-            metrics.avg_gpu_infos[i].allocated_memory_gb = (
-                allocated_memory_gb / metrics.collect_index
-            )
-            metrics.avg_gpu_infos[i].total_memory_gb = current_gpu_infos[
-                i
-            ].total_memory_gb
-            metrics.avg_gpu_infos[i].cached_memory_gb = current_gpu_infos[
-                i
-            ].cached_memory_gb
-            metrics.avg_gpu_infos[i].available_memory_gb = current_gpu_infos[
-                i
-            ].available_memory_gb
+    if not is_proxy_llm:
+        current_gpu_infos = _get_current_cuda_memory()
+        metrics.current_gpu_infos = current_gpu_infos
+        if not metrics.avg_gpu_infos:
+            metrics.avg_gpu_infos = current_gpu_infos
+        elif current_gpu_infos:
+            for i, last_avg in enumerate(metrics.avg_gpu_infos):
+                allocated_memory_gb = (
+                    last_avg.allocated_memory_gb * (metrics.collect_index - 1)
+                    + current_gpu_infos[i].allocated_memory_gb
+                )
+                metrics.avg_gpu_infos[i].allocated_memory_gb = (
+                    allocated_memory_gb / metrics.collect_index
+                )
+                metrics.avg_gpu_infos[i].total_memory_gb = current_gpu_infos[
+                    i
+                ].total_memory_gb
+                metrics.avg_gpu_infos[i].cached_memory_gb = current_gpu_infos[
+                    i
+                ].cached_memory_gb
+                metrics.avg_gpu_infos[i].available_memory_gb = current_gpu_infos[
+                    i
+                ].available_memory_gb
 
     return metrics
 

@@ -62,12 +62,7 @@ function BaseInfoItem(props: any) {
         <Form.Item
           name='app_describe'
           required
-          rules={[
-            {
-              required: true,
-              message: t('Please_input_the_description'),
-            },
-          ]}
+          rules={[{ required: true, message: t('Please_input_the_description') }]}
         >
           <Input.TextArea
             autoComplete='off'
@@ -156,28 +151,27 @@ function ModalConfig(props: any) {
 
   return (
     <div className='flex flex-col gap-1 [&_.ant-form-item]:mb-4'>
-      <Form.Item label='Agent类型' name='agent' rules={[{ required: true, message: '请选择 Agent 类型' }]}>
-        <Select placeholder={t('input_app_name')} options={targetOptions} allowClear className='h-10' />
+      <Form.Item label={t('baseinfo_select_agent_type')} name='agent' rules={[{ required: true, message: t('baseinfo_select_agent_type') }]}>
+        <Select placeholder={t('baseinfo_select_agent_type')} options={targetOptions} allowClear className='h-10' />
       </Form.Item>
 
       {is_reasoning_engine_agent && (
-        <Form.Item name={'reasoning_engine'} label={'推理引擎'} rules={[{ required: true, message: '请选择推理引擎' }]}>
-          <Select options={reasoningEngineOptions} placeholder={'请选择推理引擎'} className='h-10' />
+        <Form.Item name={'reasoning_engine'} label={t('baseinfo_reasoning_engine')} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]}>
+          <Select options={reasoningEngineOptions} placeholder={t('baseinfo_select_reasoning_engine')} className='h-10' />
         </Form.Item>
       )}
 
-      <Form.Item label='模型策略' name='llm_strategy' rules={[{ required: true, message: '请选择模型策略' }]}>
-        <Select options={strategyOptions} placeholder='请选择模型策略' className='h-10' />
+      <Form.Item label={t('baseinfo_llm_strategy')} name='llm_strategy' rules={[{ required: true, message: t('baseinfo_select_llm_strategy') }]}>
+        <Select options={strategyOptions} placeholder={t('baseinfo_select_llm_strategy')} className='h-10' />
       </Form.Item>
 
-      <Form.Item label='模型选择' name='llm_strategy_value' rules={[{ required: true, message: '请选择模型' }]}>
+      <Form.Item label={t('baseinfo_llm_strategy_value')} name='llm_strategy_value' rules={[{ required: true, message: t('baseinfo_select_llm_model') }]}>
         <Select
           mode='multiple'
           allowClear
           options={llmOptions}
-          placeholder='请选择模型'
+          placeholder={t('baseinfo_select_llm_model')}
           className='min-h-10'
-          // maxTagCount='responsive'
         />
       </Form.Item>
     </div>
@@ -186,19 +180,20 @@ function ModalConfig(props: any) {
 
 function LayoutConfig(props: any) {
   const { form, layoutDataOptions, chatConfigOptions, onInputBlur, resourceOptions, modelOptions } = props;
+  const { t } = useTranslation();
   // Use useWatch to reactively get selectedChatConfigs
   const selectedChatConfigs = Form.useWatch('chat_in_layout', form);
   
   return (
     <div className='flex flex-col gap-1 [&_.ant-form-item]:mb-4'>
-      <Form.Item label='布局方式' name='chat_layout' rules={[{ required: true, message: '请选择布局方式' }]}>
-        <Select options={layoutDataOptions} placeholder='请选择布局方式' className='h-10' />
+      <Form.Item label={t('baseinfo_layout_type')} name='chat_layout' rules={[{ required: true, message: t('baseinfo_select_layout_type') }]}>
+        <Select options={layoutDataOptions} placeholder={t('baseinfo_select_layout_type')} className='h-10' />
       </Form.Item>
 
       <Form.Item
-        label='对话配置'
+        label={t('baseinfo_chat_config')}
         name='chat_in_layout'
-        rules={[{ required: false, message: '请选择对话配置' }]}
+        rules={[{ required: false, message: t('baseinfo_select_chat_config') }]}
       >
         <Checkbox.Group options={chatConfigOptions} className='flex flex-wrap gap-2'></Checkbox.Group>
       </Form.Item>
@@ -229,17 +224,19 @@ function BaseInfo(props: any) {
     modelOptions
   } = props;
 
+  const { t } = useTranslation();
+
   const allItems = [
     {
-      label: '基础信息',
+      label: t('baseinfo_basic_info'),
       children: <BaseInfoItem form={form} handleChangedIcon={handleChangedIcon} onInputBlur={onInputBlur} />,
     },
     {
-      label: 'Agent配置',
+      label: t('baseinfo_agent_config'),
       children: <ModalConfig form={form} reasoningEngineOptions={reasoningEngineOptions} />,
     },
     {
-      label: '界面布局',
+      label: t('baseinfo_layout'),
       children: (
         <LayoutConfig
           form={form}

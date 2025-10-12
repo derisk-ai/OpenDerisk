@@ -16,6 +16,7 @@ from .action.base import ActionOutput
 from .memory.agent_memory import AgentMemory
 from .memory.gpts import GptsMessage
 from .memory.gpts.base import GptsMessageType
+from .schema import MessageMetrics
 from ...core.interface.media import MediaContentType, MediaContent, MediaObject
 from ...core.schema.types import ChatCompletionUserMessageParam, ChatCompletionMessageParam
 from ...util.json_utils import serialize
@@ -25,12 +26,13 @@ MEDIA_PARAMS: List[str] = ["image_url", "audio_url", "input_audio", "video_url",
 ENV_CONTEXT_KEY = "derisk_context_env"
 LLM_CONTEXT_KEY = "derisk_context_llm"
 
+
 class MediaMessageContent:
 
     def __init__(
-            self,
-            param_name: str,
-            content_type: MediaContentType,
+        self,
+        param_name: str,
+        content_type: MediaContentType,
 
     ):
         self.content_type: MediaContentType = content_type
@@ -62,17 +64,17 @@ class Agent(ABC):
 
     @abstractmethod
     async def send(
-            self,
-            message: AgentMessage,
-            recipient: Agent,
-            reviewer: Optional[Agent] = None,
-            request_reply: Optional[bool] = True,
-            is_recovery: Optional[bool] = False,
-            silent: Optional[bool] = False,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
+        self,
+        message: AgentMessage,
+        recipient: Agent,
+        reviewer: Optional[Agent] = None,
+        request_reply: Optional[bool] = True,
+        is_recovery: Optional[bool] = False,
+        silent: Optional[bool] = False,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
     ) -> None:
         """Send a message to recipient agent.
 
@@ -89,17 +91,17 @@ class Agent(ABC):
 
     @abstractmethod
     async def receive(
-            self,
-            message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            request_reply: Optional[bool] = None,
-            silent: Optional[bool] = False,
-            is_recovery: Optional[bool] = False,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
+        self,
+        message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        request_reply: Optional[bool] = None,
+        silent: Optional[bool] = False,
+        is_recovery: Optional[bool] = False,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
     ) -> None:
         """Receive a message from another agent.
 
@@ -117,15 +119,15 @@ class Agent(ABC):
 
     @abstractmethod
     async def generate_reply(
-            self,
-            received_message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            **kwargs,
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        **kwargs,
     ) -> AgentMessage:
         """Generate a reply based on the received messages.
 
@@ -147,6 +149,7 @@ class Agent(ABC):
         sender: Optional[Agent] = None,
         prompt: Optional[str] = None,
         received_message: Optional[AgentMessage] = None,
+        **kwargs
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Think and reason about the current task goal.
 
@@ -184,13 +187,13 @@ class Agent(ABC):
 
     @abstractmethod
     async def act(
-            self,
-            message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            **kwargs,
+        self,
+        message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        **kwargs,
     ) -> ActionOutput:
         """Act based on the LLM inference results.
 
@@ -209,11 +212,11 @@ class Agent(ABC):
 
     @abstractmethod
     async def verify(
-            self,
-            message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            **kwargs,
+        self,
+        message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        **kwargs,
     ) -> Tuple[bool, Optional[str]]:
         """Verify whether the current execution results meet the target expectations.
 
@@ -252,7 +255,6 @@ class Agent(ABC):
 @dataclasses.dataclass
 class AgentContext:
     """A class to represent the context of an Agent."""
-
 
     conv_id: str
     conv_session_id: str
@@ -341,11 +343,13 @@ class AgentReviewInfo:
         """Return a dictionary representation of the AgentMessage."""
         return dataclasses.asdict(self)
 
+
 class ContextEngineeringKey(str, Enum):
     AVAILABLE_TOOLS = "available_tools",
     AVAILABLE_KNOWLEDGE = "available_knowledge",
     AVAILABLE_AGENTS = "available_agents",
     LAST_STEP_MESSAGE_ID = "last_step_message_id",
+
 
 @dataclasses.dataclass
 @PublicAPI(stability="beta")
@@ -375,6 +379,9 @@ class AgentMessage:
     gmt_create: Optional[datetime] = None
 
     observation: Optional[str] = None
+    metrics: Optional[MessageMetrics] = None
+    """当前消息的性能指标数据(模型和action)"""
+
     def to_dict(self) -> Dict:
         """Return a dictionary representation of the AgentMessage."""
         result = dataclasses.asdict(self)
@@ -423,18 +430,18 @@ class AgentMessage:
 
     @classmethod
     def init_new(
-            cls,
-            content: Optional[str] = None,
-            content_types: Optional[List[str]]= None,
-            current_goal: Optional[str] = None,
-            goal_id: Optional[str] = None,
-            context: Optional[dict] = None,
-            rounds: Optional[int] = None,
-            name: Optional[str] = None,
-            role: Optional[str] = None,
-            show_message: bool = True,
-            observation: Optional[str] = None,
-            conv_round_id: Optional[str] = None,
+        cls,
+        content: Optional[str] = None,
+        content_types: Optional[List[str]] = None,
+        current_goal: Optional[str] = None,
+        goal_id: Optional[str] = None,
+        context: Optional[dict] = None,
+        rounds: Optional[int] = None,
+        name: Optional[str] = None,
+        role: Optional[str] = None,
+        show_message: bool = True,
+        observation: Optional[str] = None,
+        conv_round_id: Optional[str] = None,
     ):
         return cls(
             message_id=uuid.uuid4().hex,
@@ -479,6 +486,7 @@ class AgentMessage:
     @classmethod
     def from_gpts_message(cls, gpts_message: GptsMessage) -> AgentMessage:
         T = TypeVar("T")
+
         def _str_to_type(kwargs: dict, field_name: str, cls: Type[T] = None) -> T:
             if field_name in kwargs and isinstance(kwargs.get(field_name), str):
                 kwargs[field_name] = cls(**json.loads(kwargs.get(field_name)))
@@ -494,24 +502,20 @@ class AgentMessage:
 
     @classmethod
     def from_media_messages(cls, message: Union[str, HumanMessage], current_goal: Optional[str] = None,
-                            rounds: int = 0, approval_message_id: str = None, context: Optional[Any] = None) -> AgentMessage:
+                            rounds: int = 0, context: Optional[Any] = None) -> AgentMessage:
         """Create a  AgentMessage objects from a media message."""
 
         if not message:
             raise ValueError("The message is empty")
 
-        message_type = GptsMessageType.ActionApproval.value \
-            if approval_message_id \
-            else GptsMessageType.AgentMessage.value
-
         if isinstance(message, str):
             return AgentMessage(
+                message_id=uuid.uuid4().hex,
                 content=message,
                 context=context,
                 current_goal=current_goal if current_goal else message,
                 rounds=rounds,
                 content_types=[MediaContentType.TEXT],
-                message_type=message_type,
             )
 
         content = message.content
@@ -522,12 +526,12 @@ class AgentMessage:
 
         if isinstance(content, str):
             return AgentMessage(
+                message_id=uuid.uuid4().hex,
                 content=content,
                 context=context,
                 current_goal=current_goal if current_goal else content,
                 rounds=rounds,
                 content_types=[MediaContentType.TEXT],
-                message_type=message_type,
             )
 
         context = context or {}
@@ -553,7 +557,7 @@ class AgentMessage:
                         context.update({"input_audio": item.object.data})
                         media_types.append("input_audio")
                 elif type == MediaContentType.VIDEO.value:
-                    context.update({"video_url":  item.object.data})
+                    context.update({"video_url": item.object.data})
                     media_types.append("video_url")
                 elif type == MediaContentType.FILE.value:
                     context.update({"file_url": item.object.data})
@@ -563,12 +567,12 @@ class AgentMessage:
             else:
                 raise ValueError(f"Unknown message type: {item} of system message")
         return AgentMessage(
+            message_id=uuid.uuid4().hex,
             content=text_content,
             context=context,
             current_goal=current_goal if current_goal else text_content,
             rounds=rounds,
             content_types=media_types,
-            message_type=message_type,
         )
 
     def copy(self) -> "AgentMessage":
@@ -608,10 +612,10 @@ class AgentMessage:
         return {}
 
     def to_gpts_message(
-            self,
-            sender: "ConversableAgent",
-            receiver: Optional["ConversableAgent"] = None,
-            role: Optional[str] = None,
+        self,
+        sender: "ConversableAgent",
+        receiver: Optional["ConversableAgent"] = None,
+        role: Optional[str] = None,
     ) -> GptsMessage:
         gpts_message: GptsMessage = GptsMessage(
             conv_id=sender.not_null_agent_context.conv_id,
@@ -625,8 +629,8 @@ class AgentMessage:
             avatar=sender.avatar,
             rounds=self.rounds,
             is_success=self.success,
-            app_code=sender.not_null_agent_context.gpts_app_code,
-            app_name=sender.not_null_agent_context.gpts_app_name,
+            app_code=sender.not_null_agent_context.agent_app_code or "",
+            app_name=sender.name,
             current_goal=self.current_goal,
             goal_id=self.goal_id,
             content=self.content if self.content else "",
@@ -648,7 +652,7 @@ class AgentMessage:
                 else None
             ),
             action_report=(
-                json.dumps(self.action_report.to_dict(), ensure_ascii=False)
+                json.dumps(self.action_report.to_dict(), default=serialize, ensure_ascii=False)
                 if self.action_report
                 else None
             ),
@@ -661,5 +665,7 @@ class AgentMessage:
             show_message=self.show_message,
             created_at=self.gmt_create,
             observation=self.observation,
+            metrics=json.dumps(self.metrics.to_dict(), default=serialize, ensure_ascii=False) if self.metrics else None,
+
         )
         return gpts_message

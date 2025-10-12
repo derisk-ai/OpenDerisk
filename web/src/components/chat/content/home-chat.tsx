@@ -3,12 +3,12 @@ import { apiInterceptors, getAppList, newDialogue } from '@/client/api';
 import ChatInput from '@/components/chat/input/chat-input';
 import { IApp } from '@/types/app';
 import { useRequest } from 'ahooks';
-// import { Card, Tooltip } from 'antd';
-import { t } from 'i18next';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export default function HomeChat() {
+  const { t } = useTranslation();
   const [appList, setAppList] = useState<IApp[]>([]);
   const router = useRouter();
 

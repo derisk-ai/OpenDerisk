@@ -41,8 +41,12 @@ class ExtChatCompletionContentPartInputVideoParam(TypedDict, total=False):
     """The type of the content part. Always `video_url`."""
 
 
+class ExtFileURL(TypedDict, total=False):
+    url: Required[str]
+    """URL of the file."""
+
 
 class ExtChatCompletionContentPartInputFileParam(TypedDict, total=False):
-    file_url: Required[FileURL]
+    file_url: Required[ExtFileURL]
     type: Required[Literal["file_url"]]
     """The type of the content part. Always `file_url`."""

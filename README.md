@@ -48,7 +48,11 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
 </p>
 
 #### Introduction
+
 - [OpenDerisk Documents](https://deepwiki.com/derisk-ai/OpenDerisk)
+
+- [OpenDerisk DeepWiki](https://deepwiki.com/derisk-ai/OpenDerisk)
+
 
 The system adopts a multi-agent architecture. Currently, the code mainly implements the green-highlighted parts. Alert awareness is based on Microsoft's open-source [OpenRCA dataset](https://github.com/microsoft/OpenRCA). The dataset size is approximately 26GB after decompression. On this dataset, we achieve root cause analysis and diagnosis through multi-agent collaboration, where the Code-Agent dynamically writes code for final analysis.
 
@@ -174,5 +178,5 @@ The OpenDeRisk-AI community is dedicated to building AI-native risk intelligence
 Join our networking group on Dingding and share your experience with other developers!
 
 <div align="center" style="display: flex; gap: 20px;">
-    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="200" />
+    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
 </div>

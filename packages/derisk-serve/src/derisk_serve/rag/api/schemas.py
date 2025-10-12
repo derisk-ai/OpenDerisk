@@ -1,17 +1,19 @@
 import dataclasses
+from enum import Enum
 from typing import List, Optional, Union, Any
 
 from fastapi import File, UploadFile
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
+from derisk.rag.knowledge.base import DirectoryModeType
 from derisk.rag.retriever import RetrieverStrategy
 from derisk.rag.transformer.tag_extractor import MetadataTag
 from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util.i18n_utils import _
 from derisk_ext.rag.chunk_manager import ChunkParameters
+from derisk_ext.rag.transformer.image_extractor import IMAGE_EXTRACT_SYSTEM_PROMPT
 
 from ..config import SERVE_APP_NAME_HUMP
-
 
 class KnowledgeSettingContext(BaseModel):
     """Knowledge Setting Context"""
@@ -21,6 +23,12 @@ class KnowledgeSettingContext(BaseModel):
     retrieve_mode: Optional[str] = Field(None, description="The retrieve_mode")
     llm_model: Optional[str] = Field(None, description="llm_model")
 
+
+class CreateYuqueRequest(BaseModel):
+    enable_create_yuque: Optional[bool] = Field(False, description="The enable_create_yuque")
+    yuque_book_slug: Optional[str] = Field(None, description="The yuque_book_slug")
+    yuque_group_login: Optional[str] = Field(None, description="The dest_group_token")
+    yuque_token: Optional[str] = Field(None, description="The yuque_token")
 
 class SpaceServeRequest(BaseModel):
     """name: knowledge space name"""
@@ -57,6 +65,8 @@ class SpaceServeRequest(BaseModel):
     """refresh: refresh"""
     refresh: Optional[str] = Field(None, description="The refresh")
 
+    """create_yuque: create yuque"""
+    create_yuque: Optional[CreateYuqueRequest] = Field(None, description="The create_yuque")
 
 class SpaceServeResponse(BaseModel):
     """name: knowledge space name"""
@@ -134,6 +144,8 @@ class DocumentServeResponse(BaseModel):
     """questions: questions"""
     questions: Optional[str] = Field(None, description="questions")
     meta_data: Optional[dict] = Field(None, description="meta_data")
+    doc_token: Optional[str] = Field(None, description="doc token")
+
 
 
 class ChunkServeRequest(BaseModel):
@@ -173,6 +185,7 @@ class ChunkServeResponse(BaseModel):
     chunk_type: Optional[str] = Field("text", description="chunk type")
     image_url: Optional[str] = Field(None, description="image_url")
     knowledge_id: Optional[str] = Field(None, description="knowledge id")
+    yuque_url: Optional[str] = Field(None, description="yuque url")
     gmt_created: Optional[str] = Field(None, description="chunk create time")
     gmt_modified: Optional[str] = Field(None, description="chunk modify time")
 
@@ -248,6 +261,16 @@ class ChunkEditRequest(BaseModel):
     """first_level_header: first_level_header"""
     first_level_header: Optional[str] = None
 
+class KnowledgeSearchDirectoryRequest(BaseModel):
+    """knowledge directory request"""
+
+    knowledge_ids: Optional[List[str]] = None
+    query: Optional[str] = None
+    retrieve_directory: Optional[bool] = False
+    """directory mode: document or book"""
+    directory_mode: Optional[str] = DirectoryModeType.DOCUMENT.value
+    doc_uuids: Optional[List[str]] = None
+
 
 class KnowledgeSearchRequest(BaseModel):
     """Knowledge Search Request"""
@@ -261,7 +284,7 @@ class KnowledgeSearchRequest(BaseModel):
     enable_rerank: Optional[bool] = True
     enable_summary: Optional[bool] = True
     enable_tag_filter: Optional[bool] = True
-    summary_model: Optional[str] = "DeepSeek-V3"
+    summary_model: Optional[str] = "deepseek-v3"
     rerank_model: Optional[str] = "bge-reranker-v2-m3"
     summary_prompt: Optional[
         str
@@ -285,6 +308,7 @@ class KnowledgeSearchRequest(BaseModel):
     search_with_historical: Optional[bool] = False
     tag_filters: Optional[List[MetadataTag]] = None
     summary_with_historical: Optional[bool] = False
+    doc_uuids: Optional[List[str]] = None
 
 
 class SpaceServeResponse(BaseModel):
@@ -320,6 +344,8 @@ class SpaceServeResponse(BaseModel):
     tags: Optional[str] = Field(None, description="The tags")
     "refresh: refresh"
     refresh: Optional[str] = Field(None, description="The refresh")
+    gmt_create: Optional[str] = Field(None, description="The gmt create")
+    gmt_modified: Optional[str] = Field(None, description="The gmt modified")
 
 
 class DocumentChunkVO(BaseModel):
@@ -414,6 +440,8 @@ class KnowledgeDocumentRequest(BaseModel):
     extract_image: bool = False
     tags: Optional[List[dict]] = None
 
+    file_params: Optional[str] = None
+
 
 class YuqueRequest(BaseModel):
     """yuque request"""
@@ -442,6 +470,9 @@ class YuqueRequest(BaseModel):
     owner: Optional[str] = None
     """owner: owner"""
     extract_image: Optional[bool] = False
+    """tags: tags (meta_data)"""
+    tags: Optional[List[dict]] = None
+
 
 
 class YuqueDocDetail(BaseModel):
@@ -499,7 +530,10 @@ class YuqueGroupBook(BaseModel):
 class TextBook(BaseModel):
     doc_name: Optional[str] = None
     doc_id: Optional[str] = None
+    children: Optional[List] = None
+    content: Optional[str] = None
     status: Optional[str] = None
+    tags: Optional[str] = None
 
 class YuqueDirDetail(BaseModel):
     qas: Optional[List] = None
@@ -528,6 +562,12 @@ class KnowledgeSearchResponse(BaseModel):
     sub_queries: Optional[dict] = None
     references: Optional[dict] = None
     raw_query: Optional[str] = None
+    directory: Optional[dict] = None
+    book_directory: Optional[str] = None
+    document_contents: Optional[List[str]] = None
+    doc_uuids: Optional[List[str]] = None
+    doc_titles: Optional[List[str]] = None
+    group_login_name: Optional[str] = None
 
 
 class ParamDetail(BaseModel):
@@ -574,11 +614,19 @@ class SettingsRequest(BaseModel):
 class CreateDocRequest(BaseModel):
     slug: Optional[str] = None
     title: Optional[str] = None
+    """公开性: (0:私密, 1:公开, 2:企业内公开)"""
     public: Optional[int] = 0
     format: Optional[str] = "lake"
     """使用body_lake语雀内容"""
     body: Optional[str] = None
     token: Optional[str] = None
+
+    group_login: Optional[str] = None
+    book_slug: Optional[str] = None
+    file_path: Optional[str] = None
+    tags: Optional[List[dict]] = None
+    target_uuid: Optional[str] = None
+    content: Optional[str] = None
 
 class UpdateTocRequest(BaseModel):
     token: Optional[str] = None
@@ -658,24 +706,129 @@ class GraphDetail(BaseModel):
     edges: Optional[List[EdgeDetail]] = None
 
 
+class RefreshInfo(BaseModel):
+    group_login: Optional[str] = None
+    book_slug: Optional[str] = None
+    delete_doc_len: Optional[int] = None
+    add_doc_len: Optional[int] = None
+    update_doc_len: Optional[int] = None
+    delete_doc_ids: Optional[List[str]] = []
+    add_doc_slugs: Optional[List[str]] = []
+    update_doc_ids: Optional[List[str]] = []
+
+
+class RefreshContext(BaseModel):
+    refresh_mode: Optional[str] = None
+    refresh_mode_desc: Optional[str] = None
+    refresh_scope: Optional[str] = None
+    refresh_infos: Optional[List[RefreshInfo]] = []
+
+    def to_dict(self):
+        return self.dict()
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        refresh_info_data = data.get("refresh_infos")
+        if refresh_info_data is not None:
+            data["refresh_infos"] = [RefreshInfo(**item) for item in refresh_info_data]
+        return cls(**data)
+
+class RefreshScopeType(Enum):
+    SPACE = "知识空间同步"
+    GROUP = "语雀团队同步"
+    BOOK = "语雀知识库同步"
+
+
+class RefreshModeType(Enum):
+    REFRESH_EXISTING_ONLY = "仅同步已导入的文档"
+    REFRESH_FULL_MIRROR = "完全镜像同步"
+
+
+class RefreshTimeType(Enum):
+    T_PLUS_1 = "T+1同步"
+    HOURLY_12 = "每12小时同步"
+    HOURLY_6 = "每6小时同步"
+    HOURLY_1 = "每1小时同步"
+    MINUTELY_30 = "每30分钟同步"
+    MINUTELY_10 = "每10分钟同步"
+
+
 
 @dataclasses.dataclass
 class KnowledgeSetting:
-    refresh: bool = dataclasses.field(
-        default=False, metadata={"help": _("定时同步"),
-                                "label": _("定时同步")}
+    enable_refresh: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否同步"),
+                                "label": _("是否同步")}
+    )
+    enable_scheduled_refresh: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否定时同步"),
+                                  "label": _("是否定时同步")}
+    )
+    scheduled_refresh_time: str = dataclasses.field(
+        default=RefreshTimeType.T_PLUS_1.value, metadata={"help": _("定时同步时间"),
+                                  "label": _("定时同步时间"),
+                                  "options": [
+                                      {"name": m.name, "value": m.value}
+                                      for m in RefreshTimeType
+                                  ]}
+    )
+    refresh_mode: str = dataclasses.field(
+        default=RefreshModeType.REFRESH_EXISTING_ONLY.name, metadata={"help": _("同步模式"),
+                                  "label": _("同步模式"),
+                                  "options": [
+                                      {"name": m.name, "value": m.value}
+                                      for m in RefreshModeType
+                                  ]}
+    )
+    refresh_scope: str = dataclasses.field(
+        default=RefreshScopeType.SPACE.name, metadata={"help": _("同步范围"),
+                                  "label": _("同步范围"),
+                                  "options": [
+                                      {"name": m.name, "value": m.value}
+                                      for m in RefreshScopeType
+                                  ]}
+    )
+    refresh_group_login: str = dataclasses.field(
+        default="", metadata={"help": _("同步语雀团队范围"),
+                                  "label": _("同步语雀团队范围")}
+    )
+    refresh_book_slug: str = dataclasses.field(
+        default="", metadata={"help": _("同步语雀知识库范围"),
+                                  "label": _("同步语雀知识库范围")}
+    )
+    enable_immediately_refresh: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否立即同步"),
+                                  "label": _("是否立即同步")}
     )
     vlm_model: str = dataclasses.field(
-        default="Qwen2.5-VL-72B-Instruct", metadata={"help": _("图片理解模型"),
+        default="aistudio/Qwen2.5-VL-72B-Instruct", metadata={"help": _("图片理解模型"),
                                   "label": _("图片理解模型"),
-                                  "options": ["Qwen2.5-VL-72B-Instruct"]}
+                                  "options": ["aistudio/Qwen2.5-VL-72B-Instruct"]}
+    )
+    vlm_prompt: str = dataclasses.field(
+        default=IMAGE_EXTRACT_SYSTEM_PROMPT, metadata={"help": _("图片理解提示词"),
+                                  "label": _("图片理解提示词")}
     )
     embedding_model: str = dataclasses.field(
         default="bge-m3", metadata={"help": _("向量索引模型"),
                                     "label": _("向量索引模型"),
                                     "options": ["bge-m3"]}
     )
+    last_modify_user: str = dataclasses.field(
+        default="", metadata={"help": _("最后修改人"),
+                                  "label": _("最后修改人")}
+    )
+    yuque: List[dict] = dataclasses.field(
+        default="", metadata={"help": _("语雀"),
+                                  "label": _("语雀")}
+    )
 
+class KnowledgeWriteRequest(BaseModel):
+    """doc_name: doc path"""
+
+    file_path: Optional[str] = None
+    content: Optional[str] = None
+    tag: Optional[List[dict]] = None
 
 
 
