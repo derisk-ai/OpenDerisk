@@ -106,10 +106,10 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
 
 ### 使用方法
 * AI-SRE(OpenRCA)
-  - 注意：OpenRCAデータセット[Telecomデータセット](https://drive.usercontent.google.com/download?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e)を使用しています
+  - 注意：OpenRCAデータセット[Bankデータセット](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e)を使用しています
   - 次のリンクでデータセットをダウンロードできます：
     ```
-      gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+      gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R
     ```
   - データセットを`${derisk}/pilot/datasets`パスに配置します。
 * フレームグラフアシスタント

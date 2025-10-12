@@ -85,7 +85,7 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     ```
   - 启动服务
     ```
-    uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
+    <!-- uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml -->
     ```
   - 服务访问
     > 打开浏览器访问 [`http://localhost:7777`](http://localhost:7777)
@@ -93,10 +93,10 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     
 ##### 2.内置场景快速使用
 * AI-SRE(OpenRca根因定位)
-  -  !注意, 我们默认使用OpenRCA数据集中的[Telecom数据集](https://drive.usercontent.google.com/download?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
+  -  !注意, 我们默认使用OpenRCA数据集中的[Bank数据集](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
   -  你可以通过链接, 或者下述命令进行下载：
     ```
-      gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+      gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R
     ```
   - 下载完成后, 将数据解压到 ${derisk项目}/pilot/datasets。
 * 火焰图助手
