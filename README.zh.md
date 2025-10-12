@@ -76,17 +76,16 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     --extra "storage_oss2" \
     --extra "client"  \
     --extra "ext_base"  
-    --index-url=https://pypi.tuna.tsinghua.edu.cn/simple
     ```
   - 配置启动参数
     ```
-    > 配置`derisk-proxy-deepseek.toml`文件中相关的API_KEY, 然后运行下面的命令启动。
+    > 配置`derisk-proxy-aliyun.toml`文件中相关的API_KEY, 然后运行下面的命令启动。
     > 也可参考 `derisk-proxy-aliyun.toml` 文件中的配置使用全阿里云模型和oss方案
     > ** 注意 ** 最好在全新的环境下启动0.2版本，不然可能被0.1旧数据影响导致启动失败.
     ```
   - 启动服务
     ```
-    uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-deepseek.toml
+    uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
     ```
   - 服务访问
     > 打开浏览器访问 [`http://localhost:7777`](http://localhost:7777)
