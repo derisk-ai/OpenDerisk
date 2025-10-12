@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 knowledge_yuque_dao = KnowledgeYuqueDao()
 knowledge_document_dao = KnowledgeDocumentDao()
 
-ant_yuque_api_url = "https://yuque.com"
+ant_yuque_api_url = "https://yuque-api.antfin-inc.com"
 
 API_GROUP_BOOK_DOCS_PATH = "/api/v2/repos/{group_login}/{book_slug}/docs"
 
@@ -39,7 +39,7 @@ class AntYuqueLoader:
         """Initialize with Yuque access_token and api_url.
 
         Args:
-            access_token: group access token - see https://yuque.com/lark/openapi/api
+            access_token: group access token - see https://yuque.antfin-inc.com/lark/openapi/api
             api_url: Yuque API url.
         """
         self.access_token = access_token
@@ -160,9 +160,19 @@ class AntYuqueLoader:
             yuque_doc.book_slug = knowledge_yuque.book_slug
             yuque_doc.doc_slug = knowledge_yuque.doc_slug
             yuque_doc.doc_uuid = knowledge_yuque.doc_uuid
+            yuque_doc.yuque_doc_id = knowledge_yuque.yuque_doc_id
             yuque_doc.word_cnt = knowledge_yuque.word_cnt
             yuque_doc.latest_version_id = knowledge_yuque.latest_version_id
             yuque_doc.gmt_modified = knowledge_yuque.gmt_modified
+            yuque_doc.description = knowledge_yuque.description
+            yuque_doc.created_at = knowledge_yuque.created_at
+            yuque_doc.updated_at = knowledge_yuque.updated_at
+            yuque_doc.cover = knowledge_yuque.cover
+            yuque_doc.creator_login_name = knowledge_yuque.creator_login_name
+            yuque_doc.avatar_url = knowledge_yuque.avatar_url
+            yuque_doc.likes_count = knowledge_yuque.likes_count
+            yuque_doc.read_count = knowledge_yuque.read_count
+            yuque_doc.comments_count = knowledge_yuque.comments_count
 
             return knowledge_yuque_dao.update_knowledge_yuque(yuque_doc=yuque_doc)
 
@@ -301,11 +311,21 @@ class AntYuqueLoader:
                 book_slug_name=book_slug_name,
                 doc_slug=doc_slug,
                 doc_uuid=doc_uuid,
+                yuque_doc_id=document["id"],
                 word_cnt=int(document["word_count"]),
                 latest_version_id=document["latest_version_id"]
                 if "latest_version_id" in document.keys()
                 else "not found latest_version_id key in yuque api",
                 gmt_modified=datetime.now(),
+                description=document["description"],
+                created_at=document["created_at"],
+                updated_at=document["updated_at"],
+                cover=document["cover"],
+                creator_login_name=document['creator'].get('login'),
+                avatar_url=document['creator'].get('avatar_url'),
+                likes_count=document['likes_count'],
+                read_count=document['read_count'],
+                comments_count=document['comments_count'],
             ),
         )
 
@@ -476,6 +496,35 @@ class AntYuqueLoader:
 
         return doc_toc
 
+
+    def build_toc_tree(self, tocs: [], is_simple: bool = True):
+        logger.info(f"build_toc_tree: tocs len is {len(tocs)}")
+
+        roots = []
+        if len(tocs) == 0:
+            return roots
+
+        # 构建节点字典
+        if is_simple:
+            node_dict = {node.get("uuid"): {"uuid": node.get("uuid"), "type": node.get("type"),
+                                            "title": node.get("title"), "slug": node.get("slug"),
+                                            "parent_uuid": node.get("parent_uuid"), "children": []} for node in tocs}
+        else:
+            node_dict = {node.get("uuid"): {**node, "children": []} for node in tocs}
+
+        for node in node_dict.values():
+            parent_uuid = node.get("parent_uuid")
+
+            # 如果父节点存在，那么就挂靠到父节点下; 如果父节点不存在，直接添加到目录树roots
+            if parent_uuid and parent_uuid in node_dict.keys():
+                parent_node = node_dict.get(parent_uuid)
+                parent_node.get("children").append(node)
+            else:
+                roots.append(node)
+        logger.info(f"build_toc_tree: roots len is {len(roots)}")
+
+        return roots
+
     def update_toc_by_group_login_and_book_slug(self, group_login: str, book_slug: str, update_toc_request: UpdateTocRequest):
         logger.info(f"update_toc_by_group_login_and_book_slug: group login is {group_login}, book slug is {book_slug}, update_toc_request is {update_toc_request}")
 
@@ -531,7 +580,20 @@ class AntYuqueLoader:
 
                 return hierarchy
 
-            return insert_headers(headers)
+            def clean_html_tags(data):
+                if not isinstance(data, dict):
+                    return data
+                cleaned = {}
+                for key, value in data.items():
+                    # 去除当前键中的HTML标签
+                    new_key = re.sub(r'<.*?>', '', key)
+                    # 递归处理子字典
+                    cleaned[new_key] = clean_html_tags(value)
+                return cleaned
+
+            outlines = insert_headers(headers)
+
+            return clean_html_tags(outlines)
         except Exception as e:
             logger.error(f"get_outlines_from_body error: {str(e)}")
 

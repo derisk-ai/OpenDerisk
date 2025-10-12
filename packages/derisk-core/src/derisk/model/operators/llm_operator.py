@@ -50,6 +50,12 @@ class MixinLLMOperator(BaseLLM, BaseOperator, ABC):
                     self._llm_client = DefaultLLMClient(worker_manager_factory.create())
             except Exception as e:
                 logger.warning(f"Load worker manager failed: {e}.")
+            if not self._llm_client:
+                from derisk.model.proxy.llms.chatgpt import OpenAILLMClient
+
+                logger.info("Can't find worker manager factory, use OpenAILLMClient.")
+                self._llm_client = OpenAILLMClient()
+
         return self._llm_client
 
 

@@ -154,6 +154,7 @@ class VisSelectContent(VisBase):
 
 class VisConfirm(VisBase):
     markdown: str = Field(..., description="content of the message for user to confirm")
+    disabled: bool = Field(..., description="Whether to disable the button, e.g., already confirmed, etc.")
     extra: Optional[dict] = Field(
         None,
         description="When the user confirm this message, this extended information will be passed to the system.",

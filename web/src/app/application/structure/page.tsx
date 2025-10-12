@@ -13,9 +13,11 @@ import ChatContent from './components/chat-content';
 import Header from './components/header';
 import { getAppVersion } from '@/client/api';
 import { App } from 'antd'
+import { useTranslation } from 'react-i18next';
 
 export default function Structure() {
   const { message, notification } = App.useApp()
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [appInfo, setAppInfo] = useState<any>({});
   const [versionData, setVersionData] = useState<any>(null);
@@ -59,13 +61,13 @@ export default function Structure() {
     onSuccess: data => {
       const [, res] = data; 
       if (!res) {
-        message.error('应用更新失败，请稍后重试');
+        message.error(t('application_update_failed'));
         return;
       }
       setAppInfo(res || ({} as IApp));
     },
     onError: err => {
-      message.error('应用更新失败，请稍后重试');
+      message.error(t('application_update_failed'));
       console.log('update app error', err);
     }
   },);

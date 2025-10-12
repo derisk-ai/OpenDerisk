@@ -122,7 +122,7 @@ class CodeAssistantAgent(ConversableAgent):
         self._init_actions([CodeAction])
 
     async def correctness_check(
-        self, message: AgentMessage
+        self, message: AgentMessage, **kwargs
     ) -> Tuple[bool, Optional[str]]:
         """Verify whether the current execution results meet the target expectations."""
         task_goal = message.current_goal

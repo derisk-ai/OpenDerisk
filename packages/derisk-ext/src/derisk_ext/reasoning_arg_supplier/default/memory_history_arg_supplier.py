@@ -19,8 +19,8 @@ _NAME = MEMORY_HISTORY_ARG_SUPPLIER_NAME
 _DESCRIPTION = "记忆参数引擎: memory"
 
 MODEL_CONTEXT_LENGTH = {
-    "DeepSeek-V3": 64000,
-    "DeepSeek-R1": 64000,
+    "deepseek-v3": 64000,
+    "deepSeek-r1": 64000,
     "QwQ-32B": 64000,
 }
 
@@ -137,7 +137,8 @@ class MemoryHistoryArgSupplier(DefaultHistoryArgSupplier):
                 enable_global_session=memory_params.enable_global_session,
                 # retrieve_strategy=memory_params.retrieve_strategy,
                 retrieve_strategy="exact",
-                discard_strategy=memory_params.discard_strategy,
+                # discard_strategy=memory_params.discard_strategy,
+                discard_strategy="fifo",
                 condense_prompt=memory_params.message_condense_prompt,
                 condense_model=memory_params.message_condense_model,
                 score_threshold=memory_params.score_threshold,
@@ -163,8 +164,8 @@ class MemoryHistoryArgSupplier(DefaultHistoryArgSupplier):
 
 
         recent_messages = [
-            f"\nRound:{m.rounds}\n"
-            f"Role:{m.role}\n"
+            f"\nRound:{m.rounds if m.rounds else m.metadata.get('rounds')}\n"
+            f"Role:{m.role if m.role else m.metadata.get('role')}\n"
             f"{m.raw_observation}" for m in memory_fragments
         ]
         logger.info("coversation %s Session Memory "

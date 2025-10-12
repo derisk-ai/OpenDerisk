@@ -3,38 +3,65 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
-from datetime import datetime
+import time
 from collections import defaultdict
 from concurrent.futures import Executor, ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, final, Union
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, TypeVar, Generic
 
-from derisk._private.pydantic import ConfigDict, Field
+from derisk._private.pydantic import ConfigDict, Field, PrivateAttr, BaseModel
 from derisk.core import LLMClient, ModelMessageRoleType, PromptTemplate, HumanMessage
 from derisk.util.error_types import LLMChatError
 from derisk.util.executor_utils import blocking_func_to_async
-from derisk.util.tracer import SpanType, root_tracer
 from derisk.util.logger import colored
+from derisk.util.tracer import SpanType, root_tracer
 from .action.base import Action, ActionOutput
 from .agent import Agent, AgentContext, AgentMessage, AgentReviewInfo
 from .memory.agent_memory import AgentMemory
-from .memory.gpts.base import GptsMessage
+from .memory.gpts.base import GptsMessage, GptsMessageType
 from .memory.gpts.gpts_memory import GptsMemory
 from .profile.base import ProfileConfig
 from .reasoning.reasoning_arg_supplier import ReasoningArgSupplier
 from .role import AgentRunMode, Role
-from .schema import Status, DynamicParam, DynamicParamView, DynamicParamRenderType, DynamicParamType, Variable, \
-    AgentSpaceMode
+from .schema import Status, DynamicParam, DynamicParamView, DynamicParamRenderType, DynamicParamType, AgentSpaceMode, MessageMetrics, ActionInferenceMetrics
 from .variable import VariableManager
 from ..resource.base import Resource
 from ..util.llm.llm import LLMConfig, get_llm_strategy_cls
-from ..util.llm.llm_client import AIWrapper
+from ..util.llm.llm_client import AIWrapper, AgentLLMOut
+from ...context.event import ChatStartEvent, ChatPayload, StepStartEvent, StepPayload, AfterStepActionEvent, \
+    ActionPayload, AfterActionEvent, ChatEndEvent, StepEndEvent
+from ...context.manager import Manager, push_context_event
 from ...util import memory_utils
 from ...util.json_utils import serialize
 from ...util.template_utils import render
 
 logger = logging.getLogger(__name__)
+
+T: TypeVar = TypeVar("T")
+
+
+class ContextHelper(BaseModel, Generic[T]):
+    _context: contextvars.ContextVar[T] = PrivateAttr(default_factory=lambda: contextvars.ContextVar("context", default=None))
+
+    def __init__(self, context_cls: Type[T], /, **data: Any):
+        super().__init__(**data)
+        self._context_cls = context_cls
+
+    @property
+    def context(self) -> T:
+        _ctx: T = self._context.get()
+        if _ctx is None:
+            _ctx = self._context_cls()
+            self._context.set(_ctx)
+        return _ctx
+
+
+class RuntimeContext:
+    current_retry_counter: int = 0
+    recovering: bool = False
 
 
 class ConversableAgent(Role, Agent):
@@ -49,8 +76,9 @@ class ConversableAgent(Role, Agent):
     bind_prompt: Optional[PromptTemplate] = None
     run_mode: Optional[AgentRunMode] = Field(default=None, description="Run mode")
     max_retry_count: int = 3
-    current_retry_counter: int = 0
-    recovering: bool = False
+    # current_retry_counter: int = 0 # deprecated: 支持并发 改为从runtime_context取
+    # recovering: bool = False # deprecated: 支持并发 改为从runtime_context取
+    _runtime_context: ContextHelper[RuntimeContext] = PrivateAttr(default_factory=lambda: ContextHelper(RuntimeContext))
     llm_client: Optional[AIWrapper] = None
 
     # Agent可用自定义变量
@@ -84,6 +112,22 @@ class ConversableAgent(Role, Agent):
         Agent.__init__(self)
         self.register_variables()
 
+    @property
+    def current_retry_counter(self) -> int:
+        return self._runtime_context.context.current_retry_counter
+
+    @current_retry_counter.setter
+    def current_retry_counter(self, value: int):
+        self._runtime_context.context.current_retry_counter = value
+
+    @property
+    def recovering(self) -> bool:
+        return self._runtime_context.context.recovering
+
+    @recovering.setter
+    def recovering(self, value: bool):
+        self._runtime_context.context.recovering = value
+
     def check_available(self) -> None:
         """Check if the agent is available.
 
@@ -101,8 +145,8 @@ class ConversableAgent(Role, Agent):
         if self.actions and len(self.actions) > 0:
             for action in self.actions:
                 if action.resource_need and (
-                        not self.resource
-                        or not self.resource.get_resource_by_type(action.resource_need)
+                    not self.resource
+                    or not self.resource.get_resource_by_type(action.resource_need)
                 ):
                     raise ValueError(
                         f"{self.name}[{self.role}] Missing resources"
@@ -152,7 +196,7 @@ class ConversableAgent(Role, Agent):
         return llm_client
 
     async def blocking_func_to_async(
-            self, func: Callable[..., Any], *args, **kwargs
+        self, func: Callable[..., Any], *args, **kwargs
     ) -> Any:
         """Run a potentially blocking function within an executor."""
         if not asyncio.iscoroutinefunction(func):
@@ -208,6 +252,19 @@ class ConversableAgent(Role, Agent):
                 language=self.language,
                 render_protocol=self.memory.gpts_memory.vis_converter(self.not_null_agent_context.conv_id),
             )
+
+        resource_info = '无'
+        if self.resource:
+            if self.resource.is_pack:
+                resource_info = ';'.join(
+                    [str(item.prefer_resource_parameters_class()) for item in self.resource.sub_resources])
+            else:
+                resource_info = self.resource.name + ":" + str(self.resource.prefer_resource_parameters_class())
+        logger.info(f"Agent[{self.name}:{self.agent_context.gpts_app_code}]最终构建:"
+                    f"\n资源:{resource_info}"
+                    f"\n模型:{self.llm_config.strategy_context if self.llm_config else '无'}"
+                    f"\n参数:{';'.join([str(item.to_dict()) for item in self.dynamic_variables]) if self.dynamic_variables else '无'}"
+                    f"\n记忆:{self.memory.name if self.memory else '无'}")
         return self
 
     def update_profile(self, profile: ProfileConfig):
@@ -236,18 +293,18 @@ class ConversableAgent(Role, Agent):
         elif isinstance(target, DynamicParam):
             self.dynamic_variables.append(target)
         elif isinstance(target, list) and all(
-                [isinstance(item, type) and issubclass(item, DynamicParam) for item in target]
+            [isinstance(item, type) and issubclass(item, DynamicParam) for item in target]
         ):
             self.dynamic_variables.extend(target)
         elif isinstance(target, Action):
             self.actions.append(target)
         elif isinstance(target, list) and all(
-                [isinstance(item, type) and issubclass(item, Action) for item in target]
+            [isinstance(item, type) and issubclass(item, Action) for item in target]
         ):
             for action in target:
                 self.actions.append(action())
         elif isinstance(target, list) and all(
-                [isinstance(item, Action) for item in target]
+            [isinstance(item, Action) for item in target]
         ):
             self.actions.extend(target)
         elif isinstance(target, PromptTemplate):
@@ -255,17 +312,17 @@ class ConversableAgent(Role, Agent):
         return self
 
     async def send(
-            self,
-            message: AgentMessage,
-            recipient: Agent,
-            reviewer: Optional[Agent] = None,
-            request_reply: Optional[bool] = True,
-            is_recovery: Optional[bool] = False,
-            silent: Optional[bool] = False,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
+        self,
+        message: AgentMessage,
+        recipient: Agent,
+        reviewer: Optional[Agent] = None,
+        request_reply: Optional[bool] = True,
+        is_recovery: Optional[bool] = False,
+        silent: Optional[bool] = False,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
     ) -> None:
         """Send a message to recipient agent."""
         with root_tracer.start_span(
@@ -294,17 +351,17 @@ class ConversableAgent(Role, Agent):
             )
 
     async def receive(
-            self,
-            message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            request_reply: Optional[bool] = None,
-            silent: Optional[bool] = False,
-            is_recovery: Optional[bool] = False,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
+        self,
+        message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        request_reply: Optional[bool] = None,
+        silent: Optional[bool] = False,
+        is_recovery: Optional[bool] = False,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
     ) -> None:
         """Receive a message from another agent."""
         with root_tracer.start_span(
@@ -321,42 +378,43 @@ class ConversableAgent(Role, Agent):
                 "is_human": self.is_human,
             },
         ):
-            if silent:
-                message.show_message = False
-            await self._a_process_received_message(message, sender)
-            if request_reply is False or request_reply is None:
-                return
+            with Manager.new_window():
+                if silent:
+                    message.show_message = False
+                await self._a_process_received_message(message, sender)
+                if request_reply is False or request_reply is None:
+                    return
 
-            if not self.is_human:
-                if isinstance(sender, ConversableAgent) and sender.is_human:
-                    reply = await self.generate_reply(
-                        received_message=message,
-                        sender=sender,
-                        reviewer=reviewer,
-                        is_retry_chat=is_retry_chat,
-                        last_speaker_name=last_speaker_name,
-                        historical_dialogues=historical_dialogues,
-                        rely_messages=rely_messages,
-                    )
-                else:
-                    reply = await self.generate_reply(
-                        received_message=message,
-                        sender=sender,
-                        reviewer=reviewer,
-                        is_retry_chat=is_retry_chat,
-                        historical_dialogues=historical_dialogues,
-                        rely_messages=rely_messages,
-                    )
+                if not self.is_human:
+                    if isinstance(sender, ConversableAgent) and sender.is_human:
+                        reply = await self.generate_reply(
+                            received_message=message,
+                            sender=sender,
+                            reviewer=reviewer,
+                            is_retry_chat=is_retry_chat,
+                            last_speaker_name=last_speaker_name,
+                            historical_dialogues=historical_dialogues,
+                            rely_messages=rely_messages,
+                        )
+                    else:
+                        reply = await self.generate_reply(
+                            received_message=message,
+                            sender=sender,
+                            reviewer=reviewer,
+                            is_retry_chat=is_retry_chat,
+                            historical_dialogues=historical_dialogues,
+                            rely_messages=rely_messages,
+                        )
 
-                if reply is not None:
-                    await self.send(reply, sender)
+                    if reply is not None:
+                        await self.send(reply, sender)
 
     def prepare_act_param(
-            self,
-            received_message: Optional[AgentMessage],
-            sender: Agent,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            **kwargs,
+        self,
+        received_message: Optional[AgentMessage],
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """Prepare the parameters for the act method."""
         return {}
@@ -368,19 +426,29 @@ class ConversableAgent(Role, Agent):
             return Status.WAITING
 
     async def generate_reply(
-            self,
-            received_message: AgentMessage,
-            sender: Agent,
-            reviewer: Optional[Agent] = None,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            is_retry_chat: bool = False,
-            last_speaker_name: Optional[str] = None,
-            **kwargs,
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        reviewer: Optional[Agent] = None,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        is_retry_chat: bool = False,
+        last_speaker_name: Optional[str] = None,
+        **kwargs,
     ) -> AgentMessage:
         """Generate a reply based on the received messages."""
         logger.info(
             f"generate agent reply!sender={sender}, rely_messages_len={rely_messages}"
+        )
+        message_metrics = MessageMetrics()
+        message_metrics.start_time_ms = time.time_ns() // 1_000_000
+
+        await push_context_event(
+            event=ChatStartEvent(payload=ChatPayload(
+                received_message_id=received_message.message_id,
+                received_message_content=received_message.content,
+            )),
+            agent=self,
         )
         root_span = root_tracer.start_span(
             "agent.generate_reply",
@@ -388,7 +456,7 @@ class ConversableAgent(Role, Agent):
                 "sender": sender.name,
                 "recipient": self.name,
                 "reviewer": reviewer.name if reviewer else None,
-                "received_message": json.dumps(received_message.to_dict(),default=serialize,),
+                "received_message": json.dumps(received_message.to_dict(), default=serialize, ),
                 "conv_uid": self.not_null_agent_context.conv_id,
                 "rely_messages": (
                     [msg.to_dict() for msg in rely_messages] if rely_messages else None
@@ -406,6 +474,12 @@ class ConversableAgent(Role, Agent):
             done = False
             observation = received_message.content or ""
             while not done and self.current_retry_counter < self.max_retry_count:
+                await push_context_event(
+                    event=StepStartEvent(payload=StepPayload(
+                        step_counter=self.current_retry_counter)),
+                    agent=self,
+                )
+
                 if self.current_retry_counter > 0 and self.run_mode != AgentRunMode.LOOP:
                     retry_message = AgentMessage.init_new(
                         content=fail_reason or observation,
@@ -431,9 +505,10 @@ class ConversableAgent(Role, Agent):
                     rely_messages=rely_messages,
                     historical_dialogues=historical_dialogues,
                     is_retry_chat=is_retry_chat,
+                    message_metrics=message_metrics,
                     **kwargs
                 )
-
+                logger.info(f'after generate_think_message, reply_message:{reply_message}')
                 act_extent_param = self.prepare_act_param(
                     received_message=received_message,
                     sender=sender,
@@ -452,6 +527,8 @@ class ConversableAgent(Role, Agent):
                     },
                 ) as span:
                     # 3.Act based on the results of your thinking
+
+                    act_metrics = ActionInferenceMetrics(start_time_ms=time.time_ns() // 1_000_000)
                     act_out: ActionOutput = await self.act(
                         message=reply_message,
                         sender=sender,
@@ -465,6 +542,8 @@ class ConversableAgent(Role, Agent):
                         span.metadata["action_report"] = (
                             act_out.to_dict() if act_out else None
                         )
+                    await push_context_event(event=AfterStepActionEvent(
+                        payload=ActionPayload(action_output=act_out)), agent=self)
 
                 with root_tracer.start_span(
                     "agent.generate_reply.verify",
@@ -476,11 +555,16 @@ class ConversableAgent(Role, Agent):
                 ) as span:
                     # 4.Reply information verification
                     check_pass, reason = await self.verify(
-                        reply_message, sender, reviewer
+                        reply_message, sender, reviewer, received_message=received_message
                     )
                     is_success = check_pass
                     span.metadata["check_pass"] = check_pass
                     span.metadata["reason"] = reason
+
+                await push_context_event(event=StepEndEvent(payload=StepPayload(
+                    step_counter=self.current_retry_counter,
+                    message_id=reply_message.message_id,
+                )), agent=self)
 
                 question: str = received_message.content or ""
                 ai_message: str = reply_message.content
@@ -525,14 +609,22 @@ class ConversableAgent(Role, Agent):
             reply_message.success = is_success
             # 6.final message adjustment
             await self.adjust_final_message(is_success, reply_message)
+            await push_context_event(event=ChatEndEvent(payload=ChatPayload(
+                received_message_id=received_message.message_id,
+                received_message_content=received_message.content,
+            )), agent=self)
 
             ## 处理消息状态
             self.received_message_state.pop(received_message.message_id)
+
+            reply_message.metrics.action_metrics = ActionInferenceMetrics.create_metrics(act_out.metrics or act_metrics)
+            reply_message.metrics.end_time_ms = time.time_ns() // 1_000_000
             return reply_message
 
         except Exception as e:
             logger.exception("Generate reply exception!")
-            err_message = AgentMessage(content=str(e), action_report=ActionOutput(is_exe_success=False, content=f"Generate reply exception:{str(e)}"))
+            err_message = AgentMessage(content=str(e), action_report=ActionOutput(is_exe_success=False,
+                                                                                  content=f"Generate reply exception:{str(e)}"))
             err_message.rounds = 9999
             err_message.success = False
             return err_message
@@ -541,17 +633,72 @@ class ConversableAgent(Role, Agent):
                 root_span.metadata["reply_message"] = reply_message.to_dict()
             root_span.end()
 
-    async def listen_thinking_stream(self, reply_message_id: str, res_thinking, res_content, sender: Optional[Agent] = None):
-        pass
+    async def listen_thinking_stream(self,
+                                     llm_out: AgentLLMOut,
+                                     reply_message_id: str,
+                                     start_time: datetime,
+                                     cu_thinking_incr: Optional[str] = None,
+                                     cu_content_incr: Optional[str] = None,
+                                     is_first_chunk: bool = False,
+                                     is_first_content: bool = False,
+                                     received_message: Optional[AgentMessage] = None,
+                                     sender: Optional[Agent] = None):
+        if not self.stream_out:
+            return
+        if len(llm_out.content) > 0 and not self.content_stream_out:
+            if is_first_content:
+                cu_content_incr = "动作执行中..."
+            else:
+                return
+        temp_message = {
+            "uid": reply_message_id,
+            "type": "incr",
+            "message_id": reply_message_id,
+            "conv_id": self.not_null_agent_context.conv_id,
+            "task_goal_id": received_message.goal_id if received_message else "",
+            "task_goal": received_message.content if received_message else "",
+            "conv_session_uid": self.agent_context.conv_session_id,
+            "app_code": self.agent_context.gpts_app_code,
+            "sender": self.name or self.role,
+            "sender_role": self.role,
+            "model": llm_out.llm_name,
+            "thinking": cu_thinking_incr,
+            "content": cu_content_incr,
+            "avatar": self.avatar,
+            "observation": received_message.observation if received_message else "",
+            "start_time": start_time,
+            "metrics": MessageMetrics(llm_metrics=llm_out.metrics).to_dict()
+        }
+        if not self.not_null_agent_context.output_process_message:
+            if self.is_final_role:
+                await self.memory.gpts_memory.push_message(
+                    self.not_null_agent_context.conv_id,
+                    stream_msg=temp_message,
+                    is_first_chunk=is_first_chunk,
+                    incremental=self.not_null_agent_context.incremental,
+                    sender=sender
+                )
+        else:
+
+            await self.memory.gpts_memory.push_message(
+                self.not_null_agent_context.conv_id,
+                stream_msg=temp_message,
+                is_first_chunk=is_first_chunk,
+                incremental=self.not_null_agent_context.incremental,
+                sender=sender
+            )
 
     def _update_recovering(self, is_retry_chat: bool):
         self.recovering = True if self.current_retry_counter == 0 and is_retry_chat else False
 
     async def _recovery_message(self) -> AgentMessage | None:
         # 从DB读取全量message数据
-        messages: List[GptsMessage] = self.memory.gpts_memory.message_memory.get_by_conv_id(self.not_null_agent_context.conv_id)
-        last_speak_message :AgentMessage= next((AgentMessage.from_gpts_message(message)
-                                                for message in reversed(messages) if message.sender_name == self.name), None)
+        messages: List[GptsMessage] = self.memory.gpts_memory.message_memory.get_by_conv_id(
+            self.not_null_agent_context.conv_id)
+        # 找到最后一条调用模型的消息
+        last_speak_message: AgentMessage = next((AgentMessage.from_gpts_message(message)
+                                                 for message in reversed(messages) if
+                                                 message.sender_name == self.name and message.model_name), None)
         if not last_speak_message:
             return None
         reply_message = await self.init_reply_message(received_message=last_speak_message, rounds=len(messages))
@@ -571,15 +718,17 @@ class ConversableAgent(Role, Agent):
         rely_messages: Optional[List[AgentMessage]] = None,
         historical_dialogues: Optional[List[AgentMessage]] = None,
         is_retry_chat: bool = False,
+        message_metrics: Optional[MessageMetrics] = None,
         **kwargs,
     ) -> AgentMessage:
         if self.recovering:
-            recovering_message =  await self._recovery_message()
+            recovering_message = await self._recovery_message()
             if recovering_message:
                 return recovering_message
-
+        if not message_metrics:
+            message_metrics = MessageMetrics()
         with root_tracer.start_span(
-                "agent.generate_reply.init_reply_message",
+            "agent.generate_reply.init_reply_message",
         ) as span:
             # initialize reply message
             a_reply_message: Optional[
@@ -607,35 +756,42 @@ class ConversableAgent(Role, Agent):
             historical_dialogues=historical_dialogues,
             context=reply_message.get_dict_context(),
             is_retry_chat=is_retry_chat,
-            force_use_historical=kwargs.get("force_use_historical"),
+            **kwargs
         )
         reply_message.system_prompt = system_prompt
         reply_message.user_prompt = user_prompt
         with root_tracer.start_span(
-                "agent.generate_reply.thinking",
-                metadata={
-                    "thinking_messages": json.dumps(
-                        [msg.to_dict() for msg in thinking_messages],
-                        ensure_ascii=False,
-                        default=serialize,
-                    )
-                },
+            "agent.generate_reply.thinking",
+            metadata={
+                "thinking_messages": json.dumps(
+                    [msg.to_dict() for msg in thinking_messages],
+                    ensure_ascii=False,
+                    default=serialize,
+                )
+            },
         ) as span:
+
+            message_metrics.context_complete = time.time_ns() // 1_000_000
+
             # 1.Think about how to do things
-            llm_thinking, llm_content, model_name = await self.thinking(
-                thinking_messages, reply_message.message_id, sender, received_message=received_message
+            llm_thinking, llm_content, llm_name = await self.thinking(
+                thinking_messages, reply_message.message_id, sender, received_message=received_message,
+                message_metrics=message_metrics
             )
 
-            reply_message.model_name = model_name
-            reply_message.content = llm_content
             reply_message.thinking = llm_thinking
+            reply_message.model_name = llm_name
+            reply_message.content = llm_content
+
+            reply_message.metrics = message_metrics
             reply_message.resource_info = resource_info
+
             span.metadata["llm_reply"] = llm_content
-            span.metadata["model_name"] = model_name
+            span.metadata["model_name"] = llm_name
 
         with root_tracer.start_span(
-                "agent.generate_reply.review",
-                metadata={"llm_reply": llm_content, "censored": self.name},
+            "agent.generate_reply.review",
+            metadata={"llm_reply": llm_content, "censored": self.name},
         ) as span:
             # 2.Review whether what is being done is legal
             approve, comments = await self.review(llm_content, self)
@@ -648,21 +804,14 @@ class ConversableAgent(Role, Agent):
 
         return reply_message
 
-
-    async def thinking(
+    async def thinking_inner(
         self,
         messages: List[AgentMessage],
         reply_message_id: str,
         sender: Optional[Agent] = None,
         prompt: Optional[str] = None,
         received_message: Optional[AgentMessage] = None,
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """Think and reason about the current task goal.
-
-        Args:
-            messages(List[AgentMessage]): the messages to be reasoned
-            prompt(str): the prompt to be reasoned
-        """
+    ) -> Optional[AgentLLMOut]:
         last_model = None
         last_err = None
         retry_count = 0
@@ -671,7 +820,7 @@ class ConversableAgent(Role, Agent):
         # LLM inference automatically retries 3 times to reduce interruption
         # probability caused by speed limit and network stability
         while retry_count < 3:
-            llm_model = await self._a_select_llm_model(last_model)
+            llm_model, llm_context = await self.select_llm_model(last_model)
             try:
                 logger.info(f"model:{llm_model} chat begin!retry_count:{retry_count}")
                 if prompt:
@@ -682,19 +831,26 @@ class ConversableAgent(Role, Agent):
 
                 prev_thinking = ""
                 prev_content = ""
-                is_first_chunk = True
-                is_first_content = True
+
+                thinking_chunk_count = 0
+                content_chunk_count = 0
+                agent_llm_out = None
                 async for output in self.llm_client.create(
                     context=llm_messages[-1].pop("context", None),
                     messages=llm_messages,
                     llm_model=llm_model,
                     max_new_tokens=self.not_null_agent_context.max_new_tokens,
                     temperature=self.not_null_agent_context.temperature,
+                    llm_context=llm_context,
                     verbose=self.not_null_agent_context.verbose,
                     trace_id=self.not_null_agent_context.trace_id,
                     rpc_id=self.not_null_agent_context.rpc_id,
                 ):
-                    current_thinking, current_content = output
+
+                    # 处理收到的模型输出，从全量内容中分别解析出增量thinking 和 增量content， 后续恢复到模型对接层来做
+                    agent_llm_out = output
+                    current_thinking = output.thinking_content
+                    current_content = output.content
 
                     if self.not_null_agent_context.incremental:
                         res_thinking = current_thinking[len(prev_thinking):]
@@ -716,56 +872,24 @@ class ConversableAgent(Role, Agent):
                         prev_thinking = res_thinking
                         prev_content = res_content
 
-                    await self.listen_thinking_stream(reply_message_id, res_thinking, res_content, sender)
+                    # 输出标记检测
+                    if len(prev_thinking) > 0 and len(prev_content) <= 0:
+                        thinking_chunk_count = thinking_chunk_count + 1
+                    if len(prev_content) > 0:
+                        content_chunk_count = content_chunk_count + 1
+                    is_first_chunk = thinking_chunk_count == 1
+                    is_first_content = content_chunk_count == 1
 
-                    if self.stream_out:
-                        if len(prev_content) > 0 and not self.content_stream_out:
-                            if is_first_content:
-                                res_content = "动作执行中..."
-                                is_first_content = False
-                            else:
-                                continue
-                        temp_message = {
-                            "uid": reply_message_id,
-                            "type": "incr",
-                            "message_id": reply_message_id,
-                            "conv_id": self.not_null_agent_context.conv_id,
-                            "task_goal_id": received_message.goal_id,
-                            "task_goal": received_message.content,
-                            "conv_session_uid": self.agent_context.conv_session_id,
-                            "app_code": self.agent_context.gpts_app_code,
-                            "sender": self.name or self.role,
-                            "sender_role": self.role,
-                            "model": llm_model,
-                            "thinking": res_thinking,
-                            "content": res_content,
-                            "avatar": self.avatar,
-                            "observation": received_message.observation,
-                            "start_time": start_time,
-                        }
-                        if not self.not_null_agent_context.output_process_message:
-                            if self.is_final_role:
-                                await self.memory.gpts_memory.push_message(
-                                    self.not_null_agent_context.conv_id,
-                                    stream_msg=temp_message,
-                                    is_first_chunk=is_first_chunk,
-                                    incremental=self.not_null_agent_context.incremental,
-                                    sender=sender
-                                )
-                        else:
+                    await self.listen_thinking_stream(output, reply_message_id,
+                                                      start_time=start_time,
+                                                      cu_thinking_incr=res_thinking,
+                                                      cu_content_incr=res_content,
+                                                      is_first_chunk=is_first_chunk,
+                                                      is_first_content=is_first_content,
+                                                      received_message=received_message,
+                                                      sender=sender)
 
-                            await self.memory.gpts_memory.push_message(
-                                self.not_null_agent_context.conv_id,
-                                stream_msg=temp_message,
-                                is_first_chunk=is_first_chunk,
-                                incremental=self.not_null_agent_context.incremental,
-                                sender=sender
-                            )
-
-                        if is_first_chunk:
-                            is_first_chunk = False
-
-                return prev_thinking, prev_content, llm_model
+                return agent_llm_out
             except LLMChatError as e:
                 logger.exception(f"model:{llm_model} generate Failed!{str(e)}")
                 if e.original_exception and e.original_exception > 0:
@@ -785,6 +909,27 @@ class ConversableAgent(Role, Agent):
             raise ValueError(last_err)
         else:
             raise ValueError("LLM model inference failed!")
+
+    async def thinking(
+        self,
+        messages: List[AgentMessage],
+        reply_message_id: str,
+        sender: Optional[Agent] = None,
+        prompt: Optional[str] = None,
+        received_message: Optional[AgentMessage] = None,
+        **kwargs
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Think and reason about the current task goal.
+
+        Args:
+            messages(List[AgentMessage]): the messages to be reasoned
+            prompt(str): the prompt to be reasoned
+        """
+        out = await self.thinking_inner(messages, reply_message_id, sender, prompt, received_message)
+        message_metrics = kwargs.get("message_metrics")
+        if message_metrics:
+            message_metrics.llm_metrics = out.metrics
+        return out.thinking_content, out.content, out.llm_name
 
     async def review(self, message: Optional[str], censored: Agent) -> Tuple[bool, Any]:
         """Review the message based on the censored message."""
@@ -824,7 +969,7 @@ class ConversableAgent(Role, Agent):
                 )
                 if real_action is None:
                     continue
-
+                logger.info(f"ai_message:{ai_message}, prepare to call tools")
                 last_out = await real_action.run(
                     ai_message=message.content if message.content else "",
                     resource=None,
@@ -834,12 +979,14 @@ class ConversableAgent(Role, Agent):
                     **kwargs,
                 )
                 span.metadata["action_out"] = last_out.to_dict() if last_out else None
+                await push_context_event(event=AfterActionEvent(payload=ActionPayload(action_output=last_out)),
+                                         agent=self)
         if not last_out:
             raise ValueError("Action should return value！")
         return last_out
 
     async def correctness_check(
-        self, message: AgentMessage
+        self, message: AgentMessage, **kwargs
     ) -> Tuple[bool, Optional[str]]:
         """Verify the correctness of the results."""
         return True, None
@@ -869,20 +1016,20 @@ class ConversableAgent(Role, Agent):
                 )
 
         # agent output correctness check
-        return await self.correctness_check(message)
+        return await self.correctness_check(message, **kwargs)
 
     async def initiate_chat(
         self,
         recipient: Agent,
         reviewer: Optional[Agent] = None,
-        message: Optional[Union[str, HumanMessage]] = None,
+        message: Optional[Union[str, HumanMessage, AgentMessage]] = None,
         request_reply: bool = True,
         is_retry_chat: bool = False,
         last_speaker_name: Optional[str] = None,
         message_rounds: int = 0,
         historical_dialogues: Optional[List[AgentMessage]] = None,
         rely_messages: Optional[List[AgentMessage]] = None,
-        approval_message_id:Optional[str] = None,
+        approval_message_id: Optional[str] = None,
         **kwargs,
     ):
         """Initiate a chat with another agent.
@@ -892,9 +1039,14 @@ class ConversableAgent(Role, Agent):
             reviewer (Agent): The reviewer agent.
             message (str): The message to send.
         """
-        agent_message = AgentMessage.from_media_messages(message, None, message_rounds, approval_message_id=approval_message_id, context=kwargs)
+        agent_message = AgentMessage.from_media_messages(message, None, message_rounds, context=kwargs)
         agent_message.role = "Human"
         agent_message.name = "User"
+
+        message_type = GptsMessageType.ActionApproval.value \
+            if approval_message_id \
+            else GptsMessageType.AgentMessage.value
+        agent_message.message_type = message_type
 
         with root_tracer.start_span(
             "agent.initiate_chat",
@@ -904,7 +1056,7 @@ class ConversableAgent(Role, Agent):
                 "recipient": recipient.name,
                 "reviewer": reviewer.name if reviewer else None,
                 "agent_message": json.dumps(
-                    agent_message.to_dict(), ensure_ascii=False,default=serialize,
+                    agent_message.to_dict(), ensure_ascii=False, default=serialize,
                 ),
                 "conv_uid": self.not_null_agent_context.conv_id,
             },
@@ -975,7 +1127,7 @@ class ConversableAgent(Role, Agent):
             flush=True,
         )
 
-        content = json.dumps(message.content, ensure_ascii=False, default=serialize,)
+        content = json.dumps(message.content, ensure_ascii=False, default=serialize, )
         if content is not None:
             print(content, flush=True)
 
@@ -1023,6 +1175,7 @@ class ConversableAgent(Role, Agent):
     def register_variables(self):
         """子类通过重写此方法注册变量"""
         logger.info(f"register_variables {self.role}")
+
         @self._vm.register('out_schema', 'Agent模型输出结构定义')
         def var_out_schema(instance):
             if instance and instance.actions:
@@ -1076,9 +1229,8 @@ class ConversableAgent(Role, Agent):
             if received_message:
                 return received_message.content
             return None
+
         logger.info(f"register_variables end {self.role}")
-
-
 
     def init_variables(self) -> List[DynamicParam]:
         results: List[DynamicParam] = []
@@ -1087,29 +1239,29 @@ class ConversableAgent(Role, Agent):
             "key": "role",
             "value": self.role,
             "description": "Agent角色"
-        },{
+        }, {
             "key": "name",
             "value": self.name,
             "description": "Agent名字"
-        },{
+        }, {
             "key": "goal",
             "value": self.goal,
             "description": "Agent目标"
-        },{
+        }, {
             "key": "expand_prompt",
             "value": self.expand_prompt,
             "description": "Agent扩展提示词"
-        },{
+        }, {
             "key": "language",
             "value": self.language,
             "description": "Agent语言设定"
-        },{
+        }, {
             "key": "constraints",
             "value": self.constraints,
             "description": "Agent默认约束设定(Prompt使用)"
-        },{
+        }, {
             "key": "examples",
-            "value":  self.examples,
+            "value": self.examples,
             "description": "Agent消息示例(Prompt使用)"
         }]
         for item in system_variables:
@@ -1121,7 +1273,6 @@ class ConversableAgent(Role, Agent):
                 description=item['description'],
                 config=None
             ))
-
 
         ## 初始化加载Agent参数
         for k, v in self._vm.get_all_variables().items():
@@ -1186,15 +1337,15 @@ class ConversableAgent(Role, Agent):
         return param_view
 
     async def generate_bind_variables(
-            self,
-            received_message: AgentMessage,
-            sender: Agent,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            context: Optional[Dict[str, Any]] = None,
-            resource_info: Optional[str] = None,
-            resource: Optional[Resource] = None,
-            **kwargs,
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        resource_info: Optional[str] = None,
+        resource: Optional[Resource] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """Generate the resource variables."""
         variable_values = {}
@@ -1238,10 +1389,10 @@ class ConversableAgent(Role, Agent):
         return variable_values
 
     def _excluded_models(
-            self,
-            all_models: List[str],
-            order_llms: Optional[List[str]] = None,
-            excluded_models: Optional[List[str]] = None,
+        self,
+        all_models: List[str],
+        order_llms: Optional[List[str]] = None,
+        excluded_models: Optional[List[str]] = None,
     ):
         if not order_llms:
             order_llms = []
@@ -1301,9 +1452,9 @@ class ConversableAgent(Role, Agent):
             )
         return oai_messages
 
-    async def _a_select_llm_model(
+    async def select_llm_model(
         self, excluded_models: Optional[List[str]] = None
-    ) -> str:
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
         logger.info(f"_a_select_llm_model:{excluded_models}")
         try:
             llm_strategy_cls = get_llm_strategy_cls(
@@ -1316,6 +1467,7 @@ class ConversableAgent(Role, Agent):
             llm_strategy = llm_strategy_cls(
                 self.not_null_llm_config.llm_client,
                 self.not_null_llm_config.strategy_context,
+                self.not_null_llm_config.llm_param
             )
 
             return await llm_strategy.next_llm(excluded_models=excluded_models)
@@ -1411,12 +1563,11 @@ class ConversableAgent(Role, Agent):
             )
         return oai_messages
 
-
     async def build_system_prompt(
-            self,
-            resource_vars: Optional[Dict] = None,
-            context: Optional[Dict[str, Any]] = None,
-            is_retry_chat: bool = False,
+        self,
+        resource_vars: Optional[Dict] = None,
+        context: Optional[Dict[str, Any]] = None,
+        is_retry_chat: bool = False,
     ):
         """Build system prompt."""
         system_prompt = None
@@ -1445,15 +1596,15 @@ class ConversableAgent(Role, Agent):
         return system_prompt
 
     async def _load_thinking_messages(
-            self,
-            received_message: AgentMessage,
-            sender: Agent,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            historical_dialogues: Optional[List[AgentMessage]] = None,
-            context: Optional[Dict[str, Any]] = None,
-            is_retry_chat: bool = False,
-            force_use_historical: bool = False,
-            **kwargs
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        historical_dialogues: Optional[List[AgentMessage]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        is_retry_chat: bool = False,
+        force_use_historical: bool = False,
+        **kwargs
     ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
         logger.info(f"_load_thinking_messages:{received_message.message_id}")
         observation = received_message.content
@@ -1474,7 +1625,7 @@ class ConversableAgent(Role, Agent):
         resource_vars = await self.generate_bind_variables(received_message, sender, rely_messages,
                                                            historical_dialogues, context=context,
                                                            resource_prompt=resource_prompt_str,
-                                                           resource_info=resource_references)
+                                                           resource_info=resource_references, **kwargs)
         logger.info(f"参数加载完成！当前可用参数:{json.dumps(resource_vars, ensure_ascii=False)}")
         system_prompt = await self.build_system_prompt(
             resource_vars=resource_vars,
@@ -1484,7 +1635,7 @@ class ConversableAgent(Role, Agent):
 
         # 如果强制传递了历史消息，不要使用默认记忆
         if historical_dialogues and force_use_historical:
-            resource_vars['most_recent_memories']= None
+            resource_vars['most_recent_memories'] = None
 
         user_prompt = await self.build_prompt(
             is_system=False,
@@ -1502,7 +1653,6 @@ class ConversableAgent(Role, Agent):
                     role=ModelMessageRoleType.SYSTEM,
                 )
             )
-
 
         if historical_dialogues and force_use_historical:
             # If we can't read the memory, we need to rely on the historical dialogue

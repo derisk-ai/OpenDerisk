@@ -17,7 +17,7 @@ class AsyncAgentChat(AgentChat):
         conv_uid: str,
         gpts_name: str,
         user_query: Union[str, HumanMessage],
-        background_tasks: Optional[BackgroundTasks] = None,
+        background_tasks: Optional[BackgroundTasks] = None,  # FastAPI的后台任务
         specify_config_code: Optional[str] = None,
         user_code: Optional[str] = None,
         sys_code: Optional[str] = None,
@@ -66,13 +66,14 @@ class AsyncAgentChat(AgentChat):
 
         first_chunk_event = asyncio.Event()
         first_chunk_data = None
-        processor_task = None  # 在try块外定义任务变量
+        processor_task = None
 
         async def process_agent_response():
             nonlocal first_chunk_data, agent_conv_id
+            agent_exception = None
             try:
                 async for task, chunk, new_conv_id in self.aggregation_chat(
-                    conv_uid=conv_uid,
+                    conv_id=conv_uid,
                     agent_conv_id=agent_conv_id,
                     gpts_name=gpts_name,
                     user_query=user_query,
@@ -95,40 +96,36 @@ class AsyncAgentChat(AgentChat):
 
             except Exception as e:
                 logger.error(f"Agent processing failed: {str(e)}", exc_info=True)
+                agent_exception = str(e)
                 if not first_chunk_event.is_set():
                     first_chunk_event.set()
-                raise
             finally:
                 await self.save_conversation(
                     conv_uid,
                     agent_conv_id,
                     current_message,
-                    chat_call_back
+                    err_msg=agent_exception,
+                    chat_call_back=chat_call_back,
                 )
 
         try:
-            # 设置超时时间为10分钟
-            TIMEOUT = 600.0
+            # 创建处理任务
             processor_task = asyncio.create_task(process_agent_response())
 
-            await asyncio.wait_for(
-                first_chunk_event.wait(),
-                timeout=TIMEOUT
-            )
+            # 将处理任务添加到background_tasks以确保其持续运行
+            if background_tasks:
+                background_tasks.add_task(lambda: processor_task)
+
+            # 等待第一个chunk（设置超时时间）
+            await asyncio.wait_for(first_chunk_event.wait(), timeout=60.0)
 
             return first_chunk_data, agent_conv_id
 
         except asyncio.TimeoutError:
+            # 超时时不取消处理任务，让它继续在后台运行
             raise TimeoutError("Response timeout")
         except Exception as e:
-            if isinstance(e, asyncio.CancelledError) and processor_task:
+            # 只有在非取消错误时才取消处理任务
+            if not isinstance(e, asyncio.CancelledError) and processor_task and not processor_task.done():
                 processor_task.cancel()
             raise
-        finally:
-            # 确保任务被适当清理
-            if processor_task and not processor_task.done():
-                processor_task.cancel()
-                try:
-                    await processor_task
-                except asyncio.CancelledError:
-                    pass

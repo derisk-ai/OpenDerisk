@@ -113,6 +113,7 @@ class ChromaStore(VectorStoreBase):
         )
         self.persist_dir = os.path.join(resolve_root_path(chroma_path) + "/chromadb")
         self.embeddings = embedding_fn
+        self.collection_name = name
         if not self.embeddings:
             raise ValueError("Embeddings is None")
         self._collection_name = name
@@ -167,9 +168,14 @@ class ChromaStore(VectorStoreBase):
             )
         ]
 
-    def similar_search_with_scores(self, text, topk, score_threshold,
-                                   filters: Optional[MetadataFilters] = None,
-                                   **kwargs) -> List[Chunk]:
+    def similar_search_with_scores(
+        self,
+        text: str,
+        topk: int,
+        score_threshold: float,
+        filters: Optional[MetadataFilters] = None,
+        consistent_search: Optional[bool] = False
+    ) -> List[Chunk]:
         """Search similar documents with scores.
 
         Chroma similar_search_with_score.
@@ -182,6 +188,7 @@ class ChromaStore(VectorStoreBase):
                 between 0 to 1 to filter the resulting set of retrieved docs,0 is
                 dissimilar, 1 is most similar.
             filters(MetadataFilters): metadata filters, defaults to None
+            consistent_search(bool): consistent_search, defaults to False
         """
         logger.info("ChromaStore similar search with scores")
         chroma_results = self._query(
@@ -391,6 +398,10 @@ class ChromaStore(VectorStoreBase):
             for name in dirs:
                 os.rmdir(os.path.join(root, name))
         os.rmdir(self.persist_dir)
+
+    def is_support_full_text_search(self) -> bool:
+        """Support full text search."""
+        return False
 
 
 def _convert_chroma_filter_operator(operator: str) -> str:

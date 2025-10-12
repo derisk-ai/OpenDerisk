@@ -39,8 +39,6 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
     }, 50);
   }, [history, history[history.length - 1]?.context]);
 
-  console.log('Rendering content3...', ctrl);
-
   return (
     <div className="flex flex-1 h-full">
     <div

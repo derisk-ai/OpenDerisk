@@ -3,6 +3,7 @@ import { AppContext } from '@/contexts';
 import { useRequest } from 'ahooks';
 import { Button, Form, Modal, Select } from 'antd';
 import { useContext, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface AgentModalProps {
   visible: boolean;
@@ -12,6 +13,7 @@ interface AgentModalProps {
 }
 
 function AgentModal({ visible, onCancel, onAgentChange, form }: AgentModalProps) {
+  const { t } = useTranslation();
   const { appInfo } = useContext(AppContext);
   const {
     data: appListData,
@@ -80,12 +82,12 @@ function AgentModal({ visible, onCancel, onAgentChange, form }: AgentModalProps)
 
   return (
     <Modal
-      title='关联Agent'
+      title={t('agent_modal_title')}
       open={visible}
       onCancel={onCancel}
       footer={[
         <Button key='cancel' onClick={onCancel}>
-          取消
+          {t('agent_modal_cancel')}
         </Button>,
         <Button
           key='submit'
@@ -94,7 +96,7 @@ function AgentModal({ visible, onCancel, onAgentChange, form }: AgentModalProps)
             handleChange();
           }}
         >
-          完成
+          {t('agent_modal_save')}
         </Button>,
       ]}
       width={600}
@@ -102,12 +104,12 @@ function AgentModal({ visible, onCancel, onAgentChange, form }: AgentModalProps)
     >
       <div className='mt-[24px]'>
         <Form layout='horizontal' className='flex flex-col gap-4' form={form}>
-          <Form.Item label='请选择Agent' name='agents'>
+          <Form.Item label={t('agent_modal_select_agent')} name='agents'>
             <Select
               mode='multiple'
               allowClear
               style={{ width: '100%' }}
-              placeholder='请选择Agent'
+              placeholder={t('agent_modal_placeholder_select_agent')}
               loading={loading}
               options={appList}
               optionFilterProp='label'

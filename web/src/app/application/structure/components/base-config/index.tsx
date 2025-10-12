@@ -11,6 +11,7 @@ import AgentModal from './agent-modal';
 import BaseInfo from './baseinfo';
 import KnowledgeSelectModal from './knowledge-modal';
 import ToolsModal from './tools-modal';
+import { useTranslation } from 'react-i18next';
 
 const layoutConfigChangeList = [
   'chat_in_layout',
@@ -28,6 +29,7 @@ const layoutConfigValueChangeList = [
 ]
 
 function AppConfig() {
+  const { t } = useTranslation();
   const { appInfo, fetchUpdateApp, fetchUpdateAppLoading } =
     useContext(AppContext);
   const [form] = Form.useForm();
@@ -40,7 +42,7 @@ function AppConfig() {
   const [selectedKnowledgeList, setSelectedKnowledgeList] = useState<any[]>([]);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
 
-  useEffect(() => {
+    useEffect(() => {
     // 初始化应用信息
     if (appInfo) {
       const { resource_knowledge, resources, layout } = appInfo || {};
@@ -56,6 +58,30 @@ function AppConfig() {
       });
 
       const toolsList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolHttpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(http)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolTrList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(tr)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const mcpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(mcp)') || []).map((item: any) => {
+        const { value } = item || {};
+        const key = JSON.parse(value || '{}')?.key;
+        return key;
+      });
+
+      const toolLocalList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(local)') || []).map((item: any) => {
         const { value } = item || {};
         const key = JSON.parse(value || '{}')?.key;
         return key;
@@ -117,6 +143,10 @@ function AppConfig() {
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         knowledge: knowledgeList?.map((item: { value: any }) => item.value),
         tools: toolsList,
+        "tool(mcp)": mcpList, 
+        // "tool(http)": toolHttpList,
+        // "tool(tr)": toolTrList,
+        "tool(local)": toolLocalList,
         chat_layout: appInfo?.layout?.chat_layout?.name || '',
         chat_in_layout: chat_in_layout_list || [],
         agents: agentsList,
@@ -382,8 +412,8 @@ function AppConfig() {
     const appInfo_resource_knowledge_item = appInfo?.resource_knowledge[0]?.value;
     const updatedList = selectedKnowledgeList.filter(item => item.value !== knowledgeId);
     modal.confirm({
-      title: '确认删除',
-      content: '您确定要删除该知识吗？',
+      title: t('base_config_confirm_delete'),
+      content: t('base_config_delete_knowledge'),
       onOk: () => {
         const _resource_knowledge = [
           {
@@ -410,8 +440,8 @@ function AppConfig() {
     const name =
       tool.type === 'tool' ? JSON.parse(tool.value || '{}')?.name || JSON.parse(tool.value || '{}')?.label : tool.name;
     modal.confirm({
-      title: '确认删除',
-      content: `您确定要删除${name}该工具吗？`,
+      title: t('base_config_confirm_delete'),
+      content: t('base_config_delete_tool', { name }),
       onOk: () => {
         if (tool.type === 'tool') {
           // 删除 value.name 匹配的 tool
@@ -443,8 +473,8 @@ function AppConfig() {
   const deleteAgent = (agent: { type: string; value: any; name: any }) => {
     const name = JSON.parse(agent.value || '{}')?.name || JSON.parse(agent.value || '{}')?.label;
     modal.confirm({
-      title: '确认删除',
-      content: `您确定要删除${name}该Agent吗？`,
+      title: t('base_config_confirm_delete'),
+      content: t('base_config_delete_agent', { name }),
       onOk: () => {
         const agentKey = JSON.parse(agent.value || '{}')?.key;
         const updatedAgents = appInfo.resource_agent.filter((item: any) => {
@@ -461,14 +491,14 @@ function AppConfig() {
 
   return (
     <div className='flex-1 border-r-1 p-4 border-r-[#D9D9D9] h-full overflow-y-auto'>
-      <Spin spinning={fetchUpdateAppLoading} 
+      <Spin spinning={false} 
         wrapperClassName="h-full w-full max-h-full" 
       >
         {/* 基础配置 */}
         <div className='p-4 flex pt-1 flex-row items-center text-[18px]'>
           <div className='flex flex-row items-center flex-1'>
             <SettingOutlined className='pr-2' />
-            <h2 className='font-semibold'>配置</h2>
+            <h2 className='font-semibold'>{t('base_config_config')}</h2>
           </div>
           <div className='flex items-center gap-1 cursor-pointer transition-colors ml-auto' onClick={handleToggleAll}>
             <img src={isCollapsed ? '/icons/collapsed.svg' : '/icons/uncollapsed.svg'} alt='toggle' className='w-5 h-5'/>
@@ -495,17 +525,13 @@ function AppConfig() {
           <div>
             <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
               <div className='flex flex-row items-center'>
-                <img
-                  src='/icons/knowledge.svg'
-                  alt='知识图标'
-                  style={{ width: 18, height: 18, marginRight: 8 }}
-                />
-                <h2 className='font-semibold'>知识</h2>
+                <img src='/icons/knowledge.svg' alt='知识图标' style={{ width: 18, height: 18, marginRight: 8 }} />
+                <h2 className='font-semibold'>{t('base_config_knowledge')}</h2>
               </div>
               <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
                 <span className='cursor-pointer flex items-center' onClick={() => setShowKnowledgeModal(true)}>
                   <span className='text-[16px] mr-1'>+</span>
-                  <span>关联知识</span>
+                  <span>{t('base_config_link_knowledge')}</span>
                 </span>
               </div>
             </div>
@@ -535,17 +561,13 @@ function AppConfig() {
           <div>
             <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
               <div className='flex flex-row items-center'>
-                <img
-                  src='/icons/skill.svg'
-                  alt='技能图标'
-                  style={{ width: 18, height: 18, marginRight: 8 }}
-                />
-                <h2 className='font-semibold'>技能</h2>
+                <img src='/icons/skill.svg' alt='技能图标' style={{ width: 18, height: 18, marginRight: 8 }} />
+                <h2 className='font-semibold'>{t('base_config_skill')}</h2>
               </div>
               <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
                 <span className='cursor-pointer flex items-center' onClick={() => setShowToolsModal(true)}>
                   <span className='text-[16px] mr-1'>+</span>
-                  <span>关联技能</span>
+                  <span>{t('base_config_link_skill')}</span>
                 </span>
               </div>
             </div>
@@ -579,12 +601,8 @@ function AppConfig() {
           <div>
             <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
               <div className='flex flex-row items-center'>
-                <img
-                  src='/icons/agent.svg'
-                  alt='Agent图标'
-                  style={{ width: 18, height: 18, marginRight: 8 }}
-                />
-                <h2 className='font-semibold  text-[16px]'>Agent</h2>
+                <img src='/icons/agent.svg' alt='Agent图标' style={{ width: 18, height: 18, marginRight: 8 }} />
+                <h2 className='font-semibold  text-[16px]'>{t('base_config_agent')}</h2>
               </div>
               <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
                 <span
@@ -592,7 +610,7 @@ function AppConfig() {
                   onClick={() => setShowAgentModal(true)}
                 >
                   <span className='text-[16px] mr-1'>+</span>
-                  <span>关联Agent</span>
+                  <span>{t('base_config_link_agent')}</span>
                 </span>
               </div>
             </div>

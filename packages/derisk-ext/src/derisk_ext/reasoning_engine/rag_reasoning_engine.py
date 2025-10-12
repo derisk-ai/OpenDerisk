@@ -165,9 +165,13 @@ class RAGReasoningEngine(DefaultReasoningEngine):
                     engine_output.plans_brief_description = ""
                     engine_output.references = prompt_param.get("resources")
                     return engine_output
-                res_thinking, res_content, model_name = await agent.thinking(
+
+                out = await agent.thinking_inner(
                     messages, reply_message_id=current_step_message.message_id, received_message=current_step_message
                 )
+                res_thinking = out.thinking_content
+                res_content = out.content
+                model_name = out.llm_name
                 LOGGER.info(f"[ENGINE][{self.name}]res_thinking: [{res_thinking}]")
                 LOGGER.info(f"[ENGINE][{self.name}]res_content: [{res_content}]")
                 LOGGER.info(f"[ENGINE][{self.name}]model_name: [{model_name}]")
@@ -175,6 +179,7 @@ class RAGReasoningEngine(DefaultReasoningEngine):
                 engine_output.model_thinking = res_thinking
                 engine_output.model_content = res_content
                 engine_output.model_name = model_name
+                engine_output.model_metrics= out.metrics
                 span.metadata["res_thinking"] = res_thinking
                 span.metadata["res_content"] = res_content
                 span.metadata["model_name"] = model_name

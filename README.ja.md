@@ -42,7 +42,6 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— AIネイティブなリス
   <img src="./assets/arch_en.jpg" width="100%" />
 </p>
 
-
 #### 紹介文書
 - [OpenDerisk DeepWikiドキュメント](https://deepwiki.com/derisk-ai/OpenDerisk)
 

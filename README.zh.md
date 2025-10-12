@@ -46,6 +46,10 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
 #### 项目文档
 - [OpenDerisk Documents](https://deepwiki.com/derisk-ai/OpenDerisk)
 
+#### 介绍文档
+- [OpenDerisk DeepWiki文档](https://deepwiki.com/derisk-ai/OpenDerisk)
+
+
 采用多Agent架构，目前代码中主要实现了绿色部分部分，告警感知采用的是微软开源的[OpenRCA数据集](https://github.com/microsoft/OpenRCA), 数据集的大小解压后在26G左右，我们实现在26G的数据集合上，通过多Agent协同，Code-Agent动态写代码来进行最终根因的分析诊断。
 
 #### 技术实现
@@ -67,7 +71,7 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     ```
   - 依赖安装
     ```
-    uv sync --all-packages --frozen \
+    uv sync --all-packages  --frozen \
     --extra "base" \
     --extra "proxy_openai" \
     --extra "rag" \
@@ -75,7 +79,8 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     --extra "derisks" \
     --extra "storage_oss2" \
     --extra "client"  \
-    --extra "ext_base"  
+    --extra "ext_base"	\
+    --extra "proxy_tongyi"
     ```
   - 配置启动参数
     ```
@@ -85,7 +90,7 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
     ```
   - 启动服务
     ```
-    <!-- uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml -->
+    uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
     ```
   - 服务访问
     > 打开浏览器访问 [`http://localhost:7777`](http://localhost:7777)
@@ -153,5 +158,5 @@ OpenDeRisk-AI 社区致力于构建 AI 原生的风险智能系统。🛡️ 我
 加入钉钉群, 与我们一起交流讨论。 
 
 <div align="center" style="display: flex; gap: 20px;">
-    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="200" />
+    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
 </div>
