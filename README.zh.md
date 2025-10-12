@@ -28,6 +28,9 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
 </div>
 
 
+### News
+- [2025/10] 🔥 我们发布了OpenDerisk V0.2版本. [OpenDerisk V0.2 ReleaseNote](./docs/docs/OpenDerisk_v0.2.md) 
+
 ### 特性
 <p align="left">
   <img src="./assets/feature_zh.png" width="100%" />

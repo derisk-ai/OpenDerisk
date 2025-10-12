@@ -27,6 +27,11 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
 [**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
+
+### News
+- [2025/10] 🔥 We released OpenDerisk v0.2. [OpenDerisk V0.2 ReleaseNote](./docs/docs/OpenDerisk_v0.2.md) 
+
+
 ### Features
 1. **DeepResearch RCA:** Quickly locate the root cause of issues through in-depth analysis of logs, traces, and code.
 2. **Visualized Evidence Chain:** Fully visualize the diagnostic process and evidence chain, making the diagnosis clear and enabling quick judgment of accuracy.

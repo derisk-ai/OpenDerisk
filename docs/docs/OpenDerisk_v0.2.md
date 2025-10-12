@@ -72,6 +72,18 @@ OpenDerisk V0.2 提供了如下几个基础模块, 分别为:
 3. MCP
 MCP模块可以进行MCP的管理, 包括增、删、改、查调试等, 目前不支持MCP的直接部署，只提供已部署好的MCP服务的管理。 
 
+
+MCP管理
+<p align="left">
+  <img src="../static/img/mcps.jpg" width="100%" />
+</p>
+
+MCP工具调试
+<p align="left">
+  <img src="../static/img/mcp.jpg" width="100%" />
+</p>
+
+
 4. 提示词
 提示词模块提供了一个统一的提示词编写与管理的界面。
 
