@@ -27,6 +27,10 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— AIネイティブなリス
 [**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**視頻チュートリアル**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
+### ニュース 
+- [2025/10] 🔥 OpenDerisk V0.2をリリースしました. [OpenDerisk V0.2 ReleaseNote](./docs/docs/OpenDerisk_v0.2.md) 
+
+
 ### 機能特徴
 1. **DeepResearch RCA:** ログ、トレース、コードの詳細な分析により、問題の根本原因を迅速に特定します。
 2. **可視化された証拠チェーン:** 診断プロセスと証拠チェーンを完全に可視化し、診断を明確にして精度を迅速に判断できます。
@@ -105,10 +109,10 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
 
 ### 使用方法
 * AI-SRE(OpenRCA)
-  - 注意：OpenRCAデータセット[Telecomデータセット](https://drive.usercontent.google.com/download?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e)を使用しています
+  - 注意：OpenRCAデータセット[Bankデータセット](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e)を使用しています
   - 次のリンクでデータセットをダウンロードできます：
     ```
-      gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+      gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R
     ```
   - データセットを`${derisk}/pilot/datasets`パスに配置します。
 * フレームグラフアシスタント
