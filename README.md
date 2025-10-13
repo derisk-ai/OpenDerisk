@@ -27,6 +27,11 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
 [**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
+
+### News
+- [2025/10] 🔥 We released OpenDerisk v0.2. [OpenDerisk V0.2 ReleaseNote](./docs/docs/OpenDerisk_v0.2.md) 
+
+
 ### Features
 1. **DeepResearch RCA:** Quickly locate the root cause of issues through in-depth analysis of logs, traces, and code.
 2. **Visualized Evidence Chain:** Fully visualize the diagnostic process and evidence chain, making the diagnosis clear and enabling quick judgment of accuracy.
@@ -43,7 +48,11 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
 </p>
 
 #### Introduction
+
+- [OpenDerisk Documents](https://deepwiki.com/derisk-ai/OpenDerisk)
+
 - [OpenDerisk DeepWiki](https://deepwiki.com/derisk-ai/OpenDerisk)
+
 
 The system adopts a multi-agent architecture. Currently, the code mainly implements the green-highlighted parts. Alert awareness is based on Microsoft's open-source [OpenRCA dataset](https://github.com/microsoft/OpenRCA). The dataset size is approximately 26GB after decompression. On this dataset, we achieve root cause analysis and diagnosis through multi-agent collaboration, where the Code-Agent dynamically writes code for final analysis.
 
@@ -106,16 +115,17 @@ Open your browser and visit [`http://localhost:7777`](http://localhost:7777)
 
 ### How to Use?
 * AI-SRE(OpenRCA)
-  -  !Notice, We Use the OpenRCA Datasets[Telecom Dataset](https://drive.usercontent.google.com/download?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
+  -  !Notice, We Use the OpenRCA Datasets[Bank Dataset](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
   -  You can download the dataset using next link:
     ```
-      gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+      gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R
     ```
   - Put the datasets to the path ${derisk}/pilot/datasets。
 * Flame Graph Assistant
   - Upload the flame graph (Java/Python) of your local application service process to the assistant for analysis and inquiries.
 * DataExpert
   - Upload your metrics, logs, traces, or various Excel data sheets for conversational analysis.
+
 
 ### Rapid Development
 * Agent Development
