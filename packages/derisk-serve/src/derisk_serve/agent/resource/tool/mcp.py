@@ -230,8 +230,13 @@ class MCPToolPack(ToolPack):
             gpts_tool = gpts_tool_dao.get_tool_by_tool_id(self._tool_id)
         else:
             gpts_tool = gpts_tool_dao.get_tool_by_name(self._mcp_name)
-
+                    
         if gpts_tool and gpts_tool.type == 'MCP':
+            
+            # Set default tool_id
+            if not gpts_tool.tool_id:
+                gpts_tool.tool_id = str(uuid.uuid4())
+                
             self._tool_id = gpts_tool.tool_id
             self._mcp_name = gpts_tool.tool_name
             config = json.loads(gpts_tool.config)
@@ -244,6 +249,11 @@ class MCPToolPack(ToolPack):
                     self._headers = config.get('headers')
             server_list = [config.get('url', None)]
 
+        else:
+            self._tool_id = str(uuid.uuid4())
+            # TODO Get MCP Tool name, Temp solve
+            self._mcp_name = str(uuid.uuid4())
+            
         for server in server_list:
             try:
                 def log_final_retry(retry_state):
@@ -373,6 +383,12 @@ class MCPSSEToolPack(MCPToolPack):
                 metadata={
                     "help": _("Tool ID of the mcp"),
                 },
+            )
+            name: Optional[str] = dataclasses.field(
+                default=None,
+                metadata={
+                    "help": _("MCP Tool Name"),
+                }
             )
 
         return _DynMCPSSEPackResourceParameters
