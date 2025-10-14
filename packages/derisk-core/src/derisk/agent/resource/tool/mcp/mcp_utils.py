@@ -149,10 +149,14 @@ async def call_mcp_tool(
     user_id = root_tracer.get_context_user_id()
     cookie = root_tracer.get_context_cookie()
 
-    #适配code mcp
+    # 适配code mcp
     if mcp_name == 'mcp-code' or mcp_name == 'mcp-code-full':
         kwargs['atit'] = headers.get('atie', 'ATITc148f4b9e2d64cf6a947078eca65554b')
 
+    # Set default tool_id
+    if not tool_id:
+        tool_id = str(uuid.uuid4())
+        
     async def call_tool(server: str, **kwargs):
         gpts_tool_messages = GptsToolMessages(
             tool_id=tool_id,
@@ -217,6 +221,9 @@ async def call_mcp_tool(
             raise e
         finally:
             try:
+                LOGGER.info(
+                        f"[DIGEST][tools/message]gpts_tool_messages=[{gpts_tool_messages}]"
+                    )
                 gpts_tool_messages_dao.create(gpts_tool_messages)
             except Exception as m:
                 logger.info(f"call_mcp_tool: save message error: {m}, trace_id:{trace_id}")
