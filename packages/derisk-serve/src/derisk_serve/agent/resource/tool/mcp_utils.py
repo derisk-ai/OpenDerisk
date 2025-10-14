@@ -86,9 +86,11 @@ async def get_mcp_tool_list(
             else:
                 start_time = int(datetime.now().timestamp() * 1000)
                 (
+                    headers["SOFA-TraceId"],
+                    headers["SOFA-RpcId"],
                     headers["x-mcp-hash-key"],
                     headers["cookie"]
-                ) = trace_id, rpc_id, str(uuid.uuid4()), cookie
+                ) = trace_id, rpc_id, str(uuid.uuid4()), cookie 
                 async with sse_client(url=server, headers=headers) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
@@ -146,7 +148,9 @@ async def call_mcp_tool(
     rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
     cookie = root_tracer.get_context_cookie()
 
-
+    if not tool_id: 
+        tool_id = str(uuid.uuid4()) 
+    
     async def call_tool(server: str, **kwargs):
         gpts_tool_messages = GptsToolMessages(
             tool_id=tool_id,

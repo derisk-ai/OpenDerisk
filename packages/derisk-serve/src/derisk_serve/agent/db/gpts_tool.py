@@ -251,7 +251,7 @@ class GptsToolDetailEntity(Model):
     sub_description = Column(Text, nullable=True, comment="tool sub description")
     input_schema = Column(Text, nullable=True, comment="tool detail config")
 
-    __table_args__ = (Index("idx_tool_id", "tool_id")),
+    __table_args__ = (Index("idx_detail_tool_id", "tool_id")),
 
 
 class GptsToolDetailDao(BaseDao):
