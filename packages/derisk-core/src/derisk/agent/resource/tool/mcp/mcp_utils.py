@@ -195,7 +195,7 @@ async def call_mcp_tool(
 
             start_time = int(datetime.now().timestamp() * 1000)
             headers['SOFA-TraceId'], headers['SOFA-RpcId'], headers['x-mcp-hash-key'], headers['cookie'] = trace_id, rpc_id, str(uuid.uuid4()), cookie
-
+            arguments = kwargs.get('arguments')
             if CFG.debug_mode:
                 logger.info("MCP Enter DebugMode, Use local mcp gateways!")
                 mcp_server = f"http://localhost:{CFG.DERISK_WEBSERVER_PORT}/mcp/sse"
@@ -204,7 +204,7 @@ async def call_mcp_tool(
             async with sse_client(url=mcp_server, headers=headers, sse_read_timeout=timeout) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(tool_name, arguments=kwargs)
+                    result = await session.call_tool(tool_name, arguments=arguments)
                     end_time = int(datetime.now().timestamp() * 1000)
                     LOGGER.info(
                         f"[DIGEST][tools/call]mcp_server=[{mcp_name}],sse=[{mcp_server}],success=[Y],err_msg=[],tool=[{tool_name}],costMs=[{end_time - start_time}],result_length=[{len(str(result.json()))}],headers=[{headers}],result:[{result.json()}]"
