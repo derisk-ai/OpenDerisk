@@ -75,7 +75,7 @@ function AppConfig() {
         return key;
       });
 
-      const mcpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(mcp)') || []).map((item: any) => {
+      const mcpList = (appInfo?.resource_tool?.filter((item: any) => item.type === 'tool(mcp(sse))') || []).map((item: any) => {
         const { value } = item || {};
         const key = JSON.parse(value || '{}')?.key;
         return key;
@@ -143,7 +143,7 @@ function AppConfig() {
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         knowledge: knowledgeList?.map((item: { value: any }) => item.value),
         tools: toolsList,
-        "tool(mcp)": mcpList, 
+        "tool(mcp(sse))": mcpList, 
         // "tool(http)": toolHttpList,
         // "tool(tr)": toolTrList,
         "tool(local)": toolLocalList,
@@ -441,7 +441,7 @@ function AppConfig() {
       tool.type === 'tool' ? JSON.parse(tool.value || '{}')?.name || JSON.parse(tool.value || '{}')?.label : tool.name;
     modal.confirm({
       title: t('base_config_confirm_delete'),
-      content: t('base_config_delete_tool', { name }),
+      content: t('base_config_delete_tool', { name: name || '' }),
       onOk: () => {
         if (tool.type === 'tool') {
           // 删除 value.name 匹配的 tool
