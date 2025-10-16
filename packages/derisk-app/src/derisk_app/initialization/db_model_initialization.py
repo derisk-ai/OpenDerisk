@@ -20,6 +20,8 @@ from derisk_serve.rag.models.document_db import KnowledgeDocumentEntity
 from derisk_serve.rag.models.models import KnowledgeSpaceEntity
 from derisk_serve.mcp.models.models import ServeEntity as McpManageEntity
 from derisk_serve.model.models.models import ServeEntity as ModelManageentity
+from derisk_serve.agent.db.gpts_tool_messages import GptsToolMessagesEntity
+from derisk_serve.agent.db.gpts_tool import GptsToolDetailEntity
 
 _MODELS = [
     FileServeEntity,
@@ -37,4 +39,6 @@ _MODELS = [
     FlowVariableEntity,
     McpManageEntity,
     ModelManageentity,
+    GptsToolMessagesEntity,
+    GptsToolDetailEntity
 ]
