@@ -155,6 +155,20 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
   - [ ] エンドツーエンドAIOpsオンラインAgentic RL
   - [ ] エンドツーエンド評価機能
 
+### いんよう
+このリポジトリのコードについては、以下の論文で詳細な紹介をしています。もし、あなたの研究に役立ったと思われる場合は、ぜひ引用してください。
+```
+@misc{di2025openderiskindustrialframeworkaidriven,
+      title={OpenDerisk: An Industrial Framework for AI-Driven SRE, with Design, Implementation, and Case Studies}, 
+      author={Peng Di and Faqiang Chen and Xiao Bai and Hongjun Yang and Qingfeng Li and Ganglin Wei and Jian Mou and Feng Shi and Keting Chen and Peng Tang and Zhitao Shen and Zheng Li and Wenhui Shi and Junwei Guo and Hang Yu},
+      year={2025},
+      eprint={2510.13561},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2510.13561}, 
+}
+```
+
 ### 謝辞
 - [DB-GPT](https://github.com/eosphoros-ai/DB-GPT)
 - [GPT-Vis](https://github.com/antvis/GPT-Vis)
@@ -164,6 +178,7 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
 OpenDeRisk-AIコミュニティは、AIネイティブなリスクインテリジェンスシステムの構築に専念しています。🛡️ 私たちのコミュニティがより良いサービスを提供できることを願い、また皆様が私たちに参加してより良い未来を共に創造することを願っています。🤝
 
 [![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
+
 
 ### コミュニティグループ
 
