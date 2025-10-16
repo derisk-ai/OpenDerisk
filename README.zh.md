@@ -153,6 +153,20 @@ OpenDeRisk AI 原生风险智能系统 —— 7\*24H 应用系统AI数字运维�
 
 OpenDeRisk-AI 社区致力于构建 AI 原生的风险智能系统。🛡️ 我们希望我们的社区能够为您提供更好的服务，同时也希望您能加入我们，共同创造更美好的未来。🤝
 
+### 引用
+
+针对此仓库中的代码, 我们通过如下的Paper进行了详细的介绍, 如果发现对你的工作有帮助, 请引用它。
+```
+@misc{di2025openderiskindustrialframeworkaidriven,
+      title={OpenDerisk: An Industrial Framework for AI-Driven SRE, with Design, Implementation, and Case Studies}, 
+      author={Peng Di and Faqiang Chen and Xiao Bai and Hongjun Yang and Qingfeng Li and Ganglin Wei and Jian Mou and Feng Shi and Keting Chen and Peng Tang and Zhitao Shen and Zheng Li and Wenhui Shi and Junwei Guo and Hang Yu},
+      year={2025},
+      eprint={2510.13561},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2510.13561}, 
+}
+```
 
 [![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 

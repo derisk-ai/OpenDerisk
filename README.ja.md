@@ -165,6 +165,21 @@ OpenDeRisk-AIコミュニティは、AIネイティブなリスクインテリ�
 
 [![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
+
+### いんよう
+このリポジトリのコードについては、以下の論文で詳細な紹介をしています。もし、あなたの研究に役立ったと思われる場合は、ぜひ引用してください。
+```
+@misc{di2025openderiskindustrialframeworkaidriven,
+      title={OpenDerisk: An Industrial Framework for AI-Driven SRE, with Design, Implementation, and Case Studies}, 
+      author={Peng Di and Faqiang Chen and Xiao Bai and Hongjun Yang and Qingfeng Li and Ganglin Wei and Jian Mou and Feng Shi and Keting Chen and Peng Tang and Zhitao Shen and Zheng Li and Wenhui Shi and Junwei Guo and Hang Yu},
+      year={2025},
+      eprint={2510.13561},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2510.13561}, 
+}
+```
+
 ### コミュニティグループ
 
 DingDingのネットワーキンググループに参加して、他の開発者と経験を共有しましょう！

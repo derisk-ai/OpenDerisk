@@ -173,6 +173,21 @@ The OpenDeRisk-AI community is dedicated to building AI-native risk intelligence
 
 [![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
+### Citation
+The code (training, serving, and evaluation) in this repository is mostly developed for or derived from the paper below. Please cite it if you find the repository helpful.
+
+```
+@misc{di2025openderiskindustrialframeworkaidriven,
+      title={OpenDerisk: An Industrial Framework for AI-Driven SRE, with Design, Implementation, and Case Studies}, 
+      author={Peng Di and Faqiang Chen and Xiao Bai and Hongjun Yang and Qingfeng Li and Ganglin Wei and Jian Mou and Feng Shi and Keting Chen and Peng Tang and Zhitao Shen and Zheng Li and Wenhui Shi and Junwei Guo and Hang Yu},
+      year={2025},
+      eprint={2510.13561},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2510.13561}, 
+}
+```
+
 ### Community Group
 
 Join our networking group on Dingding and share your experience with other developers!
@@ -180,3 +195,4 @@ Join our networking group on Dingding and share your experience with other devel
 <div align="center" style="display: flex; gap: 20px;">
     <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
 </div>
+
