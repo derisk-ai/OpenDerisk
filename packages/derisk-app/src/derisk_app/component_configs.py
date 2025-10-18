@@ -110,6 +110,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk_ext.agent.agents.open_rca.resource.open_rca_resource import OpenRcaSceneResource
     from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
     from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
+    from derisk_serve.agent.resource.tool.mcp_collect import MCPCollectSSEToolPack
 
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
@@ -144,6 +145,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(LocalToolPack, resource_type=ResourceType.Tool)
+    rm.register_resource(MCPCollectSSEToolPack, resource_type=ResourceType.Tool)
 
 
     # Other resource
