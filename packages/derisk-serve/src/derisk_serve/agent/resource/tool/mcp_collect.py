@@ -51,7 +51,7 @@ def get_mcp_info(mcp_code: str) -> Optional[MCPResponse]:
 
 @dataclasses.dataclass
 class MCPResourceParameters(PackResourceParameters):
-    mcp_server: str = dataclasses.field(
+    mcp_servers: str = dataclasses.field(
         default="mcp code",
         metadata={
             "help": _("MCP SSE Server Code."),
