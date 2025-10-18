@@ -15,6 +15,7 @@ from derisk.vis.schema import VisStepContent, VisTextContent, VisConfirm
 from derisk.vis.vis_converter import (
     SystemVisTag,
 )
+from ... import AgentContext
 from ...core.action.base import Action, ActionOutput
 from ...core.schema import Status, ActionInferenceMetrics
 from ...resource import BaseTool
@@ -114,6 +115,10 @@ class ToolAction(Action[ToolInput]):
         """
         metrics = ActionInferenceMetrics()
         metrics.start_time_ms = time.time_ns() // 1_000_000
+
+        agent_context: Optional[AgentContext] = kwargs.get("agent_context")
+
+
         try:
             param: ToolInput = self.action_input or self._input_convert(
                 ai_message, ToolInput
@@ -246,7 +251,6 @@ class ToolAction(Action[ToolInput]):
                 content=f"Tool action run failed!{str(e)}",
                 terminate=is_terminal,
             )
-
 
     def ask_user(self, tool_pack: ToolPack, tool_name: str) -> bool:
         return tool_pack.ask_user or tool_pack._get_execution_tool(tool_name).ask_user

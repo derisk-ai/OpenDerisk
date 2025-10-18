@@ -63,19 +63,13 @@ function ToolsModal({
 
   useEffect(() => {
     if (visible) {
-      if (toolKey === 'tool') {
-        fetchToolsData(toolKey);
-      }else if (toolKey === 'tool(local)') {
-        fetchLocalToolsData(toolKey);
-      }else if (toolKey === 'tool(http)') {
-        fetchHttpToolsData(toolKey);
-      } else if (toolKey === 'tool(tr)') {
-        fetchTrToolsData(toolKey);
-      } else if (toolKey === 'tool(mcp)') {
-        fetchMcpToolsData(toolKey);
-      }
+      fetchToolsData('tool');
+      fetchLocalToolsData(toolKey);
+      // fetchHttpToolsData(toolKey);
+      // fetchTrToolsData(toolKey);
+      fetchMcpToolsData('tool(mcp(sse))');
     }
-  }, [visible, toolKey, fetchToolsData, fetchHttpToolsData, fetchTrToolsData, fetchLocalToolsData, fetchMcpToolsData]);
+  }, [visible, fetchToolsData, fetchHttpToolsData, fetchTrToolsData, fetchLocalToolsData, fetchMcpToolsData]);
 
   const appList = useMemo(() => {
     return (
@@ -85,7 +79,7 @@ function ToolsModal({
           (item: any) =>
             item.valid_values?.map((option: any) => ({
               ...option,
-              value: option.label,
+              value: option.key,
               label: option.label,
               selected: true,
             })) || []
@@ -145,7 +139,7 @@ function ToolsModal({
           (item: any) =>
             item.valid_values?.map((option: any) => ({
               ...option,
-              value: option.label,
+              value: option.key,
               label: option.label,
               selected: true,
             })) || []
@@ -156,7 +150,6 @@ function ToolsModal({
 
   const handleChange = () => {
     const allToolsList = [];
-    
     // 处理 tool 类型
     const tools = form.getFieldValue('tools') || [];
     const toolsList = tools?.map((item: any) => {
@@ -166,7 +159,7 @@ function ToolsModal({
           (() => {
             try {
               const val = JSON.parse(t.value || '{}');
-              return val.name === item;
+              return val.key === item;
             } catch {
               return false;
             }
@@ -175,7 +168,7 @@ function ToolsModal({
       if (existed) {
         return existed;
       }
-      const tool = appList?.find((v: any) => v.label === item);
+      const tool = appList?.find((v: any) => v.key === item);
       if (tool) {
         const { selected, ...rest } = tool;
         return {
@@ -198,7 +191,7 @@ function ToolsModal({
           (() => {
             try {
               const val = JSON.parse(t.value || '{}');
-              return val.name === item;
+              return val.key === item;
             } catch {
               return false;
             }
@@ -207,7 +200,7 @@ function ToolsModal({
       if (existed) {
         return existed;
       }
-      const tool = httpAppList?.find((v: any) => v.label === item);
+      const tool = httpAppList?.find((v: any) => v.key === item);
       if (tool) {
         const { selected, ...rest } = tool;
         return {
@@ -230,7 +223,7 @@ function ToolsModal({
           (() => {
             try {
               const val = JSON.parse(t.value || '{}');
-              return val.name === item;
+              return val.key === item;
             } catch {
               return false;
             }
@@ -239,7 +232,7 @@ function ToolsModal({
       if (existed) {
         return existed;
       }
-      const tool = trAppList?.find((v: any) => v.label === item);
+      const tool = trAppList?.find((v: any) => v.key === item);
       if (tool) {
         const { selected, ...rest } = tool;
         return {
@@ -286,11 +279,11 @@ function ToolsModal({
     }).filter(Boolean) || [];
 
     // 处理 tool(mcp) 类型
-    const mcpTools = form.getFieldValue('tool(mcp)') || [];
+    const mcpTools = form.getFieldValue('tool(mcp(sse))') || [];
     const mcpToolsList = mcpTools?.map((item: any) => {
       const existed = (appInfo?.resource_tool || []).find(
         (t: any) =>
-          t.type === 'tool(mcp)' &&
+          t.type === 'tool(mcp(sse))' &&
           (() => {
             try {
               const val = JSON.parse(t.value || '{}');
@@ -303,11 +296,11 @@ function ToolsModal({
       if (existed) {
         return existed;
       }
-      const tool = mcpAppList?.find((v: any) => v.label === item);
+      const tool = mcpAppList?.find((v: any) => v.key === item);
       if (tool) {
         const { selected, ...rest } = tool;
         return {
-          type: 'tool(mcp)',
+          type: 'tool(mcp(sse))',
           name: rest.label,
           value: JSON.stringify({
             ...rest,
@@ -381,14 +374,14 @@ function ToolsModal({
             },
             { 
               label: "MCP", 
-              key: "tool(mcp)",
+              key: "tool(mcp(sse))",
               children: (
                 <Form
                   layout="horizontal"
                   className="flex flex-col gap-4 flex-1 mt-2"
                   form={form}
                 >
-                  <Form.Item label="请选择MCP技能" name="tool(mcp)">
+                  <Form.Item label="请选择MCP技能" name="tool(mcp(sse))">
                     <Select
                       mode="multiple"
                       allowClear

@@ -334,7 +334,7 @@ class MCPSSEToolPack(MCPToolPack):
 
     @classmethod
     def type_alias(cls) -> str:
-        return "tool(mcp(sse))"
+        return "tool(mcp)"
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[MCPPackResourceParameters]:

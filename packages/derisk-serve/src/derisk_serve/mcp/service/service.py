@@ -2,7 +2,7 @@ import json
 import logging
 from typing import List, Optional, Any
 
-from derisk.agent.resource.tool.mcp.mcp_utils import switch_mcp_input_schema, call_mcp_tool
+
 from derisk.component import SystemApp
 from derisk.storage.metadata import BaseDao
 from derisk.util.pagination_utils import PaginationResult
@@ -11,6 +11,7 @@ from derisk_serve.core import BaseService
 from ..api.schemas import ServeRequest, ServerResponse, McpTool, QueryFilter
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..models.models import ServeDao, ServeEntity
+from ...agent.resource.tool.mcp_utils import switch_mcp_input_schema, call_mcp_tool
 
 logger = logging.getLogger(__name__)
 
@@ -200,4 +201,4 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             mcp_headers.update(**headers)
         return await call_mcp_tool(mcp_name=mcp_name, tool_name=tool_name,
                                    server=mcp_sse_url if mcp_sse_url else mcp_resp.sse_url, headers=mcp_headers,
-                                   arguments=arguments)
+                                   **arguments)

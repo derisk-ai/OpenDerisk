@@ -976,6 +976,7 @@ class ConversableAgent(Role, Agent):
                     rely_action_out=last_out,
                     render_protocol=self.memory.gpts_memory.vis_converter(self.not_null_agent_context.conv_id),
                     message_id=message.message_id,
+                    agent_context= self.agent_context,
                     **kwargs,
                 )
                 span.metadata["action_out"] = last_out.to_dict() if last_out else None
