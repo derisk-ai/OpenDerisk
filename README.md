@@ -136,6 +136,9 @@ Open your browser and visit [`http://localhost:7777`](http://localhost:7777)
 * Other Development
     Documentation is under preparation...
 
+* DeRisk-Skills Development
+  - [derisk-skills](https://github.com/derisk-ai/derisk_skills)
+
 #### Execution Results
 As shown in the figure below, this demonstrates a scenario where multiple agents collaborate to handle a complex operational diagnostic task.
 

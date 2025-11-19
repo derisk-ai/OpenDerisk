@@ -129,6 +129,9 @@ uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config confi
 * その他の開発
     ドキュメント準備中...
 
+* DeRisk-Skills 発達
+  - [derisk-skills](https://github.com/derisk-ai/derisk_skills)
+
 #### 実行結果
 下図に示すように、複数のエージェントが協調して複雑な運用診断タスクを処理するシナリオを示しています。
 
