@@ -1,0 +1,53 @@
+[system]
+# Load language from environment variable(It is set by the hook)
+language = "${env:DERISK_LANG:-zh}"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+# Server Configurations
+[service.web]
+host = "0.0.0.0"
+port = 7777
+enable_mcp_gateway="True"
+main_app_code = "ai_sre"
+
+[service.web.database]
+type = "sqlite"
+path = "pilot/meta_data/derisk.db"
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+# Model Configurations
+[models]
+[[models.llms]]
+name = "kimi-k2-thinking"
+provider = "proxy/moonshot"
+api_key = "${env:MOOTSHOOT_API_KEY}"
+backend = "kimi-k2-thinking"
+reasoning_model = "True"
+
+[[models.llms]]
+name = "kimi-k2-0905-preview"
+provider = "proxy/moonshot"
+api_key = "${env:MOOTSHOOT_API_KEY}"
+backend = "kimi-k2-0905-preview"
+reasoning_model = "True"
+
+[[models.llms]]
+name = "kimi-k2-turbo-preview"
+provider = "proxy/moonshot"
+api_key = "${env:MOOTSHOOT_API_KEY}"
+backend = "kimi-k2-turbo-preview"
+reasoning_model = "True"
+
+[[models.embeddings]]
+name = "bge-large-zh-v1.5"
+provider = "proxy/openai"
+api_url = "https://api.siliconflow.cn/v1/embeddings"
+api_key = "${env:SILICONFLOW_API_KEY}"
