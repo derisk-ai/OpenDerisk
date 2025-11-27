@@ -74,6 +74,9 @@ async def get_mcp_tool_list(
     rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
     cookie = root_tracer.get_context_cookie()
 
+    if headers is None:
+        headers = {}
+
     async def mcp_tool_list(server: str):
         try:
             cache_result = tool_cache.get(mcp_name)
@@ -148,6 +151,9 @@ async def call_mcp_tool(
     agent_id = root_tracer.get_context_agent_id()
     user_id = root_tracer.get_context_user_id()
     cookie = root_tracer.get_context_cookie()
+
+    if headers is None:
+        headers = {}
 
     # 适配code mcp
     if mcp_name == 'mcp-code' or mcp_name == 'mcp-code-full':
