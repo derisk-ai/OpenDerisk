@@ -42,6 +42,8 @@ class Serve(BaseServe):
         self._config = config
 
     def init_app(self, system_app: SystemApp):
+        # Import models here so they're registered in the metadata before table creation
+        from .models.models import ServeEntity as _  # noqa: F401
         if self._app_has_initiated:
             return
         self._system_app = system_app
@@ -60,9 +62,7 @@ class Serve(BaseServe):
         You can do some initialization here. You can't get other components here
         because they may be not initialized yet
         """
-        # import your own module here to ensure the module is loaded before the
-        # application starts
-        from .models.models import ServeEntity as _  # noqa: F401
+        pass
 
     def after_init(self):
         """Called after init the application."""
