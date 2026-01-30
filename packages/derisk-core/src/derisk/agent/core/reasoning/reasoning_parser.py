@@ -3,6 +3,9 @@ import logging
 import re
 from typing import Tuple, Optional
 
+import orjson
+
+from derisk.agent.core.base_parser import AgentParser, SchemaType
 from derisk.agent.core.reasoning.reasoning_action import (
     Action,
     AgentAction,
@@ -16,10 +19,12 @@ from derisk.agent.core.reasoning.reasoning_engine import (
     ReasoningModelOutput,
     ReasoningPlan,
 )
-from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
+from derisk.agent.expand.actions.tool_action import ToolInput
 from derisk.agent.resource import FunctionTool
+from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.workflow import WorkflowResource
 from derisk.core.workflow.workflow_action import WorkflowAction, WorkflowActionInput
+from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.util.json_utils import find_json_objects
 from derisk.util.string_utils import is_number
 from derisk_ext.agent.agents.reasoning.default.ability import Ability
@@ -27,42 +32,53 @@ from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResour
 
 logger = logging.getLogger("reasoning")
 
+
 def is_str_list(origin) -> bool:
     return isinstance(origin, list) and not any(item for item in origin if not isinstance(item, str))
 
 
 def parse_actions(
-    text: str, abilities: list[Ability]
+    text: str, abilities: list[Ability], agent_parser: Optional[AgentParser] = None
 ) -> Tuple[ReasoningModelOutput, bool, str, Optional[list[Action]]]:
-    json_parsed = find_json_objects(text)
-    if isinstance(json_parsed, list) and len(json_parsed) >= 1:
-        json_parsed = json_parsed[0]
+    if agent_parser:
+        try:
+            result = agent_parser.parse(llm_out=text)
+        except Exception as e:
+            raise ValueError(f"parser 模型输出解析失败！{text},{e}")
+    else:
+        json_parsed = find_json_objects(text)
+        if isinstance(json_parsed, list) and len(json_parsed) >= 1:
+            json_parsed = json_parsed[0]
 
-    if "summary" in json_parsed:
-        # 有时模型返回的summary是list 需要兼容
-        if is_str_list(json_parsed["summary"]):
-            json_parsed["summary"] = "\n".join(json_parsed["summary"])
-        # 也有可能是别的类型
-        elif not isinstance(json_parsed["summary"], str):
-            json_parsed["summary"] = json.dumps(
-                json_parsed["summary"], ensure_ascii=False
-            )
+        if "summary" in json_parsed and json_parsed["summary"]:
+            # 有时模型返回的summary是list 需要兼容
+            if is_str_list(json_parsed["summary"]):
+                json_parsed["summary"] = "\n".join(json_parsed["summary"])
+            # 也有可能是别的类型
+            elif not isinstance(json_parsed["summary"], str):
+                json_parsed["summary"] = json.dumps(
+                    json_parsed["summary"], ensure_ascii=False
+                )
 
-    if "answer" in json_parsed:
-        # 有时模型返回的answer是list 需要兼容
-        if is_str_list(json_parsed["answer"]):
-            json_parsed["answer"] = "\n".join(json_parsed["answer"])
-        # 也有可能是别的类型
-        elif not isinstance(json_parsed["answer"], str):
-            json_parsed["answer"] = json.dumps(
-                json_parsed["answer"], ensure_ascii=False
-            )
+        if "answer" in json_parsed and json_parsed["answer"]:
+            # 有时模型返回的answer是list 需要兼容
+            if is_str_list(json_parsed["answer"]):
+                json_parsed["answer"] = "\n".join(json_parsed["answer"])
+            # 也有可能是别的类型
+            elif not isinstance(json_parsed["answer"], str):
+                json_parsed["answer"] = json.dumps(
+                    json_parsed["answer"], ensure_ascii=False
+                )
 
-    if "plan" in json_parsed:
-        if not isinstance(json_parsed["plan"], list):
-            json_parsed["plans"] = [json_parsed["plan"]]
+        if "plan" in json_parsed:
+            if not isinstance(json_parsed["plan"], list):
+                json_parsed["plans"] = [json_parsed["plan"]]
 
-    result = ReasoningModelOutput.model_validate(json_parsed)
+        try:
+            result = ReasoningModelOutput.model_validate(json_parsed)
+        except Exception as e:
+            logger.error(f"推理引擎模型输出解析失败！{json_parsed}, {e}")
+            raise ValueError(f"模型输出解析失败！{json_parsed}, {e}")
 
     assert result, "failed to parse model output: " + text
 
@@ -71,7 +87,7 @@ def parse_actions(
     actions = format_actions(plans=result.plans, abilities=abilities)
     if result.plans and actions and len(result.plans) != len(actions):
         logger.info(f"parse_actions, plan({len(result.plans)}) != action({len(actions)}), "
-                    f"actions:[{[{'action':action.name,'input':action.action_input} for action in actions]}],"
+                    f"actions:[{[{'action': action.name, 'input': action.action_input} for action in actions]}],"
                     f"plans:[{[plan.to_dict() for plan in result.plans]}]")
     return result, done, answer, actions
 
@@ -111,7 +127,7 @@ def transfer_workflow_action_input(plan: ReasoningPlan) -> WorkflowActionInput:
     intention: str = plan.intention
     parameter: str = json.dumps(plan.parameters) if plan.parameters else None
     return WorkflowActionInput(
-        id=plan.id,
+        name=plan.id,
         query="\n\n".join([s for s in [intention, parameter] if s]),
         thought=plan.reason,
     )
@@ -122,6 +138,7 @@ def format_action(
 ) -> Optional[Action]:
     _dict = {
         FunctionTool: (ToolAction, transfer_tool_action_input),
+        AgentSkillResource: (ToolAction, transfer_tool_action_input),
         ConversableAgent: (AgentAction, transfer_agent_action_input),
         KnowledgePackSearchResource: (
             KnowledgeRetrieveAction,
@@ -130,7 +147,7 @@ def format_action(
         WorkflowResource: (WorkflowAction, transfer_workflow_action_input),
     }
 
-    if (not plan) or (not ability) or (not ability.name.strip() == plan.id.strip()):
+    if (not plan) or (not ability):
         return None
 
     if not ability.actual_type in _dict:
@@ -141,25 +158,34 @@ def format_action(
     action.action_input = input_transfer(plan)
     action.intention = plan.intention
     action.reason = plan.reason
+
     return action
 
 
 def format_actions(
     plans: Optional[list[ReasoningPlan]], abilities: list[Ability]
 ) -> Optional[list[Action]]:
-    if not plans or not abilities:
+    if not plans:
         return None
+    actions = []
+    ability_map = {item.name: item for item in abilities}
+    for plan in plans:
+        ability = ability_map.get(plan.id)
+        if not ability:
+            ## 如果没有在能力中出现，默认走ToolAction，暂时兼容Sandbox相关工具
+            action = ToolAction()
+            action.action_input = transfer_tool_action_input(plan)
+            action.intention = plan.intention
+            action.reason = plan.reason
+        else:
+            action = format_action(plan, ability)
+        if action:
+            actions.append(action)
+    return actions
 
-    return [
-        action
-        for plan in plans
-        for ability in abilities
-        if (action := format_action(plan=plan, ability=ability))
-    ]
 
-
-def parse_action_reports(text: str) -> list[ActionOutput]:
-    def _parse_sub_action_reports(
+async def parse_action_reports(text: str) -> list[ActionOutput]:
+    async def _parse_sub_action_reports(
         content: str, action_report_list: list[ActionOutput]
     ) -> bool:
         """
@@ -169,7 +195,7 @@ def parse_action_reports(text: str) -> list[ActionOutput]:
         :return: 是否有sub_action_report
         """
         try:
-            sub_action_report_dicts_list = json.loads(content) if content else []
+            sub_action_report_dicts_list = orjson.loads(content) if content else []
             sub_action_report_list = (
                 [
                     ActionOutput.from_dict(sub_dict)
@@ -186,7 +212,7 @@ def parse_action_reports(text: str) -> list[ActionOutput]:
         sub = False
         for sub_action_report in sub_action_report_list:
             try:
-                sub = sub or _parse_sub_action_reports(
+                sub = sub or await _parse_sub_action_reports(
                     sub_action_report.content, action_report_list
                 )
             except Exception as e:
@@ -199,13 +225,13 @@ def parse_action_reports(text: str) -> list[ActionOutput]:
         if not text:
             return []
         # 先解析最外层的action_report
-        action_report_dict = json.loads(text)
+        action_report_dict = orjson.loads(text)
         action_report = ActionOutput.from_dict(action_report_dict)
     except Exception as e:
         return []
 
     result: list[ActionOutput] = []
-    if _parse_sub_action_reports(action_report.content, result):
+    if await _parse_sub_action_reports(action_report.content, result):
         return result
     return [action_report]
 
