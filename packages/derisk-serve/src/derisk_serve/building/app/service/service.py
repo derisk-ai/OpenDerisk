@@ -143,7 +143,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if request.agent:
                 ag_mg = get_agent_manager()
                 ag = ag_mg.get(request.agent)
-                if ag.is_team:
+                if ag and ag.is_team:
                     request.team_mode = TeamMode.AUTO_PLAN.value
                     if not request.team_context:
                         team_context = AutoTeamContext(teamleader=request.agent)
