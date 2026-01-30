@@ -1,124 +1,81 @@
-import json
-import typing
-from typing import cast, Union, get_args, Any, Optional, Type
+"""Stub module for reasoning agent ability type definitions.
 
-from derisk.agent import ConversableAgent
-from derisk.agent.core.agent import ContextEngineeringKey
-from derisk.agent.resource import FunctionTool
+This module provides minimal stub classes to support the reasoning
+functionality that may have been refactored elsewhere. These stubs
+allow existing imports to continue working while the codebase is being
+reorganized.
+"""
+from typing import List, Type, Optional, Any
+
+# Import resource types from derisk to build ability types
+from derisk.agent.resource import FunctionTool, BaseTool
+from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.workflow import WorkflowResource
-from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
+from derisk.agent.resource.memory import MemoryResource
+from derisk.agent.resource.base import Resource
 
-AbilityType = Union[FunctionTool, ConversableAgent, KnowledgePackSearchResource, WorkflowResource]
 
+def valid_ability_types() -> List[Type]:
+    """Return a list of valid ability types.
 
-def valid_ability_types() -> tuple[Any, ...]:
-    return typing.get_args(AbilityType)
+    Returns:
+        List of resource types that can be used as abilities in reasoning.
+    """
+    return [
+        FunctionTool,
+        AgentSkillResource,
+        WorkflowResource,
+        MemoryResource,
+        BaseTool,
+    ]
 
 
 class Ability:
-    _ability: AbilityType = None
+    """Represents a capability or ability that an agent can use.
+
+    In the refactor, this was likely tracking different types of resources
+    that agents can utilize during reasoning. This stub provides minimal
+    compatibility for existing code.
+    """
+
+    name: str
+    actual_type: Type
+    resource: Resource
+
+    def __init__(self, name: str, actual_type: Type, resource: Resource):
+        """Initialize an Ability.
+
+        Args:
+            name: The display name of the ability
+            actual_type: The actual Python type of the resource
+            resource: The resource instance
+        """
+        self.name = name
+        self.actual_type = actual_type
+        self.resource = resource
 
     @classmethod
-    def by(cls, source: Any) -> Optional["Ability"]:
-        if not cls._actual_type(source):
+    def by(cls, resource: Resource) -> Optional["Ability"]:
+        """Create an Ability from a Resource.
+
+        Args:
+            resource: The resource to wrap
+
+        Returns:
+            An Ability instance or None if the resource is not valid
+        """
+        if not resource:
             return None
+        # Create ability from resource
+        return Ability(
+            name=getattr(resource, "name", str(type(resource).__name__)),
+            actual_type=type(resource),
+            resource=resource,
+        )
 
-        # Nex Agent默认有一个KnowledgePackSearchResource配置，但可能实际没有知识，需要踢掉
-        if isinstance(source, KnowledgePackSearchResource) and source.is_empty:
-            return None
-
-        return Ability().bind(source)
-
-    def bind(self, ability: AbilityType):
-        self._ability = ability
-        return self
-
-    @property
-    def name(self) -> str:
-        if isinstance(self._ability, KnowledgePackSearchResource):
-            return "knowledge_retrieve"
-        return self._ability.name
-
-    @property
-    def description(self) -> str:
-        if isinstance(self._ability, FunctionTool):
-            return self._ability.name
-        elif isinstance(self._ability, ConversableAgent):
-            return self._ability.desc
-        elif isinstance(self._ability, KnowledgePackSearchResource):
-            return self._ability.description
-        raise NotImplementedError
-
-    @property
-    def context_info(self) -> (str, Any):
-        _mapper = {
-            FunctionTool: lambda: (ContextEngineeringKey.AVAILABLE_TOOLS.value, self._ability.name),
-            ConversableAgent: lambda: (ContextEngineeringKey.AVAILABLE_AGENTS.value, self._ability.name),
-            KnowledgePackSearchResource: lambda: (ContextEngineeringKey.AVAILABLE_KNOWLEDGE.value, self._ability.name),
+    def to_dict(self) -> dict:
+        """Convert ability to dictionary representation."""
+        return {
+            "name": self.name,
+            "actual_type": str(self.actual_type),
         }
-        return _mapper[self.actual_type]()
-
-    @property
-    def actual_type(self) -> Type:
-        return self._actual_type(self._ability)
-
-    @classmethod
-    def _actual_type(cls, _ability) -> Optional[Type]:
-        for _type in get_args(AbilityType):
-            if _ability == _type or isinstance(_ability, _type):
-                return _type
-        return None
-        # return next((_type for _type in get_args(_AbilityType) if isinstance(_ability, _type)), None)
-
-    async def get_prompt(self) -> str:
-        if isinstance(self._ability, FunctionTool):
-            prompt, _ = await self._ability.get_prompt(lang="zh")
-            return prompt
-
-        elif isinstance(self._ability, ConversableAgent):
-            agent = cast(ConversableAgent, self._ability)
-            return "**id**: " + agent.name + "\n\n**描述**: " + agent.desc
-
-        elif isinstance(self._ability, KnowledgePackSearchResource):
-            return f"**id**: {self.name}\n\n**描述**: {self.description} \n\n**参数**:\n\n{json.dumps(KNOWLEDGE_PARAMETERS, ensure_ascii=False)}"
-
-        raise NotImplementedError
-
-
-KNOWLEDGE_PARAMETERS: list[dict] = [
-    {
-        "name": "query",
-        "type": "string",
-        "description": "检索内容",
-        "required": True,
-    },
-    {
-        "name": "knowledge_ids",
-        "type": "Array",
-        "description": "需要检索相关知识库id列表,['id1','id2'], 如果都不涉及返回[]",
-        "required": True,
-    },
-    {
-        "name": "func",
-        "type": "string",
-        "description": "检索函数名, 默认为search, 如果是语义搜索知识,search；"
-                       "如果是读取文档大纲，func为doc_ls；"
-                       "如果是查询整个知识库目录, func为ls",
-        "required": True,
-    },
-    {
-        "name": "doc_uuids",
-        "type": "Array",
-        "description": "需要检索相关文档uuid列表, ['uuid1','uuid2'], 如果都不涉及返回[]; "
-                       "如果func是doc_ls和read, 则doc_uuids为最相关的文档uuid列表；"
-                       "如果func是search和ls, 则doc_uuids=[]",
-        "required": True,
-    },
-    {
-        "name": "header",
-        "type": "string",
-        "description": "具体文档大纲标题, 如果func是read, 则header为最相关的文档大纲标题；"
-                       "如果func是search和ls, 则header=''",
-        "required": True,
-    },
-]
