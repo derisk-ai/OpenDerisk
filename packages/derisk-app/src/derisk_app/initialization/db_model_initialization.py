@@ -18,10 +18,11 @@ from derisk_serve.prompt.models.models import ServeEntity as PromptManageEntity
 from derisk_serve.rag.models.chunk_db import DocumentChunkEntity
 from derisk_serve.rag.models.document_db import KnowledgeDocumentEntity
 from derisk_serve.rag.models.models import KnowledgeSpaceEntity
-from derisk_serve.mcp.models.models import ServeEntity as McpManageEntity
 from derisk_serve.model.models.models import ServeEntity as ModelManageentity
-from derisk_serve.agent.db.gpts_tool_messages import GptsToolMessagesEntity
-from derisk_serve.agent.db.gpts_tool import GptsToolDetailEntity
+from derisk_serve.config.models.models import ServeEntity as ConfigServeEntity
+from derisk_serve.building.app.models.models import ServeEntity as AppServeEntity
+from derisk_serve.building.app.models.models_details import AppDetailServeEntity
+from derisk_serve.building.config.models.models import ServeEntity as AppConfigServeEntity
 
 _MODELS = [
     FileServeEntity,
@@ -37,8 +38,9 @@ _MODELS = [
     FlowServeEntity,
     RecommendQuestionEntity,
     FlowVariableEntity,
-    McpManageEntity,
     ModelManageentity,
-    GptsToolMessagesEntity,
-    GptsToolDetailEntity
+    ConfigServeEntity,
+    AppServeEntity,
+    AppDetailServeEntity,
+    AppConfigServeEntity,
 ]
