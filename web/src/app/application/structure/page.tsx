@@ -1,22 +1,20 @@
 'use client';
 
-import { apiInterceptors, getAppInfo, newDialogue, updateApp } from '@/client/api';
+import { apiInterceptors, getAppInfo, newDialogue, updateApp, getAppVersion } from '@/client/api';
 import { AppContext } from '@/contexts';
 import { IApp } from '@/types/app';
 import { useRequest } from 'ahooks';
-import { Spin } from 'antd';
+import { Spin, App } from 'antd';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import AppConfig from './components/base-config';
 import CharacterConfig from './components/character-config';
 import ChatContent from './components/chat-content';
 import Header from './components/header';
-import { getAppVersion } from '@/client/api';
-import { App } from 'antd'
-import { useTranslation } from 'react-i18next';
 
 export default function Structure() {
-  const { message, notification } = App.useApp()
+  const { message, notification } = App.useApp();
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const [appInfo, setAppInfo] = useState<any>({});
@@ -33,7 +31,7 @@ export default function Structure() {
     }
   }, [appCode]);
 
-  // 获取应用详情
+  // Get App Details
   const {
     run: queryAppInfo,
     refresh: refreshAppInfo,
@@ -45,46 +43,51 @@ export default function Structure() {
           app_code,
           config_code,
         }),
-      notification),
+        notification
+      ),
     {
       manual: true,
       onSuccess: data => {
         const [, res] = data;
         setAppInfo(res || ({} as IApp));
       },
-    },
+    }
   );
 
-  // 更新应用
-  const { run: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(async (app: any) => await apiInterceptors(updateApp(app), notification), {
-    manual: true,
-    onSuccess: data => {
-      const [, res] = data; 
-      if (!res) {
+  // Update App
+  const { run: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(
+    async (app: any) => await apiInterceptors(updateApp(app), notification),
+    {
+      manual: true,
+      onSuccess: data => {
+        const [, res] = data;
+        if (!res) {
+          message.error(t('application_update_failed'));
+          return;
+        }
+        setAppInfo(res || ({} as IApp));
+      },
+      onError: err => {
         message.error(t('application_update_failed'));
-        return;
-      }
-      setAppInfo(res || ({} as IApp));
-    },
-    onError: err => {
-      message.error(t('application_update_failed'));
-      console.log('update app error', err);
+        console.error('update app error', err);
+      },
     }
-  },);
+  );
 
-  // 获取版本数据
+  // Get Version Data
   const { refreshAsync: refetchVersionData } = useRequest(
     async () => await getAppVersion({ app_code: appInfo.app_code }),
     {
       manual: !appInfo?.app_code,
       ready: !!appInfo?.app_code,
       refreshDeps: [appInfo?.app_code ?? ''],
-      onSuccess: data => {   
+      onSuccess: data => {
         setVersionData(data);
-      }
-    },
+      },
+    }
   );
-  // 初始化会话ID
+
+  // Initialize Chat ID
   const initChatId = async (appCode: string) => {
     const [, res] = await apiInterceptors(newDialogue({ app_code: appCode }), notification);
     if (res) {
@@ -109,18 +112,34 @@ export default function Structure() {
         versionData,
       }}
     >
-      <Spin spinning={refreshAppInfoLoading} wrapperClassName='h-screen w-full'>
-        <div className='flex flex-col h-full'>
-          <Header />
-          {/* 基础配置 */}
-          <div className='flex flex-1 flex-row overflow-hidden' ref={containerRef}>
-            {!collapsed && <AppConfig />}
-            {/* 角色设定 */}
-            {!collapsed && <CharacterConfig />}
-            <ChatContent />
+      <div className="flex flex-col h-screen w-full bg-gray-50 overflow-hidden">
+        <Header />
+        <Spin spinning={refreshAppInfoLoading} wrapperClassName="flex-1 overflow-hidden">
+          <div className="flex flex-1 flex-row h-full overflow-hidden" ref={containerRef}>
+            {/* Left Panel: App Configuration */}
+            <div 
+              className={`h-full flex-shrink-0 border-r border-gray-200 bg-white transition-all duration-300 ease-in-out overflow-hidden ${collapsed ? 'w-0 opacity-0 border-none' : 'w-[360px] opacity-100'}`}
+            >
+               <div className="w-[360px] h-full">
+                <AppConfig />
+               </div>
+            </div>
+            
+            {/* Middle Panel: Character/Prompt Configuration */}
+            <div 
+              className={`h-full border-r border-gray-200 bg-white relative transition-all duration-300 ease-in-out overflow-hidden ${collapsed ? 'w-0 min-w-0 flex-none opacity-0 border-none' : 'flex-1 min-w-[400px] opacity-100'}`}
+            >
+              <CharacterConfig />
+            </div>
+
+            {/* Right Panel: Chat Preview */}
+            <div className={`h-full transition-all duration-300 ease-in-out ${collapsed ? 'flex-1 w-full' : 'w-[450px] border-l border-gray-200'} bg-white`}>
+              <ChatContent />
+            </div>
           </div>
-        </div>
-      </Spin>
+        </Spin>
+      </div>
     </AppContext.Provider>
   );
 }
+

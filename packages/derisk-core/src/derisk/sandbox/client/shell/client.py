@@ -16,10 +16,11 @@ OMIT = cast(Any, ...)
 
 class ShellClient(BaseClient):
 
-    def __init__(self, sandbox_id: str, work_dir: str, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, sandbox_id: str, work_dir: str, connection_config: Optional[Any] = None, **kwargs):
+        super().__init__(connection_config=connection_config, **kwargs)
         self._sandbox_id = sandbox_id
         self._work_dir = work_dir
+        self._connection_config = connection_config
 
     @property
     def work_dir(self) -> str:

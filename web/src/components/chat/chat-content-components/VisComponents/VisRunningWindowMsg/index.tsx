@@ -1,12 +1,11 @@
 import React from 'react';
 import { VisRWMsgCardHeader, VisRWMsgCardWrap } from './style';
 import { markdownComponents } from '../../config';
-import { GPTVisLite } from '@antv/gpt-vis';
+import { GPTVis } from '@antv/gpt-vis';
 import Avatar from '../../avatar';
-import rehypeRaw from 'rehype-raw';
-import remarkGfm from 'remark-gfm';
 import { createContext } from 'react';
 import { Space } from 'antd';
+import { markdownPlugins } from '../../config';
 interface IProps {
   data: any;
 }
@@ -31,14 +30,14 @@ const VisRunningWindowMsgCard = ({ data }: IProps) => {
           </Space>
         </VisRWMsgCardHeader>
         <div style={{ padding: '8px 12px' }}>
-          <GPTVisLite
+          {/* @ts-ignore */}
+          <GPTVis
             className="whitespace-normal"
             components={markdownComponents}
-            rehypePlugins={[rehypeRaw]}
-            remarkPlugins={[remarkGfm]}
+            {...markdownPlugins}
           >
             {data?.markdown?.replaceAll('~', '&#126;')}
-          </GPTVisLite>
+          </GPTVis>
         </div>
       </VisRWMsgCardWrap>
     </VisMsgWrapContext.Provider>

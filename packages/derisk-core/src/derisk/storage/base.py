@@ -11,7 +11,8 @@ from typing import List, Optional
 from derisk.core import Chunk
 from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util import BaseParameters
-from derisk.util.executor_utils import blocking_func_to_async_no_executor
+from derisk.util.executor_utils import blocking_func_to_async_no_executor, \
+    blocking_func_to_async
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +285,7 @@ class IndexStoreBase(ABC):
         raise NotImplementedError("Exact search is not supported in this index store.")
 
     async def aexact_search(
-        self, filters: MetadataFilters = None, topk: int = 1
+        self, filters: MetadataFilters = None, topk: int = 1, **kwargs
     ) -> List[Chunk]:
         """Async Exact search in index database.
 
@@ -294,8 +295,8 @@ class IndexStoreBase(ABC):
         Return:
             List[Chunk]: The similar documents.
         """
-        return await blocking_func_to_async_no_executor(
-            self.exact_search, filters, topk
+        return await blocking_func_to_async(
+            self._executor, self.exact_search, filters, topk, **kwargs
         )
 
     def is_support_full_text_search(self) -> bool:
@@ -308,4 +309,13 @@ class IndexStoreBase(ABC):
         """
         raise NotImplementedError(
             "Full text search is not supported in this index store."
+        )
+
+    async def a_is_support_full_text_search(
+        self
+    ) -> bool:
+        """Async Support full text search.
+        """
+        return await blocking_func_to_async(
+            self._executor, self.is_support_full_text_search
         )

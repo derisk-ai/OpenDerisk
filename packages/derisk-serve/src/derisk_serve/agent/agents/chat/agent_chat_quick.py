@@ -5,6 +5,8 @@ from typing import Union, Optional, Any, List
 from fastapi import BackgroundTasks
 
 from derisk.core import HumanMessage
+from derisk.util.date_utils import current_ms
+from derisk.util.tracer import root_tracer
 from derisk_serve.agent.agents.chat.agent_chat import AgentChat
 from derisk_serve.building.config.api.schemas import ChatInParamValue
 
@@ -25,14 +27,25 @@ class QuickAgentChat(AgentChat):
         **ext_info
     ):
         logger.info(f"quick app chat:{gpts_name},{user_query},{conv_uid}")
+        start_ms = root_tracer.get_context_entrance_ms() or current_ms()
+        ttft = None
+        span = root_tracer.start_span(
+            "agent_chat",
+            metadata={
+                "chat_type": "quick",
+                "app_code": gpts_name,
+                "ttft": None,
+                "succeed": False,
+            }
+        )
 
         current_message = await self._initialize_conversation(conv_session_id=conv_uid, app_code=gpts_name, user_query=user_query, user_code=user_code)
         agent_conv_id, gpts_conversations = await self._initialize_agent_conversation(conv_session_id=conv_uid, **ext_info)
-
-
+        span.metadata["conv_id"] = agent_conv_id
 
         agent_task = None
         error_info = None
+        first_chunk_ms = None
         try:
             ## TODO 是否需要额外的快速对话入口？ 指定Agent模版和资源开始对话？
             async for task, chunk, agent_conv_id in self.aggregation_chat(
@@ -49,7 +62,13 @@ class QuickAgentChat(AgentChat):
                 **ext_info,
             ):
                 agent_task = task
+                first_chunk_ms = first_chunk_ms if first_chunk_ms is not None else current_ms()
+                if ttft is None:
+                    ttft = current_ms() - start_ms
+                    span.metadata["ttft"] = ttft
+                    root_tracer.start_span("agent.ttft", metadata={"ttft": ttft}).end()
                 yield chunk, agent_conv_id
+            span.metadata["succeed"] = True
         except asyncio.CancelledError:
                 # Client disconnects
                 logger.warning("Client disconnected")
@@ -66,4 +85,5 @@ class QuickAgentChat(AgentChat):
                 logger.info("对话协程已释放！")
             await self.save_conversation(conv_session_id=conv_uid, agent_conv_id=agent_conv_id,
                                          current_message=current_message, err_msg=error_info,
-                                         chat_call_back=chat_call_back)
+                                         chat_call_back=chat_call_back,first_chunk_ms=first_chunk_ms)
+            span.end()

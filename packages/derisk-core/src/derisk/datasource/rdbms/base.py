@@ -18,7 +18,7 @@ from typing import (
     Set,
     Tuple,
     Type,
-    cast,
+    cast, Union,
 )
 from urllib.parse import quote
 from urllib.parse import quote_plus as urlquote
@@ -72,10 +72,10 @@ class RDBMSDatasourceParameters(BaseDatasourceParameters):
     )
 
     pool_size: int = field(
-        default=5, metadata={"help": _("Connection pool size, default 5")}
+        default=100, metadata={"help": _("Connection pool size, default 5")}
     )
     max_overflow: int = field(
-        default=10, metadata={"help": _("Max overflow connections, default 10")}
+        default=100, metadata={"help": _("Max overflow connections, default 10")}
     )
     pool_timeout: int = field(
         default=30, metadata={"help": _("Connection pool timeout, default 30")}
@@ -340,7 +340,7 @@ class RDBMSConnector(BaseConnector):
             tbl
             for tbl in self._metadata.sorted_tables
             if tbl.name in set(all_table_names)
-            and not (self.dialect == "sqlite" and tbl.name.startswith("sqlite_"))
+               and not (self.dialect == "sqlite" and tbl.name.startswith("sqlite_"))
         ]
 
         tables = []
@@ -475,6 +475,45 @@ class RDBMSConnector(BaseConnector):
         """
         sql = f"select * from {table_name} limit 1"
         return self._query(sql)
+
+    async def query(self, query_sql: str, params: Union[Dict, Tuple, None] = None, fetch: str = "all",
+                    timeout: Optional[float] = None) -> Optional[List]:
+        """Execute a Select SQL template and params command and return the results with optional timeout.
+
+
+        Args:
+            query_sql (str): SQL query to run
+            params (str): SQL query param's
+            fetch (str): fetch type, either 'all' or 'one'
+            timeout (Optional[float]): Query timeout in seconds. If None, no timeout is
+                applied.
+
+        Returns:
+            Tuple[List[str], Optional[List]]: (field_names, results)
+
+        Raises:
+            SQLAlchemyError: If query execution fails
+            TimeoutError: If query exceeds specified timeout
+        """
+        result: List[Any] = []
+
+        logger.info(f"Query[{query_sql}]")
+        if not query_sql:
+            return result
+        with self.session_scope() as session:
+            mapped_result = session.execute(text(query_sql), params or {}).mappings()
+            try:
+                if fetch == "all":
+                    result = mapped_result.fetchall()
+                elif fetch == "one":
+                    row = mapped_result.fetchone()
+                    result = [row] if row else []
+                else:
+                    raise ValueError("Fetch parameter must be either 'one' or 'all'")
+            except Exception as e:
+                # 处理无结果的情况
+                result = []
+            return result
 
     def query_ex(
         self, query: str, fetch: str = "all", timeout: Optional[float] = None
@@ -717,9 +756,9 @@ class RDBMSConnector(BaseConnector):
             set_idx = parts.index("set")
             where_idx = parts.index("where")
             # Get the field name in the `set` clause
-            set_clause = parts[set_idx + 1 : where_idx][0].split("=")[0].strip()
+            set_clause = parts[set_idx + 1: where_idx][0].split("=")[0].strip()
             # Get the condition statement after the `where`
-            where_clause = " ".join(parts[where_idx + 1 :])
+            where_clause = " ".join(parts[where_idx + 1:])
             # Return a SELECT statement that selects the updated data
             return f"SELECT {set_clause} FROM {table_name} WHERE {where_clause}"
         else:
@@ -871,7 +910,7 @@ class RDBMSConnector(BaseConnector):
                 d[0]
                 for d in results
                 if d[0]
-                not in ["information_schema", "performance_schema", "sys", "mysql"]
+                   not in ["information_schema", "performance_schema", "sys", "mysql"]
             ]
 
     def close(self):

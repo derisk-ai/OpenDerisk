@@ -2,7 +2,7 @@ import { Button, Card, Space } from 'antd';
 import React, { useState } from 'react';
 import { VisReportCardWrap } from './style';
 import { markdownComponents, markdownPlugins } from '../../config';
-import { GPTVisLite } from '@antv/gpt-vis';
+import { GPTVis } from '@antv/gpt-vis';
 import { VisCardWrap } from '../style';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -113,13 +113,14 @@ const VisReportCard = ({
         >
           <div className="DownCardClass">
             {/* @ts-ignore */}
-            <GPTVisLite
+            {/* @ts-ignore */}
+            <GPTVis
               className="whitespace-normal"
               components={markdownComponents}
               {...markdownPlugins}
             >
               {data?.markdown || '-'}
-            </GPTVisLite>
+            </GPTVis>
           </div>
         </Card>
       </VisReportCardWrap>

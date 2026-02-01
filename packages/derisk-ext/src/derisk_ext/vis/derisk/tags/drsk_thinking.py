@@ -15,7 +15,7 @@ from .drsk_base import DrskVisBase
 class DrskThinkingContent(DrskVisBase):
     markdown: str = Field(..., description="drsk drsk_vis thinking content")
     think_link: str = Field(None, description="drsk drsk_vis thinking link")
-
+    expand: bool = Field(True, description="hinking content expand, default True")
 
 class DrskThinking(Vis):
     """DrskThinking."""

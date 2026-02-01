@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 
 _torch_imported = False
 torch = None
-
+_enable_llm_stream_print = None
+def check_enable_llm_stream_print() -> bool:
+    global _enable_llm_stream_print
+    if _enable_llm_stream_print is None:
+        from derisk._private.config import Config
+        _enable_llm_stream_print = Config().SYSTEM_APP.config.configs.get("app_config").system.enable_llm_stream_print
+    return _enable_llm_stream_print
 
 class DefaultModelWorker(ModelWorker):
     def __init__(self) -> None:
@@ -41,7 +47,7 @@ class DefaultModelWorker(ModelWorker):
         self.llm_adapter: LLMModelAdapter = None
         self._support_async = False
         self._support_generate_func = False
-        self.context_len = 4096
+        self.context_len = 65536
         self._device = get_device()
 
     def load_worker(
@@ -86,7 +92,7 @@ class DefaultModelWorker(ModelWorker):
             prompt_template=self._model_params.prompt_template
         )
         # Default model context len
-        self.context_len = 4096
+        self.context_len = 65536
 
     def model_param_class(self) -> Type[LLMDeployModelParameters]:
         return self._param_cls
@@ -140,6 +146,16 @@ class DefaultModelWorker(ModelWorker):
                 self.context_len = self._model_params.max_context_size
             elif hasattr(self._model_params, "model_max_length"):
                 self.context_len = self._model_params.model_max_length
+            else:
+                for model_metadata in self.llm_adapter.supported_models():
+                    if isinstance(model_metadata.model, str):
+                        if model_metadata.model == self.model_name:
+                            self.context_len = model_metadata.context_length
+                            break
+                    else:
+                        if self.model_name in model_metadata.model:
+                            self.context_len = model_metadata.context_length
+                            break
 
     def stop(self) -> None:
         if not self.model:
@@ -410,10 +426,6 @@ class DefaultModelWorker(ModelWorker):
         str_prompt = params.get("prompt")
         if not str_prompt:
             str_prompt = params.get("string_prompt")
-        logger.info(
-            f"llm_adapter: {str(self.llm_adapter)}\n\nmodel prompt: \n\n"
-            f"{str_prompt}\n\n{func_type} output:\n"
-        )
 
         generate_func_str_name = "{}.{}".format(func.__module__, func.__name__)
 
@@ -478,7 +490,8 @@ class DefaultModelWorker(ModelWorker):
         if model_output.has_text:
             current_output += model_output.text
         incremental_output = current_output[len(previous_response) :]
-        print(incremental_output, end="", flush=True)
+        if check_enable_llm_stream_print():
+            print(incremental_output, end="", flush=True)
 
         metrics = _new_metrics_from_model_output(last_metrics, is_first_generate, usage)
         model_output.metrics = metrics
@@ -526,7 +539,7 @@ def _new_metrics_from_model_output(
     metrics = ModelInferenceMetrics.create_metrics(last_metric)
     metrics.collect_index = last_metric.collect_index + 1
     if is_first_generate:
-        logger.info(f"is_first_generate, usage: {usage}")
+        # logger.info(f"is_first_generate, usage: {usage}")
         metrics.first_completion_time_ms = time.time_ns() // 1_000_000
 
     if not usage or not isinstance(usage, dict):
@@ -568,7 +581,7 @@ def _new_metrics_from_model_output(
     if completion_tokens:
         # time cost(seconds)
         duration = (metrics.current_time_ms - metrics.start_time_ms) / 1000.0
-        metrics.speed_per_second = completion_tokens / duration
+        metrics.speed_per_second = round(completion_tokens / duration, 2)
 
     if not is_proxy_llm:
         current_gpu_infos = _get_current_cuda_memory()

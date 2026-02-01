@@ -1,14 +1,14 @@
 """Role class for role-based conversation."""
-
+import json
+import logging
 from abc import ABC
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Type, Union, Tuple
+from typing import Dict, List, Optional, Type, Union, Tuple
 
-from jinja2 import Environment, Template, meta
 from jinja2.sandbox import SandboxedEnvironment
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
-
+from derisk.core.interface.scheduler import Scheduler
 from .action.base import ActionOutput
 from .memory.agent_memory import (
     AgentMemory,
@@ -17,17 +17,20 @@ from .memory.agent_memory import (
 )
 from .memory.llm import LLMImportanceScorer, LLMInsightExtractor
 from .profile import Profile, ProfileConfig
-from ...context.event import AfterMemoryWriteEvent, MemoryWritePayload
-from ...context.manager import push_context_event
-
+from .. import AgentMessage
+from ...context.event import EventType, MemoryWritePayload
 from ...util import BaseParameters
-from ...util.template_utils import render
+from ...util.date_utils import convert_datetime
+from ...util.json_utils import serialize
+from ...util.tracer import root_tracer
 
-from .agent import AgentMessage
+logger = logging.getLogger(__name__)
+
 
 class PromptType(Enum):
     JINJIA2 = 'jinja2'
     FSTRING = 'f-string'
+
 
 class AgentRunMode(str, Enum):
     """Agent run mode."""
@@ -36,6 +39,9 @@ class AgentRunMode(str, Enum):
     # Run the agent in loop mode, until the conversation is over(Maximum retries or
     # encounter a stop signal)
     LOOP = "loop"
+    # Run the agent in trace mode (return directly, continuously update memory in the background) until the conversation ends (reach maximum retry count or Encountering a stop signal)
+    TRACKING = "tracking"
+
 
 class Role(ABC, BaseModel):
     """Role class for role-based conversation."""
@@ -46,11 +52,13 @@ class Role(ABC, BaseModel):
         ...,
         description="The profile of the role.",
     )
+    _inited_profile: Profile = None
     memory: AgentMemory = Field(default_factory=AgentMemory)
+    scheduler: Optional[Scheduler] = Field(default=None)
 
     fixed_subgoal: Optional[str] = Field(None, description="Fixed subgoal")
 
-    language: str = "en"
+    language: str = "zh"
     is_human: bool = False
     is_team: bool = False
 
@@ -95,18 +103,19 @@ class Role(ABC, BaseModel):
     @property
     def current_profile(self) -> Profile:
         """Return the current profile."""
-        profile = self.profile.create_profile(prefer_prompt_language=self.language)
-        return profile
+        if not self._inited_profile:
+            self._inited_profile = self.profile.create_profile(prefer_prompt_language=self.language)
+        return self._inited_profile
 
     def prompt_template(
         self,
         prompt_type: str = "system",
         language: str = "en",
         is_retry_chat: bool = False,
-    ) -> Tuple[str,str]:
+    ) -> Tuple[str, str]:
         """Get agent prompt template."""
         self.language = language
-        prompt =  (
+        prompt = (
             self.current_profile.get_user_prompt_template() if prompt_type == "user"
             else self.current_profile.get_write_memory_template() if prompt_type == "write"
             else self.current_profile.get_system_prompt_template()
@@ -201,6 +210,10 @@ class Role(ABC, BaseModel):
         return self.current_profile.get_write_memory_template()
 
     @property
+    def is_reporter(self):
+        return False
+
+    @property
     def examples(self) -> Optional[str]:
         """Return the current example template."""
         return self.current_profile.get_examples()
@@ -238,38 +251,42 @@ class Role(ABC, BaseModel):
         conv_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         llm_token_limit: Optional[int] = None,
+        sub_agent_ids: Optional[List[str]] = None,
     ) -> Union[str, List["AgentMessage"]]:
         """Read the memories from the memory."""
-        from derisk.agent.resource.memory import MemoryParameters
-        memory_params: MemoryParameters = self.get_memory_parameters()
-        memories = await self.memory.search(
-            observation=question,
-            session_id=conv_id,
-            agent_id=agent_id,
-            enable_global_session=memory_params.enable_global_session,
-            retrieve_strategy=memory_params.retrieve_strategy,
-            discard_strategy=memory_params.discard_strategy,
-            condense_prompt=memory_params.message_condense_prompt,
-            condense_model=memory_params.message_condense_model,
-            score_threshold=memory_params.score_threshold,
-            top_k=memory_params.top_k,
-            llm_token_limit=llm_token_limit,
-        )
-        recent_messages = [m.raw_observation for m in memories]
-        return "".join(recent_messages)
+        with root_tracer.start_span("agent.read_memories"):
+            from derisk.agent.resource.memory import MemoryParameters
+            memory_params: MemoryParameters = self.get_memory_parameters()  # type: ignore
+            memories = await self.memory.search(
+                observation=question,
+                session_id=conv_id,
+                agent_id=agent_id,
+                enable_global_session=memory_params.enable_global_session,
+                retrieve_strategy=memory_params.retrieve_strategy,
+                discard_strategy=memory_params.discard_strategy,
+                condense_prompt=memory_params.message_condense_prompt,
+                condense_model=memory_params.message_condense_model,
+                score_threshold=memory_params.score_threshold,
+                top_k=memory_params.top_k,
+                llm_token_limit=llm_token_limit,
+                sub_agent_ids=sub_agent_ids
+            )
+            recent_messages = [m.raw_observation for m in memories]
+            return "".join(recent_messages)
 
     async def write_memories(
         self,
         question: str,
         ai_message: str,
-        action_output: Optional[ActionOutput] = None,
+        action_output: Optional[List[ActionOutput]] = None,
         check_pass: bool = True,
         check_fail_reason: Optional[str] = None,
         current_retry_counter: Optional[int] = None,
         reply_message: Optional[AgentMessage] = None,
         agent_id: Optional[str] = None,
         condense: bool = False,
-    ) -> AgentMemoryFragment:
+        terminate: bool = False,
+    ) -> Optional[Union[AgentMemoryFragment, List[AgentMemoryFragment]]]:
         """Write the memories to the memory.
 
         We suggest you to override this method to save the conversation to memory
@@ -278,69 +295,99 @@ class Role(ABC, BaseModel):
         Args:
             question(str): The question received.
             ai_message(str): The AI message, LLM output.
-            action_output(ActionOutput): The action output.
+            action_output(List[ActionOutput]): The action output.
             check_pass(bool): Whether the check pass.
             check_fail_reason(str): The check fail reason.
             current_retry_counter(int): The current retry counter.
             reply_message(AgentMessage): The reply message.
             agent_id(str): The agent id.
-            condense(bool): 是否是压缩后的内容
+            condense(bool): 是否是压缩后的内容,
+            terminate(bool): 是否是终止
 
         Returns:
             AgentMemoryFragment: The memory fragment created.
         """
         if not action_output:
-            raise ValueError("Action output is required to save to memory.")
+            logger.info("Action output is required to save to memory.")
+            return None
 
-        mem_thoughts = action_output.thoughts or ai_message
-        action = action_output.action
-        action_input = action_output.action_input
-        observation = check_fail_reason or action_output.content_summary or action_output.observations
+        with root_tracer.start_span("agent.write_memories"):
 
-        memory_map = {
-            "question": question,
-            "thought": mem_thoughts,
-            "action": action,
-            "observation": observation,
-        }
-        if action_input:
-            memory_map["action_input"] = action_input
+            fragments: List[AgentMemoryFragment] = []
 
-        if current_retry_counter is not None and current_retry_counter == 0:
-            memory_map["question"] = question
+            from derisk.agent.resource.memory import MemoryParameters
+            memory_parameter: MemoryParameters = self.get_memory_parameters()
 
-        write_memory_template = self.write_memory_template
-        memory_content = self._render_template(write_memory_template, **memory_map)
+            if action_output and action_output[0].thoughts:
+                mem_thoughts = action_output[0].thoughts
+            else:
+                mem_thoughts = ai_message
 
-        fragment_cls: Type[AgentMemoryFragment] = self.memory_fragment_class
-        if issubclass(fragment_cls, StructuredAgentMemoryFragment):
-            fragment = fragment_cls(memory_map)
-        else:
-            fragment = fragment_cls(
-                observation=memory_content,
-                agent_id=agent_id,
-                memory_id=reply_message.message_id,
-                role=self.name,
-                rounds=reply_message.rounds,
-                task_goal=question,
-                thought=mem_thoughts,
-                action=action_output.action,
-                action_result=action_output.content_summary or action_output.observations,
-                agent_type=self.role,
-                condense=condense,
-                user_input=question,
-                ai_message=ai_message,
+            actions: List[dict] = []
+            for item in action_output:
+
+                mem_thoughts = item.thoughts or ai_message
+                action = item.action
+                action_input = item.action_input
+                observation = item.content_summary or item.observations or item.content
+                if terminate:
+                    action = "answer"
+                action_dict = {
+                    "is_exe_success": item.is_exe_success,
+                    "action": action,
+                    "observation": observation,
+                }
+                if action_input:
+                    action_dict["action_input"] = action_input
+                actions.append(action_dict)
+
+            memory_map = {
+                "question": question,
+                "thought": mem_thoughts,
+                "actions": actions
+            }
+            if current_retry_counter is not None and current_retry_counter == 0:
+                memory_map["question"] = question
+            write_memory_template = self.write_memory_template
+            memory_content = self._render_template(write_memory_template, **memory_map)
+
+            fragment_cls: Type[AgentMemoryFragment] = self.memory_fragment_class
+            if issubclass(fragment_cls, StructuredAgentMemoryFragment):
+                fragment = fragment_cls(memory_map)
+            else:
+                fragment = fragment_cls(
+                    observation=memory_content,
+                    agent_id=agent_id,
+                    memory_id=reply_message.message_id,
+                    role=self.name,
+                    rounds=current_retry_counter if current_retry_counter else reply_message.rounds,
+                    task_goal=question,
+                    thought=mem_thoughts,
+                    action=None,
+                    actions=actions,
+                    action_result=None,
+                    agent_type=self.role,
+                    condense=condense,
+                    user_input=question,
+                    ai_message=ai_message,
+                    raw_action_outputs=json.dumps(
+                        convert_datetime(
+                            [output.to_dict() for output in action_output]
+                        ), ensure_ascii=False, default=serialize
+                    )
+                )
+
+            await self.memory.write(
+                memory_fragment=fragment,
+                enable_message_condense=memory_parameter.enable_message_condense,
+                message_condense_model=memory_parameter.message_condense_model,
+                message_condense_prompt=memory_parameter.message_condense_prompt,
+
             )
-        await self.memory.write(fragment)
-        await push_context_event(AfterMemoryWriteEvent(payload=MemoryWritePayload(
-            fragment=fragment,
-        )), agent=self)
-        action_output.memory_fragments = {
-            "memory": fragment.raw_observation,
-            "id": fragment.id,
-            "importance": fragment.importance,
-        }
-        return fragment
+            await self.push_context_event(EventType.AfterMemoryWrite, MemoryWritePayload(
+                fragment=fragment), reply_message.goal_id)
+
+            return fragments
 
     def get_memory_parameters(self) -> BaseParameters | None:
         """ Get memory parameters from the agent's resource if available."""
@@ -350,6 +397,8 @@ class Role(ABC, BaseModel):
             for r in resource.sub_resources:
                 if isinstance(r, MemoryResource):
                     return r.memory_params
+        elif resource and isinstance(resource, MemoryResource):
+            return resource.memory_params
         return MemoryResource.default_parameters()
 
     async def recovering_memory(self, action_outputs: List[ActionOutput]) -> None:

@@ -668,7 +668,7 @@ class LLMModelAdapter(ABC):
         messages = params.get("messages")
         convert_to_compatible_format = params.get("convert_to_compatible_format")
         message_version = params.get("version", "v2").lower()
-        logger.info(f"Message version is {message_version}")
+        # logger.info(f"Message version is {message_version}")
         if convert_to_compatible_format is None:
             # Support convert messages to compatible format when message version is v1
             convert_to_compatible_format = message_version == "v1"

@@ -239,7 +239,6 @@ def gen_thinking_info_v2(message: GptsMessage):
 
 def gen_knowledge_execute_info(action_out: ActionOutput):
     """Generate knowledge execute steps"""
-    # action_out = ActionOutput.from_dict(json.loads(message.action_report))
     if action_out and action_out.resource_value:
         stages: List[MessageStage] = []
         knowledge_res = action_out.resource_value

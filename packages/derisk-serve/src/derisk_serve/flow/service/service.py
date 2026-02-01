@@ -8,7 +8,6 @@ from fastapi import HTTPException
 
 from derisk._private.config import Config
 from derisk._private.pydantic import model_to_json
-from derisk.agent import AgentDummyTrigger
 from derisk.component import SystemApp
 from derisk.core.awel import DAG, BaseOperator, CommonLLMHttpRequestBody
 from derisk.core.awel.flow.flow_factory import (

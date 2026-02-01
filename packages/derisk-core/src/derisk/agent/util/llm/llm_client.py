@@ -1,29 +1,33 @@
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Union, List
 
-from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict, Field
+from derisk._private.pydantic import BaseModel, model_to_dict
 from derisk.core import LLMClient, ModelRequestContext, ModelOutput, ModelInferenceMetrics
 from derisk.core.interface.output_parser import BaseOutputParser
 from derisk.util.error_types import LLMChatError
 from derisk.util.tracer import root_tracer
-
 from ..llm.llm import _build_model_request
 
 logger = logging.getLogger(__name__)
 
+
 class AgentLLMOut(BaseModel):
     llm_name: Optional[str] = None
+    llm_context: Optional[dict] = None
+    in_messages: Optional[List[Dict]] = None
     thinking_content: Optional[str] = None
     content: Optional[str] = None
-    tool_call: Optional[str] = None
+    tool_calls: Optional[Union[str, List[Dict[str, Any]]]] = None,
     metrics: Optional[ModelInferenceMetrics] = None
-    extra: Optional[Dict[str,Any]]= None
+    extra: Optional[Dict[str, Any]] = None
+    ttft: int = 0
 
     def to_dict(self):
         dict_value = model_to_dict(self, exclude={"metrics"})
         if self.metrics:
             dict_value['metrics'] = self.metrics.to_dict()
         return dict_value
+
 
 class AIWrapper:
     """AIWrapper for LLM."""
@@ -54,7 +58,6 @@ class AIWrapper:
         self._llm_client = llm_client
         self._output_parser = output_parser or BaseOutputParser(is_stream_out=False)
 
-
     def _construct_create_params(self, create_config: Dict, extra_kwargs: Dict) -> Dict:
         """Prime the create_config with additional_kwargs."""
         # Validate the config
@@ -83,7 +86,6 @@ class AIWrapper:
         extra_kwargs = {k: v for k, v in config.items() if k in self.extra_kwargs}
         return create_config, extra_kwargs
 
-
     async def create(self, **config):
         # merge the input config with the i-th config in the config list
         full_config = {**config}
@@ -93,6 +95,7 @@ class AIWrapper:
         llm_model = extra_kwargs.get("llm_model")
         llm_context = extra_kwargs.get("llm_context")
         stream_out = extra_kwargs.get("stream_out", True)
+        function_calling_context: Optional[Dict] = params.get("function_calling_context", None)
 
         payload = {
             "model": llm_model,
@@ -118,9 +121,24 @@ class AIWrapper:
         extra = {}
         if llm_context:
             extra.update(llm_context)
+
+        mist_keys = params.get("mist_keys")
+        if mist_keys:
+            # 存在独立配置的mist key
+            extra["mist_keys"] = mist_keys
+
+        # 调用模型的用户信息
+        user = params.get("staff_no")
+        if user:
+            extra['user'] = user
+
         payload["context"] = ModelRequestContext(extra=extra,
-                                                     trace_id=params.get("trace_id", None),
-                                                     rpc_id=params.get("rpc_id", None))
+                                                 trace_id=params.get("trace_id", None),
+                                                 rpc_id=params.get("rpc_id", None))
+
+        if function_calling_context:
+            payload.update(function_calling_context)
+
         try:
             model_request = _build_model_request(payload)
             from datetime import datetime
@@ -130,26 +148,30 @@ class AIWrapper:
                     model_output: ModelOutput = output
                     # 恢复模型调用异常，触发后续的模型兜底策略
                     if model_output.error_code != 0:
-                        raise LLMChatError(model_output.text)
+                        raise LLMChatError(model_output.text, original_exception=model_output.error_code)
 
                     thinking_text, content_text = model_output.gen_text_and_thinking()
 
                     think_blank = not thinking_text or len(thinking_text) <= 0
                     content_blank = not content_text or len(content_text) <= 0
-                    if think_blank and content_blank:
+                    if think_blank and content_blank and not model_output.tool_calls:
                         continue
 
                     yield AgentLLMOut(thinking_content=thinking_text, content=content_text,
-                                      metrics=model_output.metrics, llm_name=llm_model)
+                                      metrics=model_output.metrics, llm_name=llm_model, llm_context=llm_context,
+                                      tool_calls=model_output.tool_calls, in_messages=params["messages"])
             else:
                 model_output = await self._llm_client.generate(model_request.copy())  # type: ignore
                 # 恢复模型调用异常，触发后续的模型兜底策略
                 if model_output.error_code != 0:
-                    raise LLMChatError(model_output.text)
+                    raise LLMChatError(model_output.text, original_exception=model_output.error_code)
                 thinking_text, content_text = model_output.gen_text_and_thinking()
 
-                yield AgentLLMOut(thinking_content=thinking_text, content=content_text, metrics=model_output.metrics)
-        except LLMChatError:
+                yield AgentLLMOut(thinking_content=thinking_text, content=content_text, metrics=model_output.metrics,
+                                  llm_name=llm_model, llm_context=llm_context, tool_calls=model_output.tool_calls,
+                                  in_messages=params["messages"])
+        except LLMChatError as e:
+            logger.exception(f"LLM  Chat error, detail: {str(e)}")
             raise
         except Exception as e:
             logger.exception(f"Call LLMClient error, detail: {str(e)}")

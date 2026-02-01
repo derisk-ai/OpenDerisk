@@ -66,10 +66,8 @@ class Service(
 
     def before_start(self):
         """Execute before the application starts"""
-        from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
 
         super().before_start()
-        self._db_summary_client = DBSummaryClient(self._system_app)
 
     def after_start(self):
         """Execute after the application starts"""

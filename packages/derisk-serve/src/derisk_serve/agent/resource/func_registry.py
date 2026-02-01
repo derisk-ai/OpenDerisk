@@ -317,5 +317,13 @@ class CentralFunctionRegistry:
         # for tool in delete_local_tools:
         #     gpts_tool_dao.delete_by_tool_id(tool.tool_id)
 
+        # Register AgentSkill resource (skills from database)
+        try:
+            from derisk.agent.resource.agent_skills import register_agent_skill_resource
+            register_agent_skill_resource(system_app)
+            logger.info("AgentSkill resource registered successfully")
+        except Exception as e:
+            logger.warning(f"Failed to register AgentSkill resource: {e}")
+
 
 central_registry = CentralFunctionRegistry()

@@ -21,7 +21,7 @@ from derisk.util.tracer.tracer_impl import (
 )
 from derisk.util.logger import (
     LoggingParameters,
-    setup_http_service_logging,
+    # setup_http_service_logging,
     setup_logging,
 )
 
@@ -189,7 +189,7 @@ def initialize_controller(
     else:
         import uvicorn
 
-        setup_http_service_logging()
+        # setup_http_service_logging()
         app = create_app()
         if not system_app:
             system_app = SystemApp(app)

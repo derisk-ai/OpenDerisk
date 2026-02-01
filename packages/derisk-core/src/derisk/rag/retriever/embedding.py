@@ -9,7 +9,7 @@ from derisk.rag.retriever.rerank import DefaultRanker, Ranker
 from derisk.rag.retriever.rewrite import QueryRewrite
 from derisk.storage.base import IndexStoreBase
 from derisk.storage.vector_store.filters import MetadataFilters
-from derisk.util.chat_util import run_async_tasks
+from derisk.util.executor_utils import run_async_tasks
 from derisk.util.tracer import root_tracer
 
 

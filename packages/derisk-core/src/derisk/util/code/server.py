@@ -115,10 +115,11 @@ _SYSTEM_APP: Optional[SystemApp] = None
 
 def initialize_code_server(system_app: SystemApp):
     """Initialize the code server."""
-    global _SYSTEM_APP
-    _SYSTEM_APP = system_app
-    code_server = CodeServer(system_app)
-    system_app.register_instance(code_server)
+    # todo: 暂时用不上code相关服务 先屏蔽 后续需要再打开
+    # global _SYSTEM_APP
+    # _SYSTEM_APP = system_app
+    # code_server = CodeServer(system_app)
+    # system_app.register_instance(code_server)
 
 
 async def get_code_server(

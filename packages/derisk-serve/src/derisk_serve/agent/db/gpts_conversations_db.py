@@ -8,7 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    desc,
+    desc, select,
 )
 from sqlalchemy.orm import Query
 
@@ -41,7 +41,7 @@ class GptsConversationsEntity(Model):
     user_code = Column(String(255), nullable=True, comment="user code")
     sys_code = Column(String(255), nullable=True, comment="system app ")
     vis_render = Column(String(255), nullable=True, comment="vis mode of chat conversation ")
-
+    extra=Column(Text(65535), nullable=True, comment="the extra info of the conversation")
     created_at = Column(
         DateTime, name="gmt_create", default=datetime.utcnow, comment="create time"
     )
@@ -60,13 +60,18 @@ class GptsConversationsEntity(Model):
 
 
 class GptsConversationsDao(BaseDao):
-    def add(self, engity: GptsConversationsEntity):
+    def add(self, entity: GptsConversationsEntity):
         session = self.get_raw_session()
-        session.add(engity)
+        session.add(entity)
         session.commit()
-        id = engity.id
+        id = entity.id
         session.close()
         return id
+
+    async def a_add(self, entity: GptsConversationsEntity):
+        async with self.a_session() as session:
+            session.add(entity)
+            return entity.id
 
     def get_by_conv_id(self, conv_id: str):
         session = self.get_raw_session()
@@ -76,6 +81,13 @@ class GptsConversationsDao(BaseDao):
         result = gpts_conv.first()
         session.close()
         return result
+
+    async def a_get_by_conv_id(self, conv_id: str):
+        async with self.a_session(commit=False) as session:
+            result = await session.execute(
+                select(GptsConversationsEntity).where(GptsConversationsEntity.conv_id == conv_id).limit(1)
+            )
+            return result.scalar_one_or_none()
 
     def get_like_conv_id_asc(self, conv_id: str):
         session = self.get_raw_session()
@@ -89,17 +101,23 @@ class GptsConversationsDao(BaseDao):
             session.close()
         return result
 
-    def get_by_session_id_asc(self, conv_session_id: str):
-        session = self.get_raw_session()
-        try:
-            gpts_conv_qry: Query = session.query(GptsConversationsEntity)
-            gpts_conv_qry: Query = gpts_conv_qry.filter(
-                GptsConversationsEntity.conv_session_id == conv_session_id
-            ).order_by(GptsConversationsEntity.id.asc())
-            result = gpts_conv_qry.all()
-        finally:
-            session.close()
-        return result
+    async def get_by_session_id_asc(self, conv_session_id: str):
+        async with self.a_session(commit=False) as session:
+            result = await session.execute(
+                select(GptsConversationsEntity).where(GptsConversationsEntity.conv_session_id == conv_session_id)
+                .order_by(desc(GptsConversationsEntity.id))
+            )
+            return list(result.scalars().all())
+        # session = self.get_raw_session()
+        # try:
+        #     gpts_conv_qry: Query = session.query(GptsConversationsEntity)
+        #     gpts_conv_qry: Query = gpts_conv_qry.filter(
+        #         GptsConversationsEntity.conv_session_id == conv_session_id
+        #     ).order_by(GptsConversationsEntity.id.asc())
+        #     result = gpts_conv_qry.all()
+        # finally:
+        #     session.close()
+        # return result
 
     def get_convs(self, user_code: str = None, system_app: str = None):
         session = self.get_raw_session()

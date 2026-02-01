@@ -3,7 +3,7 @@
 import random
 from concurrent.futures import Executor
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 from derisk.core import Embeddings
 from derisk.util.annotations import immutable, mutable
@@ -61,6 +61,7 @@ class EnhancedShortTermMemory(ShortTermMemory[T]):
         memory_fragment: T,
         now: Optional[datetime] = None,
         op: WriteOperation = WriteOperation.ADD,
+        **kwargs: Any
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write memory fragment to short term memory.
 

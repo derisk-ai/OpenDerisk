@@ -40,11 +40,11 @@ class DefaultScheduler(BaseComponent):
         self._stop_event.set()
 
     def _scheduler(self):
-        time.sleep(self._scheduler_delay_ms / 1000)
+        time.sleep(self._scheduler_delay_ms / 1000) # 单独进程 sleep不会阻塞主事件循环
         while self._scheduler_enable and not self._stop_event.is_set():
             try:
                 schedule.run_pending()
             except Exception as e:
                 logger.debug(f"Scheduler error: {e}")
             finally:
-                time.sleep(self._scheduler_interval_ms / 1000)
+                time.sleep(self._scheduler_interval_ms / 1000) # 单独进程 sleep不会阻塞主事件循环

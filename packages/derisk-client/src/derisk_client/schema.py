@@ -1,15 +1,18 @@
 """this module contains the schemas for the derisk client."""
 
 import json
-import warnings
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
+
+from pydantic import field_validator
 from typing_extensions import deprecated
 
 from fastapi import File, UploadFile
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field, validator
+from derisk.core import HumanMessage
 from derisk_ext.rag.chunk_manager import ChunkParameters
 
 
@@ -19,7 +22,7 @@ class ChatCompletionRequestBody(BaseModel):
     model: str = Field(
         ..., description="The model name", examples=["gpt-3.5-turbo", "proxyllm"]
     )
-    messages: Union[str, List[str]] = Field(
+    messages: Union[str, List[str], HumanMessage] = Field(
         ..., description="User input messages", examples=["Hello", "How are you?"]
     )
     stream: bool = Field(default=True, description="Whether return stream")
@@ -41,6 +44,9 @@ class ChatCompletionRequestBody(BaseModel):
     )
     trace_id: Optional[str] = Field(
         default=None, description="The trace id of the request"
+    )
+    specify_config_code: Optional[str] = Field(
+        default=None, description="The specify_config_code id of the request"
     )
     call_back_url: Optional[str] = Field(
         default=None, description="The call_back_url id of the request"
@@ -318,3 +324,20 @@ class DatasourceModel(BaseModel):
     db_user: str = Field("", description="Database user.")
     db_pwd: str = Field("", description="Database password.")
     comment: str = Field("", description="Comment for the database.")
+
+class BaseAssetModel(BaseModel):
+    """Base Asset Model."""
+    model_config = ConfigDict(extra='ignore')
+
+    asset_id: str = f"asset-{uuid.uuid4()}"
+    asset_type: str
+    create_time: Optional[datetime] = None
+    update_time: Optional[datetime] = None
+    combined_vector: Optional[List[float]] = None
+    tags: Optional[List[str]] = None
+
+    @field_validator('create_time', 'update_time', mode='before')
+    def parse_datetime(cls, v):
+        if isinstance(v, str):
+            return datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+        return v

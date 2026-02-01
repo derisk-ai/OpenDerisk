@@ -28,8 +28,9 @@ export class CommonPluginWidget extends WidgetType {
   toDOM() {
     const container = document.createElement('span'); // 创建一个临时容器
     // 使用 ReactDOM.createRoot 渲染 Ant Design 的 Tag 组件
-    const root = ReactDOM.createRoot(container);
-    root.render(<CustomContentRender data={this.data} />);
+    // const root = ReactDOM.createRoot(container);
+    // // @ts-ignore
+    // root.render(<CustomContentRender data={this.data} />);
     // container.addEventListener('click', (event) => {
     //   // 调用外部传入的点击事件处理器
     //   if (this.onClick) {

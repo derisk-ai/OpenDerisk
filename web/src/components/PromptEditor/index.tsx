@@ -1,13 +1,12 @@
 import { Rect } from '@codemirror/view';
 import { createTheme } from '@uiw/codemirror-themes';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
+import { Button, Tooltip } from 'antd';
+import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import type { FC } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import CommonPlugin from './components/CommonPlugin';
-// import HighlightTitlePlugin from './components/HighlightTitlePlugin';
-// import MentionPanel from './components/MentionPanel';
-// import VariableChangeModal from './components/VariableChangeModal';
-// import VariablePlugin from './components/VariablePlugin';
+import ReactMarkdown from 'react-markdown';
+import VariablePlugin from './components/VariablePlugin';
 import { PromptEditorWrapper } from './style';
 import { getCursorPosition, getCursorSelection } from './utils';
 
@@ -26,6 +25,7 @@ export type IPromptInputProps = {
   knowledgeList?: any[];
   className?: string;
   teamMode?: boolean;
+  showPreview?: boolean;
 };
 
 interface Range {
@@ -48,6 +48,7 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     knowledgeList = [],
     className,
     teamMode,
+    showPreview = false,
   } = props;
   // 选区信息
   const [selectionRange, setSelectionRange] = useState<Range | undefined>();
@@ -60,6 +61,13 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
 
   // 变量切换弹窗
   const [showVarChangeModalOpen, setShowVarChangeModalOpen] = useState(false);
+
+  // 内部状态控制预览显示，默认为 false
+  const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+
+  // Add scroll sync refs
+  const previewRef = useRef<HTMLDivElement>(null);
+  const scrollingRef = useRef<'editor' | 'preview' | null>(null);
 
   const getJoinText = (params: { title?: string; mentionType?: string }) => {
     const { title, mentionType } = params;
@@ -126,22 +134,15 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     });
   };
   // 扩展插件
+  // @ts-ignore
   const basicExtensions = [
     // 变量插件
-    // VariablePlugin({
-    //   variableList,
-    //   clickChangeVariable: handleClickChangeVariable,
-    //   reasoningArgSuppliers,
-    //   readonly,
-    // }),
-    // 通用插件（技能/知识/agent）
-    CommonPlugin({
-      skillList,
-      agentList,
-      knowledgeList,
+    VariablePlugin({
+      variableList,
+      clickChangeVariable: handleClickChangeVariable,
+      reasoningArgSuppliers,
+      readonly,
     }),
-    // 高亮标题插件
-    // HighlightTitlePlugin,
   ];
 
   const theme = createTheme({
@@ -226,6 +227,40 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     view?.dom?.addEventListener('keydown', handleKeyDown);
     // 这里监听全局的鼠标抬起事件，获取选区信息，避免鼠标在编辑器外部时不触发
     document.addEventListener('mouseup', handleMouseUp);
+    
+    // Add scroll listener for sync
+    if (showPreview && isPreviewVisible) {
+      const scrollDom = view.scrollDOM;
+      scrollDom.addEventListener('scroll', () => {
+        if (!previewRef.current || scrollingRef.current === 'preview') return;
+        scrollingRef.current = 'editor';
+        
+        const percentage = scrollDom.scrollTop / (scrollDom.scrollHeight - scrollDom.clientHeight);
+        const previewDom = previewRef.current;
+        previewDom.scrollTop = percentage * (previewDom.scrollHeight - previewDom.clientHeight);
+        
+        // Reset scrolling lock after a short delay
+        setTimeout(() => {
+          if (scrollingRef.current === 'editor') scrollingRef.current = null;
+        }, 100);
+      });
+    }
+  };
+
+  // Preview scroll handler
+  const handlePreviewScroll = () => {
+    if (!previewRef.current || !editorRef.current || scrollingRef.current === 'editor') return;
+    scrollingRef.current = 'preview';
+    
+    const previewDom = previewRef.current;
+    const percentage = previewDom.scrollTop / (previewDom.scrollHeight - previewDom.clientHeight);
+    
+    const editorScrollDom = editorRef.current.scrollDOM;
+    editorScrollDom.scrollTop = percentage * (editorScrollDom.scrollHeight - editorScrollDom.clientHeight);
+    
+    setTimeout(() => {
+      if (scrollingRef.current === 'preview') scrollingRef.current = null;
+    }, 100);
   };
 
   /**
@@ -270,20 +305,23 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
   }, []);
   return (
     <>
-      {/* {showVarChangeModalOpen && (
-        <VariableChangeModal
-          open={showVarChangeModalOpen}
-          setOpen={setShowVarChangeModalOpen}
-          handleChangeVar={handleChangeVar}
-          variableList={variableList}
-          changeVarInfo={changeVarInfo}
-        />
-      )} */}
-
       <PromptEditorWrapper style={style} className={className}>
+        {showPreview && (
+          <div className="absolute top-2 right-4 z-10">
+             <Tooltip title={isPreviewVisible ? "关闭预览 / Close Preview" : "开启预览 / Open Preview"}>
+                <Button 
+                    type="text" 
+                    icon={isPreviewVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />} 
+                    onClick={() => setIsPreviewVisible(!isPreviewVisible)}
+                    size="small"
+                    className="bg-white/80 backdrop-blur-sm shadow-sm hover:bg-white border border-gray-200"
+                />
+             </Tooltip>
+          </div>
+        )}
         {/* 变量选择浮层 */}
-        <div className='custom-choose'>
-          {/* {showVarChooseModalOpen && (
+        {/* <div className='custom-choose'>
+          {showVarChooseModalOpen && (
             <MentionPanel
               skillList={skillList || []}
               agentList={agentList || []}
@@ -295,40 +333,56 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
               handleChangeVar={handleChangeVar}
               teamMode={teamMode}
             />
-          )} */}
+          )}
+        </div> */}
+        <div className="flex h-full w-full">
+            <div className={`h-full w-full transition-all duration-300 ${showPreview && isPreviewVisible ? 'hidden' : 'block'}`}>
+                <CodeMirror
+                  theme={theme}
+                  className={'InputCodeMirror'}
+                  readOnly={readonly}
+                  value={value}
+                  onChange={curValue => {
+                    if (onChange) {
+                      onChange(curValue);
+                    }
+                  }}
+                  onCreateEditor={handleCreateEditor}
+                  placeholder={placeholder}
+                  basicSetup={{
+                    lineNumbers: false,
+                    highlightActiveLineGutter: false,
+                    foldGutter: false,
+                    autocompletion: false,
+                    //关闭自己显示另一开括号
+                    // closeBrackets: false,
+                    indentOnInput: false,
+                    highlightActiveLine: false,
+                    //自动突出显示与当前选中内容相匹配的其它部分
+                    highlightSelectionMatches: false,
+                  }}
+          // @ts-ignore
+          extensions={basicExtensions}
+                  height='100%'
+                  style={{
+                    fontSize: 14,
+                    height: '100%',
+                    minHeight: '200px',
+                  }}
+                />
+            </div>
+            {showPreview && isPreviewVisible && (
+                <div 
+                    ref={previewRef}
+                    className="w-full h-full overflow-y-auto p-4 bg-gray-50 prose prose-sm max-w-none"
+                    onScroll={handlePreviewScroll}
+                >
+                    <ReactMarkdown>
+                        {value || ''}
+                    </ReactMarkdown>
+                </div>
+            )}
         </div>
-        <CodeMirror
-          theme={theme}
-          className={'InputCodeMirror'}
-          readOnly={readonly}
-          value={value}
-          onChange={curValue => {
-            if (onChange) {
-              onChange(curValue);
-            }
-          }}
-          onCreateEditor={handleCreateEditor}
-          placeholder={placeholder}
-          basicSetup={{
-            lineNumbers: false,
-            highlightActiveLineGutter: false,
-            foldGutter: false,
-            autocompletion: false,
-            //关闭自己显示另一开括号
-            // closeBrackets: false,
-            indentOnInput: false,
-            highlightActiveLine: false,
-            //自动突出显示与当前选中内容相匹配的其它部分
-            highlightSelectionMatches: false,
-          }}
-          extensions={[basicExtensions]}
-          height='100%'
-          style={{
-            fontSize: 14,
-            height: '100%',
-            minHeight: '200px',
-          }}
-        />
       </PromptEditorWrapper>
     </>
   );

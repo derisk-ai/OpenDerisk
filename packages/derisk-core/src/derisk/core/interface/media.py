@@ -41,7 +41,6 @@ class MediaContentType(str, Enum):
     EXCEL = "excel"
 
 
-
 @dataclass
 class MediaContent:
     """Media content for the model output or model request.
@@ -129,7 +128,7 @@ class MediaContent:
     """
 
     object: MediaObject = field(metadata={"help": _("The media object")})
-    type: Literal["text", "thinking", "image", "audio", "video"] = field(
+    type: Literal["text", "thinking", "image", "audio", "file", "video"] = field(
         default="text", metadata={"help": _("The type of the model media content")}
     )
 
@@ -227,6 +226,16 @@ class MediaContent:
                             ),
                         )
                     )
+                elif type == "file_url" and "file_url" in item:
+                    result.append(
+                        cls(
+                            type="file",
+                            object=MediaObject(
+                                data=item["file_url"]["url"],
+                                format="url",
+                            ),
+                        )
+                    )
                 elif type == "input_audio" and "input_audio" in item:
                     result.append(
                         cls(
@@ -279,6 +288,79 @@ class MediaContent:
         }
 
     @classmethod
+    def to_chat_ai_message(
+        cls,
+        role,
+        content: Union[str, "MediaContent", List["MediaContent"]],
+        tool_calls: Optional[str] = None,
+        support_media_content: bool = True,
+        type_mapping: Optional[Dict[str, str]] = None,
+    ) -> ChatCompletionMessageParam:
+        """Convert the media contents to chat completion message."""
+        if not content:
+            return {
+                "role": role,
+                "tool_calls": tool_calls,
+                "content": "",
+            }
+
+        if isinstance(content, str):
+            return {"role": role, "content": content, "tool_calls": tool_calls}
+        if isinstance(content, MediaContent):
+            content = [content]
+        new_content = [
+            cls._parse_single_media_content(c, type_mapping=type_mapping)
+            for c in content
+        ]
+        if not support_media_content:
+            text_content = [
+                c["text"] for c in new_content if c["type"] == "text" and "text" in c
+            ]
+            if not text_content:
+                raise ValueError("No text content found in the media contents")
+            # Not support media content, just pass the string text as content
+            new_content = text_content[0]
+        return {
+            "role": role,
+            "tool_calls": tool_calls,
+            "content": new_content,
+        }
+
+    @classmethod
+    def to_chat_tool_message(
+        cls,
+        role,
+        content: Union[str, "MediaContent", List["MediaContent"]],
+        tool_call_id: str,
+        support_media_content: bool = True,
+        type_mapping: Optional[Dict[str, str]] = None,
+    ) -> ChatCompletionMessageParam:
+        """Convert the media contents to chat completion message."""
+        if not content:
+            raise ValueError("The content are empty")
+        if isinstance(content, str):
+            return {"role": role, "content": content, "tool_call_id": tool_call_id}
+        if isinstance(content, MediaContent):
+            content = [content]
+        new_content = [
+            cls._parse_single_media_content(c, type_mapping=type_mapping)
+            for c in content
+        ]
+        if not support_media_content:
+            text_content = [
+                c["text"] for c in new_content if c["type"] == "text" and "text" in c
+            ]
+            if not text_content:
+                raise ValueError("No text content found in the media contents")
+            # Not support media content, just pass the string text as content
+            new_content = text_content[0]
+        return {
+            "role": role,
+            "tool_call_id": tool_call_id,
+            "content": new_content,
+        }
+
+    @classmethod
     def _parse_single_media_content(
         cls,
         content: "MediaContent",
@@ -303,6 +385,24 @@ class MediaContent:
                             "url": content.object.data,
                         },
                         "type": "image_url",
+                    }
+                else:
+                    return {
+                        real_type: content.object.data,
+                        "type": real_type,
+                    }
+            else:
+                raise ValueError(f"Unsupported image format: {content.object.format}")
+        elif content.type == MediaContentType.FILE:
+            if content.object.format.startswith("url"):
+                # Compatibility for most image url formats
+                real_type = type_mapping.get("file_url", "file_url")
+                if real_type == "file_url":
+                    return {
+                        "file_url": {
+                            "url": content.object.data,
+                        },
+                        "type": "file_url",
                     }
                 else:
                     return {
@@ -370,7 +470,8 @@ class MediaContent:
                     )
             elif content.type == MediaContentType.FILE:
                 if content.object.format.startswith("url"):
-                    media.append(f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(content.object.data)}" }\n```')
+                    media.append(
+                        f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(content.object.data)}" }\n```')
                 else:
                     raise ValueError(
                         f"Unsupported video format: {content.object.format}"

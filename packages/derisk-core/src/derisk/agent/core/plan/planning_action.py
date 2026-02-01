@@ -1,7 +1,8 @@
 """Plan Action."""
-
+import datetime
 import json
 import logging
+import time
 import uuid
 from typing import List, Optional, Any
 
@@ -14,7 +15,7 @@ from derisk.agent.core.action.base import Action, ActionOutput
 from derisk.agent.core.agent import AgentContext
 from derisk.agent.core.memory.gpts.base import GptsPlan
 from derisk.agent.core.memory.gpts.gpts_memory import GptsPlansMemory, GptsMemory
-from derisk.agent.core.schema import Status
+from derisk.agent.core.schema import Status, ActionInferenceMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class PlanningOutput(BaseModel):
 
 class PlanningAction(Action[PlanningOutput]):
     """Plan action class."""
-
+    name = "Planning"
     def __init__(self, **kwargs):
         """Create a plan action."""
         super().__init__()
@@ -98,6 +99,9 @@ class PlanningAction(Action[PlanningOutput]):
             **kwargs,
     ) -> ActionOutput:
         """Run the plan action."""
+        metrics = ActionInferenceMetrics()
+        start_time = datetime.datetime.now()
+        metrics.start_time_ms = time.time_ns() // 1_000_000
         try:
             context: AgentContext = kwargs["context"]
             gpts_memory: GptsMemory = kwargs["gpts_memory"]
@@ -107,7 +111,7 @@ class PlanningAction(Action[PlanningOutput]):
             retry_times = kwargs.get("retry_times", 0)
             conv_round_id = kwargs.get("round_id")
             init_uids = kwargs.get("init_uids", [])
-
+            self._render = kwargs.get("render_protocol") or self._render
             planning_out: PlanningOutput = self._input_convert(
                 ai_message, PlanningOutput
             )
@@ -181,6 +185,7 @@ class PlanningAction(Action[PlanningOutput]):
                 round_description=planning_out.analysis,
                 tasks=tasks
             )
+
             if self.render_protocol:
                 view = await self.render_protocol.display(
                     content=drsk_plan_content.to_dict()
@@ -190,13 +195,29 @@ class PlanningAction(Action[PlanningOutput]):
             else:
                 view = None
 
+            metrics.end_time_ms = time.time_ns() // 1_000_000
+            metrics.result_tokens = 0
+            cost_ms = metrics.end_time_ms - metrics.start_time_ms
+            metrics.cost_seconds = round(cost_ms / 1000, 2)
             return ActionOutput(
+                action_id=conv_round_id or self.action_uid,
+                name=self.name,
+                action="任务规划",
+                action_name=planning_out.plans_brief_description,
                 is_exe_success=True,
+                start_time=start_time,
+                metrics=metrics,
+                state=Status.COMPLETE.value,
                 content=json.dumps(planning_out.to_dict(), ensure_ascii=False),
                 view=view,
             )
         except Exception as e:
             logger.exception("React Plan Action Run Failed！")
             return ActionOutput(
+                action_id=self.action_uid,
+                name=self.name,
+                action="任务规划",
+                action_name=f"{str(e)}",
+                state=Status.FAILED.value,
                 is_exe_success=False, content=f"React Plan action run failed!{str(e)}"
             )

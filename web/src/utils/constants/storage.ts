@@ -11,3 +11,6 @@ export const STORAGE_USERINFO_KEY = '__db_gpt_uinfo_key';
 
 /** UserInfoValidTime */
 export const STORAGE_USERINFO_VALID_TIME_KEY = '__db_gpt_uinfo_vt_key';
+
+/** Last Selected App Code */
+export const STORAGE_LAST_APP_CODE_KEY = '__db_gpt_last_app_code_key';

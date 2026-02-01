@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy import or_
 
 from derisk._private.config import Config
-from derisk.agent import get_agent_manager, AgentResource, AWELTeamContext, ResourceType
+from derisk.agent import get_agent_manager, AgentResource, ResourceType
 from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.context.utils import build_by_agent_config
@@ -510,11 +510,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             # if not building_mode:
             app_resp.all_resources = all_resources
 
-            if isinstance(app_config.team_context, NativeTeamContext):
-                app_resp.agent = app_config.team_context.agent_name
-            elif isinstance(app_config.team_context, AWELTeamContext):
-                app_resp.agent = "flow"  ## TODO
-            elif isinstance(app_config.team_context, SingleAgentContext):
+            if isinstance(app_config.team_context, SingleAgentContext):
                 app_resp.agent = app_config.team_context.agent_name
             else:
                 if app_config.team_context:
@@ -660,11 +656,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     gpts_app.team_context.llm_strategy_value = None
 
         # 获取当前应用对应的Agent信息
-        if isinstance(gpts_app.team_context, NativeTeamContext):
-            gpts_app.agent = gpts_app.app_code
-        elif isinstance(gpts_app.team_context, AWELTeamContext):
-            gpts_app.agent = "flow"  ## TODO
-        elif isinstance(gpts_app.team_context, SingleAgentContext):
+        if isinstance(gpts_app.team_context, SingleAgentContext):
             gpts_app.agent = gpts_app.team_context.agent_name
         else:
             if gpts_app.team_context:

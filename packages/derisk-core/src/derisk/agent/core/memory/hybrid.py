@@ -233,7 +233,7 @@ class HybridMemory(Memory, Generic[T]):
 
     @mutable
     async def write_batch(
-        self, memory_fragments: List[T], now: Optional[datetime] = None
+        self, memory_fragments: List[T], now: Optional[datetime] = None, **kwargs
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a batch of memory fragments to the memory.
 

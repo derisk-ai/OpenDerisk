@@ -6,7 +6,8 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { useAsyncEffect, useDebounceFn, useRequest } from 'ahooks';
 import useChat from '@/hooks/use-chat';
 import ChatContentContainer from '@/components/chat/chat-content-container';
-import { getInitMessage, STORAGE_INIT_MESSAGE_KET, transformFileMarkDown, transformFileUrl } from '@/utils';
+import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
+import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { Flex, Layout, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
 import { ChatContentContext } from '@/contexts';

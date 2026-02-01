@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 from derisk.component import ComponentType, SystemApp
 from derisk.configs.model_config import resolve_root_path
 from derisk.util.i18n_utils import _
-from derisk.util.module_utils import import_from_checked_string
+from derisk.util.module_utils import model_scan
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer.base import (
     Span,
@@ -20,8 +20,7 @@ from derisk.util.tracer.base import (
     Tracer,
     TracerContext,
 )
-from derisk.util.tracer.span_storage import MemorySpanStorage
-from derisk_serve.rag.tracer.rag_flow_span import RagFlowSpanStorage
+from derisk.util.tracer.span_storage_container import SpanStorageContainer
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ class DefaultTracer(Tracer):
         self._span_stack_var = ContextVar("span_stack", default=[])
 
         if not default_storage:
-            default_storage = MemorySpanStorage(system_app)
+            default_storage = SpanStorageContainer(system_app)
         self._default_storage = default_storage
         self._span_storage_type = span_storage_type
 
@@ -50,13 +49,14 @@ class DefaultTracer(Tracer):
         parent_span_id: str = None,
         span_type: SpanType = None,
         metadata: Dict = None,
+        span_id: str = None,
     ) -> Span:
         trace_id = (
             self._new_random_trace_id()
             if parent_span_id is None
             else parent_span_id.split(":")[0]
         )
-        span_id = f"{trace_id}:{self._new_random_span_id()}"
+        span_id = span_id or f"{trace_id}:{self._new_random_span_id()}"
 
         span = Span(
             trace_id,
@@ -79,8 +79,9 @@ class DefaultTracer(Tracer):
         ]:
             self.append_span(span)
         current_stack = self._span_stack_var.get()
-        current_stack.append(span)
-        self._span_stack_var.set(current_stack)
+        # _span_stack_var(ContextVar)是线程安全的，但current_stack是可变对象，不能直接修改原对象，需要每次新建
+        new_stack = current_stack + [span]
+        self._span_stack_var.set(new_stack)
 
         span.add_end_caller(self._remove_from_stack_top)
         return span
@@ -92,8 +93,9 @@ class DefaultTracer(Tracer):
     def _remove_from_stack_top(self, span: Span):
         current_stack = self._span_stack_var.get()
         if current_stack:
-            current_stack.pop()
-        self._span_stack_var.set(current_stack)
+            # _span_stack_var(ContextVar)是线程安全的，但current_stack是可变对象，不能直接修改原对象，需要每次新建
+            new_stack = current_stack[:-1]
+            self._span_stack_var.set(new_stack)
 
     def get_current_span(self) -> Optional[Span]:
         current_stack = self._span_stack_var.get()
@@ -139,6 +141,9 @@ class TracerManager:
          much as possible
         """
         tracer = self._get_tracer()
+        metadata = metadata or {}
+        metadata["app_code"] = metadata.get("app_code", self.get_current_agent_id())
+        metadata["conv_id"] = metadata.get("conv_id", self.get_context_conv_id())
         if not tracer:
             return Span(
                 "empty_span", "empty_span", span_type=span_type, metadata=metadata
@@ -179,6 +184,15 @@ class TracerManager:
         ctx = self._trace_context_var.get()
         return ctx.cookie if ctx and ctx.cookie else ""
 
+    def set_context_digital_iam_token(self, iam_token):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.digital_iam_token = iam_token
+
+    def get_context_digital_iam_token(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.digital_iam_token if ctx and ctx.digital_iam_token else None
+
     def set_context_rpc_id(self, rpc_id):
         ctx = self._trace_context_var.get()
         if ctx:
@@ -197,6 +211,16 @@ class TracerManager:
         ctx = self._trace_context_var.get()
         return ctx.entrance if ctx and ctx.entrance else ""
 
+    def set_context_entrance_ms(self):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            from derisk.util.date_utils import current_ms
+            ctx.entrance_ms = current_ms()
+
+    def get_context_entrance_ms(self) -> Optional[int]:
+        ctx = self._trace_context_var.get()
+        return ctx.entrance_ms if ctx else None
+
     def set_context_agent_id(self, agent_id):
         ctx = self._trace_context_var.get()
         if ctx:
@@ -205,6 +229,15 @@ class TracerManager:
     def get_context_agent_id(self) -> Optional[str]:
         ctx = self._trace_context_var.get()
         return ctx.agent_id if ctx else None
+
+    def set_current_agent_id(self, current_agent_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.current_agent_id = current_agent_id
+
+    def get_current_agent_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.current_agent_id if ctx else None
 
     def set_context_agent_hub_id(self, agent_hub_id):
         ctx = self._trace_context_var.get()
@@ -228,7 +261,6 @@ class TracerManager:
         ctx = self._trace_context_var.get()
         return ctx.span_id.split(":")[0] if ctx and ctx.span_id else ""
 
-
     def set_context_conv_id(self, conv_id):
         ctx = self._trace_context_var.get()
         if ctx:
@@ -237,6 +269,15 @@ class TracerManager:
     def get_context_conv_id(self) -> Optional[str]:
         ctx = self._trace_context_var.get()
         return ctx.conv_id if ctx else None
+
+    def set_context_session_id(self, session_id):
+        ctx = self._trace_context_var.get()
+        if ctx:
+            ctx.session_id = session_id
+
+    def get_context_session_id(self) -> Optional[str]:
+        ctx = self._trace_context_var.get()
+        return ctx.session_id if ctx else ''
 
     def _get_current_span_type(self) -> Optional[SpanType]:
         current_span = self.get_current_span()
@@ -273,13 +314,33 @@ class TracerManager:
 root_tracer: TracerManager = TracerManager()
 
 
-def trace(operation_name: Optional[str] = None, **trace_kwargs):
+def trace(operation_name: Optional[str] = None, requires: list[str] = None, **optional_trace_kwargs):
+    def _required_metadata(func, *args, **kwargs):
+        """从函数入参中提起metadata"""
+        # 合并函数实际参数
+        sig = inspect.signature(func)
+        try:
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            all_args = bound.arguments  # OrderedDict: param_name -> value
+        except Exception as e:
+            all_args = {}
+
+        # 从 all_args 提取目标参数
+        return {k: all_args.get(k, None) for k in requires}
+
     def decorator(func):
         @wraps(func)
         def sync_wrapper(*args, **kwargs):
             name = (
                 operation_name if operation_name else _parse_operation_name(func, *args)
             )
+            trace_kwargs = optional_trace_kwargs or {}
+            if requires:
+                # 从函数入参取metadata
+                metadata = trace_kwargs.get("metadata", {})
+                metadata.update(_required_metadata(func, *args, **kwargs))
+                trace_kwargs["metadata"] = metadata
             with root_tracer.start_span(name, **trace_kwargs):
                 return func(*args, **kwargs)
 
@@ -288,6 +349,12 @@ def trace(operation_name: Optional[str] = None, **trace_kwargs):
             name = (
                 operation_name if operation_name else _parse_operation_name(func, *args)
             )
+            trace_kwargs = optional_trace_kwargs or {}
+            if requires:
+                # 从函数入参取metadata
+                metadata = trace_kwargs.get("metadata", {})
+                metadata.update(_required_metadata(func, *args, **kwargs))
+                trace_kwargs["metadata"] = metadata
             with root_tracer.start_span(name, **trace_kwargs):
                 return await func(*args, **kwargs)
 
@@ -381,14 +448,13 @@ class TracerParameters(BaseParameters):
 
 
 def initialize_tracer(
-    tracer_filename: str,
+    tracer_filename: str = None,
     root_operation_name: str = "DERISK-Webserver",
     system_app: Optional[SystemApp] = None,
     create_system_app: bool = False,
     tracer_parameters: Optional[TracerParameters] = None,
 ):
     """Initialize the tracer with the given filename and system app."""
-    from derisk.util.tracer.span_storage import FileSpanStorage, SpanStorageContainer
 
     if not system_app and create_system_app:
         system_app = SystemApp()
@@ -399,31 +465,12 @@ def initialize_tracer(
         "trace_context",
         default=TracerContext(),
     )
-    tracer = DefaultTracer(system_app)
 
     storage_container = SpanStorageContainer(system_app)
-    # tracer_filename = resolve_root_path(tracer_filename)
-    # print("tracer_filename: ", tracer_filename)
-    # storage_container.append_storage(FileSpanStorage(tracer_filename))
-    # storage_container.append_storage(RagFlowSpanStorage(tracer_filename))
-    if tracer_parameters and tracer_parameters.exporter == "telemetry":
-        from derisk.util.tracer.opentelemetry import OpenTelemetrySpanStorage
-
-        storage_container.append_storage(
-            OpenTelemetrySpanStorage(
-                service_name=root_operation_name,
-                otlp_endpoint=tracer_parameters.otlp_endpoint,
-                otlp_insecure=tracer_parameters.otlp_insecure,
-                otlp_timeout=tracer_parameters.otlp_timeout,
-            )
-        )
-
-    if tracer_parameters and tracer_parameters.tracer_storage_cls:
-        tracer_storage_cls = tracer_parameters.tracer_storage_cls
-        logger.info(f"Begin parse storage class {tracer_storage_cls}")
-        storage = import_from_checked_string(tracer_storage_cls, SpanStorage)
-        storage_container.append_storage(storage())
-
+    storages = model_scan("derisk_ext.trace", SpanStorage)
+    for _, storage in storages.items():
+        storage_container.append_storage(storage(system_app=system_app, tracer_parameters=tracer_parameters))
+    tracer = DefaultTracer(system_app, default_storage=storage_container)
     system_app.register_instance(storage_container)
     system_app.register_instance(tracer)
     root_tracer.initialize(system_app, trace_context_var)

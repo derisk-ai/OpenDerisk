@@ -1,12 +1,15 @@
-from contextlib import contextmanager
-from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union
+import logging
+import sys
+from contextlib import contextmanager, asynccontextmanager
+from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union, AsyncIterator
 
-from sqlalchemy import desc
+from sqlalchemy import desc, and_
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.session import Session
 
 from derisk._private.pydantic import model_to_dict
 from derisk.util.pagination_utils import PaginationResult
-
 from .db_manager import BaseQuery, DatabaseManager, db
 
 # The entity type
@@ -17,6 +20,8 @@ REQ = TypeVar("REQ")
 RES = TypeVar("RES")
 
 QUERY_SPEC = Union[REQ, Dict[str, Any]]
+
+logger = logging.getLogger(__name__)
 
 
 class BaseDao(Generic[T, REQ, RES]):
@@ -89,7 +94,51 @@ class BaseDao(Generic[T, REQ, RES]):
             Exception: Any exception will be raised.
         """
         with self._db_manager.session(commit=commit) as session:
-            yield session
+            try:
+                yield session
+            except Exception as e:
+                dao_frame = sys._getframe(2)
+                invoke_frame = sys._getframe(3)
+                logger.error(f"db_session exception,"
+                             f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
+                             f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
+                             f"{repr(e)}")
+                raise
+
+    @asynccontextmanager
+    async def a_session(self, commit: Optional[bool] = True) -> AsyncIterator[AsyncSession]:
+        """Provide a transactional scope around a series of operations.
+
+        If raise an exception, the session will be roll back automatically, otherwise
+        it will be committed.
+
+        Example:
+            .. code-block:: python
+
+                with self.session() as session:
+                    session.query(User).filter(User.name == "Edward Snowden").first()
+
+        Args:
+            commit (Optional[bool], optional): Whether to commit the session. Defaults
+                to True.
+
+        Returns:
+            Session: A session object.
+
+        Raises:
+            Exception: Any exception will be raised.
+        """
+        async with self._db_manager.a_session(commit=commit) as session:
+            try:
+                yield session
+            except Exception as e:
+                dao_frame = sys._getframe(2)
+                invoke_frame = sys._getframe(3)
+                logger.exception(f"db_a_session exception,"
+                                 f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
+                                 f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
+                                 f"{repr(e)}")
+                raise
 
     def from_request(self, request: QUERY_SPEC) -> T:
         """Convert a request schema object to an entity object.
@@ -135,11 +184,12 @@ class BaseDao(Generic[T, REQ, RES]):
         """
         raise NotImplementedError
 
-    def create(self, request: REQ) -> RES:
+    def create(self, request: REQ, query: bool = True) -> RES:
         """Create an entity object.
 
         Args:
             request (REQ): The request schema object.
+            query(bool): Whether to return the created data.
 
         Returns:
             RES: The response schema object.
@@ -149,6 +199,8 @@ class BaseDao(Generic[T, REQ, RES]):
             session.add(entry)
             req = self.to_request(entry)
             session.commit()
+            if not query:
+                return None
             res = self.get_one(req)
             return res  # type: ignore
 
@@ -198,7 +250,7 @@ class BaseDao(Generic[T, REQ, RES]):
                 )
             session.delete(result_list[0])
 
-    def get_one(self, query_request: QUERY_SPEC) -> Optional[RES]:
+    def get_one(self, query_request: QUERY_SPEC, session: Session = None) -> Optional[RES]:
         """Get an entity object.
 
         Args:
@@ -207,14 +259,44 @@ class BaseDao(Generic[T, REQ, RES]):
         Returns:
             Optional[RES]: The response schema object.
         """
-        with self.session() as session:
-            query = self._create_query_object(session, query_request)
+
+        def _query(_session: Session):
+            query = self._create_query_object(_session, query_request)
             result = query.first()
             if result is None:
                 return None
             return self.to_response(result)
 
-    def get_list(self, query_request: QUERY_SPEC) -> List[RES]:
+        if session:
+            return _query(session)
+        with self.session(commit=False) as session:
+            return _query(session)
+
+    async def a_get_one(self, query_request: QUERY_SPEC, session: AsyncSession = None) -> Optional[RES]:
+        """Get an entity object.
+
+        Args:
+            query_request (REQ): The request schema object or dict for query.
+            session (AsyncSession): The session
+
+        Returns:
+            Optional[RES]: The response schema object.
+        """
+
+        async def _query(_session: AsyncSession):
+            stmt = await self._create_select_statement(query_request)
+            record = await _session.execute(stmt)
+            result = record.scalar_one_or_none()
+            if result is None:
+                return None
+            return self.to_response(result)
+
+        if session:
+            return await _query(session)
+        async with self.a_session(commit=False) as session:
+            return await _query(session)
+
+    def get_list(self, query_request: QUERY_SPEC, session: Session = None) -> List[RES]:
         """Get a list of entity objects.
 
         Args:
@@ -222,9 +304,33 @@ class BaseDao(Generic[T, REQ, RES]):
         Returns:
             List[RES]: The response schema object.
         """
-        with self.session() as session:
-            result_list = self._get_entity_list(session, query_request)
+
+        def _query(_session: Session):
+            result_list = self._get_entity_list(_session, query_request)
             return [self.to_response(item) for item in result_list]
+
+        if session:
+            return _query(session)
+        with self.session(commit=False) as session:
+            return _query(session)
+
+    async def a_get_list(self, query_request: QUERY_SPEC, session: AsyncSession = None) -> List[RES]:
+        """Get a list of entity objects.
+
+        Args:
+            query_request (REQ): The request schema object or dict for query.
+        Returns:
+            List[RES]: The response schema object.
+        """
+
+        async def _query(_session: AsyncSession):
+            result_list = await self._a_get_entity_list(_session, query_request)
+            return [self.to_response(item) for item in result_list]
+
+        if session:
+            return await _query(session)
+        async with self.a_session(commit=False) as session:
+            return await _query(session)
 
     def _get_entity_list(self, session: Session, query_request: QUERY_SPEC) -> List[T]:
         """Get a list of entity objects.
@@ -239,12 +345,26 @@ class BaseDao(Generic[T, REQ, RES]):
         result_list = query.all()
         return result_list
 
+    async def _a_get_entity_list(self, session: AsyncSession, query_request: QUERY_SPEC) -> List[T]:
+        """Get a list of entity objects.
+
+        Args:
+            session (Session): The session object.
+            query_request (REQ): The request schema object or dict for query.
+        Returns:
+            List[RES]: The response schema object.
+        """
+        stmt = await self._create_select_statement(query_request)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     def get_list_page(
         self,
         query_request: QUERY_SPEC,
         page: int,
         page_size: int,
         desc_order_column: Optional[str] = None,
+        session: Session = None
     ) -> PaginationResult[RES]:
         """Get a page of entity objects.
 
@@ -256,8 +376,9 @@ class BaseDao(Generic[T, REQ, RES]):
         Returns:
             PaginationResult: The pagination result.
         """
-        with self.session() as session:
-            query = self._create_query_object(session, query_request, desc_order_column)
+
+        def _query(_session: Session):
+            query = self._create_query_object(_session, query_request, desc_order_column)
             total_count = query.count()
             items = query.offset((page - 1) * page_size).limit(page_size)
             res_items = [self.to_response(item) for item in items]
@@ -270,6 +391,11 @@ class BaseDao(Generic[T, REQ, RES]):
                 page=page,
                 page_size=page_size,
             )
+
+        if session:
+            return _query(session)
+        with self.session(commit=False) as session:
+            return _query(session)
 
     def _create_query_object(
         self,
@@ -310,3 +436,51 @@ class BaseDao(Generic[T, REQ, RES]):
         if desc_order_column:
             query = query.order_by(desc(getattr(model_cls, desc_order_column)))
         return query  # type: ignore
+
+    async def _create_select_statement(self, query_request, model_cls=None, **kwargs):
+        """Create a query object.
+
+        Args:
+            session (AsyncSession): The session object.
+            query_request (QUERY_SPEC): The request schema object or dict for query.
+        Returns:
+            BaseQuery: The query object.
+        """
+        model_cls = model_cls or self._model_cls(query_request)
+        stmt = select(model_cls)
+        conditions = await self._create_select_condition(query_request, model_cls)
+        if conditions:
+            stmt = stmt.where(and_(*conditions))
+
+        return stmt
+
+    def _model_cls(self, query_request):
+        """根据query_request生成select对象类型"""
+        return type(self.from_request(query_request))
+
+    async def _create_select_condition(self, query_request, model_cls=None):
+        """生成select查询条件"""
+        model_cls = model_cls or type(self.from_request(query_request))
+
+        query_dict = (
+            query_request if isinstance(query_request, dict)
+            else model_to_dict(query_request)
+        )
+
+        conditions = []
+        for key, value in query_dict.items():
+            if hasattr(model_cls, key) and value is not None:
+                column = getattr(model_cls, key)
+                if isinstance(value, list) and len(value) > 0:
+                    conditions.append(column.in_(value))
+                elif isinstance(value, bool):
+                    conditions.append(column.is_(value))  # 关键：使用 is_() 而不是 ==
+                elif isinstance(value, str) and value.strip():
+                    if '%' in value:
+                        conditions.append(column.like(value))
+                    else:
+                        conditions.append(column == value)
+                elif not isinstance(value, (dict, set, tuple)):
+                    conditions.append(column == value)
+
+        return conditions

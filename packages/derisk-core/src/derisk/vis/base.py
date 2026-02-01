@@ -3,6 +3,8 @@
 import json
 from typing import Any, Dict, Optional
 
+import orjson
+
 from derisk.util.json_utils import serialize
 
 
@@ -47,9 +49,12 @@ class Vis:
 
     def sync_display(self, **kwargs) -> Optional[str]:
         """Display the content using the vis protocol."""
-        content = json.dumps(
-            self.sync_generate_param(**kwargs), default=serialize, ensure_ascii=False
-        )
+        # content = json.dumps(
+        #     self.sync_generate_param(**kwargs), default=serialize, ensure_ascii=False
+        # )
+        content = orjson.dumps(
+            self.sync_generate_param(**kwargs), default=serialize
+        ).decode()
         return f"```{self.vis_tag()}\n{content}\n```"
 
     async def display(self, **kwargs) -> Optional[str]:

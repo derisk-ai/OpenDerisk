@@ -1,33 +1,12 @@
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from pydantic_core._pydantic_core import ValidationError
 
-from derisk._private.pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    model_to_json,
-    model_validator,
-    model_to_dict,
-)
 from derisk.vis import Vis
-from derisk.vis.schema import VisTaskContent
-from .drsk_base import DrskVisBase
+from derisk.vis.schema import VisPlanContent
 
 logger = logging.getLogger(__name__)
-
-
-class DrskPlanContent(DrskVisBase):
-    tasks: List[VisTaskContent] = Field(default=[], description="drsk drsk_plan tasks")
-
-    def to_dict(self, **kwargs) -> Dict[str, Any]:
-        tasks_dict = []
-        for step in self.tasks:
-            tasks_dict.append(step.to_dict())
-        dict_value = model_to_dict(self, exclude={"tasks"})
-        dict_value["tasks"] = tasks_dict
-        return dict_value
 
 
 class DrskPlan(Vis):
@@ -46,7 +25,7 @@ class DrskPlan(Vis):
         """
         content = kwargs["content"]
         try:
-            DrskPlanContent.model_validate(content)
+            VisPlanContent.model_validate(content)
             return content
         except ValidationError as e:
             logger.warning(

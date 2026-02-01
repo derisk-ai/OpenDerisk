@@ -3,7 +3,7 @@ import markdownComponents, {
   preprocessLaTeX,
 } from "@/components/chat/chat-content-components/config";
 import { IChatDialogueMessageSchema } from "@/types/chat";
-import { STORAGE_USERINFO_KEY } from "@/utils/constants/index";
+import { STORAGE_USERINFO_KEY } from "@/utils/constants/storage";
 import {
   CheckOutlined,
   ClockCircleOutlined,
@@ -140,7 +140,7 @@ const ChatContent: React.FC<{
 
           return replacement;
         } catch (e) {
-          console.log((e as any).message, e);
+          console.error(e);
           return matchVal;
         }
       }

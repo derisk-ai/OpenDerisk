@@ -233,20 +233,19 @@ function ChatContent() {
         refreshDialogList: () => {} // Add a proper implementation if needed
       }}
     >
-      <div className={`flex-1 flex flex-row h-full transition-all duration-300`}>
+      <div className={`flex-1 flex flex-row h-full relative`}>
         {collapsed && (
-          <div className='flex flex-col items-center justify-center pl-2'>
-            <button
-              onClick={() => setCollapsed(!collapsed)}
-              className='w-5 h-10 border-[1px] bg-[#f3f5f9] border-[#D9D9D9] pl-1 rounded-[24px] transform -translate-y-1/'
-            >
-             <CaretRightOutlined /> 
-            </button>
-          </div>
+           <button
+             onClick={() => setCollapsed(!collapsed)}
+             className='absolute top-6 left-6 w-10 h-10 bg-white border border-gray-200 rounded-full shadow-md flex items-center justify-center text-gray-500 hover:text-blue-600 hover:shadow-lg transition-all z-20 group'
+             title="Expand Configuration"
+           >
+            <CaretRightOutlined className="text-lg group-hover:scale-110 transition-transform" /> 
+           </button>
         )}
 
         {/* 右侧主内容区 */}
-        <div className='flex-1 h-full'>
+        <div className='flex-1 h-full bg-white'>
            <Content className='flex flex-col flex-1 h-full'>
             <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>

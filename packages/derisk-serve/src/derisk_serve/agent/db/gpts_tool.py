@@ -5,8 +5,10 @@ import os
 import random
 import time
 import uuid
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional, List
+from httpx import AsyncClient, Timeout
 
 import aiohttp
 from sqlalchemy import (
@@ -16,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    select,
 )
 
 from derisk._private.pydantic import (
@@ -25,6 +28,11 @@ from derisk._private.pydantic import (
 from derisk.storage.metadata import BaseDao, Model
 
 logger = logging.getLogger(__name__)
+NEX_DOMAIN = {
+    "prepub": "https://nexa-api-pre.alipay.com",
+    "prod": "https://nexa-api.alipay.com",
+}
+
 
 class GptsTool(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -82,8 +90,6 @@ class GptsToolDao(BaseDao):
         session = self.get_raw_session()
         if self.get_tool_by_tool_id(gpts_tool.tool_id):
             raise Exception(f"tool_id:{gpts_tool.tool_id} already exists, don't allow to create!")
-        if self.get_tool_by_name(gpts_tool.tool_name):
-            raise Exception(f"tool_name:{gpts_tool.tool_name} already exists, don't allow to create!")
         tool_entity = GptsToolEntity(
             tool_name=gpts_tool.tool_name,
             tool_id=gpts_tool.tool_id,
@@ -194,6 +200,26 @@ class GptsToolDao(BaseDao):
         })
         return gpt_tools
 
+    async def a_get_tool_by_tool_id(self, tool_id: str):
+        async with self.a_session(commit=False) as session:
+            stmt = select(GptsToolEntity).limit(1)
+            if tool_id:
+                stmt = stmt.where(GptsToolEntity.tool_id == tool_id)
+            rows = await session.execute(stmt)
+            result = rows.scalar_one_or_none()
+            if result is None:
+                return None
+            gpt_tools = GptsTool.from_dict({
+                "tool_name": result.tool_name,
+                "tool_id": result.tool_id,
+                "type": result.type,
+                "config": result.config,
+                "owner": result.owner,
+                "gmt_create": result.gmt_create,
+                "gmt_modified": result.gmt_modified
+            })
+            return gpt_tools
+
 
 class GptsToolDetail(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -207,6 +233,9 @@ class GptsToolDetail(BaseModel):
     description: Optional[str] = None
     sub_description: Optional[str] = None
     input_schema: Optional[str] = None
+    category: Optional[str] = None
+    tag: Optional[str] = None
+    owner: Optional[str] = None
 
     def to_dict(self):
         return {k: self._serialize(v) for k, v in self.__dict__.items()}
@@ -233,7 +262,10 @@ class GptsToolDetail(BaseModel):
             sub_name=d.get("sub_name", None),
             description=d.get("description", None),
             sub_description=d.get("sub_description", None),
-            input_schema=d.get("input_schema", None)
+            input_schema=d.get("input_schema", None),
+            category=d.get("category", None),
+            tag=d.get("tag", None),
+            owner=d.get("owner", None)
         )
 
 
@@ -250,8 +282,11 @@ class GptsToolDetailEntity(Model):
     description = Column(Text, nullable=True, comment="tool description")
     sub_description = Column(Text, nullable=True, comment="tool sub description")
     input_schema = Column(Text, nullable=True, comment="tool detail config")
+    category = Column(String(255), nullable=True, comment="tool category")
+    tag = Column(String(255), nullable=True, comment="tool tag")
+    owner = Column(String(255), nullable=True, comment="tool owner")
 
-    __table_args__ = (Index("idx_detail_tool_id", "tool_id")),
+    __table_args__ = (Index("idx_tool_id", "tool_id")),
 
 
 class GptsToolDetailDao(BaseDao):
@@ -264,7 +299,10 @@ class GptsToolDetailDao(BaseDao):
             sub_name=gpts_tool_detail.sub_name,
             description=gpts_tool_detail.description,
             sub_description=gpts_tool_detail.sub_description,
-            input_schema=gpts_tool_detail.input_schema
+            input_schema=gpts_tool_detail.input_schema,
+            category=gpts_tool_detail.category,
+            tag=gpts_tool_detail.tag,
+            owner=gpts_tool_detail.owner
         )
         session.add(tool_detail_entity)
         session.commit()
@@ -274,8 +312,6 @@ class GptsToolDetailDao(BaseDao):
     def update(self, gpts_tool_detail: GptsToolDetail):
         session = self.get_raw_session()
         tool_detail_query = session.query(GptsToolDetailEntity)
-        if gpts_tool_detail.tool_id is None:
-            raise Exception("tool_id is None, don't allow to edit!")
         tool_detail_query = tool_detail_query.filter(
             GptsToolDetailEntity.id == gpts_tool_detail.id
         )
@@ -292,6 +328,12 @@ class GptsToolDetailDao(BaseDao):
             update_params[GptsToolDetailEntity.sub_description] = gpts_tool_detail.sub_description
         if gpts_tool_detail.input_schema:
             update_params[GptsToolDetailEntity.input_schema] = gpts_tool_detail.input_schema
+        if gpts_tool_detail.category:
+            update_params[GptsToolDetailEntity.category] = gpts_tool_detail.category
+        if gpts_tool_detail.tag:
+            update_params[GptsToolDetailEntity.tag] = gpts_tool_detail.tag
+        if gpts_tool_detail.owner:
+            update_params[GptsToolDetailEntity.owner] = gpts_tool_detail.owner
         tool_detail_query.update(update_params, synchronize_session="fetch")
         session.commit()
         session.close()
@@ -309,6 +351,12 @@ class GptsToolDetailDao(BaseDao):
             tool_detail_query = tool_detail_query.filter(GptsToolDetailEntity.name == gpts_tool_detail.name)
         if gpts_tool_detail.sub_name:
             tool_detail_query = tool_detail_query.filter(GptsToolDetailEntity.sub_name == gpts_tool_detail.sub_name)
+        if gpts_tool_detail.category:
+            tool_detail_query = tool_detail_query.filter(gpts_tool_detail.category in GptsToolDetailEntity.category)
+        if gpts_tool_detail.tag:
+            tool_detail_query = tool_detail_query.filter(gpts_tool_detail.tag in GptsToolDetailEntity.tag)
+        if gpts_tool_detail.owner:
+            tool_detail_query = tool_detail_query.filter(GptsToolDetailEntity.owner == gpts_tool_detail.owner)
         result = tool_detail_query.all()
         session.close()
         if result is None:
@@ -323,14 +371,41 @@ class GptsToolDetailDao(BaseDao):
             "sub_name": tool_detail.sub_name,
             "description": tool_detail.description,
             "sub_description": tool_detail.sub_description,
-            "input_schema": tool_detail.input_schema
+            "input_schema": tool_detail.input_schema,
+            "category": tool_detail.category,
+            "tag": tool_detail.tag,
+            "owner": tool_detail.owner
         }) for tool_detail in result]
         return gpts_tool_details
 
-    def delete(self, id: str):
+    def query_all(self):
+        session = self.get_raw_session()
+        tool_detail_query = session.query(GptsToolDetailEntity)
+        result = tool_detail_query.all()
+        session.close()
+        if result is None:
+            return None
+        gpts_tool_details = [GptsToolDetail.from_dict({
+            "id": tool_detail.id,
+            "gmt_create": tool_detail.gmt_create,
+            "gmt_modified": tool_detail.gmt_modified,
+            "tool_id": tool_detail.tool_id,
+            "type": tool_detail.type,
+            "name": tool_detail.name,
+            "sub_name": tool_detail.sub_name,
+            "description": tool_detail.description,
+            "sub_description": tool_detail.sub_description,
+            "input_schema": tool_detail.input_schema,
+            "category": tool_detail.category,
+            "tag": tool_detail.tag,
+            "owner": tool_detail.owner
+        }) for tool_detail in result]
+        return gpts_tool_details
+
+    def delete(self, id):
         session = self.get_raw_session()
         tool_query = session.query(GptsToolDetailEntity)
-        tool_query = tool_query.filter(str(GptsToolDetailEntity.id) == id)
+        tool_query = tool_query.filter(GptsToolDetailEntity.id == id)
         tool_query.delete()
         session.commit()
         session.close()
@@ -345,14 +420,6 @@ class ExecuteToolRequest(BaseModel):
 class LocalToolConfig(BaseModel):
     class_name: str
     method_name: str
-    description: Optional[str] = None
-    input_schema: Optional[str] = None
-
-
-class APIToolConfig(BaseModel):
-    url: str
-    method: str
-    headers: Optional[Dict[str, Any]] = None
     description: Optional[str] = None
     input_schema: Optional[str] = None
 
@@ -379,7 +446,21 @@ class TRToolConfig(BaseModel):
     vipUrl: Optional[str] = None
     vipEnforce: Optional[bool] = False
     vipOnly: Optional[bool] = False
+    uniqueId: Optional[str] = None
 
+class HTTPToolConfig(BaseModel):
+    name: str
+    description: str
+    protocol: str
+    url: str
+    method: str
+    preUrl: Optional[str] = None
+    headers: Optional[Dict] = None
+    inputSchema: Optional[Dict] = None
+    outputSchema: Optional[Dict] = None
+    script: Optional[Dict] = None
+    timeout: Optional[int] = 60
+    stream: Optional[bool] = False
 
 class DbQueryRequest(BaseModel):
     sql: str
@@ -389,3 +470,324 @@ class DbQueryRequest(BaseModel):
     user: str
     password: str
     params: Optional[object]
+
+
+async def execute_http_tool(execute_request: ExecuteToolRequest,
+                            request_headers: dict = None,
+                            queue: Optional[asyncio.Queue] = None):
+    config = HTTPToolConfig(**execute_request.config)
+    params = execute_request.params
+    if config.script.get('reqCheck') and config.script.get('request'):
+        try:
+            code_result = await execute_code(config.script.get('request') % (params, config.headers))
+            params, config.headers = ast.literal_eval(code_result)[0], ast.literal_eval(code_result)[1]
+        except Exception as e:
+            logger.error('[execute_http_tool]transfor request fail: error: %s', str(e))
+    if request_headers:
+        config.headers.update(request_headers)
+    if params.get('request'):
+        params = params.get('request')
+    if os.environ.get('ALIPAY_APP_ENV','prod') == 'prepub' and config.preUrl:
+        config.url = config.preUrl
+
+    if not config.stream:
+        return await _execute_non_stream(config, params)
+    else:
+        if queue:
+            return await _execute_stream_with_queue(config, params, queue)
+        return _execute_stream_generator(config, params)
+
+async def _execute_non_stream(config: HTTPToolConfig, params: dict) -> str:
+    """非流式HTTP请求处理"""
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.timeout)) as session:
+        if config.method == "GET":
+            async with session.get(config.url, headers=config.headers, params=params, ssl=False) as response:
+                response.raise_for_status()
+                result = await response.text()
+        elif config.method == "POST":
+            async with session.post(config.url, headers=config.headers, json=params, ssl=False) as response:
+                response.raise_for_status()
+                result = await response.text()
+        else:
+            raise ValueError(f"method {config.method} not supported")
+
+    # 如果提供了 schema，进行校验和过滤
+    if config.outputSchema:
+        try:
+            response_data = json.loads(result)
+            filtered_data = filter_response_by_schema(response_data, config.outputSchema)
+            if filtered_data is None or len(filtered_data) == 0:
+                return result
+            result = json.dumps(filtered_data, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Schema validation failed: {e}")
+    # 响应后处理
+    if config.script.get('respCheck') and config.script.get('response'):
+        try:
+            result = await execute_code(config.script.get('response') % result)
+        except Exception as e:
+            logger.error('[execute_http_tool]transform response fail: error: %s', str(e))
+    return result
+
+
+async def execute_script_and_get_function(script_content):
+    global_namespace = {}
+    exec(script_content, global_namespace)
+    return global_namespace.get('convert_response')
+
+
+async def _execute_stream_generator(config: HTTPToolConfig, params: dict):
+    """流式HTTP请求处理"""
+    async with AsyncClient(timeout=Timeout(timeout=config.timeout), verify=False) as client:
+        try:
+            async with client.stream(config.method, config.url, headers=config.headers, json=params) as response:
+                if response.status_code != 200:
+                    error = {'data': f"{response}"}
+                    yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+                    return
+                convert_func = None
+                if config.script.get('respCheck') and config.script.get('response'):
+                    convert_func = await execute_script_and_get_function(config.script.get('response'))
+                async for line in response.aiter_lines():
+                    if asyncio.current_task().cancelled():
+                        break
+                    if line.strip():
+                        if not line.startswith("data:"):
+                            result = {'data': line}
+                            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+                            continue
+                        data_part = line[5:]
+                        # 检查是否是结束标志
+                        if data_part.strip() == "[DONE]":
+                            break
+                        if convert_func:
+                            try:
+                                new_data = convert_func(data_part)
+                                if new_data is None:
+                                    continue
+                                result = {'data': new_data}
+                                yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+                            except Exception as e:
+                                logger.error('[execute_http_tool]transform response fail: error: %s', str(e))
+                        else:
+                            result = {'data': data_part}
+                            yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            error = {'data': str(e)}
+            yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+
+
+async def _execute_stream_with_queue(
+        config: HTTPToolConfig,
+        params: dict,
+        queue: Optional[asyncio.Queue] = None
+) -> str:
+    """流式处理并收集所有结果返回拼接后的字符串"""
+    result = []
+
+    convert_func = None
+    if config.script.get('respCheck') and config.script.get('response'):
+        convert_func = await execute_script_and_get_function(config.script.get('response'))
+    async with AsyncClient(timeout=Timeout(timeout=config.timeout), verify=False) as client:
+        try:
+            async with client.stream(config.method, config.url, headers=config.headers, json=params) as response:
+                if response.status_code != 200:
+                    error_msg = f"HTTP {response.status_code}: {response.text}"
+                    if queue:
+                        await queue.put(error_msg)
+                    return error_msg
+                async for line in response.aiter_lines():
+                    if asyncio.current_task().cancelled():
+                        break
+                    if line.strip():
+                        data_part = line[5:] if line.startswith("data:") else line
+                        # 检查是否是结束标志
+                        if data_part.strip() == "[DONE]":
+                            break
+                        if convert_func:
+                            try:
+                                data_part = convert_func(data_part)
+                            except Exception as e:
+                                logger.error('[execute_http_tool]transform response fail: error: %s', str(e))
+
+                        if data_part is None:
+                            continue
+                        if queue:
+                            await queue.put(data_part)
+                        result.append(data_part)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error('[execute_http_tool]stream request fail: error: %s', error_msg)
+            if queue:
+                await queue.put(error_msg)
+            return error_msg
+    return ''.join(result)
+
+
+async def execute_tr_tool(execute_request: ExecuteToolRequest, request_headers: dict = None):
+    tr_config = TRToolConfig(**execute_request.config)
+    script, output_schema = tr_config.script, tr_config.outputSchema
+    if script.get('reqCheck') and script.get('request'):
+        try:
+            code_result = await execute_code(script.get('request') % (execute_request.params, tr_config.headers))
+            execute_request.params, _ = ast.literal_eval(code_result)[0], ast.literal_eval(code_result)[1]
+        except Exception as e:
+            logger.error('[execute_tr_tool]transfor request fail: error: %s', str(e))
+    for param in tr_config.paramsList:
+        if param.name in execute_request.params:
+            param.value = execute_request.params[param.name]
+    url = NEX_DOMAIN.get(os.environ.get('ALIPAY_APP_ENV', 'prepub'),
+                         'https://nexa-api-pre.alipay.com') + '/openapi/tool/tr/execute'
+    async with aiohttp.ClientSession(headers=request_headers) as session:
+        async with session.post(url, json=tr_config.model_dump(), ssl=False) as response:
+            response.raise_for_status()
+            result = await response.text()
+
+    # 如果提供了 schema，进行校验和过滤
+    if tr_config.outputSchema:
+        try:
+            response_data = json.loads(result)
+            filtered_data = filter_response_by_schema(response_data, tr_config.outputSchema)
+            if filtered_data is None or len(filtered_data) == 0:
+                return result
+            result = json.dumps(filtered_data, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Schema validation failed: {e}")
+    if script.get('respCheck') and script.get('response'):
+        try:
+            result = await execute_code(script.get('response') % result)
+        except Exception as e:
+            logger.error('[execute_http_tool]transfor request fail: error: %s', str(e))
+    return result
+
+
+async def execute_code(content: str):
+    from derisk_ext.agent.agents.code.action.ant_code_action import CodeExecutor
+    code_executor = CodeExecutor()
+    return await code_executor.execute_code(content, 'python')
+
+
+def filter_response_by_schema(response_data: Any, schema: Dict[str, Any]) -> Any:
+    """
+    根据 schema 过滤和校验响应数据
+
+    Args:
+        response_data: HTTP 响应的 JSON 数据
+        schema: 输出 schema 定义
+
+    Returns:
+        过滤后的数据
+    """
+
+    def validate_and_filter_object(data: Dict[str, Any], obj_schema: Dict[str, Any], is_root: bool = False) -> Dict[str, Any]:
+        """递归处理对象类型的数据"""
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected object, got {type(data).__name__}")
+
+        result = {}
+        properties = obj_schema.get("properties", {})
+
+        for field_name, field_schema in properties.items():
+            key = field_schema.get("key", field_name)
+            field_type = field_schema.get("type", "string")
+            is_selected = field_schema.get("selected", False)
+
+            # 对于根级别的包装对象，即使 selected=false，也要检查其内部属性
+            if is_root and field_type == "object" and "properties" in field_schema:
+                # 检查内部是否有 selected=true 的字段
+                inner_properties = field_schema.get("properties", {})
+                has_selected_children = any(
+                    prop.get("selected", False) for prop in inner_properties.values()
+                )
+
+                if has_selected_children:
+                    # 递归处理内部对象，但将结果直接合并到当前级别
+                    inner_result = validate_and_filter_object(data, field_schema, is_root=False)
+                    result.update(inner_result)
+                continue
+
+            # 普通字段处理：只处理 selected=true 的字段
+            if not is_selected:
+                continue
+
+            # 检查字段是否存在
+            if key not in data:
+                continue
+
+            field_value = data[key]
+
+            # 类型校验和转换
+            validated_value = validate_field_type(field_value, field_type, field_schema)
+            result[key] = validated_value
+
+        return result
+
+    def validate_field_type(value: Any, expected_type: str, field_schema: Dict[str, Any]) -> Any:
+        """校验字段类型"""
+        if value is None:
+            if field_schema.get("required", False):
+                raise ValueError(f"Required field cannot be null")
+            return None
+
+        if expected_type == "string":
+            if not isinstance(value, str):
+                return str(value)
+            return value
+
+        elif expected_type == "integer":
+            if isinstance(value, int):
+                return value
+            elif isinstance(value, str) and value.isdigit():
+                return int(value)
+            else:
+                raise ValueError(f"Cannot convert {value} to integer")
+
+        elif expected_type == "boolean":
+            if isinstance(value, bool):
+                return value
+            elif isinstance(value, str):
+                return value.lower() in ("true", "1", "yes")
+            elif isinstance(value, int):
+                return bool(value)
+            else:
+                raise ValueError(f"Cannot convert {value} to boolean")
+
+        elif expected_type == "object":
+            if value is None:
+                return None
+
+            if isinstance(value, dict):
+                if "properties" in field_schema:
+                    return validate_and_filter_object(value, field_schema, is_root=False)
+                return value
+
+            return value
+
+        elif expected_type == "array":
+            if not isinstance(value, list):
+                raise ValueError(f"Expected array, got {type(value).__name__}")
+            return value
+
+        else:
+            return value
+
+    # 处理响应数据是 list 的情况
+    if isinstance(response_data, list):
+        if not response_data:
+            return []
+
+        if schema.get("type") == "Object" and "properties" in schema:
+            if all(isinstance(item, dict) for item in response_data):
+                return [validate_and_filter_object(item, schema, is_root=True) for item in response_data]
+
+        return response_data
+
+    # 处理响应数据是 dict 的情况
+    elif isinstance(response_data, dict):
+        if schema.get("type") == "Object" and "properties" in schema:
+            return validate_and_filter_object(response_data, schema, is_root=True)
+        else:
+            raise ValueError("Invalid schema format")
+
+    else:
+        return response_data

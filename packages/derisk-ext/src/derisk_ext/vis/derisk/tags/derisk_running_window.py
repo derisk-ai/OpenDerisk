@@ -12,7 +12,7 @@ from derisk._private.pydantic import (
     model_validator,
     model_to_dict,
 )
-from derisk_ext.vis.derisk.tags.derisk_work_space import WorkSpaceContent
+from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent
 from derisk_ext.vis.derisk.tags.drsk_base import DrskVisBase
 from derisk_ext.vis.derisk.tags.nex_running_window import RunningContent
 

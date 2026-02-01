@@ -26,7 +26,7 @@ from derisk.util.configure import DynConfig
 from derisk.util.template_utils import render
 from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import MemoryHistoryArgSupplier
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from .prompt_v2 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
+from .prompt_v3 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
 from ...core.schema import DynamicParam, DynamicParamType
@@ -106,73 +106,6 @@ class ReActAgent(ManagerAgent):
         return {
             "parser": self.agent_parser,
         }
-
-    # async def listen_thinking_stream(self,
-    #                                  llm_out: AgentLLMOut,
-    #                                  reply_message_id: str,
-    #                                  start_time: datetime,
-    #                                  cu_thinking_incr: Optional[str] = None,
-    #                                  cu_content_incr: Optional[str] = None,
-    #                                  is_first_chunk: bool = False,
-    #                                  is_first_content: bool = False,
-    #                                  received_message: Optional[AgentMessage] = None,
-    #                                  sender: Optional[Agent] = None,
-    #                                  prev_content: Optional[str] = None,
-    #                                  ):
-    #     if not self.stream_out:
-    #         return
-    #     scratch_pad_complete = False
-    #     content_incr = None
-    #     if len(llm_out.content) > 0 and self.content_stream_out:
-    #         if scratch_pad_complete:
-    #             return
-    #         scratch_pad_complete, scratch_pad = extract_specific_tag(llm_out.content, "scratch_pad")
-    #         prev_scratch_pad_complete, prev_scratch_pad = extract_specific_tag(prev_content, "scratch_pad")
-    #         if not scratch_pad_complete and scratch_pad:
-    #             scratch_pad_incr = scratch_pad
-    #             if prev_scratch_pad:
-    #                 scratch_pad_incr = scratch_pad[len(prev_scratch_pad):]
-    #             content_incr = scratch_pad_incr
-    #
-    #         thought_complete, thought = extract_specific_tag(llm_out.content, "thought")
-    #         pre_thought_complete, pre_thought = extract_specific_tag(prev_content, "thought")
-    #         if not thought_complete and thought:
-    #             thought_incr = thought
-    #             if pre_thought:
-    #                 thought_incr = thought[len(pre_thought):]
-    #             content_incr = thought_incr
-    #
-    #     temp_message = {
-    #         "uid": reply_message_id,
-    #         "type": "incr",
-    #         "message_id": reply_message_id,
-    #         "conv_id": self.not_null_agent_context.conv_id,
-    #         "task_goal_id": received_message.goal_id if received_message else "",
-    #         "goal_id": received_message.goal_id if received_message else "",
-    #         "task_goal": received_message.content if received_message else "",
-    #         "conv_session_uid": self.agent_context.conv_session_id,
-    #         "app_code": self.agent_context.gpts_app_code,
-    #         "sender": self.name or self.role,
-    #         "sender_role": self.role,
-    #         "model": llm_out.llm_name,
-    #         "llm_avatar": None,  # TODO
-    #         "thinking": cu_thinking_incr,
-    #         "content": content_incr,
-    #         "avatar": self.avatar,
-    #         "observation": received_message.observation if received_message else "",
-    #         "status": Status.RUNNING.value,
-    #         "start_time": start_time,
-    #         "metrics": MessageMetrics(llm_metrics=llm_out.metrics).to_dict(),
-    #         "prev_content": prev_content,
-    #     }
-    #     if self.not_null_agent_context.output_process_message or self.is_final_role:
-    #         await self.memory.gpts_memory.push_message(
-    #             self.not_null_agent_context.conv_id,
-    #             stream_msg=temp_message,
-    #             is_first_chunk=is_first_chunk,
-    #             incremental=self.not_null_agent_context.incremental,
-    #             sender=sender
-    #         )
 
     async def act(
         self,
@@ -286,17 +219,25 @@ class ReActAgent(ManagerAgent):
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
                         skill_item: AgentSkillResource = item  # type:ignore
-                        mode, branch = "release", "master"
-                        debug_info = getattr(skill_item, 'debug_info', None)
-                        if debug_info and debug_info.get('is_debug'):
-                            mode, branch = "debug", debug_info.get('branch')
-                        prompts += (
-                            f"- <skill>"
-                            f"<name>{skill_item.skill_meta(mode).name}</name>"
-                            f"<description>{skill_item.skill_meta(mode).description}</description>"
-                            f"<path>{skill_item.skill_meta(mode).path}</path>"
-                            f"<branch>{branch}</branch>"
-                            f"\n</skill>\n")
+                        # Get skills using get_prompt (or we could expose a get_skills method)
+                        # but we need to match the previous logic of iterating
+                        # Since we modified AgentSkillResource to potentially return multiple skills (local + configured)
+                        # let's try to leverage that or keep it simple.
+                        
+                        # Use get_prompt to get the list of skills, but we only need the metadata here to format the prompt
+                        # The original code accessed skill_meta directly.
+                        # Now get_prompt returns a tuple (prompt, dict_with_skills_list)
+                        
+                        _, skills_data = await skill_item.get_prompt()
+                        if skills_data and isinstance(skills_data, dict) and "skills" in skills_data:
+                            for skill in skills_data["skills"]:
+                                prompts += (
+                                    f"- <skill>"
+                                    f"<name>{skill.get('name')}</name>"
+                                    f"<description>{skill.get('description')}</description>"
+                                    f"<path>{skill.get('path')}</path>"
+                                    f"<branch>{skill.get('branch')}</branch>"
+                                    f"\n</skill>\n")
             return prompts
 
         @self._vm.register('system_tools', '系统工具')

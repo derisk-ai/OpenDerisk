@@ -13,6 +13,7 @@ T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
+# heartbeat_set = set()
 
 class APIMixin(ABC):
     """API mixin class."""
@@ -38,13 +39,17 @@ class APIMixin(ABC):
         self._health_check_timeout_secs = health_check_timeout_secs
         self._heartbeat_map = {}
         self._choice_type = choice_type
-        self._heartbeat_thread = threading.Thread(target=self._heartbeat_checker)
-        self._heartbeat_executor = executor or ThreadPoolExecutor(max_workers=3)
+        # self._heartbeat_thread = threading.Thread(target=self._heartbeat_checker)
+        # self._heartbeat_executor = executor or ThreadPoolExecutor(max_workers=3)
         self._heartbeat_stop_event = threading.Event()
 
-        if check_health:
-            self._heartbeat_thread.daemon = True
-            self._heartbeat_thread.start()
+        # global heartbeat_set
+        # _key = f"{urls}_{health_check_path}"
+        # if check_health and not _key in heartbeat_set:
+        #     logger.info(f"start health check: {self.__class__}, {_key}")
+        #     heartbeat_set.add(_key)
+        #     self._heartbeat_thread.daemon = True
+        #     self._heartbeat_thread.start()
 
     def _heartbeat_checker(self):
         logger.debug("Running health check")
@@ -54,7 +59,7 @@ class APIMixin(ABC):
                 logger.debug(f"Healthy urls: {healthy_urls}")
             except Exception as e:
                 logger.warning(f"Health check failed, error: {e}")
-            time.sleep(self._health_check_interval_secs)
+            time.sleep(self._health_check_interval_secs) # 单独进程 sleep不会阻塞主事件循环
 
     def __del__(self):
         self._heartbeat_stop_event.set()

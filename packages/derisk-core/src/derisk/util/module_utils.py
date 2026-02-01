@@ -3,6 +3,8 @@ import importlib
 import inspect
 import logging
 import os
+import sys
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -49,6 +51,7 @@ class ScannerConfig:
         class_filter: Additional filter function
         recursive: Whether to scan subdirectories recursively
         specific_files: List of specific files to scan (without .py extension)
+        skip_files: File patterns to skip (e.g., ["test_*.py", "*_test.py"])
     """
 
     module_path: str
@@ -153,78 +156,90 @@ class ModelScanner(Generic[T]):
     def _scan_directory(
         self, base_path: str, config: ScannerConfig
     ) -> Dict[str, Type[T]]:
-        """Scan a directory for Python modules and their classes.
-
-        Args:
-            base_path: Base directory path
-            config: Scanner configuration
-
-        Returns:
-            Dict[str, Type[T]]: Dictionary of found classes
-        """
         results: Dict[str, Type[T]] = {}
-        base_dir = Path(base_path)
+        base_dir = Path(base_path).resolve()
 
         if not base_dir.exists():
             logger.warning(f"Directory not found: {base_path}")
             return results
 
-        # If specific files are provided, only scan those files, but not recursively
+        # Handle specific files without recursion
         if config.specific_files and not config.recursive:
-            for file_name in config.specific_files:
-                # Construct the full file path
-                file_path = base_dir / f"{file_name}.py"
+            for file_stem in config.specific_files:
+                file_path = base_dir / f"{file_stem}.py"
                 if not file_path.exists():
                     logger.warning(f"Specific file not found: {file_path}")
                     continue
 
                 try:
-                    # Construct full module path
-                    relative_path = file_path.relative_to(base_dir)
-                    module_name = str(relative_path.with_suffix("")).replace(
-                        os.sep, "."
-                    )
+                    rel_path = file_path.relative_to(base_dir)
+                    module_name = str(rel_path.with_suffix("")).replace(os.sep, ".")
                     full_module_path = f"{config.module_path}.{module_name}"
 
-                    module = importlib.import_module(full_module_path)
+                    # Avoid re-importing already loaded modules
+                    if full_module_path in sys.modules:
+                        module = sys.modules[full_module_path]
+                    else:
+                        module = importlib.import_module(full_module_path)
+
                     module_results = self._scan_module(module, config)
                     for key, value in module_results.items():
                         real_key = f"{full_module_path}.{key}"
                         results[real_key] = value
+
+                except SyntaxError as e:
+                    logger.error(
+                        f"SyntaxError in module '{full_module_path}' "
+                        f"(file: {e.filename or file_path}, line {e.lineno}): {e.msg}"
+                    )
+                except ImportError as e:
+                    logger.warning(f"ImportError in module '{full_module_path}': {e}")
                 except Exception as e:
-                    logger.warning(
-                        f"Error scanning specific file {full_module_path}: {str(e)}"
+                    logger.error(
+                        f"Unexpected error scanning module '{full_module_path}': "
+                        f"{type(e).__name__}: {e}\nTraceback:\n{traceback.format_exc()}"
                     )
             return results
 
         # Regular directory scanning
         pattern = "**/*.py" if config.recursive else "*.py"
         specific_files = set(config.specific_files or [])
-        for item in base_dir.glob(pattern):
-            if item.name.startswith("__"):
+        for py_file in base_dir.glob(pattern):
+            if py_file.name.startswith("__"):
                 continue
-
-            # Skip files that match any of the skip_files patterns
-            if self._should_skip_file(item.name, config.skip_files):
-                logger.debug(f"Skipping file {item.name} due to skip_files pattern")
+            if self._should_skip_file(py_file.name, config.skip_files):
+                logger.debug(f"Skipping file {py_file.name} due to skip_files pattern")
                 continue
-            if specific_files and item.stem not in specific_files:
+            if specific_files and py_file.stem not in specific_files:
                 continue
 
             try:
-                # Get the module name relative to the base module
-                module_file = os.path.relpath(str(item), base_dir)
-                module_name = os.path.splitext(module_file)[0].replace(os.sep, ".")
-                # Construct full module path
+                rel_path = py_file.relative_to(base_dir)
+                module_name = str(rel_path.with_suffix("")).replace(os.sep, ".")
                 full_module_path = f"{config.module_path}.{module_name}"
-                module = importlib.import_module(full_module_path)
+
+                if full_module_path in sys.modules:
+                    module = sys.modules[full_module_path]
+                else:
+                    module = importlib.import_module(full_module_path)
 
                 module_results = self._scan_module(module, config)
                 for key, value in module_results.items():
                     real_key = f"{full_module_path}.{key}"
                     results[real_key] = value
+
+            except SyntaxError as e:
+                logger.error(
+                    f"SyntaxError in module '{full_module_path}' "
+                    f"(file: {e.filename or py_file}, line {e.lineno}): {e.msg}"
+                )
+            except ImportError as e:
+                logger.exception(f"ImportError in module '{full_module_path}': {e}")
             except Exception as e:
-                logger.warning(f"Error scanning module {full_module_path}: {str(e)}")
+                logger.error(
+                    f"Unexpected error scanning module '{full_module_path}': "
+                    f"{type(e).__name__}: {e}\nTraceback:\n{traceback.format_exc()}"
+                )
 
         return results
 

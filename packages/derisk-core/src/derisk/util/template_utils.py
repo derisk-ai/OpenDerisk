@@ -1,5 +1,6 @@
-from typing import Any, List, Set
+from typing import Any, Set
 
+from jinja2 import meta
 from jinja2.sandbox import SandboxedEnvironment
 
 TMPL_ENV = SandboxedEnvironment()
@@ -9,21 +10,17 @@ def render(template: str, params: dict[str, Any]) -> str:
     return TMPL_ENV.from_string(template).render(params)
 
 
-def extract_jinja_variables_with_paths(template_str: str) -> Set[str]:
-    """提取所有变量及其访问路径"""
-    from jinja2 import meta
-    ast = TMPL_ENV.parse(template_str)
+def extract_variables(template: str) -> Set[str]:
+    """解析所有参数占位符"""
+    ast = TMPL_ENV.parse(template)
     return meta.find_undeclared_variables(ast)
 
 
 def two_stage_render(template_str, context1, context2=None):
-
-
     # 第一阶段渲染
     stage1 = TMPL_ENV.from_string(template_str).render(context1)
 
     # 提取未渲染的变量
-    from jinja2 import meta
     ast = TMPL_ENV.parse(stage1)
     remaining_vars = meta.find_undeclared_variables(ast)
 
