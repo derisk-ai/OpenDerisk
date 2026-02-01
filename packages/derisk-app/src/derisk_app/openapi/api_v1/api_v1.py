@@ -50,7 +50,6 @@ from derisk_serve.agent.db.gpts_app import UserRecentAppsDao
 from derisk_serve.agent.team.base import TeamMode
 from derisk_serve.core import blocking_func_to_async
 from derisk_serve.datasource.manages.db_conn_info import DBConfig, DbTypeInfo
-from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
 from derisk_serve.flow.service.service import Service as FlowService
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
@@ -365,11 +364,11 @@ async def file_read(
     return Result.succ(df.to_json(orient="records", date_format="iso", date_unit="s"))
 
 
-def get_hist_messages(conv_uid: str, user_name: str = None):
+async def get_hist_messages(conv_uid: str, user_name: str = None):
     from derisk_serve.conversation.service.service import Service as ConversationService
 
     instance: ConversationService = ConversationService.get_instance(CFG.SYSTEM_APP)
-    return instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
+    return await instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
 
 
 @router.post("/v1/chat/stop")
@@ -389,7 +388,6 @@ async def chat_stop(
 async def chat_completions(
         background_tasks: BackgroundTasks,
         dialogue: ConversationVo = Body(),
-        flow_service: FlowService = Depends(get_chat_flow),
         user_token: UserRequest = Depends(get_user_from_headers),
 ):
     logger.info(

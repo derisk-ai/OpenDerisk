@@ -12,6 +12,7 @@ from ..core.action.blank_action import BlankAction
 from ..core.base_agent import ConversableAgent
 from ..core.profile import DynConfig, ProfileConfig
 from ..resource import ToolPack
+from ..resource.reasoning_engine import ReasoningEngineResource
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,8 @@ class SummaryAssistantAgent(ConversableAgent):
                 if resource_reference is not None:
                     info_map.update(resource_reference)
                 return "\n".join(prompt_list), info_map
+            elif isinstance(self.resource, ReasoningEngineResource):
+                return None, None
             else:
                 resource_prompt, resource_reference = await self.resource.get_prompt(
                     lang=self.language, question=question
@@ -119,23 +122,6 @@ class SummaryAssistantAgent(ConversableAgent):
                 return resource_prompt, resource_reference
         return None, None
 
-    async def init_reply_message(
-        self,
-        received_message: AgentMessage,
-        rely_messages: Optional[List[AgentMessage]] = None,
-        sender: Optional[Agent] = None,
-        rounds: Optional[int] = None,
-    ) -> AgentMessage:
-        reply_message = await super().init_reply_message(
-            received_message=received_message,
-            rely_messages=rely_messages,
-            sender=sender,
-            rounds=rounds,
-        )
-        reply_message.context = {
-            "user_question": received_message.content,
-        }
-        return reply_message
 
     def post_filters(self, resource_candidates_map: Optional[Dict[str, Tuple]] = None):
         """Post filters for resource candidates."""

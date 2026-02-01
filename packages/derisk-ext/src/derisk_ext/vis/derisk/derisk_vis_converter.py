@@ -16,19 +16,25 @@ logger = logging.getLogger(__name__)
 
 class DrskVisTagPackage(Enum):
     """System Vis Tags."""
+    NexMessage = "nex-msg"
+    NexStep = "nex-step"
 
     DrskMessage = "drsk-msg"
     DrskPlans = "drsk-plan"
     DrskStep = "drsk-step"
     DrskSteps = "drsk-steps"
     DrskThinking = "drsk-thinking"
+    DeriskThinking = "d-thinking"
     DrskContent = "drsk-content"
     DrskSelect = "drsk-select"
     DrskRefs = "drsk-refs"
     NexPlanningWindow = "nex-planning-window"
-    SmarttestPlanningWindow = "smarttest-planning-window"
     NexRunningWindow = "nex-running-window"
-    SmarttestRunningWindow = "smarttest-running-window"
+    DrskConfirm = "drsk-confirm"
+
+    WorkFolder = 'work-folder'
+    NexReport = "nex-report"
+
 
 
 
@@ -65,7 +71,8 @@ class DeriskVisConverter(VisProtocolConverter):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         return await self.visualization(messages, plans_map)
 
@@ -78,7 +85,8 @@ class DeriskVisConverter(VisProtocolConverter):
         new_plans: Optional[List[GptsPlan]] = None,
         is_first_chunk: bool = False,
         incremental: bool = False,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         ## 使用增量传递模式，复用VIS协议规范
         ##  增量数据和全量数据进行逻辑比对
@@ -151,6 +159,7 @@ class DeriskVisConverter(VisProtocolConverter):
         markdown = message.get("content")
         uid = message.get("uid")
         avatar = message.get("avatar")
+        action_report: Optional[ActionOutput] = message.get("action_report")
         msg_markdown = ""
         if thinking:
             thinking_content = DrskThinkingContent(
@@ -163,13 +172,18 @@ class DeriskVisConverter(VisProtocolConverter):
                 content=thinking_content.to_dict()
             )
             msg_markdown = vis_thinking
-        if markdown:
-            llm_content = DrskTextContent(
-                markdown=markdown, uid=uid + "_content", type="incr"
-            )
-            vis_content = DrskContent().sync_display(content=llm_content.to_dict())
-            msg_markdown = msg_markdown + "\n" + vis_content
 
+        if markdown or action_report:
+            act_markdown = None
+            if action_report:
+                act_markdown = action_report.view or action_report.content
+            llm_content = DrskTextContent(
+                dynamic=True, markdown=act_markdown or markdown, uid=uid + "_content", type="incr"
+            )
+            vis_content = DrskContent().sync_display(
+                content=llm_content.to_dict(exclude_none=True)
+            )
+            msg_markdown = msg_markdown + "\n" + vis_content
         content = DrskMsgContent(
             uid=uid,
             type="all",

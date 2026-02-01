@@ -93,12 +93,13 @@ class MemoryParameters(ResourceParameters):
     discard_strategy: str = dataclasses.field(
         default="fifo", metadata={"help": _("记忆淘汰策略:\n"
                                             "lru:最近最少使用策略, 优先淘汰最长时间未被访问的数据\n"
-                                            "fifo: 先进先出策略, 按照数据进入的顺序进行淘汰\n"
+                                            "fifo: 先进先出策略, 优先淘汰最近的记忆，按照数据进入的顺序进行淘汰\n"
+                                            "lifo: 后进先出策略, 优先淘汰最近的记忆\n"
                                             "similarity:相似度策略。基于新信息与现有记忆的相似程度来决定淘汰\n"
                                             "condense: 压缩策略。通过总结或合并多条相关信息来减少占用空间"
                                             "而不是直接删除。"),
                                   "label": _("记忆淘汰策略"),
-                                  "options": [{"name":"fifo","desc":"先进先出"}, {"name":"lru", "desc":"最近最少使用"}, {"name":"similarity","desc": "语义相似度"}, {"name":"condense","desc":"记忆压缩"}]}
+                                  "options": [{"name":"fifo","desc":"先进先出"},{"name":"lifo","desc":"后进先出"}, {"name":"lru", "desc":"最近最少使用"}, {"name":"similarity","desc": "语义相似度"}, {"name":"condense","desc":"记忆压缩"}]}
     )
     retrieve_strategy: str = dataclasses.field(
         default="sliding_window", metadata={"help": _(
@@ -120,7 +121,7 @@ class MemoryParameters(ResourceParameters):
         default=False, metadata={"help": _("是否开启消息压缩"), "label": _("消息压缩")}
     )
     message_condense_model: Optional[str] = dataclasses.field(
-        default="deepseek-v3",
+        default="aistudio/DeepSeek-V3",
         metadata={"help": _("消息压缩模型"), "label": _("压缩模型")}
     )
     message_condense_strategy: Optional[str] = dataclasses.field(
@@ -210,6 +211,11 @@ public class MathUtils {{
         default=False, metadata={"help": _("是否开启用户记忆"),
                                 "label": _("用户记忆")}
     )
+    agent_whitelist: Optional[str] = dataclasses.field(
+        default="all", metadata={
+            "help": _("查看指定agent记忆"), "label": _("查看指定agent记忆")
+        }
+    )
     name: Optional[str] = dataclasses.field(
         default="MemoryResource", metadata={"help": _(
             "MemoryResource"
@@ -228,8 +234,10 @@ class MemoryResource(Resource[ResourceParameters]):
         top_k: int = 50,
         score_threshold: Optional[float] = 0.0,
         enable_message_condense: bool = False,
-        message_condense_model: Optional[str] = "deepseek-v3",
+        message_condense_model: Optional[str] = "aistudio/DeepSeek-V3",
         message_condense_prompt: Optional[str] = None,
+        agent_whitelist: Optional[str] = None,
+        enable_user_memory: bool = False,
         **kwargs,
     ):
         """
@@ -250,6 +258,10 @@ class MemoryResource(Resource[ResourceParameters]):
             "message_condense_prompt": message_condense_prompt,
             "name": self._name,
         }
+        if agent_whitelist:
+            memory_params["agent_whitelist"] = agent_whitelist
+        if enable_user_memory:
+            memory_params["enable_user_memory"] = enable_user_memory
         self._memory_params = MemoryParameters(**(memory_params or {}))
 
     @classmethod
@@ -302,10 +314,11 @@ class MemoryResource(Resource[ResourceParameters]):
             top_k=50,
             score_threshold=0.0,
             enable_message_condense=False,
-            message_condense_model="deepseek-v3",
+            message_condense_model="aistudio/DeepSeek-V3",
             message_condense_prompt=None,
             name="MemoryResource",
             condense_max_token=5000,
+            enable_user_memory=False,
         )
 
 

@@ -17,19 +17,22 @@ function UserBar({ onlyAvatar = false }) {
   }, []);
 
   return (
-    <div className='flex flex-1 items-center justify-center'>
+    <div className={cls('flex flex-1 items-center', {
+      'justify-center': onlyAvatar,
+      'justify-start': !onlyAvatar,
+    })}>
       <div
         className={cls('flex items-center group w-full', {
           'justify-center': onlyAvatar,
-          'justify-between': !onlyAvatar,
+          'justify-start': !onlyAvatar,
         })}
       >
-        <span className='flex gap-2 items-center'>
-          <Avatar src={userInfo?.avatar_url} className='bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer'>
+        <span className='flex gap-2 items-center overflow-hidden'>
+          <Avatar src={userInfo?.avatar_url} className='bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer shrink-0'>
             {userInfo?.nick_name}
           </Avatar>
           <span
-            className={cls('text-sm', {
+            className={cls('text-sm truncate font-medium text-gray-700 dark:text-gray-200', {
               hidden: onlyAvatar,
             })}
           >

@@ -272,7 +272,7 @@ class LongTermMemory(Memory, Generic[T]):
 
     @mutable
     async def write_batch(
-        self, memory_fragments: List[T], now: Optional[datetime] = None
+        self, memory_fragments: List[T], now: Optional[datetime] = None, **kwargs
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a batch of memory fragments to the memory."""
         current_datetime = self.now
@@ -280,7 +280,7 @@ class LongTermMemory(Memory, Generic[T]):
             raise ValueError("Now time is required.")
         for short_term_memory in memory_fragments:
             short_term_memory.update_accessed_time(now=now)
-            await self.write(short_term_memory, now=current_datetime)
+            await self.write(short_term_memory, now=current_datetime, **kwargs)
         # TODO(fangyinc): Reflect on the memories and get high-level insights.
         # TODO(fangyinc): Forget memories that are not important.
         return None
@@ -336,25 +336,3 @@ class LongTermMemory(Memory, Generic[T]):
         """
         return []
 
-    def _calculate_total_tokens(self, retrieved_memories):
-        """Calculate the total number of tokens in the retrieved memories."""
-        try:
-            memory_texts = "".join(
-                [retrieved_memory.raw_observation for retrieved_memory in retrieved_memories]
-            )
-            return self._calculate_tokens(memory_texts)
-        except Exception as e:
-            memories = [retrieved_memory.raw_observation for retrieved_memory in
-             retrieved_memories]
-            logger.error(f"Calculate total tokens failed current memories:{memories}, {e}")
-            return 0
-
-    def _calculate_tokens(self, text: str):
-        """Calculate the number of tokens in the texts."""
-        lang = determine(text)
-        logger.info(
-            # f"Session Memory-{self.session_id} "
-            f"Language detected: {lang}, "
-            f"Compression rate: {COMP_RATE[lang]}"
-        )
-        return len(text) / COMP_RATE[lang]

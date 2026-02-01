@@ -1,11 +1,10 @@
 import json
 from typing import List, Optional
 
-from derisk.agent import AgentMessage, AgentContext, ActionOutput, ConversableAgent, Agent
+from derisk.agent import AgentMessage, AgentContext, ActionOutput, ConversableAgent,  BlankAction
+from derisk.agent.core.action.report_action import ReportAction
 from derisk.agent.core.memory.gpts import GptsMessage
-from derisk.agent.core.reasoning.reasoning_action import AgentAction
 from derisk.agent.core.reasoning.reasoning_arg_supplier import ReasoningArgSupplier
-from derisk.agent.core.reasoning.reasoning_parser import parse_action_reports
 from derisk_ext.agent.agents.reasoning.default.reasoning_agent import (
     ReasoningAgent,
 )
@@ -17,9 +16,9 @@ _NAME = "DEFAULT_HISTORY_ARG_SUPPLIER"
 _DESCRIPTION = "默认参数引擎: history"
 
 MODEL_CONTEXT_LENGTH = {
-    "deepseek-v3": 64000,
-    "deepseek-r1": 64000,
-    "QwQ-32B": 64000,
+    "aistudio/DeepSeek-V3": 64000,
+    "aistudio/DeepSeek-R1": 64000,
+    "aistudio/QwQ-32B": 64000,
 }
 
 
@@ -27,7 +26,6 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
     @property
     def name(self) -> str:
         return _NAME
-
 
     @property
     def description(self) -> str:
@@ -79,23 +77,25 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
                         f"sender: User\nreceiver: {message.receiver_name}\ncontent: {message.content}"
                     )
 
-                action_reports = parse_action_reports(message.action_report)
+                action_reports = message.action_report or []
+
                 for action_report in action_reports:
                     if not action_report.content:
                         # 踢掉空白action
                         continue
 
-                    if action_report.action_name == AgentAction().name and (
-                        not action_report.action_id
-                        or not action_report.action_id.endswith("answer")
-                    ):
+                    # if action_report.action_name == AgentAction().name and (
+                    #     not action_report.action_id
+                    #     or not action_report.action_id.endswith("answer")
+                    # ):
+                    if action_report.name not in [BlankAction.name, ReportAction.name]:
                         # agent action只看answer
                         continue
 
                     if self.custom_filter(
                         received_message=received_message,
                         message=message,
-                        agent=agent,
+                        agent=agent,  # type: ignore
                         action_report=action_report,
                         sender_agent_name=message.sender_name,
                         receiver_agent_name=message.receiver_name,
@@ -105,7 +105,7 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
                         history_files.extend(action_report.output_files)
 
                     action_report_prompt = self._format_action_report_prompt(
-                        agent=agent, message=message, action_report=action_report
+                        agent=agent, message=message, action_report=action_report  # type: ignore
                     )
                     if action_report.resource_value:
                         resource_value = action_report.resource_value
@@ -168,24 +168,24 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
             [
                 item
                 for item in [
-                    f"<!-- action|start -->\n",
-                    f"#### action_id: {action_report.action_id}"
-                    if action_report.action_id
-                    else None,
-                    f"message_id: {message.message_id}" if message.message_id else None,
-                    f"action_handler: {message.sender_name}"
-                    if message.sender_name
-                    else None,
-                    f"action_name: {action_report.action_name}"
-                    if action_report.action_name
-                    else None,
-                    f"action: {action_report.action}" if action_report.action else None,
-                    f"action_input: {action_report.action_input}"
-                    if action_report.action_input
-                    else None,
-                    f"action_output: {action_report.content}",
-                    f"<!-- action|end -->"
-                ]
+                f"<!-- action|start -->\n",
+                f"#### action_id: {action_report.action_id}"
+                if action_report.action_id
+                else None,
+                f"message_id: {message.message_id}" if message.message_id else None,
+                f"action_handler: {message.sender_name}"
+                if message.sender_name
+                else None,
+                f"action_name: {action_report.action_name}"
+                if action_report.action_name
+                else None,
+                f"action: {action_report.action}" if action_report.action else None,
+                f"action_input: {action_report.action_input}"
+                if action_report.action_input
+                else None,
+                f"action_output: {action_report.content}",
+                f"<!-- action|end -->"
+            ]
                 if item
             ]
         )
@@ -196,12 +196,13 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
         )
         if size:
             kicked_histories = [
-                f"由于长度限制, {size}条最早的历史数据被剔除"
-            ] + kicked_histories
+                                   f"由于长度限制, {size}条最早的历史数据被剔除"
+                               ] + kicked_histories
 
-        history_prompt = (("> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n" if kicked_histories and (
-            kicked_histories[0].startswith("<!-- action")) else "")
-         + ("\n\n".join(kicked_histories)))
+        history_prompt = (
+            ("> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n" if kicked_histories and (
+                kicked_histories[0].startswith("<!-- action")) else "")
+            + ("\n\n".join(kicked_histories)))
 
         # 添加文件列表信息
         if history_files:

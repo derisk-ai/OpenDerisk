@@ -13,7 +13,7 @@ from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer import TracerParameters
 from derisk.util.logger import LoggingParameters
-from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
+from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
 from derisk_ext.storage.knowledge_graph.knowledge_graph import (
     BuiltinKnowledgeGraphConfig,
 )
@@ -24,7 +24,12 @@ from derisk_serve.core.config import GPTsAppConfig
 @dataclass
 class SystemParameters:
     """System parameters."""
-
+    workers: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": _("worker node size"),
+        },
+    )
     language: str = field(
         default="en",
         metadata={
@@ -49,6 +54,14 @@ class SystemParameters:
         default="your_secret_key",
         metadata={"help": _("The key to encrypt the data")},
     )
+    enable_performance_sampling: Optional[bool] = field(
+        default=False,
+        metadata={"help": _("Whether to enable performance sampling")},
+    )
+    enable_llm_stream_print: Optional[bool] = field(
+        default=False,
+        metadata={"help": _("Whether to enable llm stream print")},
+    )
 
 
 @dataclass
@@ -65,10 +78,10 @@ class StorageConfig(BaseParameters):
             "help": _("default graph type"),
         },
     )
-    full_text: BuiltinKnowledgeGraphConfig = field(
-        default_factory=BuiltinKnowledgeGraphConfig,
+    full_text: ZSearchStoreConfig = field(
+        default_factory=VectorStoreConfig,
         metadata={
-            "help": _("default graph type"),
+            "help": _("default full text type"),
         },
     )
 
@@ -147,9 +160,7 @@ class ServiceWebParameters(BaseParameters):
         },
     )
     database: BaseDatasourceParameters = field(
-        default_factory=lambda: SQLiteConnectorParameters(
-            path="pilot/meta_data/derisk.db"
-        ),
+        default=None,
         metadata={
             "help": _(
                 "Database connection config, now support SQLite, OceanBase and MySQL"
@@ -266,7 +277,52 @@ class MCPConfigParameters(BaseParameters):
     )
     enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
 
-
+@dataclass
+class SandboxConfigParameters(BaseParameters):
+    type: Optional[str] = field(
+        default="local",
+        metadata={"help": _("The sandbox type.")},
+    )
+    template_id: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox template code.")},
+    )
+    user_id: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox default user id.")},
+    )
+    agent_name: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox defualt agent name.")},
+    )
+    repo_url: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox skill repo url.")},
+    )
+    work_dir: Optional[str] = field(
+        default="/home/ubuntu",
+        metadata={"help": _("The sandbox work dir.")},
+    )
+    skill_dir: Optional[str] = field(
+        default="/mnt/derisk/skills",
+        metadata={"help": _("The sandbox skill dir.")},
+    )
+    oss_ak: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss ak.")},
+    )
+    oss_sk: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss sk.")},
+    )
+    oss_endpoint: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss endpoint.")},
+    )
+    oss_bucket_name: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss bucket.")},
+    )
 @dataclass
 class ApplicationConfig:
     """Application configuration."""
@@ -326,3 +382,10 @@ class ApplicationConfig:
             "help": _("MCP configuration"),
         },
     )
+    sandbox: SandboxConfigParameters = field(
+        default_factory=SandboxConfigParameters,
+        metadata={
+            "help": _("SandBox configuration")
+        }
+    )
+

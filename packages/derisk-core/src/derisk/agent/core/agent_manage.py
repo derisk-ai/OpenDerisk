@@ -71,8 +71,7 @@ class AgentManager(BaseComponent):
         self._core_agents = list(core_agents)
 
         """Register Extend Agent"""
-        ext_agents = scan_agents("derisk_ext.agent.agents").items()
-        for _, agent in ext_agents:
+        for _, agent in scan_agents("derisk_ext.agent.agents").items():
             try:
                 self.register_agent(agent)
             except Exception as e:
@@ -82,14 +81,9 @@ class AgentManager(BaseComponent):
 
         from derisk.agent.core.plan.report_agent import ReportAssistantAgent
         self.register_agent(ReportAssistantAgent)
-        from derisk.agent.core.plan.planning_agent import PlanningAgent
-        self.register_agent(PlanningAgent)
 
         from .plan.react.team_react_plan import ReActPlanChatManager
-        from .plan.auto.team_auto_plan import AutoPlanChatManager
-
         self.register_agent(ReActPlanChatManager)
-        self.register_agent(AutoPlanChatManager)
 
 
     def register_agent(
@@ -171,6 +165,7 @@ class AgentManager(BaseComponent):
                     "is_team": True if hasattr(value[1], "is_team") and value[1].is_team else False,
                 }
             )
+        result.sort(key=lambda a:a["name"])
         _CACHED_AGENTS = result
         return result
 

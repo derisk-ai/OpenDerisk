@@ -23,6 +23,9 @@ Examples:
 
 """
 
+import sys
+from unittest.mock import MagicMock
+sys.modules["oss2"] = MagicMock()
 import asyncio
 import logging
 import os

@@ -49,7 +49,8 @@ class DeriskJsonConverter(VisProtocolConverter):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         deal_messages: List[GptsMessage] = []
 
@@ -77,7 +78,8 @@ class DeriskJsonConverter(VisProtocolConverter):
         new_plans: Optional[List[GptsPlan]] = None,
         is_first_chunk: bool = False,
         incremental: bool = False,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         ## 使用增量传递模式，复用VIS协议规范
         ##  增量数据和全量数据进行逻辑比对
@@ -103,15 +105,15 @@ class DeriskJsonConverter(VisProtocolConverter):
     async def gen_message_vis(self, message: GptsMessage) -> dict:
         # from derisk.agent import get_agent_manager
         # agent_mange = get_agent_manager()
-        uid = message.message_id
-        action_report_str = message.action_report
-        view_info = message.content
-        if action_report_str and len(action_report_str) > 0:
-            action_out = ActionOutput.from_dict(json.loads(action_report_str))
-            if action_out is not None:  # noqa
-                if action_out.is_exe_success:  # noqa
-                    view_info = action_out.content
-
+        view_infos: List[str] = []
+        if message.action_report:
+            for action_out in message.action_report:
+                if action_out is not None:  # noqa
+                    if action_out.is_exe_success:  # noqa
+                        view_infos.append(action_out.content)
+        view_info = "\n".join(view_infos)
+        if view_info:
+            view_info = message.content
         content = DrskTaskPlanContent(
             uid=message.conv_id,
             app_code=message.app_code,

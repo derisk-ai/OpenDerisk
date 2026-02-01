@@ -203,6 +203,21 @@ export const VisAgentPlanCardWrap = styled.div`
     border: 1px solid #f0f0f0;
   }
 
+  .header-agent {
+    border: 1px solid #f0f0f0;
+    background-color: #fafafa;
+  }
+
+  .header-stage {
+    background-color: #fff;
+    border-bottom: 1px solid #f0f0f0;
+    margin-bottom: 4px;
+    
+    .title-text {
+      font-weight: 500;
+    }
+  }
+
   .header-task {
     transition: background-color 0.2s ease;
     cursor: pointer;

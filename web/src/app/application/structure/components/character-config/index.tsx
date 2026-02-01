@@ -1,15 +1,15 @@
 import PromptEditor from '@/components/PromptEditor';
 import { AppContext } from '@/contexts';
-import { CaretLeftOutlined } from '@ant-design/icons';
-import { useDebounceFn, useRequest } from 'ahooks';
-import { Collapse } from 'antd';
+import { CaretLeftOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
+import { useDebounceFn } from 'ahooks';
+import { Tabs } from 'antd';
 import { debounce } from 'lodash';
 import { useContext, useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 function CharacterConfig() {
   const { t } = useTranslation();
-  const { collapsed, setCollapsed, appInfo, refreshAppInfo, fetchUpdateApp } = useContext(AppContext);
+  const { collapsed, setCollapsed, appInfo, fetchUpdateApp } = useContext(AppContext);
 
   const { system_prompt_template = '', user_prompt_template = '' } = appInfo || {};
 
@@ -71,30 +71,64 @@ function CharacterConfig() {
 
   const items = [
     {
-      label: t('character_config_system_prompt'),
-      children: <PromptEditor value={systemPrompt} onChange={handleSysPromptChange} />,
+      key: 'system',
+      label: (
+        <span className="flex items-center gap-2">
+          <ThunderboltOutlined />
+          {t('character_config_system_prompt')}
+        </span>
+      ),
+      children: (
+        <div className="flex h-full w-full overflow-hidden">
+            <PromptEditor 
+                value={systemPrompt} 
+                onChange={handleSysPromptChange} 
+                showPreview={true}
+            />
+        </div>
+      )
     },
     {
-      label: t('character_config_user_prompt'),
-      children: <PromptEditor value={userPrompt} onChange={handleUserPromptChange} />,
+      key: 'user',
+      label: (
+        <span className="flex items-center gap-2">
+          <UserOutlined />
+          {t('character_config_user_prompt')}
+        </span>
+      ),
+      children: (
+        <div className="flex h-full w-full overflow-hidden">
+             <PromptEditor 
+                value={userPrompt} 
+                onChange={handleUserPromptChange} 
+                showPreview={true}
+            />
+        </div>
+      )
     },
   ];
 
   return (
-    <div className='flex-1 border-r-1 p-4 relative border-r-[#D9D9D9] h-full flex flex-col'>
-      <div className='p-4 pt-1'>
-        <h2 className='font-semibold text-[18px]'>{t('character_config_title')}</h2>
+    <div className='flex flex-col h-full bg-white relative'>
+      <div className='p-4 border-b border-gray-100 flex items-center justify-between'>
+        <h2 className='font-semibold text-lg text-gray-800'>{t('character_config_title')}</h2>
       </div>
-      <div className='[&_.ant-collapse-header-text]:font-bold overflow-y-auto flex-1'>
-        <Collapse items={items} bordered={false} collapsible='header' defaultActiveKey={['0', '1']} />
+      
+      <div className='flex-1 overflow-hidden flex flex-col'>
+        <Tabs 
+          items={items} 
+          defaultActiveKey="system" 
+          type="card"
+          className="h-full flex flex-col [&_.ant-tabs-content]:flex-1 [&_.ant-tabs-content]:h-full [&_.ant-tabs-nav]:mb-0 [&_.ant-tabs-nav]:px-4 [&_.ant-tabs-nav]:pt-4"
+          tabBarStyle={{ borderBottom: '1px solid #f0f0f0' }}
+        />
       </div>
 
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className='absolute top-1/2 right-[-10px] bg-[#f3f5f9] transform -translate-y-1/2 px-1 pr-4 rounded-[24px] 
-        w-5 h-10 border-[#D9D9D9] border-[1px]'
+        className='absolute top-1/2 right-[-14px] bg-white transform -translate-y-1/2 w-7 h-14 rounded-r-xl border border-l-0 border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:bg-gray-50 transition-all z-10'
       >
-        <CaretLeftOutlined className='w-8 h-8' onClick={() => setCollapsed(!collapsed)} />
+        <CaretLeftOutlined />
       </button>
     </div>
   );

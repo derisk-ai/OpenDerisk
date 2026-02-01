@@ -5,7 +5,6 @@ from httpcore import AsyncConnectionPool
 
 from derisk.sandbox.client.base import BaseClient
 from derisk.sandbox.connection_config import ConnectionConfig
-from derisk_ext.sandbox.xic.authorization import gen_xic_header
 
 # 假设 OMIT 已在基类中定义，这里为兼容性添加
 OMIT = object()
@@ -28,9 +27,6 @@ class BrowserClient(BaseClient):
         )
         self.instance_id = instance_id
 
-
-    async def gen_header(self):
-        return await gen_xic_header()
 
 
     async def browser_init(

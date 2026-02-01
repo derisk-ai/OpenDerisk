@@ -22,8 +22,8 @@ class DrskSteps(Vis):
     """DrskMsg."""
 
     def __init__(self, **kwargs):
-        self._derisk_url = kwargs.get(
-            "derisk_url", ""
+        self._drsk_web_url = kwargs.get(
+            "drsk_web_url", ""
         )
         super().__init__(**kwargs)
 
@@ -52,9 +52,9 @@ class DrskSteps(Vis):
                 elif Status.COMPLETE.value == status:
                     drsk_status = "FINISHED"
                 step["status"] = drsk_status
-                message_id = step.get("message_id")
+                message_id = content.get("message_id") + "_" + content.get("uid")
                 step["tool_execute_link"] = (
-                    f"{self._derisk_url}/nexa/drsk/tool/execute/content?message_id={message_id}&tool={step['tool_name']}"
+                    f"{self._drsk_web_url}/nexa/drsk/tool/execute/content?message_id={message_id}&tool={step['tool_name']}"
                 )
             return content
         except ValidationError as e:

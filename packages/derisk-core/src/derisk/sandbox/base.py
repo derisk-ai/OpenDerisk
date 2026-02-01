@@ -11,7 +11,7 @@ from typing import TypedDict, Optional, Dict, List
 from httpx import Limits
 from httpcore import AsyncConnectionPool
 
-from derisk_ext.sandbox.xic.browser import XICBrowserClient
+from .client.browser.client import BrowserClient
 from .client.file.client import FileClient
 from .client.sandbox.types import SandboxDetail
 from .client.shell.client import ShellClient
@@ -32,6 +32,9 @@ class SandboxOpts(TypedDict):
     pool: Optional[AsyncConnectionPool]
     sandbox_domain: Optional[str]
     connection_config: Optional[ConnectionConfig]
+
+class SandboxSession:
+    pass
 
 @dataclass
 class MachineInfo:
@@ -77,7 +80,7 @@ class SandboxBase:
         self.__conversation_id = conversation_id
         self._shell: Optional[ShellClient] = None
         self._file: Optional[FileClient] = None
-        self._browser: Optional[XICBrowserClient] = None
+        self._browser: Optional[BrowserClient] = None
 
     @classmethod
     def provider(cls):
@@ -136,7 +139,7 @@ class SandboxBase:
         return self._file
 
     @property
-    def browser(self) -> XICBrowserClient:
+    def browser(self) -> BrowserClient:
         return self._browser
 
     def set_work_dir(self, work_dir: str) -> None:

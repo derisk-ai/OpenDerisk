@@ -106,8 +106,8 @@ class ComponentType(str, Enum):
     VIS_CONVERTER_PACKAGE = "vis_converter_package"
     REASONING_MANAGER = "derisk_reasoning_manager"
     CONTEXT_MANAGER = "derisk_context_manager"
-
-
+    PERFERMANCE = "perfermance"
+    SANDBOX_MANAGER = "sandbox_manager"
 
 _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 
@@ -118,7 +118,7 @@ class BaseComponent(LifeCycle, ABC):
 
     name = "base_dbgpt_component"
 
-    def __init__(self, system_app: Optional[SystemApp] = None):
+    def __init__(self, system_app: Optional[SystemApp] = None, **kwargs):
         if system_app is not None:
             self.init_app(system_app)
 

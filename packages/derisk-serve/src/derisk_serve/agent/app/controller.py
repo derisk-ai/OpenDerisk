@@ -1,5 +1,6 @@
 import json
 import logging
+import asyncio
 from typing import List, Optional
 
 import aiohttp
@@ -18,7 +19,6 @@ from derisk_serve.agent.db.gpts_app import (
     GptsApp,
     GptsAppDao,
     TransferSseRequest,
-    mcp_address,
 )
 from derisk_serve.agent.db.gpts_tool import GptsTool, GptsToolDao, ExecuteToolRequest, DbQueryRequest
 from derisk_serve.agent.resource.func_registry import central_registry
@@ -95,13 +95,13 @@ async def llm_strategies(user_info: UserRequest = Depends(get_user_from_headers)
 
 @router.get("/v1/llm-strategy/value/list")
 async def llm_strategy_values(
+        type: str = None,  # Added type parameter
         user_info: UserRequest = Depends(get_user_from_headers)
 ):
     try:
         results = []
-        # match type:
-        #     case LLMStrategyType.Priority.value:
-        results = await available_llms()
+        if type == LLMStrategyType.Priority.value:
+            results = await available_llms()
         return Result.succ(results)
     except Exception as ex:
         logger.exception(str(ex))
@@ -127,18 +127,37 @@ async def app_resources(
         if user_info:
             user_code: Optional[str] = user_info.user_id
             sys_code: Optional[str] = user_info.user_name
-        resources = await blocking_func_to_async(
-            CFG.SYSTEM_APP,
-            get_resource_manager().get_supported_resources,
-            version=version or "v1",
-            type=type,
-            query=query,
-            name=name,
-            cache_enable=False,
-            user_code=user_code,
-            sys_code=sys_code,
-
-        )
+        
+        # Determine if we should call as async or sync wrapped in thread
+        # In newer version, get_supported_resources is async
+        resource_manager = get_resource_manager()
+        if hasattr(resource_manager.get_supported_resources, "__call__") and \
+           (asyncio.iscoroutinefunction(resource_manager.get_supported_resources) or \
+            (hasattr(resource_manager.get_supported_resources, "__func__") and asyncio.iscoroutinefunction(resource_manager.get_supported_resources.__func__))):
+            # It's an async function, call directly
+            resources = await resource_manager.get_supported_resources(
+                version=version or "v1",
+                type=type,
+                query=query,
+                name=name,
+                cache_enable=False,
+                user_code=user_code,
+                sys_code=sys_code,
+            )
+        else:
+            # It's a sync function, wrap it
+            resources = await blocking_func_to_async(
+                CFG.SYSTEM_APP,
+                resource_manager.get_supported_resources,
+                version=version or "v1",
+                type=type,
+                query=query,
+                name=name,
+                cache_enable=False,
+                user_code=user_code,
+                sys_code=sys_code,
+            )
+            
         results = resources.get(type, [])
         return Result.succ(results)
     except Exception as ex:
@@ -283,19 +302,3 @@ async def execute_tool(
     except Exception as e:
         return Result.failed(code="E000X", msg=f"execute tool error: {e}")
 
-
-@router.post("/v1/tool/db-query")
-async def db_query(request: DbQueryRequest, user_request: UserRequest = Depends(get_user_from_headers)):
-    from derisk_ext.agent.agents.example.tool.db_query import query_physic_db
-    try:
-        result = await query_physic_db(
-            host=request.host,
-            port=request.port,
-            user=request.user,
-            password=request.password,
-            db_name=request.database,
-            sql=request.sql
-        )
-        return Result.succ(result)
-    except pymysql.MySQLError as e:
-        return Result.failed(code="E000X", msg=f"db query error: {e}")

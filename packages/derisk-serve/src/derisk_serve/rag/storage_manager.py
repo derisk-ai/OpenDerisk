@@ -71,27 +71,32 @@ class StorageManager(BaseComponent):
         else:
             raise ValueError(f"Does not support storage type {storage_type}")
 
-    def create_vector_store(self, index_name) -> VectorStoreBase:
+    def create_vector_store(
+            self,
+            index_name,
+            extra_indexes: Optional[List[str]] = None
+    ) -> VectorStoreBase:
         """Create vector store."""
         collection_name = self.gen_collection_by_id(index_name)
         app_config = self.system_app.config.configs.get("app_config")
         storage_config = app_config.rag.storage
         if collection_name in self._store_cache:
             return self._store_cache[collection_name]
+        embedding_factory = self.system_app.get_component(
+            "embedding_factory", EmbeddingFactory
+        )
+        embedding_fn = embedding_factory.create()
+        vector_store_config: VectorStoreConfig = storage_config.vector
+        executor = DefaultExecutorFactory.get_instance(self.system_app).create()
+        new_store = vector_store_config.create_store(
+            name=collection_name,
+            embedding_fn=embedding_fn,
+            executor=executor,
+            extra_indexes=extra_indexes,
+        )
         with self._cache_lock:
-            embedding_factory = self.system_app.get_component(
-                "embedding_factory", EmbeddingFactory
-            )
-            embedding_fn = embedding_factory.create()
-            vector_store_config: VectorStoreConfig = storage_config.vector
-            executor = DefaultExecutorFactory.get_instance(self.system_app).create()
-            new_store = vector_store_config.create_store(
-                name=collection_name,
-                embedding_fn=embedding_fn,
-                executor=executor,
-            )
             self._store_cache[collection_name] = new_store
-            return new_store
+        return new_store
 
     def create_kg_store(
         self, index_name, llm_model: Optional[str] = None

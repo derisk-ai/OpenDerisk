@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 from sqlalchemy import URL
 
 from derisk.component import SystemApp
-from derisk.storage.metadata import DatabaseManager
+from derisk.storage.metadata import DatabaseManager, Model, UnifiedDBManagerFactory, db
 from derisk_serve.core import BaseServe
 
 from .api.endpoints import init_endpoints, router
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class Serve(BaseServe):
-    """Serve component for DB-GPT"""
+    """Serve component for MCP"""
 
     name = SERVE_APP_NAME
 
@@ -60,10 +60,35 @@ class Serve(BaseServe):
         You can do some initialization here. You can't get other components here
         because they may be not initialized yet
         """
-        # import your own module here to ensure the module is loaded before the
-        # application starts
-        from .models.models import ServeEntity as _  # noqa: F401
+        # import models to ensure they are registered with SQLAlchemy
+        from .models.models import ServeEntity  # noqa: F401
+        _ = list(map(lambda x: None, [
+            ServeEntity.__tablename__,
+        ]))
 
     def before_start(self):
-        from .models.models import ServeEntity as _  # noqa: F401
+        """Called before the start of the application.
+
+        You can do some initialization here.
+        """
+        # Import models to ensure they are registered
+        from .models.models import ServeEntity  # noqa: F401
+
         self._db_manager = self.create_or_get_db_manager()
+
+        # Force create tables for SQLite mode
+        db_manager_factory: UnifiedDBManagerFactory = self._system_app.get_component(
+            "unified_metadata_db_manager_factory",
+            UnifiedDBManagerFactory,
+            default_component=None,
+        )
+        if db_manager_factory is not None and db_manager_factory.create():
+            init_db = db_manager_factory.create()
+        else:
+            init_db = self._db_url_or_db or db
+            init_db = DatabaseManager.build_from(init_db, base=Model)
+
+        try:
+            init_db.create_all()
+        except Exception as e:
+            logger.warning(f"Failed to create MCP tables: {e}")

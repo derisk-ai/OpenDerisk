@@ -3,7 +3,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
 
-import cachetools
 from jinja2.meta import find_undeclared_variables
 from jinja2.sandbox import Environment, SandboxedEnvironment
 
@@ -139,6 +138,7 @@ _DEFAULT_WRITE_MEMORY_TEMPLATE_ZH = """\
 {% if action %}行动结果: {{ action }} {% endif %}
 {% if observation %}观察: {{ observation }} {% endif %}
 """
+
 
 
 class Profile(ABC):
@@ -563,7 +563,7 @@ class ProfileConfig(BaseModel):
                 raise ValueError("role must be specified if factory is not specified")
         return values
 
-    @cachetools.cached(cachetools.TTLCache(maxsize=100, ttl=10))
+    # @cachetools.cached(cachetools.TTLCache(maxsize=100, ttl=10))
     def create_profile(
         self,
         profile_id: Optional[int] = None,

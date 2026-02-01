@@ -16,7 +16,9 @@ import { useTranslation } from "react-i18next";
 import "./i18n";
 import "../styles/globals.css";
 import { Suspense } from 'react'
-import '@ant-design/v5-patch-for-react-19';
+
+// Prevent SSR flash
+const EmptyLayout = ({ children }: { children: React.ReactNode }) => <>{children}</>;
 
 const antdDarkTheme: MappingAlgorithm = (seedToken, mapToken) => {
   return {
@@ -30,6 +32,11 @@ const antdDarkTheme: MappingAlgorithm = (seedToken, mapToken) => {
 function CssWrapper({ children }: { children: React.ReactElement }) {
   const { mode } = useContext(ChatContext);
   const { i18n } = useTranslation();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (mode) {
@@ -43,10 +50,14 @@ function CssWrapper({ children }: { children: React.ReactElement }) {
   }, [mode]);
 
   useEffect(() => {
-    i18n.changeLanguage?.(
-      window.localStorage.getItem(STORAGE_LANG_KEY) || "zh"
-    );
-  }, [i18n]);
+    if (mounted) {
+      i18n.changeLanguage?.(
+        window.localStorage.getItem(STORAGE_LANG_KEY) || "zh"
+      );
+    }
+  }, [i18n, mounted]);
+
+  if (!mounted) return <>{children}</>;
 
   return <div>{children}</div>;
 }
@@ -55,6 +66,12 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { mode } = useContext(ChatContext);
   const { i18n } = useTranslation();
   const [isLogin, setIsLogin] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    handleAuth();
+  }, []);
 
   // 登录检测
   const handleAuth = async () => {
@@ -74,9 +91,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
     }
   };
 
-  useEffect(() => {
-    handleAuth();
-  }, []);
+  if (!mounted) return null;
 
   if (!isLogin) {
     return null;
@@ -127,7 +142,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning data-theme="light" className="light">
-      <body suppressHydrationWarning={true}>
+      <body suppressHydrationWarning={true} className="bg-[#FAFAFA] dark:bg-[#111]">
         <Suspense fallback={
           <App className="w-screen h-screen flex items-center justify-center">
             <Spin />

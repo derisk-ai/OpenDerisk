@@ -8,9 +8,7 @@ from derisk.util.tracer.base import (
     Tracer,
     TracerContext,
 )
-from derisk.util.tracer.span_storage import (
-    FileSpanStorage,
-    MemorySpanStorage,
+from derisk.util.tracer.span_storage_container import (
     SpanStorageContainer,
 )
 from derisk.util.tracer.tracer_impl import (
@@ -31,8 +29,6 @@ __all__ = [
     "SpanStorageType",
     "TracerContext",
     "DERISK_TRACER_SPAN_ID",
-    "MemorySpanStorage",
-    "FileSpanStorage",
     "SpanStorageContainer",
     "root_tracer",
     "trace",

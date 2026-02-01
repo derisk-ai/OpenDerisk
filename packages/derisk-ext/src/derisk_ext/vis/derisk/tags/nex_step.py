@@ -14,8 +14,8 @@ class NexStep(Vis):
     """NexStep."""
 
     def __init__(self, **kwargs):
-        self._derisk_url = kwargs.get(
-            "derisk_url", ""
+        self._drsk_web_url = kwargs.get(
+            "drsk_web_url", ""
         )
         super().__init__(**kwargs)
 
@@ -43,9 +43,9 @@ class NexStep(Vis):
             elif Status.COMPLETE.value == status:
                 drsk_status = "FINISHED"
             content["status"] = drsk_status
-            message_id = content.get("message_id")
+            message_id = content.get("message_id") + "_" + content.get("uid")
             content["tool_execute_link"] = (
-                f"{self._derisk_url}/nexa/drsk/tool/execute/content?message_id={message_id}"
+                f"{self._drsk_web_url}/nexa/drsk/tool/execute/content?message_id={message_id}"
             )
             return content
         except ValidationError as e:

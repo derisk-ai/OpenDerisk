@@ -25,6 +25,9 @@ class TeamContext(BaseModel):
     llm_strategy_value: Union[Optional[str], Optional[List[Any]]] = Field(
         None, description="The team leader's llm config"
     )
+    mist_keys: Optional[List[str]] = Field(
+        None, description="独立分配的AI云mist"
+    )
     prompt_template: Optional[str] = Field(
         None, description="The team leader's system prompt template!"
     )
@@ -40,12 +43,21 @@ class TeamContext(BaseModel):
     resources: Optional[list[AgentResource]] = Field(
         None, description="The team leader's resource!"
     )
-
+    use_sandbox: Optional[bool]= Field(
+        False, description="This Agent Use sandbox"
+    )
 
 
     @model_validator(mode="before")
-    def preprocess_resources(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def preprocess_resources(cls, values: Union[Dict[str, Any], Any]) -> Dict[str, Any]:
         """预处理resources字段：处理JSON字符串或字典列表"""
+        # Handle case when values is not a dict (e.g., already a model instance or string)
+        if not isinstance(values, dict):
+            if isinstance(values, TeamContext):
+                return {"resources": values.resources, **values.model_dump(exclude={"resources"})}
+            return values
+
         if "resources" in values:
             resources = values["resources"]
             if isinstance(resources, str):

@@ -23,7 +23,7 @@ class DefaultGptsPlansMemory(GptsPlansMemory):
         new_rows = pd.DataFrame([item.to_dict() for item in plans])
         self.df = pd.concat([self.df, new_rows], ignore_index=True)
 
-    def get_by_conv_id(self, conv_id: str) -> List[GptsPlan]:
+    async def get_by_conv_id(self, conv_id: str) -> List[GptsPlan]:
         """Get plans by conv_id."""
         result = self.df.query("conv_id==@conv_id")  # noqa: F541
         plans = []
@@ -156,6 +156,8 @@ class DefaultGptsPlansMemory(GptsPlansMemory):
 class DefaultGptsMessageMemory(GptsMessageMemory):
     """Default memory for storing messages."""
 
+
+
     def __init__(self):
         """Create a memory to store messages."""
         self.df = pd.DataFrame(columns=[field.name for field in fields(GptsMessage)])
@@ -202,7 +204,7 @@ class DefaultGptsMessageMemory(GptsMessageMemory):
             messages.append(GptsMessage.from_dict(row_dict))
         return messages
 
-    def get_by_conv_id(self, conv_id: str) -> List[GptsMessage]:
+    async def get_by_conv_id(self, conv_id: str) -> List[GptsMessage]:
         """Get all messages in the conversation."""
         result = self.df.query("conv_id==@conv_id")  # noqa: F541
         messages = []
@@ -225,3 +227,11 @@ class DefaultGptsMessageMemory(GptsMessageMemory):
     def delete_by_conv_id(self, conv_id: str) -> None:
         """Delete all messages in the conversation."""
         self.df.drop(self.df[self.df["conv_id"] == conv_id].index, inplace=True)
+
+    def get_by_session_id(self, session_id: str) -> Optional[List[GptsMessage]]:
+        result = self.df.query("conv_session_id==@session_id")  # noqa: F541
+        messages = []
+        for row in result.itertuples(index=False, name=None):
+            row_dict = dict(zip(self.df.columns, row))
+            messages.append(GptsMessage.from_dict(row_dict))
+        return messages

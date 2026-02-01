@@ -35,6 +35,10 @@ def _build_model_request(input_value: Dict) -> ModelRequest:
         "rpc_id": input_value.get("rpc_id", None),
         "context": input_value.get("context", None),
         "incremental": input_value.get("incremental", False),
+        "tool_choice": input_value.get("tool_choice", None),
+        "tools": input_value.get("tools", None),
+        "parallel_tool_calls": input_value.get("parallel_tool_calls", True),
+        "tool_use_few_shots": input_value.get("tool_use_few_shots", None),
     }
 
     return ModelRequest(**parm)
@@ -183,4 +187,5 @@ class LLMConfig(BaseModel):
     llm_client: Optional[LLMClient] = Field(default_factory=LLMClient)
     llm_strategy: LLMStrategyType = Field(default=LLMStrategyType.Default)
     llm_param: Optional[dict] = defaultdict(dict)
+    mist_keys: Optional[List[str]] = None
     strategy_context: Optional[Any] = None

@@ -49,7 +49,10 @@ class BaseDeployModelParameters(BaseParameters):
     concurrency: Optional[int] = field(
         default=5, metadata={"help": _("Model concurrency limit")}
     )
-
+    avatar: Optional[str] = field(default=None, metadata={"help": _("Model avatar."), "order": -800, })
+    independent: Optional[bool] = field(
+        default=None, metadata={"help": _("Private models deployed independently."), "order": -700, }
+    )
     @property
     def real_provider_model_name(self) -> str:
         """Get the real provider model name."""

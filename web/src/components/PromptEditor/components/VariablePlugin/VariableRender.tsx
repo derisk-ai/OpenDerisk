@@ -1,4 +1,4 @@
-import { Button, Popover, Typography } from 'antd';
+import { Button, Popover, Typography, Input, Divider } from 'antd';
 import React, { useEffect, useState } from 'react';
 import {
   CustomPluginContent,
@@ -10,6 +10,7 @@ export const VariableRender = (props: any) => {
   const { data, handleClickChangeVariable } = props;
   // 初次进入的提示浮层
   const [initTipOpen, setInitTipOpen] = useState(false);
+  const [testValue, setTestValue] = useState('');
 
   useEffect(() => {
     const taskAgentInitTipFlag = localStorage.getItem('taskAgentInitTipFlag');
@@ -45,7 +46,6 @@ export const VariableRender = (props: any) => {
       >
         <Popover
           placement="bottom"
-          // open={true}
           content={
             <CustomPopoverWrapper>
               <div className="custom_popover_content_name">
@@ -79,6 +79,34 @@ export const VariableRender = (props: any) => {
                   </Typography.Text>
                 )}
               </div>
+              
+              <Divider style={{ margin: '8px 0' }} />
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                  变量测试 / Value Preview
+                </Typography.Text>
+                <Input 
+                    placeholder="输入测试值 / Input test value" 
+                    size="small" 
+                    value={testValue}
+                    onChange={(e) => setTestValue(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                />
+                {testValue && (
+                    <div style={{ 
+                        background: '#f5f5f5', 
+                        padding: '6px', 
+                        borderRadius: '4px', 
+                        fontSize: '12px',
+                        color: '#333',
+                        wordBreak: 'break-all'
+                    }}>
+                        {testValue}
+                    </div>
+                )}
+              </div>
+
             </CustomPopoverWrapper>
           }
         >

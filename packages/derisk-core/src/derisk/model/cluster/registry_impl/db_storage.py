@@ -8,12 +8,12 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    select,
 )
 from sqlalchemy.orm import Session
 
 from derisk.core.interface.storage import ResourceIdentifier, StorageItemAdapter
 from derisk.storage.metadata import Model
-
 from .storage import ModelInstanceStorageItem
 
 
@@ -90,7 +90,7 @@ class ModelInstanceItemAdapter(
         )
 
     def from_storage_format(
-        self, model: ModelInstanceEntity
+        self, model: ModelInstanceEntity, **kwargs
     ) -> ModelInstanceStorageItem:
         return ModelInstanceStorageItem(
             model_name=model.model_name,
@@ -119,3 +119,17 @@ class ModelInstanceItemAdapter(
                 continue
             query_obj = query_obj.filter(getattr(ModelInstanceEntity, key) == value)
         return query_obj
+
+    def get_stmt_for_identifier(
+        self,
+        storage_format: ModelInstanceEntity,
+        resource_id: ResourceIdentifier,
+        **kwargs,
+    ):
+        """Get the async session stmt for the resource identifier."""
+        stmt = select(ModelInstanceEntity)
+        for key, value in resource_id.to_dict().items():
+            if value is None:
+                continue
+            stmt = stmt.where(getattr(ModelInstanceEntity, key) == value)
+        return stmt

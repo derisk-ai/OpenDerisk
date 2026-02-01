@@ -1,5 +1,5 @@
 """The storage interface for storing and loading data."""
-
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar, cast
 
@@ -90,7 +90,7 @@ class StorageItemAdapter(Generic[T, TDataRepresentation]):
         """
 
     @abstractmethod
-    def from_storage_format(self, data: TDataRepresentation) -> T:
+    def from_storage_format(self, data: TDataRepresentation, **kwargs) -> T:
         """Convert the storage format to the storage item.
 
         Args:
@@ -118,6 +118,24 @@ class StorageItemAdapter(Generic[T, TDataRepresentation]):
             Any: The query for the resource identifier
         """
 
+    @abstractmethod
+    def get_stmt_for_identifier(
+        self,
+        storage_format: Type[TDataRepresentation],
+        resource_id: ResourceIdentifier,
+        **kwargs,
+    ) -> Any:
+        """Get the async session stmt for the resource identifier.
+
+        Args:
+            storage_format (Type[TDataRepresentation]): The storage format
+            resource_id (ResourceIdentifier): The resource identifier
+            kwargs: The additional arguments
+
+        Returns:
+            Any: The async session stmt for the resource identifier
+        """
+
 
 class DefaultStorageItemAdapter(StorageItemAdapter[T, T]):
     """Default storage item adapter.
@@ -141,7 +159,7 @@ class DefaultStorageItemAdapter(StorageItemAdapter[T, T]):
         """
         return item
 
-    def from_storage_format(self, data: T) -> T:
+    def from_storage_format(self, data: T, **kwargs) -> T:
         """Convert the storage format to the storage item.
 
         Returns the storage format itself.
@@ -158,6 +176,12 @@ class DefaultStorageItemAdapter(StorageItemAdapter[T, T]):
         self, storage_format: Type[T], resource_id: ID, **kwargs
     ) -> bool:
         """Return the query for the resource identifier."""
+        return True
+
+    def get_stmt_for_identifier(
+        self, storage_format: Type[T], resource_id: ID, **kwargs
+    ) -> Any:
+        """Get the async session stmt for the resource identifier."""
         return True
 
 
@@ -291,6 +315,23 @@ class StorageInterface(Generic[T, TDataRepresentation], ABC):
             Optional[T]: The loaded data
         """
 
+    @abstractmethod
+    async def a_load(self, resource_id: ID, cls: Type[T]) -> Optional[T]:
+        """Load the data from the storage.
+
+        None will be returned if the data does not exist in the storage.
+
+        Load data with resource_id will be faster than query data with conditions,
+        so we suggest to use load if possible.
+
+        Args:
+            resource_id (ID): The resource identifier of the data
+            cls (Type[T]): The type of the data
+
+        Returns:
+            Optional[T]: The loaded data
+        """
+
     def load_list(self, resource_id: List[ID], cls: Type[T]) -> List[T]:
         """Load the data from the storage.
 
@@ -311,6 +352,31 @@ class StorageInterface(Generic[T, TDataRepresentation], ABC):
             item = self.load(r, cls)
             if item is not None:
                 result.append(item)
+        return result
+
+    async def a_load_list(self, resource_id: List[ID], cls: Type[T]) -> List[T]:
+        """Load the data from the storage.
+
+        None will be returned if the data does not exist in the storage.
+
+        Load data with resource_id will be faster than query data with conditions,
+        so we suggest to use load if possible.
+
+        Args:
+            resource_id (ID): The resource identifier of the data
+            cls (Type[T]): The type of the data
+
+        Returns:
+            Optional[T]: The loaded data
+        """
+
+        tasks = [self.a_load(r, cls) for r in resource_id]
+        result = [r for r in await asyncio.gather(*tasks) if r]
+        # result = []
+        # for r in resource_id:
+        #     item = await self.a_load(r, cls)
+        #     if item is not None:
+        #         result.append(item)
         return result
 
     @abstractmethod
@@ -455,6 +521,9 @@ class InMemoryStorage(StorageInterface[T, T]):
             return None
         return cast(T, self.serializer.deserialize(serialized_data, cls))
 
+    async def a_load(self, resource_id: ID, cls: Type[T]) -> Optional[T]:
+        return self.load(resource_id, cls)
+
     def delete(self, resource_id: ID) -> None:
         """Delete the data from the storage."""
         if resource_id.str_identifier in self._data:
@@ -480,9 +549,9 @@ class InMemoryStorage(StorageInterface[T, T]):
 
         # Apply limit and offset
         if spec.limit is not None:
-            result = result[spec.offset : spec.offset + spec.limit]
+            result = result[spec.offset: spec.offset + spec.limit]
         else:
-            result = result[spec.offset :]
+            result = result[spec.offset:]
         return result
 
     def count(self, spec: QuerySpec, cls: Type[T]) -> int:

@@ -203,6 +203,34 @@ class VectorStoreBase(IndexStoreBase, ABC):
         """Update the collection."""
         raise NotImplementedError
 
+    async def update_by_chunk_ids(
+            self,
+            chunk_ids: List[str],
+            set_data: Dict,
+            **kwargs,
+    ) -> Dict:
+        raise NotImplementedError
+
+    async def async_update_by_chunk_ids(
+            self,
+            set_data: List[Dict],
+            **kwargs,
+    ) -> List[Any]:
+        """async update the collection."""
+        return await blocking_func_to_async(self._executor, self.update_by_chunk_ids, set_data, **kwargs)
+
+    def upsert(self, chunks: List[Chunk]) -> List[Any]:
+        """Upsert the collection."""
+        raise NotImplementedError
+
+    async def async_upsert(self, chunks: List[Chunk]) -> List[Any]:
+        """async upsert the collection."""
+        return await blocking_func_to_async(self._executor, self.upsert, chunks)
+
     def truncate(self) -> List[str]:
         """Truncate the collection."""
+        raise NotImplementedError
+
+    def create_indexes(self, indexes: List[str]) -> bool:
+        """Create the indexes of the collection."""
         raise NotImplementedError

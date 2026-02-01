@@ -10,6 +10,7 @@ from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
 
 from .base import Resource, ResourceParameters, ResourceType
+from ...util.template_utils import render
 
 
 class AppInfo(BaseModel):
@@ -26,6 +27,10 @@ class AppResource(Resource[ResourceParameters]):
         """Initialize AppResource resource."""
         self._resource_name = name
 
+    @property
+    @abstractmethod
+    def app_code(self):
+        """Return the app code."""
     @property
     @abstractmethod
     def app_desc(self):
@@ -87,6 +92,26 @@ class AppResource(Resource[ResourceParameters]):
                     "valid_values": valid_values,
                 },
             )
+            app_name: str = dataclasses.field(
+                metadata={
+                    "help": _("App name"),
+                    "valid_values": valid_values,
+                },
+            )
+            app_describe: Optional[str] = dataclasses.field(
+                default =None,
+                metadata={
+                    "help": _("App describe"),
+                    "valid_values": valid_values,
+                },
+            )
+            icon: Optional[str] = dataclasses.field(
+                default=None,
+                metadata={
+                    "help": _("App icon"),
+                    "valid_values": valid_values,
+                },
+            )
 
             @classmethod
             def to_configurations(
@@ -135,19 +160,19 @@ class AppResource(Resource[ResourceParameters]):
     ) -> Tuple[str, Optional[Dict]]:
         """Get the prompt."""
         prompt_template_zh = (
-            "{name}：调用此资源与应用 {app_name} 进行交互。"
-            "应用 {app_name} 有什么用？{description}"
+            "{{app_name}}：{% if app_code %}(app_code: {{app_code}}){% endif %}"
+            "调用此资源与应用 {{app_name}} 进行交互。"
+            "应用 {{app_name}} 有什么用？{{description}}"
         )
         prompt_template_en = (
-            "{name}：Call this resource to interact with the application {app_name} ."
-            "What is the application {app_name} useful for? {description} "
+            "{{app_name}}: {% if app_code %}(app_code: {{app_code}}){% endif %}"
+            "Call this resource to interact with the application {{app_name}} ."
+            "What is the application {{app_name}} useful for? {{description}} "
         )
         template = prompt_template_en if lang == "en" else prompt_template_zh
 
         return (
-            template.format(
-                name=self.name, app_name=self.app_name, description=self.app_desc
-            ),
+            render(template, {"app_name":self.app_name,  "app_code": self.app_code, "description":self.app_desc}),
             None,
         )
 

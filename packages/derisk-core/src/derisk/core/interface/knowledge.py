@@ -55,6 +55,9 @@ class Chunk(Document):
     Document Chunk including chunk content, chunk metadata, chunk summary, chunk
     relations.
     """
+    pk_id : str = Field(
+        default="", description="pk_id of the polygon store"
+    )
 
     chunk_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()), description="unique id for the chunk"

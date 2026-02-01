@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint, select
 
 from derisk.agent.core.schema import Status
 from derisk.storage.metadata import BaseDao, Model
@@ -63,7 +63,7 @@ class GptsPlansEntity(Model):
         onupdate=datetime.utcnow,
         comment="last update time",
     )
-    __table_args__ = (UniqueConstraint("conv_id", "task_uid", name="uk_sub_task"),)
+    __table_args__ = (UniqueConstraint("conv_id", "sub_task_id", name="uk_sub_task"),)
 
 
 class GptsPlansDao(BaseDao):
@@ -73,20 +73,29 @@ class GptsPlansDao(BaseDao):
         session.commit()
         session.close()
 
-    def get_by_conv_id(
+    async def get_by_conv_id(
             self, conv_id: str, conv_round_id: Optional[str] = None
     ) -> list[GptsPlansEntity]:
-        session = self.get_raw_session()
-        gpts_plans = session.query(GptsPlansEntity)
-        if conv_id:
-            gpts_plans = gpts_plans.filter(GptsPlansEntity.conv_id == conv_id)
-        if conv_round_id:
-            gpts_plans = gpts_plans.filter(
-                GptsPlansEntity.conv_round_id == conv_round_id
-            )
-        result = gpts_plans.all()
-        session.close()
-        return result
+        if not conv_id:
+            raise RuntimeError("conv_id is None")
+        async with self.a_session(commit=False) as session:
+            stmt = select(GptsPlansEntity).where(GptsPlansEntity.conv_id == conv_id)
+            if conv_round_id:
+                stmt = stmt.where(GptsPlansEntity.conv_round_id == conv_round_id)
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+        # session = self.get_raw_session()
+        # gpts_plans = session.query(GptsPlansEntity)
+        # if conv_id:
+        #     gpts_plans = gpts_plans.filter(GptsPlansEntity.conv_id == conv_id)
+        # if conv_round_id:
+        #     gpts_plans = gpts_plans.filter(
+        #         GptsPlansEntity.conv_round_id == conv_round_id
+        #     )
+        # result = gpts_plans.all()
+        # session.close()
+        # return result
 
     def get_by_task_id(self, task_id: str) -> list[GptsPlansEntity]:
         session = self.get_raw_session()

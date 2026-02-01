@@ -34,7 +34,7 @@ import { VisThinking } from './vis-thinking';
 import { visComponentsRender } from './VisComponents/config';
 import MarkdownCard from './VisComponents/MarkDownCard';
 
-type MarkdownComponent = Parameters<typeof GPTVis>['0']['components'];
+export type MarkdownComponent = Parameters<typeof GPTVis>['0']['components'];
 
 const customeTags: string[] = ['custom-view', 'chart-view', 'references', 'summary'];
 

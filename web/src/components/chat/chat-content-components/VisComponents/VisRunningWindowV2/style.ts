@@ -14,6 +14,58 @@ export const AgentContainer = styled.div`
 export const AgentContent = styled.div`
   width: 100%;
   height: 100%;
+
+  /* 为虚拟滚动列表重置样式 */
+  & .vis-running-window-list {
+    overflow-x: hidden !important;
+
+    /* 确保react-window列表正常显示 */
+    > div {
+      outline: none;
+      overflow-x: hidden;
+      width: 100%;
+      overflow-y: hidden;
+    }
+
+    /* 行样式 */
+    .vis-running-window-row {
+      width: 100%;
+      border-bottom: 1px solid #f0f0f0;
+      background: #fff;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      &-header {
+        flex-shrink: 0;
+      }
+
+      &-content {
+        padding: 12px;
+        min-height: 20px;
+        overflow-x: hidden;
+      }
+    }
+  }
+
+  /* 简化渲染样式 */
+  .simplified-render {
+    display: flex;
+    align-items: flex-start;
+    padding: 12px;
+    color: #666;
+    font-size: 14px;
+    line-height: 1.5;
+
+    .markdown-preview {
+      flex: 1;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+  }
+
+  /* 普通滚动模式 */
   padding: 12px;
   overflow-y: auto;
   scrollbar-width: none;

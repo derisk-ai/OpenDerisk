@@ -78,23 +78,12 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     from derisk_app.openapi.api_v1.api_v1 import router as api_v1
     from derisk_app.openapi.api_v1.feedback.api_fb_v1 import router as api_fb_v1
     from derisk_app.openapi.api_v2.api_v2 import router as api_v2
-    from derisk_serve.agent.nex.controller import router as nex
-    from derisk_serve.agent.nex.data_controller import router as nex_data
-    from derisk_serve.agent.app.controller import router as gpts_v1
-    from derisk_serve.agent.nex.links_controller import router as links
-    from derisk_serve.agent.nex.memory_controller import router as memory
-    from derisk_serve.agent.nex.knowledge_controller import router as knowledge_app
+
 
     app.include_router(api_v1, prefix="/api", tags=["Chat"])
     app.include_router(api_v2, prefix="/api", tags=["ChatV2"])
     app.include_router(api_fb_v1, prefix="/api", tags=["FeedBack"])
-    app.include_router(gpts_v1, prefix="/api", tags=["GptsApp"])
-    app.include_router(nex, tags=["Nex"])
-    app.include_router(nex_data, tags=["Nex"])
-    app.include_router(links, tags=["Nex"])
-    app.include_router(memory, tags=["Nex"])
     app.include_router(knowledge_router, tags=["Knowledge"])
-    app.include_router(knowledge_app, tags=["KnowledgeApp"])
 
     from derisk_serve.agent.app.recommend_question.controller import (
         router as recommend_question_v1,
@@ -102,13 +91,9 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
 
     app.include_router(recommend_question_v1, prefix="/api", tags=["RecommendQuestion"])
 
-    # ##  ⬇️⬇️⬇️⬇️⬇️⬇️
-    # ## 启动MCP注册中心， 默认关闭，线下调试使用可手动开启
-    # if param and param.mcp.enable_mcp_gateway:
-    #     from derisk_ext.mcp.gateway import McpserverParam, run_mcp_port
-    #     mcp_server_param = McpserverParam()
-    #     run_mcp_port(app, mcp_server_param)
-    # ## ⬆️⬆️⬆️⬆️⬆️⬆️
+    from derisk_serve.agent.app.controller import router as agent_app_router
+
+    app.include_router(agent_app_router, prefix="/api", tags=["Agent App"])
 
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
@@ -296,8 +281,14 @@ class TestAppCreator(AppCreator):
 
 
 class CustomAppCreator(AppCreator):
+    def __init__(self, config_file=None):
+        super().__init__(config_file)
+        if config_file:
+            # Dynamically set the class attribute so that the create class method can get the correct configuration file
+            CustomAppCreator.config_file = config_file
+
     def app(self):
-        return self.create()
+        return self.create
 
     def workers(self):
-        return None  # 自定义配置不支持多进程模式
+        return None  # Custom config does not support multi-process mode

@@ -5,7 +5,6 @@ from derisk.rag.operators.evaluation import RetrieverEvaluatorOperator  # noqa: 
 from derisk.rag.operators.rerank import RerankOperator  # noqa: F401
 from derisk.rag.operators.rewrite import QueryRewriteOperator  # noqa: F401
 
-from .db_schema import DBSchemaAssemblerOperator
 from .embedding import (  # noqa: F401
     EmbeddingAssemblerOperator,
     EmbeddingRetrieverOperator,
@@ -21,7 +20,6 @@ from .summary import SummaryAssemblerOperator  # noqa: F401
 from .vector_store import VectorStorageOperator  # noqa: F401
 
 __all__ = [
-    "DBSchemaAssemblerOperator",
     "EmbeddingRetrieverOperator",
     "EmbeddingAssemblerOperator",
     "FullTextStorageOperator",

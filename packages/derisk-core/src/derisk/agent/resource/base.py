@@ -1,5 +1,5 @@
 """Resources for the agent."""
-
+import asyncio
 import dataclasses
 import json
 from abc import ABC, abstractmethod
@@ -45,6 +45,7 @@ class ResourceType(str, Enum):
     KnowledgePack = "knowledge_pack"
     Internet = "internet"
     Tool = "tool"
+    AgentSkill = "agent_skill"
     Plugin = "plugin"
     TextFile = "text_file"
     ExcelFile = "excel_file"
@@ -59,6 +60,10 @@ class ResourceType(str, Enum):
     Memory = "memory"
     Agent = "agent"
     Report = "report"
+    Document = "document"
+    CodeWiki = "code_wiki"
+    Monitor = "monitor"
+    YUQUE = "yuque"
 
 
 FILE_RESOURCES = [ResourceType.ImageFile.value, ResourceType.ExcelFile.value, ResourceType.TextFile.value, ResourceType.CommonFile.value]
@@ -82,10 +87,9 @@ class ResourceParameters(BaseParameters):
         cls,
         parameters: Type["ResourceParameters"],
         version: Optional[str] = None,
-        cache_enable: bool = True
     ) -> Any:
         """Convert the parameters to configurations."""
-        desc_list = _get_parameter_descriptions(parameters, cache_enable = cache_enable)
+        desc_list = _get_parameter_descriptions(parameters)
         for desc in desc_list:
             if desc.param_name == "name" and not desc.default_value:
                 desc.default_value = str(_DEFAULT_RESOURCE_NAME)
@@ -284,6 +288,14 @@ class Resource(ABC, Generic[P]):
     def is_pack(self) -> bool:
         """Return whether the resource is a pack."""
         return False
+
+    @property
+    def is_stream(self) -> bool:
+        return False
+
+    @property
+    def stream_queue(self) -> Optional[asyncio.Queue]:
+        return None
 
     @property
     def sub_resources(self) -> List["Resource"]:

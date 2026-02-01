@@ -1,18 +1,14 @@
-import logging
-import os
-from logging.handlers import TimedRotatingFileHandler
-import re
-from derisk.configs.model_config import LOGDIR
 from derisk.util.logger import setup_logging, LoggingParameters
 
 MCP_LOGGER = setup_logging(
     "mcp",
     LoggingParameters(
         file="mcp.log",
-        formatter="%(asctime)s - %(name)s - %(levelname)s - [%(trace_id)s]%(message)s",
+        formatter="%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - [%(trace_id)s]%(message)s",
     ),
 )
 CHAT_LOGGER = setup_logging("chat", LoggingParameters(file="chat.log"))
+DIGEST_LOGGER = setup_logging("digest-detail", LoggingParameters(file="digest.log", propagate=False))
 # # 创建TimedRotatingFileHandler，每天午夜轮转
 # handler = TimedRotatingFileHandler(
 #     filename=os.path.join(LOGDIR, "mcp.log"),  # 基础日志文件名

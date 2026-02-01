@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import dataclasses
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from ...schema import Status
+from derisk.core.schema.types import ChatCompletionUserMessageParam
+from .agent_system_message import AgentSystemMessage
+from ...schema import Status, MessageMetrics
+from ...types import MessageContextType, ActionReportType, AgentReviewInfo, ResourceReferType, AgentMessage, MessageType
 
 
 @dataclasses.dataclass
@@ -23,7 +26,6 @@ class GptsPlan:
     sub_task_num: Optional[int] = 0
     sub_task_content: Optional[str] = ""
     task_parent: Optional[str] = None
-    conv_round_id: Optional[str] = None
     sub_task_title: Optional[str] = None
     sub_task_agent: Optional[str] = None
     resource_name: Optional[str] = None
@@ -35,14 +37,15 @@ class GptsPlan:
     action_input: Optional[str] = None
     result: Optional[str] = None
 
+    conv_round_id: Optional[str] = None
     task_round_title: Optional[str] = None
     task_round_description: Optional[str] = ""
     planning_agent: Optional[str] = None
+
     planning_model: Optional[str] = None
     gmt_create: Optional[str] = None
     created_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
     updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
-
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsPlan":
@@ -76,9 +79,6 @@ class GptsPlan:
         """Return a dictionary representation of the GptsPlan object."""
         return dataclasses.asdict(self)
 
-class GptsMessageType(str, Enum):
-    AgentMessage = "agent_message"
-    ActionApproval = "action_approval" # 用户同意执行某个动作
 
 @dataclasses.dataclass
 class GptsMessage:
@@ -90,10 +90,10 @@ class GptsMessage:
     sender_name: str
     message_id: str
     role: str
-    content: str
+    content: Optional[Union[str, ChatCompletionUserMessageParam]] = None
     rounds: int = 0
-    content_types: Optional[str] = None
-    message_type: Optional[str] = GptsMessageType.AgentMessage.value
+    content_types: Optional[List[str]] = None
+    message_type: Optional[str] = MessageType.AgentMessage.value
     receiver: Optional[str] = None
     receiver_name: Optional[str] = None
     is_success: bool = True
@@ -103,19 +103,22 @@ class GptsMessage:
     app_name: Optional[str] = None
     goal_id: Optional[str] = None
     current_goal: Optional[str] = None
-    context: Optional[str] = None
-    review_info: Optional[str] = None
-    action_report: Optional[str] = None
+    context: Optional[MessageContextType] = None
+    action_report: Optional[ActionReportType] = None
+    review_info: Optional[AgentReviewInfo] = None
     model_name: Optional[str] = None
-    resource_info: Optional[str] = None
+    resource_info: Optional[ResourceReferType] = None
     system_prompt: Optional[str] = None
     user_prompt: Optional[str] = None
     show_message: bool = True
-    created_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
-    updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
+
+    created_at: datetime = dataclasses.field(default_factory=datetime.now)
+    updated_at: datetime = dataclasses.field(default_factory=datetime.now)
 
     observation: Optional[str] = None
-    metrics: Optional[str] = None
+    metrics: Optional[MessageMetrics] = None
+    tool_calls: Optional[List[Dict]] = None
+
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsMessage":
         """Create a GptsMessage object from a dictionary."""
@@ -156,6 +159,100 @@ class GptsMessage:
         """Return a dictionary representation of the GptsMessage object."""
         return dataclasses.asdict(self)
 
+    def to_agent_message(self) -> AgentMessage:
+        return AgentMessage(
+            message_id=self.message_id,
+            content=self.content,
+            content_types=self.content_types,
+            message_type=self.message_type,
+            thinking=self.thinking,
+            name=self.sender_name,
+            rounds=self.rounds,
+            round_id=None,  # GptsMessage 没有 round_id，设为 None
+            context=self.context,
+            action_report=self.action_report,
+            review_info=self.review_info,
+            current_goal=self.current_goal,
+            goal_id=self.goal_id,
+            model_name=self.model_name,
+            role=self.role,
+            success=self.is_success,
+            resource_info=self.resource_info,
+            show_message=self.show_message,
+            system_prompt=self.system_prompt,
+            user_prompt=self.user_prompt,
+            gmt_create=self.created_at,  # 或 updated_at，按需选择
+            observation=self.observation,
+            metrics=self.metrics,
+            tool_calls=self.tool_calls,
+        )
+
+    @classmethod
+    def from_agent_message(
+        cls,
+        message: AgentMessage,
+        sender: "ConversableAgent",
+        receiver: Optional["ConversableAgent"] = None,
+        role: Optional[str] = None,
+    ) -> GptsMessage:
+        return cls(
+            ## 收发信息
+            conv_id=sender.not_null_agent_context.conv_id,
+            conv_session_id=sender.not_null_agent_context.conv_session_id,
+            sender=sender.role,
+            sender_name=sender.name,
+            receiver=receiver.role if receiver else sender.role,
+            receiver_name=receiver.name if receiver else sender.name,
+            role=role or sender.role,
+            avatar=sender.avatar,
+            app_code=sender.not_null_agent_context.agent_app_code or "",
+            app_name=sender.name,
+
+            ## 消息内容
+            message_id=message.message_id if message.message_id else uuid.uuid4().hex,
+            content=message.content,
+            rounds=message.rounds,
+            content_types=message.content_types,
+            message_type=message.message_type,
+            is_success=message.success,
+            thinking=message.thinking,
+            goal_id=message.goal_id,
+            current_goal=message.current_goal,
+            context=message.context,
+            action_report=message.action_report,
+            review_info=message.review_info,
+            model_name=message.model_name,
+            resource_info=message.resource_info,
+            system_prompt=message.system_prompt,
+            user_prompt=message.user_prompt,
+            show_message=message.show_message,
+            created_at=message.gmt_create or datetime.now(),
+            updated_at=message.gmt_create or datetime.now(),
+            observation=message.observation,
+            metrics=message.metrics,
+            tool_calls=message.tool_calls,
+        )
+
+    def view(self) -> Optional[str]:
+        """最终返回给User的结论view"""
+
+        views = [view for item in (self.action_report or []) if (
+            view := item.view or item.observations or item.content
+        )]
+
+        # 有action_report view则取view 否则取content
+        return "\n".join(views) or self.content
+
+    def answer(self) -> Optional[str]:
+        """最终返回给User的结论content"""
+
+        views = [view for item in (self.action_report or []) if (
+            view := item.content or item.observations or item.view
+        )]
+
+        # 有action_report view则取view 否则取content
+        return "\n".join(views) or self.content
+
 
 class GptsPlansMemory(ABC):
     """Gpts plans memory interface."""
@@ -170,7 +267,7 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_conv_id(self, conv_id: str) -> List[GptsPlan]:
+    async def get_by_conv_id(self, conv_id: str) -> List[GptsPlan]:
         """Get plans by conv_id.
 
         Args:
@@ -181,7 +278,7 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_planner(self, conv_id:str, planner: str)-> List[GptsPlan]:
+    def get_by_planner(self, conv_id: str, planner: str) -> List[GptsPlan]:
         """Get plans by conv_id and planner.
 
         Args:
@@ -192,7 +289,7 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_planner_and_round(self, conv_id:str, planner: str, round_id:str)-> List[GptsPlan]:
+    def get_by_planner_and_round(self, conv_id: str, planner: str, round_id: str) -> List[GptsPlan]:
         """Get plans by conv_id and planner.
 
         Args:
@@ -265,15 +362,14 @@ class GptsPlansMemory(ABC):
 
         Args:
             conv_id(str): conversation id
-            conv_round(int): conversation round
             task_id(str): Planning step num
             state(str): the status to update to
             retry_times(int): Latest number of retries
-            conv_round_uid(str): conversation round uid
             agent(str): Agent's name
             model(str): Model name
             result(str): Plan step results
         """
+
     @abstractmethod
     def update_by_uid(
         self,
@@ -292,12 +388,10 @@ class GptsPlansMemory(ABC):
             task_uid(str): conversation round
             state(str): the status to update to
             retry_times(int): Latest number of retries
-            conv_round_uid(str): conversation round uid
             agent(str): Agent's name
             model(str): Model name
             result(str): Plan step results
         """
-
 
     @abstractmethod
     def remove_by_conv_id(self, conv_id: str) -> None:
@@ -308,7 +402,7 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def remove_by_conv_planner(self, conv_id: str, planner:str) -> None:
+    def remove_by_conv_planner(self, conv_id: str, planner: str) -> None:
         """Remove plan by conversation id and planner.
 
         Args:
@@ -340,41 +434,7 @@ class GptsMessageMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_agent(self, conv_id: str, agent: str) -> Optional[List[GptsMessage]]:
-        """Return all messages of the agent in the conversation.
-
-        Args:
-            conv_id(str): Conversation id
-            agent(str): Agent's name
-
-        Returns:
-            List[GptsMessage]: List of messages
-        """
-
-    @abstractmethod
-    def get_between_agents(
-        self,
-        conv_id: str,
-        agent1: str,
-        agent2: str,
-        current_goal: Optional[str] = None,
-    ) -> List[GptsMessage]:
-        """Get messages between two agents.
-
-        Query information related to an agent
-
-        Args:
-            conv_id(str): Conversation id
-            agent1(str): Agent1's name
-            agent2(str): Agent2's name
-            current_goal(str): Current goal
-
-        Returns:
-            List[GptsMessage]: List of messages
-        """
-
-    @abstractmethod
-    def get_by_conv_id(self, conv_id: str) -> List[GptsMessage]:
+    async def get_by_conv_id(self, conv_id: str) -> List[GptsMessage]:
         """Return all messages in the conversation.
 
         Query messages by conv id.
@@ -413,4 +473,59 @@ class GptsMessageMemory(ABC):
 
         Args:
             conv_id(str): Conversation id
+        """
+
+    @abstractmethod
+    def get_by_session_id(self, session_id: str) -> Optional[List[GptsMessage]]:
+        """Return one messages by session id.
+
+        Args:
+            session_id:
+
+        Returns:
+
+        """
+
+
+class AgentSystemMessageMemory(ABC):
+    """System Agent Message memory interface."""
+
+    @abstractmethod
+    def append(self, message: AgentSystemMessage) -> None:
+        """Add a message.
+
+        Args:
+            message(GptsMessage): Message object
+        """
+
+    @abstractmethod
+    def update(self, message: AgentSystemMessage) -> None:
+        """Update message.
+
+        Args:
+            message:
+
+        Returns:
+        """
+
+    @abstractmethod
+    def get_by_conv_id(self, conv_id: str) -> List[AgentSystemMessage]:
+        """Return all messages in the conversation.
+
+        Query messages by conv id.
+
+        Args:
+            conv_id(str): Conversation id
+        Returns:
+            List[GptsMessage]: List of messages
+        """
+
+    @abstractmethod
+    def get_by_session_id(self, session_id: str) -> Optional[List[AgentSystemMessage]]:
+        """Return one messages by session id.
+
+        Args:
+            session_id:
+
+        Returns:
         """

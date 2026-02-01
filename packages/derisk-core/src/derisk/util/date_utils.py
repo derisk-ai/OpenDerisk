@@ -11,6 +11,15 @@ def convert_datetime_in_row(row):
         for value in row
     ]
 
+def convert_datetime(data):
+    if isinstance(data, dict):
+        return {k: convert_datetime(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_datetime(item) for item in data]
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    return data
+
 
 def current_ms() -> int:
     return int(datetime.now().timestamp() * 1000)
@@ -34,6 +43,15 @@ def uniform_time(date_time: datetime | str | int | float) -> datetime:
     def _parse_float_time(t: float) -> datetime:
         return datetime.fromtimestamp(t)
 
+    def _parse_str_time(t: str) -> datetime:
+        for format in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S.%f','%Y-%m-%d %H:%M:%S']:
+            try:
+                return datetime.strptime(date_time, format)
+            except ValueError:
+                pass
+        raise ValueError(f"failed to parse time: {t}")
+
+
     if not date_time:
         return None
 
@@ -55,7 +73,4 @@ def uniform_time(date_time: datetime | str | int | float) -> datetime:
     elif isinstance(date_time, float):
         return _parse_float_time(date_time)
 
-    try:
-        return datetime.strptime(date_time, '%Y-%m-%dT%H:%M:%S')
-    except ValueError:
-        return datetime.strptime(date_time, '%Y-%m-%d %H:%M:%S')
+    return _parse_str_time(date_time)

@@ -7,10 +7,14 @@ from derisk._private.pydantic import (
     model_to_json,
     model_validator,
     model_to_dict,
+    Extra
 )
 
 
 class DrskVisBase(BaseModel):
+    class Config:
+        extra = Extra.ignore
+
     uid: str = Field(..., description="drsk drsk_vis compent uid")
     type: str = Field(..., description="drsk drsk_vis data update type")
     dynamic: bool = Field(False, description="is a dynamic  compontent")

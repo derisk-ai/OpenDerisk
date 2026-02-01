@@ -5,6 +5,8 @@ from typing import Union, Optional, Any, List, AsyncGenerator, Tuple, Coroutine
 from fastapi import BackgroundTasks
 
 from derisk.core import HumanMessage
+from derisk.util.date_utils import current_ms
+from derisk.util.tracer import root_tracer
 from derisk_serve.agent.agents.chat.agent_chat import AgentChat, _format_vis_msg
 from derisk_serve.building.config.api.schemas import ChatInParamValue
 
@@ -54,7 +56,18 @@ class SimpleAgentChat(AgentChat):
         agent_conv_id = None
         agent_task: Optional[Coroutine] = None
         error_info: Optional[str] = None
-
+        start_ms = root_tracer.get_context_entrance_ms() or current_ms()
+        ttft = None
+        first_chunk_ms = None
+        span = root_tracer.start_span(
+            "agent_chat",
+            metadata={
+                "chat_type": "simple",
+                "app_code": gpts_name,
+                "ttft" : None,
+                "succeed": False,
+            }
+        )
         try:
             # 初始化对话
             current_message = await self._initialize_conversation(
@@ -66,8 +79,10 @@ class SimpleAgentChat(AgentChat):
 
             agent_conv_id, gpts_conversations = await self._initialize_agent_conversation(
                 conv_session_id=conv_uid,
+                app_code=gpts_name,
                 **ext_info
             )
+            span.metadata["conv_id"] = agent_conv_id
 
             # 处理对话流
             async for task, chunk, conv_id in self.aggregation_chat(
@@ -84,8 +99,13 @@ class SimpleAgentChat(AgentChat):
                 **ext_info
             ):
                 agent_task = task
+                first_chunk_ms = current_ms() if first_chunk_ms is None else first_chunk_ms
+                if ttft is None:
+                    ttft = current_ms() - start_ms
+                    span.metadata["ttft"] = ttft
+                    root_tracer.start_span("agent.ttft", metadata={"ttft": ttft}).end()
                 yield chunk, agent_conv_id
-
+            span.metadata["succeed"] = True
         except asyncio.CancelledError:
             logger.warning("Client connection terminated")
             if agent_task:
@@ -110,8 +130,11 @@ class SimpleAgentChat(AgentChat):
                     agent_conv_id=agent_conv_id,
                     current_message=current_message,
                     err_msg=error_info,
-                    chat_call_back=chat_call_back
+                    chat_call_back=chat_call_back,
+                    first_chunk_ms=first_chunk_ms,
                 )
             except Exception as e:
-                logger.error(f"Failed to save conversation: {e}")
+                logger.exception(f"Failed to save conversation: {e}")
                 yield f"Failed to save conversation: {e}", agent_conv_id
+            finally:
+                span.end()

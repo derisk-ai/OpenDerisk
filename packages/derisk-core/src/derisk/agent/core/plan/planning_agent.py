@@ -71,20 +71,37 @@ class PlanningAgent(ConversableAgent):
     current_goal: str = ":探索分析"
     report_agent: Optional[ConversableAgent] = None
     content_stream_out: bool = False
-    init_uids: List[str] = []
-    conv_round_id: str = None
+    # init_uids: List[str] = []
+    # conv_round_id: str = None
 
     def __init__(self, **kwargs):
         """Create a new PlannerAgent instance."""
         super().__init__(**kwargs)
         self._init_actions([PlanningAction])
 
+
+    @property
+    def init_uids(self) -> List[str]:
+        return self._runtime_context.context.init_uids
+
+    @init_uids.setter
+    def init_uids(self, value: List[str]):
+        self._runtime_context.context.init_uids = value
+
+    @property
+    def conv_round_id(self) -> str:
+        return self._runtime_context.context.conv_round_id
+
+    @conv_round_id.setter
+    def conv_round_id(self, value: str):
+        self._runtime_context.context.conv_round_id = value
+
     def register_variables(self):
         super().register_variables()
-        @self._vm.register('agents', '规划可用的代理信息')
-        def var_out_schema(instance):
-            return "\n".join([f"- 代理名称:'{item.name}'    能力描述:'{item.desc}'" for item in instance.agents])
 
+        @self._vm.register('agents', '规划可用的代理信息')
+        def var_agents(instance):
+            return "\n".join([f"- 代理名称:'{item.name}'    能力描述:'{item.desc}'" for item in instance.agents])
 
     def hire(self, agents: List[ConversableAgent]):
         """Bind the agents to the planner agent."""
@@ -102,11 +119,11 @@ class PlanningAgent(ConversableAgent):
         self.agents = valid_agents
 
     def prepare_act_param(
-            self,
-            received_message: Optional[AgentMessage],
-            sender: Agent,
-            rely_messages: Optional[List[AgentMessage]] = None,
-            **kwargs,
+        self,
+        received_message: Optional[AgentMessage],
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        **kwargs,
     ) -> Dict[str, Any]:
         """Prepare the parameters for the act method."""
         reply_message = kwargs.get("reply_message")
@@ -124,5 +141,3 @@ class PlanningAgent(ConversableAgent):
             "planning_agent": self.name,
             "planning_model": kwargs.get("llm_model")
         }
-
-

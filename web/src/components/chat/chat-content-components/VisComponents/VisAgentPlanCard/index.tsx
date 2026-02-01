@@ -132,6 +132,8 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     (Array.isArray(data?.children) && (data.children as unknown[]).length > 0);
   const isReport = data?.task_type === 'report';
   const isPlan = data?.item_type === 'plan';
+  const isAgent = data?.item_type === 'agent';
+  const isStage = data?.item_type === 'stage';
   const isTask = data?.item_type === 'task';
   const layerCount = (data?.layer_count as number) ?? 0;
 
@@ -139,6 +141,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     <VisAgentPlanCardWrap
       onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
+        if (isStage) return;
         const callback = () =>
           setTimeout(() => {
             workWindowEmitter.emit('clickFolder', {
@@ -147,10 +150,10 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
           }, 500);
         workWindowEmitter.emit('openPanel', { callback });
       }}
-      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && isPlan ? 'selected' : ''}`}
+      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && (isPlan || isAgent) ? 'selected' : ''}`}
     >
       <div
-        className={`header ${isPlan ? 'header-plan' : ''} ${data?.item_type === 'task' ? 'header-task' : 'header-default'}`}
+        className={`header ${isPlan ? 'header-plan' : ''} ${isAgent ? 'header-agent' : ''} ${isStage ? 'header-stage' : ''} ${data?.item_type === 'task' ? 'header-task' : 'header-default'}`}
         onClick={toggleExpand}
       >
         <div className="content-wrapper">
@@ -158,7 +161,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
             <div className="content-header">
               {Boolean(data?.agent_name) && (
                 <div className="agent_name" title={String(data.agent_name)}>
-                  {isPlan && (
+                  {(isPlan || isAgent) && (
                     <Avatar
                       size={20}
                       src={data.agent_avatar as string}
@@ -212,7 +215,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                       />
                     )}
                   </div>
-                  {isTask ? (
+                  {isTask || isStage ? (
                     <span
                       className="button-shrink"
                       style={{ marginLeft: 8 }}
@@ -242,7 +245,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                 </Tooltip>
               </div>
             )}
-            {isPlan && (
+            {(isPlan || isAgent) && (
               <div className="time-info">
                 <div>{formatTime((data?.start_time as string) ?? '')}</div>
                 <div className="time-cost">{dynamicCost} s</div>

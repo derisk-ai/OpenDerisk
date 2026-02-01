@@ -1,4 +1,6 @@
-from derisk.core import LLMClient
+from collections.abc import AsyncIterator
+
+from derisk.core import LLMClient, ModelOutput
 
 
 class AutoLLMClient(LLMClient):
@@ -32,13 +34,13 @@ class AutoLLMClient(LLMClient):
             f"'{self.__class__.__name__}' object has no attribute '{name}'"
         )
 
-    def generate(self, *args, **kwargs):
+    async def generate(self, *args, **kwargs)-> ModelOutput:
         return self._client_impl.generate(*args, **kwargs)
 
     def generate_stream(self, *args, **kwargs):
         return self._client_impl.generate_stream(*args, **kwargs)
 
-    def count_token(self, *args, **kwargs):
+    async def count_token(self, *args, **kwargs):
         return self._client_impl.count_token(*args, **kwargs)
 
     def models(self, *args, **kwargs):

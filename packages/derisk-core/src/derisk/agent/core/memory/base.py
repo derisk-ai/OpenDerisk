@@ -37,6 +37,7 @@ class WriteOperation(str, Enum):
     UPDATE = "update"
     DELETE = "delete"
     RETRIEVAL = "retrieval"
+    COMPRESS = "compress"
 
 
 @PublicAPI(stability="beta")
@@ -415,6 +416,7 @@ class Memory(ABC, Generic[T]):
         memory_fragment: T,
         now: Optional[datetime] = None,
         op: WriteOperation = WriteOperation.ADD,
+        **kwargs: Any
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a memory fragment to memory.
 
@@ -437,7 +439,7 @@ class Memory(ABC, Generic[T]):
 
     @mutable
     async def write_batch(
-        self, memory_fragments: List[T], now: Optional[datetime] = None
+        self, memory_fragments: List[T], now: Optional[datetime] = None, **kwargs
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a batch of memory fragments to memory.
 
@@ -452,7 +454,7 @@ class Memory(ABC, Generic[T]):
         discarded_memory_fragments = []
         discarded_insights = []
         for memory_fragment in memory_fragments:
-            discarded_memory = await self.write(memory_fragment, now)
+            discarded_memory = await self.write(memory_fragment, now, **kwargs)
             if discarded_memory:
                 if discarded_memory.discarded_memory_fragments:
                     discarded_memory_fragments.extend(
@@ -732,6 +734,7 @@ class ShortTermMemory(Memory, Generic[T]):
         memory_fragment: T,
         now: Optional[datetime] = None,
         op: WriteOperation = WriteOperation.ADD,
+        **kwargs
     ) -> Optional[DiscardedMemoryFragments[T]]:
         """Write a memory fragment to short-term memory.
 

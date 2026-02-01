@@ -151,20 +151,10 @@ class DatasourceResource(RDBMSConnectorResource):
         self, db: str, question: Optional[str] = None
     ) -> Union[str, List[str]]:
         """Return the schema link of the database."""
-        try:
-            from derisk_serve.datasource.service.db_summary_client import (
-                DBSummaryClient,
-            )
-        except ImportError:
-            raise ValueError("Could not import DBSummaryClient. ")
-        client = DBSummaryClient(system_app=CFG.SYSTEM_APP)
+
         table_infos = None
         try:
-            table_infos = client.get_db_summary(
-                db,
-                question,
-                CFG.KNOWLEDGE_SEARCH_TOP_SIZE,
-            )
+            table_infos = ''
         except Exception as e:
             logger.warning(f"db summary find error!{str(e)}")
         if not table_infos:
