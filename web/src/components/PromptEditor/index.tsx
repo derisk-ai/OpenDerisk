@@ -65,9 +65,7 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
   // 内部状态控制预览显示，默认为 false
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
 
-  // Add scroll sync refs
   const previewRef = useRef<HTMLDivElement>(null);
-  const scrollingRef = useRef<'editor' | 'preview' | null>(null);
 
   const getJoinText = (params: { title?: string; mentionType?: string }) => {
     const { title, mentionType } = params;
@@ -227,40 +225,6 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     view?.dom?.addEventListener('keydown', handleKeyDown);
     // 这里监听全局的鼠标抬起事件，获取选区信息，避免鼠标在编辑器外部时不触发
     document.addEventListener('mouseup', handleMouseUp);
-    
-    // Add scroll listener for sync
-    if (showPreview && isPreviewVisible) {
-      const scrollDom = view.scrollDOM;
-      scrollDom.addEventListener('scroll', () => {
-        if (!previewRef.current || scrollingRef.current === 'preview') return;
-        scrollingRef.current = 'editor';
-        
-        const percentage = scrollDom.scrollTop / (scrollDom.scrollHeight - scrollDom.clientHeight);
-        const previewDom = previewRef.current;
-        previewDom.scrollTop = percentage * (previewDom.scrollHeight - previewDom.clientHeight);
-        
-        // Reset scrolling lock after a short delay
-        setTimeout(() => {
-          if (scrollingRef.current === 'editor') scrollingRef.current = null;
-        }, 100);
-      });
-    }
-  };
-
-  // Preview scroll handler
-  const handlePreviewScroll = () => {
-    if (!previewRef.current || !editorRef.current || scrollingRef.current === 'editor') return;
-    scrollingRef.current = 'preview';
-    
-    const previewDom = previewRef.current;
-    const percentage = previewDom.scrollTop / (previewDom.scrollHeight - previewDom.clientHeight);
-    
-    const editorScrollDom = editorRef.current.scrollDOM;
-    editorScrollDom.scrollTop = percentage * (editorScrollDom.scrollHeight - editorScrollDom.clientHeight);
-    
-    setTimeout(() => {
-      if (scrollingRef.current === 'preview') scrollingRef.current = null;
-    }, 100);
   };
 
   /**
@@ -305,38 +269,23 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
   }, []);
   return (
     <>
-      <PromptEditorWrapper style={style} className={className}>
+      <PromptEditorWrapper style={style} className={`${className} relative`}>
         {showPreview && (
-          <div className="sticky top-2 z-20 float-right mr-4 -mb-8">
+          <div className="absolute top-2 right-4 z-30">
              <Tooltip title={isPreviewVisible ? "关闭预览 / Close Preview" : "开启预览 / Open Preview"}>
                 <Button 
                     type="text" 
                     icon={isPreviewVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />} 
                     onClick={() => setIsPreviewVisible(!isPreviewVisible)}
                     size="small"
-                    className="bg-white/80 backdrop-blur-sm shadow-sm hover:bg-white border border-gray-200"
+                    className="bg-white/90 backdrop-blur-sm shadow-md hover:bg-white border border-gray-200"
                 />
              </Tooltip>
           </div>
         )}
-        {/* 变量选择浮层 */}
-        {/* <div className='custom-choose'>
-          {showVarChooseModalOpen && (
-            <MentionPanel
-              skillList={skillList || []}
-              agentList={agentList || []}
-              variableList={variableList || []}
-              knowledgeList={knowledgeList || []}
-              cursorPosition={cursorPosition}
-              getPopPosition={getPopPosition}
-              setOpen={setShowVarChooseModalOpen}
-              handleChangeVar={handleChangeVar}
-              teamMode={teamMode}
-            />
-          )}
-        </div> */}
-        <div className="flex h-full w-full">
-            <div className={`h-full w-full transition-all duration-300 ${showPreview && isPreviewVisible ? 'hidden' : 'block'}`}>
+        
+        <div className="flex h-full w-full relative">
+            <div className="h-full w-full">
                 <CodeMirror
                   theme={theme}
                   className={'InputCodeMirror'}
@@ -354,15 +303,12 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
                     highlightActiveLineGutter: false,
                     foldGutter: false,
                     autocompletion: false,
-                    //关闭自己显示另一开括号
-                    // closeBrackets: false,
                     indentOnInput: false,
                     highlightActiveLine: false,
-                    //自动突出显示与当前选中内容相匹配的其它部分
                     highlightSelectionMatches: false,
                   }}
-          // @ts-ignore
-          extensions={basicExtensions}
+                  // @ts-ignore
+                  extensions={basicExtensions}
                   height='100%'
                   style={{
                     fontSize: 14,
@@ -371,16 +317,16 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
                   }}
                 />
             </div>
+            
             {showPreview && isPreviewVisible && (
-                <div 
-                    ref={previewRef}
-                    className="w-full h-full overflow-y-auto p-4 bg-gray-50 prose prose-sm max-w-none"
-                    onScroll={handlePreviewScroll}
-                >
-                    <ReactMarkdown>
-                        {value || ''}
-                    </ReactMarkdown>
-                </div>
+              <div 
+                ref={previewRef}
+                className="absolute inset-0 z-20 overflow-y-auto px-5 py-4 pt-12 bg-gray-50/95 backdrop-blur-sm prose prose-sm max-w-none"
+              >
+                <ReactMarkdown>
+                  {value || ''}
+                </ReactMarkdown>
+              </div>
             )}
         </div>
       </PromptEditorWrapper>

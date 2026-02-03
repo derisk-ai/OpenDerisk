@@ -103,6 +103,9 @@ class LLMResource(BaseModel):
     mist_keys: Optional[List[str]] = Field(
         None, description="The mist keys configuration"
     )
+    agent_llm_config: Optional[Dict[str, Any]] = Field(
+        None, description="The agent llm config"
+    )
 
     def to_dict(self, **kwargs) -> Dict[str, Any]:
         """Convert the model to a dictionary"""

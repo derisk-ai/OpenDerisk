@@ -208,12 +208,16 @@ class ConversableAgent(Role, Agent):
         return self.llm_config
 
     @property
-    def not_null_llm_client(self) -> LLMClient:
+    def not_null_llm_client(self) -> AIWrapper:
         """Get the LLM client."""
-        llm_client = self.not_null_llm_config.llm_client
-        if not llm_client:
-            raise ValueError("LLM client is not initialized！")
-        return llm_client
+        if self.llm_client:
+             return self.llm_client
+             
+        # Fallback to legacy behavior if llm_client is not set but in config
+        if self.llm_config and self.llm_config.llm_client:
+             return AIWrapper(llm_client=self.llm_config.llm_client)
+
+        raise ValueError("LLM client is not initialized！")
 
     async def blocking_func_to_async(
         self, func: Callable[..., Any], *args, **kwargs
@@ -242,8 +246,13 @@ class ConversableAgent(Role, Agent):
             self.language = _language
 
         # Initialize LLM Server
-        if self.llm_config and self.llm_config.llm_client:
-            self.llm_client = AIWrapper(llm_client=self.llm_config.llm_client)
+        if self.llm_config:
+            if self.llm_config.llm_client:
+                 # Legacy path
+                 self.llm_client = AIWrapper(llm_client=self.llm_config.llm_client)
+            elif self.llm_config.agent_llm_config:
+                 # New path: Use AgentLLMConfig
+                 self.llm_client = AIWrapper(llm_config=self.llm_config.agent_llm_config)
 
         temp_profile = self.profile
         from copy import deepcopy
@@ -1743,8 +1752,11 @@ class ConversableAgent(Role, Agent):
                 continue
             else:
                 arg_supplier: ReasoningArgSupplier = ReasoningArgSupplier.get_supplier(param.name)
-                await arg_supplier.supply(variable_values, agent=self, agent_context=self.not_null_agent_context,
+                if arg_supplier:
+                     await arg_supplier.supply(variable_values, agent=self, agent_context=self.not_null_agent_context,
                                           received_message=received_message, **kwargs)
+                else:
+                    logger.warning(f"ReasoningArgSupplier {param.name} not found!")
 
         return variable_values
 

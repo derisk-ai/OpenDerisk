@@ -327,39 +327,22 @@ class ModelMessage(BaseModel):
         Returns:
             List[ModelMessage]: The model messages
         """
-        result = []
-        content = message["content"]
-        if isinstance(content, str):
-            result.append(
-                ModelMessage(role=ModelMessageRoleType.HUMAN, content=content)
-            )
-        elif isinstance(content, Iterable):
-            for item in content:
-                if isinstance(item, str):
-                    result.append(
-                        ModelMessage(role=ModelMessageRoleType.HUMAN, content=item)
+        parsed_content = MediaContent.parse_chat_completion_message(message)
+        if isinstance(parsed_content, MediaContent):
+            if parsed_content.type == MediaContentType.TEXT:
+                return [
+                    ModelMessage(
+                        role=ModelMessageRoleType.HUMAN, content=parsed_content.get_text()
                     )
-                elif isinstance(item, dict) and "type" in item:
-                    type = item["type"]
-                    if type == "text" and "text" in item:
-                        result.append(
-                            ModelMessage(
-                                role=ModelMessageRoleType.HUMAN, content=item["text"]
-                            )
-                        )
-                    elif type == "image_url":
-                        raise ValueError("Image message is not supported now")
-                    elif type == "input_audio":
-                        raise ValueError("Input audio message is not supported now")
-                    else:
-                        raise ValueError(
-                            f"Unknown message type: {item} of human message"
-                        )
-                else:
-                    raise ValueError(f"Unknown message type: {item} of humman message")
+                ]
+            else:
+                return [
+                    ModelMessage(role=ModelMessageRoleType.HUMAN, content=[parsed_content])
+                ]
+        elif isinstance(parsed_content, list):
+            return [ModelMessage(role=ModelMessageRoleType.HUMAN, content=parsed_content)]
         else:
             raise ValueError(f"Unknown content type: {message} of humman message")
-        return result
 
     @staticmethod
     def _parse_openai_tool_message(

@@ -1,5 +1,5 @@
 'use client';
-import { apiInterceptors, getAppList, newDialogue } from '@/client/api';
+import { apiInterceptors, getAppList, getModelList, newDialogue, postChatModeParamsFileLoad } from '@/client/api';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import {
   AppstoreOutlined,
@@ -13,7 +13,22 @@ import {
   PaperClipOutlined,
   PlusOutlined,
   ToolOutlined,
-  ApiOutlined
+  ApiOutlined,
+  SearchOutlined,
+  CheckOutlined,
+  SettingOutlined,
+  RightOutlined,
+  HeartOutlined,
+  CloudServerOutlined,
+  SwapOutlined,
+  DatabaseOutlined,
+  AlertOutlined,
+  DollarOutlined,
+  GlobalOutlined,
+  DashboardOutlined,
+  RobotOutlined,
+  SafetyOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import {
@@ -26,15 +41,22 @@ import {
   Typography,
   Upload,
   UploadProps,
+  List,
+  Space,
+  Collapse,
+  theme
 } from 'antd';
+import ModelIcon from '@/components/icons/model-icon';
 import cls from 'classnames';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConnectorsModal } from '@/components/chat/connectors-modal';
 import { IApp } from '@/types/app';
+import { IModelData } from '@/types/model';
 
 const { Title, Text } = Typography;
+const { Panel } = Collapse;
 
 const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) => {
   const [preview, setPreview] = useState<string>('');
@@ -93,6 +115,137 @@ export default function HomeChat() {
   const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('mcp');
   const [selectedApp, setSelectedApp] = useState<IApp | null>(null);
   const [appList, setAppList] = useState<IApp[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [modelList, setModelList] = useState<IModelData[]>([]);
+  const [modelSearch, setModelSearch] = useState('');
+  const [isModelOpen, setIsModelOpen] = useState(false);
+  const { token } = theme.useToken();
+
+  // Group models by provider (parsed from host field for AgentLLM models)
+  const groupedModels = useMemo(() => {
+    const groups: Record<string, string[]> = {};
+    const otherModels: string[] = [];
+
+    // Filter models based on search first
+    const filtered = modelList.filter(model => 
+      model.model_name.toLowerCase().includes(modelSearch.toLowerCase())
+    );
+
+    filtered.forEach(modelData => {
+      // Parse provider from host field (format: "proxy@{provider}" for AgentLLM models)
+      let provider = 'Other';
+      if (modelData.host && modelData.host.startsWith('proxy@')) {
+        provider = modelData.host.replace('proxy@', '');
+        // Capitalize first letter for display
+        provider = provider.charAt(0).toUpperCase() + provider.slice(1);
+      } else if (modelData.host && modelData.host !== '127.0.0.1' && modelData.host !== 'localhost') {
+        provider = modelData.host;
+      }
+
+      if (provider && provider !== 'Other') {
+        if (!groups[provider]) {
+          groups[provider] = [];
+        }
+        groups[provider].push(modelData.model_name);
+      } else {
+        otherModels.push(modelData.model_name);
+      }
+    });
+
+    return { groups, otherModels };
+  }, [modelList, modelSearch]);
+
+  const modelContent = (
+    <div className="w-80 flex flex-col h-[400px]">
+      <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2 flex-shrink-0">
+        <Input 
+          prefix={<SearchOutlined className="text-gray-400" />}
+          placeholder={t('search_model', 'Search Model')} 
+          bordered={false}
+          className="!bg-gray-50 dark:!bg-gray-800 rounded-md flex-1"
+          value={modelSearch}
+          onChange={e => setModelSearch(e.target.value)}
+        />
+        <Button 
+          type="text" 
+          icon={<PlusOutlined />} 
+          size="small"
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+        />
+        <Button 
+          type="text" 
+          icon={<SettingOutlined />} 
+          size="small"
+          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto py-2 px-2">
+        {Object.entries(groupedModels.groups).length > 0 && (
+          <Collapse
+            ghost
+            defaultActiveKey={['AgentLLM', ...Object.keys(groupedModels.groups)]}
+            expandIcon={({ isActive }) => <RightOutlined rotate={isActive ? 90 : 0} className="text-xs text-gray-400" />}
+            className="[&_.ant-collapse-header]:!p-2 [&_.ant-collapse-content-box]:!p-0"
+          >
+            {Object.entries(groupedModels.groups).map(([provider, models]) => (
+              <Panel header={<span className="text-xs font-medium text-gray-500">{provider}</span>} key={provider}>
+                {models.map(model => (
+                  <div 
+                    key={model}
+                    className={cls(
+                      "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-1",
+                      selectedModel === model ? "bg-gray-50 dark:bg-gray-800" : ""
+                    )}
+                    onClick={() => {
+                      setSelectedModel(model);
+                      setIsModelOpen(false);
+                    }}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <ModelIcon model={model} width={16} height={16} />
+                      <span className="text-sm text-gray-700 dark:text-gray-200 truncate">{model}</span>
+                    </div>
+                    {selectedModel === model && <CheckOutlined className="text-blue-500 flex-shrink-0" />}
+                  </div>
+                ))}
+              </Panel>
+            ))}
+          </Collapse>
+        )}
+        
+        {groupedModels.otherModels.length > 0 && (
+          <div className="mt-2">
+            <div className="px-2 py-1 text-xs font-medium text-gray-500">{t('other_models', 'Other Models')}</div>
+            {groupedModels.otherModels.map(model => (
+              <div 
+                key={model}
+                className={cls(
+                  "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-1",
+                  selectedModel === model ? "bg-gray-50 dark:bg-gray-800" : ""
+                )}
+                onClick={() => {
+                  setSelectedModel(model);
+                  setIsModelOpen(false);
+                }}
+              >
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <ModelIcon model={model} width={16} height={16} />
+                  <span className="text-sm text-gray-700 dark:text-gray-200 truncate">{model}</span>
+                </div>
+                {selectedModel === model && <CheckOutlined className="text-blue-500 flex-shrink-0" />}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {Object.keys(groupedModels.groups).length === 0 && groupedModels.otherModels.length === 0 && (
+          <div className="px-3 py-8 text-center text-gray-400 text-xs">
+            {t('no_models_found', 'No models found')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // 从 URL 参数中获取 app_code
   // Use useEffect to access URL search params safely on client side
@@ -132,20 +285,68 @@ export default function HomeChat() {
     },
   );
 
+  useRequest(
+    async () => {
+      const [_, data] = await apiInterceptors(getModelList());
+      return data || [];
+    },
+    {
+      onSuccess: (models) => {
+        if (models && models.length > 0) {
+          setModelList(models);
+
+          // Default selection logic
+          const modelNames = models.map((m: IModelData) => m.model_name);
+          const defaultModel = modelNames.find((m: string) => m.includes('gpt-3.5') || m.includes('gpt-4')) || modelNames[0];
+          setSelectedModel(defaultModel);
+        }
+      },
+    },
+  );
+
   const onSubmit = async () => {
     if (!userInput.trim() && fileList.length === 0) return;
 
     // Here we would typically upload files first or send them with the message
     // For now, we'll just create the dialogue
     const appCode = selectedApp?.app_code || 'chat_normal';
-    const [, res] = await apiInterceptors(newDialogue({ app_code: appCode }));
+    
+    // Create new dialogue first
+    const [, res] = await apiInterceptors(
+      newDialogue({ app_code: appCode, model_name: selectedModel }),
+    );
+    
     if (res) {
+      let uploadedResource = null;
+
+      if (fileList.length > 0) {
+        const formData = new FormData();
+        formData.append('doc_files', fileList[0]);
+        
+        const [_, uploadRes] = await apiInterceptors(
+          postChatModeParamsFileLoad({
+            convUid: res.conv_uid,
+            chatMode: appCode,
+            data: formData,
+            model: selectedModel,
+            config: {
+              timeout: 1000 * 60 * 60,
+            },
+          }),
+        );
+        
+        if (uploadRes) {
+          uploadedResource = uploadRes;
+        }
+      }
+      
       localStorage.setItem(
         STORAGE_INIT_MESSAGE_KET,
         JSON.stringify({
           id: res.conv_uid,
           message: userInput,
-          files: fileList, // We might need to handle this in the chat page
+          resource: uploadedResource,
+          model: selectedModel, 
         }),
       );
       router.push(`/chat/?app_code=${appCode}&conv_uid=${res.conv_uid}`);
@@ -168,10 +369,33 @@ export default function HomeChat() {
     fileList,
   };
 
-  const QuickActionButton = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
-    <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-[#232734] border border-gray-100 dark:border-gray-700 rounded-full shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer transition-all">
-      <span className="text-gray-500">{icon}</span>
-      <span className="text-sm text-gray-700 dark:text-gray-300">{text}</span>
+  const QuickActionButton = ({ 
+    icon, 
+    text, 
+    bgColor = 'bg-gray-100',
+    iconColor = 'text-gray-600',
+    isOutline = false,
+    onClick
+  }: { 
+    icon: React.ReactNode; 
+    text: string;
+    bgColor?: string;
+    iconColor?: string;
+    isOutline?: boolean;
+    onClick?: () => void;
+  }) => (
+    <div className="flex flex-col items-center gap-2 cursor-pointer group" onClick={onClick}>
+      <div className={cls(
+        "w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 group-hover:scale-110 group-hover:shadow-lg",
+        isOutline 
+          ? "bg-white dark:bg-[#232734] border-2 border-dashed border-gray-300 dark:border-gray-600" 
+          : bgColor
+      )}>
+        <span className={cls("text-xl", iconColor)}>{icon}</span>
+      </div>
+      <span className="text-xs text-gray-600 dark:text-gray-400 text-center max-w-[80px] leading-tight group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors">
+        {text}
+      </span>
     </div>
   );
 
@@ -194,29 +418,37 @@ export default function HomeChat() {
     })),
   };
 
+  const modelMenuProps: MenuProps = {
+    items: modelList.map((model) => ({
+      key: model,
+      label: (
+        <div className="flex items-center gap-2" onClick={() => setSelectedModel(model)}>
+          <span>{model}</span>
+        </div>
+      ),
+    })),
+  };
+
   const plusMenuContent = (
     <div className="flex flex-col gap-1 w-48 p-1">
-      <Upload {...uploadProps} showUploadList={false} className="w-full">
-        <div className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200 w-full">
-          <FileTextOutlined className="text-lg" />
-          <span className="text-sm">从本地文件添加</span>
-        </div>
-      </Upload>
-
+      <div className="px-3 py-2 text-xs text-gray-400 font-medium">推荐技能</div>
       <div
         className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
-        onClick={() => openConnectorsModal('skill')}
+        onClick={() => {
+        }}
       >
         <AppstoreOutlined className="text-lg" />
-        <span className="text-sm">使用技能</span>
+        <span className="text-sm">Deep Research</span>
       </div>
 
+      <div className="px-3 py-2 text-xs text-gray-400 font-medium mt-1">推荐工具</div>
       <div
         className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
-        onClick={() => openConnectorsModal('local')}
+        onClick={() => {
+        }}
       >
         <ToolOutlined className="text-lg" />
-        <span className="text-sm">使用工具</span>
+        <span className="text-sm">Web Browser</span>
       </div>
 
       <div className="h-[1px] bg-gray-100 dark:bg-gray-800 my-1 mx-2" />
@@ -272,9 +504,16 @@ export default function HomeChat() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-5xl mx-auto px-4 mt-10">
         {/* Title */}
-        <h1 className="text-5xl font-medium text-gray-900 dark:text-gray-100 mb-12 tracking-tight">
-          我能为你做什么？
-        </h1>
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-medium text-gray-900 dark:text-gray-100 tracking-tight mb-3">
+            <span className="mr-2">🚀</span>
+            OpenDeRisk智能风险深度
+            <span className="text-orange-500">洞察</span>
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 text-base">
+            OpenDeRisk—AI原生风险智能系统，为每个应用系统提供一个7*24H的AI系统数字管家
+          </p>
+        </div>
 
         {/* Input Box Area */}
         <div
@@ -329,37 +568,61 @@ export default function HomeChat() {
               }}
             />
 
-            <div className="flex items-center justify-between px-2 pb-1">
-              <div className="flex items-center gap-2">
-                <Popover
-                  content={plusMenuContent}
-                  trigger="click"
-                  placement="topLeft"
-                  overlayClassName="!p-0"
-                >
-                  <Button
-                    shape="circle"
-                    icon={<PlusOutlined />}
-                    className="!border-gray-200 dark:!border-gray-700 !text-gray-500 hover:!text-gray-700 dark:hover:!text-gray-300"
-                  />
-                </Popover>
+              <div className="flex items-center justify-between px-2 pb-1">
+                <div className="flex items-center gap-2">
+                  {/* + Button for Skills/Tools - leftmost */}
+                  <Popover
+                    content={plusMenuContent}
+                    trigger="click"
+                    placement="topLeft"
+                    overlayClassName="!p-0"
+                  >
+                    <Button
+                      shape="circle"
+                      icon={<PlusOutlined />}
+                      className="!border-gray-200 dark:!border-gray-700 !text-gray-500 hover:!text-gray-700 dark:hover:!text-gray-300"
+                    />
+                  </Popover>
 
-                {/* App Selector (Moved from Upload position) */}
-                <Dropdown menu={appMenuProps} trigger={['click']} placement="bottomLeft">
-                  <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                    <span className="text-base">
-                      {selectedApp?.icon ? (
-                        <img src={selectedApp.icon} className="w-4 h-4" />
-                      ) : (
-                        '🤖'
-                      )}
-                    </span>
-                    <span className="text-sm text-gray-700 dark:text-gray-300 font-medium max-w-[100px] truncate">
-                      {selectedApp?.app_name || t('select_app', 'Select App')}
-                    </span>
-                    <DownOutlined className="text-xs text-gray-400" />
-                  </div>
-                </Dropdown>
+                  {/* Agent Selector */}
+                  <Dropdown menu={appMenuProps} trigger={['click']} placement="bottomLeft">
+                    <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                      <span className="text-base">
+                        {selectedApp?.icon ? (
+                          <img src={selectedApp.icon} className="w-4 h-4" />
+                        ) : (
+                          '🤖'
+                        )}
+                      </span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300 font-medium max-w-[100px] truncate">
+                        {selectedApp?.app_name || t('select_app', 'Select App')}
+                      </span>
+                      <DownOutlined className="text-xs text-gray-400" />
+                    </div>
+                  </Dropdown>
+
+                  {/* Spacer */}
+                  <div className="w-4" />
+
+                  {/* Model Selector */}
+                  <Popover
+                    content={modelContent}
+                    trigger="click"
+                    placement="topLeft"
+                    open={isModelOpen}
+                    onOpenChange={setIsModelOpen}
+                    arrow={false}
+                    overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-lg [&_.ant-popover-inner]:!shadow-lg"
+                    zIndex={1000}
+                  >
+                    <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group">
+                      <ModelIcon model={selectedModel} width={18} height={18} />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 max-w-[120px] truncate group-hover:text-blue-500 transition-colors">
+                        {selectedModel || t('select_model', 'Select Model')}
+                      </span>
+                      <DownOutlined className="text-xs text-gray-400 group-hover:text-blue-500 transition-colors" />
+                    </div>
+                  </Popover>
               </div>
 
               <div className="flex items-center gap-3">
@@ -392,12 +655,57 @@ export default function HomeChat() {
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="flex flex-wrap justify-center gap-3 mt-8">
-          <QuickActionButton icon={<FundProjectionScreenOutlined />} text="制作幻灯片" />
-          <QuickActionButton icon={<DesktopOutlined />} text="创建网站" />
-          <QuickActionButton icon={<CodeOutlined />} text="开发应用" />
-          <QuickActionButton icon={<BulbOutlined />} text="设计" />
+        {/* Quick Actions - SRE Domain Scenarios */}
+        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl">
+          <QuickActionButton 
+            icon={<HeartOutlined />} 
+            text="AI应用健康" 
+            bgColor="bg-gradient-to-br from-blue-400 to-blue-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<CodeOutlined />} 
+            text="AI代码风险" 
+            bgColor="bg-gradient-to-br from-orange-400 to-amber-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<CloudServerOutlined />} 
+            text="AI基础设施" 
+            bgColor="bg-gradient-to-br from-red-400 to-red-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<SwapOutlined />} 
+            text="AI变更风险" 
+            bgColor="bg-gradient-to-br from-emerald-400 to-green-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<DatabaseOutlined />} 
+            text="AI存储容量" 
+            bgColor="bg-gradient-to-br from-teal-400 to-cyan-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<AlertOutlined />} 
+            text="AI应急风险" 
+            bgColor="bg-gradient-to-br from-orange-500 to-red-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<GlobalOutlined />} 
+            text="AI环境风险" 
+            bgColor="bg-gradient-to-br from-slate-400 to-gray-500"
+            iconColor="text-white"
+          />
+          <QuickActionButton 
+            icon={<RobotOutlined />} 
+            text="自定义智能体" 
+            isOutline={true}
+            iconColor="text-gray-400 dark:text-gray-500"
+            onClick={() => router.push('/application/app')}
+          />
         </div>
       </div>
 

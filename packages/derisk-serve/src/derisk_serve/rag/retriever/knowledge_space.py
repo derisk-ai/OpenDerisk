@@ -6,6 +6,7 @@ from derisk.component import ComponentType, SystemApp
 from derisk.core import Chunk, LLMClient, Document
 from derisk.model import DefaultLLMClient
 from derisk.model.cluster import WorkerManagerFactory
+from derisk.rag.embedding import DefaultEmbeddingFactory
 from derisk.rag.embedding.embedding_factory import EmbeddingFactory
 from derisk.rag.retriever import EmbeddingRetriever, QueryRewrite, Ranker
 from derisk.rag.retriever.base import BaseRetriever, RetrieverStrategy
@@ -58,10 +59,18 @@ class KnowledgeSpaceRetriever(BaseRetriever):
         self._embedding_model = embedding_model or app_config.models.default_embedding
         self._system_app = system_app
         self._tag_filters = tag_filters
-        embedding_factory = self._system_app.get_component(
-            "embedding_factory", EmbeddingFactory
-        )
-        embedding_fn = embedding_factory.create()
+        try:
+            embedding_factory = self._system_app.get_component(
+                "embedding_factory", EmbeddingFactory
+            )
+            embedding_fn = embedding_factory.create()
+        except ValueError as e:
+            logger.warning(
+                f"embedding factory not found: {e}, try to use DefaultEmbeddingFactory"
+            )
+            embedding_fn = DefaultEmbeddingFactory(
+                self._system_app, default_model_name=self._embedding_model
+            ).create()
 
         space_dao = KnowledgeSpaceDao()
         space = space_dao.get_one({"knowledge_id": space_id})

@@ -268,7 +268,8 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 # 应用配置代码更新
                 app_entry.config_code = new_config_code
                 app_entry.config_version = release_config_version
-                app_entry.published = carefully_chosen
+                # When publishing, the app should be visible (published=1)
+                app_entry.published = 1
                 app_entry.updated_at = now
 
                 session.merge(app_config_entry)
@@ -311,10 +312,25 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             #     app_qry = app_qry.filter(ServeEntity.app_code.in_(app_codes))
             # if query.is_recent_used and query.is_recent_used.lower() == "true":
             #     app_qry = app_qry.filter(ServeEntity.app_code.in_(recent_app_codes))
-            if query.published and str(query.published).lower() in ("true", "false"):
-                app_qry = app_qry.filter(
-                    ServeEntity.published == query.published
-                )
+            if query.published is not None:
+                # Database may store published as integer (0/1) or string ("false"/"true")
+                # Support both formats for compatibility
+                if query.published:
+                    app_qry = app_qry.filter(
+                        or_(
+                            ServeEntity.published == "true",
+                            ServeEntity.published == "1",
+                            ServeEntity.published == 1,
+                        )
+                    )
+                else:
+                    app_qry = app_qry.filter(
+                        or_(
+                            ServeEntity.published == "false",
+                            ServeEntity.published == "0",
+                            ServeEntity.published == 0,
+                        )
+                    )
             if query.app_codes:
                 app_qry = app_qry.filter(ServeEntity.app_code.in_(query.app_codes))
             total_count = app_qry.count()
@@ -788,7 +804,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                             await self.new_define_app(request=ServeRequest.from_dict(item))
                 logger.info(f"应用成功加载: {file}")
             except Exception as e:
-                logger.warning(f"应用加载失败 {file}: {str(e)}", e)
+                logger.warning(f"应用加载失败 {file}: {str(e)}", exc_info=True)
 
     def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a App entity
@@ -918,3 +934,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         if app_res:
             return app_res.app_hub_code
         return None
+
+    def set_published_status(self, app_code: str, published: int = 1):
+        """Set the published status of an app.
+
+        Args:
+            app_code: The application code
+            published: Published status (0 or 1), default is 1 (published)
+        """
+        with self.dao.session() as session:
+            app_qry = session.query(ServeEntity).filter(
+                ServeEntity.app_code == app_code
+            )
+            entity = app_qry.one()
+            entity.published = published
+            session.merge(entity)
+            session.commit()
+            logger.info(f"Set app {app_code} published status to {published}")

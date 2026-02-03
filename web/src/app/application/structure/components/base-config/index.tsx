@@ -4,7 +4,7 @@ import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { DeleteOutlined, PlusOutlined, SettingOutlined, DatabaseOutlined, ToolOutlined, UsergroupAddOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { App, Form, FormProps, Spin, Divider, Button, Tooltip, Tag } from 'antd';
+import { App, Form, FormProps, Spin, Button, Tooltip, Tag } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import AgentModal from './agent-modal';
@@ -37,9 +37,6 @@ function AppConfig() {
   const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
   const [showToolsModal, setShowToolsModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
-  // Remove unused isCollapsed state if not needed for local collapse, 
-  // or keep it if you want to allow collapsing the whole sidebar (though parent handles that now)
-  const [activeKey, setActiveKey] = useState<string[]>(['0', '1', '2']);
   const [selectedKnowledgeList, setSelectedKnowledgeList] = useState<any[]>([]);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
 
@@ -456,6 +453,20 @@ function AppConfig() {
             ...appInfo,
             resource_tool: updatedTools,
           });
+        } else if (tool.type === 'tool(skill)') {
+          // 删除 skill
+          const updatedTools = appInfo.resource_tool.filter((item: any) => {
+            if (item.type !== 'tool(skill)') return true;
+            // skill 的唯一标识可能是 value 里的 name，或者直接比较对象引用(不太靠谱)，或者比较 value 字符串
+            // 这里假设 skill 的 value 是 JSON 字符串，里面有 name
+            const itemValue = isString(item.value) ? safeJsonParse(item.value, {}) : item.value;
+            const toolValue = isString(tool.value) ? safeJsonParse(tool.value, {}) : tool.value;
+            return itemValue?.name !== toolValue?.name;
+          });
+          fetchUpdateApp({
+            ...appInfo,
+            resource_tool: updatedTools,
+          });
         }
       },
     });
@@ -482,22 +493,20 @@ function AppConfig() {
 
   return (
     <div className='flex flex-col h-full bg-white'>
-      <div className='p-4 border-b border-gray-100 flex items-center justify-between'>
+      <div className='px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-white to-gray-50'>
         <div className='flex items-center gap-2'>
-          <SettingOutlined className='text-lg text-gray-700' />
-          <h2 className='font-semibold text-lg text-gray-800'>{t('base_config_config')}</h2>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+            <SettingOutlined className='text-white text-sm' />
+          </div>
+          <h2 className='font-semibold text-base text-gray-800'>{t('base_config_config')}</h2>
         </div>
       </div>
       
-      <div className='flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6'>
+      <div className='flex-1 overflow-y-auto custom-scrollbar p-4'>
         <Form form={form} layout="vertical" onValuesChange={onValuesChange}>
-          {/* 基本信息 & Agent配置 */}
-          <section>
+          <section className="mb-6">
             <BaseInfo
               form={form}
-              activeKey={activeKey}
-              setActiveKey={setActiveKey}
-              // setIsCollapsed={setIsCollapsed} 
               layoutDataOptions={layoutDataOptions}
               reasoningEngineOptions={reasoningEngineOptions}
               chatConfigOptions={chatConfigOptions}
@@ -508,66 +517,21 @@ function AppConfig() {
             />
           </section>
 
-          <Divider className="my-6" />
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
 
-          {/* 知识配置 */}
-          <section>
-            <div className='flex items-center justify-between mb-3'>
-              <div className='flex items-center gap-2'>
-                <DatabaseOutlined className="text-blue-500" />
-                <span className='font-medium text-gray-700'>{t('base_config_knowledge')}</span>
-              </div>
-              <Button 
-                type="text" 
-                icon={<PlusOutlined />} 
-                className="text-blue-500 hover:bg-blue-50"
-                onClick={() => setShowKnowledgeModal(true)}
-              >
-                {t('base_config_link_knowledge')}
-              </Button>
-            </div>
-            
-            <div className="flex flex-col gap-2">
-              {appInfo?.resource_knowledge?.length > 0 && selectedKnowledgeList?.length > 0 ? (
-                selectedKnowledgeList.map((item: any) => (
-                  <div
-                    key={item.name + item.id}
-                    className='group flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-gray-50 hover:border-blue-200 hover:bg-blue-50/30 transition-all'
-                  >
-                    <span className='text-sm text-gray-700 truncate flex-1 mr-2'>{item.name}</span>
-                    <Tooltip title={t('common_delete')}>
-                      <Button 
-                        type="text" 
-                        size="small" 
-                        danger 
-                        icon={<DeleteOutlined />} 
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => deleteKnowledge(item.value)} 
-                      />
-                    </Tooltip>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-4 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg bg-gray-50">
-                  {t('base_config_no_knowledge')}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <Divider className="my-6" />
-
-          {/* 技能配置 */}
-          <section>
+          <section className="mb-6">
              <div className='flex items-center justify-between mb-3'>
               <div className='flex items-center gap-2'>
-                <ToolOutlined className="text-purple-500" />
-                <span className='font-medium text-gray-700'>{t('base_config_skill')}</span>
+                <div className="w-6 h-6 rounded-md bg-purple-100 flex items-center justify-center">
+                  <ToolOutlined className="text-purple-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_skill')}</span>
               </div>
               <Button 
                 type="text" 
                 icon={<PlusOutlined />} 
-                className="text-blue-500 hover:bg-blue-50"
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
                 onClick={() => setShowToolsModal(true)}
               >
                 {t('base_config_link_skill')}
@@ -585,11 +549,13 @@ function AppConfig() {
                   return (
                     <div
                       key={name + item.id}
-                      className='group flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-gray-50 hover:border-purple-200 hover:bg-purple-50/30 transition-all'
+                      className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-purple-200 hover:bg-purple-50/30 hover:shadow-sm transition-all'
                     >
                       <div className="flex items-center gap-2 flex-1 overflow-hidden">
-                        <Tag className="mr-0" color="purple">{item.type.includes('mcp') ? 'MCP' : 'Tool'}</Tag>
-                        <span className='text-sm text-gray-700 truncate'>{name}</span>
+                        <Tag className="mr-0 text-xs" color={item.type.includes('skill') ? 'green' : item.type.includes('mcp') ? 'purple' : 'blue'}>
+                      {item.type.includes('skill') ? 'Skill' : item.type.includes('mcp') ? 'MCP' : 'Tool'}
+                    </Tag>
+                        <span className='text-sm text-gray-600 truncate'>{name}</span>
                       </div>
                        <Tooltip title={t('common_delete')}>
                         <Button 
@@ -605,26 +571,28 @@ function AppConfig() {
                   );
                 })
               ) : (
-                 <div className="text-center py-4 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg bg-gray-50">
+                 <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
                   {t('base_config_no_skill')}
                 </div>
               )}
             </div>
           </section>
 
-           <Divider className="my-6" />
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
 
-          {/* Agent 配置 */}
-          <section>
+          <section className="mb-6">
             <div className='flex items-center justify-between mb-3'>
               <div className='flex items-center gap-2'>
-                <UsergroupAddOutlined className="text-green-500" />
-                <span className='font-medium text-gray-700'>{t('base_config_agent')}</span>
+                <div className="w-6 h-6 rounded-md bg-green-100 flex items-center justify-center">
+                  <UsergroupAddOutlined className="text-green-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_agent')}</span>
               </div>
                <Button 
                 type="text" 
                 icon={<PlusOutlined />} 
-                className="text-blue-500 hover:bg-blue-50"
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
                 onClick={() => setShowAgentModal(true)}
               >
                 {t('base_config_link_agent')}
@@ -639,9 +607,9 @@ function AppConfig() {
                   return (
                     <div
                       key={name + item.key}
-                      className='group flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-gray-50 hover:border-green-200 hover:bg-green-50/30 transition-all'
+                      className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-green-200 hover:bg-green-50/30 hover:shadow-sm transition-all'
                     >
-                      <span className='text-sm text-gray-700 truncate flex-1 mr-2'>{name}</span>
+                      <span className='text-sm text-gray-600 truncate flex-1 mr-2'>{name}</span>
                        <Tooltip title={t('common_delete')}>
                         <Button 
                           type="text" 
@@ -656,8 +624,57 @@ function AppConfig() {
                   );
                 })
               ) : (
-                 <div className="text-center py-4 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg bg-gray-50">
+                 <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
                   {t('base_config_no_agent')}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
+
+          <section className="mb-6">
+            <div className='flex items-center justify-between mb-3'>
+              <div className='flex items-center gap-2'>
+                <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center">
+                  <DatabaseOutlined className="text-blue-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_knowledge')}</span>
+              </div>
+              <Button
+                type="text"
+                icon={<PlusOutlined />}
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
+                onClick={() => setShowKnowledgeModal(true)}
+              >
+                {t('base_config_link_knowledge')}
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {appInfo?.resource_knowledge?.length > 0 && selectedKnowledgeList?.length > 0 ? (
+                selectedKnowledgeList.map((item: any) => (
+                  <div
+                    key={item.name + item.id}
+                    className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-blue-200 hover:bg-blue-50/30 hover:shadow-sm transition-all'
+                  >
+                    <span className='text-sm text-gray-600 truncate flex-1 mr-2'>{item.name}</span>
+                    <Tooltip title={t('common_delete')}>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => deleteKnowledge(item.value)}
+                      />
+                    </Tooltip>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
+                  {t('base_config_no_knowledge')}
                 </div>
               )}
             </div>
@@ -665,7 +682,6 @@ function AppConfig() {
         </Form>
       </div>
 
-      {/* Modals */}
       {showKnowledgeModal && (
         <KnowledgeSelectModal
           form={form}

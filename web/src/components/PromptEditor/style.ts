@@ -12,8 +12,14 @@ export const PromptEditorWrapper = styled.div`
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-gutter: stable;
+  
   .cm-editor {
     background: transparent;
+    padding: 16px 20px;
+  }
+
+  .cm-scroller {
+    padding: 0 !important;
   }
 
   .cm-content {

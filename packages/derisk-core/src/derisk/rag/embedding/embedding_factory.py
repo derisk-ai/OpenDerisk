@@ -102,6 +102,12 @@ class DefaultEmbeddingFactory(EmbeddingFactory):
             model_name=self._default_model_name,
             model_path=self._default_model_path,
         )
+        if not adapter:
+            raise ValueError(
+                f"No embedding adapter found for provider 'hf', "
+                f"model_name='{self._default_model_name}', "
+                f"model_path='{self._default_model_path}'"
+            )
         param_cls = adapter.model_param_class()
         if not issubclass(param_cls, EmbeddingDeployModelParameters):
             raise ValueError(

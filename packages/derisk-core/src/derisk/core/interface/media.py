@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, cast
 
 from derisk.core.schema.types import (
     ChatCompletionContentPartParam,
@@ -157,7 +157,7 @@ class MediaContent:
                 raise ValueError(f"Failed to parse {obj_dict}, no object found")
             if isinstance(content_object, dict):
                 content_object = MediaObject(
-                    data=content_object.get("data"),
+                    data=content_object.get("data", ""),
                     format=content_object.get("format", "text"),
                 )
             return cls(
@@ -173,13 +173,13 @@ class MediaContent:
     def get_text(self) -> str:
         """Get the text."""
         if self.type == MediaContentType.TEXT:
-            return self.object.data
+            return str(self.object.data)
         raise ValueError("The content type is not text")
 
     def get_thinking(self) -> str:
         """Get the thinking."""
         if self.type == MediaContentType.THINKING:
-            return self.object.data
+            return str(self.object.data)
         raise ValueError("The content type is not thinking")
 
     @classmethod
@@ -262,16 +262,17 @@ class MediaContent:
         content: Union[str, "MediaContent", List["MediaContent"]],
         support_media_content: bool = True,
         type_mapping: Optional[Dict[str, str]] = None,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionMessageParam:
         """Convert the media contents to chat completion message."""
         if not content:
             raise ValueError("The content are empty")
         if isinstance(content, str):
-            return {"role": role, "content": content}
+            return cast(ChatCompletionMessageParam, {"role": role, "content": content})
         if isinstance(content, MediaContent):
             content = [content]
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping)
+            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
             for c in content
         ]
         if not support_media_content:
@@ -281,11 +282,14 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            new_content = text_content[0]
-        return {
+            return cast(ChatCompletionMessageParam, {
+                "role": role,
+                "content": text_content[0],
+            })
+        return cast(ChatCompletionMessageParam, {
             "role": role,
             "content": new_content,
-        }
+        })
 
     @classmethod
     def to_chat_ai_message(
@@ -295,21 +299,22 @@ class MediaContent:
         tool_calls: Optional[str] = None,
         support_media_content: bool = True,
         type_mapping: Optional[Dict[str, str]] = None,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionMessageParam:
         """Convert the media contents to chat completion message."""
         if not content:
-            return {
+            return cast(ChatCompletionMessageParam, {
                 "role": role,
                 "tool_calls": tool_calls,
                 "content": "",
-            }
+            })
 
         if isinstance(content, str):
-            return {"role": role, "content": content, "tool_calls": tool_calls}
+            return cast(ChatCompletionMessageParam, {"role": role, "content": content, "tool_calls": tool_calls})
         if isinstance(content, MediaContent):
             content = [content]
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping)
+            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
             for c in content
         ]
         if not support_media_content:
@@ -319,12 +324,16 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            new_content = text_content[0]
-        return {
+            return cast(ChatCompletionMessageParam, {
+                "role": role,
+                "tool_calls": tool_calls,
+                "content": text_content[0],
+            })
+        return cast(ChatCompletionMessageParam, {
             "role": role,
             "tool_calls": tool_calls,
             "content": new_content,
-        }
+        })
 
     @classmethod
     def to_chat_tool_message(
@@ -334,16 +343,17 @@ class MediaContent:
         tool_call_id: str,
         support_media_content: bool = True,
         type_mapping: Optional[Dict[str, str]] = None,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionMessageParam:
         """Convert the media contents to chat completion message."""
         if not content:
             raise ValueError("The content are empty")
         if isinstance(content, str):
-            return {"role": role, "content": content, "tool_call_id": tool_call_id}
+            return cast(ChatCompletionMessageParam, {"role": role, "content": content, "tool_call_id": tool_call_id})
         if isinstance(content, MediaContent):
             content = [content]
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping)
+            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
             for c in content
         ]
         if not support_media_content:
@@ -353,18 +363,23 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            new_content = text_content[0]
-        return {
+            return cast(ChatCompletionMessageParam, {
+                "role": role,
+                "tool_call_id": tool_call_id,
+                "content": text_content[0],
+            })
+        return cast(ChatCompletionMessageParam, {
             "role": role,
             "tool_call_id": tool_call_id,
             "content": new_content,
-        }
+        })
 
     @classmethod
     def _parse_single_media_content(
         cls,
         content: "MediaContent",
         type_mapping: Optional[Dict[str, str]] = None,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionContentPartParam:
         """Parse a single content."""
         if type_mapping is None:
@@ -379,16 +394,20 @@ class MediaContent:
             if content.object.format.startswith("url"):
                 # Compatibility for most image url formats
                 real_type = type_mapping.get("image_url", "image_url")
+                url_data = content.object.data
+                if replace_url_func:
+                    url_data = replace_url_func(url_data)
+                
                 if real_type == "image_url":
                     return {
                         "image_url": {
-                            "url": content.object.data,
+                            "url": str(url_data),
                         },
                         "type": "image_url",
                     }
                 else:
                     return {
-                        real_type: content.object.data,
+                        real_type: str(url_data),
                         "type": real_type,
                     }
             else:
@@ -397,16 +416,20 @@ class MediaContent:
             if content.object.format.startswith("url"):
                 # Compatibility for most image url formats
                 real_type = type_mapping.get("file_url", "file_url")
+                url_data = content.object.data
+                if replace_url_func:
+                    url_data = replace_url_func(str(url_data))
+
                 if real_type == "file_url":
                     return {
                         "file_url": {
-                            "url": content.object.data,
+                            "url": str(url_data),
                         },
                         "type": "file_url",
                     }
                 else:
                     return {
-                        real_type: content.object.data,
+                        real_type: str(url_data),
                         "type": real_type,
                     }
             else:
@@ -416,7 +439,7 @@ class MediaContent:
                 real_type = type_mapping.get("input_audio", "input_audio")
                 return {
                     real_type: {
-                        "data": content.object.data,
+                        "data": str(content.object.data),
                     },
                     "type": real_type,
                 }
@@ -425,9 +448,13 @@ class MediaContent:
         elif content.type == MediaContentType.VIDEO:
             if content.object.format.startswith("url"):
                 real_type = type_mapping.get("video_url", "video_url")
+                url_data = content.object.data
+                if replace_url_func:
+                    url_data = replace_url_func(str(url_data))
+
                 return {
                     real_type: {
-                        "url": content.object.data,
+                        "url": str(url_data),
                     },
                     "type": real_type,
                 }
@@ -449,7 +476,7 @@ class MediaContent:
                 texts.append(content.get_text())
             elif content.type == MediaContentType.IMAGE:
                 if content.object.format.startswith("url"):
-                    media.append(f"![image]({replace_url_func(content.object.data)})")
+                    media.append(f"![image]({replace_url_func(str(content.object.data))})")
                 else:
                     raise ValueError(
                         f"Unsupported image format: {content.object.format}"
@@ -463,7 +490,7 @@ class MediaContent:
                     )
             elif content.type == MediaContentType.VIDEO:
                 if content.object.format.startswith("url"):
-                    media.append(f"[video]({replace_url_func(content.object.data)})")
+                    media.append(f"[video]({replace_url_func(str(content.object.data))})")
                 else:
                     raise ValueError(
                         f"Unsupported video format: {content.object.format}"
@@ -471,7 +498,7 @@ class MediaContent:
             elif content.type == MediaContentType.FILE:
                 if content.object.format.startswith("url"):
                     media.append(
-                        f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(content.object.data)}" }\n```')
+                        f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(str(content.object.data))}" }\n```')
                 else:
                     raise ValueError(
                         f"Unsupported video format: {content.object.format}"
@@ -509,7 +536,7 @@ class MediaContent:
 
         def _func(obj: MediaObject) -> MediaObject:
             if obj.format.startswith("url"):
-                data = replace_func(obj.data)
+                data = replace_func(str(obj.data))
             else:
                 data = obj.data
             return MediaObject(

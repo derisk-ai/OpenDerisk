@@ -35,6 +35,7 @@ class MonitorSpaceContent(VisBase):
     group_colums: Optional[List[str]] = Field(default=None, description="分组列")
     time_colum: Optional[str] = Field(default=None, description="时间列")
     progress: int = Field(default=0, description="进度")
+    eval_view: Optional[dict] = Field(default=None, description="评测过程信息")
 class MonitorSpace(Vis):
     """Monitor Space."""
 

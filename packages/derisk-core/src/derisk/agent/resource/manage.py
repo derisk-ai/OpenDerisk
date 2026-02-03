@@ -258,6 +258,32 @@ class ResourceManager(BaseComponent):
                         if return_resource
                         else {"name": real_resource_name}
                     )
+
+            # Fallback: if not found in tool(skill), try to find in tool
+            if type_unique_key == "tool(skill)":
+                fallback_items = self._type_to_resources.get("tool")
+                if fallback_items:
+                    fallback_insts = [i for i in fallback_items if not i.is_class]
+                    for i in fallback_insts:
+                        if (
+                            i.resource_instance
+                            and i.resource_instance.name == real_resource_name
+                        ):
+                             return (
+                                i.resource_instance
+                                if return_resource
+                                else {"name": real_resource_name}
+                            )
+
+                # Fallback: if not found specific skill, use the first available tool(skill) instance
+                # This supports the case where a single SkillResource instance manages multiple dynamic skills
+                if inst_items:
+                    return (
+                        inst_items[0].resource_instance
+                        if return_resource
+                        else {"name": real_resource_name}
+                    )
+
             raise ValueError(
                 f"Resource {real_resource_name} not found in {type_unique_key}"
             )

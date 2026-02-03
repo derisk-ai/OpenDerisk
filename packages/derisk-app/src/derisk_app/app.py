@@ -242,6 +242,9 @@ class AppCreator:
             config: ApplicationConfig = load_config(cls.config_file)
             system_app = SystemApp(app)
             system_app.config.configs["app_config"] = config
+            if hasattr(config, "agent"):
+                system_app.config.set("agent", config.agent)
+            
             initialize_app(param=config, app=app, system_app=system_app)
             initialize_tracer(system_app=system_app, tracer_parameters=config.service.web.trace)
             logger.info(f"{cls.__name__} [pid:{pid}]启动成功")

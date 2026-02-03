@@ -298,11 +298,44 @@ export default function Chat() {
   useAsyncEffect(async () => {
     const initMessage = getInitMessage();
     if (initMessage && initMessage.id === chatId && appInfo && chatInParams?.length > 0) {
+        
+        let finalChatInParams = chatInParams;
+
+        if (initMessage.resource) {
+            const resourceParamIndex = finalChatInParams.findIndex(p => p.param_type === 'resource');
+            const resourceLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'resource');
+            
+            if (resourceParamIndex >= 0) {
+                const newParams = [...finalChatInParams];
+                newParams[resourceParamIndex] = {
+                    ...newParams[resourceParamIndex],
+                    param_value: JSON.stringify(initMessage.resource)
+                };
+                finalChatInParams = newParams;
+            } else if (resourceLayout) {
+                finalChatInParams = [
+                    ...finalChatInParams,
+                    {
+                        param_type: 'resource',
+                        param_value: JSON.stringify(initMessage.resource),
+                        sub_type: resourceLayout.sub_type
+                    }
+                ];
+            }
+            
+            setResourceValue(initMessage.resource);
+        }
+        
+        if (initMessage.model) {
+           setModelValue(initMessage.model);
+        }
+
         debouncedChat.run(initMessage.message, {
           app_code: appInfo?.app_code,
-          ...(chatInParams?.length && {
-            chat_in_params: chatInParams,
+          ...(finalChatInParams?.length && {
+            chat_in_params: finalChatInParams,
           }),
+          ...(initMessage.model && { model_name: initMessage.model }),
         });
         refreshDialogList && await refreshDialogList();
         localStorage.removeItem(STORAGE_INIT_MESSAGE_KET);

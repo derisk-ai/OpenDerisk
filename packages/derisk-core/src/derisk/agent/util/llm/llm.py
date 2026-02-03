@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Type, Tuple
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
 from derisk.core import LLMClient, ModelRequest
+from derisk.agent.core.llm_config import AgentLLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +48,6 @@ def _build_model_request(input_value: Dict) -> ModelRequest:
 class LLMStrategyType(Enum):
     """LLM strategy type."""
 
-    def __new__(cls, value, name_cn, description, description_en):
-        """Overide new."""
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.name_cn = name_cn
-        obj.description = description
-        obj.description_en = description_en
-        return obj
-
     Priority = ("priority", "优先级", "根据优先级使用模型", "Use LLM based on priority")
     Auto = ("auto", "自动", "自动选择的策略", "Automatically select LLM strategies")
     Default = (
@@ -64,6 +56,18 @@ class LLMStrategyType(Enum):
         "默认的策略",
         "Use the LLM specified by the system default",
     )
+
+    name_cn: str
+    description: str
+    description_en: str
+
+    def __new__(cls, value, name_cn, description, description_en):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.name_cn = name_cn
+        obj.description = description
+        obj.description_en = description_en
+        return obj
 
     def to_dict(self):
         """To dict."""
@@ -158,9 +162,7 @@ class LLMStrategy(ABC):
 
 
 ### Model selection strategy registration, built-in strategy registration by default
-llm_strategies: Dict[LLMStrategyType, Type[LLMStrategy]] = defaultdict(
-    Type[LLMStrategy]
-)
+llm_strategies: Dict[LLMStrategyType, Type[LLMStrategy]] = {}
 
 
 def register_llm_strategy_cls(
@@ -184,8 +186,9 @@ class LLMConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    llm_client: Optional[LLMClient] = Field(default_factory=LLMClient)
+    llm_client: Optional[LLMClient] = None
     llm_strategy: LLMStrategyType = Field(default=LLMStrategyType.Default)
     llm_param: Optional[dict] = defaultdict(dict)
     mist_keys: Optional[List[str]] = None
     strategy_context: Optional[Any] = None
+    agent_llm_config: Optional[AgentLLMConfig] = None

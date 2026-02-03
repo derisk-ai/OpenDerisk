@@ -207,6 +207,59 @@ async def query(
 
 
 @router.post(
+    "/unpublish",
+    response_model=Result,
+    dependencies=[Depends(check_api_key)],
+)
+async def unpublish(
+    request: ServeRequest, service: Service = Depends(get_service)
+) -> Result:
+    """Unpublish an app (set published=0)
+
+    Args:
+        request (ServeRequest): The request with app_code
+        service (Service): The service
+    Returns:
+        Result: The result
+    """
+    try:
+        service.set_published_status(request.app_code, published=0)
+        return Result.succ(None)
+    except Exception as e:
+        logger.exception("unpublish app exception!")
+        return Result.failed(err_code="E11004", msg=f"unpublish app error: {str(e)}")
+
+
+@router.post(
+    "/set_published",
+    response_model=Result,
+    dependencies=[Depends(check_api_key)],
+)
+async def set_publish(
+    request: ServeRequest, service: Service = Depends(get_service)
+) -> Result:
+    """Set app published status
+
+    Args:
+        request (ServeRequest): The request with app_code and published
+        service (Service): The service
+    Returns:
+        Result: The result
+    """
+    try:
+        # Get published value from request, default to 1 (true)
+        published_value = getattr(request, 'published', None)
+        if published_value is None:
+            # If not specified, set to published=1
+            published_value = 1
+        service.set_published_status(request.app_code, published=int(published_value))
+        return Result.succ(None)
+    except Exception as e:
+        logger.exception("set app published exception!")
+        return Result.failed(err_code="E11005", msg=f"set app published error: {str(e)}")
+
+
+@router.post(
     "/query_page",
     response_model=Result[PaginationResult[ServerResponse]],
     dependencies=[Depends(check_api_key)],

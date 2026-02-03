@@ -168,6 +168,70 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
                     prompt_template=model.prompt_template,
                 )
                 responses.append(response)
+
+        # Add the lightweight model from config if it exists
+        if global_system_app and global_system_app.config:
+            # 1. Try "agent.llm" direct key
+            agent_llm_conf = global_system_app.config.get("agent.llm")
+
+            # 2. If not found, try "agent" -> "llm" (nested dict access)
+            if not agent_llm_conf:
+                agent_conf = global_system_app.config.get("agent")
+                if isinstance(agent_conf, dict):
+                    agent_llm_conf = agent_conf.get("llm")
+
+            # 3. Check for flattened keys (fallback)
+            if not agent_llm_conf:
+                flattened = global_system_app.config.get_all_by_prefix("agent.llm.")
+                if flattened:
+                    agent_llm_conf = {}
+                    prefix_len = len("agent.llm.")
+                    for k, v in flattened.items():
+                        agent_llm_conf[k[prefix_len:]] = v
+
+            # 4. Parse models from new Multi-Provider List Structure [[agent.llm.provider]]
+            found_models = []
+
+            if agent_llm_conf and isinstance(agent_llm_conf.get("provider"), list):
+                providers = agent_llm_conf.get("provider")
+                for p_conf in providers:
+                    if isinstance(p_conf, dict) and "model" in p_conf:
+                        p_models = p_conf.get("model")
+                        p_name = p_conf.get("provider", "unknown")
+                        if isinstance(p_models, list):
+                            for m in p_models:
+                                if isinstance(m, dict) and "name" in m:
+                                    m_name = m.get("name")
+                                    found_models.append((m_name, p_name))
+
+            # 5. Parse models from legacy "models" list Structure (agent.llm.models)
+            if not found_models and agent_llm_conf and isinstance(agent_llm_conf.get("models"), list):
+                models_list = agent_llm_conf.get("models")
+                for m in models_list:
+                    if isinstance(m, dict) and "model" in m:
+                        found_models.append((m.get("model"), agent_llm_conf.get("provider", "system")))
+
+            # 6. Parse single model from basic config
+            elif not found_models and agent_llm_conf and agent_llm_conf.get("model"):
+                found_models.append((agent_llm_conf.get("model"), agent_llm_conf.get("provider", "system")))
+
+            # Add all found models to response
+            for m_name, p_name in found_models:
+                responses.append(
+                    ModelResponse(
+                        model_name=str(m_name),
+                        worker_type="llm",
+                        host=f"proxy@{p_name}",  # Indicate it's a proxy model
+                        port=0,
+                        manager_host="system-config",
+                        manager_port=0,
+                        healthy=True,
+                        check_healthy=True,
+                        last_heartbeat="permanent",
+                        prompt_template=None,
+                    )
+                )
+
         return Result.succ(responses)
 
     except Exception as e:

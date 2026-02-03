@@ -3,7 +3,26 @@ import logging
 from enum import Enum, auto
 from typing import Dict, Optional, cast
 
-from lyric import CodeResult, DefaultLyricDriver, PyTaskResourceConfig
+try:
+    from lyric import CodeResult, DefaultLyricDriver, PyTaskResourceConfig
+except ImportError:
+    # Fallback/Mock classes to prevent ImportError when lyric is not installed
+    # This is a temporary workaround until lyric is properly available or integrated
+    class CodeResult:
+        pass
+    
+    class DefaultLyricDriver:
+        def start(self): pass
+        def stop(self): pass
+        async def exec(self, *args, **kwargs): return None
+        async def exec1(self, *args, **kwargs): return None
+        class lyric:
+            @staticmethod
+            async def load_default_workers(): pass
+
+    class PyTaskResourceConfig:
+        pass
+
 
 from derisk.component import BaseComponent, SystemApp
 

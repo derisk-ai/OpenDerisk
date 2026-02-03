@@ -79,6 +79,7 @@ def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
     db_url = db_config.db_url(ssl=db_ssl_verify, charset="utf8mb4")
     # db_type = connector.db_type
     db_engine_args: Optional[Dict[str, Any]] = db_config.engine_args()
+    
     _initialize_db(
         db_url,
         # db_type,

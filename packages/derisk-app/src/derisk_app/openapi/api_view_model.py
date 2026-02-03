@@ -59,6 +59,13 @@ class ConversationVo(BaseModel):
     )
 
     """
+    OpenAI compatible messages list
+    """
+    messages: Optional[List[Dict[str, Any]]] = Field(
+        None, description="OpenAI compatible messages list"
+    )
+
+    """
     user
     """
     user_name: Optional[str] = Field(None, description="user name")
