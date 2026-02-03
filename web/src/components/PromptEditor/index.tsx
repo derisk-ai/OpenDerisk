@@ -307,7 +307,7 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     <>
       <PromptEditorWrapper style={style} className={className}>
         {showPreview && (
-          <div className="absolute top-2 right-4 z-10">
+          <div className="sticky top-2 z-20 float-right mr-4 -mb-8">
              <Tooltip title={isPreviewVisible ? "关闭预览 / Close Preview" : "开启预览 / Open Preview"}>
                 <Button 
                     type="text" 
