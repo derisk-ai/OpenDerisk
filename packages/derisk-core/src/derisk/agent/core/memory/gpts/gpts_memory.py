@@ -570,6 +570,7 @@ class GptsMemory:
             return final_view
         except Exception as e:
             logger.exception(f"vis_final exception!conv_id={conv_id}")
+            raise e
         finally:
             if cache:
                 cache.senders.clear()

@@ -33,8 +33,10 @@ class SandboxOpts(TypedDict):
     sandbox_domain: Optional[str]
     connection_config: Optional[ConnectionConfig]
 
+
 class SandboxSession:
     pass
+
 
 @dataclass
 class MachineInfo:
@@ -66,14 +68,16 @@ class SandboxBase:
         enable_skill: Optional[bool] = True,
         skill_dir: Optional[str] = DEFAULT_SKILL_DIR,
         connection_config: Optional[ConnectionConfig] = None,
-        **kwargs
+        **kwargs,
     ):
         self.__connection_config = connection_config
         self.__sandbox_id = sandbox_id
         self.__user_id = user_id
         self.__agent = agent
         self.__detail = sandbox_detail
-        self.__sandbox_domain = sandbox_domain or self.connection_config.domain
+        self.__sandbox_domain = sandbox_domain or (
+            connection_config.domain if connection_config else None
+        )
         self.__work_dir = work_dir
         self.__enable_skill = enable_skill
         self.__skill_dir = skill_dir
@@ -97,7 +101,6 @@ class SandboxBase:
     @property
     def detail(self) -> Optional[SandboxDetail]:
         return self.__detail
-
 
     @property
     def work_dir(self) -> str:
@@ -149,15 +152,16 @@ class SandboxBase:
         self.__conversation_id = conversation_id
 
     @classmethod
-    async def create(cls,
-                     user_id: str,
-                     agent: str,
-                     template: Optional[str] = None,
-                     timeout: Optional[int] = None,
-                     metadata: Optional[Dict[str, str]] = None,
-                     allow_internet_access: bool = True,
-                     **kwargs
-                     ) -> Self:
+    async def create(
+        cls,
+        user_id: str,
+        agent: str,
+        template: Optional[str] = None,
+        timeout: Optional[int] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        allow_internet_access: bool = True,
+        **kwargs,
+    ) -> Self:
         """
         Create a new sandbox.
 
@@ -205,7 +209,11 @@ class SandboxBase:
 
         raw_path = (workspace_path or "").strip()
         if raw_path:
-            base_dir = raw_path if raw_path.startswith("/") else posixpath.join(DEFAULT_WORK_DIR, raw_path)
+            base_dir = (
+                raw_path
+                if raw_path.startswith("/")
+                else posixpath.join(DEFAULT_WORK_DIR, raw_path)
+            )
         else:
             base_dir = DEFAULT_WORK_DIR
         workspace_root = posixpath.normpath(base_dir.rstrip("/") or "/") or "/"
@@ -213,9 +221,13 @@ class SandboxBase:
         sandbox.set_work_dir(workspace_root)
 
         conv_id = str(conversation_id)
-        storage_prefix = sandbox.file.build_oss_path(f"conversations/{conv_id}").rstrip("/")
+        storage_prefix = sandbox.file.build_oss_path(f"conversations/{conv_id}").rstrip(
+            "/"
+        )
 
-        result = sandbox.file.oss.generate_directory_download_urls(oss_prefix=storage_prefix)
+        result = sandbox.file.oss.generate_directory_download_urls(
+            oss_prefix=storage_prefix
+        )
         file_entries = result.get("file_urls") or []
         if not file_entries:
             logger.info(
@@ -230,7 +242,9 @@ class SandboxBase:
             relative_path = (item.get("relative_path") or "").strip()
             if not relative_path:
                 continue
-            target_path = posixpath.normpath(posixpath.join(workspace_root, relative_path))
+            target_path = posixpath.normpath(
+                posixpath.join(workspace_root, relative_path)
+            )
             target_dir = posixpath.dirname(target_path)
             tasks.append(
                 sandbox.file.download_to_local(
@@ -262,10 +276,10 @@ class SandboxBase:
         Example
         ```python
         sandbox = await AsyncSandbox.create()
-        await sandbox.is_running() # Returns True
+        await sandbox.is_running()  # Returns True
 
         await sandbox.kill()
-        await sandbox.is_running() # Returns False
+        await sandbox.is_running()  # Returns False
         ```
         """
         ...

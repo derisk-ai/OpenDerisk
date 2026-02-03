@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from derisk.datasource.parameter import BaseDatasourceParameters
 from derisk.model.parameter import (
@@ -387,5 +387,11 @@ class ApplicationConfig:
         metadata={
             "help": _("SandBox configuration")
         }
+    )
+    agent: Dict[str, Any] = field(
+        default_factory=dict,
+        metadata={
+            "help": _("Agent configuration"),
+        },
     )
 

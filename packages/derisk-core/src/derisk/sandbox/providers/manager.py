@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Dict,  Type, Optional, cast
+from typing import Dict, Type, Optional, cast
 
 from derisk import BaseComponent
 from derisk.component import ComponentType, SystemApp
@@ -17,9 +17,7 @@ class SandboxProviderManager(BaseComponent):
         """Create a new VisManager."""
         super().__init__(system_app)
         self.system_app = system_app
-        self._sandbox_adapter: Dict[str, Type[SandboxBase]] = (
-            defaultdict()
-        )
+        self._sandbox_adapter: Dict[str, Type[SandboxBase]] = defaultdict()
 
     def init_app(self, system_app: SystemApp):
         """Initialize the SandboxManager."""
@@ -35,9 +33,7 @@ class SandboxProviderManager(BaseComponent):
             except Exception as e:
                 logger.exception(f"failed to register sandbox: {_} -- {repr(e)}")
 
-    def register_sandbox(
-        self, cls: Type[SandboxBase]
-    ) -> str:
+    def register_sandbox(self, cls: Type[SandboxBase]) -> str:
         """Register an sandbox adapter."""
 
         provider = cls.provider()
@@ -56,12 +52,7 @@ class SandboxProviderManager(BaseComponent):
 
         result = []
         for name, value in self._sandbox_adapter.items():
-            result.append(
-                {
-                    "name": name,
-                    "cls": value.__name__
-                }
-            )
+            result.append({"name": name, "cls": value.__name__})
         return result
 
 
@@ -74,9 +65,13 @@ def initialize_sandbox_adapter(system_app: SystemApp):
     _SYSTEM_APP = system_app
     sandbox_manager = SandboxProviderManager(system_app)
     system_app.register_instance(sandbox_manager)
+    # Trigger after_start to scan and register sandbox providers
+    sandbox_manager.after_start()
 
 
-def get_sandbox_manager(system_app: Optional[SystemApp] = None) -> SandboxProviderManager:
+def get_sandbox_manager(
+    system_app: Optional[SystemApp] = None,
+) -> SandboxProviderManager:
     """Return the sandbox manager.
 
     Args:

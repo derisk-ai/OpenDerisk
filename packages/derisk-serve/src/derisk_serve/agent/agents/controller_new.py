@@ -4,72 +4,58 @@ import logging
 import uuid
 from abc import ABC
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Type, AsyncGenerator, Callable, Tuple, Union
+from typing import (
+    Any,
+    AsyncGenerator,
+    Dict,
+    List,
+    Optional,
+    Union,
+)
 
-import asyncio
-import json
-import logging
-import uuid
-from abc import ABC
-from copy import deepcopy
-from typing import Any, Dict, List, Optional, Type, AsyncGenerator, Callable, Tuple, Union
-
-from fastapi import APIRouter, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter
 
 from derisk._private.config import Config
 from derisk.agent import (
     AgentContext,
     AgentMemory,
+    AgentResource,
     ConversableAgent,
-    EnhancedShortTermMemory,
-    HybridMemory,
     LLMConfig,
-    ResourceType,
     UserProxyAgent,
-    AWELTeamContext,
-    get_agent_manager, Memory, AgentResource,
+    get_agent_manager,
 )
-from derisk.agent.core.agent import ENV_CONTEXT_KEY
+from derisk.agent.core.base_team import ManagerAgent
+# from derisk.agent.core.llm_config import AgentLLMConfig
+from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.memory.gpts.disk_cache_gpts_memory import DiskGptsMemory
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
-from derisk.agent.core.base_team import ManagerAgent
-from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.schema import Status
+from derisk.agent.core.types import ENV_CONTEXT_KEY
+from derisk.agent.resource import get_resource_manager
 from derisk.agent.resource.base import FILE_RESOURCES
-from derisk.agent.resource import get_resource_manager, ResourceManager
 from derisk.agent.util.llm.llm import LLMStrategyType
 from derisk.component import BaseComponent, ComponentType, SystemApp
-from derisk.core.awel.flow.flow_factory import FlowCategory
-from derisk.core.interface.message import StorageConversation, HumanMessage
+from derisk.core.interface.message import HumanMessage, StorageConversation
 from derisk.model.cluster import WorkerManagerFactory
 from derisk.model.cluster.client import DefaultLLMClient
-from derisk.util.data_util import first
-from derisk.util.date_utils import current_ms
 from derisk.util.executor_utils import ExecutorFactory
 from derisk.util.json_utils import serialize
-from derisk.util.log_util import CHAT_LOGGER
-from derisk.util.logger import digest
-from derisk.util.tracer.tracer_impl import root_tracer
-from derisk.vis import VisProtocolConverter
 from derisk.vis.vis_manage import get_vis_manager
 from derisk_app.derisk_server import system_app
 from derisk_app.scene.base import ChatScene
 from derisk_ext.agent.agents.awel.awel_runner_agent import AwelRunnerAgent
 from derisk_ext.agent.memory.preference import PreferenceMemory
+from derisk_serve.building.app.service.service import Service as AppService
 from derisk_serve.conversation.serve import Serve as ConversationServe
 from derisk_serve.core import blocking_func_to_async
-from derisk_serve.building.app.service.service import Service as AppService
-from .derisks_memory import MetaDerisksMessageMemory, MetaDerisksPlansMemory
+
+from ...building.app.api.schema_app import GptsApp
+from ...building.config.api.schemas import AppParamType, ChatInParamValue
 from ..db import GptsMessagesDao
 from ..db.gpts_conversations_db import GptsConversationsDao, GptsConversationsEntity
 from ..team.base import TeamMode
-from ...building.app.api.schema_app import GptsApp
-from ...building.app.api.schema_app_detail import GptsAppDetail
-from ...building.app.api.schemas import ServerResponse
-from ...building.config.api.schemas import ChatInParamValue, AppParamType
-from ...rag.retriever.knowledge_space import KnowledgeSpaceRetriever
-
+from .derisks_memory import MetaDerisksMessageMemory, MetaDerisksPlansMemory
 
 CFG = Config()
 
@@ -173,8 +159,8 @@ class AgentBuilder:
             team_context: Optional[Union[str, AutoTeamContext]] = None
     ) -> AgentMemory:
         """统一构建Agent内存"""
-        from derisk_serve.rag.storage_manager import StorageManager
         from derisk_ext.agent.memory.session import SessionMemory
+        from derisk_serve.rag.storage_manager import StorageManager
 
         executor = self.system_app.get_component(
             ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
@@ -237,17 +223,172 @@ class AgentBuilder:
         else:
             raise ValueError(f"Unsupported team mode: {app.team_mode}")
 
+    def _resolve_agent_llm_config(self, app) -> Optional[Any]:
+        """
+        Resolves the AgentLLMConfig by checking:
+        1. App-specific config (app.llm_config.agent_llm_config)
+        2. System-wide config (agent.llm), supporting 'models' list for shared provider settings.
+        3. Strategy override (app.llm_config.llm_strategy_value)
+        """
+        from derisk.agent.core.llm_config import AgentLLMConfig
+        
+        agent_llm_config = None
+        
+        # 1. Try from App config (explicit override)
+        if app.llm_config and app.llm_config.agent_llm_config:
+            try:
+                agent_llm_config = AgentLLMConfig.from_dict(app.llm_config.agent_llm_config)
+            except Exception as e:
+                logger.error(f"Failed to parse app agent_llm_config: {e}")
+
+        # 2. If not found, try from System Config (Global default)
+        if not agent_llm_config:
+            # agent.llm is expected to be a dict in system config
+            global_agent_conf = self.system_app.config.get("agent.llm")
+            if not global_agent_conf:
+                agent_conf = self.system_app.config.get("agent")
+                if isinstance(agent_conf, dict):
+                    global_agent_conf = agent_conf.get("llm")
+            
+            if global_agent_conf:
+                final_conf_dict = {}
+                target_model = None
+                if app.llm_config and isinstance(app.llm_config.llm_strategy_value, str):
+                     target_model = app.llm_config.llm_strategy_value
+
+                # --- New Logic: Support Nested [[agent.llm.provider]] structure ---
+                # Structure: agent.llm = { "provider": [ { "provider": "...", "model": [ ... ] } ] }
+                providers_list = global_agent_conf.get("provider")
+                matched_in_provider = False
+                
+                if isinstance(providers_list, list) and target_model:
+                    for provider_conf in providers_list:
+                        if not isinstance(provider_conf, dict):
+                            continue
+                            
+                        # Extract provider-level common settings (excluding the nested 'model' list)
+                        p_defaults = {k: v for k, v in provider_conf.items() if k != "model"}
+                        
+                        # Map api_base to base_url if needed (common in some configs)
+                        if "api_base" in p_defaults and "base_url" not in p_defaults:
+                            p_defaults["base_url"] = p_defaults["api_base"]
+
+                        # Check nested models
+                        p_models = provider_conf.get("model", [])
+                        if isinstance(p_models, list):
+                            for m_conf in p_models:
+                                if not isinstance(m_conf, dict):
+                                    continue
+                                
+                                # Check if this model config matches the target
+                                is_match = False
+                                model_name = m_conf.get("model")
+                                
+                                # Match Logic 1: Exact model name match
+                                if model_name == target_model:
+                                    is_match = True
+                                # Match Logic 2: Provider/Model string match
+                                elif "/" in target_model:
+                                    req_provider, req_model = target_model.split("/", 1)
+                                    # Check if provider matches (case-insensitive for provider name)
+                                    curr_provider = p_defaults.get("provider", "")
+                                    if curr_provider and curr_provider.lower() == req_provider.lower() and model_name == req_model:
+                                        is_match = True
+                                
+                                if is_match:
+                                    # Merge: Provider Defaults -> Model Specifics
+                                    final_conf_dict = deepcopy(p_defaults)
+                                    final_conf_dict.update(m_conf)
+                                    # Ensure api_base mapping happens for model specific overrides too
+                                    if "api_base" in final_conf_dict and "base_url" not in final_conf_dict:
+                                        final_conf_dict["base_url"] = final_conf_dict["api_base"]
+                                    
+                                    matched_in_provider = True
+                                    break
+                        
+                        if matched_in_provider:
+                            break
+                
+                # --- Fallback: Support Flat "models" list (Legacy/Simple) or basic config ---
+                if not matched_in_provider:
+                    temp_conf_dict = deepcopy(global_agent_conf)
+                    
+                    # Only remove 'provider' if it is a list (i.e. the new structure container)
+                    # If it is a string (legacy/simple), we MUST keep it.
+                    if isinstance(temp_conf_dict.get("provider"), list):
+                        temp_conf_dict.pop("provider")
+                    
+                    models_list = temp_conf_dict.pop("models", [])
+                    
+                    model_specific_conf = None
+                    if models_list and target_model:
+                        for m in models_list:
+                            if m.get("model") == target_model:
+                                model_specific_conf = m
+                                break
+                            if "/" in target_model:
+                                _, tm_name = target_model.split("/", 1)
+                                if m.get("model") == tm_name:
+                                    model_specific_conf = m
+                                    break
+                    
+                    if model_specific_conf:
+                        temp_conf_dict.update(model_specific_conf)
+                        final_conf_dict = temp_conf_dict
+                    elif not models_list and not matched_in_provider:
+                        # Fallback for simple single-provider config without lists
+                        final_conf_dict = temp_conf_dict
+
+                    # If 'model' is still missing but we have a target_model from strategy, use that as default
+                    if "model" not in final_conf_dict and target_model:
+                        final_conf_dict["model"] = target_model
+
+                try:
+                    if "model" in final_conf_dict:
+                        # Final cleanup of non-standard keys before passing to Pydantic
+                        final_conf_dict.pop("models", None)
+                        
+                        # Ensure 'provider' is not a list (which would cause validation error)
+                        if isinstance(final_conf_dict.get("provider"), list):
+                            final_conf_dict.pop("provider")
+                        
+                        agent_llm_config = AgentLLMConfig.from_dict(final_conf_dict)
+                except Exception as e:
+                    logger.error(f"Failed to parse global agent_llm config: {e}")
+
+        # 3. Apply Model override if specific model is requested in strategy
+        if agent_llm_config and app.llm_config:
+            # If strategy value is a string, treat it as model name to override the default in config
+            strategy_val = app.llm_config.llm_strategy_value
+            if isinstance(strategy_val, str) and strategy_val:
+                # Support "Provider/Model" format (e.g. "OpenAI/gpt-4o")
+                if "/" in strategy_val:
+                    provider_str, model_str = strategy_val.split("/", 1)
+                    agent_llm_config.provider = provider_str.lower()
+                    agent_llm_config.model = model_str
+                else:
+                    agent_llm_config.model = strategy_val
+        
+        return agent_llm_config
+
     async def _build_single_agent(self, context, agent_memory, app, resource_manager):
         """构建单Agent模式"""
         if app.details and len(app.details) == 1:
             return await self._build_employee_agent(app.details[0], context, agent_memory, resource_manager)
 
         agent_cls = get_agent_manager().get_by_name(app.agent)
+        
+        # Build LLMConfig
         llm_config = LLMConfig(
             llm_client=self.llm_provider,
-            llm_strategy=LLMStrategyType(app.llm_config.llm_strategy),
-            strategy_context=app.llm_config.llm_strategy_value
+            llm_strategy=LLMStrategyType(app.llm_config.llm_strategy) if app.llm_config and app.llm_config.llm_strategy else LLMStrategyType.Default,
+            strategy_context=app.llm_config.llm_strategy_value if app.llm_config else None
         )
+        
+        # Resolve AgentLLMConfig
+        agent_llm_config = self._resolve_agent_llm_config(app)
+        if agent_llm_config:
+            llm_config.agent_llm_config = agent_llm_config
 
         depend_resource = await blocking_func_to_async(
             CFG.SYSTEM_APP, resource_manager.build_resource, app.all_resources
@@ -272,12 +413,18 @@ class AgentBuilder:
         """构建自动规划Agent"""
         manager_cls = get_agent_manager().get_by_name(app.team_context.teamleader)
         manager = manager_cls()
-
+        
+        # Build LLMConfig
         llm_config = LLMConfig(
             llm_client=self.llm_provider,
-            llm_strategy=LLMStrategyType(app.llm_config.llm_strategy),
-            strategy_context=app.llm_config.llm_strategy_value
+            llm_strategy=LLMStrategyType(app.llm_config.llm_strategy) if app.llm_config and app.llm_config.llm_strategy else LLMStrategyType.Default,
+            strategy_context=app.llm_config.llm_strategy_value if app.llm_config else None
         )
+        
+        # Resolve AgentLLMConfig
+        agent_llm_config = self._resolve_agent_llm_config(app)
+        if agent_llm_config:
+            llm_config.agent_llm_config = agent_llm_config
 
         if app.all_resources:
             depend_resource = await blocking_func_to_async(

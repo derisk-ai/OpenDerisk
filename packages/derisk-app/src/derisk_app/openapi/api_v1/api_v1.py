@@ -378,7 +378,7 @@ async def chat_stop(
 ):
     logger.info(f"chat_stop:{conv_session_id}")
     try:
-        multi_agents.stop_chat(conv_session_id, user_token.user_id if user_token else None)
+        await multi_agents.stop_chat(conv_session_id, user_token.user_id if user_token else None)
     except Exception as e:
         logger.exception("停止对话异常！")
         return Result.failed(msg=f"停止对话失败！{str(e)}")
@@ -397,6 +397,18 @@ async def chat_completions(
 
     if not dialogue.conv_uid:
         dialogue.conv_uid = uuid.uuid1().hex
+    
+    # Adapt OpenAI messages format to user_input
+    if not dialogue.user_input and dialogue.messages:
+        try:
+            # Extract the last user message content
+            last_message = next((msg for msg in reversed(dialogue.messages) if msg.get("role") == "user"), None)
+            if last_message:
+                dialogue.user_input = last_message.get("content", "")
+                logger.info(f"Extracted user_input from messages: {dialogue.user_input}")
+        except Exception as e:
+            logger.warning(f"Failed to extract user_input from messages: {e}")
+
     dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
     dialogue.ext_info.update(
         {

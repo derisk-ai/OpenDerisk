@@ -31,7 +31,6 @@ export default function Structure() {
     }
   }, [appCode]);
 
-  // Get App Details
   const {
     run: queryAppInfo,
     refresh: refreshAppInfo,
@@ -54,7 +53,6 @@ export default function Structure() {
     }
   );
 
-  // Update App
   const { run: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(
     async (app: any) => await apiInterceptors(updateApp(app), notification),
     {
@@ -74,7 +72,6 @@ export default function Structure() {
     }
   );
 
-  // Get Version Data
   const { refreshAsync: refetchVersionData } = useRequest(
     async () => await getAppVersion({ app_code: appInfo.app_code }),
     {
@@ -87,7 +84,6 @@ export default function Structure() {
     }
   );
 
-  // Initialize Chat ID
   const initChatId = async (appCode: string) => {
     const [, res] = await apiInterceptors(newDialogue({ app_code: appCode }), notification);
     if (res) {
@@ -112,28 +108,33 @@ export default function Structure() {
         versionData,
       }}
     >
-      <div className="flex flex-col h-screen w-full bg-gray-50 overflow-hidden">
+      <div className="flex flex-col h-screen w-full bg-gray-100 overflow-hidden">
         <Header />
         <Spin spinning={refreshAppInfoLoading} wrapperClassName="flex-1 overflow-hidden">
-          <div className="flex flex-1 flex-row h-full overflow-hidden" ref={containerRef}>
-            {/* Left Panel: App Configuration */}
+          <div className="flex flex-1 h-full overflow-hidden" ref={containerRef}>
             <div 
-              className={`h-full flex-shrink-0 border-r border-gray-200 bg-white transition-all duration-300 ease-in-out overflow-hidden ${collapsed ? 'w-0 opacity-0 border-none' : 'w-[360px] opacity-100'}`}
+              className={`h-full flex-shrink-0 bg-white shadow-sm transition-all duration-300 ease-in-out overflow-hidden ${
+                collapsed ? 'w-0 opacity-0' : 'w-[380px] opacity-100'
+              }`}
             >
-               <div className="w-[360px] h-full">
+              <div className="w-[380px] h-full">
                 <AppConfig />
-               </div>
+              </div>
             </div>
             
-            {/* Middle Panel: Character/Prompt Configuration */}
             <div 
-              className={`h-full border-r border-gray-200 bg-white relative transition-all duration-300 ease-in-out overflow-hidden ${collapsed ? 'w-0 min-w-0 flex-none opacity-0 border-none' : 'flex-1 min-w-[400px] opacity-100'}`}
+              className={`h-full bg-white shadow-sm relative transition-all duration-300 ease-in-out overflow-hidden mx-1 ${
+                collapsed ? 'w-0 min-w-0 flex-none opacity-0 mx-0' : 'flex-1 min-w-[320px] opacity-100'
+              }`}
             >
               <CharacterConfig />
             </div>
 
-            {/* Right Panel: Chat Preview */}
-            <div className={`h-full transition-all duration-300 ease-in-out ${collapsed ? 'flex-1 w-full' : 'w-[450px] border-l border-gray-200'} bg-white`}>
+            <div 
+              className={`h-full bg-white shadow-sm transition-all duration-300 ease-in-out overflow-hidden ${
+                collapsed ? 'flex-1 w-full' : 'w-[480px] flex-shrink-0'
+              }`}
+            >
               <ChatContent />
             </div>
           </div>

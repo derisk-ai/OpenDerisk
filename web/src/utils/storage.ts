@@ -3,7 +3,7 @@ import { STORAGE_INIT_MESSAGE_KET, STORAGE_USERINFO_KEY } from './constants/stor
 export function getInitMessage() {
   const value = localStorage.getItem(STORAGE_INIT_MESSAGE_KET) ?? '';
   try {
-    const initData = JSON.parse(value) as { id: string; message: string };
+    const initData = JSON.parse(value) as { id: string; message: string; model?: string; resource?: any };
     return initData;
   } catch {
     return null;

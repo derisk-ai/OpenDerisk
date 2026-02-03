@@ -9,11 +9,11 @@ from typing import List, Optional, Dict, Union
 from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
 from derisk.agent.core.schema import Status, AgentSpaceMode
 from derisk.vis.vis_converter import SystemVisTag
-from derisk_ext.vis.common.tags.derisk_llm import LLMSpaceContent, LLMSpace
 from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent, FolderNode
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
 from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
 from derisk_ext.vis.derisk.tags.derisk_running_window import DeriskRunningWindow, RunningWindowContent
+from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpace, LLMSpaceContent
 
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 from derisk_ext.vis.derisk.tags.drsk_thinking import DrskThinkingContent, DrskThinking

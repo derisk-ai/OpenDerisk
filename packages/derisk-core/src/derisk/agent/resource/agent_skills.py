@@ -232,7 +232,7 @@ class AgentSkillResource(Resource):
 
     @classmethod
     def type_alias(cls) -> str:
-        return "skill"
+        return "tool(skill)"
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[AgentSkillResourceParameters]:
@@ -347,7 +347,7 @@ def register_agent_skill_resource(system_app):
         rm.register_resource(
             resource_instance=_AgentSkillResource_Instance,
             resource_type=ResourceType.Tool,
-            resource_type_alias="skill",
+            resource_type_alias="tool(skill)",
             ignore_duplicate=True,
         )
 

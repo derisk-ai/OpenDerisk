@@ -637,6 +637,7 @@ class SessionMemory(LongTermMemory):
             agent_id: Optional[str] = None,
             user_id: Optional[str] = None,
             metadata_filters: Optional[MetadataFilters] = None,
+            sub_agent_ids: Optional[List[str]] = None,
     ) -> List[MemoryFragment]:
         """Search memory fragments related to the observation.
 
@@ -981,6 +982,15 @@ class SessionMemory(LongTermMemory):
                 )
                 return []
         return related_memories
+
+    def _calculate_total_tokens(self, memories: List[SessionMemoryFragment]) -> int:
+        """Calculate the total tokens of the memories."""
+        return sum([self._calculate_tokens(m.raw_observation) for m in memories])
+
+    def _calculate_tokens(self, text: str) -> int:
+        """Calculate the tokens of the text."""
+        # TODO: Use a proper tokenizer
+        return len(text)
 
     async def _keyword_search(
             self,

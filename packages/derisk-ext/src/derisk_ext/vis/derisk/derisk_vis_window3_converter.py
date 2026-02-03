@@ -22,7 +22,7 @@ from derisk_ext.agent.actions.code_action import DeriskCodeAction
 from derisk_ext.agent.actions.monitor_action import AntMonitorAction
 
 from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
-from derisk_ext.vis.common.tags.derisk_llm import LLMSpaceContent, LLMSpace
+
 from derisk_ext.vis.common.tags.derisk_plan import AgentPlan, AgentPlanItem
 from derisk_ext.vis.common.tags.derisk_planning_space import PlanningSpaceContent, PlanningSpace
 from derisk_ext.vis.common.tags.derisk_thinking import DeriskThinking, DrskThinkingContent
@@ -31,6 +31,7 @@ from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent, WorkS
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
 from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
 from derisk_ext.vis.derisk.tags.derisk_agent_folder import AgentFolder
+from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpace, LLMSpaceContent
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 
 from derisk_ext.vis.vis_protocol_data import UpdateType
@@ -78,9 +79,16 @@ ACTION_TASK_MAP = {
 }
 
 
+from derisk._private.config import Config
+
 class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     """Incremental task window mode protocol converter.
     """
+    
+    def __init__(self, paths: Optional[str] = None, **kwargs):
+        super().__init__(paths, **kwargs)
+        # self._drsk_web_url = Config().DERISK_WEB_URL
+        self._drsk_web_url = ""
 
     def system_vis_tag_map(self):
         return {
@@ -435,8 +443,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             thinking = gpt_msg.thinking
             content = gpt_msg.content
             thinkin_expand = False
-            total_tokens = gpt_msg.metrics.llm_metrics.total_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0
-            tokens = gpt_msg.metrics.llm_metrics.completion_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0
+            total_tokens = (gpt_msg.metrics.llm_metrics.total_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0) or 0
+            tokens = (gpt_msg.metrics.llm_metrics.completion_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0) or 0
             update_type = UpdateType.ALL.value
         elif stream_msg:
             sender_name = stream_msg.get('sender')
@@ -446,8 +454,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             start_time = stream_msg.get("start_time")
             llm_model = stream_msg.get("model")
             llm_avatar = stream_msg.get("llm_avatar")
-            tokens = stream_msg.get("tokens", 0)
-            total_tokens = stream_msg.get("total_tokens", 0)
+            tokens = stream_msg.get("tokens", 0) or 0
+            total_tokens = stream_msg.get("total_tokens", 0) or 0
             thinking = stream_msg.get("thinking")
             content = stream_msg.get("content")
             if content:
@@ -470,24 +478,33 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             vis_thinking = DeriskThinking().sync_display(content=thinking_content.to_dict(exclude_none=True))
             llm_content_md = llm_content_md + "\n" + vis_thinking
 
-        if content:
-            llm_content = DrskTextContent(markdown=content, uid=message_id + "_content", type=update_type)
-            vis_content = DrskContent().sync_display(content=llm_content.to_dict(exclude_none=True))
-            llm_content_md = llm_content_md + "\n" + vis_content
+            if content:
+                llm_content = DrskTextContent(markdown=content, uid=message_id + "_content", type=update_type)
+                vis_content = DrskContent().sync_display(content=llm_content.to_dict(exclude_none=True))
+                llm_content_md = llm_content_md + "\n" + vis_content
 
         if llm_content_md:
+            # Handle potential None values for metrics
+            cost_val = 0
+            speed_val = 0.0
+            
+            if gpt_msg and gpt_msg.metrics and gpt_msg.metrics.llm_metrics:
+                if gpt_msg.metrics.llm_metrics.end_time_ms and gpt_msg.metrics.start_time_ms:
+                     cost_val = (gpt_msg.metrics.llm_metrics.end_time_ms - gpt_msg.metrics.start_time_ms) // 1000
+                if gpt_msg.metrics.llm_metrics.speed_per_second is not None:
+                     speed_val = float(gpt_msg.metrics.llm_metrics.speed_per_second)
+
             llm_vis_md = LLMSpace().sync_display(content=LLMSpaceContent(
                 uid=message_id + "_llm_",
                 type=UpdateType.INCR.value,
                 markdown=llm_content_md,
                 llm_model=llm_model,
                 llm_avatar=llm_avatar,
-                token_use=tokens,
-                total_tokens=total_tokens,
+                token_use=tokens or 0,
+                total_tokens=total_tokens or 0,
                 start_time=start_time,
-                cost=(
-                         gpt_msg.metrics.llm_metrics.end_time_ms - gpt_msg.metrics.start_time_ms) // 1000 if gpt_msg and gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0,
-                token_speed=gpt_msg.metrics.llm_metrics.speed_per_second if gpt_msg and gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0,
+                cost=cost_val,
+                token_speed=speed_val,
                 link_url=f"{self._drsk_web_url}/api/derisk/thinking/detail?message_id={message_id}"
 
             ).to_dict())

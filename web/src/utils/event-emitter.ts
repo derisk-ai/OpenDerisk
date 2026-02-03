@@ -5,9 +5,9 @@ import EE from '@antv/event-emitter';
  */
 export const EVENTS = {
   TASK_CLICK: 'task-click',
-  CLICK_FOLDER: 'click-folder',
-  ADD_TASK: 'add-task',
-  CLOSE_PANEL: 'close-panel',
+  CLICK_FOLDER: 'clickFolder',
+  ADD_TASK: 'addTask',
+  CLOSE_PANEL: 'closePanel',
 };
 
 /**

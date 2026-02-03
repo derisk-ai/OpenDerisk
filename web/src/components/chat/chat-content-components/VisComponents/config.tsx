@@ -31,6 +31,7 @@ import VisRunningWindowMsgCard from './VisRunningWindowMsg';
 import VisRunningWindowStepCard from './VisRunningWindowStep';
 import VisStepCard from './VisStepCard';
 import VisStepListCard from './VisStepListCard';
+import VisTodoList from './VisTodoList';
 
 export const visComponentsRender: { [key: string]: (props: { children: React.ReactNode }) => JSX.Element } = {
   'nex-running-window': ({ children }) => {
@@ -496,5 +497,18 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
   'drsk-browser': ({ children }) => {
     const content = String(children);
     return <MarkdownCard content={content} />;
+  },
+  'd-todo-list': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = JSON.parse(content);
+      return (
+        <ErrorBoundary fallback={<MarkdownCard content={content} />}>
+          <VisTodoList data={data} />
+        </ErrorBoundary>
+      );
+    } catch {
+      return <MarkdownCard content={content} />;
+    }
   },
 };

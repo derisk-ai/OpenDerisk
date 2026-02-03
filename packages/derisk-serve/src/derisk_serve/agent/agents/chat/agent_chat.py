@@ -4,35 +4,43 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Union, Optional, List, Dict, Any, Type, Tuple, Callable
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import orjson
 from fastapi import BackgroundTasks
 
 from derisk import BaseComponent
 from derisk._private.config import Config
-from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, \
-     LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType
+from derisk.agent import (
+    AgentContext,
+    AgentMemory,
+    ConversableAgent,
+    EnhancedShortTermMemory,
+    GptsMemory,
+    HybridMemory,
+    LLMConfig,
+    LLMStrategyType,
+    ResourceType,
+    UserProxyAgent,
+    get_agent_manager,
+)
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.extract_memory import ExtractMemory
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.sandbox_manager import SandboxManager
 from derisk.agent.core.schema import Status
-from derisk.agent.resource import get_resource_manager, ResourceManager
+from derisk.agent.resource import ResourceManager, get_resource_manager
 from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.base import FILE_RESOURCES, AgentResource
 from derisk.agent.util.ext_config import ExtConfigHolder
 from derisk.component import ComponentType, SystemApp
-from derisk.sandbox import AutoSandbox
-from derisk_app.config import SandboxConfigParameters
-
-from derisk_serve.schedule.local_scheduler import LocalScheduler
+from derisk.core import HumanMessage
+from derisk.core.interface.message import StorageConversation
 from derisk.core.interface.scheduler import Scheduler
-from derisk.core import HumanMessage, StorageConversation
-from derisk.core.awel.flow.flow_factory import FlowCategory
 from derisk.model import DefaultLLMClient
 from derisk.model.cluster import WorkerManagerFactory
+from derisk.sandbox import AutoSandbox
 from derisk.util.data_util import first
 from derisk.util.date_utils import current_ms
 from derisk.util.executor_utils import ExecutorFactory, execute_no_wait, run_async_tasks
@@ -42,15 +50,24 @@ from derisk.util.logger import digest
 from derisk.util.tracer.tracer_impl import root_tracer, trace
 from derisk.vis import VisProtocolConverter
 from derisk.vis.vis_manage import get_vis_manager
-from derisk_serve.agent.agents.derisks_memory import MetaDerisksPlansMemory, MetaDerisksMessageMemory, \
-    MetaAgentSystemMessageMemory
-from derisk_serve.agent.db import GptsConversationsEntity, GptsConversationsDao, GptsMessagesDao
+from derisk_app.config import SandboxConfigParameters
+from derisk_serve.agent.agents.derisks_memory import (
+    MetaAgentSystemMessageMemory,
+    MetaDerisksMessageMemory,
+    MetaDerisksPlansMemory,
+)
+from derisk_serve.agent.db import (
+    GptsConversationsDao,
+    GptsConversationsEntity,
+    GptsMessagesDao,
+)
 from derisk_serve.agent.team.base import TeamMode
 from derisk_serve.building.app.api.schema_app import GptsApp, GptsAppDetail
 from derisk_serve.building.app.api.schemas import ServerResponse
 from derisk_serve.building.app.service.service import Service as AppService
-from derisk_serve.building.config.api.schemas import ChatInParamValue, AppParamType
+from derisk_serve.building.config.api.schemas import AppParamType, ChatInParamValue
 from derisk_serve.conversation.serve import Serve as ConversationServe
+from derisk_serve.schedule.local_scheduler import LocalScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +170,11 @@ class AgentChat(BaseComponent, ABC):
                 except Exception as e:
                     logger.exception(f"获取{agent_conv_id}最终消息异常: {str(e)}")
                     final_message = str(e)
+
+            # Ensure final_message is a string before using it
+            if final_message is None:
+                final_message = ""
+
             if callable(chat_call_back):
                 final_report = None
                 try:
@@ -174,11 +196,16 @@ class AgentChat(BaseComponent, ABC):
 
             # logger.info(f"获取{conv_session_id}最终消息: {final_message}, 异常信息:{err_msg}")
             if err_msg:
-                if not final_message:
-                    final_message = ""
+                # Add error message as a ViewMessage if needed, or append to final_message
+                # For now, we follow the original logic which just adds the final message
                 current_message.add_view_message(final_message)
             else:
+                # Use the ViewMessage wrapper if we want to be explicit, but the original code 
+                # (and likely add_view_message signature) expects a string or ViewMessage.
+                # Given we fixed None handling above, we can pass final_message directly or wrap it.
+                # To be safe and fix the original ValidationError issue properly:
                 current_message.add_view_message(final_message)
+            
             current_message.end_current_round()
             current_message.save_to_storage()
 
@@ -413,8 +440,9 @@ class AgentChat(BaseComponent, ABC):
             ## TEST FILE WRITE
             WRITE_TO_FILE = False
             if WRITE_TO_FILE:
-                from derisk.configs.model_config import DATA_DIR
                 import os
+
+                from derisk.configs.model_config import DATA_DIR
                 chat_chunk_file_path = os.path.join(DATA_DIR, "chat_chunk_file")
                 os.makedirs(chat_chunk_file_path, exist_ok=True)
                 filename = os.path.join(chat_chunk_file_path, f"_chat_file_{agent_conv_id}.jsonl")
@@ -487,7 +515,10 @@ class AgentChat(BaseComponent, ABC):
                 file_handle.close()
 
     def get_or_build_agent_memory(self, conv_id: str, derisks_name: str) -> AgentMemory:
-        from derisk.rag.embedding.embedding_factory import EmbeddingFactory
+        from derisk.rag.embedding.embedding_factory import (
+            DefaultEmbeddingFactory,
+            EmbeddingFactory,
+        )
         from derisk_serve.rag.storage_manager import StorageManager
 
         executor = self.system_app.get_component(
@@ -496,10 +527,18 @@ class AgentChat(BaseComponent, ABC):
 
         storage_manager = StorageManager.get_instance(self.system_app)
         vector_store = storage_manager.create_vector_store(index_name="_agent_memory_")
-        embeddings = EmbeddingFactory.get_instance(self.system_app).create()
+        try:
+            embeddings = EmbeddingFactory.get_instance(self.system_app).create()
+        except ValueError:
+            app_config = self.system_app.config.configs.get("app_config")
+            default_model_name = app_config.models.default_embedding
+            embeddings = DefaultEmbeddingFactory(
+                self.system_app, default_model_name=default_model_name
+            ).create()
         short_term_memory = EnhancedShortTermMemory(
             embeddings, executor=executor, buffer_size=10
         )
+
         memory = HybridMemory.from_vstore(
             vector_store,
             embeddings=embeddings,
@@ -524,10 +563,13 @@ class AgentChat(BaseComponent, ABC):
             conv_id:(str) conversation ID
             agent_id:(str) app_code
         """
-        from derisk_serve.rag.storage_manager import StorageManager
-        from derisk_ext.agent.memory.session import SessionMemory
-        from derisk_ext.agent.memory.session import _METADATA_SESSION_ID, _METADATA_AGENT_ID
         from derisk_ext.agent.memory.preference import PreferenceMemory
+        from derisk_ext.agent.memory.session import (
+            _METADATA_AGENT_ID,
+            _METADATA_SESSION_ID,
+            SessionMemory,
+        )
+        from derisk_serve.rag.storage_manager import StorageManager
 
         executor = self.system_app.get_component(
             ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
@@ -954,8 +996,8 @@ class AgentChat(BaseComponent, ABC):
         gpts_status = Status.COMPLETE.value
         try:
             if isinstance(user_query.content, List):
-                from derisk_serve.file.serve import Serve as FileServe
                 from derisk.core.interface.media import MediaContent
+                from derisk_serve.file.serve import Serve as FileServe
 
                 file_serve = FileServe.get_instance(self.system_app)
                 new_content = MediaContent.replace_url(
@@ -967,7 +1009,6 @@ class AgentChat(BaseComponent, ABC):
                 self.agent_manage = get_agent_manager()
 
             from derisk.agent.core.types import ENV_CONTEXT_KEY
-            from derisk.agent.core.types import LLM_CONTEXT_KEY
             ## 处理对话输入参数
             ### 环境参数穿透当前会话不落表，llm参数作为消息的扩展参数随消息落表，agent控制是否向下传递
             llm_context, env_context = self.chat_in_params_to_context(chat_in_params, gpts_app)
@@ -1048,7 +1089,7 @@ class AgentChat(BaseComponent, ABC):
 
             self.gpts_conversations.update(conv_uid, gpts_status)
         except Exception as e:
-            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}", e)
+            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}", exc_info=True)
             self.gpts_conversations.update(conv_uid, Status.FAILED.value)
             raise ValueError(f"The conversation is abnormal!{str(e)}")
         finally:
@@ -1168,5 +1209,5 @@ def _get_post_action_report(context: str|dict) -> Optional[dict]:
         if isinstance(context, str):
             context = json.loads(context)
         return context.get("post_action_report", None)
-    except Exception as e:
+    except Exception:
         return None

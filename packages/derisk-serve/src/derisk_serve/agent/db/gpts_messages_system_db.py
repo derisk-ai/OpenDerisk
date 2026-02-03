@@ -21,7 +21,7 @@ from derisk.storage.metadata import BaseDao, Model
 class GptsMessagesSystemEntity(Model):
     __tablename__ = "gpts_messages_system"
 
-    id = Column(BigInteger().with_variant(Integer, "mysql"), primary_key=True, autoincrement=True,
+    id = Column(Integer, primary_key=True, autoincrement=True,
                 comment="autoincrement id")
     gmt_create = Column(DateTime, default=datetime.now, nullable=False, comment="创建时间")
     gmt_modified = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False, comment="修改时间")

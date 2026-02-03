@@ -48,6 +48,8 @@ const iconUrlMap: Record<string, string> = {
   plan: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
   planningaction:
     'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
+  stage:
+    'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
   llm: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*b_vFSpByHFcAAAAAQBAAAAgAeprcAQ/original',
 };
 
@@ -132,16 +134,15 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     (Array.isArray(data?.children) && (data.children as unknown[]).length > 0);
   const isReport = data?.task_type === 'report';
   const isPlan = data?.item_type === 'plan';
+  const isTask = data?.item_type === 'task';
   const isAgent = data?.item_type === 'agent';
   const isStage = data?.item_type === 'stage';
-  const isTask = data?.item_type === 'task';
   const layerCount = (data?.layer_count as number) ?? 0;
 
   return (
     <VisAgentPlanCardWrap
       onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
-        if (isStage) return;
         const callback = () =>
           setTimeout(() => {
             workWindowEmitter.emit('clickFolder', {
@@ -150,20 +151,20 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
           }, 500);
         workWindowEmitter.emit('openPanel', { callback });
       }}
-      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && (isPlan || isAgent) ? 'selected' : ''}`}
+      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && isPlan ? 'selected' : ''}`}
     >
       <div
-        className={`header ${isPlan ? 'header-plan' : ''} ${isAgent ? 'header-agent' : ''} ${isStage ? 'header-stage' : ''} ${data?.item_type === 'task' ? 'header-task' : 'header-default'}`}
+        className={`header ${isPlan ? 'header-plan' : ''} ${isTask ? 'header-task' : ''} ${isAgent ? 'header-agent' : ''} ${isStage ? 'header-stage' : ''} ${!isPlan && !isTask && !isAgent && !isStage ? 'header-default' : ''}`}
         onClick={toggleExpand}
       >
         <div className="content-wrapper">
           <div className="header-row">
             <div className="content-header">
-              {Boolean(data?.agent_name) && (
-                <div className="agent_name" title={String(data.agent_name)}>
+              {Boolean(data?.agent_name) && !isStage && (
+                <div className={`agent_name ${isAgent ? 'agent_name-leading' : ''}`} title={String(data.agent_name)}>
                   {(isPlan || isAgent) && (
                     <Avatar
-                      size={20}
+                      size={isAgent ? 28 : 20}
                       src={data.agent_avatar as string}
                       className="avatar-shrink"
                     />
@@ -175,68 +176,79 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                   </div>
                 </div>
               )}
-              {isTask && (
+              {(isTask || isStage) && (
                 <img
                   className="task-icon"
                   src={
-                    iconUrlMap[
-                      (String(data?.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool'
-                    ]
+                    isTask
+                      ? iconUrlMap[
+                          (String(data?.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool'
+                        ]
+                      : iconUrlMap['stage']
                   }
                   alt=""
                 />
               )}
-              <div
-                className={`title title-text title-level-${layerCount}`}
-              >
-                <div className="title-flex-container">
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      width: '80%',
-                    }}
-                  >
-                    <span className="title-text-ellipsis">
-                      <Tooltip title={String(data?.title ?? '未命名任务')}>
-                        {String(data?.title ?? '未命名任务')}
-                      </Tooltip>
-                    </span>
-                    {hasChildren && !isReport && (
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={expanded ? <UpOutlined /> : <DownOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleExpand();
-                        }}
-                        className={`expand-btn ${expanded ? 'expanded' : 'collapsed'} button-shrink`}
-                      />
+              {!isAgent && (
+                <div
+                  className={`title title-text title-level-${layerCount} ${isTask ? 'title-task-with-markdown' : ''}`}
+                >
+                  <div className="title-flex-container">
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        width: isTask ? '100%' : '80%',
+                        minWidth: 0,
+                      }}
+                    >
+                      {isTask && data?.description != null ? (
+                        <span className="title-text-ellipsis task-title-description-line" title={`${data?.title ?? '未命名任务'} ${String(data.description)}`}>
+                          {String(data?.title ?? '未命名任务')} {String(data.description)}
+                        </span>
+                      ) : (
+                        <span className="title-text-ellipsis">
+                          <Tooltip title={String(data?.title ?? '未命名任务')}>
+                            {String(data?.title ?? '未命名任务')}
+                          </Tooltip>
+                        </span>
+                      )}
+                      {hasChildren && !isReport && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={expanded ? <UpOutlined /> : <DownOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpand();
+                          }}
+                          className={`expand-btn ${expanded ? 'expanded' : 'collapsed'} button-shrink`}
+                        />
+                      )}
+                    </div>
+                    {isTask || isStage ? (
+                      <span
+                        className="button-shrink"
+                        style={{ marginLeft: 8 }}
+                      >
+                        {
+                          IconMap[
+                            (data?.status as keyof typeof IconMap) ?? 'running'
+                          ]
+                        }
+                      </span>
+                    ) : (
+                      <span className="status status-badge">
+                        {getStatusText((data?.status as string) ?? '')}
+                      </span>
                     )}
                   </div>
-                  {isTask || isStage ? (
-                    <span
-                      className="button-shrink"
-                      style={{ marginLeft: 8 }}
-                    >
-                      {
-                        IconMap[
-                          (data?.status as keyof typeof IconMap) ?? 'running'
-                        ]
-                      }
-                    </span>
-                  ) : (
-                    <span className="status status-badge">
-                      {getStatusText((data?.status as string) ?? '')}
-                    </span>
-                  )}
                 </div>
-              </div>
+              )}
             </div>
           </div>
           <div className="flex-container">
-            {Boolean(data?.description) && layerCount < 2 && (
+            {Boolean(data?.description) && layerCount < 2 && !isAgent && !isTask && (
               <div
                 className={`task-description ${layerCount === 0 ? 'task-description-level-0' : 'task-description-level-other'} task-description-container`}
               >
@@ -245,7 +257,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                 </Tooltip>
               </div>
             )}
-            {(isPlan || isAgent) && (
+            {isPlan && (
               <div className="time-info">
                 <div>{formatTime((data?.start_time as string) ?? '')}</div>
                 <div className="time-cost">{dynamicCost} s</div>
@@ -255,13 +267,17 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
         </div>
       </div>
       {expanded && data?.markdown ? (
-        // @ts-expect-error GPTVis + markdownPlugins spread
-        <GPTVis
-          components={{ ...codeComponents, ...(otherComponents ?? {}) }}
-          {...markdownPlugins}
+        <div
+          className={`markdown-content-wrap ${isStage ? 'markdown-content-wrap-stage' : ''}`}
         >
-          {String(data.markdown)}
-        </GPTVis>
+          {/* @ts-expect-error GPTVis + markdownPlugins spread */}
+          <GPTVis
+            components={{ ...codeComponents, ...(otherComponents ?? {}) }}
+            {...markdownPlugins}
+          >
+            {String(data.markdown)}
+          </GPTVis>
+        </div>
       ) : null}
     </VisAgentPlanCardWrap>
   );

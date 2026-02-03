@@ -14,7 +14,7 @@ export const VisAgentPlanCardWrap = styled.div`
 
 
   .selected {
-    background-color: #f5f5f5;
+    background-color: #fff;
   }
 
   .header {
@@ -111,6 +111,17 @@ export const VisAgentPlanCardWrap = styled.div`
     animation: fadeIn 0.3s ease-in-out;
   }
 
+  .markdown-content-wrap {
+    width: 100%;
+    background-color: #fff;
+  }
+
+  .markdown-content-wrap-stage {
+    border-left: 2px dashed rgba(0, 0, 0, 0.15);
+    padding-left: 16px;
+    margin-left: 4px;
+  }
+
   .title-text {
     display:flex;
     align-items:center;
@@ -203,27 +214,102 @@ export const VisAgentPlanCardWrap = styled.div`
     border: 1px solid #f0f0f0;
   }
 
-  .header-agent {
-    border: 1px solid #f0f0f0;
-    background-color: #fafafa;
-  }
-
-  .header-stage {
-    background-color: #fff;
-    border-bottom: 1px solid #f0f0f0;
-    margin-bottom: 4px;
-    
-    .title-text {
-      font-weight: 500;
-    }
-  }
-
   .header-task {
+    max-width: 50%;
+    background-color: #f0f0f0;
+    border: none;
+    border-radius: 9999px;
+    padding: 4px 12px;
     transition: background-color 0.2s ease;
     cursor: pointer;
 
     &:hover {
-      background-color: #f5f5f5;
+      background-color: #e8e8e8;
+    }
+
+    .title-task-with-markdown {
+      flex: 1;
+      min-width: 0;
+
+      .title-text-ellipsis:first-child {
+        flex-shrink: 0;
+      }
+    }
+
+    .task-title-markdown-line {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .task-title-description-line {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+  }
+
+  .header-agent {
+    background-color: #fff;
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+
+    &:hover {
+      background-color: #fafafa;
+    }
+
+    .task-icon {
+      margin-right: 6px;
+    }
+
+    .agent_name-leading {
+      flex: 1;
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 500;
+      max-width: none;
+
+      .avatar-shrink {
+        flex-shrink: 0;
+      }
+
+      .agent_name-badge {
+        font-size: 15px;
+        font-weight: 500;
+        padding: 0 8px;
+      }
+    }
+  }
+
+  .header-stage {
+    background-color: transparent;
+    border-radius: 8px;
+    padding: 8px 12px 8px 0;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+
+    &:hover {
+      background-color: transparent;
+    }
+
+    .content-header {
+      padding-left: 0;
+    }
+
+    .task-icon {
+      width: 20px;
+      margin-right: 8px;
+      margin-left: 0;
+    }
+
+    .title-text {
+      font-size: 15px;
     }
   }
 

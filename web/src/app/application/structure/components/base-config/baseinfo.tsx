@@ -1,12 +1,12 @@
 import { getAppStrategy, getAppStrategyValues, promptTypeTarget } from '@/client/api';
 import { AppContext } from '@/contexts';
 import { useRequest } from 'ahooks';
-import { Checkbox, Collapse, Form, Input, Modal, Select, Tag } from 'antd';
+import { Checkbox, Form, Input, Modal, Select, Tag } from 'antd';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatLayoutConfig from './chat-layout-config';
-import { EditOutlined, PictureOutlined } from '@ant-design/icons';
+import { EditOutlined, PictureOutlined, AppstoreOutlined, RobotOutlined, LayoutOutlined, DownOutlined } from '@ant-design/icons';
 
 // 可选图标列表
 const iconOptions = [
@@ -292,11 +292,53 @@ function LayoutConfig(props: any) {
   );
 }
 
+function Section({ 
+  title, 
+  icon, 
+  children, 
+  defaultExpanded = true,
+  iconColor = 'text-gray-500'
+}: { 
+  title: string; 
+  icon: React.ReactNode; 
+  children: React.ReactNode;
+  defaultExpanded?: boolean;
+  iconColor?: string;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  
+  return (
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between py-2 px-1 text-left hover:bg-gray-50 rounded-lg transition-colors group"
+      >
+        <div className="flex items-center gap-2">
+          <span className={iconColor}>{icon}</span>
+          <span className="font-medium text-gray-700 text-sm">{title}</span>
+        </div>
+        <DownOutlined 
+          className={`text-xs text-gray-400 transition-transform duration-200 ${expanded ? '' : '-rotate-90'}`} 
+        />
+      </button>
+      
+      <div 
+        className={`overflow-hidden transition-all duration-200 ease-in-out ${
+          expanded ? 'max-h-[1000px] opacity-100 mt-3' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className="pl-1">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BaseInfo(props: any) {
   const {
     form,
-    activeKey,
-    setActiveKey,
     layoutDataOptions,
     reasoningEngineOptions,
     handleChangedIcon,
@@ -308,21 +350,32 @@ function BaseInfo(props: any) {
 
   const { t } = useTranslation();
 
-  const allItems = [
-    {
-      key: '0',
-      label: t('baseinfo_basic_info'),
-      children: <BaseInfoItem form={form} handleChangedIcon={handleChangedIcon} onInputBlur={onInputBlur} />,
-    },
-    {
-      key: '1',
-      label: t('baseinfo_agent_config'),
-      children: <ModalConfig form={form} reasoningEngineOptions={reasoningEngineOptions} />,
-    },
-    {
-      key: '2',
-      label: t('baseinfo_layout'),
-      children: (
+  return (
+    <div className='space-y-2'>
+      <Section 
+        title={t('baseinfo_basic_info')} 
+        icon={<AppstoreOutlined />}
+        iconColor="text-blue-500"
+        defaultExpanded={true}
+      >
+        <BaseInfoItem form={form} handleChangedIcon={handleChangedIcon} onInputBlur={onInputBlur} />
+      </Section>
+
+      <Section 
+        title={t('baseinfo_agent_config')} 
+        icon={<RobotOutlined />}
+        iconColor="text-purple-500"
+        defaultExpanded={true}
+      >
+        <ModalConfig form={form} reasoningEngineOptions={reasoningEngineOptions} />
+      </Section>
+
+      <Section 
+        title={t('baseinfo_layout')} 
+        icon={<LayoutOutlined />}
+        iconColor="text-green-500"
+        defaultExpanded={true}
+      >
         <LayoutConfig
           form={form}
           layoutDataOptions={layoutDataOptions}
@@ -331,20 +384,7 @@ function BaseInfo(props: any) {
           resourceOptions={resourceOptions}
           modelOptions={modelOptions}
         />
-      ),
-    },
-  ];
-
-  return (
-    <div className='base-info-collapse'>
-      <Collapse
-        items={allItems}
-        bordered={false}
-        activeKey={activeKey}
-        onChange={key => setActiveKey(key as string[])}
-        expandIconPosition="end"
-        className="bg-white"
-      />
+      </Section>
     </div>
   );
 }
