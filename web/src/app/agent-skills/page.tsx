@@ -255,7 +255,7 @@ const SkillPage: React.FC = () => {
         <div className='max-w-6xl mx-auto'>
           <div className='flex justify-between items-center mb-6'>
             <div>
-              <h1 className='text-2xl font-bold tracking-tight'>Agent Skills</h1>
+              <h1 className='text-2xl font-bold tracking-tight'>{t('Agent_Skills')}</h1>
               <p className='text-muted-foreground'>Manage capabilities and tools available to your agents</p>
             </div>
             <div className='flex gap-2'>
