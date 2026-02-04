@@ -7,6 +7,7 @@ from derisk._private.pydantic import (
     BaseModel,
     Field,
     model_to_dict,
+    field_validator
 )
 from derisk.agent.core.action.base import OutputType
 
@@ -266,6 +267,50 @@ class VisSchedule(VisBase):
         dict_value = model_to_dict(self, exclude={"tasks"})
         dict_value["tasks"] = tasks_dict
         return dict_value
+
+
+class TodoStatus(str, Enum):
+    """Todo状态枚举"""
+    PENDING = "pending"  # 待完成
+    WORKING = "working"  # 进行中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"  # 失败
+
+class TodoItem(BaseModel):
+
+    id: str = Field(..., description="todo item id")
+    title: str = Field(..., description="todo item title")
+    status: str = Field(TodoStatus.PENDING, description="todo item status")
+    index: int = Field(0, description="todo item order index")
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        """验证状态值，确保是有效的TodoStatus"""
+        if isinstance(v, str):
+            try:
+                return TodoStatus(v.lower())
+            except ValueError:
+                return TodoStatus.PENDING
+        return v
+class TodoListContent(VisBase):
+    """TodoList内容 - 经典简单样式"""
+    mission: Optional[str] = Field(None, description="看板任务描述/名称")
+    items: List[TodoItem] = Field(default_factory=list, description="todo列表项")
+    current_index: int = Field(0, description="当前执行的todo项索引", ge=0)
+    total_count: int = Field(0, description="todo总数量", ge=0)
+
+    @field_validator('current_index')
+    @classmethod
+    def validate_current_index(cls, v, info):
+        items = info.data.get('items', [])
+        # 情况1: items 为空 → 强制重置为 0（符合字段 ge=0 约束）
+        if not items:
+            return 0
+        # 情况2: 索引越界（含 v == len(items)）→ 修正为最后一项
+        if v >= len(items):
+            return len(items) - 1
+        return v
 
 # class AgentFile(VisBase):
 #     title: Optional[str] = Field(None, description="当前工作项标题")

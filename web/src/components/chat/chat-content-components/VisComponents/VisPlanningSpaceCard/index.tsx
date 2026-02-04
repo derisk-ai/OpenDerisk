@@ -1,6 +1,6 @@
 import React, { FC } from 'react';
 import { GPTVis } from '@antv/gpt-vis';
-import { markdownComponents, markdownPlugins } from '../../config';
+import { markdownComponents, markdownPlugins, preprocessLaTeX } from '../../config';
 import { PlanningSpaceWrap } from './style';
 
 interface IProps {
@@ -14,16 +14,14 @@ interface IProps {
 const VisPlanningSpaceCard: FC<IProps> = ({ data }) => {
   const content = data?.markdown ?? data?.content ?? '';
 
-  if (!content) {
-    return null;
-  }
+  const gptVisProps: any = {
+    components: markdownComponents,
+    ...markdownPlugins,
+  };
 
   return (
     <PlanningSpaceWrap>
-      {/* @ts-ignore */}
-      <GPTVis components={markdownComponents} {...markdownPlugins}>
-        {content}
-      </GPTVis>
+      {content && <GPTVis {...gptVisProps}>{preprocessLaTeX(content)}</GPTVis>}
     </PlanningSpaceWrap>
   );
 };

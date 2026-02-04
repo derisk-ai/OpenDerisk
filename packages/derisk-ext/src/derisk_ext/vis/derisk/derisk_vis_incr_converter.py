@@ -10,13 +10,13 @@ from derisk.agent.core.types import MessageType
 from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
 from derisk.vis.schema import VisConfirm, VisPlansContent, VisTextContent, VisTaskContent, VisInteract
 from derisk.vis.vis_converter import SystemVisTag
+from  .derisk_vis_converter import DeriskVisConverter
 from derisk_ext.vis.derisk.ask_user.manager import convert
-from derisk_ext.vis.derisk.derisk_vis_converter import DeriskVisConverter
+
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 from derisk_ext.vis.derisk.tags.drsk_interact import DrskInteract
 from derisk_ext.vis.derisk.tags.drsk_msg import DrskMsgContent
 from derisk_ext.vis.derisk.tags.drsk_thinking import DrskThinkingContent, DrskThinking
-from derisk_ext.vis.derisk.tags.nex_report import NexReport
 from derisk_serve.agent.db import GptsMessagesDao
 
 NONE_GOAL_PREFIX: str = "none_goal_count_"

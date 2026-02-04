@@ -12,6 +12,7 @@ from derisk_app.config import ApplicationConfig, ServiceWebParameters
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
 from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
 from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
+from derisk_serve.agent.resource.derisk_skill import DeriskSkillResource
 
 from derisk_serve.rag.storage_manager import StorageManager
 
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def initialize_components(
-        param: ApplicationConfig,
-        system_app: SystemApp,
+    param: ApplicationConfig,
+    system_app: SystemApp,
 ):
     # Lazy import to avoid high time cost
     from derisk.model.cluster.controller.controller import controller
@@ -69,6 +70,7 @@ def initialize_components(
 
 def _initialize_model_cache(system_app: SystemApp, web_config: ServiceWebParameters):
     from derisk.storage.cache import initialize_cache
+
     if not web_config.model_cache or not web_config.model_cache.enable_model_cache:
         logger.info("Model cache is not enable")
         return
@@ -85,6 +87,7 @@ def _initialize_model_cache(system_app: SystemApp, web_config: ServiceWebParamet
 def _initialize_awel(system_app: SystemApp, awel_dirs: Optional[str] = None):
     from derisk.configs.model_config import _DAG_DEFINITION_DIR
     from derisk.core.awel import initialize_awel
+
     # Add default dag definition dir
     dag_dirs = [_DAG_DEFINITION_DIR]
     if awel_dirs:
@@ -95,6 +98,7 @@ def _initialize_awel(system_app: SystemApp, awel_dirs: Optional[str] = None):
 
 def _initialize_agent(system_app: SystemApp):
     from derisk.agent import initialize_agent
+
     initialize_agent(system_app)
 
     ## init agent vis convert
@@ -114,6 +118,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
     from derisk.agent.resource.memory import MemoryResource
     from derisk.agent.expand.resources.fetch_tool import fetch
+
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
     rm.register_resource(DatasourceResource)
@@ -130,26 +135,30 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(LocalToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(AgentSkillResource)
+    rm.register_resource(DeriskSkillResource)
     rm.register_resource(ReasoningEngineResource)
     rm.register_resource(KnowledgePackSearchResource)
     rm.register_resource(MemoryResource)
     rm.register_resource(WorkflowResource)
 
-
     # Register openderisk tool
     # Register Excel File to DB tools
     from derisk_ext.agent.agents.open_ta.tools.xls_analysis import get_data_introduction
     from derisk_ext.agent.agents.open_ta.tools.xls_analysis import run_sql_with_file
+
     rm.register_resource(resource_instance=get_data_introduction)
     rm.register_resource(resource_instance=run_sql_with_file)
 
     # Register Flamegraph analysis tools
-    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import flamegraph_overview
-    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import flamegraph_drill_down
+    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import (
+        flamegraph_overview,
+    )
+    from derisk_ext.agent.agents.open_ta.tools.flamegraph_cpu_analyzer import (
+        flamegraph_drill_down,
+    )
+
     rm.register_resource(resource_instance=flamegraph_overview)
     rm.register_resource(resource_instance=flamegraph_drill_down)
-
-
 
     # Register mock tool 在页面上注册工具
     # from derisk_ext.agent.agents.smartTestUI.tool.image_find_static_bug_tools import find_image_bugs
@@ -200,9 +209,8 @@ def _initialize_operators():
 
 def _initialize_code_server(system_app: SystemApp):
     from derisk.util.code.server import initialize_code_server
+
     initialize_code_server(system_app)
-
-
 
 
 def _initialize_local_tool(system_app: SystemApp):
@@ -213,10 +221,14 @@ def _initialize_local_tool(system_app: SystemApp):
 def _initialize_mcp_cache():
     logger.info("未支持")
 
+
 def _initialize_context(system_app: SystemApp):
     from derisk.context.operator import OperatorManager
+
     OperatorManager.operator_scan()
+
 
 def _initialize_perfermance(system_app: SystemApp):
     from derisk.perf.profiler import PerformanceProfiler
+
     system_app.register(component=PerformanceProfiler)

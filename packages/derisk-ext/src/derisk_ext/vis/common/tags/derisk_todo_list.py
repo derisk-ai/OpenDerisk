@@ -3,9 +3,8 @@
 用于在planning_window区域展示Agent的看板stage进度
 
 设计理念：
-- 轻量级：只包含必要的状态和展示信息
-- 状态映射清晰：明确的状态转换规则
-- 错误容错：异常情况下不影响整体可视化流程
+- 经典简单的todolist样式
+- 包含TODO logo、名称、步骤进展、markdown风格的todolist列表和基础状态
 """
 from __future__ import annotations
 
@@ -15,8 +14,10 @@ from enum import Enum
 
 from pydantic_core._pydantic_core import ValidationError
 from derisk._private.pydantic import (
+    BaseModel,
     Field,
-    field_validator,
+    model_to_dict,
+    field_validator
 )
 
 from derisk.vis import Vis
@@ -33,11 +34,10 @@ class TodoStatus(str, Enum):
     FAILED = "failed"  # 失败
 
 
-class TodoItem(DrskVisBase):
-    """Todo列表项"""
+class TodoItem(BaseModel):
+    """Todo列表项 - 经典简单样式"""
     id: str = Field(..., description="todo item id")
     title: str = Field(..., description="todo item title")
-    description: Optional[str] = Field(None, description="todo item description")
     status: TodoStatus = Field(TodoStatus.PENDING, description="todo item status")
     index: int = Field(0, description="todo item order index")
 
@@ -55,26 +55,25 @@ class TodoItem(DrskVisBase):
 
 
 class TodoListContent(DrskVisBase):
-    """TodoList内容"""
-    agent_name: Optional[str] = Field(None, description="所属Agent名称")
-    agent_avatar: Optional[str] = Field(None, description="所属Agent头像")
-    mission: Optional[str] = Field(None, description="看板任务描述")
+    """TodoList内容 - 经典简单样式"""
+    mission: Optional[str] = Field(None, description="看板任务描述/名称")
     items: List[TodoItem] = Field(default_factory=list, description="todo列表项")
     current_index: int = Field(0, description="当前执行的todo项索引", ge=0)
+    total_count: int = Field(0, description="todo总数量", ge=0)
 
     @field_validator('current_index')
     @classmethod
     def validate_current_index(cls, v, info):
         """验证current_index不超过items数量"""
         items = info.data.get('items', [])
-        if v >= len(items) and len(items) > 0:
+        if v > len(items) and len(items) > 0:
             logger.warning(f"current_index {v} exceeds items count {len(items)}, setting to last index")
             return max(0, len(items) - 1)
         return v
 
 
 class TodoList(Vis):
-    """TodoList可视化组件"""
+    """TodoList可视化组件 - 经典简单样式"""
 
     def sync_generate_param(self, **kwargs) -> Optional[Dict[str, Any]]:
         """生成vis协议所需的参数

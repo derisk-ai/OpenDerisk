@@ -18,10 +18,12 @@ from derisk_ext.vis.derisk.tags.drsk_base import DrskVisBase
 
 logger = logging.getLogger(__name__)
 
+
 class LLMSpaceContent(DrskVisBase):
     markdown: Optional[str] = Field(None, description="llm space content")
-    token_use: int = Field(0, description="token use count")
-    token_speed: float = Field(0, description="token output speed")
+    token_use: Optional[int] = Field(0, description="token use count")
+    total_tokens: Optional[int] = Field(0, description="total token count")
+    token_speed: Optional[float] = Field(0, description="token output speed")
     llm_model: Optional[str] = Field(None, description="llm model name")
     llm_avatar: Optional[str] = Field(None, description="llm avatar")
     start_time: Optional[Any] = Field(None, description="模型推理开始时间")
@@ -31,7 +33,6 @@ class LLMSpaceContent(DrskVisBase):
 
     say_to_user: Optional[str] = Field(None, description="输出给用户的展示消息")
     status: Optional[str] = Field(None, description="模型消息输出状态")
-
 
 
 class LLMSpace(Vis):
