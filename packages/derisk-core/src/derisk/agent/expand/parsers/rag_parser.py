@@ -4,6 +4,7 @@ from typing import Optional, Type, List, Union
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
 from derisk.agent import Action, BlankAction, AgentMessage
 from derisk.agent.core.base_parser import AgentParser, SchemaType
+from derisk.agent.core.reasoning.reasoning_action import KnowledgeRetrieveAction, KnowledgeRetrieveActionInput
 from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
 from derisk.agent.util.llm.llm_client import AgentLLMOut
 

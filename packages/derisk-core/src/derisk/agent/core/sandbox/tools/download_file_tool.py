@@ -65,7 +65,7 @@ async def execute_download_file(client: SandboxBase, path: str) -> str:
         # 调用 upload_to_oss 获取 OSS 链接
         oss_file = await client.file.upload_to_oss(sandbox_path)
         if oss_file and oss_file.temp_url:
-            return f"文件下载链接: {oss_file.temp_url}"
+            return oss_file.temp_url
         else:
             return f"错误: 获取文件下载链接失败 ({sandbox_path})"
     except Exception as exc:

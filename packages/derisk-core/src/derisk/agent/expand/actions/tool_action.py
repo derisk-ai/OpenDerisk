@@ -34,6 +34,11 @@ TOOL_SNAPSHOTS_KEY = "tool_snapshots"
 SNAPSHOT_MODE_DISPLAY = "快照模式"
 KWARGS_FILTERED = ["message_id"]
 
+class MCPResultError(Exception):
+    def __init__(self, message=""):
+        self.message = message
+        super().__init__(self.message)
+
 class ToolInput(BaseModel):
     """Plugin input model."""
     tool_name: str = Field(
@@ -262,7 +267,7 @@ class ToolAction(Action[ToolInput]):
             view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
                                        tool_info=tool_info, tool_result=result_content, tool_cost=metrics.cost_seconds,
                                        status=status, args=param.args,
-                                       start_time=start_time, **kwargs)
+                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs)
 
         result_content = await self.gen_content(tool_result)
         return ActionOutput(
@@ -564,7 +569,7 @@ class ToolAction(Action[ToolInput]):
                        out_type: Optional[str] = "json",
                        tool_result: Optional[Any] = None, err_msg: Optional[str] = None, tool_cost: float = 0,
                        start_time: Optional[Any] = None, view_type: Optional[str] = 'all',
-                       markdown: Optional[Any] = None, **kwargs):
+                       markdown: Optional[Any] = None, eval_view: Optional[dict] = None, **kwargs):
         logger.info(f"Tool Action gen view!{self.action_view_tag}")
         # 设置进度
         progress = 100 if status == "completed" else (
@@ -589,7 +594,8 @@ class ToolAction(Action[ToolInput]):
             tool_cost=tool_cost,
             start_time=start_time,
             progress=progress,
-            markdown=markdown
+            markdown=markdown,
+            eval_view=eval_view
         )
         self.action_view_tag: str = SystemVisTag.VisTool.value
         return self.render_protocol.sync_display(

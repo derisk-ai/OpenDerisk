@@ -74,12 +74,15 @@ class AgentAction(Action[AgentActionInput]):
 
             action_id = kwargs.get("action_id", None)
             sender: ConversableAgent = kwargs["agent"]
+            logger.warning(f"[AgentAction] sender.agents: {[f'{a.name}({a.agent_context.agent_app_code})' for a in sender.agents]}")
+            logger.warning(f"[AgentAction] Looking for agent with agent_name={action_input.agent_name}")
             recipient = next(
                 (agent for agent in sender.agents if
                  agent.name == action_input.agent_name or agent.agent_context.agent_app_code == action_input.agent_name),
                 None,
             )
             if not recipient:
+                logger.error(f"[AgentAction] recipient can't be empty! sender.agents={[(a.name, a.agent_context.agent_app_code) for a in sender.agents]}, trying to find={action_input.agent_name}")
                 raise RuntimeError("recipient can't be empty")
 
             received_message = (

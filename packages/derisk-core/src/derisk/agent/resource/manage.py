@@ -96,13 +96,8 @@ class ResourceManager(BaseComponent):
 
     def after_start(self):
         """Register all resources."""
-        # Register AgentSkill resource as an instance to enable skill query from database
-        try:
-            from .agent_skills import register_agent_skill_resource
-            register_agent_skill_resource(self.system_app)
-            logger.info("AgentSkill resource registered successfully")
-        except Exception as e:
-            logger.warning(f"Failed to register AgentSkill resource: {e}")
+        # TODO: Register some internal resources
+        pass
 
     def register_resource(
         self,
@@ -145,7 +140,7 @@ class ResourceManager(BaseComponent):
                 unique_types.append(resource.type_unique_key)
         return unique_types
 
-    async def get_supported_resources(
+    def get_supported_resources(
         self, version: Optional[str] = None, type: Optional[str] = None, **kwargs
     ) -> Dict[str, Union[List[ParameterDescription], List[str]]]:
         """Return the resources."""
@@ -162,20 +157,7 @@ class ResourceManager(BaseComponent):
                 version=version,
             )
             all_instance_options = []
-            if parameter_class.__name__ == "_DynAgentSkillResourceParameters":
-                # Special handling for agent-skill to load dynamic skills
-                if resource.resource_instance:
-                     skills_prompt, skills_meta = await resource.resource_instance.get_prompt()
-                     if skills_meta and "skills" in skills_meta:
-                        all_instance_options = []
-                        for skill in skills_meta["skills"]:
-                             all_instance_options.append({
-                                "label": f"[{skill['name']}]{skill.get('description', '')}",
-                                "key": skill["name"],
-                                "description": skill.get("description", ""),
-                                "name": skill["name"],
-                             })
-            elif (
+            if (
                 isinstance(configs, list)
                 and len(configs) > 0
                 and isinstance(configs[0], ParameterDescription)
@@ -258,32 +240,6 @@ class ResourceManager(BaseComponent):
                         if return_resource
                         else {"name": real_resource_name}
                     )
-
-            # Fallback: if not found in tool(skill), try to find in tool
-            if type_unique_key == "tool(skill)":
-                fallback_items = self._type_to_resources.get("tool")
-                if fallback_items:
-                    fallback_insts = [i for i in fallback_items if not i.is_class]
-                    for i in fallback_insts:
-                        if (
-                            i.resource_instance
-                            and i.resource_instance.name == real_resource_name
-                        ):
-                             return (
-                                i.resource_instance
-                                if return_resource
-                                else {"name": real_resource_name}
-                            )
-
-                # Fallback: if not found specific skill, use the first available tool(skill) instance
-                # This supports the case where a single SkillResource instance manages multiple dynamic skills
-                if inst_items:
-                    return (
-                        inst_items[0].resource_instance
-                        if return_resource
-                        else {"name": real_resource_name}
-                    )
-
             raise ValueError(
                 f"Resource {real_resource_name} not found in {type_unique_key}"
             )

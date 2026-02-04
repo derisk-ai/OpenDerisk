@@ -20,18 +20,17 @@ from derisk.vis.vis_converter import SystemVisTag
 from derisk_ext.agent.actions.ant_tool_action import AntToolAction
 from derisk_ext.agent.actions.code_action import DeriskCodeAction
 from derisk_ext.agent.actions.monitor_action import AntMonitorAction
-
 from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
-
 from derisk_ext.vis.common.tags.derisk_plan import AgentPlan, AgentPlanItem
 from derisk_ext.vis.common.tags.derisk_planning_space import PlanningSpaceContent, PlanningSpace
+from derisk_ext.vis.common.tags.derisk_todo_list import TodoList
 from derisk_ext.vis.common.tags.derisk_thinking import DeriskThinking, DrskThinkingContent
 from derisk_ext.vis.common.tags.derisk_tool import ToolSpace
 from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent, WorkSpace, FolderNode
+from .derisk_vis_incr_converter import DeriskVisIncrConverter
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
-from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
 from derisk_ext.vis.derisk.tags.derisk_agent_folder import AgentFolder
-from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpace, LLMSpaceContent
+from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpaceContent, LLMSpace
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 
 from derisk_ext.vis.vis_protocol_data import UpdateType
@@ -79,12 +78,10 @@ ACTION_TASK_MAP = {
 }
 
 
-from derisk._private.config import Config
-
 class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     """Incremental task window mode protocol converter.
     """
-    
+
     def __init__(self, paths: Optional[str] = None, **kwargs):
         super().__init__(paths, **kwargs)
         # self._drsk_web_url = Config().DERISK_WEB_URL
@@ -101,6 +98,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             SystemVisTag.VisPlans.value: DrskVisTagPackage.DrskPlans.value,
             SystemVisTag.VisReport.value: DrskVisTagPackage.NexReport.value,
             SystemVisTag.VisAttach.value: DeriskAttach.vis_tag(),
+            SystemVisTag.VisTodo.value: TodoList.vis_tag(),
         }
 
     @property
@@ -239,8 +237,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if action_outs:
             for action_out in action_outs:
                 ## 规划的Agent转发任务已经再任务中通过空间挂载，不需要Action展示
-                if action_out.name == AgentAction.name :
-                    continue
                 plan_tasks_vis.append(
                     self._act_out_2_plan(action_out, layer_count))
 
@@ -268,32 +264,38 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                                      leaf_vis: str, is_nest: bool = False,
                                      senders_map: Optional[Dict[str, "ConversableAgent"]] = None) -> AgentPlanItem:
 
-        agent = None
-        if senders_map and current_task.content.agent_name:
+        # 构建最终的markdown内容
+        final_markdown = leaf_vis
+
+        # Todolist现在由Agent端主动推送，不再在converter中生成
+        # if not is_nest and current_task.content.task_type == AgentTaskType.AGENT.value:
+        #     # （已移除）不再在converter中解析stage生成todolist
+
+        if is_nest:
+            current_item = AgentPlanItem(
+                uid=current_task.node_id,
+                type=UpdateType.INCR.value,
+                status=current_task.state,
+                cost=current_task.content.cost,
+                markdown=final_markdown
+            )
+        else:
             agent = senders_map.get(current_task.content.agent_name)
-
-        item_type = AgentTaskType.PLAN.value
-        if current_task.content.task_type == AgentTaskType.STAGE.value:
-            item_type = AgentTaskType.STAGE.value
-        elif current_task.content.task_type == AgentTaskType.AGENT.value:
-            item_type = AgentTaskType.AGENT.value
-
-        current_item = AgentPlanItem(
-            uid=current_task.node_id,
-            type=UpdateType.INCR.value,
-            title=current_task.name,
-            description=current_task.description,
-            item_type=item_type,
-            agent_role=agent.role if agent else None,
-            agent_name=agent.name if agent else None,
-            agent_avatar=agent.avatar if agent else None,
-            status=current_task.state,
-            start_time=current_task.created_at,
-            layer_count=current_task.layer_count,
-            cost=current_task.content.cost,
-            markdown=leaf_vis
-        )
-
+            current_item = AgentPlanItem(
+                uid=current_task.node_id,
+                type=UpdateType.INCR.value,
+                title=current_task.name,
+                description=current_task.description,
+                item_type= current_task.content.task_type or AgentTaskType.PLAN.value,
+                agent_role=agent.role if agent else None,
+                agent_name=agent.name if agent else None,
+                agent_avatar=agent.avatar if agent else None,
+                status=current_task.state,
+                start_time=current_task.created_at,
+                layer_count=current_task.layer_count,
+                cost=current_task.content.cost,
+                markdown=leaf_vis
+            )
         current_task_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(content=current_item.to_dict())
         parent_task = task_manager.get_node(current_task.parent_id)
         if parent_task and parent_task.node_id != current_task.node_id:
@@ -384,14 +386,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     task_items_vis.append(
                         self.vis_inst(AgentPlan.vis_tag()).sync_display(content=task_item.to_dict()))
 
-                # leaf_item_vis = await self._gen_plan_items(gpt_msg=gpt_msg,
-                #                                            layer_count=task_node.layer_count + 1,
-                #                                            senders_map=senders_map)
-                # if not leaf_item_vis:
-                #     continue
-                # task_item: AgentPlanItem = await self._gen_plan_tree_by_task(task_manager, task_node,
-                #                                                              leaf_item_vis, senders_map=senders_map)
-                # task_items_vis.append(self.vis_inst(AgentPlan.vis_tag()).sync_display(content=task_item.to_dict()))
 
         if task_items_vis:
             planning_window_content = PlanningSpaceContent(
@@ -443,8 +437,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             thinking = gpt_msg.thinking
             content = gpt_msg.content
             thinkin_expand = False
-            total_tokens = (gpt_msg.metrics.llm_metrics.total_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0) or 0
-            tokens = (gpt_msg.metrics.llm_metrics.completion_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0) or 0
+            total_tokens = gpt_msg.metrics.llm_metrics.total_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0
+            tokens = gpt_msg.metrics.llm_metrics.completion_tokens if gpt_msg.metrics and gpt_msg.metrics.llm_metrics else 0
             update_type = UpdateType.ALL.value
         elif stream_msg:
             sender_name = stream_msg.get('sender')
@@ -454,8 +448,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             start_time = stream_msg.get("start_time")
             llm_model = stream_msg.get("model")
             llm_avatar = stream_msg.get("llm_avatar")
-            tokens = stream_msg.get("tokens", 0) or 0
-            total_tokens = stream_msg.get("total_tokens", 0) or 0
+            tokens = stream_msg.get("tokens", 0)
+            total_tokens = stream_msg.get("total_tokens", 0)
             thinking = stream_msg.get("thinking")
             content = stream_msg.get("content")
             if content:
@@ -478,16 +472,16 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             vis_thinking = DeriskThinking().sync_display(content=thinking_content.to_dict(exclude_none=True))
             llm_content_md = llm_content_md + "\n" + vis_thinking
 
-            if content:
-                llm_content = DrskTextContent(markdown=content, uid=message_id + "_content", type=update_type)
-                vis_content = DrskContent().sync_display(content=llm_content.to_dict(exclude_none=True))
-                llm_content_md = llm_content_md + "\n" + vis_content
+        if content:
+            llm_content = DrskTextContent(markdown=content, uid=message_id + "_content", type=update_type)
+            vis_content = DrskContent().sync_display(content=llm_content.to_dict(exclude_none=True))
+            llm_content_md = llm_content_md + "\n" + vis_content
 
         if llm_content_md:
             # Handle potential None values for metrics
             cost_val = 0
             speed_val = 0.0
-            
+
             if gpt_msg and gpt_msg.metrics and gpt_msg.metrics.llm_metrics:
                 if gpt_msg.metrics.llm_metrics.end_time_ms and gpt_msg.metrics.start_time_ms:
                      cost_val = (gpt_msg.metrics.llm_metrics.end_time_ms - gpt_msg.metrics.start_time_ms) // 1000
@@ -615,19 +609,22 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             return None
 
     def _act_out_2_plan(self, action_out: ActionOutput, layer_count: int):
-        return self.vis_inst(AgentPlan.vis_tag()).sync_display(content=AgentPlanItem(
-            uid=action_out.action_id,
-            type=UpdateType.INCR.value,
-            item_type="task",
-            task_type=ACTION_TASK_MAP[action_out.name] if action_out.name in ACTION_TASK_MAP else "tool",
-            title=action_out.action,
-            description=str(action_out.action_input) if action_out.action_input else None,
-            status=action_out.state,
-            start_time=action_out.start_time,
-            layer_count=layer_count,
-            markdown=action_out.simple_view or action_out.view or action_out.content if action_out.terminate else None,
-            cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
-        ).to_dict())
+        if action_out.action in ["create_kanban", "submit_deliverable", "read_deliverable"]:
+            return action_out.simple_view or action_out.view or action_out.content
+        else:
+            return self.vis_inst(AgentPlan.vis_tag()).sync_display(content=AgentPlanItem(
+                uid=action_out.action_id,
+                type=UpdateType.INCR.value,
+                item_type="task",
+                task_type=ACTION_TASK_MAP[action_out.name] if action_out.name in ACTION_TASK_MAP else "tool",
+                title=action_out.action,
+                description=str(action_out.action_input) if action_out.action_input else None,
+                status=action_out.state,
+                start_time=action_out.start_time,
+                layer_count=layer_count,
+                markdown=action_out.simple_view or action_out.view or action_out.content if action_out.terminate else None,
+                cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
+            ).to_dict())
 
     def _unpack_task_space(self, task_space: TreeNodeData[AgentTaskContent], task_manager: TreeManager,
                            actions_map: Dict[str, 'ActionOutput'],
@@ -664,17 +661,15 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                             #     child_vis.append(thought)
                         if message.action_report:
                             for action_out in message.action_report:
-                                ### 规划的Agent转发任务已经再任务中通过空间挂载，不需要Action展示
-                                if action_out.name == AgentAction.name:
-                                    continue
-                                else:
-                                    child_vis.append(self._act_out_2_plan(action_out, task_space.layer_count + 1))
+                                plan_item_vis = self._act_out_2_plan(action_out, task_space.layer_count + 1)
+                                if plan_item_vis:
+                                    child_vis.append(plan_item_vis)
 
         agent = agent_map.get(task_space.content.agent_name)
         return AgentPlanItem(
             uid=task_space.node_id,
             type=UpdateType.INCR.value,
-            item_type=AgentTaskType.PLAN.value,  # task_space.content.task_type
+            item_type= task_space.content.task_type, #AgentTaskType.PLAN.value,  #
             title=task_space.name,
             description=task_space.description,
             status=task_space.state,

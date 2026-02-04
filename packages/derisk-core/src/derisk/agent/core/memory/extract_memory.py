@@ -474,6 +474,29 @@ class ExtractMemory(LongTermMemory):
             related_memories.append(memory_fragment)
         return related_memories
 
+    def count_memories(self, filters: MetadataFilters = None, **kwargs) -> int:
+        if self._vector_store:
+            if not self._vector_store.vector_name_exists():
+                return 0
+            return self._vector_store.count_documents(filters=filters, **kwargs)
+        return 0
+
+    async def fuzzy_memory_search(
+            self,
+            query: str,
+            top_k: int = 50,
+            score_threshold: float = 0.0,
+            metadata_filters: Optional[MetadataFilters] = None,
+    ) -> list[AgentExtractMemoryFragment]:
+        """Search related memory search on the long term memory."""
+        related_chunks = await self._semantic_search(query, top_k, score_threshold, metadata_filters=metadata_filters)
+        logger.info(f"search {len(related_chunks)} related long term memories for {query}, filters: {metadata_filters}")
+        related_memories = []
+        for memory in related_chunks:
+            memory_fragment = self._chunk_to_memory(memory)
+            related_memories.append(memory_fragment)
+        return related_memories
+
     async def _semantic_search(
             self,
             query: str,

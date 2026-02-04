@@ -143,6 +143,13 @@ class Kanban:
             return self.stages[self.current_stage_index]
         return None
 
+    def get_next_stage(self, current_stage_id: str) -> Optional[Stage]:
+        """获取指定stage_id的下一个阶段"""
+        for i, stage in enumerate(self.stages):
+            if stage.stage_id == current_stage_id and i < len(self.stages) - 1:
+                return self.stages[i + 1]
+        return None
+
     def get_stage_by_id(self, stage_id: str) -> Optional[Stage]:
         """根据ID查找阶段"""
         for stage in self.stages:

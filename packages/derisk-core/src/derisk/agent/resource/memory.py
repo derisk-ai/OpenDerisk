@@ -83,6 +83,11 @@ art, fashion, and culture.
 {text}
 """
 
+_DEFAULT_TOPIC_LIST = [
+    {"topic_name": "陈述性记忆","topic_description": "陈述性记忆（declarative memory）,knowing what:每一个陈述性记忆是一个基于事实的、非推测的属性信息。从对话中提取关键字相关的陈述性记忆，并将其组织成独立、可管理的事实，尽可能的简洁明了"},
+    {"topic_name":"程序性记忆", "topic_description":"程序性记忆（procedural memory），knowing how：每一个程序性记忆是指抽取出来的流程信息（从上下文信息中提取出的SOP步骤），提取为一个string"}
+]
+
 @dataclasses.dataclass
 class MemoryParameters(ResourceParameters):
     enable_global_session: bool = dataclasses.field(
@@ -216,6 +221,25 @@ public class MathUtils {{
             "help": _("查看指定agent记忆"), "label": _("查看指定agent记忆")
         }
     )
+    enable_collect_long_term: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否开启长期记忆，开启后将在当前工作空间下创建一个长期记忆提取agent并添加到当前agent的子agent列表中，"
+                                           "关闭后将自动移除记忆提取子agent。"),
+                                 "label": _("是否开启长期记忆")}
+    )
+
+    memory_topic_list: List[dict[str, str]] = dataclasses.field(
+        default_factory=lambda: _DEFAULT_TOPIC_LIST,
+        metadata={"help": _("长期记忆topic:\n"
+                            "陈述性记忆: 基于事实的、非推测的属性信息\n"
+                            "程序性记忆: 从上下文信息中提取出的SOP步骤\n"),
+                  "label": _("长期记忆topic"),
+                  "options": _DEFAULT_TOPIC_LIST}
+    )
+
+    enable_long_term_use: bool = dataclasses.field(
+        default=False,
+        metadata={"help": _("是否使用长期记忆，开启后将会把长期记忆输入prompt中"), "label": _("是否使用长期记忆")}
+    )
     name: Optional[str] = dataclasses.field(
         default="MemoryResource", metadata={"help": _(
             "MemoryResource"
@@ -238,6 +262,9 @@ class MemoryResource(Resource[ResourceParameters]):
         message_condense_prompt: Optional[str] = None,
         agent_whitelist: Optional[str] = None,
         enable_user_memory: bool = False,
+        enable_collect_long_term: bool = False,
+        enable_long_term_use: bool = False,
+        memory_topic_list:  list[dict[str, str]] = None,
         **kwargs,
     ):
         """
@@ -262,6 +289,12 @@ class MemoryResource(Resource[ResourceParameters]):
             memory_params["agent_whitelist"] = agent_whitelist
         if enable_user_memory:
             memory_params["enable_user_memory"] = enable_user_memory
+        if enable_collect_long_term:
+            memory_params["enable_long_term_use"] = enable_long_term_use
+        if enable_long_term_use:
+            memory_params["enable_long_term_use"] = enable_long_term_use
+        if memory_topic_list:
+            memory_params["memory_topic_list"] = memory_topic_list
         self._memory_params = MemoryParameters(**(memory_params or {}))
 
     @classmethod
@@ -319,6 +352,9 @@ class MemoryResource(Resource[ResourceParameters]):
             name="MemoryResource",
             condense_max_token=5000,
             enable_user_memory=False,
+            enable_long_term_use=False,
+            enable_collect_long_term=False,
+            memory_topic_list=_DEFAULT_TOPIC_LIST,
         )
 
 
