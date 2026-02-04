@@ -113,14 +113,17 @@ export const combineVisItem = (
   else if (baseType === 'incr' || incrMarkdown) newMarkdown = combinedMarkdown;
   else newMarkdown = baseMarkdown;
 
-  // 处理列表vis
-  if (incrItemList.length !== 0) {
+  // 处理列表vis - 确保数组存在
+  const safeBaseItemList = baseItemList || [];
+  const safeIncrItemList = incrItemList || [];
+  
+  if (safeIncrItemList.length !== 0) {
     // 存储新增uid的item
-    const newListItems = incrItemList.filter(
-      (i) => !find(baseItemList, { uid: i.uid }),
+    const newListItems = safeIncrItemList.filter(
+      (i) => !find(safeBaseItemList, { uid: i.uid }),
     );
-    const incrListMap = keyBy(incrItemList, 'uid');
-    const combinedListItems: VisItem[] = baseItemList.map((baseI) => {
+    const incrListMap = keyBy(safeIncrItemList, 'uid');
+    const combinedListItems: VisItem[] = safeBaseItemList.map((baseI) => {
       if (incrListMap[baseI.uid])
         return combineVisItem(baseI, incrListMap[baseI.uid], defaultIncrMap);
       else return baseI;
@@ -143,7 +146,7 @@ export const combineVisItem = (
     uid: baseUid,
     dynamic: incrDynamic,
     type: incrType,
-    items: baseItemList,
+    items: safeBaseItemList,
   };
 };
 
@@ -237,14 +240,14 @@ const combineNodeWithChildren = (
         if (node.value) {
           try {
             //@ts-ignore
-            const json = JSON.parse(node.value);
+            const json = JSON.parse(node.value) as VisItem;
             const uid = json.uid;
 
             if (!node1String.includes(uid)) {
               // 该节点为新增节点
               node1.children.push(node);
             } else {
-              // 该节点为存在节点
+              // 该节点为存在节点，需要合并增量数据
               // @ts-ignore
               const existNode = node1.children.find((child) =>
                 // @ts-ignore
@@ -252,9 +255,13 @@ const combineNodeWithChildren = (
               );
               if (existNode) {
                 // @ts-ignore
-                const newNode = combineAST(existNode, node, defaultIncrMap);
+                const existJson = JSON.parse(existNode.value) as VisItem;
+                const incrJson = json;
+                // 使用增量映射或直接合并节点数据
+                const incrNode = defaultIncrMap?.get(uid) || incrJson;
+                const mergedValue = combineVisItem(existJson, incrNode, defaultIncrMap);
                 // @ts-ignore
-                existNode.value = newNode.value;
+                existNode.value = JSON.stringify(mergedValue);
               }
             }
           } catch (e) {
@@ -537,7 +544,7 @@ export class VisBaseParser {
           if (node.value) {
             try {
               //@ts-ignore
-              const json = JSON.parse(node.value);
+              const json = JSON.parse(node.value) as VisItem;
               const uid = json.uid;
 
               if (!baseMarkdown.includes(uid)) {
@@ -545,7 +552,7 @@ export class VisBaseParser {
                 // @ts-ignore
                 baseNode.children.push(node);
               } else {
-                // 该节点为存在节点
+                // 该节点为存在节点，需要合并增量数据
                 // @ts-ignore
                 const existNode = baseNode.children.find((child) =>
                   // @ts-ignore
@@ -553,9 +560,12 @@ export class VisBaseParser {
                 );
                 if (existNode) {
                   // @ts-ignore
-                  const newNode = this.updateAST(existNode);
+                  const existJson = JSON.parse(existNode.value) as VisItem;
+                  const incrJson = json;
+                  // 合并已存在节点和增量节点的数据
+                  const mergedValue = this.combineVisItem(existJson, incrJson);
                   // @ts-ignore
-                  existNode.value = newNode.value;
+                  existNode.value = JSON.stringify(mergedValue);
                 }
               }
             } catch (e) {

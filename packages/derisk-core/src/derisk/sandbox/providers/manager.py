@@ -38,7 +38,10 @@ class SandboxProviderManager(BaseComponent):
 
         provider = cls.provider()
         if provider in self._sandbox_adapter:
-            raise ValueError(f"Sandbox Adapter:{provider} already register!")
+            logger.warning(
+                f"Sandbox Adapter:{provider} already registered, skipping registration."
+            )
+            return provider
         self._sandbox_adapter[provider] = cls
         return provider
 

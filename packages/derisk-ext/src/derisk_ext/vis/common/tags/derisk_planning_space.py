@@ -15,13 +15,15 @@ from derisk_ext.vis.derisk.tags.drsk_base import DrskVisBase
 logger = logging.getLogger(__name__)
 
 
-
 class PlanningSpaceContent(DrskVisBase):
     agent_role: Optional[str] = Field(None, description="agent role")
     agent_name: Optional[str] = Field(None, description="agent name")
     title: Optional[str] = Field(None, description="title of planning window")
     description: Optional[str] = Field(None, description="agent description")
     avatar: Optional[str] = Field(None, description="task logo")
+    todolist: Optional[str] = Field(
+        None, description="待办列表可视化标签，显示在agent信息之后、任务列表之前"
+    )
     markdown: Optional[str] = Field(None, description="工作空间资源管理器")
 
 

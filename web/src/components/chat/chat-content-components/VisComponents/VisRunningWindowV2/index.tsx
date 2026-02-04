@@ -180,40 +180,13 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
             display: isFolderVisible ? 'block' : 'none',
           }}
         >
-
-
-          {data.explorer ? (
-            // @ts-ignore
-            <GPTVis
-              components={{ ...codeComponents, ...(otherComponents || {}) }}
-              {...markdownPlugins}
-            >
-              {data.explorer}
-            </GPTVis>
-          ) : (
-            <div style={{ padding: '10px' }}>
-              {data.items?.map((item) => (
-                <div
-                  key={item.uid}
-                  style={{
-                    padding: '8px',
-                    cursor: 'pointer',
-                    background: displayUid === item.uid ? '#e6f7ff' : 'transparent',
-                    borderBottom: '1px solid #f0f0f0',
-                  }}
-                  onClick={() => {
-                    setDisplayUid(item.uid);
-                  }}
-                >
-                  <Space>
-                    {IconMap[item.status] || IconMap.todo}
-                    <span style={{ fontSize: '12px' }}>{item.title || 'Untitled Task'}</span>
-                  </Space>
-                </div>
-              ))}
-              {!data.items?.length && <div style={{ color: '#999' }}>暂无数据</div>}
-            </div>
-          )}
+          {/* @ts-ignore */}
+          <GPTVis
+            components={{ ...codeComponents, ...(otherComponents || {}) }}
+            {...markdownPlugins}
+          >
+            {data.explorer || '-'}
+          </GPTVis>
         </FolderContainer>
         <div
           style={{

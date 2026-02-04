@@ -8,7 +8,7 @@ This is similar to APPResource or MCPResource in structure.
 
 import dataclasses
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, cast
 
 from derisk._private.config import Config
 from derisk.agent import ResourceType
@@ -39,20 +39,13 @@ agent_skill_prompt_template = """<agent-skills>
 
 
 def _load_skills_from_db() -> List[Dict[str, Any]]:
-    """Load available skills from the database.
-
-    Returns:
-        List[Dict[str, Any]]: List of skill metadata dictionaries
-    """
+    """Load available skills from the database."""
     skills = []
 
     try:
-        # Try to get the skill service from system app
-        from derisk.component import SystemApp as TrekSystemApp
+        from derisk.agent.resource.manage import _SYSTEM_APP
 
-        # Get the system app instance
-        system_app = TrekSystemApp.get_instance()
-        if system_app:
+        if _SYSTEM_APP:
             try:
                 from derisk_serve.skill.service.service import (
                     Service,
@@ -60,19 +53,18 @@ def _load_skills_from_db() -> List[Dict[str, Any]]:
                 )
                 from derisk_serve.skill.api.schemas import SkillQueryFilter
 
-                service: Optional[Service] = system_app.get_component(
+                service: Optional[Service] = _SYSTEM_APP.get_component(
                     SKILL_SERVICE_COMPONENT_NAME, Service, default=None
                 )
 
                 if service:
-                    # Get all available skills from database
                     filter_request = SkillQueryFilter()
                     query_result = service.filter_list_page(
                         filter_request, page=1, page_size=1000
                     )
 
                     for skill in query_result.items:
-                        if skill.available:
+                        if skill.available is not False:
                             skills.append(
                                 {
                                     "name": skill.name,
@@ -84,12 +76,17 @@ def _load_skills_from_db() -> List[Dict[str, Any]]:
                             )
 
                     logger.info(f"Loaded {len(skills)} skills from database")
+                else:
+                    logger.warning("Skill service not available")
             except Exception as e:
-                logger.debug(f"Service not available or error loading from database: {e}")
+                logger.warning(f"Error loading skills from database: {e}")
+        else:
+            logger.warning("System app not initialized")
     except Exception as e:
-        logger.debug(f"System app not available: {e}")
+        logger.warning(f"Failed to import _SYSTEM_APP: {e}")
 
     return skills
+
 
 logger = logging.getLogger(__name__)
 CFG = Config()
@@ -112,8 +109,8 @@ class DeriskSkillResourceParameters(PackResourceParameters):
         **kwargs,
     ) -> Any:
         """Convert the parameters to configurations."""
-        conf: List[ParameterDescription] = ParameterDescription.to_configurations(
-            parameters, cls, version, **kwargs
+        conf: List[ParameterDescription] = cast(
+            List[ParameterDescription], super().to_configurations(parameters)
         )
         return conf
 
@@ -155,11 +152,8 @@ class DeriskSkillResource(Resource[ResourceParameters]):
 
     @classmethod
     def type_alias(cls) -> str:
-        """Return the resource type alias.
-
-        Returns 'skill' to identify this as a skill resource.
-        """
-        return "skill"
+        """Return the resource type alias."""
+        return "tool(skill)"
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[DeriskSkillResourceParameters]:
@@ -174,15 +168,10 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         """
         logger.info(f"resource_parameters_class: {kwargs}")
 
-        # Load skills from database to populate valid_values
-        skills_list = _load_skills_from_db()
-
         @dataclasses.dataclass
         class _DynDeriskSkillResourceParameters(DeriskSkillResourceParameters):
-            """Dynamic DeriskSkill resource parameters class."""
-
-            # Build valid_values from database skills
-            valid_values: List[Dict[str, Any]] = [
+            skills_list = _load_skills_from_db()
+            valid_values = [
                 {
                     "label": f"[{skill['name']}]{skill.get('description', '')}",
                     "key": skill["name"],
@@ -195,6 +184,12 @@ class DeriskSkillResource(Resource[ResourceParameters]):
                 for skill in skills_list
             ]
 
+            name: str = dataclasses.field(
+                default="DeriskSkill",
+                metadata={
+                    "help": _("Resource name"),
+                },
+            )
             skill_name: Optional[str] = dataclasses.field(
                 default=None,
                 metadata={
@@ -216,6 +211,35 @@ class DeriskSkillResource(Resource[ResourceParameters]):
                     "valid_values": valid_values,
                 },
             )
+
+            @classmethod
+            def to_configurations(
+                cls,
+                parameters: Type["ResourceParameters"],
+                version: Optional[str] = None,
+                **kwargs,
+            ) -> Any:
+                """Convert the parameters to configurations."""
+                conf: List[ParameterDescription] = cast(
+                    List[ParameterDescription], super().to_configurations(parameters)
+                )
+                version = version or cls._resource_version()
+                if version != "v1":
+                    return conf
+                for param in conf:
+                    if param.param_name == "skill_name":
+                        return param.valid_values or []
+                return []
+
+            @classmethod
+            def from_dict(
+                cls, data: dict, ignore_extra_fields: bool = True
+            ) -> "DeriskSkillResourceParameters":
+                """Create a new instance from a dictionary."""
+                copied_data = data.copy()
+                return super().from_dict(
+                    copied_data, ignore_extra_fields=ignore_extra_fields
+                )
 
         return _DynDeriskSkillResourceParameters
 
@@ -243,9 +267,7 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         if not skills_list:
             return "<agent-skills>\nNo Skills available.\n</agent-skills>", None
 
-        params = {
-            "skills": skills_list
-        }
+        params = {"skills": skills_list}
 
         agent_skill_meta_prompt = render(agent_skill_prompt_template, params)
 

@@ -71,6 +71,7 @@ class SystemVisTag(Enum):
     VisConfirm = "vis-confirm"
     VisRefs = "vis-refs"
     VisReport = "vis-report"
+    VisTodo = "vis-todo"
 
 
 class VisProtocolConverter(ABC):
