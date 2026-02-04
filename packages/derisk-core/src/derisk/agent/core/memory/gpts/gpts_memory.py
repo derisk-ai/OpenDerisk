@@ -175,6 +175,9 @@ class ConversationCache:
         self.main_agent_name: Optional[str] = None
         self.senders: Dict[str, "ConversableAgent"] = {}  # type: ignore
 
+        ## TODOLIST缓存 (用于PDCA Agent推送todollist)
+        self.todollist_vis: Optional[str] = None
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -570,7 +573,6 @@ class GptsMemory:
             return final_view
         except Exception as e:
             logger.exception(f"vis_final exception!conv_id={conv_id}")
-            raise e
         finally:
             if cache:
                 cache.senders.clear()
@@ -631,6 +633,7 @@ class GptsMemory:
             senders_map=senders_map or dict(cache.senders),
             task_manager=cache.task_manager,
             conv_id=conv_id,
+            cache=cache,
             **kwargs
         )
 

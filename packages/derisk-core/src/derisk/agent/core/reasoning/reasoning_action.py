@@ -13,6 +13,7 @@ from ..agent import (
     AgentMemory,
 )
 from ..action.base import AskUserType, Action
+from .reasoning_engine import REASONING_LOGGER as LOGGER
 from ..schema import ActionInferenceMetrics, Status
 from ...resource import ResourcePack
 from derisk.context.window import ContextWindow
@@ -141,7 +142,7 @@ class AgentAction(Action[AgentActionInput]):
             message.message_id = self.action_uid
             message.context = (message.context or {}) | (action_input.extra_info or {})
 
-            logger.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]")
+            LOGGER.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]")
 
             await ContextWindow.create(agent=recipient, task_id=message.message_id)
             answer: AgentMessage = await sender.send(message=message, recipient=recipient, request_reply=True,
@@ -160,7 +161,7 @@ class AgentAction(Action[AgentActionInput]):
             ## 终止状态要排除正常返回的报告Agent
             # terminate = True if answer and answer.action_report and any([act_out.terminate for act_out in answer.action_report]) else False
             ask_type = AskUserType.NESTED_AGENT if ask_user else None
-            logger.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> answer: {answer}")
+            LOGGER.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> answer: {answer}")
             return ActionOutput.from_dict({
                 "action_id": action_id or self.action_uid,
                 "is_exe_success": True,
@@ -261,7 +262,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 if isinstance(summary_res, KnowledgeSearchResponse)
                 else None
             )
-            logger.info(
+            LOGGER.info(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
             )
@@ -269,7 +270,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             output_dict["is_exe_success"] = False
             output_dict["content"] = "知识目录检索失败"
             output_dict["view"] = "知识目录检索失败"
-            logger.exception(
+            LOGGER.exception(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
             )
@@ -305,7 +306,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 if isinstance(summary_res, KnowledgeSearchResponse)
                 else None
             )
-            logger.info(
+            LOGGER.info(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
             )
@@ -313,7 +314,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             output_dict["is_exe_success"] = False
             output_dict["content"] = "book目录检索失败"
             output_dict["view"] = "book目录检索失败"
-            logger.exception(
+            LOGGER.exception(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
             )
@@ -350,7 +351,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 if isinstance(summary_res, KnowledgeSearchResponse)
                 else None
             )
-            logger.info(
+            LOGGER.info(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
             )
@@ -358,7 +359,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             output_dict["is_exe_success"] = False
             output_dict["content"] = "单个文档检索失败"
             output_dict["view"] = "单个文档检索失败"
-            logger.exception(
+            LOGGER.exception(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
             )
@@ -394,7 +395,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 if isinstance(summary_res, KnowledgeSearchResponse)
                 else None
             )
-            logger.info(
+            LOGGER.info(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> action_output: {output_dict} "
             )
@@ -402,7 +403,7 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
             output_dict["is_exe_success"] = False
             output_dict["content"] = "知识检索失败"
             output_dict["view"] = "知识检索失败"
-            logger.exception(
+            LOGGER.exception(
                 f"[ACTION]---------->   "
                 f"KnowledgeRetrieveAction [{agent.name if agent else None}] --> exception: {repr(e)} "
             )

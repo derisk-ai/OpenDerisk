@@ -24,15 +24,9 @@ from derisk.context.event import ActionPayload, EventType
 from derisk.sandbox.base import SandboxBase
 from derisk.util.configure import DynConfig
 from derisk.util.template_utils import render
-from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import (
-    MemoryHistoryArgSupplier,
-)
+from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import MemoryHistoryArgSupplier
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from .prompt_v3 import (
-    REACT_SYSTEM_TEMPLATE,
-    REACT_USER_TEMPLATE,
-    REACT_WRITE_MEMORY_TEMPLATE,
-)
+from .prompt_v2 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
 from ...core.schema import DynamicParam, DynamicParamType
@@ -59,31 +53,20 @@ class ReActAgent(ManagerAgent):
 
     _ctx: ContextHelper[dict] = PrivateAttr(default_factory=lambda: ContextHelper(dict))
 
-    available_system_tools: Dict[str, FunctionTool] = Field(
-        default_factory=dict, description="available system tools"
-    )
+    available_system_tools: Dict[str, FunctionTool] = Field(default_factory=dict, description="available system tools")
     # FunctionCall函数和action的绑定
     enable_function_call: bool = False
     dynamic_variables: List[DynamicParam] = [
-        DynamicParam(
-            key=MemoryHistoryArgSupplier().arg_key,
-            name=MemoryHistoryArgSupplier().name,
-            type=DynamicParamType.CUSTOM.value,
-        ),
+        DynamicParam(key=MemoryHistoryArgSupplier().arg_key, name=MemoryHistoryArgSupplier().name,
+                     type=DynamicParamType.CUSTOM.value),
     ]
+
 
     def __init__(self, **kwargs):
         """Init indicator AssistantAgent."""
         super().__init__(**kwargs)
         ## 注意顺序，如果AgentStart，KnowledgeSearch， Terminate 需要在ToolAction之前 TODO待方案优化
-        self._init_actions(
-            [
-                AgentStart,
-                KnowledgeSearch,
-                Terminate,
-                ToolAction,
-            ]
-        )
+        self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction, ])
 
     async def preload_resource(self) -> None:
         await super().preload_resource()
@@ -124,6 +107,73 @@ class ReActAgent(ManagerAgent):
             "parser": self.agent_parser,
         }
 
+    # async def listen_thinking_stream(self,
+    #                                  llm_out: AgentLLMOut,
+    #                                  reply_message_id: str,
+    #                                  start_time: datetime,
+    #                                  cu_thinking_incr: Optional[str] = None,
+    #                                  cu_content_incr: Optional[str] = None,
+    #                                  is_first_chunk: bool = False,
+    #                                  is_first_content: bool = False,
+    #                                  received_message: Optional[AgentMessage] = None,
+    #                                  sender: Optional[Agent] = None,
+    #                                  prev_content: Optional[str] = None,
+    #                                  ):
+    #     if not self.stream_out:
+    #         return
+    #     scratch_pad_complete = False
+    #     content_incr = None
+    #     if len(llm_out.content) > 0 and self.content_stream_out:
+    #         if scratch_pad_complete:
+    #             return
+    #         scratch_pad_complete, scratch_pad = extract_specific_tag(llm_out.content, "scratch_pad")
+    #         prev_scratch_pad_complete, prev_scratch_pad = extract_specific_tag(prev_content, "scratch_pad")
+    #         if not scratch_pad_complete and scratch_pad:
+    #             scratch_pad_incr = scratch_pad
+    #             if prev_scratch_pad:
+    #                 scratch_pad_incr = scratch_pad[len(prev_scratch_pad):]
+    #             content_incr = scratch_pad_incr
+    #
+    #         thought_complete, thought = extract_specific_tag(llm_out.content, "thought")
+    #         pre_thought_complete, pre_thought = extract_specific_tag(prev_content, "thought")
+    #         if not thought_complete and thought:
+    #             thought_incr = thought
+    #             if pre_thought:
+    #                 thought_incr = thought[len(pre_thought):]
+    #             content_incr = thought_incr
+    #
+    #     temp_message = {
+    #         "uid": reply_message_id,
+    #         "type": "incr",
+    #         "message_id": reply_message_id,
+    #         "conv_id": self.not_null_agent_context.conv_id,
+    #         "task_goal_id": received_message.goal_id if received_message else "",
+    #         "goal_id": received_message.goal_id if received_message else "",
+    #         "task_goal": received_message.content if received_message else "",
+    #         "conv_session_uid": self.agent_context.conv_session_id,
+    #         "app_code": self.agent_context.gpts_app_code,
+    #         "sender": self.name or self.role,
+    #         "sender_role": self.role,
+    #         "model": llm_out.llm_name,
+    #         "llm_avatar": None,  # TODO
+    #         "thinking": cu_thinking_incr,
+    #         "content": content_incr,
+    #         "avatar": self.avatar,
+    #         "observation": received_message.observation if received_message else "",
+    #         "status": Status.RUNNING.value,
+    #         "start_time": start_time,
+    #         "metrics": MessageMetrics(llm_metrics=llm_out.metrics).to_dict(),
+    #         "prev_content": prev_content,
+    #     }
+    #     if self.not_null_agent_context.output_process_message or self.is_final_role:
+    #         await self.memory.gpts_memory.push_message(
+    #             self.not_null_agent_context.conv_id,
+    #             stream_msg=temp_message,
+    #             is_first_chunk=is_first_chunk,
+    #             incremental=self.not_null_agent_context.incremental,
+    #             sender=sender
+    #         )
+
     async def act(
         self,
         message: AgentMessage,
@@ -147,23 +197,11 @@ class ReActAgent(ManagerAgent):
 
         # 第二阶段：并行执行所有解析出的action
         if real_actions:
-            explicit_keys = [
-                "ai_message",
-                "resource",
-                "rely_action_out",
-                "render_protocol",
-                "message_id",
-                "sender",
-                "agent",
-                "received_message",
-                "agent_context",
-                "memory",
-            ]
+            explicit_keys = ['ai_message', 'resource', 'rely_action_out', 'render_protocol', 'message_id', 'sender',
+                             'agent', 'received_message', 'agent_context', "memory"]
 
             # 创建一个新的kwargs，它不包含explicit_keys中出现的键
-            filtered_kwargs = {
-                k: v for k, v in kwargs.items() if k not in explicit_keys
-            }
+            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in explicit_keys}
 
             # 创建所有action的执行任务
             tasks = []
@@ -173,8 +211,7 @@ class ReActAgent(ManagerAgent):
                     resource=self.resource,
                     resource_map=self.resource_map,
                     render_protocol=await self.memory.gpts_memory.async_vis_converter(
-                        self.not_null_agent_context.conv_id
-                    ),
+                        self.not_null_agent_context.conv_id),
                     message_id=message.message_id,
                     sender=sender,
                     agent=self,
@@ -186,9 +223,7 @@ class ReActAgent(ManagerAgent):
                 tasks.append((real_action, task))
 
             # 并行执行所有任务
-            results = await asyncio.gather(
-                *[task for _, task in tasks], return_exceptions=True
-            )
+            results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
             # 处理执行结果
             for (real_action, _), result in zip(tasks, results):
@@ -196,20 +231,14 @@ class ReActAgent(ManagerAgent):
                     # 处理执行异常
                     logger.exception(f"Action execution failed: {result}")
                     # 可以选择创建一个表示失败的ActionOutput，或者跳过
-                    act_outs.append(
-                        ActionOutput(
-                            content=str(result),
-                            name=real_action.name,
-                            is_exe_success=False,
-                        )
-                    )
+                    act_outs.append(ActionOutput(content=str(result), name=real_action.name, is_exe_success=False))
                 else:
                     if result:
                         act_outs.append(result)
                 await self.push_context_event(
                     EventType.AfterAction,
                     ActionPayload(action_output=result),
-                    await self.task_id_by_received_message(received_message),
+                    await self.task_id_by_received_message(received_message)
                 )
 
         return act_outs
@@ -219,7 +248,7 @@ class ReActAgent(ManagerAgent):
         logger.info(f"register_variables {self.role}")
         super().register_variables()
 
-        @self._vm.register("available_agents", "可用Agents资源")
+        @self._vm.register('available_agents', '可用Agents资源')
         async def var_available_agents(instance):
             logger.info("注入agent资源")
             prompts = ""
@@ -227,10 +256,11 @@ class ReActAgent(ManagerAgent):
                 if isinstance(v[0], AppResource):
                     for item in v:
                         app_item: AppResource = item  # type:ignore
-                        prompts += f"- <agent><code>{app_item.app_code}</code><name>{app_item.app_name}</name><description>{app_item.app_desc}</description>\n</agent>\n"
+                        prompts += (
+                            f"- <agent><code>{app_item.app_code}</code><name>{app_item.app_name}</name><description>{app_item.app_desc}</description>\n</agent>\n")
             return prompts
 
-        @self._vm.register("available_knowledges", "可用知识库")
+        @self._vm.register('available_knowledges', '可用知识库')
         async def var_available_knowledges(instance):
             logger.info("注入knowledges资源")
 
@@ -240,13 +270,14 @@ class ReActAgent(ManagerAgent):
                     for item in v:
                         if hasattr(item, "knowledge_spaces") and item.knowledge_spaces:
                             for i, knowledge_space in enumerate(item.knowledge_spaces):
-                                prompts += f"- <knowledge><id>{knowledge_space.knowledge_id}</id><name>{knowledge_space.name}</name><description>{knowledge_space.desc}</description></knowledge>\n"
+                                prompts += (
+                                    f"- <knowledge><id>{knowledge_space.knowledge_id}</id><name>{knowledge_space.name}</name><description>{knowledge_space.desc}</description></knowledge>\n")
 
                         else:
                             logger.error(f"当前知识资源无法使用!{k}")
             return prompts
 
-        @self._vm.register("available_skills", "可用技能")
+        @self._vm.register('available_skills', '可用技能')
         async def var_skills(instance):
             logger.info("注入技能资源")
 
@@ -255,88 +286,63 @@ class ReActAgent(ManagerAgent):
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
                         skill_item: AgentSkillResource = item  # type:ignore
-                        # Get skills using get_prompt (or we could expose a get_skills method)
-                        # but we need to match the previous logic of iterating
-                        # Since we modified AgentSkillResource to potentially return multiple skills (local + configured)
-                        # let's try to leverage that or keep it simple.
-
-                        # Use get_prompt to get the list of skills, but we only need the metadata here to format the prompt
-                        # The original code accessed skill_meta directly.
-                        # Now get_prompt returns a tuple (prompt, dict_with_skills_list)
-
-                        _, skills_data = await skill_item.get_prompt()
-                        if (
-                            skills_data
-                            and isinstance(skills_data, dict)
-                            and "skills" in skills_data
-                        ):
-                            for skill in skills_data["skills"]:
-                                prompts += (
-                                    f"- <skill>"
-                                    f"<name>{skill.get('name')}</name>"
-                                    f"<description>{skill.get('description')}</description>"
-                                    f"<path>{skill.get('path')}</path>"
-                                    f"<branch>{skill.get('branch')}</branch>"
-                                    f"\n</skill>\n"
-                                )
+                        mode, branch = "release", "master"
+                        debug_info = getattr(skill_item, 'debug_info', None)
+                        if debug_info and debug_info.get('is_debug'):
+                            mode, branch = "debug", debug_info.get('branch')
+                        prompts += (
+                            f"- <skill>"
+                            f"<name>{skill_item.skill_meta(mode).name}</name>"
+                            f"<description>{skill_item.skill_meta(mode).description}</description>"
+                            f"<path>{skill_item.skill_meta(mode).path}</path>"
+                            f"<branch>{branch}</branch>"
+                            f"\n</skill>\n")
             return prompts
 
-        @self._vm.register("system_tools", "系统工具")
+        @self._vm.register('system_tools', '系统工具')
         async def var_system_tools(instance):
             result = ""
             if self.available_system_tools:
                 logger.info("注入系统工具")
                 tool_prompts = ""
                 for k, v in self.available_system_tools.items():
-                    t_prompt, _ = await v.get_prompt(
-                        lang=instance.agent_context.language
-                    )
+                    t_prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
                     tool_prompts += f"- <tool>{t_prompt}</tool>\n"
                 return tool_prompts
 
             return None
 
-        @self._vm.register("custom_tools", "自定义工具")
+        @self._vm.register('custom_tools', '自定义工具')
         async def var_custom_tools(instance):
+
             logger.info("注入自定义工具")
             tool_prompts = ""
             for k, v in self.resource_map.items():
                 if isinstance(v[0], BaseTool):
                     for item in v:
-                        t_prompt, _ = await item.get_prompt(
-                            lang=instance.agent_context.language
-                        )
+                        t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
                         tool_prompts += f"- <tool>{t_prompt}</tool>\n"
                 ## 临时兼容MCP 因为异步加载
                 elif isinstance(v[0], MCPToolPack):
                     for mcp in v:
                         if mcp and mcp.sub_resources:
                             for item in mcp.sub_resources:
-                                t_prompt, _ = await item.get_prompt(
-                                    lang=instance.agent_context.language
-                                )
+                                t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
                                 tool_prompts += f"- <tool>{t_prompt}</tool>\n"
             return tool_prompts
 
-        @self._vm.register("sandbox", "沙箱配置")
+        @self._vm.register('sandbox', '沙箱配置')
         async def var_sandbox(instance):
-            logger.info(
-                f"注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱. instance: {instance}, sandbox_manager: {instance.sandbox_manager if instance else None}"
-            )
+            logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
             if instance and instance.sandbox_manager:
                 if instance.sandbox_manager.initialized == False:
                     logger.warning(
-                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
-                    )
+                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})")
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
                 from derisk.agent.core.sandbox.prompt import sandbox_prompt
-                from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                    sandbox_tool_dict,
-                )
+                from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool_dict
                 from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
-
-                logger.info(f"sandbox_tool_dict keys: {list(sandbox_tool_dict.keys())}")
 
                 sandbox_tool_prompts = []
                 browser_tool_prompts = []
@@ -359,9 +365,12 @@ class ReActAgent(ManagerAgent):
                     "tools": "\n".join([item for item in sandbox_tool_prompts]),
                     "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
-                    "prompt": render(sandbox_prompt, param),
+                    "prompt": render(sandbox_prompt, param)
                 }
             else:
-                return {"enable": False, "prompt": ""}
+                return {
+                    "enable": False,
+                    "prompt": ""
+                }
 
         logger.info(f"register_variables end {self.role}")

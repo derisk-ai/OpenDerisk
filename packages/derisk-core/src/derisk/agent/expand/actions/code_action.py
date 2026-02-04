@@ -7,7 +7,6 @@ from typing import Optional, Union
 from derisk.util.code_utils import UNKNOWN, execute_code, extract_code, infer_lang, extract_code_v2
 from derisk.util.logger import colored
 from derisk.vis import SystemVisTag
-
 from ... import AgentContext
 
 from ...core.action.base import Action, ActionOutput

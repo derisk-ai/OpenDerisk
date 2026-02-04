@@ -61,6 +61,10 @@ async def _read_text_from_sandbox(client, abs_path: str) -> str:
             "new_str": {
                 "type": "string",
                 "description": "Replacement or appended content. Defaults to empty, which removes old_str when replacing.",
+            },
+            "append": {
+                "type": "boolean",
+                "description": "Whether to append to the file instead of replacing. Defaults to True.",
             }
         },
         "required": ["description", "path"],
@@ -72,7 +76,8 @@ async def execute_edit_file(
     description: str,
     path: str,
     old_str: Optional[str] = None,
-    new_str: str = ""
+    new_str: str = "",
+    append: bool = True,
 ) -> str:
     """
     编辑文本文件，支持替换唯一字符串或追加内容。
@@ -82,6 +87,7 @@ async def execute_edit_file(
         path: 文件绝对路径
         old_str: 要替换的原字符串。为空字符串或缺省时执行追加
         new_str: 替换或追加内容
+        append: 是否追加
     """
     error = _validate_required_str(description, "description")
     if error:
@@ -142,7 +148,6 @@ async def execute_edit_file(
         await client.file.write(
             path=sandbox_path,
             data=updated_content,
-            overwrite=True
         )
     except Exception as exc:  # noqa: BLE001
         return f"错误: 写入文件失败 ({sandbox_path}): {exc}"

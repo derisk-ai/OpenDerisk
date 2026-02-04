@@ -13,8 +13,11 @@ import time
 from typing import List, Dict, Any, Optional
 
 from .plan_models import (
-    Kanban, StageStatus, WorkEntry,
-    create_stage_from_spec, validate_deliverable_schema
+    Kanban,
+    StageStatus,
+    WorkEntry,
+    create_stage_from_spec,
+    validate_deliverable_schema,
 )
 from .file_system import FileSystem  # 导入 FileSystem
 
@@ -101,7 +104,7 @@ class AsyncKanbanManager:
         # 通过 FileSystem 并发保存 JSON 和 Markdown
         await asyncio.gather(
             self.fs.save_file(self.kanban_file, kanban_data, "json"),
-            self.fs.save_file(self.kanban_view_file, kanban_view, "md")
+            self.fs.save_file(self.kanban_view_file, kanban_view, "md"),
         )
 
         logger.info(f"💾 已保存 Kanban 到 AFS: {self.kanban_file}")
@@ -119,17 +122,17 @@ class AsyncKanbanManager:
             f"## Mission",
             self.kanban.mission,
             "",
-            "## Stages"
+            "## Stages",
         ]
 
         for i, stage in enumerate(self.kanban.stages):
             status_icon = {
                 StageStatus.COMPLETED.value: "✅",
                 StageStatus.WORKING.value: "🔄",
-                StageStatus.FAILED.value: "❌"
+                StageStatus.FAILED.value: "❌",
             }.get(stage.status, "⏳")
 
-            is_current = (i == self.kanban.current_stage_index)
+            is_current = i == self.kanban.current_stage_index
             current_marker = " **[CURRENT]**" if is_current else ""
 
             lines.append(f"### {status_icon} {stage.stage_id}{current_marker}")
@@ -173,27 +176,21 @@ class AsyncKanbanManager:
             if self.kanban is not None:
                 return {
                     "status": "error",
-                    "message": "Kanban already exists. Cannot create a new one."
+                    "message": "Kanban already exists. Cannot create a new one.",
                 }
 
             if not stages:
-                return {
-                    "status": "error",
-                    "message": "Stages list cannot be empty."
-                }
+                return {"status": "error", "message": "Stages list cannot be empty."}
 
             # 创建看板
             kanban_id = f"{self.agent_id}_{self.session_id}"
             self.kanban = Kanban(
-                kanban_id=kanban_id,
-                mission=mission,
-                stages=[],
-                current_stage_index=0
+                kanban_id=kanban_id, mission=mission, stages=[], current_stage_index=0
             )
 
             # 创建所有阶段
             for i, stage_spec in enumerate(stages):
-                stage_spec['is_first'] = (i == 0)  # 标记第一个阶段
+                stage_spec["is_first"] = i == 0  # 标记第一个阶段
                 stage = create_stage_from_spec(stage_spec)
 
                 # 第一个阶段自动进入working状态
@@ -214,15 +211,12 @@ class AsyncKanbanManager:
                     "stage_id": current_stage.stage_id,
                     "description": current_stage.description,
                     "deliverable_type": current_stage.deliverable_type,
-                    "expected_schema": current_stage.deliverable_schema
-                }
+                    "expected_schema": current_stage.deliverable_schema,
+                },
             }
 
     async def submit_deliverable(
-        self,
-        stage_id: str,
-        deliverable: Dict[str, Any],
-        reflection: str = ""
+        self, stage_id: str, deliverable: Dict[str, Any], reflection: str = ""
     ) -> Dict[str, Any]:
         """
         提交当前阶段的交付物
@@ -242,27 +236,26 @@ class AsyncKanbanManager:
             if not self.kanban:
                 return {
                     "status": "error",
-                    "message": "No kanban exists. Please create one first."
+                    "message": "No kanban exists. Please create one first.",
                 }
 
             # 查找阶段
             stage = self.kanban.get_stage_by_id(stage_id)
             if not stage:
-                return {
-                    "status": "error",
-                    "message": f"Stage '{stage_id}' not found."
-                }
+                return {"status": "error", "message": f"Stage '{stage_id}' not found."}
 
             # 检查是否是当前阶段
             current_stage = self.kanban.get_current_stage()
             if current_stage.stage_id != stage_id:
                 return {
                     "status": "error",
-                    "message": f"Cannot submit deliverable for '{stage_id}'. Current stage is '{current_stage.stage_id}'."
+                    "message": f"Cannot submit deliverable for '{stage_id}'. Current stage is '{current_stage.stage_id}'.",
                 }
 
             # 验证Schema
-            valid, error_msg = validate_deliverable_schema(deliverable, stage.deliverable_schema)
+            valid, error_msg = validate_deliverable_schema(
+                deliverable, stage.deliverable_schema
+            )
             if not valid:
                 # 标记为失败状态
                 stage.status = StageStatus.FAILED.value
@@ -273,14 +266,16 @@ class AsyncKanbanManager:
                 return {
                     "status": "error",
                     "message": f"Deliverable validation failed: {error_msg}",
-                    "hint": "Stage marked as FAILED. Please review and retry."
+                    "hint": "Stage marked as FAILED. Please review and retry.",
                 }
 
             # 通过 FileSystem 保存交付物
             try:
                 # 通过 FileSystem 保存交付物
                 deliverable_key = f"{self.deliverable_prefix}_{stage_id}"
-                deliverable_path = await self.fs.save_file(deliverable_key, deliverable, "json")
+                deliverable_path = await self.fs.save_file(
+                    deliverable_key, deliverable, "json"
+                )
             except Exception as e:
                 # 标记为失败状态
                 stage.status = StageStatus.FAILED.value
@@ -290,7 +285,7 @@ class AsyncKanbanManager:
 
                 return {
                     "status": "error",
-                    "message": f"Failed to save deliverable: {str(e)}"
+                    "message": f"Failed to save deliverable: {str(e)}",
                 }
 
             # 更新阶段状态
@@ -311,8 +306,8 @@ class AsyncKanbanManager:
                 "message": f"Stage '{stage_id}' completed. Deliverable saved to AFS: {deliverable_key}",
                 "validation": {
                     "schema_valid": True,
-                    "message": "Deliverable matches expected schema"
-                }
+                    "message": "Deliverable matches expected schema",
+                },
             }
 
             if has_next:
@@ -321,7 +316,7 @@ class AsyncKanbanManager:
                     {
                         "stage_id": s.stage_id,
                         "file_key": s.deliverable_file,  # 返回 key
-                        "type": s.deliverable_type
+                        "type": s.deliverable_type,
                     }
                     for s in self.kanban.get_completed_stages()
                 ]
@@ -330,7 +325,7 @@ class AsyncKanbanManager:
                     "stage_id": next_stage.stage_id,
                     "description": next_stage.description,
                     "deliverable_type": next_stage.deliverable_type,
-                    "available_deliverables": available_deliverables
+                    "available_deliverables": available_deliverables,
                 }
             else:
                 result["message"] += " All stages completed!"
@@ -354,23 +349,17 @@ class AsyncKanbanManager:
                 await self._load_unlocked()
 
             if not self.kanban:
-                return {
-                    "status": "error",
-                    "message": "No kanban exists."
-                }
+                return {"status": "error", "message": "No kanban exists."}
 
             # 查找阶段
             stage = self.kanban.get_stage_by_id(stage_id)
             if not stage:
-                return {
-                    "status": "error",
-                    "message": f"Stage '{stage_id}' not found."
-                }
+                return {"status": "error", "message": f"Stage '{stage_id}' not found."}
 
             if not stage.deliverable_file:
                 return {
                     "status": "error",
-                    "message": f"Stage '{stage_id}' has no deliverable yet."
+                    "message": f"Stage '{stage_id}' has no deliverable yet.",
                 }
 
         # 通过 FileSystem 读取交付物 (释放锁后进行 I/O)
@@ -380,7 +369,7 @@ class AsyncKanbanManager:
         if not content:
             return {
                 "status": "error",
-                "message": f"Failed to read deliverable for stage '{stage_id}'."
+                "message": f"Failed to read deliverable for stage '{stage_id}'.",
             }
 
         try:
@@ -389,12 +378,12 @@ class AsyncKanbanManager:
                 "status": "success",
                 "stage_id": stage_id,
                 "deliverable_type": stage.deliverable_type,
-                "deliverable": deliverable_data
+                "deliverable": deliverable_data,
             }
         except json.JSONDecodeError as e:
             return {
                 "status": "error",
-                "message": f"Failed to parse deliverable JSON: {e}"
+                "message": f"Failed to parse deliverable JSON: {e}",
             }
 
     async def get_current_stage_context(self) -> Dict[str, Any]:
@@ -410,10 +399,7 @@ class AsyncKanbanManager:
                 await self._load_unlocked()
 
             if not self.kanban:
-                return {
-                    "status": "error",
-                    "message": "No kanban exists."
-                }
+                return {"status": "error", "message": "No kanban exists."}
 
             current_stage = self.kanban.get_current_stage()
             completed_stages = self.kanban.get_completed_stages()
@@ -427,7 +413,7 @@ class AsyncKanbanManager:
                 "description": current_stage.description,
                 "deliverable_type": current_stage.deliverable_type,
                 "deliverable_schema": current_stage.deliverable_schema,
-                "depends_on": current_stage.depends_on
+                "depends_on": current_stage.depends_on,
             },
             "completed_stages": [
                 {
@@ -435,15 +421,15 @@ class AsyncKanbanManager:
                     "description": s.description,
                     "deliverable_type": s.deliverable_type,
                     "deliverable_key": s.deliverable_file,
-                    "reflection": s.reflection
+                    "reflection": s.reflection,
                 }
                 for s in completed_stages
             ],
             "progress": {
                 "current_index": self.kanban.current_stage_index,
                 "total_stages": len(self.kanban.stages),
-                "completion_rate": f"{(self.kanban.current_stage_index / len(self.kanban.stages) * 100):.1f}%"
-            }
+                "completion_rate": f"{(self.kanban.current_stage_index / len(self.kanban.stages) * 100):.1f}%",
+            },
         }
 
         return context
@@ -460,10 +446,7 @@ class AsyncKanbanManager:
                 await self._load_unlocked()
 
             if not self.kanban:
-                return {
-                    "status": "error",
-                    "message": "No kanban exists."
-                }
+                return {"status": "error", "message": "No kanban exists."}
 
             stages_info = []
             for i, stage in enumerate(self.kanban.stages):
@@ -473,7 +456,7 @@ class AsyncKanbanManager:
                     "status": stage.status,
                     "deliverable_type": stage.deliverable_type,
                     "is_current": (i == self.kanban.current_stage_index),
-                    "has_deliverable": bool(stage.deliverable_file)
+                    "has_deliverable": bool(stage.deliverable_file),
                 }
                 stages_info.append(stage_info)
 
@@ -483,10 +466,16 @@ class AsyncKanbanManager:
                 "mission": self.kanban.mission,
                 "current_stage_index": self.kanban.current_stage_index,
                 "total_stages": len(self.kanban.stages),
-                "stages": stages_info
+                "stages": stages_info,
             }
 
-    async def record_work(self, tool: str, args: Optional[Any] = None, summary: Optional[str] = None, result: Optional[str] = "") -> Dict[str, Any]:
+    async def record_work(
+        self,
+        tool: str,
+        args: Optional[Any] = None,
+        summary: Optional[str] = None,
+        result: Optional[str] = "",
+    ) -> Dict[str, Any]:
         """
         简化的工作日志记录方法（自动记录到当前阶段）
 
@@ -499,15 +488,12 @@ class AsyncKanbanManager:
             操作结果
         """
         return await self.add_work_log(
-            entry={
-                "action": tool,
-                "args": args,
-                "summary": summary,
-                "result": result
-            }
+            entry={"action": tool, "args": args, "summary": summary, "result": result}
         )
 
-    async def add_work_log(self, entry: Dict[str, Any], stage_id: Optional[str] = None) -> Dict[str, Any]:
+    async def add_work_log(
+        self, entry: Dict[str, Any], stage_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         添加工作日志到指定阶段（默认为当前阶段）
 
@@ -523,25 +509,19 @@ class AsyncKanbanManager:
                 await self._load_unlocked()
 
             if not self.kanban:
-                return {
-                    "status": "error",
-                    "message": "No kanban exists."
-                }
+                return {"status": "error", "message": "No kanban exists."}
 
             # 如果未指定 stage_id，使用当前阶段
             if stage_id is None:
                 stage = self.kanban.get_current_stage()
                 if not stage:
-                    return {
-                        "status": "error",
-                        "message": "No current stage available."
-                    }
+                    return {"status": "error", "message": "No current stage available."}
             else:
                 stage = self.kanban.get_stage_by_id(stage_id)
                 if not stage:
                     return {
                         "status": "error",
-                        "message": f"Stage '{stage_id}' not found."
+                        "message": f"Stage '{stage_id}' not found.",
                     }
 
             # 创建工作日志条目
@@ -550,7 +530,7 @@ class AsyncKanbanManager:
                 tool=entry.get("action", ""),
                 summary=entry.get("summary", ""),
                 archives=entry.get("archives"),
-                result=entry.get("result", "")
+                result=entry.get("result", ""),
             )
 
             stage.work_log.append(work_entry)
@@ -558,7 +538,7 @@ class AsyncKanbanManager:
 
             return {
                 "status": "success",
-                "message": f"Work log added to stage '{stage.stage_id}'."
+                "message": f"Work log added to stage '{stage.stage_id}'.",
             }
 
     async def get_archived_deliverable(self, archive_key: str) -> Optional[str]:
@@ -593,7 +573,9 @@ class AsyncKanbanManager:
             await self.load()
 
         if not self.kanban:
-            return "No kanban initialized. Please create one using `create_kanban` tool."
+            return (
+                "No kanban initialized. Please create one using `create_kanban` tool."
+            )
 
         return self.kanban.generate_overview()
 
@@ -682,13 +664,59 @@ class AsyncKanbanManager:
 
         return deliverables
 
+    async def get_todolist_data(self) -> Optional[Dict[str, Any]]:
+        """
+        获取TodoList数据（用于前端todollist可视化）
+
+        Returns:
+            TodoList数据字典，如果没有kanban则返回None
+        """
+        if not self._loaded:
+            await self.load()
+
+        # 状态映射：StageStatus -> Todo status
+        # StageStatus只有: WORKING="working", COMPLETED="completed", FAILED="failed"
+        status_map = {
+            StageStatus.WORKING.value: "working",
+            StageStatus.COMPLETED.value: "completed",
+            StageStatus.FAILED.value: "failed",
+        }
+
+        # 获取当前阶段的索引（working状态）
+        todo_items = []
+        current_index = 0
+        if self.kanban:
+            for i, stage in enumerate(self.kanban.stages):
+                if stage.status == StageStatus.WORKING.value:
+                    current_index = i
+                    break
+
+            # 构建todo items - 简化版，只包含checkbox和标题
+            for i, stage in enumerate(self.kanban.stages):
+                todo_status = status_map.get(stage.status, "pending")
+                todo_items.append(
+                    {
+                        "id": stage.stage_id,
+                        "title": stage.description,
+                        "status": todo_status,
+                        "index": i,
+                    }
+                )
+
+        return {
+            "uid": f"{self.agent_id}_todolist",
+            "type": "all",
+            "mission": self.kanban.mission if self.kanban else "",
+            "items": todo_items,
+            "current_index": current_index,
+        }
+
 
 # ==================== 工具函数 ====================
 
+
 async def create_kanban_manager(
-    agent_id: str,
-    session_id: str,
-    file_system: FileSystem
+    agent_id: str, session_id: str, file_system: FileSystem
 ) -> AsyncKanbanManager:
     """
     创建并初始化 KanbanManager

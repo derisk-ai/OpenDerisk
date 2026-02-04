@@ -10,6 +10,7 @@ from derisk._private.pydantic import (
 from derisk.agent.util.llm.llm_client import AgentLLMOut
 
 from ..base import TeamContext
+from ..planning_action import Plan, PlanningOutput
 from ...base_agent import (
     Agent,
     AgentMessage,
