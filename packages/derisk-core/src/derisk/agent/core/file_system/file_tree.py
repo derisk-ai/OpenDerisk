@@ -161,7 +161,7 @@ class TreeManager(Generic[T]):
             return False, False
 
     def _update_existing_node(self, node: TreeNodeData[T], timestamp: datetime) -> bool:
-        """更新现有节点"""
+        """更新现有节点 - 使用合并策略保留原有字段"""
         existing = self.node_map[node.node_id]
 
         # 验证内容
@@ -170,19 +170,24 @@ class TreeManager(Generic[T]):
             not self.content_validator(node.content)):
             return False
 
-        # 更新字段
-        updates = {
-            'name': node.name or existing.name,
-            'description': node.description or existing.description,
-            'state': node.state or existing.state,
-            'updated_at': timestamp
-        }
+        # 更新字段（显式传递的更新，未传递的保留原值）
+        if node.name is not None:
+            existing.name = node.name
+        if node.description is not None:
+            existing.description = node.description
+        if node.state is not None:
+            existing.state = node.state
+        existing.updated_at = timestamp
 
+        # 合并 content 而不是替换 - 保留原有字段，更新传递的字段
         if node.content is not None:
-            if hasattr(existing.__dict__, 'update'):
-                existing.__dict__.update(node.content)
+            if existing.content is None:
+                existing.content = node.content
             else:
-                updates['content'] = node.content
+                # 合并策略：新值覆盖旧值，但未传递的字段保留
+                for key, value in node.content.__dict__.items():
+                    if value is not None:  # 只更新显式传递的非 None 值
+                        setattr(existing.content, key, value)
         return True
 
     def _add_new_node(self, node: TreeNodeData[T], parent_id: Optional[str], timestamp: datetime) -> bool:

@@ -165,23 +165,6 @@ class PDCAAgent(ReActAgent):
                     await self.push_context_event(EventType.StepStart, StepPayload(
                         message_id=reply_message.message_id), await self.task_id_by_received_message(received_message))
 
-                    current_stage: Optional[Stage] = pm.kanban.get_current_stage() if pm.kanban else None
-                    if current_stage:
-                        reply_message.goal_id = current_stage.stage_id
-                        logger.info(f"创建当前stage任务节点: {current_stage.stage_id}")
-                        await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
-                                                                  task=TreeNodeData(
-                                                                      node_id=current_stage.stage_id,
-                                                                      parent_id=received_message.message_id,
-                                                                      content=AgentTaskContent(
-                                                                          agent_name=self.name,
-                                                                          task_type=AgentTaskType.STAGE.value,
-                                                                          message_id=reply_message.message_id),
-                                                                      state=Status.TODO.value,
-                                                                      name=current_stage.description,
-                                                                      description=""
-                                                                  ))
-
                     reply_message, agent_llm_out = await self._generate_think_message(
                         received_message=received_message,
                         sender=sender,
@@ -195,6 +178,25 @@ class PDCAAgent(ReActAgent):
                         **kwargs
                     )
 
+
+                    current_stage: Optional[Stage] = pm.kanban.get_current_stage() if pm.kanban else None
+
+                    if current_stage:
+                        reply_message.goal_id = current_stage.stage_id
+                        reply_message.current_goal = current_stage.description
+                        logger.info(f"创建当前stage任务节点: {current_stage.stage_id}")
+                        await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
+                                                                  task=TreeNodeData(
+                                                                      node_id=current_stage.stage_id,
+                                                                      parent_id=received_message.message_id,
+                                                                      content=AgentTaskContent(
+                                                                          agent_name=self.name,
+                                                                          task_type=AgentTaskType.STAGE.value,
+                                                                          message_id=reply_message.message_id),
+                                                                      state=Status.TODO.value,
+                                                                      name=current_stage.description,
+                                                                      description=""
+                                                                  ))
                     # 4. 执行 (Do)
                     act_extent_param = self.prepare_act_param(
                         received_message=received_message,
@@ -261,10 +263,6 @@ class PDCAAgent(ReActAgent):
                     # Continue to run the next round
                     self.current_retry_counter += 1
 
-                    task_name = reply_message.current_goal
-                    if self.agent_parser:
-                        task_name = self.agent_parser.parse_streaming_xml(agent_llm_out.content, CONST_LLMOUT_TITLE)
-                    reply_message.current_goal = task_name
 
                     # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
                     await self.send(reply_message, recipient=self, request_reply=False)
