@@ -7,6 +7,7 @@ import {
   type MarkdownComponent,
   markdownPlugins,
 } from '../../config';
+import { visComponentsRender } from '../config';
 import {
   CheckCircleOutlined,
   DownOutlined,
@@ -272,7 +273,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
         >
           {/* @ts-expect-error GPTVis + markdownPlugins spread */}
           <GPTVis
-            components={{ ...codeComponents, ...(otherComponents ?? {}) }}
+            components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents ?? {}) }}
             {...markdownPlugins}
           >
             {String(data.markdown)}

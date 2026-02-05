@@ -501,6 +501,7 @@ const extraComponents: MarkdownComponent = {
 export const markdownComponents = {
   ...basicComponents,
   ...extraComponents,
+  ...visComponentsRender,
 };
 
 export const markdownPlugins = {

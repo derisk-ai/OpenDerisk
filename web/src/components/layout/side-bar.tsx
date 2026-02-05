@@ -16,7 +16,8 @@ import Icon, {
   ShareAltOutlined,
   AppstoreOutlined,
   SearchOutlined,
-  RobotOutlined
+  RobotOutlined,
+  ExperimentOutlined
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { App, Flex, Input, Popover, Spin, Tooltip, Typography } from 'antd';
@@ -432,8 +433,15 @@ function SideBar() {
           icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
           path: '/agent-skills',
         },
+        {
+          key: 'vis_merge_test',
+          name: 'VIS合并测试',
+          isActive: pathname.startsWith('/vis-merge-test'),
+          icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+          path: '/vis-merge-test'
+        },
       ],
-      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp') || pathname.startsWith('/agent-skills'),
+      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp') || pathname.startsWith('/agent-skills') || pathname.startsWith('/vis-merge-test'),
       },
     ];
     return items;

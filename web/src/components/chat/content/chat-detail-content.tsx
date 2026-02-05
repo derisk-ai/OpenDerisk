@@ -51,8 +51,20 @@ export function useDetailPanel(chatList: any[]) {
           ? JSON.parse(item.context) 
           : item.context;
         
-        // 获取running_window内容（支持多种可能的字段名）
-        const visualContent = context.running_window || "";
+        // 尝试从多个可能的位置获取running_window
+        let visualContent = "";
+        
+        // 情况2a: 直接包含 running_window
+        if (context.running_window) {
+          visualContent = context.running_window;
+        }
+        // 情况2b: 包含 vis 字段，vis 中包含 running_window
+        else if (context.vis) {
+          const visData = typeof context.vis === 'string' 
+            ? JSON.parse(context.vis) 
+            : context.vis;
+          visualContent = visData.running_window || "";
+        }
 
         if (visualContent && typeof visualContent === 'string') {
           markdownContent = markdownContent 
