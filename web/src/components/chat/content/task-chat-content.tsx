@@ -12,7 +12,7 @@ import React, {
 } from "react";
 import ChatInputPanel from "@/components/chat/input/chat-input-panel";
 import { v4 as uuid } from "uuid";
-import { useDetailPanel } from "./chat-detail-content";
+import { useDetailPanel, RunningWindowData } from "./chat-detail-content";
 import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
 
@@ -29,7 +29,7 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
     isDebug
   } = useContext(ChatContentContext);
 
-  const { runningWindowMarkdown } = useDetailPanel(history);
+  const { runningWindowData } = useDetailPanel(history);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [jsonValue, setJsonValue] = useState<string>("");
 
@@ -81,7 +81,7 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
         </div>
         {/* running */}
         {isShowDetail && <div className="flex flex-col w-3/5 pl-2 border-dashed border-l border-[#F1F5F9] h-full" id="running-window">
-           <ChatDetailContent content={runningWindowMarkdown} />
+           <ChatDetailContent data={runningWindowData} />
         </div>}
       </div>
     </div>

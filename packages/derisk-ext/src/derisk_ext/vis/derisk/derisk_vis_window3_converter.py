@@ -263,7 +263,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             #     return None
         else:
             return None
-        report_content = None
         if title or thought:
             step_thought = ""
             if title:
@@ -351,99 +350,146 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         new_task_nodes: List[TreeNodeData[AgentTaskContent]],
         messages: List[GptsMessage],
         senders_map: Optional[Dict[str, "ConversableAgent"]],
+        task_manager: Optional[TreeManager] = None,
     ) -> List[str]:
-        """Build nested task nodes, embedding child nodes into parent's markdown.
+        """Build nested task nodes, grouping by parent and merging children.
         
-        Returns list of root node vis texts.
+        关键逻辑：
+        1. 按父节点 ID 分组新节点
+        2. 同一父节点的所有子节点合并到该父节点的 vis 中
+        3. 根节点（无父节点）每个独立返回
+
+        Returns list of vis texts (one per parent or root node).
         """
         messages_map = {item.message_id: item for item in messages}
         
-        # Sort by layer count (parents first)
-        sorted_nodes = sorted(new_task_nodes, key=lambda x: x.layer_count)
+        # Step 1: 按父节点分组
+        parent_groups: Dict[str, List[TreeNodeData]] = {}  # parent_id -> list of children
+        root_nodes: List[TreeNodeData] = []  # nodes without parent
+
+        for task_node in new_task_nodes:
+            parent_id = task_node.parent_id
+            if parent_id and task_manager:
+                # 检查父节点是否真实存在
+                parent_task = task_manager.get_node(parent_id)
+                if parent_task and parent_task.node_id != task_node.node_id:
+                    if parent_id not in parent_groups:
+                        parent_groups[parent_id] = []
+                    parent_groups[parent_id].append(task_node)
+                else:
+                    # 父节点不存在或是自己，作为根节点
+                    root_nodes.append(task_node)
+            else:
+                # 没有父节点，作为根节点
+                root_nodes.append(task_node)
         
-        # Build node ID to node mapping
-        node_map = {node.node_id: node for node in sorted_nodes}
+        result_vis_list: List[str] = []
         
-        # Store vis text and AgentPlanItem for each node
-        node_vis_map: Dict[str, Dict] = {}
-        
-        for task_node in sorted_nodes:
-            gpt_msg = messages_map.get(task_node.content.message_id)
+        # Step 2: 处理每个父节点组（合并所有子节点到父节点）
+        for parent_id, children in parent_groups.items():
+            parent_task = task_manager.get_node(parent_id)
+
+            # 构建父节点的基础数据
+            parent_agent = senders_map.get(parent_task.content.agent_name)
+            parent_item = AgentPlanItem(
+                uid=parent_task.node_id,
+                type=UpdateType.INCR.value,
+                item_type=parent_task.content.task_type,
+                status=parent_task.state,
+                start_time=parent_task.created_at,
+                cost=parent_task.content.cost,
+                markdown="",  # 将挂载所有子节点内容
+            )
             
-            # Generate leaf vis for current node
+            # 生成所有子节点的 vis 并挂载到父节点
+            children_vis_list: List[str] = []
+            for child_node in children:
+                gpt_msg = messages_map.get(child_node.content.message_id)
+
+                # 生成子节点的 leaf_vis
+                if gpt_msg:
+                    leaf_item_vis = await self._gen_plan_items(
+                        gpt_msg=gpt_msg,
+                        layer_count=child_node.layer_count + 1,
+                        senders_map=senders_map
+                    )
+                else:
+                    leaf_item_vis = ""
+
+                # 创建子节点的 AgentPlanItem
+                child_agent = senders_map.get(child_node.content.agent_name)
+
+                child_item = AgentPlanItem(
+                    uid=child_node.node_id,
+                    type=UpdateType.INCR.value,
+                    title=child_node.name,
+                    description=child_node.description,
+                    item_type=child_node.content.task_type or AgentTaskType.PLAN.value,
+                    agent_role=child_agent.role if child_agent else None,
+                    agent_name=child_agent.name if child_agent else None,
+                    agent_avatar=child_agent.avatar if child_agent else None,
+                    status=child_node.state,
+                    start_time=child_node.created_at,
+                    layer_count=child_node.layer_count,
+                    cost=child_node.content.cost,
+                    markdown=leaf_item_vis,
+                )
+
+                # 生成子节点的 vis
+                child_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                    content=child_item.to_dict()
+                )
+                children_vis_list.append(child_vis)
+            
+            # 将所有子节点 vis 合并到父节点的 markdown
+            if children_vis_list:
+                parent_item.markdown = "\n".join(children_vis_list)
+
+            # 生成父节点的 vis
+            parent_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                content=parent_item.to_dict()
+            )
+            result_vis_list.append(parent_vis)
+
+        # Step 3: 处理根节点（每个独立）
+        for root_node in root_nodes:
+            gpt_msg = messages_map.get(root_node.content.message_id)
+
+            # 生成根节点的 leaf_vis
             if gpt_msg:
                 leaf_item_vis = await self._gen_plan_items(
                     gpt_msg=gpt_msg,
-                    layer_count=task_node.layer_count + 1,
+                    layer_count=root_node.layer_count + 1,
                     senders_map=senders_map
                 )
             else:
                 leaf_item_vis = ""
-            
-            # Create AgentPlanItem for current node
-            agent = senders_map.get(task_node.content.agent_name)
-            current_item = AgentPlanItem(
-                uid=task_node.node_id,
+
+            # 创建根节点的 AgentPlanItem
+            root_agent = senders_map.get(root_node.content.agent_name)
+            root_item = AgentPlanItem(
+                uid=root_node.node_id,
                 type=UpdateType.INCR.value,
-                title=task_node.name,
-                description=task_node.description,
-                item_type=task_node.content.task_type or AgentTaskType.PLAN.value,
-                agent_role=agent.role if agent else None,
-                agent_name=agent.name if agent else None,
-                agent_avatar=agent.avatar if agent else None,
-                status=task_node.state,
-                start_time=task_node.created_at,
-                layer_count=task_node.layer_count,
-                cost=task_node.content.cost,
+                title=root_node.name,
+                description=root_node.description,
+                item_type=root_node.content.task_type or AgentTaskType.PLAN.value,
+                agent_role=root_agent.role if root_agent else None,
+                agent_name=root_agent.name if root_agent else None,
+                agent_avatar=root_agent.avatar if root_agent else None,
+                status=root_node.state,
+                start_time=root_node.created_at,
+                layer_count=root_node.layer_count,
+                cost=root_node.content.cost,
                 markdown=leaf_item_vis,
             )
-            
-            # Generate vis text for current node
-            current_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                content=current_item.to_dict()
-            )
-            
-            # Check if has parent in current batch
-            parent_id = task_node.parent_id
-            if parent_id and parent_id in node_vis_map:
-                # Has parent, embed current node into parent's markdown
-                parent_info = node_vis_map[parent_id]
-                parent_item = parent_info['item']
-                
-                # Append current node's vis to parent's markdown
-                if parent_item.markdown:
-                    parent_item.markdown = parent_item.markdown + "\n" + current_vis
-                else:
-                    parent_item.markdown = current_vis
-                
-                # Regenerate parent's vis text
-                parent_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                    content=parent_item.to_dict()
-                )
-                node_vis_map[parent_id]['vis'] = parent_vis
-                
-                # Mark as child node
-                node_vis_map[task_node.node_id] = {
-                    'item': current_item,
-                    'vis': current_vis,
-                    'is_child': True
-                }
-            else:
-                # Root node
-                node_vis_map[task_node.node_id] = {
-                    'item': current_item,
-                    'vis': current_vis,
-                    'is_child': False
-                }
-        
-        # Collect all root node vis texts
-        root_vis_list = []
-        for node_id, info in node_vis_map.items():
-            if not info.get('is_child', False):
-                root_vis_list.append(info['vis'])
-        
-        return root_vis_list
 
+            # 生成根节点的 vis
+            root_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                content=root_item.to_dict()
+            )
+            result_vis_list.append(root_vis)
+
+        return result_vis_list
 
     async def _footer_vis_build(self, gpt_msg: GptsMessage):
         plans_vis = []
@@ -514,7 +560,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if new_task_nodes:
             # Use new nested building logic: child nodes are embedded in parent's markdown
             nested_vis_list = await self._build_nested_task_nodes(
-                new_task_nodes, messages, senders_map
+                new_task_nodes, messages, senders_map, task_manager
             )
             task_items_vis.extend(nested_vis_list)
 
@@ -748,8 +794,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     ):
         main_agent = senders_map[main_agent_name]
         conv_session_id = main_agent.agent_context.conv_session_id
-        if gpt_msg and not gpt_msg.action_report and not is_first_push:
-            return None
+        # 不要因为有 gpt_msg 但没有 action_report 就返回 None
+        # LLM 流式输出可能没有 action_report，但仍然需要显示内容
+        # if gpt_msg and not gpt_msg.action_report and not is_first_push:
+        #     return None
 
         work_items = await self.gen_work_item(
             gpt_msg=gpt_msg,
