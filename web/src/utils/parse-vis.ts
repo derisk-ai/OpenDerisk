@@ -99,7 +99,15 @@ export const combineVisItem = (
     items: incrItemList = [],
     dynamic: incrDynamic,
   } = incrItem;
-  if (baseUid !== incrUid) return baseItem;
+  
+  // Debug log
+  console.log(`[combineVisItem] baseUid=${baseUid}, incrUid=${incrUid}, baseType=${baseType}, incrType=${incrType}`);
+  console.log(`[combineVisItem] baseMarkdown length=${baseMarkdown.length}, incrMarkdown length=${incrMarkdown.length}`);
+  
+  if (baseUid !== incrUid) {
+    console.log(`[combineVisItem] UIDs don't match, returning baseItem`);
+    return baseItem;
+  }
 
   // dynamic 字段由前一个chunk的值决定
   // dynamic=true时，模型正在输出内容，不一定是合法markdown，做字符串拼接
@@ -113,40 +121,41 @@ export const combineVisItem = (
   else if (baseType === 'incr' || incrMarkdown) newMarkdown = combinedMarkdown;
   else newMarkdown = baseMarkdown;
 
-  // 处理列表vis - 确保数组存在
+  // 处理列表vis - 区分incr/all模式
   const safeBaseItemList = baseItemList || [];
   const safeIncrItemList = incrItemList || [];
   
-  if (safeIncrItemList.length !== 0) {
-    // 存储新增uid的item
-    const newListItems = safeIncrItemList.filter(
-      (i) => !find(safeBaseItemList, { uid: i.uid }),
-    );
-    const incrListMap = keyBy(safeIncrItemList, 'uid');
-    const combinedListItems: VisItem[] = safeBaseItemList.map((baseI) => {
-      if (incrListMap[baseI.uid])
-        return combineVisItem(baseI, incrListMap[baseI.uid], defaultIncrMap);
-      else return baseI;
-    });
-    return {
-      ...baseItem,
-      ...incrItem, //其他业务字段可能在增量中同样有更新
-      markdown: newMarkdown || undefined,
-      uid: baseUid,
-      dynamic: incrDynamic,
-      type: incrType,
-      items: [...combinedListItems, ...newListItems],
-    };
+  let newItems;
+  if (incrType === 'all') {
+    // all模式：items全量替换
+    newItems = safeIncrItemList;
+  } else {
+    // incr模式：items追加合并
+    if (safeIncrItemList.length !== 0) {
+      // 存储新增uid的item
+      const newListItems = safeIncrItemList.filter(
+        (i) => !find(safeBaseItemList, { uid: i.uid }),
+      );
+      const incrListMap = keyBy(safeIncrItemList, 'uid');
+      const combinedListItems: VisItem[] = safeBaseItemList.map((baseI) => {
+        if (incrListMap[baseI.uid])
+          return combineVisItem(baseI, incrListMap[baseI.uid], defaultIncrMap);
+        else return baseI;
+      });
+      newItems = [...combinedListItems, ...newListItems];
+    } else {
+      newItems = safeBaseItemList;
+    }
   }
 
   return {
     ...baseItem,
     ...incrItem, //其他业务字段可能在增量中同样有更新
-    markdown: newMarkdown,
+    markdown: newMarkdown || undefined,
     uid: baseUid,
     dynamic: incrDynamic,
     type: incrType,
-    items: safeBaseItemList,
+    items: newItems,
   };
 };
 
@@ -232,9 +241,12 @@ const combineNodeWithChildren = (
   node2: Root,
   defaultIncrMap?: Map<string, VisItem>,
 ) => {
+  console.log(`[combineNodeWithChildren] node1 children=${(node1 as any).children?.length}, node2 children=${(node2 as any).children?.length}`);
+  
   if (node1.hasOwnProperty('children') && node2.hasOwnProperty('children')) {
     const node1String = JSON.stringify(node1);
-    node2.children.forEach((node:any) => {
+    // @ts-ignore
+    node2.children.forEach((node: any) => {
       if (node.hasOwnProperty('lang')) {
         //@ts-ignore
         if (node.value) {
@@ -242,37 +254,67 @@ const combineNodeWithChildren = (
             //@ts-ignore
             const json = JSON.parse(node.value) as VisItem;
             const uid = json.uid;
+            console.log(`[combineNodeWithChildren] Processing node uid=${uid}, tag=${node.lang}`);
 
             if (!node1String.includes(uid)) {
               // 该节点为新增节点
+              console.log(`[combineNodeWithChildren] New node, pushing to node1.children`);
               node1.children.push(node);
             } else {
               // 该节点为存在节点，需要合并增量数据
+              console.log(`[combineNodeWithChildren] Existing node, merging...`);
               // @ts-ignore
-              const existNode = node1.children.find((child) =>
-                // @ts-ignore
-                child.value?.includes(uid),
-              );
+              const existNode = node1.children.find((child: any) => {
+                try {
+                  if (child.value) {
+                    const childJson = JSON.parse(child.value);
+                    return childJson.uid === uid;
+                  }
+                  return false;
+                } catch {
+                  return child.value?.includes(uid);
+                }
+              });
               if (existNode) {
                 // @ts-ignore
                 const existJson = JSON.parse(existNode.value) as VisItem;
                 const incrJson = json;
+                
+                // 递归处理嵌套在 markdown 中的组件
+                if (existJson.markdown && incrJson.markdown) {
+                  console.log(`[combineNodeWithChildren] Recursively merging nested markdown for uid=${uid}`);
+                  const mergedMarkdown = combineMarkdownString(
+                    existJson.markdown,
+                    incrJson.markdown,
+                    defaultIncrMap
+                  );
+                  existJson.markdown = mergedMarkdown;
+                } else if (incrJson.markdown) {
+                  // 增量有 markdown，基础没有，直接使用增量的
+                  existJson.markdown = incrJson.markdown;
+                }
+                
                 // 使用增量映射或直接合并节点数据
                 const incrNode = defaultIncrMap?.get(uid) || incrJson;
                 const mergedValue = combineVisItem(existJson, incrNode, defaultIncrMap);
                 // @ts-ignore
                 existNode.value = JSON.stringify(mergedValue);
+                console.log(`[combineNodeWithChildren] Node merged successfully`);
+              } else {
+                console.log(`[combineNodeWithChildren] Warning: Could not find existing node for uid=${uid}`);
               }
             }
           } catch (e) {
-            // console.error('Parse AST node json error', node, e);
+            console.error(`[combineNodeWithChildren] Error parsing node:`, e);
           }
         }
       }
     });
   }
 
-  return parseAST2Vis(node1);
+  const result = parseAST2Vis(node1);
+  console.log(`[combineNodeWithChildren] Returning result, length=${result.length}`);
+  return result;
 };
 
 const isPartialTag = (markdownString: string) => {
@@ -287,12 +329,16 @@ export const combineMarkdownString = (
   incrMarkdownString: string | null | undefined,
   defaultIncrMap?: Map<string, VisItem>,
 ) => {
+  console.log(`[combineMarkdownString] base length=${baseMarkdownString?.length}, incr length=${incrMarkdownString?.length}`);
+  
   // 处理空chunk
   if (!baseMarkdownString || !incrMarkdownString) {
+    console.log(`[combineMarkdownString] Empty chunk, returning single value`);
     return baseMarkdownString || incrMarkdownString || undefined;
   }
   // 处理非闭合标签
   if (isPartialTag(baseMarkdownString) || isPartialTag(incrMarkdownString)) {
+    console.log(`[combineMarkdownString] Partial tag, concatenating`);
     return baseMarkdownString + incrMarkdownString;
   }
 
@@ -301,19 +347,28 @@ export const combineMarkdownString = (
     !baseMarkdownString.includes('```') &&
     !incrMarkdownString.includes('```')
   ) {
+    console.log(`[combineMarkdownString] Plain text, concatenating`);
     return baseMarkdownString + incrMarkdownString;
   }
+  
   // children合并
+  console.log(`[combineMarkdownString] Parsing AST...`);
   const baseAST = parseVis2AST(baseMarkdownString);
   const incrAST = parseVis2AST(incrMarkdownString);
+  console.log(`[combineMarkdownString] baseAST has children=${baseAST.hasOwnProperty('children')}, incrAST has children=${incrAST.hasOwnProperty('children')}`);
+  
   if (
     baseAST.hasOwnProperty('children') &&
     incrAST.hasOwnProperty('children')
   ) {
-    return combineNodeWithChildren(baseAST, incrAST, defaultIncrMap);
+    console.log(`[combineMarkdownString] Using combineNodeWithChildren`);
+    const result = combineNodeWithChildren(baseAST, incrAST, defaultIncrMap);
+    console.log(`[combineMarkdownString] Result length=${result.length}`);
+    return result;
   }
   const finalAST = combineAST(baseAST, incrAST, defaultIncrMap);
   const finalMarkdownString = parseAST2Vis(finalAST);
+  console.log(`[combineMarkdownString] Using combineAST, result length=${finalMarkdownString.length}`);
   return finalMarkdownString;
 };
 
@@ -322,6 +377,12 @@ export class VisBaseParser {
   private incrNodesMap: Map<string, VisItem>;
   private string2TreeProcessor: Processor<any, any>;
   private tree2StringProcessor: Processor<any, any>;
+  
+  // 全局 UID 索引：uid -> { node, parent, depth }
+  private uidIndex: Map<string, { node: any; parent: any; depth: number; path: string[] }>;
+  
+  // AST 根节点引用
+  private astRoot: Root | null;
 
   public currentVis: string;
 
@@ -330,10 +391,81 @@ export class VisBaseParser {
     this.string2TreeProcessor = this.createString2TreeProcessor() as unknown as Processor<any, any>;
     this.tree2StringProcessor = this.createTree2StringProcessor() as unknown as Processor<any, any>;
     this.currentVis = '';
+    this.uidIndex = new Map();
+    this.astRoot = null;
   }
 
   destroy() {
     this.incrNodesMap?.clear();
+    this.uidIndex?.clear();
+    this.astRoot = null;
+  }
+  
+  // 构建全局 UID 索引
+  private buildUIDIndex(node: any, parent: any = null, depth: number = 0, path: string[] = []) {
+    if (!node) return;
+    
+    if (node.hasOwnProperty('lang') && node.value) {
+      try {
+        const json = JSON.parse(node.value) as VisItem;
+        if (json.uid) {
+          this.uidIndex.set(json.uid, {
+            node,
+            parent,
+            depth,
+            path: [...path, json.uid]
+          });
+          
+          // 递归索引嵌套在 markdown 中的节点
+          if (json.markdown) {
+            const nestedAST = this.parseVis2AST(json.markdown);
+            if (nestedAST.hasOwnProperty('children')) {
+              // @ts-ignore
+              nestedAST.children.forEach((child: any) => {
+                this.buildUIDIndex(child, node, depth + 1, [...path, json.uid]);
+              });
+            }
+          }
+          
+          // 递归索引 items 数组中的节点
+          if (json.items && Array.isArray(json.items)) {
+            json.items.forEach((item: VisItem) => {
+              if (item.uid) {
+                this.uidIndex.set(item.uid, {
+                  node: item,
+                  parent: json,
+                  depth: depth + 1,
+                  path: [...path, json.uid, item.uid]
+                });
+              }
+            });
+          }
+        }
+      } catch (e) {
+        // 非 JSON 节点，忽略
+      }
+    }
+    
+    // 递归处理子节点
+    if (node.hasOwnProperty('children')) {
+      // @ts-ignore
+      node.children.forEach((child: any) => {
+        this.buildUIDIndex(child, node, depth, path);
+      });
+    }
+  }
+  
+  // 根据 UID 查找节点（O(1) 复杂度）
+  private findNodeByUID(uid: string): { node: any; parent: any; depth: number; path: string[] } | undefined {
+    return this.uidIndex.get(uid);
+  }
+  
+  // 更新索引（在每次合并后调用）
+  private updateIndex() {
+    this.uidIndex.clear();
+    if (this.astRoot) {
+      this.buildUIDIndex(this.astRoot);
+    }
   }
 
   createFile(options: { children: string }) {
@@ -366,12 +498,12 @@ export class VisBaseParser {
     ...options?.remarkRehypeOptions,
   };
 
-  const processor = unified()
-    // markdown文本转ast解析器
-    .use(remarkParse)
-    // 自定义扩展插件
-    .use(remarkPlugins) // ✅ 传插件数组
-    .use(remarkRehype, remarkRehypeOptions); // ✅ 传配置对象给 remark-rehype
+    const processor = unified()
+      // markdown文本转ast解析器
+      .use(remarkParse)
+      // 自定义扩展插件
+      .use(remarkPlugins) // ✅ 传插件数组
+      .use(remarkRehype, remarkRehypeOptions); // ✅ 传配置对象给 remark-rehype
     return processor;
   }
 
@@ -420,8 +552,13 @@ export class VisBaseParser {
     else if (baseType === 'incr' || incrMarkdown) newMarkdown = combinedMarkdown;
     else newMarkdown = baseMarkdown;
 
-    // 处理列表vis
-    if (incrItemList.length !== 0) {
+    // 处理列表vis - 区分incr/all模式
+    let newItems;
+    if (incrType === 'all') {
+      // all模式：items全量替换
+      newItems = incrItemList;
+    } else {
+      // incr模式：items追加合并
       // 存储新增uid的item
       const newListItems = incrItemList.filter(
         (i) => !find(baseItemList, { uid: i.uid }),
@@ -432,25 +569,17 @@ export class VisBaseParser {
           return this.combineVisItem(baseI, incrListMap[baseI.uid]);
         else return baseI;
       });
-      return {
-        ...baseItem,
-        ...incrItem, //其他业务字段可能在增量中同样有更新
-        markdown: newMarkdown || undefined,
-        uid: baseUid,
-        dynamic: incrDynamic,
-        type: incrType,
-        items: [...combinedListItems, ...newListItems],
-      };
+      newItems = [...combinedListItems, ...newListItems];
     }
 
     return {
       ...baseItem,
       ...incrItem, //其他业务字段可能在增量中同样有更新
-      markdown: newMarkdown,
+      markdown: newMarkdown || undefined,
       uid: baseUid,
       dynamic: incrDynamic,
       type: incrType,
-      items: baseItemList,
+      items: newItems,
     };
 
   };
@@ -530,62 +659,112 @@ export class VisBaseParser {
     return matches ? matches.length < 6 : true;
   };
 
-  // 该函数用于处理AST的结构新增
+  // 智能合并节点 - 支持任意位置
   combineNodeWithChildren(
     baseNode: Root,
     incrNode: Root,
   ) {
-    if (baseNode.hasOwnProperty('children') && incrNode.hasOwnProperty('children')) {
-      const baseMarkdown = JSON.stringify(baseNode);
+    console.log(`[VisBaseParser.combineNodeWithChildren] Starting merge, base children=${(baseNode as any).children?.length}, incr children=${(incrNode as any).children?.length}`);
+    
+    // 使用全局索引查找和合并节点
+    if (incrNode.hasOwnProperty('children')) {
       // @ts-ignore
-      incrNode.children.forEach((node: { hasOwnProperty: (arg0: string) => any; value: string; }) => {
-        if (node.hasOwnProperty('lang')) {
-          //@ts-ignore
-          if (node.value) {
-            try {
-              //@ts-ignore
-              const json = JSON.parse(node.value) as VisItem;
-              const uid = json.uid;
-
-              if (!baseMarkdown.includes(uid)) {
-                // 该节点为新增节点
-                // @ts-ignore
-                baseNode.children.push(node);
-              } else {
-                // 该节点为存在节点，需要合并增量数据
-                // @ts-ignore
-                const existNode = baseNode.children.find((child) =>
-                  // @ts-ignore
-                  child.value?.includes(uid),
+      incrNode.children.forEach((incrChild: any) => {
+        if (incrChild.hasOwnProperty('lang') && incrChild.value) {
+          try {
+            const incrJson = JSON.parse(incrChild.value) as VisItem;
+            const uid = incrJson.uid;
+            
+            console.log(`[VisBaseParser.combineNodeWithChildren] Processing uid=${uid}`);
+            
+            // 使用全局索引查找已存在的节点（O(1) 复杂度）
+            const existInfo = this.findNodeByUID(uid);
+            
+            if (existInfo) {
+              // 节点已存在，合并数据
+              console.log(`[VisBaseParser.combineNodeWithChildren] Found existing node at depth=${existInfo.depth}, path=${existInfo.path.join(' -> ')}`);
+              const existNode = existInfo.node;
+              const existJson = JSON.parse(existNode.value) as VisItem;
+              
+              // 递归处理嵌套在 markdown 中的组件
+              if (existJson.markdown && incrJson.markdown) {
+                const mergedMarkdown = this.combineMarkdownString(
+                  existJson.markdown,
+                  incrJson.markdown
                 );
-                if (existNode) {
-                  // @ts-ignore
-                  const existJson = JSON.parse(existNode.value) as VisItem;
-                  const incrJson = json;
-                  // 合并已存在节点和增量节点的数据
-                  const mergedValue = this.combineVisItem(existJson, incrJson);
-                  // @ts-ignore
-                  existNode.value = JSON.stringify(mergedValue);
-                }
+                existJson.markdown = mergedMarkdown;
+              } else if (incrJson.markdown) {
+                existJson.markdown = incrJson.markdown;
               }
-            } catch (e) {
-              // console.error('Parse AST node json error', node, e);
+              
+              // 合并数据
+              const mergedValue = this.combineVisItem(existJson, incrJson);
+              existNode.value = JSON.stringify(mergedValue);
+              console.log(`[VisBaseParser.combineNodeWithChildren] Merged successfully`);
+            } else {
+              // 节点不存在，智能挂载
+              console.log(`[VisBaseParser.combineNodeWithChildren] New node, smart mounting...`);
+              this.smartMountNode(baseNode, incrChild, incrJson);
             }
+          } catch (e) {
+            console.error(`[VisBaseParser.combineNodeWithChildren] Error processing node:`, e);
           }
         }
       });
     }
+    
+    // 更新索引
+    this.updateIndex();
+    
     const newVisString = this.parseAST2Vis(baseNode);
-
+    console.log(`[VisBaseParser.combineNodeWithChildren] Merge complete, result length=${newVisString.length}`);
     return newVisString;
-  };
+  }
+  
+  // 智能挂载节点
+  private smartMountNode(baseNode: Root, newNode: any, newJson: VisItem) {
+    // 策略1：如果有 parent_uid，尝试挂载到父节点下
+    const parentUid = (newJson as any).parent_uid;
+    if (parentUid) {
+      const parentInfo = this.findNodeByUID(parentUid);
+      if (parentInfo) {
+        console.log(`[smartMountNode] Mounting to parent uid=${parentUid}`);
+        // 挂载到父节点的 markdown 中
+        if (!parentInfo.node.value) {
+          parentInfo.node.value = JSON.stringify({ ...newJson, uid: parentUid });
+        }
+        
+        const parentJson = JSON.parse(parentInfo.node.value) as VisItem;
+        if (!parentJson.markdown) {
+          parentJson.markdown = '';
+        }
+        
+        // 将新节点添加到父节点的 markdown
+        parentJson.markdown += '\n' + this.parseAST2Vis({
+          type: 'root',
+          children: [newNode]
+        } as Root);
+        
+        parentInfo.node.value = JSON.stringify(parentJson);
+        return;
+      }
+    }
+    
+    // 策略2：作为新根节点的子节点
+    console.log(`[smartMountNode] Adding as new root child`);
+    if (baseNode.hasOwnProperty('children')) {
+      // @ts-ignore
+      baseNode.children.push(newNode);
+    }
+  }
 
-  // 合并增量的markdown字符串
-  // eslint-disable-next-line @typescript-eslint/no-use-before-define
+  // 合并增量的markdown字符串 - 使用全局索引
   combineMarkdownString(
     baseMarkdownString: string | null | undefined,
     incrMarkdownString: string | null | undefined,
   ) {
+    console.log(`[VisBaseParser.combineMarkdownString] base length=${baseMarkdownString?.length}, incr length=${incrMarkdownString?.length}`);
+    
     // 处理空chunk
     if (!baseMarkdownString || !incrMarkdownString) {
       return baseMarkdownString || incrMarkdownString || undefined;
@@ -603,32 +782,62 @@ export class VisBaseParser {
       return baseMarkdownString + incrMarkdownString;
     }
 
-    // children合并
+    // 使用全局索引合并
     const baseAST = this.parseVis2AST(baseMarkdownString);
     const incrAST = this.parseVis2AST(incrMarkdownString);
+    
     if (
       baseAST.hasOwnProperty('children') &&
       incrAST.hasOwnProperty('children')
     ) {
-      return this.combineNodeWithChildren(baseAST, incrAST);
+      // 临时设置根节点并构建索引
+      const prevRoot = this.astRoot;
+      this.astRoot = baseAST;
+      this.updateIndex();
+      
+      const result = this.combineNodeWithChildren(baseAST, incrAST);
+      
+      // 恢复状态
+      this.astRoot = prevRoot;
+      if (prevRoot) {
+        this.updateIndex();
+      }
+      
+      return result;
     }
+    
     const finalAST = this.updateAST(baseAST);
     const finalMarkdownString = this.parseAST2Vis(finalAST);
     return finalMarkdownString;
-  };
+  }
 
   updateCurrentMarkdown(incrMarkdownString: string) {
     // 处理初始化
     if (!this.currentVis) {
       this.currentVis = incrMarkdownString;
+      // 构建初始索引
+      this.astRoot = this.parseVis2AST(incrMarkdownString);
+      this.updateIndex();
       return this.currentVis;
     }
 
+    console.log(`[updateCurrentMarkdown] Updating...`);
     const incrAST = this.parseVis2AST(incrMarkdownString);
     this.getIncrContent(incrAST);
 
-    const finalMarkdownString = this.combineMarkdownString(this.currentVis, incrMarkdownString);
+    // 使用全局索引合并
+    const baseAST = this.parseVis2AST(this.currentVis);
+    this.astRoot = baseAST; // 设置根节点引用
+    this.updateIndex(); // 预构建索引
+    
+    const finalMarkdownString = this.combineNodeWithChildren(baseAST, incrAST);
     this.currentVis = finalMarkdownString || '';
+    
+    // 更新根节点和索引
+    this.astRoot = this.parseVis2AST(this.currentVis);
+    this.updateIndex();
+    
+    console.log(`[updateCurrentMarkdown] Update complete, index size=${this.uidIndex.size}`);
     return this.currentVis;
   }
 }

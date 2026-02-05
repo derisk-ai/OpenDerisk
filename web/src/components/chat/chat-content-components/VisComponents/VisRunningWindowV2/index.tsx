@@ -22,6 +22,7 @@ import {
   HeaderContainer,
 } from './style';
 import { codeComponents, type MarkdownComponent, markdownPlugins } from '../../config';
+import { visComponentsRender } from '../config';
 import { useElementHeight } from '../hooks/useElementHeight';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { ee, EVENTS } from '../../../../../utils/event-emitter';
@@ -182,7 +183,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
         >
           {/* @ts-ignore */}
           <GPTVis
-            components={{ ...codeComponents, ...(otherComponents || {}) }}
+            components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents || {}) }}
             {...markdownPlugins}
           >
             {data.explorer || '-'}
@@ -218,7 +219,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
             {/* @ts-ignore */}
             <GPTVis
               className="whitespace-normal"
-              components={{ ...codeComponents, ...(otherComponents || {}) }}
+              components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents || {}) }}
               {...markdownPlugins}
             >
               {runningContent[displayUid]?.markdown ||

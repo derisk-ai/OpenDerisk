@@ -470,7 +470,7 @@ class ConversableAgent(Role, Agent):
                             parent_id=message.goal_id,
                             content=AgentTaskContent(
                                 agent_name=sender.name,
-                                task_type=AgentTaskType.PLAN.value,
+                                task_type=AgentTaskType.STAGE.value,
                                 message_id=message.message_id,
                             ),
                             state=Status.COMPLETE.value,

@@ -1,4 +1,3 @@
-
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -17,17 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 class AgentPlanItem(DrskVisBase):
-    item_type: Optional[str] = Field(None, description="规划数据类型(plan、 agent、stage、task)")
+    item_type: Optional[str] = Field(
+        None, description="规划数据类型(plan、 agent、stage、task)"
+    )
+    parent_uid: Optional[str] = Field(
+        None, description="父节点UID，用于前端构建树形结构"
+    )
     title: Optional[str] = Field(None, description="当前工作项标题")
-    agent_name:  Optional[str] = Field(None, description="当前工作项所属Agent")
-    agent_avatar:  Optional[str] = Field(None, description="当前工作项所属Agent logo")
+    agent_name: Optional[str] = Field(None, description="当前工作项所属Agent")
+    agent_avatar: Optional[str] = Field(None, description="当前工作项所属Agent logo")
     description: Optional[str] = Field(None, description="当前工作项内容描述")
-    task_type: Optional[str] = Field(None, description="当前工作项任务类型，report、tool、agent、knoledge")
+    task_type: Optional[str] = Field(
+        None, description="当前工作项任务类型，report、tool、agent、knoledge"
+    )
     status: Optional[str] = Field(Status.TODO.value, description="当前工作项状态")
     start_time: Optional[datetime] = Field(None, description="当前工作项开始时间")
     cost: Optional[float] = Field(None, description="当前工作项耗时")
     markdown: Optional[str] = Field(None, description="计划内容")
     layer_count: int = Field(0, description="当前工作项的嵌套深度")
+
 
 class AgentPlan(Vis):
     """AgentPlan."""

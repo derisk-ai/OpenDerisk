@@ -481,7 +481,7 @@ class AgentChat(BaseComponent, ABC):
                 )
             )
             ## TEST FILE WRITE
-            WRITE_TO_FILE = False
+            WRITE_TO_FILE = True
             if WRITE_TO_FILE:
                 import os
 
