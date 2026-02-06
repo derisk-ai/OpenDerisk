@@ -63,13 +63,8 @@ class BrowserConfig:
         """Convert to Playwright browser launch options."""
         options = {
             "headless": self.headless,
-            "ignore_https_errors": self.ignore_https_errors,
             "slow_mo": self.slow_mo,
         }
-
-        # Compute actual viewport
-        if self.viewport:
-            options["viewport"] = self.viewport
 
         return options
 
@@ -81,6 +76,7 @@ class BrowserConfig:
             "java_script_enabled": self.javascript_enabled,
             "ignore_https_errors": self.ignore_https_errors,
             "user_agent": self.user_agent,
+            "viewport": self.viewport,
         }
 
         if self.download_dir:

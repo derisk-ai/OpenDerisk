@@ -7,7 +7,6 @@ import {
   type MarkdownComponent,
   markdownPlugins,
 } from '../../config';
-import { visComponentsRender } from '../config';
 import {
   CheckCircleOutlined,
   DownOutlined,
@@ -18,7 +17,7 @@ import {
   UpOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Tooltip } from 'antd';
-import { ee as workWindowEmitter } from '@/utils/event-emitter';
+import { ee, EVENTS } from '@/utils/event-emitter';
 
 const StatusMap: Record<string, string> = {
   todo: '待执行',
@@ -121,12 +120,14 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
 
   useEffect(() => {
     const handler = (payload: { uid?: string }) => {
-      if (payload?.uid === (data?.uid as string)) setIsSelected(true);
+      const matched = payload?.uid === (data?.uid as string);
+      console.log('[VisAgentPlanCard] clickFolder received', { payloadUid: payload?.uid, myUid: data?.uid, matched });
+      if (matched) setIsSelected(true);
       else setIsSelected(false);
     };
-    workWindowEmitter.on('clickFolder', handler);
+    ee.on(EVENTS.CLICK_FOLDER, handler);
     return () => {
-      workWindowEmitter.off('clickFolder', handler);
+      ee.off(EVENTS.CLICK_FOLDER, handler);
     };
   }, [data?.uid]);
 
@@ -144,13 +145,16 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     <VisAgentPlanCardWrap
       onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
-        const callback = () =>
-          setTimeout(() => {
-            workWindowEmitter.emit('clickFolder', {
-              uid: data.uid as string,
-            });
-          }, 500);
-        workWindowEmitter.emit('openPanel', { callback });
+        ee.emit(EVENTS.CLICK_FOLDER, {
+          uid: data.uid as string,
+        });
+        // const callback = () =>
+        //   setTimeout(() => {
+        //     ee.emit(EVENTS.CLICK_FOLDER, {
+        //       uid: data.uid as string,
+        //     });
+        //   }, 500);
+        // ee.emit(EVENTS.OPEN_PANEL, { callback });
       }}
       className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && isPlan ? 'selected' : ''}`}
     >
@@ -273,7 +277,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
         >
           {/* @ts-expect-error GPTVis + markdownPlugins spread */}
           <GPTVis
-            components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents ?? {}) }}
+            components={{ ...codeComponents, ...(otherComponents ?? {}) }}
             {...markdownPlugins}
           >
             {String(data.markdown)}

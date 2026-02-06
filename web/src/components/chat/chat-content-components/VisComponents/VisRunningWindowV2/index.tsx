@@ -22,7 +22,6 @@ import {
   HeaderContainer,
 } from './style';
 import { codeComponents, type MarkdownComponent, markdownPlugins } from '../../config';
-import { visComponentsRender } from '../config';
 import { useElementHeight } from '../hooks/useElementHeight';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { ee, EVENTS } from '../../../../../utils/event-emitter';
@@ -78,11 +77,11 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   const chatListContainerRef = useRef<HTMLDivElement>(null);
   const runningContent = keyBy(data.items, 'uid');
 
-  const containerHeight = useElementHeight(
-    `#nex-chat-detail-panel${data.uid}`,
-    `#nex-chat-detail-panel`,
-  );
-  const containerWidth = useElementWidth('.chatContent', 'body');
+  // const containerHeight = useElementHeight(
+  //   `#nex-chat-detail-panel${data.uid}`,
+  //   `#nex-chat-detail-panel`,
+  // );
+  // const containerWidth = useElementWidth('.chatContent', 'body');
 
   useEffect(() => {
     const onClickFolder = (payload: { uid: string }) => {
@@ -115,10 +114,10 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   return (
     <AgentContainer
       style={{
-        height: `${containerHeight || 400}px`,
+        // height: `${containerHeight || 400}px`,
         display: 'flex',
         flexDirection: 'column',
-        width: `${isFullScreen ? containerWidth : 0.6 * containerWidth}px`,
+        // width: `${isFullScreen ? containerWidth : 0.6 * containerWidth}px`,
       }}
     >
       <HeaderContainer>
@@ -183,7 +182,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
         >
           {/* @ts-ignore */}
           <GPTVis
-            components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents || {}) }}
+            components={{ ...codeComponents, ...(otherComponents || {}) }}
             {...markdownPlugins}
           >
             {data.explorer || '-'}
@@ -219,7 +218,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
             {/* @ts-ignore */}
             <GPTVis
               className="whitespace-normal"
-              components={{ ...codeComponents, ...visComponentsRender, ...(otherComponents || {}) }}
+              components={{ ...codeComponents, ...(otherComponents || {}) }}
               {...markdownPlugins}
             >
               {runningContent[displayUid]?.markdown ||
