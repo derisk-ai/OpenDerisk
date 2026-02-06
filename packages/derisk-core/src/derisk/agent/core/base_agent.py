@@ -729,6 +729,26 @@ class ConversableAgent(Role, Agent):
                         current_goal=current_goal,
                         observation=observation,
                     )
+
+                    # ### 生成的消息先立即推送进行占位
+                    # ## 开始当前的任务空间
+                    # await self.memory.gpts_memory.upsert_task(
+                    #     conv_id=self.agent_context.conv_id,
+                    #     task=TreeNodeData(
+                    #         node_id=reply_message.message_id,
+                    #         parent_id=reply_message.goal_id,
+                    #         content=AgentTaskContent(
+                    #             agent_name=self.name,
+                    #             task_type=AgentTaskType.TASK.value,
+                    #             message_id=reply_message.message_id,
+                    #         ),
+                    #         state=Status.TODO.value,
+                    #         name=f"收到任务'{received_message.content}',开始思考...",
+                    #         description="",
+                    #     ),
+                    # )
+
+
                     await self.push_context_event(
                         EventType.StepStart,
                         StepPayload(message_id=reply_message.message_id),

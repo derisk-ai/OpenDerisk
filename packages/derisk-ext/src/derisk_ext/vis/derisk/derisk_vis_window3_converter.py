@@ -542,11 +542,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
         task_items_vis = []
         if stream_msg:
-            goal_id = stream_msg.get("goal_id")
+            message_id = stream_msg.get("message_id")
 
             current_task = None
-            if goal_id:
-                current_task = task_manager.get_node(goal_id)
+            if message_id:
+                current_task = task_manager.get_node(message_id)
             if current_task:
                 leaf_item_vis = await self._gen_plan_items(stream_msg=stream_msg,
                                                            layer_count=current_task.layer_count + 1,
