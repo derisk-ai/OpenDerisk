@@ -3,6 +3,7 @@
 const nextConfig = {
   transpilePackages: ['@antv/gpt-vis'],
   images: {
+    unoptimized: true,
     dangerouslyAllowSVG: true,
     remotePatterns: [
       {
@@ -25,7 +26,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  output: 'standalone',
+  output: 'export',
 };
 
 export default nextConfig;

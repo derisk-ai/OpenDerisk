@@ -54,11 +54,11 @@ class AgentAction(Action[AgentActionInput]):
         super().__init__(**kwargs)
         self.action_view_tag = SystemVisTag.VisPlans.value
 
-    async def _action_init_push(self, gpts_memory: GptsMemory, agent: "ConversableAgent", message_id: str,
-                                agent_context: AgentContext, start_time):
+    async def _action_init_push(self, gpts_memory: GptsMemory, agent: "ConversableAgent",  message: AgentMessage,
+                                agent_context: AgentContext, start_time, content:Optional[str] = None):
         init_action_outs = [ActionOutput(
             name=self.name,
-            content='执行中..',
+            content=content or f"{agent.name}Agent启动中",
             start_time=start_time,
             action_id=self.action_uid,
             thoughts=self.action_input.thought,
@@ -69,11 +69,12 @@ class AgentAction(Action[AgentActionInput]):
 
         ## 展示工具任务基础信息
         await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
-            "uid": message_id,
+            "uid": message.message_id,
             "type": "all",
             "sender": agent.name or agent.role,
+            "goal_id": message.goal_id,
             "sender_role": agent.role,
-            "message_id": message_id,
+            "message_id": message.message_id,
             "conv_id": agent_context.conv_id,
             "conv_session_uid": agent_context.conv_session_id,
             "app_code": agent_context.gpts_app_code,
@@ -116,10 +117,12 @@ class AgentAction(Action[AgentActionInput]):
             agent_context: AgentContext = kwargs.get('agent_context')
             message_id: str = kwargs.get('message_id')
             self._render = kwargs.get("render_protocol") or self._render
+            current_message: AgentMessage = kwargs.get('current_message')
 
             # 初始化AgentAction的展示
-            await self._action_init_push(gpts_memory=memory.gpts_memory, agent=agent, message_id=message_id,
-                                         agent_context=agent_context, start_time=start_time)
+            await self._action_init_push(gpts_memory=memory.gpts_memory, agent=agent, message=current_message,
+                                         agent_context=agent_context, start_time=start_time, content=action_input.content)
+
             #  构建转发给Agent的新消息
             message = AgentMessage.init_new(
                 content=(

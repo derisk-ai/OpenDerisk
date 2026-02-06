@@ -179,6 +179,7 @@ class PDCAAgent(ReActAgent):
 
             is_success = True
             all_tool_messages: List[Dict] = []
+            tool_failure_counts: Dict[str, int] = {}  # 记录工具连续失败次数
             step = 0
             while step < self.max_retry_count:
                 with root_tracer.start_span(
@@ -294,6 +295,39 @@ class PDCAAgent(ReActAgent):
                             reply_message.action_report = action_report
 
                     for act_out in act_outs:
+                        # 检查工具是否失败（执行失败或内容为空且非特殊工具）
+                        is_failed = not act_out.is_exe_success
+                        if (
+                            not is_failed
+                            and not act_out.content
+                            and act_out.action
+                            not in ["terminate", "blank", "create_kanban"]
+                        ):
+                            is_failed = True
+
+                        if is_failed:
+                            count = tool_failure_counts.get(act_out.action, 0) + 1
+                            tool_failure_counts[act_out.action] = count
+
+                            if count >= 3:
+                                logger.warning(
+                                    f"Tool {act_out.action} failed {count} times. Injecting stop warning."
+                                )
+                                warning_msg = (
+                                    f"\n\n[SYSTEM WARNING] The tool '{act_out.action}' has failed or returned empty results {count} times consecutively. "
+                                    f"It seems unavailable or broken for your current input. "
+                                    f"DO NOT retry the same action. "
+                                    f"Please: 1. Switch to a different tool/strategy, OR 2. Terminate the task and report the issue."
+                                )
+                                # 确保内容不为空，以便 LLM 看到
+                                if not act_out.content:
+                                    act_out.content = warning_msg
+                                else:
+                                    act_out.content += warning_msg
+                        else:
+                            # 成功则重置该工具的计数
+                            tool_failure_counts[act_out.action] = 0
+
                         if not act_out.is_exe_success:
                             logger.error(f"{act_out.action} execute failed!")
                         if act_out.action in ["create_kanban"]:

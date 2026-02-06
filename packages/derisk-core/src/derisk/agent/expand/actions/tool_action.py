@@ -15,7 +15,7 @@ from derisk.eval.tool_run_model import RunModel, ToolRunModel
 from derisk.vis.schema import VisStepContent
 from derisk.vis.vis_converter import SystemVisTag
 from .terminate_action import Terminate
-from ... import ConversableAgent, AgentMemory, AgentContext
+from ... import ConversableAgent, AgentMemory, AgentContext, AgentMessage
 from ...core import sandbox_tool_dict
 from ...core.action.base import Action, ActionOutput, AskUserType, ToolCall
 from ...core.schema import Status, ActionInferenceMetrics
@@ -153,6 +153,7 @@ class ToolAction(Action[ToolInput]):
         agent: ConversableAgent = kwargs.get('agent')
         agent_context: AgentContext = kwargs.get('agent_context')
         message_id: str = kwargs.get('message_id')
+        current_message: AgentMessage = kwargs.get('current_message')
         require_approval = kwargs.get("require_approval", False)
         action_id = kwargs.get("action_id", None)
         self._render = kwargs.get("render_protocol") or self._render
@@ -193,7 +194,7 @@ class ToolAction(Action[ToolInput]):
         tool_args.update(self.init_params)
         ## 推送工具执行初始化消息
         await self.push_action_init_msg(gpts_memory=memory.gpts_memory, agent=agent, agent_context=agent_context,
-                                        message_id=message_id, tool_pack=tool_pack, tool_info=tool_info,
+                                        message=current_message, tool_pack=tool_pack, tool_info=tool_info,
                                         tool_args=param.args,
                                         start_time=start_time)
         ## 检查工具审批
@@ -291,7 +292,7 @@ class ToolAction(Action[ToolInput]):
             eval_view=tool_result.get("eval_view", {}),
         )
 
-    async def push_action_init_msg(self, gpts_memory, agent, agent_context, message_id,
+    async def push_action_init_msg(self, gpts_memory, agent, agent_context, message: AgentMessage,
                                    tool_info: BaseTool,
                                    tool_pack: Optional[ToolPack] = None,
                                    tool_args: Optional[Any] = None,
@@ -299,19 +300,20 @@ class ToolAction(Action[ToolInput]):
                                    metrics: Optional[ActionInferenceMetrics] = None,
                                    ):
 
-        view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
+        view = await self.gen_view(message_id=message.message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
                                    tool_info=tool_info,
                                    status=Status.RUNNING.value, args=tool_args, start_time=start_time)
         init_action_report = await self.init_out(view=view, args=tool_args)
 
         ## 展示工具任务基础信息
         await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
-            "uid": message_id,
+            "uid": message.message_id,
             "type": "all",
             "sender": agent.name or agent.role,
             "sender_role": agent.role,
-            "message_id": message_id,
+            "message_id": message.message_id,
             "avatar": agent.avatar,
+            "goal_id": message.goal_id,
             "conv_id": agent_context.conv_id,
             "conv_session_uid": agent_context.conv_session_id,
             "app_code": agent_context.gpts_app_code,

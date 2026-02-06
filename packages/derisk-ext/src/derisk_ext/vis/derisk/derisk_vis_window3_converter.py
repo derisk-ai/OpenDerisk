@@ -564,24 +564,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             )
             task_items_vis.extend(nested_vis_list)
 
-        # if task_items_vis or todolist_vis:
-        #     # 构建返回数据：PlanningSpace 容器 + 独立的 AgentPlan 节点
-        #     # todolist 放在 PlanningSpace 的 todolist 字段中，显示在 agent 信息之后、任务列表之前
-        #     planning_window_content = PlanningSpaceContent(
-        #         uid=f"{conv_id}_planning",
-        #         type=UpdateType.INCR.value,
-        #         agent_role=main_agent.role,
-        #         agent_name=main_agent_name,
-        #         title=None,
-        #         description=None,
-        #         avatar=main_agent.avatar,
-        #         todolist=todolist_vis,  # todolist 单独放置，不嵌套在 stage 中
-        #         markdown=None,  # 子节点不在 markdown 中嵌套，而是作为独立节点
-        #     )
-        #     planning_space_vis = self.vis_inst(PlanningSpace.vis_tag()).sync_display(
-        #         content=planning_window_content.to_dict()
-        #     )
-            # 返回 PlanningSpace 容器 + 所有独立的 AgentPlan 节点
+        if task_items_vis:
             return "\n".join(task_items_vis)
         else:
             return None
