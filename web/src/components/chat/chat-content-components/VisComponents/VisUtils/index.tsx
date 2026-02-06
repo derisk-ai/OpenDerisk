@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CodePreview } from '../../code-preview';
 import { codeComponents, markdownPlugins } from '../../config';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -18,18 +18,50 @@ interface IProps {
     tool_author?: string;
     run_env?: string;
     tool_args?: unknown;
-    tool_result?: string;
+    tool_result?: string | object;
     markdown?: string;
   };
 }
 
 const VisUtils = ({ data }: IProps) => {
   const { tool_args, tool_result, markdown } = data || {};
-  const [formatType, setFormatType] = useState<'markdown' | 'json'>('markdown');
+  
+  const isJsonResult = useMemo(() => {
+    if (!tool_result) return false;
+    if (typeof tool_result === 'object') return true;
+    try {
+      const o = JSON.parse(tool_result);
+      if (o && typeof o === 'object') return true;
+    } catch (e) {
+      // ignore
+    }
+    return false;
+  }, [tool_result]);
+
+  const [formatType, setFormatType] = useState<'markdown' | 'json'>(
+    isJsonResult ? 'json' : 'markdown',
+  );
+
+  useEffect(() => {
+    setFormatType(isJsonResult ? 'json' : 'markdown');
+  }, [isJsonResult]);
+
   const formatedJSON = useMemo(() => {
     if (formatType !== 'json') return '';
+    if (!tool_result) return '';
+    
+    if (typeof tool_result === 'object') {
+      return JSON.stringify(tool_result, null, 2);
+    }
+    
     const obj = safeJsonParse(tool_result || '', tool_result);
-    return obj !== tool_result ? JSON.stringify(obj, null, 2) : tool_result;
+    // 如果解析结果与原字符串不相等（说明解析成功且内容不同，或者是对象），则格式化
+    // 注意：safeJsonParse 失败返回 default (tool_result)
+    // 如果 tool_result 是 "{}"，解析出 {}，不全等。
+    if (typeof obj === 'object' && obj !== null) {
+        return JSON.stringify(obj, null, 2);
+    }
+    return String(tool_result);
   }, [tool_result, formatType]);
 
   return (
@@ -109,7 +141,7 @@ const VisUtils = ({ data }: IProps) => {
                     <div className="vis-utils-markdown">
                       <Text
                         className="code-copy-btn"
-                        copyable={{ text: tool_result }}
+                        copyable={{ text: typeof tool_result === 'string' ? tool_result : JSON.stringify(tool_result) }}
                       />
                       {/* @ts-ignore */}
                       <GPTVis
@@ -117,7 +149,7 @@ const VisUtils = ({ data }: IProps) => {
                         components={codeComponents}
                         {...markdownPlugins}
                       >
-                        {markdown || (tool_result?.replaceAll?.('~', '&#126;') ?? '')}
+                        {markdown || (typeof tool_result === 'string' ? tool_result?.replaceAll?.('~', '&#126;') : JSON.stringify(tool_result)) ?? ''}
                       </GPTVis>
                     </div>
                   )}

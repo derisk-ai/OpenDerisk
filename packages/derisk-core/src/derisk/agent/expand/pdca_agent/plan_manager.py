@@ -56,6 +56,7 @@ class AsyncKanbanManager:
 
         # 内存状态
         self.kanban: Optional[Kanban] = None
+        self.pre_kanban_logs: List[WorkEntry] = []  # 记录 Kanban 创建前的预研日志
         self._lock = asyncio.Lock()
         self._loaded = False
 
@@ -119,7 +120,7 @@ class AsyncKanbanManager:
             f"Session: {self.session_id}",
             f"Last Update: {time.strftime('%Y-%m-%d %H:%M:%S')}",
             "",
-            f"## Mission",
+            "## Mission",
             self.kanban.mission,
             "",
             "## Stages",
@@ -203,10 +204,16 @@ class AsyncKanbanManager:
             # 保存
             await self.save()
 
+            # [Clean] 清除 pre_kanban_logs，释放上下文空间
+            self.pre_kanban_logs = []
+
             current_stage = self.kanban.get_current_stage()
             return {
                 "status": "success",
-                "message": f"Kanban created with {len(stages)} stages. Now working on: {current_stage.stage_id}",
+                "message": (
+                    f"Kanban created with {len(stages)} stages. "
+                    f"Now working on: {current_stage.stage_id}"
+                ),
                 "current_stage": {
                     "stage_id": current_stage.stage_id,
                     "description": current_stage.description,
@@ -249,7 +256,10 @@ class AsyncKanbanManager:
             if current_stage.stage_id != stage_id:
                 return {
                     "status": "error",
-                    "message": f"Cannot submit deliverable for '{stage_id}'. Current stage is '{current_stage.stage_id}'.",
+                    "message": (
+                        f"Cannot submit deliverable for '{stage_id}'. "
+                        f"Current stage is '{current_stage.stage_id}'."
+                    ),
                 }
 
             # 验证Schema
@@ -273,9 +283,7 @@ class AsyncKanbanManager:
             try:
                 # 通过 FileSystem 保存交付物
                 deliverable_key = f"{self.deliverable_prefix}_{stage_id}"
-                deliverable_path = await self.fs.save_file(
-                    deliverable_key, deliverable, "json"
-                )
+                _ = await self.fs.save_file(deliverable_key, deliverable, "json")
             except Exception as e:
                 # 标记为失败状态
                 stage.status = StageStatus.FAILED.value
@@ -303,7 +311,10 @@ class AsyncKanbanManager:
             # 构造返回结果
             result = {
                 "status": "success",
-                "message": f"Stage '{stage_id}' completed. Deliverable saved to AFS: {deliverable_key}",
+                "message": (
+                    f"Stage '{stage_id}' completed. "
+                    f"Deliverable saved to AFS: {deliverable_key}"
+                ),
                 "validation": {
                     "schema_valid": True,
                     "message": "Deliverable matches expected schema",
@@ -428,7 +439,9 @@ class AsyncKanbanManager:
             "progress": {
                 "current_index": self.kanban.current_stage_index,
                 "total_stages": len(self.kanban.stages),
-                "completion_rate": f"{(self.kanban.current_stage_index / len(self.kanban.stages) * 100):.1f}%",
+                "completion_rate": "{:.1f}%".format(
+                    self.kanban.current_stage_index / len(self.kanban.stages) * 100
+                ),
             },
         }
 
@@ -509,7 +522,23 @@ class AsyncKanbanManager:
                 await self._load_unlocked()
 
             if not self.kanban:
-                return {"status": "error", "message": "No kanban exists."}
+                # [FIX] 如果看板未初始化，记录到 pre_kanban_logs，
+                # 允许 Agent 在创建看板前执行预研动作
+                logger.info("Recording work log to pre-kanban history.")
+                work_entry = WorkEntry(
+                    timestamp=time.time(),
+                    tool=entry.get("action", ""),
+                    summary=entry.get("summary", ""),
+                    archives=entry.get("archives"),
+                    result=entry.get("result", ""),
+                )
+                self.pre_kanban_logs.append(work_entry)
+
+                return {
+                    "status": "success",
+                    "message": "Work log added to pre-kanban history. "
+                    "Please create kanban when ready.",
+                }
 
             # 如果未指定 stage_id，使用当前阶段
             if stage_id is None:
@@ -591,7 +620,30 @@ class AsyncKanbanManager:
             await self.load()
 
         if not self.kanban:
-            return "No kanban initialized."
+            if self.pre_kanban_logs:
+                lines = ["### Pre-Kanban Actions (Information Gathering)"]
+                lines.append(
+                    "You are currently in the pre-planning phase. "
+                    "You have performed the following actions:"
+                )
+                lines.append("")
+
+                for i, entry in enumerate(self.pre_kanban_logs, 1):
+                    t_str = time.strftime("%H:%M:%S", time.localtime(entry.timestamp))
+                    # 限制 summary 长度，避免 Prompt 过长
+                    summary_preview = entry.summary
+                    if summary_preview and len(summary_preview) > 500:
+                        summary_preview = summary_preview[:500] + "... (truncated)"
+                    lines.append(f"{i}. [{t_str}] `{entry.tool}`: {summary_preview}")
+
+                lines.append("")
+                lines.append(
+                    "**Next Step**: Please evaluate if you have enough information "
+                    "to create a Kanban using `create_kanban`."
+                )
+                return "\n".join(lines)
+
+            return "No kanban initialized. No actions taken yet."
 
         return self.kanban.generate_current_stage_detail()
 

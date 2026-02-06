@@ -117,9 +117,18 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .markdown-content-wrap-stage {
-    border-left: 2px dashed rgba(0, 0, 0, 0.15);
+    border-left: 1px dashed #e5e7eb;
     padding-left: 16px;
-    margin-left: 4px;
+    margin-left: 9px;
+  }
+
+  .stage-icon-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #e6f4ff;
+    border-radius: 50%;
+    height: 20px;
   }
 
   .title-text {
@@ -215,7 +224,8 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .header-task {
-    max-width: 50%;
+    width: fit-content;
+    max-width: 90%;
     background-color: #f0f0f0;
     border: none;
     border-radius: 9999px;
@@ -230,9 +240,12 @@ export const VisAgentPlanCardWrap = styled.div`
     .title-task-with-markdown {
       flex: 1;
       min-width: 0;
+      /* 修复宽度溢出问题的关键 */
+      overflow: hidden;
 
       .title-text-ellipsis:first-child {
-        flex-shrink: 0;
+        flex-shrink: 1;
+        max-width: none;
       }
     }
 
@@ -336,7 +349,8 @@ export const VisAgentPlanCardWrap = styled.div`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width:80%
+    max-width: 100%;
+    flex: 1;
   }
 
   .title-flex-container {
@@ -399,7 +413,7 @@ export const VisAgentPlanCardWrap = styled.div`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 80%;
+    max-width: 100%;
   }
 
   @keyframes fadeIn {

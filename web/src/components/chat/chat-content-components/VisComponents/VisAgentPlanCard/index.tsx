@@ -15,6 +15,7 @@ import {
   PauseCircleOutlined,
   SyncOutlined,
   UpOutlined,
+  FlagFilled,
 } from '@ant-design/icons';
 import { Avatar, Button, Tooltip } from 'antd';
 import { ee, EVENTS } from '@/utils/event-emitter';
@@ -182,17 +183,23 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                 </div>
               )}
               {(isTask || isStage) && (
-                <img
-                  className="task-icon"
-                  src={
-                    isTask
-                      ? iconUrlMap[
-                          (String(data?.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool'
-                        ]
-                      : iconUrlMap['stage']
-                  }
-                  alt=""
-                />
+                isStage ? (
+                  <div className="task-icon stage-icon-wrapper">
+                     <FlagFilled style={{ color: '#1677ff', fontSize: 14 }} />
+                  </div>
+                ) : (
+                  <img
+                    className="task-icon"
+                    src={
+                      isTask
+                        ? iconUrlMap[
+                            (String(data?.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool'
+                          ]
+                        : iconUrlMap['stage']
+                    }
+                    alt=""
+                  />
+                )
               )}
               {!isAgent && (
                 <div
@@ -203,8 +210,9 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        width: isTask ? '100%' : '80%',
+                        flex: '1 1 0%', // 强制flex容器在溢出时优先压缩自己，不依赖内容宽度
                         minWidth: 0,
+                        overflow: 'hidden',
                       }}
                     >
                       {isTask && data?.description != null ? (
