@@ -149,7 +149,7 @@ const VisUtils = ({ data }: IProps) => {
                         components={codeComponents}
                         {...markdownPlugins}
                       >
-                        {markdown || (typeof tool_result === 'string' ? tool_result?.replaceAll?.('~', '&#126;') : JSON.stringify(tool_result)) ?? ''}
+                        {(markdown || (typeof tool_result === 'string' ? tool_result?.replaceAll?.('~', '&#126;') : JSON.stringify(tool_result))) ?? ''}
                       </GPTVis>
                     </div>
                   )}

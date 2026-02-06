@@ -1493,6 +1493,7 @@ class ConversableAgent(Role, Agent):
                     message_id=message.message_id,
                     sender=sender,
                     agent=self,
+                    current_message=message,
                     received_message=received_message,
                     agent_context=self.agent_context,
                     memory=self.memory,
