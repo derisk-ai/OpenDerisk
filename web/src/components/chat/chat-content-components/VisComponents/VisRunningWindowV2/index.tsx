@@ -114,7 +114,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   return (
     <AgentContainer
       style={{
-        // height: `${containerHeight || 400}px`,
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
         // width: `${isFullScreen ? containerWidth : 0.6 * containerWidth}px`,
