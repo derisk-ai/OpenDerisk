@@ -19,7 +19,7 @@ from .plan_models import (
     create_stage_from_spec,
     validate_deliverable_schema,
 )
-from .file_system import FileSystem  # 导入 FileSystem
+from ...core.file_system.file_system import FileSystem
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ class AsyncKanbanManager:
         # 定义在文件系统中的 Key (而非路径)
         self.kanban_file = f"{agent_id}_{session_id}_kanban"
         self.kanban_view_file = f"{agent_id}_{session_id}_kanban_view"
+        self.pre_kanban_logs_file = f"{agent_id}_{session_id}_pre_kanban_logs"
 
         # 交付物使用统一前缀
         self.deliverable_prefix = f"{agent_id}_{session_id}_deliverable"
@@ -80,6 +81,19 @@ class AsyncKanbanManager:
         else:
             logger.info("👻 无历史 Kanban，初始化为空")
             self.kanban = None
+
+        # 加载 pre_kanban_logs (看板创建前的预研日志)
+        logs_content = await self.fs.read_file(self.pre_kanban_logs_file)
+        if logs_content:
+            try:
+                logs_data = json.loads(logs_content)
+                self.pre_kanban_logs = [WorkEntry.from_dict(entry) for entry in logs_data]
+                logger.info(f"📚 已从 AFS 加载 pre_kanban_logs，共 {len(self.pre_kanban_logs)} 条记录")
+            except Exception as e:
+                logger.error(f"加载 pre_kanban_logs 失败: {e}")
+                self.pre_kanban_logs = []
+        else:
+            self.pre_kanban_logs = []
 
         self._loaded = True
 
@@ -206,6 +220,9 @@ class AsyncKanbanManager:
 
             # [Clean] 清除 pre_kanban_logs，释放上下文空间
             self.pre_kanban_logs = []
+            # 清除 pre_kanban_logs 文件
+            await self.fs.save_file(self.pre_kanban_logs_file, [], "json")
+            logger.info("💾 已清除 pre_kanban_logs 文件")
 
             current_stage = self.kanban.get_current_stage()
             return {
@@ -534,6 +551,11 @@ class AsyncKanbanManager:
                 )
                 self.pre_kanban_logs.append(work_entry)
 
+                # 保存 pre_kanban_logs 到文件系统
+                logs_data = [entry.to_dict() for entry in self.pre_kanban_logs]
+                await self.fs.save_file(self.pre_kanban_logs_file, logs_data, "json")
+                logger.info(f"💾 已保存 pre_kanban_logs 到 AFS，共 {len(self.pre_kanban_logs)} 条记录")
+
                 return {
                     "status": "success",
                     "message": "Work log added to pre-kanban history. "
@@ -620,6 +642,7 @@ class AsyncKanbanManager:
             await self.load()
 
         if not self.kanban:
+            exploration_count = self.get_exploration_count()
             if self.pre_kanban_logs:
                 lines = ["### Pre-Kanban Actions (Information Gathering)"]
                 lines.append(
@@ -637,10 +660,20 @@ class AsyncKanbanManager:
                     lines.append(f"{i}. [{t_str}] `{entry.tool}`: {summary_preview}")
 
                 lines.append("")
-                lines.append(
-                    "**Next Step**: Please evaluate if you have enough information "
-                    "to create a Kanban using `create_kanban`."
-                )
+                # 添加探索计数和强制约束提醒
+                lines.append(f"**Exploration Count**: {exploration_count}/2")
+                if exploration_count >= 2:
+                    lines.append(
+                        "⚠️ **STOP**: You have reached the exploration limit (2 rounds). "
+                        "**You MUST call `create_kanban` NOW.** Do NOT use view/read tools."
+                    )
+                else:
+                    remaining = 2 - exploration_count
+                    lines.append(
+                        f"**Remaining Exploration**: {remaining} round(s). "
+                        f"If you have enough information, call `create_kanban` immediately."
+                    )
+                lines.append("")
                 return "\n".join(lines)
 
             return "No kanban initialized. No actions taken yet."
@@ -762,6 +795,21 @@ class AsyncKanbanManager:
             "items": todo_items,
             "current_index": current_index,
         }
+
+    def get_exploration_count(self) -> int:
+        """
+        获取探索计数（看板创建前已使用的 view/read_file 类工具次数）
+        用于限制过度探索，强制 Agent 及时创建看板
+
+        Returns:
+            已使用的探索工具次数
+        """
+        exploration_tools = {"view", "read_file", "read_deliverable"}
+        count = 0
+        for entry in self.pre_kanban_logs:
+            if entry.tool in exploration_tools:
+                count += 1
+        return count
 
 
 # ==================== 工具函数 ====================

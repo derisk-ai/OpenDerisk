@@ -5,11 +5,7 @@ from pydantic_core._pydantic_core import ValidationError
 
 from derisk.vis import Vis
 from derisk._private.pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
-    model_to_json,
-    model_validator,
     model_to_dict,
 )
 from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent

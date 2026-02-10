@@ -90,7 +90,6 @@ class AgentManager(BaseComponent):
         self.register_agent(ReActPlanChatManager)
         self.register_agent(AutoPlanChatManager)
 
-
     def register_agent(
         self, cls: Type[ConversableAgent], ignore_duplicate: bool = False
     ) -> str:

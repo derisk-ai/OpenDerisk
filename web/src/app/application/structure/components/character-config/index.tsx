@@ -1,8 +1,9 @@
 import PromptEditor from '@/components/PromptEditor';
 import { AppContext } from '@/contexts';
-import { CaretLeftOutlined, ThunderboltOutlined, UserOutlined, CodeOutlined } from '@ant-design/icons';
-import { useDebounceFn } from 'ahooks';
-import { Tabs } from 'antd';
+import { getAgentDefaultPrompt } from '@/client/api/app';
+import { CaretLeftOutlined, ThunderboltOutlined, UserOutlined, CodeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { useDebounceFn, useRequest } from 'ahooks';
+import { Tabs, Button, message } from 'antd';
 import { debounce } from 'lodash';
 import { useContext, useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +16,52 @@ function CharacterConfig() {
 
   const [localSystemPrompt, setLocalSystemPrompt] = useState('');
   const [localUserPrompt, setLocalUserPrompt] = useState('');
+
+  const agentName = appInfo?.agent || '';
+
+  // 获取Agent的默认提示词
+  const { run: fetchDefaultPrompts, loading: loadingDefaultPrompts } = useRequest(
+    async (promptType: 'system' | 'user') => {
+      if (!agentName) {
+        message.warning('请先选择Agent');
+        return null;
+      }
+      const language = appInfo?.language || 'en';
+      try {
+        const res = await getAgentDefaultPrompt(agentName, language);
+        if (res.data?.data) {
+          return res.data.data;
+        }
+        return null;
+      } catch (error) {
+        message.error(`获取默认${promptType === 'system' ? '系统' : '用户'}提示词失败`);
+        return null;
+      }
+    },
+    {
+      manual: true,
+      onSuccess: (data, params) => {
+        const promptType = params[0];
+        if (data) {
+          if (promptType === 'system') {
+            setLocalSystemPrompt(data.system_prompt_template);
+            fetchUpdateApp({
+              ...appInfo,
+              system_prompt_template: data.system_prompt_template,
+            });
+            message.success('已恢复默认系统提示词');
+          } else {
+            setLocalUserPrompt(data.user_prompt_template);
+            fetchUpdateApp({
+              ...appInfo,
+              user_prompt_template: data.user_prompt_template,
+            });
+            message.success('已恢复默认用户提示词');
+          }
+        }
+      },
+    }
+  );
 
   useEffect(() => {
     if (system_prompt_template && !localSystemPrompt) {
@@ -77,12 +124,26 @@ function CharacterConfig() {
         </span>
       ),
       children: (
-        <div className="flex h-full w-full overflow-y-auto">
+        <div className="flex flex-col h-full w-full">
+          <div className="flex items-center justify-end px-3 py-2 border-b border-gray-100">
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={loadingDefaultPrompts}
+              onClick={() => fetchDefaultPrompts('system')}
+              className="text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+            >
+              恢复默认
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
             <PromptEditor
                 value={systemPrompt}
                 onChange={handleSysPromptChange}
                 showPreview={true}
             />
+          </div>
         </div>
       )
     },
@@ -95,12 +156,26 @@ function CharacterConfig() {
         </span>
       ),
       children: (
-        <div className="flex h-full w-full overflow-y-auto">
-             <PromptEditor
+        <div className="flex flex-col h-full w-full">
+          <div className="flex items-center justify-end px-3 py-2 border-b border-gray-100">
+            <Button
+              type="text"
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={loadingDefaultPrompts}
+              onClick={() => fetchDefaultPrompts('user')}
+              className="text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+            >
+              恢复默认
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <PromptEditor
                 value={userPrompt}
                 onChange={handleUserPromptChange}
                 showPreview={true}
             />
+          </div>
         </div>
       )
     },

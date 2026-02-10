@@ -5,23 +5,102 @@ from typing import Tuple, Optional
 
 import orjson
 
+from derisk.agent.core.base_parser import AgentParser, SchemaType
 from derisk.agent.core.reasoning.reasoning_action import (
+    Action,
+    AgentAction,
     AgentActionInput,
     ActionOutput,
+    KnowledgeRetrieveAction,
     KnowledgeRetrieveActionInput,
+    ConversableAgent,
 )
 from derisk.agent.core.reasoning.reasoning_engine import (
+    ReasoningModelOutput,
     ReasoningPlan,
 )
 from derisk.agent.expand.actions.tool_action import ToolInput
+from derisk.agent.resource import FunctionTool
+from derisk.agent.resource.agent_skills import AgentSkillResource
+from derisk.agent.resource.workflow import WorkflowResource
 from derisk.core.workflow.workflow_action import WorkflowAction, WorkflowActionInput
+from derisk.util.json_utils import find_json_objects
 from derisk.util.string_utils import is_number
+from derisk_ext.agent.agents.knowledge.action.code_wiki_action import CodeWikiAction, \
+    CodeWikiActionInput
+from derisk_ext.agent.agents.knowledge.action.file_action import FileActionInput, \
+    FileAction
+from derisk_ext.agent.actions.ant_tool_action import AntToolAction
+from derisk_ext.agent.agents.knowledge.action.monitor_image_action import MonitorImageActionInput, MonitorImageAction
+from derisk_ext.agent.agents.knowledge.action.yuque_action import YuqueWikiActionInput, \
+    YuqueWikiAction
+from derisk_ext.agent.agents.reasoning.default.ability import Ability
+from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
+from derisk_serve.agent.resource.skills.code_wiki import CodeWikiResource
+from derisk_serve.agent.resource.skills.document import DocumentResource
+from derisk_serve.agent.resource.skills.monitor_skill import MonitorResource
+from derisk_serve.agent.resource.skills.yuque_wiki import YuqueResource
 
 logger = logging.getLogger("reasoning")
 
 
 def is_str_list(origin) -> bool:
     return isinstance(origin, list) and not any(item for item in origin if not isinstance(item, str))
+
+
+def parse_actions(
+    text: str, abilities: list[Ability], agent_parser: Optional[AgentParser] = None
+) -> Tuple[ReasoningModelOutput, bool, str, Optional[list[Action]]]:
+    if agent_parser:
+        try:
+            result = agent_parser.parse(llm_out=text)
+        except Exception as e:
+            raise ValueError(f"parser 模型输出解析失败！{text},{e}")
+    else:
+        json_parsed = find_json_objects(text)
+        if isinstance(json_parsed, list) and len(json_parsed) >= 1:
+            json_parsed = json_parsed[0]
+
+        if "summary" in json_parsed and json_parsed["summary"]:
+            # 有时模型返回的summary是list 需要兼容
+            if is_str_list(json_parsed["summary"]):
+                json_parsed["summary"] = "\n".join(json_parsed["summary"])
+            # 也有可能是别的类型
+            elif not isinstance(json_parsed["summary"], str):
+                json_parsed["summary"] = json.dumps(
+                    json_parsed["summary"], ensure_ascii=False
+                )
+
+        if "answer" in json_parsed and json_parsed["answer"]:
+            # 有时模型返回的answer是list 需要兼容
+            if is_str_list(json_parsed["answer"]):
+                json_parsed["answer"] = "\n".join(json_parsed["answer"])
+            # 也有可能是别的类型
+            elif not isinstance(json_parsed["answer"], str):
+                json_parsed["answer"] = json.dumps(
+                    json_parsed["answer"], ensure_ascii=False
+                )
+
+        if "plan" in json_parsed:
+            if not isinstance(json_parsed["plan"], list):
+                json_parsed["plans"] = [json_parsed["plan"]]
+
+        try:
+            result = ReasoningModelOutput.model_validate(json_parsed)
+        except Exception as e:
+            logger.error(f"推理引擎模型输出解析失败！{json_parsed}, {e}")
+            raise ValueError(f"模型输出解析失败！{json_parsed}, {e}")
+
+    assert result, "failed to parse model output: " + text
+
+    done = True if result.status in ["done", "abort"] else False
+    answer = result.answer or result.summary or (result.reason if done else None)
+    actions = format_actions(plans=result.plans, abilities=abilities)
+    if result.plans and actions and len(result.plans) != len(actions):
+        logger.info(f"parse_actions, plan({len(result.plans)}) != action({len(actions)}), "
+                    f"actions:[{[{'action': action.name, 'input': action.action_input} for action in actions]}],"
+                    f"plans:[{[plan.to_dict() for plan in result.plans]}]")
+    return result, done, answer, actions
 
 
 def transfer_tool_action_input(plan: ReasoningPlan) -> ToolInput:
@@ -55,6 +134,80 @@ def transfer_knowledge_retrieve_action_input(
     )
 
 
+def transfer_yuque_action_input(
+    plan: ReasoningPlan,
+) -> YuqueWikiActionInput:
+    """
+    将plan转换为YuqueWikiActionInput
+    Args:
+        plan:
+
+    Returns:
+    """
+    return YuqueWikiActionInput(
+        args=plan.parameters.get("args"),
+        operation=plan.parameters.get("operation"),
+        intention=plan.intention,
+        name=plan.id,
+        thought=plan.reason,
+    )
+
+
+def transfer_document_action_input(
+    plan: ReasoningPlan,
+) -> FileActionInput:
+    """
+    将plan转换为FileActionInput
+    Args:
+        plan:
+
+    Returns:
+    """
+    return FileActionInput(
+        args=plan.parameters.get("args"),
+        operation=plan.parameters.get("operation"),
+        intention=plan.intention,
+        name=plan.id,
+        thought=plan.reason,
+    )
+
+
+def transfer_wiki_action_input(
+    plan: ReasoningPlan,
+) -> CodeWikiActionInput:
+    """
+    将plan转换为CodeWikiActionInput
+    Args:
+        plan:
+
+    Returns:
+    """
+    return CodeWikiActionInput(
+        args=plan.parameters.get("args"),
+        operation=plan.parameters.get("operation"),
+        intention=plan.intention,
+        name=plan.id,
+        thought=plan.reason,
+    )
+
+
+def transfer_monitor_action_input(
+    plan: ReasoningPlan,
+) -> MonitorImageActionInput:
+    """
+    将plan转换为MonitorActionInput
+    Args:
+        plan:
+
+    Returns:
+    """
+    return MonitorImageActionInput(
+        args=plan.parameters.get("args"),
+        operation=plan.parameters.get("operation"),
+        intention=plan.intention,
+        name=plan.id,
+        thought=plan.reason,
+    )
 
 
 def transfer_workflow_action_input(plan: ReasoningPlan) -> WorkflowActionInput:
@@ -65,6 +218,74 @@ def transfer_workflow_action_input(plan: ReasoningPlan) -> WorkflowActionInput:
         query="\n\n".join([s for s in [intention, parameter] if s]),
         thought=plan.reason,
     )
+
+
+def format_action(
+    plan: Optional[ReasoningPlan], ability: Optional[Ability]
+) -> Optional[Action]:
+    _dict = {
+        FunctionTool: (AntToolAction, transfer_tool_action_input),
+        AgentSkillResource: (AntToolAction, transfer_tool_action_input),
+        ConversableAgent: (AgentAction, transfer_agent_action_input),
+        KnowledgePackSearchResource: (
+            KnowledgeRetrieveAction,
+            transfer_knowledge_retrieve_action_input,
+        ),
+
+        YuqueResource: (
+            YuqueWikiAction,
+            transfer_yuque_action_input,
+        ),
+        DocumentResource: (
+            FileAction,
+            transfer_document_action_input,
+        ),
+        CodeWikiResource: (
+            CodeWikiAction,
+            transfer_wiki_action_input,
+        ),
+        MonitorResource: (
+            MonitorImageAction,
+            transfer_monitor_action_input,
+        ),
+        WorkflowResource: (WorkflowAction, transfer_workflow_action_input),
+    }
+
+    if (not plan) or (not ability):
+        return None
+
+    if not ability.actual_type in _dict:
+        raise NotImplementedError
+
+    action_cls, input_transfer = _dict[ability.actual_type]
+    action = action_cls()
+    action.action_input = input_transfer(plan)
+    action.intention = plan.intention
+    action.reason = plan.reason
+
+    return action
+
+
+def format_actions(
+    plans: Optional[list[ReasoningPlan]], abilities: list[Ability]
+) -> Optional[list[Action]]:
+    if not plans:
+        return None
+    actions = []
+    ability_map = {item.name: item for item in abilities}
+    for plan in plans:
+        ability = ability_map.get(plan.id)
+        if not ability:
+            ## 如果没有在能力中出现，默认走ToolAction，暂时兼容Sandbox相关工具
+            action = AntToolAction()
+            action.action_input = transfer_tool_action_input(plan)
+            action.intention = plan.intention
+            action.reason = plan.reason
+        else:
+            action = format_action(plan, ability)
+        if action:
+            actions.append(action)
+    return actions
 
 
 async def parse_action_reports(text: str) -> list[ActionOutput]:

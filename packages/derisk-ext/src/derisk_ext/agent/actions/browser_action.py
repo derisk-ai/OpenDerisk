@@ -44,24 +44,24 @@ class BrowserAction(SandboxAction):
             start_time: Optional[Any] = None,
             **kwargs
     ):
-        view = None
+        # view = None
         try:
-            memory = kwargs.get("memory")
-            agent_context = kwargs.get("agent_context")
-            messages = await memory.gpts_memory.get_session_messages(
-                agent_context.conv_session_id)
+            # memory = kwargs.get("memory")
+            # agent_context = kwargs.get("agent_context")
+            # messages = await memory.gpts_memory.get_session_messages(
+            #     agent_context.conv_session_id)
             browser_outputs = []
             history_items = []
-            for message in messages:
-                action_out = message.action_report
-                if action_out:
-                    browser_outputs = [out for out in action_out if "browser_" in
-                                       out.action]
-            for browser_output in browser_outputs:
-                history_items = parse_browser_step(browser_output.view)
-                if history_items:
-                    for i, history_item in enumerate(history_items):
-                        history_item["index"] = i
+            # for message in messages:
+            #     action_out = message.action_report
+            #     if action_out:
+            #         browser_outputs = [out for out in action_out if "browser_" in
+            #                            out.action]
+            # for browser_output in browser_outputs:
+            #     history_items = parse_browser_step(browser_output.view)
+            #     if history_items:
+            #         for i, history_item in enumerate(history_items):
+            #             history_item["index"] = i
             if tool_result.success:
                 if tool_result.screenshot is not None or tool_result.screenshot != "":
                     fs_client = FileStorageClient.get_instance(CFG.SYSTEM_APP)
@@ -100,7 +100,7 @@ class BrowserAction(SandboxAction):
                     "description": "Derisk正在使用浏览器-" + tool_result.title,
                     "web_image": image_url,
                     "index": len(history_items),
-                    "action": tool_info.description
+                    "action": f"{tool_info.description}"
                 }
                 history_items.extend([item])
                 param = {

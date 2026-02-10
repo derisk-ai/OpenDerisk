@@ -663,6 +663,14 @@ export class VisBaseParser {
         if (json.uid) {
           // 检测循环引用：如果当前UID已在路径中，说明有循环引用
           if (path.includes(json.uid)) {
+            // 特殊处理：如果是直接自引用（父节点和子节点使用相同 UID），
+            // 这通常是合法的结构（表示子组件是父组件的渲染形式）
+            const lastUid = path[path.length - 1];
+            if (lastUid === json.uid) {
+              // 直接自引用，跳过但不报错
+              return;
+            }
+            // 其他情况是真正的循环引用，报错
             console.error(`[buildIndexRecursive] 检测到循环引用，跳过处理: uid=${json.uid}, path: ${path.join(' -> ')} -> ${json.uid}`);
             return;
           }
@@ -723,10 +731,18 @@ export class VisBaseParser {
       if (item.uid) {
         // 检测循环引用：如果当前UID已在路径中，说明有循环引用
         if (path.includes(item.uid)) {
+          // 特殊处理：如果是直接自引用（父节点和子节点使用相同 UID），
+          // 这通常是合法的结构（表示子组件是父组件的渲染形式）
+          const lastUid = path[path.length - 1];
+          if (lastUid === item.uid) {
+            // 直接自引用，跳过但不报错
+            return;
+          }
+          // 其他情况是真正的循环引用，报错
           console.error(`[indexItems] 检测到循环引用，跳过处理: uid=${item.uid}, path: ${path.join(' -> ')} -> ${item.uid}`);
           return;
         }
-        
+
         const currentPath = [...path, item.uid];
 
         // 获取宿主的VisItem对象
@@ -784,10 +800,18 @@ export class VisBaseParser {
       if (item.uid) {
         // 检测循环引用：如果当前UID已在路径中，说明有循环引用
         if (path.includes(item.uid)) {
+          // 特殊处理：如果是直接自引用（父节点和子节点使用相同 UID），
+          // 这通常是合法的结构（表示子组件是父组件的渲染形式）
+          const lastUid = path[path.length - 1];
+          if (lastUid === item.uid) {
+            // 直接自引用，跳过但不报错
+            return;
+          }
+          // 其他情况是真正的循环引用，报错
           console.error(`[indexNestedItems] 检测到循环引用，跳过处理: uid=${item.uid}, path: ${path.join(' -> ')} -> ${item.uid}`);
           return;
         }
-        
+
         const currentPath = [...path, item.uid];
 
         this.uidIndex.set(item.uid, {
@@ -838,10 +862,18 @@ export class VisBaseParser {
         if (json.uid) {
           // 检测循环引用：如果当前UID已在路径中，说明有循环引用
           if (path.includes(json.uid)) {
+            // 特殊处理：如果是直接自引用（父节点和子节点使用相同 UID），
+            // 这通常是合法的结构（表示子组件是父组件的渲染形式）
+            const lastUid = path[path.length - 1];
+            if (lastUid === json.uid) {
+              // 直接自引用，跳过但不报错
+              return;
+            }
+            // 其他情况是真正的循环引用，报错
             console.error(`[indexNestedMarkdown] 检测到循环引用，跳过处理: uid=${json.uid}, path: ${path.join(' -> ')} -> ${json.uid}`);
             return;
           }
-          
+
           const currentPath = [...path, json.uid];
 
           this.uidIndex.set(json.uid, {
@@ -905,44 +937,73 @@ export class VisBaseParser {
 
   private extractIncrContent(incrAST: Root): void {
     this.incrNodesMap.clear();
-    
-    // 用于检测循环引用的集合
-    const visitedUids = new Set<string>();
 
-    const collect = (item: VisItem, depth: number = 0) => {
+    // 用于检测循环引用：记录当前访问路径
+    // 只有检测到真正的路径闭环（A -> B -> C -> A）才报错
+    // 允许同一个 uid 在不同分支路径中出现
+
+    const collect = (item: VisItem, path: string[], depth: number = 0) => {
       // 防止递归过深
       if (depth > 100) {
         console.error(`[extractIncrContent] 递归深度超过限制: ${depth}`);
         return;
       }
-      
+
       if (item.uid) {
-        // 检测循环引用
-        if (visitedUids.has(item.uid)) {
-          console.error(`[extractIncrContent] 检测到循环引用，跳过处理: uid=${item.uid}`);
+        // 检测循环引用：只在当前路径中存在该 uid 时才认为是循环引用
+        // 例如：A -> B -> C -> A（闭环）
+        // 而不是：A -> B 和 D -> B（不同分支共享子节点）
+        if (path.includes(item.uid)) {
+          // 特殊处理：如果是直接自引用（父节点和子节点使用相同 UID），
+          // 这通常是合法的结构（表示子组件是父组件的渲染形式）
+          // 我们应该跳过处理，但不报错
+          const lastUid = path[path.length - 1];
+          if (lastUid === item.uid) {
+            // 直接自引用，跳过但不报错
+            return;
+          }
+          // 其他情况是真正的循环引用，报错
+          console.error(`[extractIncrContent] 检测到循环引用，跳过处理: uid=${item.uid}, path: ${path.join(' -> ')}`);
           return;
         }
-        
-        visitedUids.add(item.uid);
+
+        // 将当前 uid 加入路径
+        const currentPath = [...path, item.uid];
         this.incrNodesMap.set(item.uid, item);
-      }
 
-      if (item.markdown) {
-        const subTree = this.parseVis2AST(item.markdown);
-        this.traverseASTNodes(subTree, (node, json) => {
-          collect(json, depth + 1);
-        });
-      }
+        // 递归处理 markdown 中的组件
+        if (item.markdown) {
+          const subTree = this.parseVis2AST(item.markdown);
+          this.traverseASTNodes(subTree, (node, json) => {
+            collect(json, currentPath, depth + 1);
+          });
+        }
 
-      if (item.items) {
-        item.items.forEach((subItem) => {
-          collect(subItem, depth + 1);
-        });
+        // 递归处理 items
+        if (item.items) {
+          item.items.forEach((subItem) => {
+            collect(subItem, currentPath, depth + 1);
+          });
+        }
+      } else {
+        // 没有 uid 的组件，继续递归处理其子元素
+        if (item.markdown) {
+          const subTree = this.parseVis2AST(item.markdown);
+          this.traverseASTNodes(subTree, (node, json) => {
+            collect(json, path, depth + 1);
+          });
+        }
+
+        if (item.items) {
+          item.items.forEach((subItem) => {
+            collect(subItem, path, depth + 1);
+          });
+        }
       }
     };
 
     this.traverseASTNodes(incrAST, (node, json) => {
-      collect(json, 0);
+      collect(json, [], 0);
     });
   }
 
@@ -1041,9 +1102,10 @@ export class VisParser {
           this.windowParsers.set(key, windowParser);
         }
 
-        // 只有当有新内容时才更新解析器
-        // 关键修复：允许空字符串清空内容
-        if (windowContent !== undefined) {
+        // 只有当有新内容且不是空字符串时才更新解析器
+        // 关键修复：空字符串会清空数据，跳过更新以保留之前累积的数据
+        // 这与测试页面的行为一致：测试页面只有当窗口有实际内容时才调用 updateCurrentMarkdown
+        if (windowContent !== undefined && windowContent !== null && windowContent !== '') {
           windowParser.updateCurrentMarkdown(windowContent);
         }
 

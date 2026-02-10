@@ -1,7 +1,7 @@
 import json
 import logging
 from enum import Enum
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Tuple
 
 from derisk.agent import ActionOutput, ConversableAgent, BlankAction
 from derisk.agent.core.action.report_action import ReportAction
@@ -16,6 +16,7 @@ from derisk.agent.core.reasoning.reasoning_action import (
 )
 from derisk.agent.core.schema import Status
 from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
+from derisk.agent.expand.actions.agent_action import AgentStart
 from derisk.agent.expand.actions.code_action import CodeAction
 from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.agent.expand.react_agent.react_parser import (
@@ -222,7 +223,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         plan_tasks_vis = []
         thought = None
         title = None
-        tools = None
         if gpt_msg:
             action_outs: Optional[List[ActionOutput]] = gpt_msg.action_report
             agent = senders_map.get(gpt_msg.sender_name) if senders_map else None
@@ -237,25 +237,21 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
         elif stream_msg:
             prev_content = stream_msg.get("prev_content")
-            content = stream_msg.get("content")
             sender_name = stream_msg.get("sender_name")
             message_id = stream_msg.get("message_id")
             action_outs: Optional[List[ActionOutput]] = stream_msg.get("action_report")
             agent = senders_map.get(sender_name) if senders_map else None
-            # if action_outs and not any(
-            #     item for item in action_outs if item.name in [BlankAction.name, ReportAction.name]):
-            #     final_answer = stream_msg.get("content")
             if agent and agent.agent_parser and prev_content:
                 title = agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_TITLE
                 )
-                thought = agent.agent_parser.parse_streaming_xml(
+                thought= agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_THOUGHT
                 )
                 tools = agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_TOOLS
                 )
-                # 开始输出别的就不在获取title了 TODO
+                # 开始输出别的就不在获取title了
                 if tools or thought:
                     title = None
             ## 流式输出过程，规划内容不展示工具输出过程(也可以考虑展示为Loading待实现)
@@ -310,40 +306,71 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     self._unpack_agent(item, detail_folder)
             parent.items.extend(details)
 
-    async def _gen_plan_tree_by_task(
+    async def _process_stream_msg(
         self,
-        task_manager: TreeManager,
-        current_task: TreeNodeData[AgentTaskContent],
-        leaf_vis: str,
-        is_nest: bool = False,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
-    ) -> AgentPlanItem:
-        """生成当前任务的增量数据。
-
-        优化：不再递归构建父节点链，只返回当前节点的增量数据。
-        前端会根据 uid 和 parent_id 自动合并到正确的位置。
+        stream_msg: Dict,
+        senders_map: Optional[Dict[str, "ConversableAgent"]],
+        task_manager: Optional[TreeManager] = None,
+    ) -> Optional[str]:
+        """处理 stream_msg 虚拟节点数据，message本身是hidden节点，需要把当前叶子节点内容挂载到父节点，也就是goal_id节点。
         """
-        # 构建最终的markdown内容
+        goal_id = stream_msg.get("goal_id")
+        if not goal_id:
+            return None
 
-        agent = senders_map.get(current_task.content.agent_name)
-        current_item = AgentPlanItem(
-            uid=current_task.node_id,
-            parent_uid=current_task.parent_id,
+        leaf_item_vis = await self._gen_plan_items(
+            stream_msg=stream_msg,
+            layer_count=0,
+            senders_map=senders_map,
+        )
+
+        if not leaf_item_vis:
+            return None
+
+        # 父节点挂载stream msg
+        stream_item = AgentPlanItem(
+            uid=goal_id,
             type=UpdateType.INCR.value,
-            title=current_task.name,
-            description=current_task.description,
-            item_type=current_task.content.task_type or AgentTaskType.PLAN.value,
+            markdown=leaf_item_vis,
+        )
+
+        return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+            content=stream_item.to_dict()
+        )
+
+    def _build_task_item(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        markdown: str,
+        senders_map: Optional[Dict[str, "ConversableAgent"]],
+    ) -> AgentPlanItem:
+        """构建任务节点的 AgentPlanItem。"""
+        agent = (
+            senders_map.get(task_node.content.agent_name)
+            if task_node.content
+            else None
+        )
+
+        return AgentPlanItem(
+            uid=task_node.node_id,
+            parent_uid=task_node.parent_id,
+            type=UpdateType.INCR.value,
+            title=task_node.name,
+            description=task_node.description,
+            item_type=(
+                task_node.content.task_type or AgentTaskType.PLAN.value
+                if task_node.content
+                else AgentTaskType.PLAN.value
+            ),
             agent_role=agent.role if agent else None,
             agent_name=agent.name if agent else None,
             agent_avatar=agent.avatar if agent else None,
-            status=current_task.state,
-            start_time=current_task.created_at,
-            layer_count=current_task.layer_count,
-            cost=current_task.content.cost,
-            markdown=leaf_vis,
+            status=task_node.state,
+            start_time=task_node.created_at,
+            layer_count=task_node.layer_count,
+            cost=task_node.content.cost if task_node.content else 0,
+            markdown=markdown,
         )
-
-        return current_item
 
     async def _build_nested_task_nodes(
         self,
@@ -351,144 +378,80 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         messages: List[GptsMessage],
         senders_map: Optional[Dict[str, "ConversableAgent"]],
         task_manager: Optional[TreeManager] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
     ) -> List[str]:
-        """Build nested task nodes, grouping by parent and merging children.
-        
-        关键逻辑：
-        1. 按父节点 ID 分组新节点
-        2. 同一父节点的所有子节点合并到该父节点的 vis 中
-        3. 根节点（无父节点）每个独立返回
+        """构建嵌套任务节点。
 
-        Returns list of vis texts (one per parent or root node).
+        核心逻辑：
+        1. hidden 类型节点：渲染结果为空，不输出任何内容
+        2. 非 hidden 节点：查找父节点，如果父节点是 hidden，parent_uid 设置为父节点的父节点
+        3. stream_msg 虚拟节点：处理逻辑与普通节点一致，节点 id 为 message_id
+
+        Returns list of vis texts.
         """
         messages_map = {item.message_id: item for item in messages}
-        
-        # Step 1: 按父节点分组
-        parent_groups: Dict[str, List[TreeNodeData]] = {}  # parent_id -> list of children
-        root_nodes: List[TreeNodeData] = []  # nodes without parent
+        result_vis_list: List[str] = []
+
+        # 处理 stream_msg 虚拟节点
+        if stream_msg and isinstance(stream_msg, dict):
+            stream_vis = await self._process_stream_msg(
+                stream_msg, senders_map, task_manager
+            )
+            if stream_vis:
+                result_vis_list.append(stream_vis)
+
+        # 按有效父节点分组
+        parent_groups: Dict[Optional[str], List[TreeNodeData[AgentTaskContent]]] = {}
 
         for task_node in new_task_nodes:
-            parent_id = task_node.parent_id
-            if parent_id and task_manager:
-                # 检查父节点是否真实存在
-                parent_task = task_manager.get_node(parent_id)
-                if parent_task and parent_task.node_id != task_node.node_id:
-                    if parent_id not in parent_groups:
-                        parent_groups[parent_id] = []
-                    parent_groups[parent_id].append(task_node)
-                else:
-                    # 父节点不存在或是自己，作为根节点
-                    root_nodes.append(task_node)
+            if task_node.node_id == task_node.parent_id or not task_node.parent_id:
+                parent_groups.setdefault(None, []).append(task_node)
             else:
-                # 没有父节点，作为根节点
-                root_nodes.append(task_node)
-        
-        result_vis_list: List[str] = []
-        
-        # Step 2: 处理每个父节点组（合并所有子节点到父节点）
-        for parent_id, children in parent_groups.items():
-            parent_task = task_manager.get_node(parent_id)
+                parent_groups.setdefault(task_node.parent_id, []).append(task_node)
 
-            # 构建父节点的基础数据
-            parent_agent = senders_map.get(parent_task.content.agent_name)
-            parent_item = AgentPlanItem(
-                uid=parent_task.node_id,
-                type=UpdateType.INCR.value,
-                item_type=parent_task.content.task_type,
-                status=parent_task.state,
-                start_time=parent_task.created_at,
-                cost=parent_task.content.cost,
-                markdown="",  # 将挂载所有子节点内容
-            )
-            
-            # 生成所有子节点的 vis 并挂载到父节点
+        # 处理有父节点的任务（作为子节点挂载到父节点下）
+        for parent_id, children in parent_groups.items():
+            # 收集所有子节点的 vis
             children_vis_list: List[str] = []
             for child_node in children:
-                gpt_msg = messages_map.get(child_node.content.message_id)
-
-                # 生成子节点的 leaf_vis
-                if gpt_msg:
-                    leaf_item_vis = await self._gen_plan_items(
-                        gpt_msg=gpt_msg,
-                        layer_count=child_node.layer_count + 1,
-                        senders_map=senders_map
-                    )
-                else:
-                    leaf_item_vis = ""
-
-                # 创建子节点的 AgentPlanItem
-                child_agent = senders_map.get(child_node.content.agent_name)
-
-                child_item = AgentPlanItem(
-                    uid=child_node.node_id,
-                    type=UpdateType.INCR.value,
-                    title=child_node.name,
-                    description=child_node.description,
-                    item_type=child_node.content.task_type or AgentTaskType.PLAN.value,
-                    agent_role=child_agent.role if child_agent else None,
-                    agent_name=child_agent.name if child_agent else None,
-                    agent_avatar=child_agent.avatar if child_agent else None,
-                    status=child_node.state,
-                    start_time=child_node.created_at,
-                    layer_count=child_node.layer_count,
-                    cost=child_node.content.cost,
-                    markdown=leaf_item_vis,
-                )
-
-                # 生成子节点的 vis
-                child_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                    content=child_item.to_dict()
-                )
-                children_vis_list.append(child_vis)
-            
-            # 将所有子节点 vis 合并到父节点的 markdown
-            if children_vis_list:
-                parent_item.markdown = "\n".join(children_vis_list)
-
-            # 生成父节点的 vis
-            parent_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                content=parent_item.to_dict()
-            )
-            result_vis_list.append(parent_vis)
-
-        # Step 3: 处理根节点（每个独立）
-        for root_node in root_nodes:
-            gpt_msg = messages_map.get(root_node.content.message_id)
-
-            # 生成根节点的 leaf_vis
-            if gpt_msg:
-                leaf_item_vis = await self._gen_plan_items(
-                    gpt_msg=gpt_msg,
-                    layer_count=root_node.layer_count + 1,
-                    senders_map=senders_map
-                )
-            else:
+                # 生成子节点的内容(Task节点根据消息生成，非Task类型节点直接生成任务节点)
                 leaf_item_vis = ""
+                if child_node.content.task_type == AgentTaskType.TASK.value:
+                    gpt_msg = messages_map.get(child_node.content.message_id)
+                    if gpt_msg:
+                        leaf_item_vis = await self._gen_plan_items(
+                            gpt_msg=gpt_msg,
+                            layer_count=child_node.layer_count + 1,
+                            senders_map=senders_map,
+                        )
 
-            # 创建根节点的 AgentPlanItem
-            root_agent = senders_map.get(root_node.content.agent_name)
-            root_item = AgentPlanItem(
-                uid=root_node.node_id,
-                type=UpdateType.INCR.value,
-                title=root_node.name,
-                description=root_node.description,
-                item_type=root_node.content.task_type or AgentTaskType.PLAN.value,
-                agent_role=root_agent.role if root_agent else None,
-                agent_name=root_agent.name if root_agent else None,
-                agent_avatar=root_agent.avatar if root_agent else None,
-                status=root_node.state,
-                start_time=root_node.created_at,
-                layer_count=root_node.layer_count,
-                cost=root_node.content.cost,
-                markdown=leaf_item_vis,
-            )
+                else:
+                    leaf_item_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                        content=self._build_task_item(child_node, "", senders_map).to_dict()
+                    )
 
-            # 生成根节点的 vis
-            root_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                content=root_item.to_dict()
-            )
-            result_vis_list.append(root_vis)
+                children_vis_list.append(leaf_item_vis)
 
+            if parent_id and children_vis_list:
+                parent_task = task_manager.get_node(parent_id)
+                parent_item = AgentPlanItem(
+                    uid=parent_task.node_id,
+                    type=UpdateType.INCR.value,
+                    item_type=parent_task.content.task_type,
+                    status=parent_task.state,
+                    start_time=parent_task.created_at,
+                    cost=parent_task.content.cost if parent_task.content else 0,
+                    markdown="\n".join(children_vis_list),
+                )
+
+                parent_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                    content=parent_item.to_dict()
+                )
+                result_vis_list.append(parent_vis)
+            else:
+                logger.info("没有父节点的 子节点直接作为根节点返回")
+                ## 没有父节点的 子节点直接作为根节点返回
+                result_vis_list.extend(children_vis_list)
         return result_vis_list
 
     async def _footer_vis_build(self, gpt_msg: GptsMessage):
@@ -517,6 +480,60 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
         return "\n".join(plans_vis)
 
+    def _find_agent_root_node(
+        self, task_manager: TreeManager
+    ) -> Optional[TreeNodeData]:
+        if not task_manager:
+            return None
+        # 优先查找 item_type='agent' 的节点
+        for node in task_manager.node_map.values():
+            if (
+                node.content
+                and hasattr(node.content, "task_type")
+                and node.content.task_type == "agent"
+            ):
+                return node
+        # 降级策略：查找根节点
+        for node in task_manager.node_map.values():
+            if not node.parent_id:
+                return node
+        return None
+
+    def _is_hidden_node(self, task_node: TreeNodeData[AgentTaskContent]) -> bool:
+        """检查节点是否为 hidden 类型。"""
+        return (
+            task_node.content
+            and task_node.content.task_type == AgentTaskType.HIDDEN.value
+        )
+
+    def _get_effective_parent_id(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        task_manager: Optional[TreeManager],
+    ) -> Optional[str]:
+        """获取有效的父节点 ID。
+
+        如果直接父节点是 hidden 类型，则返回父节点的父节点（跳过 hidden 节点）。
+        """
+        if not task_manager:
+            return task_node.parent_id
+
+        # 如果没有父节点或者父节点不存在，根节点作为父节点
+        parent_id = task_node.parent_id
+        if not parent_id or task_node.parent_id == task_node.node_id:
+            return None
+
+        parent_task = task_manager.get_node(parent_id)
+
+        if not parent_task:
+            return None
+
+        # 如果父节点是 hidden，向上查找直到非 hidden 节点
+        if self._is_hidden_node(parent_task):
+            return parent_task.parent_id
+
+        return parent_id
+
     async def _planning_vis_build(
         self,
         messages: Optional[List[GptsMessage]] = None,
@@ -541,26 +558,62 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         conv_id: str = main_agent.agent_context.conv_id
 
         task_items_vis = []
+
+        # --- 新增逻辑：提取看板相关工具的输出 ---
+        kanban_todolist_content = None
+        target_actions = ["create_kanban", "submit_deliverable"]
+
+        # 检查流式消息
         if stream_msg:
-            message_id = stream_msg.get("message_id")
+            action_outs = stream_msg.get("action_report")
+            if action_outs:
+                for out in action_outs:
+                    if out.name in target_actions or out.action in target_actions:
+                        kanban_todolist_content = (
+                            out.simple_view or out.view or out.content
+                        )
 
-            current_task = None
-            if message_id:
-                current_task = task_manager.get_node(message_id)
-            if current_task:
-                leaf_item_vis = await self._gen_plan_items(stream_msg=stream_msg,
-                                                           layer_count=current_task.layer_count + 1,
-                                                           senders_map=senders_map)
-                if not leaf_item_vis:
-                    return None
-                task_item: AgentPlanItem = await self._gen_plan_tree_by_task(task_manager, current_task,
-                                                                             leaf_item_vis, senders_map=senders_map)
-                task_items_vis.append(self.vis_inst(AgentPlan.vis_tag()).sync_display(content=task_item.to_dict()))
+        # 检查新任务节点中的消息
+        if new_task_nodes and messages:
+            messages_map = {m.message_id: m for m in messages}
+            for node in new_task_nodes:
+                msg = messages_map.get(node.content.message_id)
+                if msg and msg.action_report:
+                    for out in msg.action_report:
+                        if out.name in target_actions or out.action in target_actions:
+                            kanban_todolist_content = (
+                                out.simple_view or out.view or out.content
+                            )
 
-        if new_task_nodes:
-            # Use new nested building logic: child nodes are embedded in parent's markdown
+        # 如果有看板更新，挂载到 Agent 根节点
+        if kanban_todolist_content and task_manager:
+            root_node = self._find_agent_root_node(task_manager)
+            if root_node:
+                # 创建一个虚拟的子节点来承载 TodoList，确保状态单一且能刷新
+                # 使用 UpdateType.ALL 确保每次都是全量替换，避免重复追加
+                todolist_item = AgentPlanItem(
+                    uid=root_node.node_id,
+                    parent_uid=root_node.parent_id,
+                    type=UpdateType.INCR.value,
+                    # title="Task Board",
+                    # description="Mission deliverables and status",
+                    markdown=kanban_todolist_content,
+                    status=Status.RUNNING.value,
+                )
+                task_items_vis.append(
+                    self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                        content=todolist_item.to_dict()
+                    )
+                )
+        # 处理 stream_msg 和 new_task_nodes
+        # stream_msg 作为虚拟节点，与 new_task_nodes 统一处理
+        if stream_msg or new_task_nodes:
             nested_vis_list = await self._build_nested_task_nodes(
-                new_task_nodes, messages, senders_map, task_manager
+                new_task_nodes or [],
+                messages,
+                senders_map,
+                task_manager,
+                stream_msg,
             )
             task_items_vis.extend(nested_vis_list)
 
@@ -672,9 +725,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     and gpt_msg.metrics.start_time_ms
                 ):
                     cost_val = (
-                        gpt_msg.metrics.llm_metrics.end_time_ms
-                        - gpt_msg.metrics.start_time_ms
-                    ) // 1000
+                                   gpt_msg.metrics.llm_metrics.end_time_ms
+                                   - gpt_msg.metrics.start_time_ms
+                               ) // 1000
                 if gpt_msg.metrics.llm_metrics.speed_per_second is not None:
                     speed_val = float(gpt_msg.metrics.llm_metrics.speed_per_second)
 
@@ -831,16 +884,14 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         action_out: ActionOutput,
         layer_count: int,
     ):
-        if action_out.action in [
-            "create_kanban",
-            "submit_deliverable",
-            "read_deliverable",
-        ]:
-            # 这些特殊 action 的内容（todolist 等）会提取到 PlanningSpace 的 todolist 字段
-            # 不嵌入到 stage 的 markdown 中，避免重复显示
-            # 返回空字符串，不向 markdown 中追加内容
-            return action_out.simple_view or action_out.view or action_out.content
+        # 过滤看板相关动作，这些内容会通过 _find_kanban_for_node 单独挂载到对应节点下
+        target_actions = ["create_kanban", "submit_deliverable"]
+        if action_out.action in target_actions or action_out.name in target_actions:
+            return None
         else:
+            title = action_out.action
+            if action_out.name in [AgentStart.name]:
+                title = action_out.name
             return self.vis_inst(AgentPlan.vis_tag()).sync_display(
                 content=AgentPlanItem(
                     uid=action_out.action_id,
@@ -849,7 +900,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     task_type=ACTION_TASK_MAP[action_out.name]
                     if action_out.name in ACTION_TASK_MAP
                     else "tool",
-                    title=action_out.action,
+                    title=title,
                     description=str(action_out.action_input)
                     if action_out.action_input
                     else None,
@@ -857,81 +908,190 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     start_time=action_out.start_time,
                     layer_count=layer_count,
                     markdown=action_out.simple_view
-                    or action_out.view
-                    or action_out.content
+                             or action_out.view
+                             or action_out.content
                     if action_out.terminate
                     else None,
                     cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
                 ).to_dict()
             )
 
-    def _unpack_task_space(
+    def _collect_kanban_for_agents(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        task_manager: TreeManager,
+        messages_map: Optional[Dict[str, GptsMessage]] = None,
+    ) -> Dict[str, Tuple[int, str]]:
+        """预收集看板信息，返回 {agent_node_id: (position, kanban_content)}。
+
+        position 是第一次发现看板的位置（第几个子节点下）。
+        content 是最后一个看板的内容（支持多次更新）。
+        遇到子 Agent 时停止遍历（属于另一个 Agent 的看板逻辑）。
+        """
+        # 结构：{agent_id: {"position": int, "content": str}}
+        result: Dict[str, Dict[str, any]] = {}
+
+        if not messages_map:
+            return {}
+
+        target_actions = ["create_kanban", "submit_deliverable"]
+
+        def collect_from_agent(agent_node: TreeNodeData[AgentTaskContent]):
+            """从 Agent 节点开始遍历其子节点，收集看板信息。"""
+            agent_id = agent_node.node_id
+
+            for position, child_id in enumerate(agent_node.child_ids):
+                child = task_manager.get_node(child_id)
+                if not child:
+                    continue
+
+                # 跳过子 Agent（属于另一个 Agent 的看板逻辑）
+                if child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                    continue
+
+                # 在当前子树中搜索看板
+                search_in_subtree(child, agent_id, position, result)
+
+        def search_in_subtree(
+            node: TreeNodeData[AgentTaskContent],
+            agent_id: str,
+            position: int,
+            result: Dict[str, Dict[str, any]],
+        ):
+            """在非 Agent 子树中搜索看板，position 记录相对于 Agent 子节点的位置。
+
+            遇到看板就更新 content（保留最后一个），但 position 只记录第一次的。
+            """
+            if not node.content:
+                # 继续递归子节点（跳过子 Agent）
+                for child_id in node.child_ids:
+                    child = task_manager.get_node(child_id)
+                    if child and child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                        continue
+                    if child:
+                        search_in_subtree(child, agent_id, position, result)
+                return
+
+            # 检查当前节点是否有看板
+            message = messages_map.get(node.content.message_id)
+            if message and message.action_report:
+                for out in message.action_report:
+                    if out.name in target_actions or out.action in target_actions:
+                        kanban_content = out.simple_view or out.view or out.content
+                        # 第一次发现：记录 position 和 content
+                        # 后续发现：只更新 content（保留最后一个）
+                        if agent_id not in result:
+                            result[agent_id] = {"position": position, "content": kanban_content}
+                        else:
+                            result[agent_id]["content"] = kanban_content
+                        break
+
+            # 继续递归子节点（跳过子 Agent）
+            for child_id in node.child_ids:
+                child = task_manager.get_node(child_id)
+                if child and child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                    continue
+                if child:
+                    search_in_subtree(child, agent_id, position, result)
+
+        # 从根节点开始，找到每个 Agent 及其看板
+        def traverse_for_agents(node: TreeNodeData[AgentTaskContent]):
+            """遍历树，对每个 Agent 节点收集看板。"""
+            if not node.content:
+                for child_id in node.child_ids:
+                    child = task_manager.get_node(child_id)
+                    if child:
+                        traverse_for_agents(child)
+                return
+
+            if node.content.task_type == AgentTaskType.AGENT.value:
+                # 处理这个 Agent
+                collect_from_agent(node)
+
+            # 继续遍历子节点
+            for child_id in node.child_ids:
+                child = task_manager.get_node(child_id)
+                if child:
+                    traverse_for_agents(child)
+
+        traverse_for_agents(task_node)
+
+        # 转换为最终格式
+        return {agent_id: (info["position"], info["content"]) for agent_id, info in result.items()}
+
+    async def _unpack_task_space(
         self,
         task_space: TreeNodeData[AgentTaskContent],
         task_manager: TreeManager,
         actions_map: Dict[str, "ActionOutput"],
         messages_map: Optional[Dict[str, GptsMessage]] = None,
         agent_map: Optional[Dict[str, "ConversableAgent"]] = None,
-    ) -> AgentPlanItem:
-        child_vis = []
+        kanban_mount_map: Optional[Dict[str, Tuple[int, str]]] = None,
+    ) -> Optional[str]:
+        """递归解包任务空间，返回当前节点的渲染结果。
 
-        ## 构建当前任务的自节点数据，需要关注task和plan的顺序
-        ### 使用messages字段顺序，message要么属于child的任务id，要么关联了当前的action信息
+        核心逻辑：
+        1. TASK 类型叶子节点：直接返回 _gen_plan_items 结果（不包装）
+        2. 非 TASK 类型节点：包装成 AgentPlanItem，子节点作为 markdown
+        3. Agent 节点：根据 kanban_mount_map 在指定位置挂载看板内容
+        """
+        if kanban_mount_map is None:
+            kanban_mount_map = {}
+
+        is_task = task_space.content and task_space.content.task_type == AgentTaskType.TASK.value
+        is_agent = task_space.content and task_space.content.task_type == AgentTaskType.AGENT.value
+        message = messages_map.get(task_space.content.message_id) if messages_map and task_space.content else None
+
+        # 1. 递归处理所有子节点
+        children_vis_list: List[str] = []
+
         for child_id in task_space.child_ids:
-            item: TreeNodeData[AgentTaskContent] = task_manager.get_node(child_id)
+            child: TreeNodeData[AgentTaskContent] = task_manager.get_node(child_id)
+            if child:
+                child_vis = await self._unpack_task_space(
+                    child, task_manager, actions_map, messages_map, agent_map, kanban_mount_map
+                )
+                if child_vis:
+                    children_vis_list.append(child_vis)
 
-            if item and item.child_ids:
-                agent_plan_item = self._unpack_task_space(
-                    item, task_manager, actions_map, messages_map, agent_map
-                )
-                child_vis.append(
-                    self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                        content=agent_plan_item.to_dict()
-                    )
-                )
+        # 2. 如果是 Agent 节点，挂载看板到指定位置
+        if is_agent and task_space.node_id in kanban_mount_map:
+            position, kanban_content = kanban_mount_map[task_space.node_id]
+            # position 表示在第几个子节点位置插入看板
+            if position <= 0:
+                children_vis_list.insert(0, kanban_content)
+            elif position >= len(children_vis_list):
+                children_vis_list.append(kanban_content)
             else:
-                if messages_map and agent_map:
-                    message = messages_map.get(item.content.message_id)
-                    if message:
-                        agent = agent_map.get(message.sender_name)
-                        if agent and agent.agent_parser:
-                            thought = agent.agent_parser.parse_streaming_xml(
-                                message.content, CONST_LLMOUT_THOUGHT
-                            )
-                            title = agent.agent_parser.parse_streaming_xml(
-                                message.content, CONST_LLMOUT_TITLE
-                            )
-                            if title:
-                                report_content = DrskTextContent(
-                                    dynamic=False,
-                                    markdown=title,
-                                    uid=f"{message.message_id}_'step_thought'",
-                                    type="all",
-                                )
+                children_vis_list.insert(position, kanban_content)
 
-                                child_vis.append(
-                                    DrskContent().sync_display(
-                                        content=report_content.to_dict(
-                                            exclude_none=True
-                                        )
-                                    )
-                                )
-                            # if thought:
-                            #     child_vis.append(thought)
-                        if message.action_report:
-                            for action_out in message.action_report:
-                                plan_item_vis = self._act_out_2_plan(
-                                    action_out, task_space.layer_count + 1
-                                )
-                                if plan_item_vis:
-                                    child_vis.append(plan_item_vis)
+        # 3. TASK 类型处理
+        if is_task:
+            node_content = ""
+            if message:
+                node_content = await self._gen_plan_items(
+                    gpt_msg=message,
+                    layer_count=task_space.layer_count + 1,
+                    senders_map=agent_map,
+                ) or ""
 
-        agent = agent_map.get(task_space.content.agent_name)
-        return AgentPlanItem(
+            # TASK 叶子节点：直接返回内容
+            if not children_vis_list:
+                return node_content
+
+            # TASK 有子节点：内容 + 子节点
+            markdown = "\n".join([node_content] + children_vis_list)
+        else:
+            markdown = "\n".join(children_vis_list)
+
+        # 4. 非 TASK 节点构建 AgentPlanItem
+        agent = agent_map.get(task_space.content.agent_name) if task_space.content and agent_map else None
+
+        plan_item = AgentPlanItem(
             uid=task_space.node_id,
-            parent_uid=task_space.parent_id,  # 添加父节点UID
+            parent_uid=task_space.parent_id,
             type=UpdateType.INCR.value,
-            item_type=task_space.content.task_type,  # AgentTaskType.PLAN.value,  #
+            item_type=task_space.content.task_type if task_space.content else AgentTaskType.PLAN.value,
             title=task_space.name,
             description=task_space.description,
             status=task_space.state,
@@ -939,9 +1099,14 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             agent_avatar=agent.avatar if agent else None,
             start_time=task_space.created_at,
             layer_count=task_space.layer_count,
-            cost=task_space.content.cost,
-            markdown="\n".join(child_vis),
+            cost=task_space.content.cost if task_space.content else 0,
+            markdown=markdown,
         )
+        return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+            content=plan_item.to_dict()
+        )
+
+
 
     async def _planning_vis_all(
         self,
@@ -958,34 +1123,35 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if not user_message:
             logger.warning("_planning_vis_all eroor, not have user in message!")
 
+        task_items_vis = []
+
         ## 处理 任务推进显示
         root_task_space = task_manager.get_node(user_message.goal_id)
-        root_plan_item = self._unpack_task_space(
-            root_task_space, task_manager, actions_map, messages_map, senders_map
+
+        # 预收集看板挂载信息 {agent_id: (position, content)}
+        kanban_mount_map = self._collect_kanban_for_agents(
+            root_task_space, task_manager, messages_map
         )
 
-        planning_window_content = PlanningSpaceContent(
-            uid=f"{conv_id}_planning",
-            type=UpdateType.INCR.value,
-            agent_role=main_agent.role,
-            agent_name=main_agent.name,
-            avatar=main_agent.avatar,
-            title=None,
-            description=None,
-            markdown=self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                content=root_plan_item.to_dict()
-            ),
+        # 递归构建 vis，传入看板挂载信息
+        root_vis = await self._unpack_task_space(
+            root_task_space,
+            task_manager,
+            actions_map,
+            messages_map,
+            senders_map,
+            kanban_mount_map,
         )
-        all_plans_vis = self.vis_inst(PlanningSpace.vis_tag()).sync_display(
-            content=planning_window_content.to_dict()
-        )
+
+        if root_vis:
+            task_items_vis.append(root_vis)
 
         foot_vis = ""
         output_message: Optional[GptsMessage] = messages_map.get(output_message_id)
         if output_message:
             logger.info(f"output message is {output_message.content}")
 
-        return all_plans_vis + "\n" + foot_vis
+        return "\n".join(task_items_vis) + "\n" + foot_vis
 
     async def _running_vis_all(
         self,

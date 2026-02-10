@@ -708,10 +708,9 @@ class GptsMemory:
         is_success, is_new = cache.task_manager.upsert_node(
             parent_id=task.parent_id, node=task
         )
-        if is_new:
-            ## 新增节点的时候 推送前端展示
-            logger.info(f"推送新的任务节点[{task.node_id},{task.name}]")
-            await self.push_message(conv_id, new_task_nodes=[task])
+        ## 新增节点的时候 推送前端展示
+        logger.info(f"推送新的任务节点[{task.node_id},{task.name}]")
+        await self.push_message(conv_id, new_task_nodes=[task])
 
     async def get_task(
         self, conv_id: str, node_id: str

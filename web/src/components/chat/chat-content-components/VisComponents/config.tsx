@@ -31,7 +31,7 @@ import VisRunningWindowMsgCard from './VisRunningWindowMsg';
 import VisRunningWindowStepCard from './VisRunningWindowStep';
 import VisStepCard from './VisStepCard';
 import VisStepListCard from './VisStepListCard';
-import { safeJsonParse, parseFirstJson } from '@/utils/json';
+import { parseFirstJson } from '@/utils/json';
 import VisTodoList from './VisTodoList';
 import VisParseError from './VisParseError';
 

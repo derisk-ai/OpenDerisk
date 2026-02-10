@@ -1,10 +1,10 @@
+import logging
 from typing import Optional
 
 from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool
-from derisk.agent.core.system_tool_registry import system_tool
 from derisk.sandbox.base import SandboxBase
 from derisk.sandbox.sandbox_utils import normalize_sandbox_path, detect_path_kind
-
+logger = logging.getLogger(__name__)
 
 _EDIT_FILE_PROMPT = """Edit a text file by replacing a unique string or appending new content."""
 
@@ -64,7 +64,8 @@ async def _read_text_from_sandbox(client, abs_path: str) -> str:
             },
             "append": {
                 "type": "boolean",
-                "description": "Whether to append to the file instead of replacing. Defaults to True.",
+                "description": "Whether to append to the file instead of replacing. "
+                               "Defaults to False.",
             }
         },
         "required": ["description", "path"],
@@ -89,6 +90,7 @@ async def execute_edit_file(
         new_str: 替换或追加内容
         append: 是否追加
     """
+    logger.info(f"edit_file: description={description}, path={path}, new_str={new_str}, append={append}")
     error = _validate_required_str(description, "description")
     if error:
         return error
@@ -148,6 +150,7 @@ async def execute_edit_file(
         await client.file.write(
             path=sandbox_path,
             data=updated_content,
+            overwrite=append
         )
     except Exception as exc:  # noqa: BLE001
         return f"错误: 写入文件失败 ({sandbox_path}): {exc}"

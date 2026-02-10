@@ -139,13 +139,6 @@ REACT_SYSTEM_TEMPLATE = """\
 一句话描述当前进展（如：正在调用网络诊断Agent）
 </scratch_pad>
 
-<thought>
-详细记录思考过程：
-1. 当前状态：我处在什么阶段？目标是什么？
-2. 信息评估：已掌握什么？还缺什么？
-3. 决策依据：选择什么行动？为什么？
-</thought>
-
 <tool_calls>
 [
   {"工具名称": {"key1": "value1", "key2": "value2"}},
