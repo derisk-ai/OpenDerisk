@@ -5,84 +5,52 @@ import { Typography, Tabs } from 'antd';
 import { PlusOutlined, RedoOutlined } from '@ant-design/icons';
 import ChunkReplay from '@/components/vis-merge/ChunkReplay';
 import MergeTestTab from '@/components/vis-merge/MergeTestTab';
-import { VisBaseParser } from '@/utils/parse-vis';
+import { VisParser } from '@/utils/parse-vis';
 import 'katex/dist/katex.min.css';
 
 const { Title, Text } = Typography;
 
-// VIS 数据合并测试器
+// VIS 数据合并测试器 - 与正式对话完全一致
 class VisMergeTester {
-  // 提取 JSON 中的 vis 文本
-  extractVisContent(jsonStr: string): { planning_window?: string; running_window?: string } | null {
+  private visParser: VisParser;
+
+  constructor() {
+    this.visParser = new VisParser();
+  }
+
+  // 重置解析器状态（模拟新的对话）
+  reset() {
+    this.visParser.destroy();
+    this.visParser = new VisParser();
+  }
+
+  // 合并单个 chunk - 与正式对话的 parseChunkData 完全一致
+  // chunk 格式: {"vis": "{\"planning_window\": \"...\", \"running_window\": \"...\"}"}
+  mergeChunk(chunk: string): string {
     try {
-      const data = JSON.parse(jsonStr);
-      if (data.vis) {
-        return JSON.parse(data.vis);
-      }
-      return data;
+      const data = JSON.parse(chunk);
+      // 正式对话中：parseChunkData 接收 data.vis（即包含 planning_window 和 running_window 的 JSON 字符串）
+      // 然后调用 visParser.update(answer) 其中 answer = data.vis
+      const visContent = data.vis || chunk;
+      return this.visParser.update(visContent);
     } catch (e) {
-      return null;
+      console.error('Failed to merge chunk:', e);
+      return chunk;
     }
   }
 
-  // 合并 VIS 数据
-  mergeVis(baseVis: string, incrVis: string): string {
-    if (!baseVis) return incrVis;
-    if (!incrVis) return baseVis;
-
-    const baseData = this.extractVisContent(baseVis);
-    const incrData = this.extractVisContent(incrVis);
-
-    if (!baseData || !incrData) {
-      return incrVis;
-    }
-
-    const result: any = {};
-
-    // 合并 planning_window - 为每次合并创建新的 parser 实例
-    if (incrData.planning_window !== undefined) {
-      if (incrData.planning_window === null) {
-        result.planning_window = null;
-      } else if (baseData.planning_window && incrData.planning_window) {
-        const parser = new VisBaseParser();
-        parser.currentVis = baseData.planning_window;
-        result.planning_window = parser.updateCurrentMarkdown(incrData.planning_window);
-      } else {
-        result.planning_window = incrData.planning_window;
-      }
-    } else {
-      result.planning_window = baseData.planning_window;
-    }
-
-    // 合并 running_window - 为每次合并创建新的 parser 实例
-    if (incrData.running_window !== undefined) {
-      if (incrData.running_window === null) {
-        result.running_window = null;
-      } else if (baseData.running_window && incrData.running_window) {
-        const parser = new VisBaseParser();
-        parser.currentVis = baseData.running_window;
-        result.running_window = parser.updateCurrentMarkdown(incrData.running_window);
-      } else {
-        result.running_window = incrData.running_window;
-      }
-    } else {
-      result.running_window = baseData.running_window;
-    }
-
-    return JSON.stringify({ vis: JSON.stringify(result) });
-  }
-
-  // 逐个合并 chunk
+  // 逐个合并 chunks - 保持状态累积
   mergeChunks(chunks: string[]): string {
-    let result = '';
+    let lastResult = '';
     for (const chunk of chunks) {
-      if (!result) {
-        result = chunk;
-      } else {
-        result = this.mergeVis(result, chunk);
-      }
+      lastResult = this.mergeChunk(chunk);
     }
-    return result;
+    return lastResult;
+  }
+
+  // 获取当前合并结果（与正式对话的 midMsgObject.text 一致）
+  getCurrentResult(): string {
+    return this.visParser.current;
   }
 }
 

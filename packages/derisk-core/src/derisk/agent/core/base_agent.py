@@ -470,7 +470,7 @@ class ConversableAgent(Role, Agent):
                             parent_id=message.goal_id,
                             content=AgentTaskContent(
                                 agent_name=sender.name,
-                                task_type=AgentTaskType.STAGE.value,
+                                task_type=AgentTaskType.HIDDEN.value,
                                 message_id=message.message_id,
                             ),
                             state=Status.COMPLETE.value,
@@ -747,7 +747,6 @@ class ConversableAgent(Role, Agent):
                     #         description="",
                     #     ),
                     # )
-
 
                     await self.push_context_event(
                         EventType.StepStart,

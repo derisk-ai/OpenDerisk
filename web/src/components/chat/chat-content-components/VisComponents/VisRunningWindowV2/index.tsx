@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useRef, useState } from 'react';
+import React, { FC, useEffect, useRef, useState, useMemo } from 'react';
 import {
   CheckCircleOutlined,
   CloseOutlined,
@@ -75,7 +75,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   const [isFolderVisible, setIsFolderVisible] = useState<boolean>(true);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const chatListContainerRef = useRef<HTMLDivElement>(null);
-  const runningContent = keyBy(data.items, 'uid');
+  const runningContent = useMemo(() => keyBy(data.items, 'uid'), [data.items]);
 
   // const containerHeight = useElementHeight(
   //   `#nex-chat-detail-panel${data.uid}`,
@@ -110,6 +110,47 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   ]);
 
   const toggleFolder = () => setIsFolderVisible((prev) => !prev);
+
+  const explorerContent = useMemo(
+    () => (
+      <FolderContainer
+        style={{
+          width: '30%',
+          display: isFolderVisible ? 'block' : 'none',
+        }}
+      >
+        {/* @ts-ignore */}
+        <GPTVis
+          components={{ ...codeComponents, ...(otherComponents || {}) }}
+          {...markdownPlugins}
+        >
+          {data.explorer || '-'}
+        </GPTVis>
+      </FolderContainer>
+    ),
+    [isFolderVisible, data.explorer, otherComponents],
+  );
+
+  const mainContentMarkdown =
+    runningContent[displayUid]?.markdown ||
+    data.items[data.items.length - 1]?.markdown ||
+    '-';
+
+  const mainContent = useMemo(
+    () => (
+      <AgentContent ref={chatListContainerRef} className="AgentContent">
+        {/* @ts-ignore */}
+        <GPTVis
+          className="whitespace-normal"
+          components={{ ...codeComponents, ...(otherComponents || {}) }}
+          {...markdownPlugins}
+        >
+          {mainContentMarkdown}
+        </GPTVis>
+      </AgentContent>
+    ),
+    [mainContentMarkdown, otherComponents],
+  );
 
   return (
     <AgentContainer
@@ -174,20 +215,7 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
       </HeaderContainer>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <FolderContainer
-          style={{
-            width: '30%',
-            display: isFolderVisible ? 'block' : 'none',
-          }}
-        >
-          {/* @ts-ignore */}
-          <GPTVis
-            components={{ ...codeComponents, ...(otherComponents || {}) }}
-            {...markdownPlugins}
-          >
-            {data.explorer || '-'}
-          </GPTVis>
-        </FolderContainer>
+        {explorerContent}
         <div
           style={{
             flex: 1,
@@ -214,22 +242,11 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
               </Space>
             </div>
           )}
-          <AgentContent ref={chatListContainerRef} className="AgentContent">
-            {/* @ts-ignore */}
-            <GPTVis
-              className="whitespace-normal"
-              components={{ ...codeComponents, ...(otherComponents || {}) }}
-              {...markdownPlugins}
-            >
-              {runningContent[displayUid]?.markdown ||
-                data.items[data.items.length - 1]?.markdown ||
-                '-'}
-            </GPTVis>
-          </AgentContent>
+          {mainContent}
         </div>
       </div>
     </AgentContainer>
   );
 };
 
-export default VisRunningWindowV2;
+export default React.memo(VisRunningWindowV2);
