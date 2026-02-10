@@ -107,72 +107,6 @@ class ReActAgent(ManagerAgent):
             "parser": self.agent_parser,
         }
 
-    # async def listen_thinking_stream(self,
-    #                                  llm_out: AgentLLMOut,
-    #                                  reply_message_id: str,
-    #                                  start_time: datetime,
-    #                                  cu_thinking_incr: Optional[str] = None,
-    #                                  cu_content_incr: Optional[str] = None,
-    #                                  is_first_chunk: bool = False,
-    #                                  is_first_content: bool = False,
-    #                                  received_message: Optional[AgentMessage] = None,
-    #                                  sender: Optional[Agent] = None,
-    #                                  prev_content: Optional[str] = None,
-    #                                  ):
-    #     if not self.stream_out:
-    #         return
-    #     scratch_pad_complete = False
-    #     content_incr = None
-    #     if len(llm_out.content) > 0 and self.content_stream_out:
-    #         if scratch_pad_complete:
-    #             return
-    #         scratch_pad_complete, scratch_pad = extract_specific_tag(llm_out.content, "scratch_pad")
-    #         prev_scratch_pad_complete, prev_scratch_pad = extract_specific_tag(prev_content, "scratch_pad")
-    #         if not scratch_pad_complete and scratch_pad:
-    #             scratch_pad_incr = scratch_pad
-    #             if prev_scratch_pad:
-    #                 scratch_pad_incr = scratch_pad[len(prev_scratch_pad):]
-    #             content_incr = scratch_pad_incr
-    #
-    #         thought_complete, thought = extract_specific_tag(llm_out.content, "thought")
-    #         pre_thought_complete, pre_thought = extract_specific_tag(prev_content, "thought")
-    #         if not thought_complete and thought:
-    #             thought_incr = thought
-    #             if pre_thought:
-    #                 thought_incr = thought[len(pre_thought):]
-    #             content_incr = thought_incr
-    #
-    #     temp_message = {
-    #         "uid": reply_message_id,
-    #         "type": "incr",
-    #         "message_id": reply_message_id,
-    #         "conv_id": self.not_null_agent_context.conv_id,
-    #         "task_goal_id": received_message.goal_id if received_message else "",
-    #         "goal_id": received_message.goal_id if received_message else "",
-    #         "task_goal": received_message.content if received_message else "",
-    #         "conv_session_uid": self.agent_context.conv_session_id,
-    #         "app_code": self.agent_context.gpts_app_code,
-    #         "sender": self.name or self.role,
-    #         "sender_role": self.role,
-    #         "model": llm_out.llm_name,
-    #         "llm_avatar": None,  # TODO
-    #         "thinking": cu_thinking_incr,
-    #         "content": content_incr,
-    #         "avatar": self.avatar,
-    #         "observation": received_message.observation if received_message else "",
-    #         "status": Status.RUNNING.value,
-    #         "start_time": start_time,
-    #         "metrics": MessageMetrics(llm_metrics=llm_out.metrics).to_dict(),
-    #         "prev_content": prev_content,
-    #     }
-    #     if self.not_null_agent_context.output_process_message or self.is_final_role:
-    #         await self.memory.gpts_memory.push_message(
-    #             self.not_null_agent_context.conv_id,
-    #             stream_msg=temp_message,
-    #             is_first_chunk=is_first_chunk,
-    #             incremental=self.not_null_agent_context.incremental,
-    #             sender=sender
-    #         )
 
     async def act(
         self,
@@ -213,6 +147,7 @@ class ReActAgent(ManagerAgent):
                     render_protocol=await self.memory.gpts_memory.async_vis_converter(
                         self.not_null_agent_context.conv_id),
                     message_id=message.message_id,
+                    current_message=message,
                     sender=sender,
                     agent=self,
                     received_message=received_message,

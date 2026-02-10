@@ -282,6 +282,7 @@ class ToolAssistantAgent(ManagerAgent):
                     render_protocol=await self.memory.gpts_memory.async_vis_converter(
                         self.not_null_agent_context.conv_id),
                     message_id=message.message_id,
+                    current_message=message,
                     sender=sender,
                     agent=self,
                     received_message=received_message,

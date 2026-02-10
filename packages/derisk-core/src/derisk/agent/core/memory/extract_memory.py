@@ -25,7 +25,7 @@ _METADATA_CONV_SESSION_ID = "conv_session_id"
 _METADATA_CONV_SESSION_IDS = "conv_session_ids"
 _METADATA_IS_INSIGHT = "is_insight"
 _TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
-_MAX_SEARCH_TIMES = 5
+_MAX_SEARCH_TIMES = 3
 _TOTAL_SEARCH_LIMIT = 1000
 
 
@@ -436,10 +436,19 @@ class ExtractMemory(LongTermMemory):
 
     def _chunk_to_memory(self, chunk: Chunk) -> AgentExtractMemoryFragment:
         metadata = chunk.metadata
+        conv_session_ids = metadata.get(_METADATA_CONV_SESSION_IDS)
+        if conv_session_ids:
+            # Handle both list format and comma-separated string format
+            if isinstance(conv_session_ids, list):
+                if len(conv_session_ids) == 1 and isinstance(conv_session_ids[0], str):
+                    conv_session_ids = conv_session_ids[0].split(",")
+                # else: already a list of ids
+            elif isinstance(conv_session_ids, str):
+                conv_session_ids = conv_session_ids.split(",")
         return AgentExtractMemoryFragment(
             pk_id=chunk.pk_id,
             agent_id=metadata.get(_METADATA_AGENT_ID, None),
-            conv_session_ids=metadata.get(_METADATA_CONV_SESSION_IDS, None),
+            conv_session_ids=conv_session_ids,
             memory_type=metadata.get(_METADATA_MEMORY_TYPE, None),
             keywords=metadata.get(_METADATA_KEYWORDS, None),
             conv_session_id=metadata.get(_METADATA_CONV_SESSION_ID, None),

@@ -13,7 +13,7 @@ class DrskBrowserContent(DrskVisBase):
         description="浏览器title",
     )
     title_avatar: Optional[str] = Field(
-        default="https://nexa-api-pre.alipay.com/api/oss/getFileByFileName?fileName=03c48108-d336-4a8a-920d-a820d5e51c57.png",
+        default="",
         description="浏览器title",
     )
     current_index: Optional[int] = Field(
@@ -29,8 +29,7 @@ class DrskBrowserContent(DrskVisBase):
         description="state of wiki structure",
     )
     avatar: str = Field(
-        # default="https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*Iv0MS5hyUMwAAAAAKBAAAAgAeprcAQ/original",
-        default="https://nexa-api-pre.alipay.com/api/oss/getFileByFileName?fileName=1bce9d06-703c-4ce3-8330-d3b11acd1aa7.png",
+        default="https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*Iv0MS5hyUMwAAAAAKBAAAAgAeprcAQ/original",
         description="avatar",
     )
 

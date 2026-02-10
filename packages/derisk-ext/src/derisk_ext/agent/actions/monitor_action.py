@@ -138,9 +138,9 @@ class FileInfo:
         return self.__repr__()
 
 
-class AntMonitorAction(ToolAction):
+class MonitorAction(ToolAction):
     """Tool action class."""
-    name = "AntMonitor"
+    name = "Monitor"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

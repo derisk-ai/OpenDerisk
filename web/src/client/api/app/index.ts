@@ -141,3 +141,12 @@ export const getAppVersion = (data: Record<string, string>) => {
 export const publishAppNew = (data: Record<string, string>) => {
   return POST<Record<string, string>, any>(`/api/v1/serve/app/publish`, data);
 };
+
+/**
+ * 获取Agent默认提示词模板
+ */
+export const getAgentDefaultPrompt = (agentName: string, language: string = 'en') => {
+  return GET<any, { system_prompt_template: string; user_prompt_template: string }>(
+    `/api/v1/agent/default-prompt?agent_name=${agentName}&language=${language}`,
+  );
+};

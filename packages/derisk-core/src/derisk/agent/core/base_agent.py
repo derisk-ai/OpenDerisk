@@ -56,6 +56,7 @@ from .schema import (
 )
 from .types import AgentReviewInfo, MessageType
 from .variable import VariableManager
+from .. import BlankAction
 
 from ..resource.base import Resource
 from ..util.ext_config import ExtConfigHolder
@@ -461,24 +462,6 @@ class ConversableAgent(Role, Agent):
 
                 await self._a_process_received_message(message, sender)
 
-                if not sender.is_human:
-                    # 收到非用户消息更新节点
-                    await self.memory.gpts_memory.upsert_task(
-                        conv_id=self.agent_context.conv_id,
-                        task=TreeNodeData(
-                            node_id=message.message_id,
-                            parent_id=message.goal_id,
-                            content=AgentTaskContent(
-                                agent_name=sender.name,
-                                task_type=AgentTaskType.HIDDEN.value,
-                                message_id=message.message_id,
-                            ),
-                            state=Status.COMPLETE.value,
-                            name=message.current_goal,
-                            description="",
-                        ),
-                    )
-
                 if request_reply is False or request_reply is None:
                     return None
 
@@ -730,23 +713,22 @@ class ConversableAgent(Role, Agent):
                         observation=observation,
                     )
 
-                    # ### 生成的消息先立即推送进行占位
-                    # ## 开始当前的任务空间
-                    # await self.memory.gpts_memory.upsert_task(
-                    #     conv_id=self.agent_context.conv_id,
-                    #     task=TreeNodeData(
-                    #         node_id=reply_message.message_id,
-                    #         parent_id=reply_message.goal_id,
-                    #         content=AgentTaskContent(
-                    #             agent_name=self.name,
-                    #             task_type=AgentTaskType.TASK.value,
-                    #             message_id=reply_message.message_id,
-                    #         ),
-                    #         state=Status.TODO.value,
-                    #         name=f"收到任务'{received_message.content}',开始思考...",
-                    #         description="",
-                    #     ),
-                    # )
+                    ### 生成的消息先立即推送进行占位
+                    await self.memory.gpts_memory.upsert_task(
+                        conv_id=self.agent_context.conv_id,
+                        task=TreeNodeData(
+                            node_id=reply_message.message_id,
+                            parent_id=reply_message.goal_id,
+                            content=AgentTaskContent(
+                                agent_name=self.name,
+                                task_type=AgentTaskType.TASK.value,
+                                message_id=reply_message.message_id,
+                            ),
+                            state=Status.TODO.value,
+                            name=f"收到任务'{received_message.content}',开始思考...",
+                            description="",
+                        ),
+                    )
 
                     await self.push_context_event(
                         EventType.StepStart,
@@ -863,6 +845,23 @@ class ConversableAgent(Role, Agent):
                     question: str = received_message.content or ""
                     ai_message: str = reply_message.content
 
+                    # Continue to run the next round
+                    self.current_retry_counter += 1
+                    # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
+                    await self.send(reply_message, recipient=self, request_reply=False)
+                    # # 任务完成记录任务结论
+                    await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
+                                                              task=TreeNodeData(
+                                                                  node_id=reply_message.message_id,
+                                                                  parent_id=reply_message.goal_id,
+                                                                  content=AgentTaskContent(agent_name=self.name,
+                                                                                           task_type=AgentTaskType.TASK.value,
+                                                                                           message_id=reply_message.message_id),
+                                                                  state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
+                                                                  name=received_message.current_goal,
+                                                                  description=received_message.content
+                                                              ))
+
                     # 5.Optimize wrong answers myself
                     if not check_pass:
                         #  记录action的失败消息
@@ -913,13 +912,13 @@ class ConversableAgent(Role, Agent):
                             action_output=act_outs,
                             check_pass=check_pass,
                             agent_id=self.not_null_agent_context.agent_app_code
-                            or self.not_null_agent_context.gpts_app_code,
+                                     or self.not_null_agent_context.gpts_app_code,
                             reply_message=reply_message,
                             terminate=any([act_out.terminate for act_out in act_outs]),
                             current_retry_counter=current_round,
                         )
-                        ### 非LOOP模式以及非FunctionCall模式
 
+                        ### 非LOOP模式以及非FunctionCall模式
                         if (
                             self.run_mode != AgentRunMode.LOOP
                             and not self.enable_function_call
@@ -932,23 +931,7 @@ class ConversableAgent(Role, Agent):
                         if any([act_out.terminate for act_out in act_outs]):
                             break
 
-                    # Continue to run the next round
-                    self.current_retry_counter += 1
-                    # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
-                    await self.send(reply_message, recipient=self, request_reply=False)
-                    # # 记录当前消息的任务关系
-                    # await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
-                    #                                           task=TreeNodeData(
-                    #                                               node_id=reply_message.message_id,
-                    #                                               parent_id=received_message.message_id,
-                    #                                               content=AgentTaskContent(agent_name=self.name,
-                    #                                                                        task_type=AgentTaskType.STAGE.value,
-                    #                                                                        message_id=reply_message.message_id),
-                    #                                               state=self.received_message_state[
-                    #                                                   received_message.message_id].value,
-                    #                                               name=received_message.current_goal,
-                    #                                               description=received_message.content
-                    #                                           ))
+
 
             reply_message.success = is_success
             # 6.final message adjustment
@@ -974,17 +957,16 @@ class ConversableAgent(Role, Agent):
 
         except Exception as e:
             logger.exception("Generate reply exception!")
-            err_message = AgentMessage(
-                message_id=uuid.uuid4().hex,
-                content=str(e),
-                action_report=[
-                    ActionOutput(
-                        is_exe_success=False,
-                        content=f"Generate reply exception:{str(e)}",
-                    )
-                ],
-            )
-            err_message.rounds = 9999
+            if reply_message:
+                err_message = reply_message
+            else:
+                err_message = AgentMessage(
+                    message_id=uuid.uuid4().hex,
+                    goal_id=received_message.message_id,
+                    content="",
+                )
+                err_message.rounds = 9999
+            err_message.action_report = [await BlankAction().run(f"ERROR:{str(e)}")]
             err_message.success = False
 
             agent_system_message.update(
@@ -1311,8 +1293,8 @@ class ConversableAgent(Role, Agent):
                         current_content = output.content
 
                         if self.not_null_agent_context.incremental:
-                            res_thinking = current_thinking[len(prev_thinking) :]
-                            res_content = current_content[len(prev_content) :]
+                            res_thinking = current_thinking[len(prev_thinking):]
+                            res_content = current_content[len(prev_content):]
                             prev_thinking = current_thinking
                             temp_prev_content = current_content
 
@@ -1493,6 +1475,7 @@ class ConversableAgent(Role, Agent):
                     "message_id",
                     "sender",
                     "agent",
+                    "current_message",
                     "received_message",
                     "agent_context",
                     "memory",

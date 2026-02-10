@@ -1190,10 +1190,10 @@ async def _parse_browser_response(
                 analysis_result = await analyze_image(
                     image=result.screenshot,
                     prompt=analysis_prompt,
-                    model="aistudio/Qwen2.5-VL-7B-Instruct"
+                    model="aistudio/Qwen3-VL-235B-A22B-Instruct(高保)"
                 )
                 result.analysis = analysis_result
-                logger.info(f"{operation_name} - Screenshot analysis completed successfully")
+                logger.info(f"{operation_name} - Screenshot analysis completed successfully, result: {analysis_result}")
             except Exception as analysis_exc:
                 logger.warning(f"{operation_name} - Screenshot analysis failed: {analysis_exc}")
                 result.analysis_error = str(analysis_exc)

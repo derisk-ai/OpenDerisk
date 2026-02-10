@@ -8,6 +8,7 @@ Replaces the original LocalSandbox with:
 - TOML configuration support
 - Better session and process management
 """
+
 import asyncio
 import json
 import logging
@@ -16,6 +17,7 @@ import time
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 
+from derisk.configs.model_config import DATA_DIR
 from derisk.sandbox.base import SandboxBase, SandboxOpts
 from derisk.sandbox.client.sandbox.types import SandboxDetail
 from derisk.sandbox.providers.base import (
@@ -30,9 +32,15 @@ from derisk_ext.sandbox.local.improved_runtime import (
 )
 from derisk_ext.sandbox.local.shell_client import LocalShellClient
 from derisk_ext.sandbox.local.file_client import LocalFileClient
-from derisk_ext.sandbox.local.playwright_browser_client import PlaywrightBrowserClient, BrowserConfig
+from derisk_ext.sandbox.local.playwright_browser_client import (
+    PlaywrightBrowserClient,
+    BrowserConfig,
+)
 
 logger = logging.getLogger(__name__)
+
+# Default skill directory for local sandbox (uses DATA_DIR/skill)
+DEFAULT_LOCAL_SANDBOX_SKILL_DIR = os.path.join(DATA_DIR, "skill")
 
 
 @dataclass
@@ -41,7 +49,7 @@ class LocalSandboxConfig:
 
     # Runtime settings
     work_dir: str = "/workspace"
-    skill_dir: str = "/mnt/derisk/skills"
+    skill_dir: str = DEFAULT_LOCAL_SANDBOX_SKILL_DIR
     runtime_id: str = "improved_local_runtime"
 
     # Execution settings
@@ -68,11 +76,11 @@ class LocalSandboxConfig:
             self.browser_viewport = {"width": 1280, "height": 720}
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any]) -> 'LocalSandboxConfig':
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "LocalSandboxConfig":
         """Create config from dictionary (e.g., from TOML)."""
         return cls(
             work_dir=config_dict.get("work_dir", "/workspace"),
-            skill_dir=config_dict.get("skill_dir", "/mnt/derisk/skills"),
+            skill_dir=config_dict.get("skill_dir", DEFAULT_LOCAL_SANDBOX_SKILL_DIR),
             runtime_id=config_dict.get("runtime_id", "improved_local_runtime"),
             default_timeout=config_dict.get("default_timeout", 300),
             max_memory=config_dict.get("max_memory", 256 * 1024 * 1024),
@@ -82,7 +90,9 @@ class LocalSandboxConfig:
             network_disabled=config_dict.get("network_disabled", False),
             browser_type=config_dict.get("browser_type", "chromium"),
             browser_headless=config_dict.get("browser_headless", True),
-            browser_viewport=config_dict.get("browser_viewport", {"width": 1280, "height": 720}),
+            browser_viewport=config_dict.get(
+                "browser_viewport", {"width": 1280, "height": 720}
+            ),
             max_sessions=config_dict.get("max_sessions", 10),
             session_idle_timeout=config_dict.get("session_idle_timeout", 3600),
         )
@@ -115,10 +125,7 @@ class ImprovedLocalSandbox(SandboxBase):
     _shared_runtime: Optional[ImprovedLocalSandboxRuntime] = None
     _runtime_lock = asyncio.Lock()
 
-    def __init__(
-        self,
-        **kwargs
-    ):
+    def __init__(self, **kwargs):
         # Parse configuration
         config_dict = kwargs.get("local_sandbox_config", {})
         self._config = LocalSandboxConfig.from_dict(config_dict)
@@ -169,7 +176,7 @@ class ImprovedLocalSandbox(SandboxBase):
         timeout: Optional[int] = None,
         metadata: Optional[Dict[str, str]] = None,
         allow_internet_access: bool = True,
-        **kwargs
+        **kwargs,
     ) -> "ImprovedLocalSandbox":
         """
         Create a new local sandbox instance.
@@ -196,12 +203,7 @@ class ImprovedLocalSandbox(SandboxBase):
         kwargs["local_sandbox_config"]["allow_network"] = allow_internet_access
 
         # Create instance
-        instance = cls(
-            sandbox_id=sandbox_id,
-            user_id=user_id,
-            agent=agent,
-            **kwargs
-        )
+        instance = cls(sandbox_id=sandbox_id, user_id=user_id, agent=agent, **kwargs)
 
         # Initialize the sandbox
         await instance._initialize()
@@ -230,7 +232,9 @@ class ImprovedLocalSandbox(SandboxBase):
             except (ValueError, TypeError):
                 pass
 
-        self._session = await self._runtime.create_session(self.sandbox_id, session_config)
+        self._session = await self._runtime.create_session(
+            self.sandbox_id, session_config
+        )
 
         # Initialize clients
         await self._init_clients()
@@ -247,7 +251,9 @@ class ImprovedLocalSandbox(SandboxBase):
             except (ValueError, TypeError):
                 pass
 
-        logger.info(f"Initialized local sandbox {self.sandbox_id} for user {self.user_id}")
+        logger.info(
+            f"Initialized local sandbox {self.sandbox_id} for user {self.user_id}"
+        )
 
     async def _init_clients(self) -> None:
         """Initialize the file, shell, and browser clients."""
@@ -258,16 +264,12 @@ class ImprovedLocalSandbox(SandboxBase):
 
         # File client
         self._file = LocalFileClient(
-            sandbox_id=self.sandbox_id,
-            work_dir=work_dir,
-            runtime=self._runtime
+            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
         )
 
         # Shell client
         self._shell = LocalShellClient(
-            sandbox_id=self.sandbox_id,
-            work_dir=work_dir,
-            runtime=self._runtime
+            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
         )
 
         # Browser client (if enabled)
@@ -280,14 +282,14 @@ class ImprovedLocalSandbox(SandboxBase):
             self._browser = PlaywrightBrowserClient(
                 instance_id=self.sandbox_id,
                 runtime=self._runtime,
-                browser_config=browser_config
+                browser_config=browser_config,
             )
         else:
             # Use stub browser if disabled
             from derisk_ext.sandbox.local.browser_client import LocalBrowserClient
+
             self._browser = LocalBrowserClient(
-                instance_id=self.sandbox_id,
-                runtime=self._runtime
+                instance_id=self.sandbox_id, runtime=self._runtime
             )
 
     async def _periodic_cleanup(self) -> None:
@@ -314,7 +316,9 @@ class ImprovedLocalSandbox(SandboxBase):
         elif result.status == ExecutionStatus.TIMEOUT:
             return f"Timeout after {result.execution_time}s: {result.error}"
         else:
-            return f"Error (exit code {result.exit_code}): {result.error}\n{result.output}"
+            return (
+                f"Error (exit code {result.exit_code}): {result.error}\n{result.output}"
+            )
 
     async def install_dependencies(self, dependencies: List[str]) -> bool:
         """Install Python dependencies in the sandbox."""
@@ -350,9 +354,7 @@ class ImprovedLocalSandbox(SandboxBase):
         return self._is_running
 
     async def connect(
-        self,
-        timeout: Optional[int] = None,
-        **opts
+        self, timeout: Optional[int] = None, **opts
     ) -> "ImprovedLocalSandbox":
         """Connect to an existing sandbox instance."""
         # For local sandbox, we just need to ensure it's still running
@@ -403,10 +405,7 @@ class ImprovedLocalSandbox(SandboxBase):
         }
 
     async def get_metrics(
-        self,
-        start: Optional[float] = None,
-        end: Optional[float] = None,
-        **opts
+        self, start: Optional[float] = None, end: Optional[float] = None, **opts
     ) -> List[Dict[str, Any]]:
         """Get sandbox metrics."""
         if not self._session:
@@ -466,7 +465,7 @@ def get_local_sandbox_config_from_toml(toml_content: str) -> LocalSandboxConfig:
     ```toml
     [sandbox.local]
     work_dir = "/workspace"
-    skill_dir = "/mnt/derisk/skills"
+    skill_dir = "/path/to/data/skill"  # Default: DATA_DIR/skill
     default_timeout = 300
     max_memory = 268435456  # 256MB
     max_cpus = 1
@@ -484,11 +483,13 @@ def get_local_sandbox_config_from_toml(toml_content: str) -> LocalSandboxConfig:
     """
     try:
         import tomli
+
         toml_dict = tomli.loads(toml_content)
     except ImportError:
         # Fallback to tomllib (Python 3.11+)
         import tomllib
         from io import StringIO
+
         toml_dict = tomllib.loads(toml_content)
 
     sandbox_config = toml_dict.get("sandbox", {}).get("local", {})
@@ -496,10 +497,7 @@ def get_local_sandbox_config_from_toml(toml_content: str) -> LocalSandboxConfig:
 
 
 async def create_local_sandbox_from_toml(
-    toml_content: str,
-    user_id: str,
-    agent: str,
-    **kwargs
+    toml_content: str, user_id: str, agent: str, **kwargs
 ) -> ImprovedLocalSandbox:
     """
     Create a local sandbox from TOML configuration.
@@ -520,39 +518,52 @@ async def create_local_sandbox_from_toml(
 
 # Predefined templates for common use cases
 
-async def create_development_sandbox(user_id: str, agent: str, **kwargs) -> ImprovedLocalSandbox:
+
+async def create_development_sandbox(
+    user_id: str, agent: str, **kwargs
+) -> ImprovedLocalSandbox:
     """Create a sandbox optimized for development (more permissive)."""
     kwargs.setdefault("local_sandbox_config", {})
-    kwargs["local_sandbox_config"].update({
-        "allow_network": True,
-        "max_memory": 512 * 1024 * 1024,  # 512MB
-        "default_timeout": 600,  # 10 minutes
-        "use_sandbox_exec": False,  # Disable for easier debugging
-    })
+    kwargs["local_sandbox_config"].update(
+        {
+            "allow_network": True,
+            "max_memory": 512 * 1024 * 1024,  # 512MB
+            "default_timeout": 600,  # 10 minutes
+            "use_sandbox_exec": False,  # Disable for easier debugging
+        }
+    )
     return await ImprovedLocalSandbox.create(user_id, agent, **kwargs)
 
 
-async def create_strict_sandbox(user_id: str, agent: str, **kwargs) -> ImprovedLocalSandbox:
+async def create_strict_sandbox(
+    user_id: str, agent: str, **kwargs
+) -> ImprovedLocalSandbox:
     """Create a sandbox with strict security settings."""
     kwargs.setdefault("local_sandbox_config", {})
-    kwargs["local_sandbox_config"].update({
-        "allow_network": False,
-        "max_memory": 128 * 1024 * 1024,  # 128MB
-        "default_timeout": 60,  # 1 minute
-        "use_sandbox_exec": True,
-    })
+    kwargs["local_sandbox_config"].update(
+        {
+            "allow_network": False,
+            "max_memory": 128 * 1024 * 1024,  # 128MB
+            "default_timeout": 60,  # 1 minute
+            "use_sandbox_exec": True,
+        }
+    )
     return await ImprovedLocalSandbox.create(user_id, agent, **kwargs)
 
 
-async def create_browser_sandbox(user_id: str, agent: str, **kwargs) -> ImprovedLocalSandbox:
+async def create_browser_sandbox(
+    user_id: str, agent: str, **kwargs
+) -> ImprovedLocalSandbox:
     """Create a sandbox optimized for browser automation."""
     kwargs.setdefault("local_sandbox_config", {})
-    kwargs["local_sandbox_config"].update({
-        "allow_network": True,
-        "max_memory": 512 * 1024 * 1024,  # 512MB
-        "default_timeout": 300,  # 5 minutes
-        "browser_type": "chromium",
-        "browser_headless": True,
-        "enable_browser": True,
-    })
+    kwargs["local_sandbox_config"].update(
+        {
+            "allow_network": True,
+            "max_memory": 512 * 1024 * 1024,  # 512MB
+            "default_timeout": 300,  # 5 minutes
+            "browser_type": "chromium",
+            "browser_headless": True,
+            "enable_browser": True,
+        }
+    )
     return await ImprovedLocalSandbox.create(user_id, agent, **kwargs)

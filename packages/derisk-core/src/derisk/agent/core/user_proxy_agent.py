@@ -63,7 +63,7 @@ class UserProxyAgent(ConversableAgent):
                                                                                message_id=message.message_id),
                                                       state=Status.COMPLETE.value,
                                                       name=message.current_goal,
-                                                      description=""
+                                                      description="结论"
                                                   ))
         if message.action_report:
             if any([item.ask_user for item in message.action_report]):

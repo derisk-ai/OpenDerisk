@@ -140,6 +140,11 @@ class KnowledgePlannerParser(AgentParser[KnowledgePlannerInfo]):
                                     f"文件工具缺少description参数，默认设置为{FILE_DESCRIPTION}"
                                 )
                                 new_plan.parameters["description"] = FILE_DESCRIPTION
+                                if "edit_file" in operation:
+                                    logger.info(
+                                        f"文件工具append参数，默认设置为False"
+                                    )
+                                    new_plan.parameters["append"] = False
                             new_plans.append(new_plan)
                         else:
                             new_plans.append(plan)

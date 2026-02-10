@@ -254,7 +254,7 @@ class ResourceManager(BaseComponent):
             try:
                 parameter_cls = single_item.get_parameter_class()
                 param = parameter_cls.from_dict(
-                    resource_value if v2_resource else agent_resource.to_dict()
+                    resource_value if v2_resource else agent_resource.to_dict(), ignore_extra_fields=True
                 )
                 param_dict = param.to_dict()
                 if not return_resource:

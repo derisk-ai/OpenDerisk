@@ -40,6 +40,11 @@ class WorkEntry:
             "archives": self.archives
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'WorkEntry':
+        """从字典反序列化"""
+        return cls(**data)
+
 
 @dataclass
 class Stage:

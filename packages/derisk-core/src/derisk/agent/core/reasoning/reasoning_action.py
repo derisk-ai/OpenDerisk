@@ -6,6 +6,7 @@ from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field
 
+from derisk._private.pydantic import model_to_dict
 from ..agent import (
     ActionOutput,
     AgentMessage,
@@ -46,6 +47,9 @@ class AgentActionInput(BaseModel):
         description="Additional metadata or contextual data supporting the agent's action.",
     )
 
+    def to_dict(self):
+        return model_to_dict(self)
+
 
 class AgentAction(Action[AgentActionInput]):
     name = "Agent"
@@ -63,7 +67,7 @@ class AgentAction(Action[AgentActionInput]):
             action_id=self.action_uid,
             thoughts=self.action_input.thought,
             action=self.action_input.agent_name,
-            action_input=self.action_input.content,
+            action_input=self.action_input.to_dict(),
             state=Status.RUNNING.value,
         )]
 
@@ -190,7 +194,7 @@ class AgentAction(Action[AgentActionInput]):
                 "action": action_input.agent_name,
                 "name": self.name,
                 "state": Status.FAILED.value,
-                "action_input": action_input.content,
+                "action_input": action_input.to_dict(),
                 "content": f"Agent启动异常！{str(e)}",
                 "metrics": metrics,
             })

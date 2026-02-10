@@ -1,16 +1,9 @@
-import ast
 import json
 import logging
-import os
-import random
-import time
-import uuid
 import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional, List
 from httpx import AsyncClient, Timeout
-
-import aiohttp
 from sqlalchemy import (
     Column,
     DateTime,
@@ -220,6 +213,87 @@ class GptsToolDao(BaseDao):
             })
             return gpt_tools
 
+    async def a_get_tool_by_name(self, name: str) -> Optional[GptsTool]:
+        """根据 tool_name 查询工具（异步版本）
+
+        Args:
+            name: 工具名称
+
+        Returns:
+            GptsTool 对象，如果找不到则返回 None
+        """
+        async with self.a_session(commit=False) as session:
+            stmt = select(GptsToolEntity).limit(1)
+            if name:
+                stmt = stmt.where(GptsToolEntity.tool_name == name)
+            rows = await session.execute(stmt)
+            result = rows.scalar_one_or_none()
+            if result is None:
+                return None
+            return GptsTool.from_dict({
+                "tool_name": result.tool_name,
+                "tool_id": result.tool_id,
+                "type": result.type,
+                "config": result.config,
+                "owner": result.owner,
+                "gmt_create": result.gmt_create,
+                "gmt_modified": result.gmt_modified
+            })
+
+    async def get_tools_by_tool_ids(self, tool_ids: list) -> List[GptsTool]:
+        """根据 tool_id 列表批量查询工具
+
+        Args:
+            tool_ids: tool_id 列表
+
+        Returns:
+            GptsTool 列表
+        """
+        if not tool_ids:
+            return []
+        async with self.a_session(commit=False) as session:
+            stmt = select(GptsToolEntity).where(GptsToolEntity.tool_id.in_(tool_ids))
+            rows = await session.execute(stmt)
+            results = rows.scalars().all()
+            if not results:
+                return []
+            return [GptsTool.from_dict({
+                "tool_name": result.tool_name,
+                "tool_id": result.tool_id,
+                "type": result.type,
+                "config": result.config,
+                "owner": result.owner,
+                "gmt_create": result.gmt_create,
+                "gmt_modified": result.gmt_modified
+            }) for result in results]
+
+
+    async def get_tools_by_names(self, tool_names: list) -> List[GptsTool]:
+        """根据 tool_name 列表批量查询工具
+
+        Args:
+            tool_names: tool_name 列表
+
+        Returns:
+            GptsTool 列表
+        """
+        if not tool_names:
+            return []
+        async with self.a_session(commit=False) as session:
+            stmt = select(GptsToolEntity).where(GptsToolEntity.tool_name.in_(tool_names))
+            rows = await session.execute(stmt)
+            results = rows.scalars().all()
+            if not results:
+                return []
+            return [GptsTool.from_dict({
+                "tool_name": result.tool_name,
+                "tool_id": result.tool_id,
+                "type": result.type,
+                "config": result.config,
+                "owner": result.owner,
+                "gmt_create": result.gmt_create,
+                "gmt_modified": result.gmt_modified
+            }) for result in results]
 
 class GptsToolDetail(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -472,63 +546,6 @@ class DbQueryRequest(BaseModel):
     params: Optional[object]
 
 
-async def execute_http_tool(execute_request: ExecuteToolRequest,
-                            request_headers: dict = None,
-                            queue: Optional[asyncio.Queue] = None):
-    config = HTTPToolConfig(**execute_request.config)
-    params = execute_request.params
-    if config.script.get('reqCheck') and config.script.get('request'):
-        try:
-            code_result = await execute_code(config.script.get('request') % (params, config.headers))
-            params, config.headers = ast.literal_eval(code_result)[0], ast.literal_eval(code_result)[1]
-        except Exception as e:
-            logger.error('[execute_http_tool]transfor request fail: error: %s', str(e))
-    if request_headers:
-        config.headers.update(request_headers)
-    if params.get('request'):
-        params = params.get('request')
-    if os.environ.get('ALIPAY_APP_ENV','prod') == 'prepub' and config.preUrl:
-        config.url = config.preUrl
-
-    if not config.stream:
-        return await _execute_non_stream(config, params)
-    else:
-        if queue:
-            return await _execute_stream_with_queue(config, params, queue)
-        return _execute_stream_generator(config, params)
-
-async def _execute_non_stream(config: HTTPToolConfig, params: dict) -> str:
-    """非流式HTTP请求处理"""
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.timeout)) as session:
-        if config.method == "GET":
-            async with session.get(config.url, headers=config.headers, params=params, ssl=False) as response:
-                response.raise_for_status()
-                result = await response.text()
-        elif config.method == "POST":
-            async with session.post(config.url, headers=config.headers, json=params, ssl=False) as response:
-                response.raise_for_status()
-                result = await response.text()
-        else:
-            raise ValueError(f"method {config.method} not supported")
-
-    # 如果提供了 schema，进行校验和过滤
-    if config.outputSchema:
-        try:
-            response_data = json.loads(result)
-            filtered_data = filter_response_by_schema(response_data, config.outputSchema)
-            if filtered_data is None or len(filtered_data) == 0:
-                return result
-            result = json.dumps(filtered_data, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Schema validation failed: {e}")
-    # 响应后处理
-    if config.script.get('respCheck') and config.script.get('response'):
-        try:
-            result = await execute_code(config.script.get('response') % result)
-        except Exception as e:
-            logger.error('[execute_http_tool]transform response fail: error: %s', str(e))
-    return result
-
 
 async def execute_script_and_get_function(script_content):
     global_namespace = {}
@@ -623,48 +640,6 @@ async def _execute_stream_with_queue(
             return error_msg
     return ''.join(result)
 
-
-async def execute_tr_tool(execute_request: ExecuteToolRequest, request_headers: dict = None):
-    tr_config = TRToolConfig(**execute_request.config)
-    script, output_schema = tr_config.script, tr_config.outputSchema
-    if script.get('reqCheck') and script.get('request'):
-        try:
-            code_result = await execute_code(script.get('request') % (execute_request.params, tr_config.headers))
-            execute_request.params, _ = ast.literal_eval(code_result)[0], ast.literal_eval(code_result)[1]
-        except Exception as e:
-            logger.error('[execute_tr_tool]transfor request fail: error: %s', str(e))
-    for param in tr_config.paramsList:
-        if param.name in execute_request.params:
-            param.value = execute_request.params[param.name]
-    url = NEX_DOMAIN.get(os.environ.get('ALIPAY_APP_ENV', 'prepub'),
-                         'https://nexa-api-pre.alipay.com') + '/openapi/tool/tr/execute'
-    async with aiohttp.ClientSession(headers=request_headers) as session:
-        async with session.post(url, json=tr_config.model_dump(), ssl=False) as response:
-            response.raise_for_status()
-            result = await response.text()
-
-    # 如果提供了 schema，进行校验和过滤
-    if tr_config.outputSchema:
-        try:
-            response_data = json.loads(result)
-            filtered_data = filter_response_by_schema(response_data, tr_config.outputSchema)
-            if filtered_data is None or len(filtered_data) == 0:
-                return result
-            result = json.dumps(filtered_data, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Schema validation failed: {e}")
-    if script.get('respCheck') and script.get('response'):
-        try:
-            result = await execute_code(script.get('response') % result)
-        except Exception as e:
-            logger.error('[execute_http_tool]transfor request fail: error: %s', str(e))
-    return result
-
-
-async def execute_code(content: str):
-    from derisk_ext.agent.agents.code.action.ant_code_action import CodeExecutor
-    code_executor = CodeExecutor()
-    return await code_executor.execute_code(content, 'python')
 
 
 def filter_response_by_schema(response_data: Any, schema: Dict[str, Any]) -> Any:

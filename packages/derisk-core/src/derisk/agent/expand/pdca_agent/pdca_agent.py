@@ -13,6 +13,7 @@ from derisk.agent import (
     BlankAction,
 )
 from derisk.agent.core import system_tool_dict
+from derisk.agent.core.file_system.file_system import FileSystem
 from derisk.agent.core.file_system.file_tree import TreeNodeData
 from derisk.agent.core.memory.gpts.agent_system_message import (
     SystemMessageType,
@@ -28,7 +29,6 @@ from derisk.agent.expand.actions.sandbox_action import SandboxAction
 from derisk.agent.expand.actions.system_action import SystemAction
 from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
-from derisk.agent.expand.pdca_agent.file_system import FileSystem
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
 from derisk.agent.expand.pdca_agent.prompt_v7 import (
@@ -44,7 +44,6 @@ from derisk.agent.expand.pdca_agent.prompt_v7 import (
     USER_PROMPT,
 )
 from derisk.agent.expand.react_agent.react_agent import ReActAgent
-from derisk.agent.expand.react_agent.react_parser import CONST_LLMOUT_TITLE
 from derisk.context.event import EventType, ChatPayload, StepPayload, ActionPayload
 from derisk.util.json_utils import serialize
 from derisk.util.tracer import root_tracer
@@ -227,19 +226,6 @@ class PDCAAgent(ReActAgent):
                         await self.task_id_by_received_message(received_message),
                     )
 
-                    reply_message, agent_llm_out = await self._generate_think_message(
-                        received_message=received_message,
-                        sender=sender,
-                        new_reply_message=reply_message,
-                        rely_messages=rely_messages,
-                        historical_dialogues=historical_dialogues,
-                        is_retry_chat=is_retry_chat,
-                        message_metrics=message_metrics,
-                        tool_messages=all_tool_messages,
-                        pm=pm,
-                        **kwargs,
-                    )
-
                     current_stage: Optional[Stage] = (
                         pm.kanban.get_current_stage() if pm.kanban else None
                     )
@@ -263,6 +249,37 @@ class PDCAAgent(ReActAgent):
                                 description="",
                             ),
                         )
+                    else:
+                        ### 生成的消息先立即推送进行占位
+                        await self.memory.gpts_memory.upsert_task(
+                            conv_id=self.agent_context.conv_id,
+                            task=TreeNodeData(
+                                node_id=reply_message.message_id,
+                                parent_id=reply_message.goal_id,
+                                content=AgentTaskContent(
+                                    agent_name=self.name,
+                                    task_type=AgentTaskType.TASK.value,
+                                    message_id=reply_message.message_id,
+                                ),
+                                state=Status.TODO.value,
+                                name=f"收到任务'{received_message.content}',开始思考...",
+                                description="",
+                            ),
+                        )
+
+                    reply_message, agent_llm_out = await self._generate_think_message(
+                        received_message=received_message,
+                        sender=sender,
+                        new_reply_message=reply_message,
+                        rely_messages=rely_messages,
+                        historical_dialogues=historical_dialogues,
+                        is_retry_chat=is_retry_chat,
+                        message_metrics=message_metrics,
+                        tool_messages=all_tool_messages,
+                        pm=pm,
+                        **kwargs,
+                    )
+
                     # 4. 执行 (Do)
                     act_extent_param = self.prepare_act_param(
                         received_message=received_message,
@@ -309,21 +326,33 @@ class PDCAAgent(ReActAgent):
                             count = tool_failure_counts.get(act_out.action, 0) + 1
                             tool_failure_counts[act_out.action] = count
 
+                            # 方案4: 优化 observation 信息，让 LLM 更容易改变策略
+                            # 每次失败时添加更丰富的上下文
+                            original_error = act_out.content or "No error details available"
+                            enhanced_content = (
+                                f"[Tool Failure - Attempt {count}/3]\n"
+                                f"Tool: {act_out.action}\n"
+                                f"Input: {act_out.action_input if act_out.action_input else 'N/A'}\n"
+                                f"Error: {original_error}\n\n"
+                                f"Please consider: 1. Reviewing the input parameters, 2. Trying a different tool, 3. Adjusting your approach"
+                            )
+                            act_out.content = enhanced_content
+
                             if count >= 3:
+                                # 方案1: 当工具连续失败 N 次后强制终止
                                 logger.warning(
-                                    f"Tool {act_out.action} failed {count} times. Injecting stop warning."
+                                    f"Tool {act_out.action} failed {count} times. Force terminating the loop."
                                 )
-                                warning_msg = (
-                                    f"\n\n[SYSTEM WARNING] The tool '{act_out.action}' has failed or returned empty results {count} times consecutively. "
-                                    f"It seems unavailable or broken for your current input. "
-                                    f"DO NOT retry the same action. "
-                                    f"Please: 1. Switch to a different tool/strategy, OR 2. Terminate the task and report the issue."
+                                # 强制设置终止标记，防止无限循环
+                                act_out.terminate = True
+                                # 添加清晰的停止理由
+                                stop_msg = (
+                                    f"\n\n[SYSTEM STOP] The tool '{act_out.action}' has failed {count} times consecutively. "
+                                    f"This task is being terminated to prevent an infinite loop. "
+                                    f"The tool appears to be unavailable or incompatible with the current input. "
+                                    f"Please report this issue to the user and consider alternative approaches."
                                 )
-                                # 确保内容不为空，以便 LLM 看到
-                                if not act_out.content:
-                                    act_out.content = warning_msg
-                                else:
-                                    act_out.content += warning_msg
+                                act_out.content += stop_msg
                         else:
                             # 成功则重置该工具的计数
                             tool_failure_counts[act_out.action] = 0
@@ -352,6 +381,52 @@ class PDCAAgent(ReActAgent):
                                 summary=act_out.content,
                                 # result=act_out.content
                             )
+                    check_pass, reason = await self.verify(
+                        reply_message,
+                        sender,
+                        reviewer,
+                        received_message=received_message,
+                    )
+
+                    # Continue to run the next round
+                    self.current_retry_counter += 1
+
+                    # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
+                    await self.send(reply_message, recipient=self, request_reply=False)
+
+                    if not any([act_out.terminate for act_out in act_outs]):
+                        # 记录当前消息的任务关系
+                        if current_stage:
+                            await self.memory.gpts_memory.upsert_task(
+                                conv_id=self.agent_context.conv_id,
+                                task=TreeNodeData(
+                                    node_id=reply_message.message_id,
+                                    parent_id= current_stage.stage_id ,
+                                    content=AgentTaskContent(
+                                        agent_name=self.name,
+                                        task_type=AgentTaskType.TASK.value,
+                                        message_id=reply_message.message_id,
+                                    ),
+                                    state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
+                                    name=current_stage.description,
+                                    description="",
+                                ),
+                            )
+                        else:
+                            # # 任务完成记录任务结论
+                            await self.memory.gpts_memory.upsert_task(
+                                conv_id=self.agent_context.conv_id,
+                                task=TreeNodeData(
+                                    node_id=reply_message.message_id,
+                                    parent_id=reply_message.goal_id,
+                                    content=AgentTaskContent(
+                                        agent_name=self.name,
+                                        task_type=AgentTaskType.TASK.value,
+                                        message_id=reply_message.message_id),
+                                    state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
+                                    name=received_message.current_goal,
+                                    description=received_message.content
+                                ))
 
                     ### 非LOOP模式以及非FunctionCall模式
                     if (
@@ -363,14 +438,6 @@ class PDCAAgent(ReActAgent):
                     ## Action明确结束的，成功后直接退出
                     if any([act_out.terminate for act_out in act_outs]):
                         break
-
-                    # Continue to run the next round
-                    self.current_retry_counter += 1
-
-                    # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
-                    await self.send(reply_message, recipient=self, request_reply=False)
-
-                    # 记录当前消息的任务关系
 
             reply_message.success = is_success
             # 6.final message adjustment
@@ -490,6 +557,7 @@ class PDCAAgent(ReActAgent):
                 "message_id",
                 "sender",
                 "agent",
+                "current_message",
                 "received_message",
                 "agent_context",
                 "memory",
@@ -513,6 +581,7 @@ class PDCAAgent(ReActAgent):
                     message_id=message.message_id,
                     sender=sender,
                     agent=self,
+                    current_message=message,
                     received_message=received_message,
                     agent_context=self.agent_context,
                     memory=self.memory,
@@ -621,3 +690,7 @@ class PDCAAgent(ReActAgent):
         @self._vm.register("available_deliverables", "当前任务")
         async def available_delivs(instance, pm: AsyncKanbanManager):
             return await pm.get_available_deliverables()
+
+        @self._vm.register("exploration_count", "探索计数")
+        async def exploration_count(instance, pm: AsyncKanbanManager):
+            return pm.get_exploration_count()
