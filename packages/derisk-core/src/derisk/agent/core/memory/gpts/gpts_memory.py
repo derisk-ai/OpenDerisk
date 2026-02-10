@@ -25,6 +25,13 @@ from .base import (
     AgentSystemMessageMemory,
 )
 from .default_gpts_memory import DefaultGptsMessageMemory, DefaultGptsPlansMemory
+from .file_base import (
+    AgentFileMetadata,
+    AgentFileMemory,
+    FileMetadataStorage,
+    FileType,
+)
+from .default_file_memory import DefaultAgentFileMemory
 from ...action.base import ActionOutput
 from ...file_system.file_tree import TreeManager, TreeNodeData
 from .....util.id_generator import IdGenerator
@@ -193,6 +200,10 @@ class ConversationCache:
         ## TODOLIST缓存 (用于PDCA Agent推送todollist)
         self.todollist_vis: Optional[str] = None
 
+        ## 文件系统缓存
+        self.files: Dict[str, AgentFileMetadata] = {}  # file_id -> AgentFileMetadata
+        self.file_key_index: Dict[str, str] = {}  # file_key -> file_id (catalog)
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -212,6 +223,10 @@ class ConversationCache:
         self.message_ids.clear()
         self.senders.clear()
         self.context_windows.clear()
+
+        # 清理文件缓存
+        self.files.clear()
+        self.file_key_index.clear()
 
         # 通知队列消费者退出
         try:
@@ -297,8 +312,11 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
 # --------------------------
 # 全局内存管理（单例）
 # --------------------------
-class GptsMemory:
-    """会话全局消息记忆管理"""
+class GptsMemory(FileMetadataStorage):
+    """会话全局消息记忆管理（包含文件元数据管理）.
+
+    同时实现了FileMetadataStorage接口，可作为AgentFileSystem的存储后端。
+    """
 
     def __init__(
         self,
@@ -310,6 +328,7 @@ class GptsMemory:
         cache_ttl: int = 10800,  # 会话缓存 TTL（秒）
         cache_maxsize: int = 200,  # 最大会话数
         message_system_memory: Optional[AgentSystemMessageMemory] = None,
+        file_memory: AgentFileMemory = None,
     ):
         if hasattr(self, "_initialized"):
             return
@@ -318,6 +337,7 @@ class GptsMemory:
         self._plans_memory = plans_memory
         self._message_memory = message_memory
         self._message_system_memory = message_system_memory
+        self._file_memory = file_memory or DefaultAgentFileMemory()
         self._executor = executor or DynamicThreadPoolExecutor()
         self._default_vis_converter = default_vis_converter
         self._conversations = TTLCache(
@@ -327,6 +347,17 @@ class GptsMemory:
         self._global_lock = asyncio.Lock()
         self._cleanup_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
+
+    @property
+    def file_memory(self) -> AgentFileMemory:
+        """获取文件元数据存储.
+
+        文件目录(catalog)功能也集成在file_memory中，通过以下方法访问：
+        - save_catalog(conv_id, file_key, file_id): 保存映射
+        - get_catalog(conv_id): 获取所有映射
+        - get_file_id_by_key(conv_id, file_key): 通过key获取ID
+        """
+        return self._file_memory
 
     async def start(self):
         """启动内存管理服务（必须在事件循环中调用）"""
@@ -966,3 +997,250 @@ class GptsMemory:
             cache.senders.clear()
             cache.clear()
             logger.info(f"Cleared conversation cache: {conv_id}")
+
+    # --------------------------
+    # 文件管理方法区
+    # --------------------------
+    async def append_file(self, conv_id: str, file_metadata: AgentFileMetadata, save_db: bool = True):
+        """添加文件元数据到缓存和存储.
+
+        Args:
+            conv_id: 会话ID
+            file_metadata: 文件元数据
+            save_db: 是否持久化到数据库
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.files[file_metadata.file_id] = file_metadata
+            cache.file_key_index[file_metadata.file_key] = file_metadata.file_id
+
+        if save_db:
+            try:
+                await blocking_func_to_async(
+                    self._executor, self._file_memory.append, file_metadata
+                )
+                logger.debug(f"Saved file metadata to DB: {file_metadata.file_id}")
+            except Exception as e:
+                logger.error(f"Failed to save file metadata to DB: {e}")
+
+    async def update_file(self, conv_id: str, file_metadata: AgentFileMetadata):
+        """更新文件元数据.
+
+        Args:
+            conv_id: 会话ID
+            file_metadata: 文件元数据
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.files[file_metadata.file_id] = file_metadata
+
+        try:
+            await blocking_func_to_async(
+                self._executor, self._file_memory.update, file_metadata
+            )
+        except Exception as e:
+            logger.error(f"Failed to update file metadata: {e}")
+
+    async def get_files(self, conv_id: str) -> List[AgentFileMetadata]:
+        """获取会话的所有文件.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            文件元数据列表
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache.files:
+            # 从持久化存储加载
+            files = await blocking_func_to_async(
+                self._executor, self._file_memory.get_by_conv_id, conv_id
+            )
+            async with await self._get_conv_lock(conv_id):
+                for f in files:
+                    cache.files[f.file_id] = f
+                    cache.file_key_index[f.file_key] = f.file_id
+            return files
+        return list(cache.files.values())
+
+    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional[AgentFileMetadata]:
+        """通过ID获取文件元数据.
+
+        Args:
+            conv_id: 会话ID
+            file_id: 文件ID
+
+        Returns:
+            文件元数据
+        """
+        cache = await self._get_cache(conv_id)
+        if cache and file_id in cache.files:
+            return cache.files[file_id]
+        return None
+
+    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional[AgentFileMetadata]:
+        """通过key获取文件元数据.
+
+        Args:
+            conv_id: 会话ID
+            file_key: 文件key
+
+        Returns:
+            文件元数据
+        """
+        cache = await self._get_cache(conv_id)
+        if cache and file_key in cache.file_key_index:
+            file_id = cache.file_key_index[file_key]
+            return cache.files.get(file_id)
+        return None
+
+    async def get_files_by_type(self, conv_id: str, file_type: Union[str, FileType]) -> List[AgentFileMetadata]:
+        """获取指定类型的文件.
+
+        Args:
+            conv_id: 会话ID
+            file_type: 文件类型
+
+        Returns:
+            文件元数据列表
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        target_type = file_type.value if isinstance(file_type, FileType) else file_type
+
+        async with await self._get_conv_lock(conv_id):
+            return [
+                f for f in cache.files.values()
+                if f.file_type == target_type
+            ]
+
+    async def get_conclusion_files(self, conv_id: str) -> List[AgentFileMetadata]:
+        """获取所有结论文件（用于推送给用户）.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            结论文件列表
+        """
+        return await self.get_files_by_type(conv_id, FileType.CONCLUSION)
+
+    async def save_file_catalog(self, conv_id: str):
+        """保存文件目录.
+
+        Args:
+            conv_id: 会话ID
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return
+
+        # 将catalog映射保存到file_memory
+        try:
+            for file_key, file_id in cache.file_key_index.items():
+                await blocking_func_to_async(
+                    self._executor, self._file_memory.save_catalog, conv_id, file_key, file_id
+                )
+            logger.debug(f"Saved file catalog for {conv_id}")
+        except Exception as e:
+            logger.error(f"Failed to save file catalog: {e}")
+
+    async def load_file_catalog(self, conv_id: str) -> Optional[Dict[str, str]]:
+        """加载文件目录.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            文件目录字典 {file_key -> file_id}
+        """
+        try:
+            catalog = await blocking_func_to_async(
+                self._executor, self._file_memory.get_catalog, conv_id
+            )
+            if catalog:
+                cache = await self._get_or_create_cache(conv_id)
+                async with await self._get_conv_lock(conv_id):
+                    cache.file_key_index = dict(catalog)
+            return catalog
+        except Exception as e:
+            logger.error(f"Failed to load file catalog: {e}")
+            return None
+
+    # =========================================================================
+    # FileMetadataStorage Interface Implementation
+    # =========================================================================
+    # GptsMemory 实现了 FileMetadataStorage 接口，可作为 AgentFileSystem 的存储后端
+
+    async def save_file_metadata(self, file_metadata: "AgentFileMetadata") -> None:
+        """FileMetadataStorage接口: 保存文件元数据."""
+        await self.append_file(file_metadata.conv_id, file_metadata)
+
+    async def update_file_metadata(self, file_metadata: "AgentFileMetadata") -> None:
+        """FileMetadataStorage接口: 更新文件元数据."""
+        await self.update_file(file_metadata.conv_id, file_metadata)
+
+    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional["AgentFileMetadata"]:
+        """FileMetadataStorage接口: 通过file_key获取文件元数据."""
+        return await self.get_file_by_key(conv_id, file_key)
+
+    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional["AgentFileMetadata"]:
+        """FileMetadataStorage接口: 通过file_id获取文件元数据."""
+        return await self.get_file_by_id(conv_id, file_id)
+
+    async def list_files(
+        self,
+        conv_id: str,
+        file_type: Optional[Union[str, "FileType"]] = None
+    ) -> List["AgentFileMetadata"]:
+        """FileMetadataStorage接口: 列出会话的所有文件."""
+        if file_type:
+            return await self.get_files_by_type(conv_id, file_type)
+        return await self.get_files(conv_id)
+
+    async def delete_file(self, conv_id: str, file_key: str) -> bool:
+        """FileMetadataStorage接口: 删除文件元数据.
+
+        注意: 此方法删除元数据，但不删除实际文件。
+        如需删除文件，请使用AgentFileSystem.delete_file().
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return False
+
+        async with await self._get_conv_lock(conv_id):
+            # 查找file_id
+            file_id = cache.file_key_index.get(file_key)
+            if file_id and file_id in cache.files:
+                del cache.files[file_id]
+                del cache.file_key_index[file_key]
+
+        # 从持久化存储删除
+        try:
+            await blocking_func_to_async(
+                self._executor, self._file_memory.delete_by_file_key, conv_id, file_key
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete file metadata from storage: {e}")
+            return False
+
+    async def get_conclusion_files(self, conv_id: str) -> List["AgentFileMetadata"]:
+        """FileMetadataStorage接口: 获取所有结论文件."""
+        return await self.get_conclusion_files(conv_id)
+
+    async def clear_conv_files(self, conv_id: str) -> None:
+        """FileMetadataStorage接口: 清空会话的所有文件元数据."""
+        cache = await self._get_cache(conv_id)
+        if cache:
+            async with await self._get_conv_lock(conv_id):
+                cache.files.clear()
+                cache.file_key_index.clear()
+        await blocking_func_to_async(
+            self._executor, self._file_memory.delete_by_conv_id, conv_id
+        )

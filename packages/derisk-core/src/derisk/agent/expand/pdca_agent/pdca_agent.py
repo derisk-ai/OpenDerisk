@@ -13,7 +13,6 @@ from derisk.agent import (
     BlankAction,
 )
 from derisk.agent.core import system_tool_dict
-from derisk.agent.core.file_system.file_system import FileSystem
 from derisk.agent.core.file_system.file_tree import TreeNodeData
 from derisk.agent.core.memory.gpts.agent_system_message import (
     SystemMessageType,
@@ -29,6 +28,7 @@ from derisk.agent.expand.actions.sandbox_action import SandboxAction
 from derisk.agent.expand.actions.system_action import SystemAction
 from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
+from derisk.agent.expand.pdca_agent.file_system import FileSystem
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
 from derisk.agent.expand.pdca_agent.prompt_v7 import (
@@ -44,9 +44,11 @@ from derisk.agent.expand.pdca_agent.prompt_v7 import (
     USER_PROMPT,
 )
 from derisk.agent.expand.react_agent.react_agent import ReActAgent
+from derisk.agent.expand.react_agent.react_parser import CONST_LLMOUT_TITLE
 from derisk.context.event import EventType, ChatPayload, StepPayload, ActionPayload
 from derisk.util.json_utils import serialize
 from derisk.util.tracer import root_tracer
+from derisk_ext.agent.actions.browser_action import BrowserAction
 
 _REACT_DEFAULT_GOAL = """通过标准化的 PDCA 循环，在确保数据强一致性与执行可靠性的前提下，独立完成复杂的跨阶段任务。"""
 

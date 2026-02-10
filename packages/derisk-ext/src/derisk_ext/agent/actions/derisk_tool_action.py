@@ -13,7 +13,7 @@ MONITOR_MCPS: List[str] = []
 _MONITOR_TOOLS: List[str] = []
 
 
-class AntToolAction(MonitorAction, BrowserAction):
+class DeriskToolAction(MonitorAction, BrowserAction):
     """Tool action class."""
     name = "AntTool"
 

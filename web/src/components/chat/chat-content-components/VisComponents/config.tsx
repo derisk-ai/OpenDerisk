@@ -22,6 +22,7 @@ import ThinkCard from './ThinkCard';
 import VisAgentPlanCard from './VisAgentPlanCard';
 import VisContentCard from './VisContentCard';
 import VisDAttach from './VisDAttach';
+import VisDAttachList from './VisDAttachList';
 import VisMsgCard from './VisMsgCard';
 import VisPlanCard from './VisPlanCard';
 import VisPlanningSpaceCard from './VisPlanningSpaceCard';
@@ -278,6 +279,19 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="d-attach" />;
+    }
+  },
+  'd-attach-list': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-attach-list" />}>
+          <VisDAttachList data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="d-attach-list" />;
     }
   },
   'drsk-refs': ({ children }) => {

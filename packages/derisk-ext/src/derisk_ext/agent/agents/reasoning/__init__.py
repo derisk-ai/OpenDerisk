@@ -1,1 +1,0 @@
-"""Reasoning agent stubs."""

@@ -19,7 +19,7 @@ from .plan_models import (
     create_stage_from_spec,
     validate_deliverable_schema,
 )
-from ...core.file_system.file_system import FileSystem
+from .file_system import FileSystem  # 导入 FileSystem
 
 logger = logging.getLogger(__name__)
 

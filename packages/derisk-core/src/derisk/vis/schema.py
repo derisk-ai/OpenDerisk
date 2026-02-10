@@ -63,6 +63,37 @@ class VisAttach(VisBase):
 class VisAttachsContent(VisBase):
     items: List[VisAttach] = Field(default=[], description="vis plan tasks")
 
+
+class VisAttachContent(VisBase):
+    """文件附件内容 - 用于d-attach组件展示单个文件"""
+    file_id: str = Field(..., description="文件唯一标识")
+    file_name: str = Field(..., description="文件名")
+    file_type: str = Field(..., description="文件类型")
+    file_size: int = Field(default=0, description="文件大小（字节）")
+    oss_url: Optional[str] = Field(default=None, description="OSS访问地址")
+    preview_url: Optional[str] = Field(default=None, description="文件预览地址")
+    download_url: Optional[str] = Field(default=None, description="文件下载地址")
+    mime_type: Optional[str] = Field(default=None, description="MIME类型")
+    created_at: Optional[str] = Field(default=None, description="创建时间ISO格式")
+    task_id: Optional[str] = Field(default=None, description="关联任务ID")
+    description: Optional[str] = Field(default=None, description="文件描述")
+
+
+class VisAttachListContent(VisBase):
+    """文件附件列表内容 - 用于d-attach-list组件展示多个文件
+
+    适用场景：
+    1. terminate时交付多个文件
+    2. 批量文件展示
+    3. 任务完成后的文件汇总
+    """
+    title: Optional[str] = Field(default="交付文件", description="文件列表标题")
+    description: Optional[str] = Field(default=None, description="文件列表描述")
+    files: List[VisAttachContent] = Field(default_factory=list, description="文件列表")
+    total_count: int = Field(default=0, description="文件总数")
+    total_size: int = Field(default=0, description="文件总大小（字节）")
+    show_batch_download: bool = Field(default=True, description="是否显示批量下载按钮")
+
 class VisMessageContent(VisBase):
     markdown: str = Field(..., description="vis msg content")
     role: Optional[str] = Field(

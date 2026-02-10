@@ -10,110 +10,60 @@ export const AttachWrap = styled.div`
     border-radius: 4px;
     color: #1b62ff;
     cursor: pointer;
+    padding: 2px 8px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
 
-    &:hover {
-      background: rgb(27 98 255 / 20%);
+    .attachIcon {
+      font-size: 14px;
+      margin-right: 2px;
     }
-
-    .fileSize {
-      font-size: 10px;
-      opacity: 0.7;
-    }
-  }
-
-  /* 列表模式样式 */
-  .attachList {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 400px;
-    overflow-y: auto;
   }
 `;
 
-export const AttachListItem = styled.div`
-  display: flex;
+export const AttachItemWrap = styled.div`
+  background: rgb(27 98 255 / 6%);
+  border: 1px solid rgb(27 98 255 / 20%);
+  border-radius: 6px;
+  padding: 4px 10px;
+  display: inline-flex;
   align-items: center;
-  padding: 12px;
-  background: #f5f5f5;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s, border-color 0.2s;
 
   &:hover {
-    background: #e8e8e8;
-    transform: translateX(4px);
+    background: rgb(27 98 255 / 10%);
+    border-color: rgb(27 98 255 / 30%);
   }
 
-  .fileInfo {
-    flex: 1;
-    min-width: 0;
-    margin-left: 12px;
+  .attachIcon {
+    font-size: 15px;
+    color: #1b62ff;
   }
 
-  .fileName {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-  }
-
-  .nameText {
-    font-weight: 500;
+  .attachName {
+    font-size: 13px;
     color: #262626;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  .mimeType {
-    font-size: 10px;
-    color: #8c8c8c;
-    background: #e6f7ff;
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .fileSize {
+  .attachSize {
     font-size: 12px;
-    color: #8c8c8c;
   }
 
-  .fileActions {
-    display: flex;
+  .attachAction {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-  }
-
-  .actionIcon {
-    font-size: 16px;
-    color: #595959;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: #8c8c8c;
     cursor: pointer;
-    padding: 4px;
-    transition: color 0.2s ease;
+    transition: color 0.2s, background-color 0.2s;
+    margin-left: 4px;
 
     &:hover {
       color: #1b62ff;
+      background: rgb(27 98 255 / 10%);
     }
-  }
-`;
-
-export const FileIconWrapper = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: white;
-  border-radius: 8px;
-  flex-shrink: 0;
-
-  .anticon {
-    font-size: 24px;
-    color: #1b62ff;
   }
 `;

@@ -109,7 +109,7 @@ class AgentMessage:
     gmt_create: Optional[datetime] = None
 
     observation: Optional[str] = None
-    metrics: Optional[MessageMetrics] = None
+    metrics: Optional[MessageMetrics] = MessageMetrics()
     tool_calls: Optional[List[Dict]] = None
     """当前消息的性能指标数据(模型和action)"""
 

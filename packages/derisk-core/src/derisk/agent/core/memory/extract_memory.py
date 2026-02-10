@@ -430,9 +430,21 @@ class ExtractMemory(LongTermMemory):
                 offset=offset,
             )
             for retrieved_chunk in search_memories:
-                retrieved_memories.append(self._chunk_to_memory(retrieved_chunk).to_dict())
+                if self._is_correct_data(retrieved_chunk):
+                    retrieved_memories.append(self._chunk_to_memory(retrieved_chunk).to_dict())
             return retrieved_memories
         return []
+
+    def _is_correct_data(self, chunk: Chunk) -> bool:
+        if not chunk or not chunk.metadata:
+            logger.info(f"Chunk {chunk.pk_id} has no metadata")
+            return False
+        metadata = chunk.metadata
+        if not metadata.get(_METADATA_CONV_SESSION_IDS):
+            logger.info(f"Chunk {chunk.pk_id} has no metadata.conv_session_ids")
+            return False
+        return True
+
 
     def _chunk_to_memory(self, chunk: Chunk) -> AgentExtractMemoryFragment:
         metadata = chunk.metadata
@@ -496,14 +508,21 @@ class ExtractMemory(LongTermMemory):
             top_k: int = 50,
             score_threshold: float = 0.0,
             metadata_filters: Optional[MetadataFilters] = None,
-    ) -> list[AgentExtractMemoryFragment]:
+    ) -> list[Dict[str, Any]]:
         """Search related memory search on the long term memory."""
         related_chunks = await self._semantic_search(query, top_k, score_threshold, metadata_filters=metadata_filters)
         logger.info(f"search {len(related_chunks)} related long term memories for {query}, filters: {metadata_filters}")
         related_memories = []
-        for memory in related_chunks:
-            memory_fragment = self._chunk_to_memory(memory)
-            related_memories.append(memory_fragment)
+        if not related_chunks:
+            logger.info(f"No related memories found by semantic search, query: {query}")
+            # 如果模糊搜索没有结果，走准确搜索
+            metadata_filters.filters.append(MetadataFilter(key="keywords", value=query))
+            return await self.search(top_k=top_k, metadata_filters=metadata_filters)
+        else:
+            for memory in related_chunks:
+                if self._is_correct_data(memory):
+                    memory_fragment = self._chunk_to_memory(memory).to_dict()
+                    related_memories.append(memory_fragment)
         return related_memories
 
     async def _semantic_search(
