@@ -24,10 +24,8 @@ from derisk.agent.expand.react_agent.react_parser import (
     CONST_LLMOUT_TITLE,
     CONST_LLMOUT_TOOLS,
 )
+from derisk.vis.schema import VisAttachListContent, VisAttachContent
 from derisk.vis.vis_converter import SystemVisTag
-from derisk_ext.agent.actions.ant_tool_action import AntToolAction
-from derisk_ext.agent.actions.code_action import DeriskCodeAction
-from derisk_ext.agent.actions.monitor_action import AntMonitorAction
 from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
 from derisk_ext.vis.common.tags.derisk_plan import AgentPlan, AgentPlanItem
 from derisk_ext.vis.common.tags.derisk_planning_space import (
@@ -52,6 +50,9 @@ from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpaceContent, LLMSpac
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 
 from derisk_ext.vis.vis_protocol_data import UpdateType
+from ..common.tags.derisk_attach_list import DeriskAttachList
+from ...agent.actions.derisk_tool_action import DeriskToolAction
+from ...agent.actions.monitor_action import MonitorAction
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +94,10 @@ ACTION_TASK_MAP = {
     KnowledgeRetrieveAction.name: "knowledge",
     PlanningAction.name: "plan",
     AgentAction.name: "agent",
-    AntMonitorAction.name: "monitor",
+    MonitorAction.name: "monitor",
     CodeAction.name: "code",
-    DeriskCodeAction.name: "code",
     ToolAction.name: "tool",
-    AntToolAction.name: "tool",
+    DeriskToolAction.name: "tool",
     # 有展示分类需求的再这里进行分类处理
 }
 
@@ -1188,6 +1188,89 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             content=work_space_content.to_dict()
         )
 
+    async def _render_terminate_files(
+        self,
+        messages: List["GptsMessage"],
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        """渲染terminate时交付的文件列表.
+
+        从messages中查找terminate action，并提取其中的文件信息，
+        使用d-attach-list组件渲染文件列表。
+
+        Returns:
+            d-attach-list组件的vis字符串，如果没有文件则返回None
+        """
+        from derisk.agent.expand.actions.terminate_action import Terminate
+
+        file_contents = []
+
+        for msg in messages:
+            if not msg.action_report:
+                continue
+            for action_out in msg.action_report:
+                # 检查是否是terminate action
+                if action_out.name != Terminate.name:
+                    continue
+
+                # 从output_files获取文件信息
+                output_files = action_out.output_files or []
+                if not output_files:
+                    continue
+
+                for file_info in output_files:
+                    if isinstance(file_info, dict):
+                        # 构建VisAttachContent
+                        attach_content = VisAttachContent(
+                            uid=f"file_{file_info.get('file_id', 'unknown')}",
+                            type=UpdateType.ALL.value,
+                            file_id=file_info.get("file_id", ""),
+                            file_name=file_info.get("file_name", "未知文件"),
+                            file_type=file_info.get("file_type", "unknown"),
+                            file_size=file_info.get("file_size", 0),
+                            oss_url=file_info.get("oss_url"),
+                            preview_url=file_info.get("preview_url"),
+                            download_url=file_info.get("download_url"),
+                            mime_type=file_info.get("mime_type"),
+                            created_at=file_info.get("created_at"),
+                            task_id=file_info.get("task_id"),
+                            description=file_info.get("description"),
+                        )
+                        file_contents.append(attach_content)
+
+        if not file_contents:
+            return None
+
+        # 构建VisAttachListContent
+        total_size = sum(f.file_size for f in file_contents)
+
+        attach_list_content = VisAttachListContent(
+            uid=f"terminate_files_{messages[0].conv_id if messages else 'unknown'}",
+            type=UpdateType.ALL.value,
+            title="交付文件",
+            description=f"共 {len(file_contents)} 个文件，总大小 {self._format_file_size(total_size)}",
+            files=file_contents,
+            total_count=len(file_contents),
+            total_size=total_size,
+            show_batch_download=True,
+        )
+
+        # 渲染d-attach-list组件
+        return self.vis_inst(DeriskAttachList.vis_tag()).sync_display(
+            content=attach_list_content.to_dict()
+        )
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        """格式化文件大小显示."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
     async def final_view(
         self,
         messages: List["GptsMessage"],
@@ -1208,7 +1291,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
         main_agent = senders_map.get(main_agent_name)
         if not main_agent:
-            logger.warning(f"can’t find main agent [{main_agent_name}] in sender's map")
+            logger.warning(f"can't find main agent [{main_agent_name}] in sender's map")
 
         all_plans_view = await self._planning_vis_all(
             messages_map=messages_map,
@@ -1223,6 +1306,15 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         all_running_view = await self._running_vis_all(
             messages=messages, main_agent_name=main_agent_name, senders_map=senders_map
         )
+
+        # 渲染terminate文件交付
+        files_view = await self._render_terminate_files(messages, senders_map)
+
+        # 如果有文件交付，添加到running_window
+        if files_view and all_running_view:
+            all_running_view = all_running_view + "\n" + files_view
+        elif files_view:
+            all_running_view = files_view
 
         all_vis = json.dumps(
             {"planning_window": all_plans_view, "running_window": all_running_view},

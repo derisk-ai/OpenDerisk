@@ -1796,7 +1796,7 @@ class ConversableAgent(Role, Agent):
             if received_message:
                 return received_message.content
             return None
-
+        
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")

@@ -222,6 +222,13 @@ class AgentStart(AgentAction, FunctionTool):
                 description="需要完成的任务目标指令内容。",
                 required=True
             ),
+            "sync": ToolParameter(
+                type="bool",
+                name="input",
+                description="分派任务是否需要等待结果返回再进行下一步(默认同步需要等待结果，如果后续步骤可以不依赖当前分派任务结果可以使用异步）。",
+                required=False,
+                default=True
+            ),
             "background": ToolParameter(
                 type="string",
                 name="background",
