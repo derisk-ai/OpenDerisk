@@ -1,4 +1,5 @@
 """GPTs Memory Module (Optimized with Logging)"""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +17,13 @@ from cachetools import TTLCache
 
 from derisk.util.executor_utils import blocking_func_to_async, execute_no_wait
 from .agent_system_message import AgentSystemMessage
-from .base import GptsMessage, GptsMessageMemory, GptsPlansMemory, GptsPlan, AgentSystemMessageMemory
+from .base import (
+    GptsMessage,
+    GptsMessageMemory,
+    GptsPlansMemory,
+    GptsPlan,
+    AgentSystemMessageMemory,
+)
 from .default_gpts_memory import DefaultGptsMessageMemory, DefaultGptsPlansMemory
 from ...action.base import ActionOutput
 from ...file_system.file_tree import TreeManager, TreeNodeData
@@ -55,6 +62,8 @@ class AgentTaskType(Enum):
     AGENT = "agent"
     STAGE = "stage"
     TASK = "task"
+    HIDDEN = "hidden"
+
 
 @dataclass
 class AgentTaskContent:
@@ -65,7 +74,13 @@ class AgentTaskContent:
     """当前节点的记录类型"""
     message_id: Optional[str] = None
     cost: float = 0
-    def update(self, task_type: Optional[str] = None, agent: Optional[str] = None, message_id: Optional[str] = None):
+
+    def update(
+        self,
+        task_type: Optional[str] = None,
+        agent: Optional[str] = None,
+        message_id: Optional[str] = None,
+    ):
         if task_type:
             self.task_type = task_type
         if agent:
@@ -99,43 +114,43 @@ class AgentTaskContent:
 #     """当前Agent任务耗时"""
 
 
-    # def update(self, state: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None,
-    #            summary: Optional[str] = None, step_summary: Optional[List[dict]] = None):
-    #     if state:
-    #         self.state = state
-    #     if intent:
-    #         self.intent = intent
-    #     if description:
-    #         self.description = description
-    #     if summary:
-    #         self.summary = summary
-    #     if step_summary:
-    #         self.step_summary = step_summary
-    #
-    # def update_actions(self, message_id: str, action_outs: List[ActionOutput]):
-    #     if not action_outs:
-    #         return
-    #     message_action_ids = []
-    #     for item in action_outs:
-    #         if item.action_id not in self.actions:
-    #             self.actions.append(item.action_id)
-    #             message_action_ids.append(item.action_id)
-    #     if message_id not in self.message_action:
-    #         self.message_action[message_id] = message_action_ids
-    #     else:
-    #         self.message_action[message_id].extend(message_action_ids)
-    #
-    # def upsert_message(self, message: GptsMessage):
-    #     if message.metrics:
-    #         start_ms = message.metrics.start_time_ms
-    #         end_ms = message.metrics.end_time_ms
-    #         if not message.metrics.end_time_ms:
-    #             end_ms = time.time_ns() // 1_000_000
-    #         cost = round((end_ms - start_ms) / 1_000, 2)
-    #         self.cost = cost
-    #     if message.message_id not in self.messages:
-    #         self.messages.append(message.message_id)
-    #     self.update_actions(message_id=message.message_id, action_outs=message.action_report)
+# def update(self, state: Optional[str] = None, intent: Optional[str] = None, description: Optional[str] = None,
+#            summary: Optional[str] = None, step_summary: Optional[List[dict]] = None):
+#     if state:
+#         self.state = state
+#     if intent:
+#         self.intent = intent
+#     if description:
+#         self.description = description
+#     if summary:
+#         self.summary = summary
+#     if step_summary:
+#         self.step_summary = step_summary
+#
+# def update_actions(self, message_id: str, action_outs: List[ActionOutput]):
+#     if not action_outs:
+#         return
+#     message_action_ids = []
+#     for item in action_outs:
+#         if item.action_id not in self.actions:
+#             self.actions.append(item.action_id)
+#             message_action_ids.append(item.action_id)
+#     if message_id not in self.message_action:
+#         self.message_action[message_id] = message_action_ids
+#     else:
+#         self.message_action[message_id].extend(message_action_ids)
+#
+# def upsert_message(self, message: GptsMessage):
+#     if message.metrics:
+#         start_ms = message.metrics.start_time_ms
+#         end_ms = message.metrics.end_time_ms
+#         if not message.metrics.end_time_ms:
+#             end_ms = time.time_ns() // 1_000_000
+#         cost = round((end_ms - start_ms) / 1_000, 2)
+#         self.cost = cost
+#     if message.message_id not in self.messages:
+#         self.messages.append(message.message_id)
+#     self.update_actions(message_id=message.message_id, action_outs=message.action_report)
 
 
 # --------------------------
@@ -184,7 +199,7 @@ class ConversationCache:
     def clear(self):
         """清理所有资源并通知消费者退出"""
         # 释放可视化资源
-        if hasattr(self.vis_converter, 'close'):
+        if hasattr(self.vis_converter, "close"):
             try:
                 self.vis_converter.close()
             except Exception as e:
@@ -205,15 +220,25 @@ class ConversationCache:
             pass  # 队列满，忽略
 
     def get_messages_ordered(self) -> List[GptsMessage]:
-        return [self.messages[msg_id] for msg_id in self.message_ids if msg_id in self.messages]
+        return [
+            self.messages[msg_id]
+            for msg_id in self.message_ids
+            if msg_id in self.messages
+        ]
 
     def get_plans_list(self) -> List[GptsPlan]:
         return list(self.plans.values())
 
-    def get_system_messages(self, type: Optional[str] = None, phase: Optional[str] = None):
+    def get_system_messages(
+        self, type: Optional[str] = None, phase: Optional[str] = None
+    ):
         result = []
         for v in self.system_messages.values():
-            if (type and v.type == type) or (phase and v.phase == phase) or (not type and not phase):
+            if (
+                (type and v.type == type)
+                or (phase and v.phase == phase)
+                or (not type and not phase)
+            ):
                 result.append(v)
         return result
 
@@ -284,9 +309,9 @@ class GptsMemory:
         *,
         cache_ttl: int = 10800,  # 会话缓存 TTL（秒）
         cache_maxsize: int = 200,  # 最大会话数
-        message_system_memory: Optional[AgentSystemMessageMemory] = None
+        message_system_memory: Optional[AgentSystemMessageMemory] = None,
     ):
-        if hasattr(self, '_initialized'):
+        if hasattr(self, "_initialized"):
             return
         self._initialized = True
 
@@ -295,7 +320,9 @@ class GptsMemory:
         self._message_system_memory = message_system_memory
         self._executor = executor or DynamicThreadPoolExecutor()
         self._default_vis_converter = default_vis_converter
-        self._conversations = TTLCache(maxsize=cache_maxsize, ttl=cache_ttl, timer=time.time)
+        self._conversations = TTLCache(
+            maxsize=cache_maxsize, ttl=cache_ttl, timer=time.time
+        )
         self._conv_locks: Dict[str, asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -334,10 +361,13 @@ class GptsMemory:
             process = psutil.Process()
             mem_info = process.memory_info()
             logger.info(
-                f"Memory Usage: RSS={mem_info.rss / 1024 / 1024:.2f} MB | VMS={mem_info.vms / 1024 / 1024:.2f} MB")
+                f"Memory Usage: RSS={mem_info.rss / 1024 / 1024:.2f} MB | VMS={mem_info.vms / 1024 / 1024:.2f} MB"
+            )
 
             # 监控缓存状态
-            logger.info(f"Conversation Cache: {len(self._conversations)} active sessions")
+            logger.info(
+                f"Conversation Cache: {len(self._conversations)} active sessions"
+            )
 
             # 监控线程池
             if isinstance(self._executor, ThreadPoolExecutor):
@@ -350,7 +380,9 @@ class GptsMemory:
             # 监控会话队列
             async with self._global_lock:
                 for conv_id, cache in self._conversations.items():
-                    logger.debug(f"Conversation {conv_id} queue: {cache.channel.qsize()} messages")
+                    logger.debug(
+                        f"Conversation {conv_id} queue: {cache.channel.qsize()} messages"
+                    )
 
             await asyncio.sleep(60)  # 每60秒采集一次
 
@@ -375,7 +407,9 @@ class GptsMemory:
             await asyncio.sleep(300)  # 每5分钟
             async with self._global_lock:
                 self._conversations.expire()
-                logger.info(f"Auto cleanup triggered, current sessions: {len(self._conversations)}")
+                logger.info(
+                    f"Auto cleanup triggered, current sessions: {len(self._conversations)}"
+                )
 
     @property
     def plans_memory(self) -> GptsPlansMemory:
@@ -466,6 +500,7 @@ class GptsMemory:
         i = 0
         new_messages: List[GptsMessage] = []
         from ...user_proxy_agent import HUMAN_ROLE
+
         while i < len(messages):
             cu_item = messages[i]
 
@@ -493,9 +528,13 @@ class GptsMemory:
 
         return new_messages
 
-    async def _merge_messages_async(self, messages: List[GptsMessage]) -> List[GptsMessage]:
+    async def _merge_messages_async(
+        self, messages: List[GptsMessage]
+    ) -> List[GptsMessage]:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self._merge_messages, messages)
+        return await loop.run_in_executor(
+            self._executor, self._merge_messages, messages
+        )
 
     # --------------------------
     # 外部核心方法区
@@ -504,8 +543,14 @@ class GptsMemory:
         cache = await self._get_cache(conv_id)
         return QueueIterator(cache.channel) if cache else None
 
-    async def init(self, conv_id: str, history_messages: List[GptsMessage] = None,
-                   vis_converter: VisProtocolConverter = None, start_round: int = 0, app_code=None):
+    async def init(
+        self,
+        conv_id: str,
+        history_messages: List[GptsMessage] = None,
+        vis_converter: VisProtocolConverter = None,
+        start_round: int = 0,
+        app_code=None,
+    ):
         cache = await self._get_or_create_cache(conv_id, start_round, vis_converter)
         if history_messages:
             await self._cache_messages(conv_id, history_messages)
@@ -540,7 +585,9 @@ class GptsMemory:
         cache = self._get_cache_sync(agent_conv_id)
         return cache.vis_converter if cache else None
 
-    async def next_message_rounds(self, conv_id: str, new_init_round: Optional[int] = None) -> int:
+    async def next_message_rounds(
+        self, conv_id: str, new_init_round: Optional[int] = None
+    ) -> int:
         cache = await self._get_cache(conv_id)
         if cache:
             return await cache.round_generator.next(new_init_round)
@@ -555,7 +602,7 @@ class GptsMemory:
                 return None
             messages = await self.get_messages(conv_id)
 
-            messages = messages[cache.start_round:]
+            messages = messages[cache.start_round :]
             messages = await self._merge_messages_async(messages)
             plans = cache.plans  # 直接使用 dict
             vis_convert = cache.vis_converter or DefaultVisConverter()
@@ -582,14 +629,15 @@ class GptsMemory:
         cache = await self._get_cache(conv_id)
         if not cache:
             return ""
-        messages = messages[cache.start_round:]
+        messages = messages[cache.start_round :]
         from ...user_proxy_agent import HUMAN_ROLE
+
         for msg in reversed(messages):
             if msg.receiver == HUMAN_ROLE:
                 content = msg.content
                 if msg.action_report:
                     try:
-                        content = ''
+                        content = ""
                         for item in msg.action_report:
                             view = item.content
                             content = content + "\n" + view
@@ -608,14 +656,14 @@ class GptsMemory:
         incremental: bool = False,
         incr_type: Optional[str] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,  # type:ignore
-        **kwargs
+        **kwargs,
     ) -> Any:
         """生成消息可视化视图"""
         cache = await self._get_cache(conv_id)
         if not cache:
             return None
         messages = await self.get_messages(conv_id)
-        messages = messages[cache.start_round:]
+        messages = messages[cache.start_round :]
         messages = await self._merge_messages_async(messages)
         all_plans = cache.plans
         return await cache.vis_converter.visualization(
@@ -634,7 +682,7 @@ class GptsMemory:
             task_manager=cache.task_manager,
             conv_id=conv_id,
             cache=cache,
-            **kwargs
+            **kwargs,
         )
 
     async def complete(self, conv_id: str):
@@ -657,13 +705,17 @@ class GptsMemory:
         cache = await self._get_cache(conv_id)
         if not cache:
             return
-        is_success, is_new = cache.task_manager.upsert_node(parent_id=task.parent_id, node=task)
+        is_success, is_new = cache.task_manager.upsert_node(
+            parent_id=task.parent_id, node=task
+        )
         if is_new:
             ## 新增节点的时候 推送前端展示
             logger.info(f"推送新的任务节点[{task.node_id},{task.name}]")
             await self.push_message(conv_id, new_task_nodes=[task])
 
-    async def get_task(self, conv_id: str, node_id: str) -> Optional[TreeNodeData[AgentTaskContent]]:
+    async def get_task(
+        self, conv_id: str, node_id: str
+    ) -> Optional[TreeNodeData[AgentTaskContent]]:
         cache = await self._get_cache(conv_id)
         if not cache:
             return None
@@ -676,7 +728,7 @@ class GptsMemory:
         message: GptsMessage,
         incremental: bool = False,
         save_db: bool = True,
-        sender: Optional["ConversableAgent"] = None  # type:ignore
+        sender: Optional["ConversableAgent"] = None,  # type:ignore
     ):
         cache = await self._get_cache(conv_id)
         if not cache:
@@ -684,6 +736,7 @@ class GptsMemory:
 
         conv_lock = await self._get_conv_lock(conv_id)
         from ...user_proxy_agent import HUMAN_ROLE
+
         async with conv_lock:
             # 更新消息缓存
             message.updated_at = datetime.now()
@@ -719,7 +772,9 @@ class GptsMemory:
                 logger.error(f"Failed to save message to DB: {e}")
 
         logger.debug(f"Appended message to {conv_id}: {message.message_id}")
-        await self.push_message(conv_id, gpt_msg=message, incremental=incremental, sender=sender)
+        await self.push_message(
+            conv_id, gpt_msg=message, incremental=incremental, sender=sender
+        )
 
     async def append_system_message(self, agent_system_message: AgentSystemMessage):
         cache = await self._get_cache(agent_system_message.conv_id)
@@ -727,11 +782,15 @@ class GptsMemory:
         conv_lock = await self._get_conv_lock(agent_system_message.conv_id)
         async with conv_lock:
             if cache:
-                cache.system_messages[agent_system_message.message_id] = agent_system_message
+                cache.system_messages[agent_system_message.message_id] = (
+                    agent_system_message
+                )
         if self.message_system_memory:
             try:
                 await blocking_func_to_async(
-                    self._executor, self.message_system_memory.update, agent_system_message
+                    self._executor,
+                    self.message_system_memory.update,
+                    agent_system_message,
                 )
             except Exception as e:
                 logger.error(f"Failed to save system message: {e}")
@@ -748,7 +807,7 @@ class GptsMemory:
         plans: List[GptsPlan],
         incremental: bool = False,
         sender: Optional["ConversableAgent"] = None,  # type:ignore
-        need_storage: bool = True
+        need_storage: bool = True,
     ):
         cache = await self._get_cache(conv_id)
         conv_lock = await self._get_conv_lock(conv_id)
@@ -758,28 +817,34 @@ class GptsMemory:
                     plan.created_at = datetime.now()
                     cache.plans[plan.task_uid] = plan
 
-        await self.push_message(conv_id, new_plans=plans, incremental=incremental, sender=sender)
+        await self.push_message(
+            conv_id, new_plans=plans, incremental=incremental, sender=sender
+        )
 
         if need_storage:
             try:
-                await blocking_func_to_async(self._executor, self._plans_memory.batch_save, plans)
+                await blocking_func_to_async(
+                    self._executor, self._plans_memory.batch_save, plans
+                )
             except Exception as e:
                 logger.error(f"Failed to save plans: {e}")
 
         logger.info(f"Appended {len(plans)} plans to {conv_id}")
 
     async def update_plan(
-        self,
-        conv_id: str,
-        plan: GptsPlan,
-        incremental: bool = False
+        self, conv_id: str, plan: GptsPlan, incremental: bool = False
     ):
         plan.updated_at = datetime.now()
         try:
             await blocking_func_to_async(
-                self._executor, self._plans_memory.update_by_uid,
-                conv_id, plan.task_uid, plan.state, plan.retry_times,
-                model=plan.agent_model, result=plan.result
+                self._executor,
+                self._plans_memory.update_by_uid,
+                conv_id,
+                plan.task_uid,
+                plan.state,
+                plan.retry_times,
+                model=plan.agent_model,
+                result=plan.result,
             )
         except Exception as e:
             logger.error(f"Failed to update plan: {e}")
@@ -812,11 +877,17 @@ class GptsMemory:
             return []
         return [p for p in cache.plans.values() if p.planning_agent == planner]
 
-    async def get_by_planner_and_round(self, conv_id: str, planner: str, round_id: str) -> List[GptsPlan]:
+    async def get_by_planner_and_round(
+        self, conv_id: str, planner: str, round_id: str
+    ) -> List[GptsPlan]:
         cache = await self._get_cache(conv_id)
         if not cache:
             return []
-        return [p for p in cache.plans.values() if p.planning_agent == planner and p.conv_round_id == round_id]
+        return [
+            p
+            for p in cache.plans.values()
+            if p.planning_agent == planner and p.conv_round_id == round_id
+        ]
 
     async def push_message(
         self,
@@ -828,7 +899,7 @@ class GptsMemory:
         incremental: bool = False,
         incr_type: Optional[str] = None,
         sender: Optional["ConversableAgent"] = None,  # type:ignore
-        **kwargs
+        **kwargs,
     ):
         cache = await self._get_cache(conv_id)
         if not cache or cache.stop_flag:
@@ -844,6 +915,7 @@ class GptsMemory:
                 cache.senders[sender.name] = sender
 
         from ...user_proxy_agent import HUMAN_ROLE
+
         if gpt_msg and gpt_msg.sender == HUMAN_ROLE:
             return
 
@@ -857,7 +929,7 @@ class GptsMemory:
                 incremental=incremental,
                 senders_map=dict(cache.senders),
                 incr_type=incr_type,
-                **kwargs
+                **kwargs,
             )
             if final_view:
                 ## 如果消息通道满了 直接抛弃，不阻塞后续执行

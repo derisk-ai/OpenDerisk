@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { VisAgentPlanCardWrap } from './style';
 import { GPTVis } from '@antv/gpt-vis';
 import 'katex/dist/katex.min.css';
@@ -142,6 +142,23 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
   const isStage = data?.item_type === 'stage';
   const layerCount = (data?.layer_count as number) ?? 0;
 
+  const markdownContent = useMemo(() => {
+    if (!expanded || !data?.markdown) return null;
+    return (
+      <div
+        className={`markdown-content-wrap ${isStage ? 'markdown-content-wrap-stage' : ''}`}
+      >
+        {/* @ts-expect-error GPTVis + markdownPlugins spread */}
+        <GPTVis
+          components={{ ...codeComponents, ...(otherComponents ?? {}) }}
+          {...markdownPlugins}
+        >
+          {String(data.markdown)}
+        </GPTVis>
+      </div>
+    );
+  }, [expanded, data?.markdown, isStage, otherComponents]);
+
   return (
     <VisAgentPlanCardWrap
       onClick={(e: React.MouseEvent) => {
@@ -279,21 +296,9 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
           </div>
         </div>
       </div>
-      {expanded && data?.markdown ? (
-        <div
-          className={`markdown-content-wrap ${isStage ? 'markdown-content-wrap-stage' : ''}`}
-        >
-          {/* @ts-expect-error GPTVis + markdownPlugins spread */}
-          <GPTVis
-            components={{ ...codeComponents, ...(otherComponents ?? {}) }}
-            {...markdownPlugins}
-          >
-            {String(data.markdown)}
-          </GPTVis>
-        </div>
-      ) : null}
+      {markdownContent}
     </VisAgentPlanCardWrap>
   );
 };
 
-export default VisAgentPlanCard;
+export default React.memo(VisAgentPlanCard);

@@ -56,6 +56,26 @@ interface QueryResult {
 // ============== 工具函数 ==============
 
 /**
+ * 安全解析 JSON，处理非法转义字符（如 \$）
+ * 关键修复：后端可能生成包含非法转义字符的 JSON
+ */
+function safeJsonParse<T>(jsonString: string | null | undefined): T {
+  if (!jsonString) {
+    throw new Error('Empty or null JSON string');
+  }
+  
+  try {
+    // 首先尝试直接解析
+    return JSON.parse(jsonString);
+  } catch (e) {
+    // 如果失败，尝试修复常见的非法转义字符
+    // JSON 标准不允许 \$ 转义，将其替换为普通 $
+    const sanitized = jsonString.replace(/\\\$/g, '$');
+    return JSON.parse(sanitized);
+  }
+}
+
+/**
  * 检测markdown字符串是否包含未闭合的代码块标签
  */
 function isPartialTag(markdownString: string): boolean {
@@ -122,8 +142,18 @@ export class VisBaseParser {
   /**
    * 更新当前VIS内容（主入口）
    */
-  updateCurrentMarkdown(incrMarkdownString: string): string {
-    if (!incrMarkdownString) {
+  updateCurrentMarkdown(incrMarkdownString: string | null): string {
+    // 关键修复：允许空字符串作为有效的更新内容，用于清空数据
+    if (incrMarkdownString === undefined || incrMarkdownString === null) {
+      return this.currentVis;
+    }
+    
+    // 处理空字符串：清空所有数据
+    if (incrMarkdownString === '') {
+      this.currentVis = '';
+      this.astRoot = null;
+      this.uidIndex.clear();
+      this.incrNodesMap.clear();
       return this.currentVis;
     }
 
@@ -166,11 +196,11 @@ export class VisBaseParser {
     let visItem: VisItem | undefined;
     try {
       if (entry.nodeType === 'ast' && entry.node.value) {
-        visItem = JSON.parse(entry.node.value);
+        visItem = safeJsonParse<VisItem>(entry.node.value);
       } else if (entry.nodeType === 'item') {
         visItem = entry.node as VisItem;
       } else if (entry.nodeType === 'nested' && entry.node.value) {
-        visItem = JSON.parse(entry.node.value);
+        visItem = safeJsonParse<VisItem>(entry.node.value);
       }
     } catch (e) {
       // 解析失败
@@ -251,7 +281,7 @@ export class VisBaseParser {
       // 根据节点类型获取现有数据
       if (entry.nodeType === 'ast' || entry.nodeType === 'nested') {
         if (!entry.node.value) return;
-        existingJson = JSON.parse(entry.node.value);
+        existingJson = safeJsonParse<VisItem>(entry.node.value);
       } else if (entry.nodeType === 'item') {
         existingJson = entry.node as VisItem;
       } else {
@@ -273,7 +303,7 @@ export class VisBaseParser {
         // 关键修复：更新items数组中的元素
         if (entry.itemsHostNode && entry.itemIndex !== undefined) {
           // 需要更新宿主节点的JSON
-          const hostJson = JSON.parse(entry.itemsHostNode.value) as VisItem;
+          const hostJson = safeJsonParse(entry.itemsHostNode.value) as VisItem;
           if (hostJson.items && hostJson.items[entry.itemIndex]) {
             hostJson.items[entry.itemIndex] = mergedJson;
             entry.itemsHostNode.value = JSON.stringify(hostJson);
@@ -307,7 +337,7 @@ export class VisBaseParser {
 
     try {
       // 解析宿主的JSON
-      const hostJson = JSON.parse(hostNode.value) as VisItem;
+      const hostJson = safeJsonParse(hostNode.value) as VisItem;
 
       if (!hostJson.markdown) {
         // 宿主没有markdown，直接更新节点
@@ -383,7 +413,7 @@ export class VisBaseParser {
 
       if (parentEntry.nodeType === 'ast' || parentEntry.nodeType === 'nested') {
         if (!parentEntry.node.value) return;
-        parentJson = JSON.parse(parentEntry.node.value);
+        parentJson = safeJsonParse(parentEntry.node.value);
         updateFn = (json) => { parentEntry.node.value = JSON.stringify(json); };
       } else if (parentEntry.nodeType === 'item') {
         parentJson = parentEntry.node as VisItem;
@@ -391,7 +421,7 @@ export class VisBaseParser {
           Object.assign(parentEntry.node, json);
           // 同时更新宿主节点
           if (parentEntry.itemsHostNode && parentEntry.itemIndex !== undefined) {
-            const hostJson = JSON.parse(parentEntry.itemsHostNode.value) as VisItem;
+            const hostJson = safeJsonParse(parentEntry.itemsHostNode.value) as VisItem;
             if (hostJson.items) {
               hostJson.items[parentEntry.itemIndex] = json;
               parentEntry.itemsHostNode.value = JSON.stringify(hostJson);
@@ -527,7 +557,7 @@ export class VisBaseParser {
 
   /**
    * 合并两个markdown字符串
-   * 关键修复：追加新组件而不是替换
+   * 关键修复：修复nested代码块导致的isPartialTag误判问题
    */
   combineMarkdownString(
     baseMarkdownString: string | null | undefined,
@@ -544,46 +574,54 @@ export class VisBaseParser {
       return baseMarkdownString;
     }
 
-    // 处理非闭合标签（流式输出中间状态）
-    if (isPartialTag(baseMarkdownString) || isPartialTag(incrMarkdownString)) {
-      return baseMarkdownString + incrMarkdownString;
-    }
-
-    // 纯文本合并
+    // 纯文本合并（不包含代码块）
     if (!baseMarkdownString.includes('```') && !incrMarkdownString.includes('```')) {
       return baseMarkdownString + incrMarkdownString;
     }
 
-    // AST级别合并
-    const baseAST = this.parseVis2AST(baseMarkdownString);
-    const incrAST = this.parseVis2AST(incrMarkdownString);
+    // 关键修复：先尝试AST级别合并，正确处理nested代码块
+    try {
+      const baseAST = this.parseVis2AST(baseMarkdownString);
+      const incrAST = this.parseVis2AST(incrMarkdownString);
 
-    // 收集base中的所有uid
-    const baseUidMap = new Map<string, { node: any; json: VisItem }>();
-    this.traverseASTNodes(baseAST, (node, json) => {
-      if (json.uid) {
-        baseUidMap.set(json.uid, { node, json });
-      }
-    });
-
-    // 处理增量AST中的每个节点
-    this.traverseASTNodes(incrAST, (incrNode, incrJson) => {
-      if (!incrJson.uid) return;
-
-      const existing = baseUidMap.get(incrJson.uid);
-      if (existing) {
-        // 节点已存在，合并数据
-        const merged = this.combineVisItem(existing.json, incrJson);
-        existing.node.value = JSON.stringify(merged);
-      } else {
-        // 节点不存在，追加到base
-        if (baseAST.children) {
-          (baseAST.children as any[]).push(incrNode);
+      // 收集base中的所有uid
+      const baseUidMap = new Map<string, { node: any; json: VisItem }>();
+      this.traverseASTNodes(baseAST, (node, json) => {
+        if (json.uid) {
+          baseUidMap.set(json.uid, { node, json });
         }
-      }
-    });
+      });
 
-    return this.parseAST2Vis(baseAST);
+      // 处理增量AST中的每个节点
+      this.traverseASTNodes(incrAST, (incrNode, incrJson) => {
+        if (!incrJson.uid) return;
+
+        const existing = baseUidMap.get(incrJson.uid);
+        if (existing) {
+          // 节点已存在，合并数据
+          const merged = this.combineVisItem(existing.json, incrJson);
+          existing.node.value = JSON.stringify(merged);
+        } else {
+          // 节点不存在，追加到base
+          if (baseAST.children) {
+            (baseAST.children as any[]).push(incrNode);
+          }
+        }
+      });
+
+      return this.parseAST2Vis(baseAST);
+    } catch (error) {
+      // AST解析失败，退回到partial tag检测逻辑
+      console.warn('[combineMarkdownString] AST merge failed, falling back to partial tag check:', error);
+      
+      // 处理非闭合标签（流式输出中间状态）
+      if (isPartialTag(baseMarkdownString) || isPartialTag(incrMarkdownString)) {
+        return baseMarkdownString + incrMarkdownString;
+      }
+
+      // 其他异常情况，返回拼接结果
+      return baseMarkdownString + '\n' + incrMarkdownString;
+    }
   }
 
   // ========== 索引管理 ==========
@@ -600,7 +638,7 @@ export class VisBaseParser {
 
   /**
    * 递归构建索引
-   * 关键修复：正确索引items数组中元素的markdown嵌套
+   * 关键修复：正确索引items数组中元素的markdown嵌套，并检测循环引用
    */
   private buildIndexRecursive(
     node: any,
@@ -611,12 +649,24 @@ export class VisBaseParser {
     path: string[]
   ): void {
     if (!node) return;
+    
+    // 防止递归过深（最大深度限制）
+    if (depth > 100) {
+      console.error(`[buildIndexRecursive] 递归深度超过限制: ${depth}, path: ${path.join(' -> ')}`);
+      return;
+    }
 
     // 处理AST code节点（带lang属性）
     if (node.lang && node.value) {
       try {
-        const json = JSON.parse(node.value) as VisItem;
+        const json = safeJsonParse(node.value) as VisItem;
         if (json.uid) {
+          // 检测循环引用：如果当前UID已在路径中，说明有循环引用
+          if (path.includes(json.uid)) {
+            console.error(`[buildIndexRecursive] 检测到循环引用，跳过处理: uid=${json.uid}, path: ${path.join(' -> ')} -> ${json.uid}`);
+            return;
+          }
+          
           const currentPath = [...path, json.uid];
 
           // 索引当前节点
@@ -654,7 +704,7 @@ export class VisBaseParser {
 
   /**
    * 索引items数组
-   * 关键修复：存储宿主AST节点引用，以便后续更新
+   * 关键修复：存储宿主AST节点引用，检测循环引用
    */
   private indexItems(
     items: VisItem[],
@@ -663,14 +713,26 @@ export class VisBaseParser {
     depth: number,
     path: string[]
   ): void {
+    // 防止递归过深
+    if (depth > 100) {
+      console.error(`[indexItems] 递归深度超过限制: ${depth}, path: ${path.join(' -> ')}`);
+      return;
+    }
+    
     items.forEach((item, index) => {
       if (item.uid) {
+        // 检测循环引用：如果当前UID已在路径中，说明有循环引用
+        if (path.includes(item.uid)) {
+          console.error(`[indexItems] 检测到循环引用，跳过处理: uid=${item.uid}, path: ${path.join(' -> ')} -> ${item.uid}`);
+          return;
+        }
+        
         const currentPath = [...path, item.uid];
 
         // 获取宿主的VisItem对象
         let hostVisItem: VisItem | undefined;
         try {
-          hostVisItem = JSON.parse(hostNode.value);
+          hostVisItem = safeJsonParse(hostNode.value);
         } catch (e) {
           // 忽略
         }
@@ -703,6 +765,7 @@ export class VisBaseParser {
 
   /**
    * 索引嵌套在VisItem中的items（非AST节点）
+   * 关键修复：检测循环引用
    */
   private indexNestedItems(
     items: VisItem[],
@@ -711,8 +774,20 @@ export class VisBaseParser {
     depth: number,
     path: string[]
   ): void {
+    // 防止递归过深
+    if (depth > 100) {
+      console.error(`[indexNestedItems] 递归深度超过限制: ${depth}, path: ${path.join(' -> ')}`);
+      return;
+    }
+    
     items.forEach((item, index) => {
       if (item.uid) {
+        // 检测循环引用：如果当前UID已在路径中，说明有循环引用
+        if (path.includes(item.uid)) {
+          console.error(`[indexNestedItems] 检测到循环引用，跳过处理: uid=${item.uid}, path: ${path.join(' -> ')} -> ${item.uid}`);
+          return;
+        }
+        
         const currentPath = [...path, item.uid];
 
         this.uidIndex.set(item.uid, {
@@ -739,6 +814,7 @@ export class VisBaseParser {
 
   /**
    * 索引嵌套在markdown中的组件
+   * 关键修复：检测循环引用
    */
   private indexNestedMarkdown(
     markdown: string,
@@ -748,12 +824,24 @@ export class VisBaseParser {
     path: string[]
   ): void {
     if (!markdown || !markdown.includes('```')) return;
+    
+    // 防止递归过深
+    if (depth > 100) {
+      console.error(`[indexNestedMarkdown] 递归深度超过限制: ${depth}, path: ${path.join(' -> ')}`);
+      return;
+    }
 
     try {
       const nestedAST = this.parseVis2AST(markdown);
 
       this.traverseASTNodes(nestedAST, (node, json) => {
         if (json.uid) {
+          // 检测循环引用：如果当前UID已在路径中，说明有循环引用
+          if (path.includes(json.uid)) {
+            console.error(`[indexNestedMarkdown] 检测到循环引用，跳过处理: uid=${json.uid}, path: ${path.join(' -> ')} -> ${json.uid}`);
+            return;
+          }
+          
           const currentPath = [...path, json.uid];
 
           this.uidIndex.set(json.uid, {
@@ -801,7 +889,7 @@ export class VisBaseParser {
 
     if (node.lang && node.value) {
       try {
-        const json = JSON.parse(node.value) as VisItem;
+        const json = safeJsonParse(node.value) as VisItem;
         callback(node, json);
       } catch (e) {
         // 非JSON节点
@@ -817,28 +905,44 @@ export class VisBaseParser {
 
   private extractIncrContent(incrAST: Root): void {
     this.incrNodesMap.clear();
+    
+    // 用于检测循环引用的集合
+    const visitedUids = new Set<string>();
 
-    const collect = (item: VisItem) => {
+    const collect = (item: VisItem, depth: number = 0) => {
+      // 防止递归过深
+      if (depth > 100) {
+        console.error(`[extractIncrContent] 递归深度超过限制: ${depth}`);
+        return;
+      }
+      
       if (item.uid) {
+        // 检测循环引用
+        if (visitedUids.has(item.uid)) {
+          console.error(`[extractIncrContent] 检测到循环引用，跳过处理: uid=${item.uid}`);
+          return;
+        }
+        
+        visitedUids.add(item.uid);
         this.incrNodesMap.set(item.uid, item);
       }
 
       if (item.markdown) {
         const subTree = this.parseVis2AST(item.markdown);
         this.traverseASTNodes(subTree, (node, json) => {
-          collect(json);
+          collect(json, depth + 1);
         });
       }
 
       if (item.items) {
         item.items.forEach((subItem) => {
-          collect(subItem);
+          collect(subItem, depth + 1);
         });
       }
     };
 
     this.traverseASTNodes(incrAST, (node, json) => {
-      collect(json);
+      collect(json, 0);
     });
   }
 
@@ -909,13 +1013,13 @@ export class VisParser {
    */
   update(vis: string): string {
     try {
-      const json = JSON.parse(vis);
+      const json = safeJsonParse<Record<string, string | null>>(vis);
 
       // 解析当前状态，获取所有窗口的历史数据
       let currentState: Record<string, string | null> = {};
       try {
         if (this.current) {
-          currentState = JSON.parse(this.current);
+          currentState = safeJsonParse<Record<string, string | null>>(this.current);
         }
       } catch {
         currentState = {};
@@ -938,7 +1042,8 @@ export class VisParser {
         }
 
         // 只有当有新内容时才更新解析器
-        if (windowContent) {
+        // 关键修复：允许空字符串清空内容
+        if (windowContent !== undefined) {
           windowParser.updateCurrentMarkdown(windowContent);
         }
 
