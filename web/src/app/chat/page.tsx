@@ -301,7 +301,10 @@ export default function Chat() {
         
         let finalChatInParams = chatInParams;
 
-        if (initMessage.resource) {
+        // Handle multiple file resources
+        const fileResources = initMessage.resources || (initMessage.resource ? [initMessage.resource] : []);
+        
+        if (fileResources.length > 0) {
             const resourceParamIndex = finalChatInParams.findIndex(p => p.param_type === 'resource');
             const resourceLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'resource');
             
@@ -309,7 +312,7 @@ export default function Chat() {
                 const newParams = [...finalChatInParams];
                 newParams[resourceParamIndex] = {
                     ...newParams[resourceParamIndex],
-                    param_value: JSON.stringify(initMessage.resource)
+                    param_value: JSON.stringify(fileResources)
                 };
                 finalChatInParams = newParams;
             } else if (resourceLayout) {
@@ -317,13 +320,13 @@ export default function Chat() {
                     ...finalChatInParams,
                     {
                         param_type: 'resource',
-                        param_value: JSON.stringify(initMessage.resource),
-                        sub_type: resourceLayout.sub_type
+                        param_value: JSON.stringify(fileResources),
+                        sub_type: resourceLayout.sub_type || 'common_file'
                     }
                 ];
             }
             
-            setResourceValue(initMessage.resource);
+            setResourceValue(fileResources);
         }
         
         if (initMessage.model) {

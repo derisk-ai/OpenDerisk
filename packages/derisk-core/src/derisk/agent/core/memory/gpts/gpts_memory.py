@@ -1184,15 +1184,6 @@ class GptsMemory(FileMetadataStorage):
     async def update_file_metadata(self, file_metadata: "AgentFileMetadata") -> None:
         """FileMetadataStorage接口: 更新文件元数据."""
         await self.update_file(file_metadata.conv_id, file_metadata)
-
-    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional["AgentFileMetadata"]:
-        """FileMetadataStorage接口: 通过file_key获取文件元数据."""
-        return await self.get_file_by_key(conv_id, file_key)
-
-    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional["AgentFileMetadata"]:
-        """FileMetadataStorage接口: 通过file_id获取文件元数据."""
-        return await self.get_file_by_id(conv_id, file_id)
-
     async def list_files(
         self,
         conv_id: str,
@@ -1229,10 +1220,6 @@ class GptsMemory(FileMetadataStorage):
         except Exception as e:
             logger.error(f"Failed to delete file metadata from storage: {e}")
             return False
-
-    async def get_conclusion_files(self, conv_id: str) -> List["AgentFileMetadata"]:
-        """FileMetadataStorage接口: 获取所有结论文件."""
-        return await self.get_conclusion_files(conv_id)
 
     async def clear_conv_files(self, conv_id: str) -> None:
         """FileMetadataStorage接口: 清空会话的所有文件元数据."""

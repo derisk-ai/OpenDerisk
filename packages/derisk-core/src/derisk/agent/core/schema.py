@@ -34,6 +34,7 @@ class Status(Enum):
     RETRYING = "retrying"
     FAILED = "failed"
     COMPLETE = "complete"
+    BLOCKED = "blocked"
 
 
 class DynamicParamType(Enum):

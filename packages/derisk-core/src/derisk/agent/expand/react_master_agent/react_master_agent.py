@@ -9,10 +9,8 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
 """
 
 import asyncio
-import json
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, Callable, Awaitable
+from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 
 from derisk._private.pydantic import Field, PrivateAttr
 from derisk.agent import (
@@ -20,13 +18,9 @@ from derisk.agent import (
     Agent,
     AgentMessage,
     ProfileConfig,
-    Resource,
-    ResourceType,
-    BlankAction,
 )
-from derisk.agent.core.action.base import Action, ToolCall
 from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
-from derisk.agent.core.base_parser import AgentParser, SchemaType
+from derisk.agent.core.base_parser import  SchemaType
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status, DynamicParam, DynamicParamType
 
@@ -39,21 +33,14 @@ from .doom_loop_detector import (
     DoomLoopCheckResult,
 )
 from .session_compaction import SessionCompaction, CompactionResult
-from .prune import HistoryPruner, PruneResult
-from .truncation import Truncator, TruncationResult, TruncationConfig
+from .prune import HistoryPruner
+from .truncation import Truncator,  TruncationConfig
 from .prompt import (
     REACT_MASTER_SYSTEM_TEMPLATE,
     REACT_MASTER_USER_TEMPLATE,
     REACT_MASTER_WRITE_MEMORY_TEMPLATE,
 )
-
-# AgentFileSystem 导入
-try:
-    from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
-    AGENT_FILESYSTEM_AVAILABLE = True
-except ImportError:
-    AGENT_FILESYSTEM_AVAILABLE = False
-    AgentFileSystem = None
+from ...core.file_system.agent_file_system import AgentFileSystem
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +162,9 @@ class ReActMasterAgent(ConversableAgent):
                 threshold=self.doom_loop_threshold,
                 permission_callback=self._ask_user_permission,
             )
-            logger.info(f"DoomLoopDetector initialized with threshold={self.doom_loop_threshold}")
+            logger.info(
+                f"DoomLoopDetector initialized with threshold={self.doom_loop_threshold}"
+            )
 
         # 2. 初始化上下文压缩器
         if self.enable_session_compaction:
@@ -183,24 +172,34 @@ class ReActMasterAgent(ConversableAgent):
                 context_window=self.context_window,
                 threshold_ratio=self.compaction_threshold_ratio,
             )
-            logger.info(f"SessionCompaction initialized with window={self.context_window}")
+            logger.info(
+                f"SessionCompaction initialized with window={self.context_window}"
+            )
 
         # 3. 初始化历史修剪器
         if self.enable_history_pruning:
             self._history_pruner = HistoryPruner(
                 prune_protect=self.prune_protect_tokens,
             )
-            logger.info(f"HistoryPruner initialized with protect={self.prune_protect_tokens}")
+            logger.info(
+                f"HistoryPruner initialized with protect={self.prune_protect_tokens}"
+            )
 
         # 4. 初始化 AgentFileSystem 和输出截断器
         if self.enable_output_truncation:
             # 创建截断器（AgentFileSystem 将在需要时异步初始化）
             self._truncator = Truncator(
-                max_lines=self._truncator_max_lines if hasattr(self, '_truncator_max_lines') else TruncationConfig.DEFAULT_MAX_LINES,
-                max_bytes=self._truncator_max_bytes if hasattr(self, '_truncator_max_bytes') else TruncationConfig.DEFAULT_MAX_BYTES,
+                max_lines=self._truncator_max_lines
+                if hasattr(self, "_truncator_max_lines")
+                else TruncationConfig.DEFAULT_MAX_LINES,
+                max_bytes=self._truncator_max_bytes
+                if hasattr(self, "_truncator_max_bytes")
+                else TruncationConfig.DEFAULT_MAX_BYTES,
             )
             self._agent_file_system = None
-            logger.info("Truncator initialized (AgentFileSystem will be initialized on demand)")
+            logger.info(
+                "Truncator initialized (AgentFileSystem will be initialized on demand)"
+            )
 
     async def _ask_user_permission(self, message: str, context: Dict = None) -> bool:
         """
@@ -227,7 +226,9 @@ class ReActMasterAgent(ConversableAgent):
             )
 
         # 默认返回 False（阻止），实际应用中应该等待用户输入
-        logger.warning(f"Permission requested but auto-denied (no actual permission system): {message[:100]}...")
+        logger.warning(
+            f"Permission requested but auto-denied (no actual permission system): {message[:100]}..."
+        )
         return False
 
     async def _ensure_agent_file_system(self) -> Optional[Any]:
@@ -240,23 +241,35 @@ class ReActMasterAgent(ConversableAgent):
         if self._agent_file_system is not None:
             return self._agent_file_system
 
-        if not AGENT_FILESYSTEM_AVAILABLE:
-            return None
 
         if not self.not_null_agent_context:
             return None
 
         try:
-            from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
 
             conv_id = self.not_null_agent_context.conv_id or "default"
             session_id = self.not_null_agent_context.conv_session_id or conv_id
 
-            # 创建AgentFileSystem实例
+            # 尝试获取 FileStorageClient
+            file_storage_client = None
+            try:
+                from derisk.core.interface.file import FileStorageClient
+                from derisk._private.config import Config
+                CFG = Config()
+                system_app = CFG.SYSTEM_APP
+                if system_app:
+                    file_storage_client = FileStorageClient.get_instance(
+                        system_app
+                    )
+            except Exception:
+                pass  # FileStorageClient 不可用
+
+            # 创建AgentFileSystem实例（V3 集成在默认版本中）
             self._agent_file_system = AgentFileSystem(
                 conv_id=conv_id,
                 session_id=session_id,
-                gpts_memory=self.memory.gpts_memory if self.memory else None,
+                metadata_storage=self.memory.gpts_memory if self.memory else None,
+                file_storage_client=file_storage_client,
             )
 
             # 同步工作区（恢复文件）
@@ -266,16 +279,25 @@ class ReActMasterAgent(ConversableAgent):
             if self._truncator:
                 self._truncator.agent_file_system = self._agent_file_system
 
-            logger.info(f"AgentFileSystem initialized with conv_id={conv_id}, session_id={session_id}")
+            logger.info(
+                f"AgentFileSystem initialized with conv_id={conv_id}, "
+                f"session_id={session_id}, storage_type={self._agent_file_system.get_storage_type()}"
+            )
             return self._agent_file_system
 
         except Exception as e:
-            logger.warning(f"Failed to initialize AgentFileSystem: {e}, using legacy mode")
+            logger.warning(
+                f"Failed to initialize AgentFileSystem: {e}, using legacy mode"
+            )
             return None
 
     def _get_llm_client(self) -> Optional[Any]:
         """获取 LLM 客户端"""
-        if hasattr(self, 'llm_config') and self.llm_config and self.llm_config.llm_client:
+        if (
+            hasattr(self, "llm_config")
+            and self.llm_config
+            and self.llm_config.llm_client
+        ):
             return self.llm_config.llm_client
         return None
 
@@ -398,7 +420,9 @@ class ReActMasterAgent(ConversableAgent):
         )
 
         if result.is_doom_loop:
-            logger.warning(f"Doom loop detected for {tool_name}: {result.consecutive_count} consecutive calls")
+            logger.warning(
+                f"Doom loop detected for {tool_name}: {result.consecutive_count} consecutive calls"
+            )
 
             # 通过权限系统请求确认
             allowed = await self._doom_loop_detector.check_and_ask_permission(
@@ -478,7 +502,12 @@ class ReActMasterAgent(ConversableAgent):
             Tuple: (消息列表, 上下文, 系统提示, 用户提示)
         """
         # 获取基础消息列表
-        messages, context, system_prompt, user_prompt = await super()._load_thinking_messages(
+        (
+            messages,
+            context,
+            system_prompt,
+            user_prompt,
+        ) = await super()._load_thinking_messages(
             received_message, sender, rely_messages, **kwargs
         )
 
@@ -516,19 +545,27 @@ class ReActMasterAgent(ConversableAgent):
 
         # 阶段 1：解析所有可能的 action
         real_actions = self.agent_parser.parse_actions(
-            llm_out=kwargs.get("agent_llm_out"),
-            action_cls_list=self.actions,
-            **kwargs
+            llm_out=kwargs.get("agent_llm_out"), action_cls_list=self.actions, **kwargs
         )
 
         # 阶段 2：并行执行所有解析出的 action
         if real_actions:
             explicit_keys = [
-                'ai_message', 'resource', 'rely_action_out', 'render_protocol',
-                'message_id', 'sender', 'agent', 'received_message', 'agent_context', "memory"
+                "ai_message",
+                "resource",
+                "rely_action_out",
+                "render_protocol",
+                "message_id",
+                "sender",
+                "agent",
+                "received_message",
+                "agent_context",
+                "memory",
             ]
 
-            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in explicit_keys}
+            filtered_kwargs = {
+                k: v for k, v in kwargs.items() if k not in explicit_keys
+            }
 
             tasks = []
             for real_action in real_actions:
@@ -551,23 +588,29 @@ class ReActMasterAgent(ConversableAgent):
                 tasks.append((real_action, task))
 
             # 并行执行所有任务
-            results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+            results = await asyncio.gather(
+                *[task for _, task in tasks], return_exceptions=True
+            )
 
             # 处理执行结果
             for (real_action, _), result in zip(tasks, results):
                 if isinstance(result, Exception):
                     logger.exception(f"Action execution failed: {result}")
-                    act_outs.append(ActionOutput(
-                        content=str(result),
-                        name=real_action.name,
-                        is_exe_success=False
-                    ))
+                    act_outs.append(
+                        ActionOutput(
+                            content=str(result),
+                            name=real_action.name,
+                            is_exe_success=False,
+                        )
+                    )
                 else:
                     if result:
                         # 对工具执行结果应用输出截断
                         if isinstance(result, ActionOutput) and result.content:
                             tool_name = result.action or real_action.name
-                            result.content = self._truncate_tool_output(result.content, tool_name)
+                            result.content = self._truncate_tool_output(
+                                result.content, tool_name
+                            )
 
                         # 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
@@ -578,12 +621,14 @@ class ReActMasterAgent(ConversableAgent):
                 await self.push_context_event(
                     EventType.AfterAction,
                     ActionPayload(action_output=result),
-                    await self.task_id_by_received_message(received_message)
+                    await self.task_id_by_received_message(received_message),
                 )
 
         return act_outs
 
-    async def _attach_delivery_files(self, action_out: "ActionOutput") -> "ActionOutput":
+    async def _attach_delivery_files(
+        self, action_out: "ActionOutput"
+    ) -> "ActionOutput":
         """为terminate action附加交付文件.
 
         从AgentFileSystem收集所有结论文件和交付物文件，
@@ -760,12 +805,14 @@ class ReActMasterAgent(ConversableAgent):
             if llm_client:
                 self._session_compaction.set_llm_client(llm_client)
 
-            result = await self._session_compaction.compact(messages, force=force)
+            result = await self._session_compaction.compact([item.to_agent_message() for item in messages], force=force)
 
             if result.success and result.messages_removed > 0:
                 # 更新内存中的消息
                 # 注意：这里需要考虑如何安全地替换消息
-                logger.info(f"Manual compression: removed {result.messages_removed} messages")
+                logger.info(
+                    f"Manual compression: removed {result.messages_removed} messages"
+                )
 
             return result
 
