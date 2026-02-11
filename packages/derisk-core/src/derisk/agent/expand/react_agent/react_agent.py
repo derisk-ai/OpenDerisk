@@ -22,7 +22,6 @@ from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.app import AppResource
 from derisk.context.event import ActionPayload, EventType
 from derisk.sandbox.base import SandboxBase
-from derisk.util.configure import DynConfig
 from derisk.util.template_utils import render
 from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import MemoryHistoryArgSupplier
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack

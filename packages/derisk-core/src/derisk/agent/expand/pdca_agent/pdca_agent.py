@@ -29,6 +29,7 @@ from derisk.agent.expand.actions.system_action import SystemAction
 from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.agent.expand.pdca_agent.file_system import FileSystem
+from derisk.agent.expand.pdca_agent.file_system_v3 import FileSystem as FileSystemV3
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
 from derisk.agent.expand.pdca_agent.prompt_v7 import (
@@ -94,6 +95,48 @@ class PDCAAgent(ReActAgent):
         for k, _ in PDCA_SYSTEM_TOOLS.items():
             if k in system_tool_dict:
                 self.available_system_tools[k] = system_tool_dict[k]
+
+    def _create_file_system(self, session_id: str, goal_id: str):
+        """创建 FileSystem 实例，优先使用 V3 版本（如果 FileStorageClient 可用）.
+
+        Args:
+            session_id: 会话 ID
+            goal_id: 目标 ID
+
+        Returns:
+            FileSystem 或 FileSystemV3 实例
+        """
+        # 尝试获取 FileStorageClient
+        file_storage_client = None
+        try:
+            from derisk.core.interface.file import FileStorageClient
+
+            if self.agent_context and self.agent_context.system_app:
+                file_storage_client = FileStorageClient.get_instance(
+                    self.agent_context.system_app
+                )
+        except Exception as e:
+            logger.debug(f"[PDCA] FileStorageClient not available: {e}")
+
+        # 如果 FileStorageClient 可用，使用 V3 版本
+        if file_storage_client:
+            logger.info(
+                f"[PDCA] Using FileSystemV3 with FileStorageClient for session: {session_id}"
+            )
+            return FileSystemV3(
+                session_id=session_id,
+                goal_id=goal_id,
+                sandbox=self.sandbox_manager.client if self.sandbox_manager else None,
+                file_storage_client=file_storage_client,
+            )
+
+        # 否则使用传统的 FileSystem（V1/V2）
+        logger.info(f"[PDCA] Using legacy FileSystem for session: {session_id}")
+        return FileSystem(
+            session_id=session_id,
+            goal_id=goal_id,
+            sandbox=self.sandbox_manager.client if self.sandbox_manager else None,
+        )
 
     async def generate_reply(
         self,
@@ -167,11 +210,13 @@ class PDCAAgent(ReActAgent):
             )
 
             self.received_message_state[received_message.message_id] = Status.RUNNING
-            fs = FileSystem(
+
+            # 创建 FileSystem，优先使用 V3 版本（如果 FileStorageClient 可用）
+            fs = self._create_file_system(
                 session_id=self.agent_context.conv_session_id,
                 goal_id=received_message.message_id,
-                sandbox=self.sandbox_manager.client,
             )
+
             pm: AsyncKanbanManager = AsyncKanbanManager(
                 agent_id=self.name,
                 session_id=received_message.message_id,
@@ -330,7 +375,9 @@ class PDCAAgent(ReActAgent):
 
                             # 方案4: 优化 observation 信息，让 LLM 更容易改变策略
                             # 每次失败时添加更丰富的上下文
-                            original_error = act_out.content or "No error details available"
+                            original_error = (
+                                act_out.content or "No error details available"
+                            )
                             enhanced_content = (
                                 f"[Tool Failure - Attempt {count}/3]\n"
                                 f"Tool: {act_out.action}\n"
@@ -403,13 +450,15 @@ class PDCAAgent(ReActAgent):
                                 conv_id=self.agent_context.conv_id,
                                 task=TreeNodeData(
                                     node_id=reply_message.message_id,
-                                    parent_id= current_stage.stage_id ,
+                                    parent_id=current_stage.stage_id,
                                     content=AgentTaskContent(
                                         agent_name=self.name,
                                         task_type=AgentTaskType.TASK.value,
                                         message_id=reply_message.message_id,
                                     ),
-                                    state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
+                                    state=Status.COMPLETE.value
+                                    if check_pass
+                                    else Status.FAILED.value,
                                     name=current_stage.description,
                                     description="",
                                 ),
@@ -424,11 +473,15 @@ class PDCAAgent(ReActAgent):
                                     content=AgentTaskContent(
                                         agent_name=self.name,
                                         task_type=AgentTaskType.TASK.value,
-                                        message_id=reply_message.message_id),
-                                    state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
+                                        message_id=reply_message.message_id,
+                                    ),
+                                    state=Status.COMPLETE.value
+                                    if check_pass
+                                    else Status.FAILED.value,
                                     name=received_message.current_goal,
-                                    description=received_message.content
-                                ))
+                                    description=received_message.content,
+                                ),
+                            )
 
                     ### 非LOOP模式以及非FunctionCall模式
                     if (

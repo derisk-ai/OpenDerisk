@@ -53,30 +53,20 @@ class ServeConfig(BaseServeConfig):
         """Get absolute path to project skill directory"""
         if self.project_skill_dir and os.path.isabs(self.project_skill_dir):
             return self.project_skill_dir
-        # Use CONFIG_ROOT if available, otherwise current working directory
-        root = getattr(CFG, "CONFIG_ROOT", os.getcwd())
-        return os.path.join(root, self.project_skill_dir or DEFAULT_PROJECT_SKILL_DIR)
+        # Use DATA_DIR/skill as the default skill directory
+        return DEFAULT_PROJECT_SKILL_DIR
 
     def get_temp_git_dir(self) -> str:
         """Get absolute path to temp git directory"""
         if self.temp_git_dir and os.path.isabs(self.temp_git_dir):
             return self.temp_git_dir
-        root = getattr(CFG, "CONFIG_ROOT", os.getcwd())
-        return os.path.join(root, self.temp_git_dir or DEFAULT_TEMP_GIT_DIR)
+        # Use DATA_DIR/skill/.git_cache as the default temp git directory
+        return DEFAULT_TEMP_GIT_DIR
 
     def get_sandbox_skill_dir(self) -> Optional[str]:
         """Get sandbox skill directory"""
         if self.sandbox_skill_dir:
             return self.sandbox_skill_dir
-        # Try to get from sandbox config
-        try:
-            from derisk_serve.core.config import GPTsAppConfig
-
-            app_config = CFG.get(GPTsAppConfig, default=None)
-            if app_config and hasattr(app_config, "sandbox") and app_config.sandbox:
-                sandbox_skill_dir = app_config.sandbox.skill_dir
-                if sandbox_skill_dir:
-                    return sandbox_skill_dir
-        except Exception:
-            pass
-        return None
+        # For local mode, use DATA_DIR/skill as the default sandbox skill directory
+        # This ensures local sandbox uses the same directory as project skill storage
+        return DEFAULT_PROJECT_SKILL_DIR
