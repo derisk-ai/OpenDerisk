@@ -3,8 +3,8 @@ from typing import Optional, Any, List
 from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.agent.resource import BaseTool, ToolPack
 from derisk.vis import SystemVisTag
-from derisk_ext.agent.actions.browser_action import BrowserAction
-from derisk_ext.agent.actions.monitor_action import MonitorAction
+from .browser_action import BrowserAction
+from .monitor_action import MonitorAction
 from derisk_ext.vis.common.tags.derisk_monitor import MonitorSpace
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
 

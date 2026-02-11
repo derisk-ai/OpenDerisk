@@ -8,10 +8,11 @@ from derisk._private.pydantic import BaseModel, Field
 from derisk.agent.core.base_parser import AgentParser, SchemaType, T
 from derisk.agent.core.reasoning.reasoning_engine import \
     ReasoningPlan, ReasoningModelOutput
-from derisk.agent.core.reasoning.reasoning_parser import is_str_list
 from derisk.agent.util.llm.llm_client import AgentLLMOut
 from derisk.agent.util.xml_utils import extract_valid_xmls
 from derisk.util.json_utils import find_json_objects
+from derisk.util.string_utils import is_str_list
+
 logger = logging.getLogger(__name__)
 FILE_TOOLS = ["create_file", "edit_file"]
 FILE_DESCRIPTION = "Write File"

@@ -11,7 +11,7 @@ from derisk.agent import ConversableAgent, AgentContext, Resource
 from derisk.agent.core.action.base import ToolCall
 from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 from derisk.agent.expand.actions.sandbox_action import SandboxAction
-from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
+from derisk.agent.expand.actions.tool_action import  ToolInput
 from derisk.agent.resource import BaseTool, ToolPack
 from derisk.core.interface.file import FileStorageClient
 from derisk_ext.vis.derisk.tags.drsk_browser import DrskBrowser

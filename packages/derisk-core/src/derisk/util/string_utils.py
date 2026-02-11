@@ -307,3 +307,7 @@ def is_markdown(text: str) -> bool:
 
     # 4. 如果匹配到的元素总数很少，或者没有明显特征，则认为不是Markdown。
     return False
+
+
+def is_str_list(origin) -> bool:
+    return isinstance(origin, list) and not any(item for item in origin if not isinstance(item, str))
