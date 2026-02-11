@@ -48,7 +48,6 @@ from derisk.agent.expand.react_agent.react_parser import CONST_LLMOUT_TITLE
 from derisk.context.event import EventType, ChatPayload, StepPayload, ActionPayload
 from derisk.util.json_utils import serialize
 from derisk.util.tracer import root_tracer
-from derisk_ext.agent.actions.browser_action import BrowserAction
 
 _REACT_DEFAULT_GOAL = """通过标准化的 PDCA 循环，在确保数据强一致性与执行可靠性的前提下，独立完成复杂的跨阶段任务。"""
 

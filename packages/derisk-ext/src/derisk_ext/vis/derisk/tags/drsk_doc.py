@@ -19,7 +19,7 @@ class DrskDocContent(DrskVisBase):
     state: str = Field("complete", description="outline markdown")
     title: Optional[str] = Field("生成文档", description="title")
     doc_type: str = Field("", description="doc type")
-    avatar: Optional[str] = Field("https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*vkXKSK5rLC8AAAAAQCAAAAgAeprcAQ/original", description="avatar")
+    avatar: Optional[str] = Field("", description="avatar")
 
 class DrskDoc(Vis):
     def vis_tag(cls) -> str:

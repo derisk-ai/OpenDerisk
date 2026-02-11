@@ -26,10 +26,10 @@ interface Skill {
   repo_url?: string;
 }
 
-export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({ 
-  open, 
-  onCancel, 
-  defaultTab = 'mcp',
+export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
+  open,
+  onCancel,
+  defaultTab = 'skill',
   selectedSkills = [],
   onSkillsChange
 }) => {
