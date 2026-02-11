@@ -13,7 +13,6 @@ from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer import TracerParameters
 from derisk.util.logger import LoggingParameters
-from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
 from derisk_ext.storage.knowledge_graph.knowledge_graph import (
     BuiltinKnowledgeGraphConfig,
 )
@@ -78,7 +77,7 @@ class StorageConfig(BaseParameters):
             "help": _("default graph type"),
         },
     )
-    full_text: ZSearchStoreConfig = field(
+    full_text: VectorStoreConfig = field(
         default_factory=VectorStoreConfig,
         metadata={
             "help": _("default full text type"),

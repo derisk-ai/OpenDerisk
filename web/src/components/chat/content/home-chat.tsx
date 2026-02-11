@@ -142,7 +142,7 @@ export default function HomeChat() {
   const [isFocus, setIsFocus] = useState<boolean>(false);
   const [fileList, setFileList] = useState<any[]>([]);
   const [isConnectorsModalOpen, setIsConnectorsModalOpen] = useState(false);
-  const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('mcp');
+  const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('skill');
   const [selectedSkills, setSelectedSkills] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState<IApp | null>(null);
   const [appList, setAppList] = useState<IApp[]>([]);

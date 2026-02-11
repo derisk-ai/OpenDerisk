@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, List, Avatar, Button, Tag, Typography, Spin, Input, Checkbox } from 'antd';
 import { useRequest } from 'ahooks';
 import { apiInterceptors, getMCPList, getSkillList } from '@/client/api';
-import { AppstoreOutlined, ApiOutlined, ToolOutlined, PlusOutlined, CheckOutlined, SearchOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ApiOutlined, ToolOutlined, PlusOutlined, CheckOutlined, SearchOutlined, DownOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 const { Paragraph } = Typography;
@@ -37,6 +37,10 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [selectedSkillCodes, setSelectedSkillCodes] = useState<string[]>([]);
   const [skillSearch, setSkillSearch] = useState('');
+  const [selectedMcpCodes, setSelectedMcpCodes] = useState<string[]>([]);
+  const [mcpSearch, setMcpSearch] = useState('');
+  const [selectedLocalTools, setSelectedLocalTools] = useState<string[]>([]);
+  const [localToolSearch, setLocalToolSearch] = useState('');
 
   // Update active tab when defaultTab changes and modal opens
   useEffect(() => {
@@ -67,12 +71,25 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
     refreshDeps: [activeTab, skillSearch]
   });
 
-  // Filter skills based on search
   const filteredSkills = skillListData.filter((skill: Skill) => {
     if (!skillSearch) return true;
     const searchLower = skillSearch.toLowerCase();
     return skill.name?.toLowerCase().includes(searchLower) ||
            skill.description?.toLowerCase().includes(searchLower);
+  });
+
+  const filteredMcpList = mcpList.filter((mcp: any) => {
+    if (!mcpSearch) return true;
+    const searchLower = mcpSearch.toLowerCase();
+    return mcp.name?.toLowerCase().includes(searchLower) ||
+           mcp.description?.toLowerCase().includes(searchLower);
+  });
+
+  const filteredLocalTools = localTools.filter((tool: any) => {
+    if (!localToolSearch) return true;
+    const searchLower = localToolSearch.toLowerCase();
+    return tool.name?.toLowerCase().includes(searchLower) ||
+           tool.description?.toLowerCase().includes(searchLower);
   });
 
   const handleSkillToggle = (skill: Skill) => {
@@ -94,6 +111,22 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
       onSkillsChange(selectedSkillsData);
     }
     onCancel();
+  };
+
+  const handleMcpToggle = (mcp: any) => {
+    const mcpCode = mcp.id || mcp.uuid || mcp.name;
+    const newSelected = selectedMcpCodes.includes(mcpCode)
+      ? selectedMcpCodes.filter(code => code !== mcpCode)
+      : [...selectedMcpCodes, mcpCode];
+    setSelectedMcpCodes(newSelected);
+  };
+
+  const handleLocalToolToggle = (tool: any) => {
+    const toolId = tool.id;
+    const newSelected = selectedLocalTools.includes(toolId)
+      ? selectedLocalTools.filter(id => id !== toolId)
+      : [...selectedLocalTools, toolId];
+    setSelectedLocalTools(newSelected);
   };
 
   // --- Mock Data for Local Tools ---
@@ -202,42 +235,6 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
 
   const items = [
     {
-      key: 'local',
-      label: (
-        <span className="flex items-center gap-2 px-2">
-          <ToolOutlined />
-          {t('Local Tools', { defaultValue: 'Local Tools' })}
-        </span>
-      ),
-      children: (
-        <List
-          itemLayout="horizontal"
-          dataSource={localTools}
-          renderItem={(item) => renderListItem(item, 'local')}
-          className="h-[500px] overflow-y-auto px-2"
-        />
-      ),
-    },
-    {
-      key: 'mcp',
-      label: (
-        <span className="flex items-center gap-2 px-2">
-          <ApiOutlined />
-          {t('MCP Servers', { defaultValue: 'MCP Servers' })}
-        </span>
-      ),
-      children: (
-        <Spin spinning={mcpLoading}>
-           <List
-            itemLayout="horizontal"
-            dataSource={mcpList}
-            renderItem={(item) => renderListItem(item, 'mcp')}
-            className="h-[500px] overflow-y-auto px-2"
-          />
-        </Spin>
-      ),
-    },
-    {
       key: 'skill',
       label: (
         <span className="flex items-center gap-2 px-2">
@@ -274,6 +271,42 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
               </div>
             )}
           </div>
+        </Spin>
+      ),
+    },
+    {
+      key: 'local',
+      label: (
+        <span className="flex items-center gap-2 px-2">
+          <ToolOutlined />
+          {t('Local Tools', { defaultValue: 'Local Tools' })}
+        </span>
+      ),
+      children: (
+        <List
+          itemLayout="horizontal"
+          dataSource={localTools}
+          renderItem={(item) => renderListItem(item, 'local')}
+          className="h-[500px] overflow-y-auto px-2"
+        />
+      ),
+    },
+    {
+      key: 'mcp',
+      label: (
+        <span className="flex items-center gap-2 px-2">
+          <ApiOutlined />
+          {t('MCP Servers', { defaultValue: 'MCP Servers' })}
+        </span>
+      ),
+      children: (
+        <Spin spinning={mcpLoading}>
+           <List
+            itemLayout="horizontal"
+            dataSource={mcpList}
+            renderItem={(item) => renderListItem(item, 'mcp')}
+            className="h-[500px] overflow-y-auto px-2"
+          />
         </Spin>
       ),
     },
