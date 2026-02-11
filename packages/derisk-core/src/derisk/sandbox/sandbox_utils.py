@@ -5,25 +5,50 @@ from __future__ import annotations
 import posixpath
 import re
 import shlex
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Set
 
-_SANDBOX_WHITELIST = {
-    "/mnt",
-    "/mnt/derisk/skills"
-}
+
+def get_sandbox_whitelist(skill_dir: Optional[str] = None) -> Set[str]:
+    """
+    Get the sandbox whitelist paths.
+
+    Args:
+        skill_dir: The skill directory path. If None, uses default.
+
+    Returns:
+        Set of allowed paths.
+    """
+    from derisk.sandbox.base import DEFAULT_SKILL_DIR
+
+    whitelist = {"/mnt"}
+    if skill_dir:
+        whitelist.add(skill_dir)
+    else:
+        whitelist.add(DEFAULT_SKILL_DIR)
+    return whitelist
+
+
+# Backward compatibility - default whitelist
+_SANDBOX_WHITELIST = get_sandbox_whitelist()
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _PROMPT_LINE_PATTERNS = (
     re.compile(r"^\s*[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:[^\r\n\$#]*[\$#](?:\s.*)?$"),
     re.compile(r"^\s*\[[^\]\n]+@[^\]\n]+\][\$#](?:\s.*)?$"),
-    re.compile(r"^\s*(?:bash|zsh|sh|ksh|csh|tcsh|dash|ash|fish|rbash|busybox)[^$#\n]*[\$#](?:\s.*)?$"),
+    re.compile(
+        r"^\s*(?:bash|zsh|sh|ksh|csh|tcsh|dash|ash|fish|rbash|busybox)[^$#\n]*[\$#](?:\s.*)?$"
+    ),
 )
 _PROGRESS_NOISE_PATTERNS = (
     re.compile(r"\b\d{1,3}%\s*\[[^\]]+\]"),
-    re.compile(r"^\s*(?:Reading package lists|Building dependency tree|Processing triggers for)\b"),
+    re.compile(
+        r"^\s*(?:Reading package lists|Building dependency tree|Processing triggers for)\b"
+    ),
     re.compile(r"^\s*(?:Get|Hit|Ign):\d+"),
     re.compile(r"^\s*Fetched\s+\d"),
-    re.compile(r"^\s*(?:Selecting previously unselected|Preparing to unpack|Unpacking|Setting up)\b"),
+    re.compile(
+        r"^\s*(?:Selecting previously unselected|Preparing to unpack|Unpacking|Setting up)\b"
+    ),
     re.compile(r"^\s*Reading state information\b"),
     re.compile(r"^\s*\(Reading database\b"),
     re.compile(r"^\s*debconf:\s+delaying package configuration\b", re.IGNORECASE),
@@ -49,7 +74,10 @@ def normalize_sandbox_path(client: "SandboxBase", raw_path: str) -> str:
         combined = posixpath.join(base, raw_path)
 
     normalized = posixpath.normpath(combined)
-    for allowed in _SANDBOX_WHITELIST:
+
+    # Use dynamic whitelist based on client's skill_dir
+    whitelist = get_sandbox_whitelist(client.skill_dir)
+    for allowed in whitelist:
         allowed_norm = posixpath.normpath(allowed)
         if normalized == allowed_norm or normalized.startswith(f"{allowed_norm}/"):
             return normalized
@@ -208,12 +236,12 @@ def extract_markdown_title(content: str, default_title: str = "文档") -> str:
     if not content:
         return default_title
 
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # 首先查找一级标题
     for line in lines:
         line = line.strip()
-        if line.startswith('# ') and not line.startswith('## '):
+        if line.startswith("# ") and not line.startswith("## "):
             title = line[2:].strip()
             if title:
                 return title
@@ -221,7 +249,7 @@ def extract_markdown_title(content: str, default_title: str = "文档") -> str:
     # 如果没有一级标题，查找二级标题
     for line in lines:
         line = line.strip()
-        if line.startswith('## ') and not line.startswith('### '):
+        if line.startswith("## ") and not line.startswith("### "):
             title = line[3:].strip()
             if title:
                 return title
@@ -244,7 +272,7 @@ def calculate_file_size_kb(content: str) -> int:
         return 0
 
     # 计算字节大小（UTF-8 编码）
-    byte_size = len(content.encode('utf-8'))
+    byte_size = len(content.encode("utf-8"))
     # 转换为 KB，向上取整
     kb_size = (byte_size + 1023) // 1024
     return kb_size

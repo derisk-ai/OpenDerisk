@@ -1,6 +1,8 @@
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from derisk.configs.model_config import DATA_DIR
 from derisk.datasource.parameter import BaseDatasourceParameters
 from derisk.model.parameter import (
     ModelsDeployParameters,
@@ -23,6 +25,7 @@ from derisk_serve.core.config import GPTsAppConfig
 @dataclass
 class SystemParameters:
     """System parameters."""
+
     workers: Optional[int] = field(
         default=None,
         metadata={
@@ -274,7 +277,10 @@ class MCPConfigParameters(BaseParameters):
         default="origin",
         metadata={"help": _("The mcp client mode，default origin `,`")},
     )
-    enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
+    enable_mcp_gateway: bool = field(
+        default=False, metadata={"help": _("enable mcp gateway, default disable")}
+    )
+
 
 @dataclass
 class SandboxConfigParameters(BaseParameters):
@@ -303,9 +309,24 @@ class SandboxConfigParameters(BaseParameters):
         metadata={"help": _("The sandbox work dir.")},
     )
     skill_dir: Optional[str] = field(
-        default="/mnt/derisk/skills",
-        metadata={"help": _("The sandbox skill dir.")},
+        default=None,  # Will be set dynamically based on sandbox type
+        metadata={
+            "help": _(
+                "The sandbox skill dir. Defaults to DATA_DIR/skill for local sandbox."
+            )
+        },
     )
+
+    def __post_init__(self):
+        """Set default skill_dir based on sandbox type if not provided."""
+        if self.skill_dir is None:
+            if self.type == "local":
+                # For local sandbox, use DATA_DIR/skill
+                self.skill_dir = os.path.join(DATA_DIR, "skill")
+            else:
+                # For remote sandboxes (e.g., xic), use the traditional path
+                self.skill_dir = "/mnt/derisk/skills"
+
     oss_ak: Optional[str] = field(
         default=None,
         metadata={"help": _("The sandbox oss ak.")},
@@ -322,6 +343,8 @@ class SandboxConfigParameters(BaseParameters):
         default=None,
         metadata={"help": _("The sandbox oss bucket.")},
     )
+
+
 @dataclass
 class ApplicationConfig:
     """Application configuration."""
@@ -383,9 +406,7 @@ class ApplicationConfig:
     )
     sandbox: SandboxConfigParameters = field(
         default_factory=SandboxConfigParameters,
-        metadata={
-            "help": _("SandBox configuration")
-        }
+        metadata={"help": _("SandBox configuration")},
     )
     agent: Dict[str, Any] = field(
         default_factory=dict,
@@ -393,4 +414,3 @@ class ApplicationConfig:
             "help": _("Agent configuration"),
         },
     )
-

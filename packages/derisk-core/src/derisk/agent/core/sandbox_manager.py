@@ -6,7 +6,7 @@ import textwrap
 from typing import Optional
 
 from derisk._private.config import Config
-from derisk.sandbox.base import SandboxBase
+from derisk.sandbox.base import SandboxBase, DEFAULT_SKILL_DIR
 from derisk.sandbox.sandbox_client import AutoSandbox
 from derisk.sandbox.sandbox_utils import collect_shell_output
 from derisk_app.config import SandboxConfigParameters
@@ -16,21 +16,22 @@ CFG = Config()
 
 
 class SandboxManager:
-
     def __init__(self, sandbox_client: Optional[SandboxBase] = None):
         self._initialized: bool = False
         ## 是否完成初始化，默认拉起实例和初始化沙箱环境使用异步的方式，正式使用前需要检查是否初始化完成，如果未完成需要等待或者报错
         self._sandbox_client: Optional[SandboxBase] = sandbox_client
         self._work_dir: Optional[str] = None
-        self._skill_path: Optional[str] = "/mnt/derisk/skills"
+        self._skill_path: Optional[str] = None  # Will be set from sandbox client
 
         self._init_task = None
+
     @property
     def initialized(self):
         return self._initialized
 
     def set_init_task(self, task):
         self._init_task = task
+
     @property
     def init_task(self):
         return self._init_task
@@ -57,13 +58,13 @@ class SandboxManager:
         exec_dir = work_dir
         logger.info("sandbox exec: %s (cwd=%s)", command, exec_dir)
         result = await self.client.shell.exec_command(
-            command=command,
-            timeout=timeout,
-            work_dir=exec_dir
+            command=command, timeout=timeout, work_dir=exec_dir
         )
         if getattr(result, "status", None) != "completed":
             output = collect_shell_output(result)
-            raise RuntimeError(f"命令执行失败: {command} -> {result.status}, 输出: {output}")
+            raise RuntimeError(
+                f"命令执行失败: {command} -> {result.status}, 输出: {output}"
+            )
         return result
 
     async def _ensure_directory(self, path: str) -> None:
@@ -118,8 +119,11 @@ class SandboxManager:
         output = collect_shell_output(result)
         logger.info("git pull 完成: %s", output)
 
-    async def initialize(self, sandbox: SandboxBase,
-                         prepare_knowledge_repo: bool = True, ):
+    async def initialize(
+        self,
+        sandbox: SandboxBase,
+        prepare_knowledge_repo: bool = True,
+    ):
         """
         从已存在的 sandbox 实例初始化环境（创建或恢复）
         统一执行：工作目录设置、目录创建、知识库更新
@@ -150,12 +154,22 @@ class SandboxManager:
 
         # 4. 准备知识库（如果需要）
         if prepare_knowledge_repo:
-            repo_path = "/mnt/derisk/skills"
-            logger.info("知识库更新开始准备: sandbox_id=%s, repo_path=%s", sandbox.sandbox_id, repo_path)
+            # Use skill_dir from sandbox client instead of hardcoded path
+            repo_path = sandbox.skill_dir or DEFAULT_SKILL_DIR
+            self._skill_path = repo_path
+            logger.info(
+                "知识库更新开始准备: sandbox_id=%s, repo_path=%s",
+                sandbox.sandbox_id,
+                repo_path,
+            )
             try:
                 await self._ensure_directory(repo_path)
                 await self._update_repo(repo_path)
-                logger.info("知识库已准备: sandbox_id=%s, repo_path=%s", sandbox.sandbox_id, repo_path)
+                logger.info(
+                    "知识库已准备: sandbox_id=%s, repo_path=%s",
+                    sandbox.sandbox_id,
+                    repo_path,
+                )
             except Exception as exc:
                 logger.warning(
                     "知识库准备失败: sandbox_id=%s, repo_path=%s, error=%s",
@@ -176,17 +190,18 @@ class SandboxManager:
         logger.info(
             f"创建 sandbox client,type={sandbox_config.type} user_id={sandbox_config.user_id}, template_id={sandbox_config.template_id}"
         )
-        return await AutoSandbox.create(user_id=sandbox_config.user_id,
-                                        agent=sandbox_config.agent_name,
-                                        type=sandbox_config.type,
-                                        template=sandbox_config.template_id,
-                                        work_dir=sandbox_config.work_dir,
-                                        skill_dir=sandbox_config.skill_dir,
-                                        oss_ak=sandbox_config.oss_ak,
-                                        oss_sk=sandbox_config.oss_sk,
-                                        oss_endpoint=sandbox_config.oss_endpoint,
-                                        oss_bucket_name=sandbox_config.oss_bucket_name,
-                                        )
+        return await AutoSandbox.create(
+            user_id=sandbox_config.user_id,
+            agent=sandbox_config.agent_name,
+            type=sandbox_config.type,
+            template=sandbox_config.template_id,
+            work_dir=sandbox_config.work_dir,
+            skill_dir=sandbox_config.skill_dir,
+            oss_ak=sandbox_config.oss_ak,
+            oss_sk=sandbox_config.oss_sk,
+            oss_endpoint=sandbox_config.oss_endpoint,
+            oss_bucket_name=sandbox_config.oss_bucket_name,
+        )
 
     async def acquire(self) -> SandboxBase:
         logger.info("sandbox acquire!")
@@ -196,7 +211,9 @@ class SandboxManager:
 
     async def close(self) -> None:
         try:
-            logger.info("释放 sandbox 资源, sandbox_id=%s", self._sandbox_client.sandbox_id)
+            logger.info(
+                "释放 sandbox 资源, sandbox_id=%s", self._sandbox_client.sandbox_id
+            )
             client = self._sandbox_client
             kill_fn = getattr(client, "kill", None)
             if kill_fn:
