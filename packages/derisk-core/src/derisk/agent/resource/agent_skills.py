@@ -93,26 +93,65 @@ class AgentSkillResourceParameters(PackResourceParameters):
 class AgentSkillResource(Resource):
     def __init__(self, name: str = "SKILL Resource", **kwargs):
         """Initialize the skill resource ."""
-        if 'description' in kwargs and 'path' in kwargs:
+        self._name = name
+        self.debug_info = kwargs.get("debug_info", None)
+
+        description = kwargs.get("description", "")
+        path = kwargs.get("path")
+        allowed_tools = kwargs.get("allowed_tools")
+        owner = kwargs.get("owner")
+        domain = kwargs.get("domain")
+        parent_folder = kwargs.get("parent_folder")
+
+        if description:
             self._skill: SkillInfo = SkillInfo(
                 name=name,
                 meta_map={
-                    'release': SkillMeta(
+                    "release": SkillMeta(
                         name=name,
-                        description=kwargs['description'],
-                        path=kwargs['path'],
+                        description=description,
+                        path=path,
+                        allowed_tools=allowed_tools,
+                        owner=owner,
+                        domain=domain,
                     )
                 },
+                parent_folder=parent_folder,
             )
-        self._name = name
-        self.debug_info = kwargs.get('debug_info', None)
 
     @property
     def name(self) -> str:
         """Return the resource name."""
         return self._name
 
+    @property
+    def description(self) -> Optional[str]:
+        """Return the skill description."""
+        meta = self.skill_meta()
+        return meta.description if meta else None
+
+    @property
+    def path(self) -> Optional[str]:
+        """Return the skill path."""
+        meta = self.skill_meta()
+        return meta.path if meta else None
+
+    @property
+    def allowed_tools(self) -> Optional[List[str]]:
+        """Return the allowed tools."""
+        meta = self.skill_meta()
+        return meta.allowed_tools if meta else None
+
+    @property
+    def parent_folder(self) -> Optional[str]:
+        """Return the parent folder."""
+        if hasattr(self, "_skill") and self._skill:
+            return self._skill.parent_folder
+        return None
+
     def skill_meta(self, mode: Optional[str] = "release") -> Optional[SkillMeta]:
+        if not hasattr(self, "_skill"):
+            return None
         return self._skill.meta_map.get(mode)
 
     @classmethod
@@ -162,24 +201,29 @@ class AgentSkillResource(Resource):
         **kwargs,
     ) -> Tuple[str, Optional[List[Dict]]]:
         """Get the prompt."""
-        if not self._skill:
+        if not hasattr(self, "_skill") or not self._skill:
             return "No Skills provided.", None
 
         mode, branch = "release", "master"
-        if self.debug_info and self.debug_info.get('is_debug'):
-            mode, branch = "debug", self.debug_info.get('branch')
+        meta = self.skill_meta(mode)
+        if not meta:
+            return "No Skills provided.", None
+
+        if self.debug_info and self.debug_info.get("is_debug"):
+            mode, branch = "debug", self.debug_info.get("branch")
+
         params = {
             "skills": [
                 {
-                    "name": self.skill_meta(mode).name,
-                    "description": self.skill_meta(mode).description,
-                    "path": self._skill.parent_folder,
-                    "owner": self.skill_meta(mode).owner,
-                    "branch": branch
+                    "name": meta.name,
+                    "description": meta.description,
+                    "path": self._skill.parent_folder or meta.path,
+                    "owner": meta.owner,
+                    "branch": branch,
                 }
             ]
         }
 
         agent_skill_meta_prompt = render(agent_skill_prompt_template, params)
-        agent_skill_meta: List[Dict] = [self.skill_meta(mode).to_dict()]
+        agent_skill_meta: List[Dict] = [meta.to_dict()]
         return agent_skill_meta_prompt, agent_skill_meta

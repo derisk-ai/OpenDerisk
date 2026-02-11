@@ -25,7 +25,7 @@ from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
 from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import MemoryHistoryArgSupplier
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from .prompt_v2 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
+from .prompt_v3 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
 from ...core.schema import DynamicParam, DynamicParamType

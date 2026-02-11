@@ -26,6 +26,7 @@ from derisk.agent.util.ext_config import ExtConfigHolder
 from derisk.component import ComponentType, SystemApp
 from derisk.sandbox import AutoSandbox
 from derisk_app.config import SandboxConfigParameters
+from derisk_serve.agent.resource import DeriskSkillResource
 from derisk_serve.schedule.local_scheduler import LocalScheduler
 from derisk.core.interface.scheduler import Scheduler
 from derisk.core import HumanMessage, StorageConversation
@@ -521,7 +522,7 @@ class AgentChat(BaseComponent, ABC):
                 )
             )
             ## TEST FILE WRITE
-            WRITE_TO_FILE = False
+            WRITE_TO_FILE = True
             if WRITE_TO_FILE:
                 from derisk.configs.model_config import DATA_DIR
                 import os
@@ -714,13 +715,13 @@ class AgentChat(BaseComponent, ABC):
     async def _have_agent_skill(self, app: GptsApp, dynamic_resources: Optional[List[AgentResource]] = None):
         """检查应用是否包含 AgentSkill 资源"""
         if app.resource_tool and any(
-                item.type in [AgentSkillResource.type()] for item in app.resource_tool):
+                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in app.resource_tool):
             return True
         if app.all_resources and any(
-                item.type in [AgentSkillResource.type()] for item in app.all_resources):
+                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in app.all_resources):
             return True
         if dynamic_resources and any(
-                item.type in [AgentSkillResource.type()] for item in dynamic_resources):
+                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in dynamic_resources):
             return True
         return False
 

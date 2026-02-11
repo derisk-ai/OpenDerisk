@@ -58,7 +58,7 @@ def _load_skills_from_db() -> List[Dict[str, Any]]:
                 )
 
                 if service:
-                    filter_request = SkillQueryFilter()
+                    filter_request = SkillQueryFilter(filter="")
                     query_result = service.filter_list_page(
                         filter_request, page=1, page_size=1000
                     )
@@ -136,11 +136,43 @@ class DeriskSkillResource(Resource[ResourceParameters]):
     def __init__(self, name: str = "DeriskSkill Resource", **kwargs):
         """Initialize the DeriskSkill resource."""
         self._resource_name = name
+        self._skill_name = kwargs.get("skill_name", name)
+        self._skill_description = kwargs.get(
+            "skill_description", kwargs.get("description")
+        )
+        self._skill_path = kwargs.get("skill_path", kwargs.get("path"))
+        self._skill_branch = kwargs.get("skill_branch", kwargs.get("branch", "main"))
+        self._skill_author = kwargs.get("skill_author", kwargs.get("owner"))
 
     @property
     def name(self) -> str:
         """Return the resource name."""
         return self._resource_name
+
+    @property
+    def skill_name(self) -> Optional[str]:
+        """Return the skill name."""
+        return self._skill_name
+
+    @property
+    def description(self) -> Optional[str]:
+        """Return the skill description."""
+        return self._skill_description
+
+    @property
+    def path(self) -> Optional[str]:
+        """Return the skill path (sandbox path)."""
+        return self._skill_path
+
+    @property
+    def branch(self) -> Optional[str]:
+        """Return the skill branch."""
+        return self._skill_branch
+
+    @property
+    def owner(self) -> Optional[str]:
+        """Return the skill owner."""
+        return self._skill_author
 
     @classmethod
     def type(cls) -> ResourceType:
@@ -254,25 +286,61 @@ class DeriskSkillResource(Resource[ResourceParameters]):
     ) -> Tuple[str, Optional[Dict]]:
         """Get the prompt.
 
-        This method loads skills from the database and returns them in a
-        formatted prompt that can be used by Agents.
+        This method returns the skill information for the current resource instance.
 
         Returns:
             Tuple[str, Optional[Dict]]: A tuple containing the rendered prompt
                 and metadata about the loaded skills.
         """
-        # Load skills from database
-        skills_list = _load_skills_from_db()
+        # Get sandbox path for the skill if available
+        sandbox_path = None
+        skill_code = self._skill_name if self._skill_name else self._resource_name
 
-        if not skills_list:
-            return "<agent-skills>\nNo Skills available.\n</agent-skills>", None
+        try:
+            from derisk_serve.skill.service.service import (
+                Service,
+                SKILL_SERVICE_COMPONENT_NAME,
+            )
+            from derisk_serve.skill.api.schemas import SkillRequest
+            from derisk.agent.resource.manage import _SYSTEM_APP
 
-        params = {"skills": skills_list}
+            if _SYSTEM_APP:
+                service = _SYSTEM_APP.get_component(
+                    SKILL_SERVICE_COMPONENT_NAME, Service, default=None
+                )
+                if service and skill_code:
+                    skill_dir = service.get_skill_directory(skill_code)
+                    if skill_dir:
+                        sandbox_path = skill_dir
+        except Exception as e:
+            logger.warning(f"Error loading skill sandbox path: {e}")
+
+        # Use sandbox path if available, otherwise use stored path
+        skill_path = sandbox_path or self._skill_path
+
+        params = {
+            "skills": [
+                {
+                    "name": self._skill_name,
+                    "description": self._skill_description,
+                    "path": skill_path,
+                    "owner": self._skill_author,
+                    "branch": self._skill_branch,
+                }
+            ]
+        }
 
         agent_skill_meta_prompt = render(agent_skill_prompt_template, params)
 
         # Return both the prompt and the skills metadata
-        return agent_skill_meta_prompt, {"skills": skills_list}
+        skill_meta = {
+            "name": self._skill_name,
+            "description": self._skill_description,
+            "path": skill_path,
+            "owner": self._skill_author,
+            "branch": self._skill_branch,
+        }
+        return agent_skill_meta_prompt, skill_meta
 
     @property
     def is_async(self) -> bool:
