@@ -13,6 +13,7 @@ from derisk.agent import (
     BlankAction,
 )
 from derisk.agent.core import system_tool_dict
+from derisk.agent.core.file_system.file_system import FileSystem
 from derisk.agent.core.file_system.file_tree import TreeNodeData
 from derisk.agent.core.memory.gpts.agent_system_message import (
     SystemMessageType,
@@ -28,8 +29,6 @@ from derisk.agent.expand.actions.sandbox_action import SandboxAction
 from derisk.agent.expand.actions.system_action import SystemAction
 from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
-from derisk.agent.expand.pdca_agent.file_system import FileSystem
-from derisk.agent.expand.pdca_agent.file_system_v3 import FileSystem as FileSystemV3
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
 from derisk.agent.expand.pdca_agent.prompt_v7 import (
@@ -110,11 +109,11 @@ class PDCAAgent(ReActAgent):
         file_storage_client = None
         try:
             from derisk.core.interface.file import FileStorageClient
-
-            if self.agent_context and self.agent_context.system_app:
-                file_storage_client = FileStorageClient.get_instance(
-                    self.agent_context.system_app
-                )
+            from derisk._private.config import Config
+            CFG = Config()
+            system_app = CFG.SYSTEM_APP
+            if system_app:
+                file_storage_client = FileStorageClient.get_instance(  system_app)
         except Exception as e:
             logger.debug(f"[PDCA] FileStorageClient not available: {e}")
 
@@ -123,7 +122,7 @@ class PDCAAgent(ReActAgent):
             logger.info(
                 f"[PDCA] Using FileSystemV3 with FileStorageClient for session: {session_id}"
             )
-            return FileSystemV3(
+            return FileSystem(
                 session_id=session_id,
                 goal_id=goal_id,
                 sandbox=self.sandbox_manager.client if self.sandbox_manager else None,
