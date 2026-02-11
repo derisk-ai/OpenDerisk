@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, List, Avatar, Button, Tag, Typography, Spin, Input, Checkbox } from 'antd';
 import { useRequest } from 'ahooks';
-import { apiInterceptors, getMCPList, getSkillList } from '@/client/api';
-import { AppstoreOutlined, ApiOutlined, ToolOutlined, PlusOutlined, CheckOutlined, SearchOutlined, DownOutlined } from '@ant-design/icons';
+import { apiInterceptors, getMCPList, getSkillList, mcpToolList } from '@/client/api';
+import { AppstoreOutlined, ApiOutlined, ToolOutlined, CheckOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 const { Paragraph } = Typography;
@@ -11,8 +11,8 @@ interface ConnectorsModalProps {
   open: boolean;
   onCancel: () => void;
   defaultTab?: string;
-  selectedSkills?: any[];
-  onSkillsChange?: (skills: any[]) => void;
+  selectedSkills?: Skill[];
+  onSkillsChange?: (skills: Skill[]) => void;
 }
 
 interface Skill {
@@ -26,13 +26,31 @@ interface Skill {
   repo_url?: string;
 }
 
+interface MCP {
+  id?: string;
+  uuid?: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  available?: boolean;
+}
+
+interface LocalTool {
+  id: string;
+  name: string;
+  description: string;
+  icon?: React.ReactNode;
+  enabled?: boolean;
+  author?: string;
+}
+
 export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   open,
   onCancel,
   defaultTab = 'skill',
   selectedSkills = [],
   onSkillsChange
-}) => {
+}: ConnectorsModalProps) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [selectedSkillCodes, setSelectedSkillCodes] = useState<string[]>([]);
@@ -57,18 +75,23 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   // --- MCP Data Fetching ---
   const { data: mcpList = [], loading: mcpLoading } = useRequest(async () => {
     const [, res] = await apiInterceptors(getMCPList({ filter: '' }, { page: "1", page_size: "100" }));
-    // @ts-ignore
-    return (res?.items || []) as any[];
+    // @ts-expect-error - API response type is not fully defined
+    return (res?.items || []) as MCP[];
   });
 
   // --- Skills Data Fetching ---
   const { data: skillListData = [], loading: skillLoading } = useRequest(async () => {
-    if (activeTab !== 'skill') return [];
     const [, res] = await apiInterceptors(getSkillList({ filter: skillSearch }, { page: "1", page_size: "100" }));
-    // @ts-ignore
-    return (res?.items || []) as Skill[];
+    return (res as any)?.items || [] as Skill[];
   }, {
-    refreshDeps: [activeTab, skillSearch]
+    refreshDeps: [skillSearch]
+  });
+
+  // --- Local Tools Data Fetching ---
+  const { data: localTools = [] } = useRequest(async () => {
+    const [, res] = await apiInterceptors(mcpToolList({ }));
+    // @ts-expect-error - API response type is not fully defined
+    return (res?.items || []) as LocalTool[];
   });
 
   const filteredSkills = skillListData.filter((skill: Skill) => {
@@ -78,7 +101,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
            skill.description?.toLowerCase().includes(searchLower);
   });
 
-  const filteredMcpList = mcpList.filter((mcp: any) => {
+  const filteredMcpList = mcpList.filter((mcp: MCP) => {
     if (!mcpSearch) return true;
     const searchLower = mcpSearch.toLowerCase();
     return mcp.name?.toLowerCase().includes(searchLower) ||
@@ -88,8 +111,10 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   const filteredLocalTools = localTools.filter((tool: any) => {
     if (!localToolSearch) return true;
     const searchLower = localToolSearch.toLowerCase();
-    return tool.name?.toLowerCase().includes(searchLower) ||
-           tool.description?.toLowerCase().includes(searchLower);
+    const toolName = tool.name || tool.tool_name || '';
+    const toolDesc = tool.description || tool.desc || '';
+    return toolName.toLowerCase().includes(searchLower) ||
+           toolDesc.toLowerCase().includes(searchLower);
   });
 
   const handleSkillToggle = (skill: Skill) => {
@@ -105,94 +130,94 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
     }
   };
 
-  const handleApplySkills = () => {
-    if (onSkillsChange) {
-      const selectedSkillsData = skillListData.filter((s: Skill) => selectedSkillCodes.includes(s.skill_code));
-      onSkillsChange(selectedSkillsData);
-    }
-    onCancel();
-  };
-
-  const handleMcpToggle = (mcp: any) => {
+  const handleMcpToggle = (mcp: MCP) => {
     const mcpCode = mcp.id || mcp.uuid || mcp.name;
-    const newSelected = selectedMcpCodes.includes(mcpCode)
+    const newSelected = selectedMcpCodes.includes(mcpCode || '')
       ? selectedMcpCodes.filter(code => code !== mcpCode)
-      : [...selectedMcpCodes, mcpCode];
+      : [...selectedMcpCodes, mcpCode || ''];
     setSelectedMcpCodes(newSelected);
   };
 
   const handleLocalToolToggle = (tool: any) => {
-    const toolId = tool.id;
+    const toolId = tool.id || tool.tool_id || tool.uuid || tool.name;
     const newSelected = selectedLocalTools.includes(toolId)
       ? selectedLocalTools.filter(id => id !== toolId)
       : [...selectedLocalTools, toolId];
     setSelectedLocalTools(newSelected);
   };
 
-  // --- Mock Data for Local Tools ---
-  const localTools = [
-    {
-      id: 'browser',
-      name: 'My Browser',
-      description: t('Use the browser to visit web pages', { defaultValue: 'Use the browser to visit web pages' }),
-      icon: <GlobalIcon />,
-      enabled: true,
-      author: 'Derisk'
-    },
-    {
-      id: 'interpreter',
-      name: 'Code Interpreter',
-      description: t('Execute Python code for data analysis', { defaultValue: 'Execute Python code for data analysis' }),
-      icon: <CodeIcon />,
-      enabled: true,
-      author: 'Derisk'
+  const renderListItem = (item: Skill | MCP | LocalTool, type: 'mcp' | 'local' | 'skill') => {
+    let isSelected = false;
+    if (type === 'skill') {
+      isSelected = selectedSkillCodes.includes((item as Skill).skill_code);
+    } else if (type === 'mcp') {
+      const mcpCode = (item as MCP).id || (item as MCP).uuid || (item as MCP).name;
+      isSelected = selectedMcpCodes.includes(mcpCode || '');
+    } else if (type === 'local') {
+      const toolItem = item as any;
+      const toolId = toolItem.id || toolItem.tool_id || toolItem.uuid || toolItem.name;
+      isSelected = selectedLocalTools.includes(toolId);
     }
-  ];
 
-  const renderListItem = (item: any, type: 'mcp' | 'local' | 'skill') => {
-    const isSelected = type === 'skill' && selectedSkillCodes.includes(item.skill_code);
-    
+    let selectedColor: 'blue' | 'green' | 'orange' = 'blue';
+    if (type === 'skill') {
+      selectedColor = 'blue';
+    } else if (type === 'mcp') {
+      selectedColor = 'green';
+    } else if (type === 'local') {
+      selectedColor = 'orange';
+    }
+
     return (
       <List.Item
         className={`
           cursor-pointer rounded-lg transition-colors px-4 py-3 border-b-0 mb-1
-          ${isSelected 
-            ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800' 
+          ${isSelected
+            ? `bg-${selectedColor}-50 dark:bg-${selectedColor}-900/20 border border-${selectedColor}-200 dark:border-${selectedColor}-800`
             : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-transparent'
           }
         `}
         onClick={() => {
           if (type === 'skill') {
-            handleSkillToggle(item);
+            handleSkillToggle(item as Skill);
+          } else if (type === 'mcp') {
+            handleMcpToggle(item as MCP);
+          } else if (type === 'local') {
+            handleLocalToolToggle(item as LocalTool);
           }
         }}
-        actions={
-          type === 'skill'
-            ? [
-                <Checkbox
-                  key="checkbox"
-                  checked={isSelected}
-                  onChange={() => handleSkillToggle(item)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-gray-400 hover:text-blue-500"
-                />
-              ]
-            : [
-                <Button key="action" type="text" shape="circle" icon={<PlusOutlined />} className="text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" />
-              ]
+        actions={type !== 'local' && type !== 'mcp'
+          ? [
+              <Checkbox
+                key="checkbox"
+                checked={isSelected}
+                onChange={() => type === 'skill' ? handleSkillToggle(item as Skill) : type === 'mcp' ? handleMcpToggle(item as MCP) : handleLocalToolToggle(item as LocalTool)}
+                onClick={(e) => e.stopPropagation()}
+                className="text-gray-400 hover:text-blue-500"
+              />
+            ]
+          : [
+              <Checkbox
+                key="checkbox"
+                checked={isSelected}
+                onChange={() => type === 'mcp' ? handleMcpToggle(item as MCP) : handleLocalToolToggle(item as LocalTool)}
+                onClick={(e) => e.stopPropagation()}
+                className="text-gray-400 hover:text-blue-500"
+              />
+            ]
         }
       >
         <List.Item.Meta
-          avatar={
-            <Avatar 
-              shape="circle" 
-              size={48} 
-              src={item.icon} 
+avatar={
+            <Avatar
+              shape="circle"
+              size={48}
+              src={item.icon}
               icon={!item.icon && (type === 'mcp' ? <ApiOutlined /> : type === 'local' ? <ToolOutlined /> : <AppstoreOutlined />)}
               className={`
                 bg-white dark:bg-gray-800 border-2
-                ${isSelected 
-                  ? 'border-blue-500 text-blue-500' 
+                ${isSelected
+                  ? `border-${selectedColor}-500 text-${selectedColor}-500`
                   : 'border-gray-200 dark:border-gray-700 text-gray-500'
                 }
               `}
@@ -200,30 +225,30 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
           }
           title={
             <div className="flex items-center gap-2">
-              <span className={`font-medium text-base ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>
+              <span className={`font-medium text-base ${isSelected ? `text-${selectedColor}-600 dark:text-${selectedColor}-400` : 'text-gray-900 dark:text-gray-100'}`}>
                 {item.name}
               </span>
-              {isSelected && <CheckOutlined className="text-blue-500 text-sm" />}
-              {type === 'mcp' && item.available && (
+              {isSelected && <CheckOutlined className={`text-${selectedColor}-500 text-sm`} />}
+              {type === 'mcp' && (item as MCP).available && (
                 <Tag color="success" className="mr-0 rounded-full px-2 scale-75 origin-left">Active</Tag>
               )}
-              {type === 'skill' && item.type && (
-                <Tag color={isSelected ? 'blue' : 'default'} className="mr-0 rounded-full px-2 scale-75 origin-left">{item.type}</Tag>
+              {type === 'skill' && (item as Skill).type && (
+                <Tag color={isSelected ? selectedColor : 'default'} className="mr-0 rounded-full px-2 scale-75 origin-left">{(item as Skill).type}</Tag>
               )}
             </div>
           }
           description={
             <div>
-              <Paragraph 
-                ellipsis={{ rows: 2 }} 
+              <Paragraph
+                ellipsis={{ rows: 2 }}
                 className={`!mb-0 text-xs mt-1 ${isSelected ? 'text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400'}`}
               >
                 {item.description}
               </Paragraph>
-              {type === 'skill' && item.author && (
+              {type === 'skill' && (item as Skill).author && (
                 <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-                  By {item.author} {item.version && `· v${item.version}`}
-                  {item.repo_url && <span className="ml-1">· Git</span>}
+                  By {(item as Skill).author} {(item as Skill).version && `· v${(item as Skill).version}`}
+                  {(item as Skill).repo_url && <span className="ml-1">· Git</span>}
                 </div>
               )}
             </div>
@@ -280,15 +305,36 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
         <span className="flex items-center gap-2 px-2">
           <ToolOutlined />
           {t('Local Tools', { defaultValue: 'Local Tools' })}
+          {selectedLocalTools.length > 0 && (
+            <Tag color="orange" className="rounded-full px-1.5 scale-75 origin-left">{selectedLocalTools.length}</Tag>
+          )}
         </span>
       ),
       children: (
-        <List
-          itemLayout="horizontal"
-          dataSource={localTools}
-          renderItem={(item) => renderListItem(item, 'local')}
-          className="h-[500px] overflow-y-auto px-2"
-        />
+        <div className="flex flex-col h-[500px]">
+          <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+            <Input
+              prefix={<SearchOutlined className="text-gray-400" />}
+              placeholder={t('Search tools...', { defaultValue: 'Search tools...' })}
+              bordered={false}
+              className="!bg-gray-50 dark:!bg-gray-800 rounded-md"
+              value={localToolSearch}
+              onChange={(e) => setLocalToolSearch(e.target.value)}
+              allowClear
+            />
+          </div>
+          <List
+            itemLayout="horizontal"
+            dataSource={filteredLocalTools}
+            renderItem={(item) => renderListItem(item, 'local')}
+            className="flex-1 overflow-y-auto px-2"
+          />
+          {filteredLocalTools.length === 0 && (
+            <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
+              {localToolSearch ? t('No tools found', { defaultValue: 'No tools found' }) : t('No tools available', { defaultValue: 'No tools available' })}
+            </div>
+          )}
+        </div>
       ),
     },
     {
@@ -297,16 +343,37 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
         <span className="flex items-center gap-2 px-2">
           <ApiOutlined />
           {t('MCP Servers', { defaultValue: 'MCP Servers' })}
+          {selectedMcpCodes.length > 0 && (
+            <Tag color="green" className="rounded-full px-1.5 scale-75 origin-left">{selectedMcpCodes.length}</Tag>
+          )}
         </span>
       ),
       children: (
         <Spin spinning={mcpLoading}>
-           <List
-            itemLayout="horizontal"
-            dataSource={mcpList}
-            renderItem={(item) => renderListItem(item, 'mcp')}
-            className="h-[500px] overflow-y-auto px-2"
-          />
+          <div className="flex flex-col h-[500px]">
+            <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+              <Input
+                prefix={<SearchOutlined className="text-gray-400" />}
+                placeholder={t('Search MCP servers...', { defaultValue: 'Search MCP servers...' })}
+                bordered={false}
+                className="!bg-gray-50 dark:!bg-gray-800 rounded-md"
+                value={mcpSearch}
+                onChange={(e) => setMcpSearch(e.target.value)}
+                allowClear
+              />
+            </div>
+            <List
+              itemLayout="horizontal"
+              dataSource={filteredMcpList}
+              renderItem={(item) => renderListItem(item, 'mcp')}
+              className="flex-1 overflow-y-auto px-2"
+            />
+            {filteredMcpList.length === 0 && !mcpLoading && (
+              <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
+                {mcpSearch ? t('No MCP servers found', { defaultValue: 'No MCP servers found' }) : t('No MCP servers available', { defaultValue: 'No MCP servers available' })}
+              </div>
+            )}
+          </div>
         </Spin>
       ),
     },
@@ -322,21 +389,29 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
       open={open}
       onCancel={onCancel}
       footer={
-        activeTab === 'skill' ? (
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-500">
-              {t('Selected', { defaultValue: 'Selected' })}: {selectedSkillCodes.length}
-            </div>
-            <div className="flex gap-2">
-              <Button onClick={onCancel}>
-                {t('Cancel', { defaultValue: 'Cancel' })}
-              </Button>
-              <Button type="primary" onClick={handleApplySkills} className="bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200">
-                {t('Apply', { defaultValue: 'Apply' })}
-              </Button>
-            </div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            {t('Selected', { defaultValue: 'Selected' })}: {
+              activeTab === 'skill' ? selectedSkillCodes.length :
+              activeTab === 'mcp' ? selectedMcpCodes.length :
+              selectedLocalTools.length
+            }
           </div>
-        ) : null
+          <div className="flex gap-2">
+            <Button onClick={onCancel}>
+              {t('Cancel', { defaultValue: 'Cancel' })}
+            </Button>
+            <Button type="primary" onClick={() => {
+              if (onSkillsChange) {
+                const selectedSkillsData = skillListData.filter((s: Skill) => selectedSkillCodes.includes(s.skill_code));
+                onSkillsChange(selectedSkillsData);
+              }
+              onCancel();
+            }} className="bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200">
+              {t('Apply', { defaultValue: 'Apply' })}
+            </Button>
+          </div>
+        </div>
       }
       width={720}
       className="rounded-2xl overflow-hidden"
