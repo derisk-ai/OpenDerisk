@@ -5,9 +5,6 @@ from derisk.agent import AgentMessage, AgentContext, ActionOutput, ConversableAg
 from derisk.agent.core.action.report_action import ReportAction
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.reasoning.reasoning_arg_supplier import ReasoningArgSupplier
-from derisk_ext.agent.agents.reasoning.default.reasoning_agent import (
-    ReasoningAgent,
-)
 from derisk_serve.agent.db import GptsConversationsDao
 
 _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
@@ -154,7 +151,7 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
         self,
         received_message: AgentMessage,
         message: GptsMessage,
-        agent: ReasoningAgent,
+        agent: ConversableAgent,
         action_report: ActionOutput,
         sender_agent_name: str,
         receiver_agent_name: str,
@@ -162,7 +159,7 @@ class DefaultHistoryArgSupplier(ReasoningArgSupplier):
         return False
 
     def _format_action_report_prompt(
-        self, agent: ReasoningAgent, message: GptsMessage, action_report: ActionOutput
+        self, agent: ConversableAgent, message: GptsMessage, action_report: ActionOutput
     ) -> Optional[str]:
         return "\n".join(
             [
