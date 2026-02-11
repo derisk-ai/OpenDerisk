@@ -75,14 +75,13 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   // --- MCP Data Fetching ---
   const { data: mcpList = [], loading: mcpLoading } = useRequest(async () => {
     const [, res] = await apiInterceptors(getMCPList({ filter: '' }, { page: "1", page_size: "100" }));
-    // @ts-expect-error - API response type is not fully defined
-    return (res?.items || []) as MCP[];
+    return ((res as any)?.items || []) as MCP[];
   });
 
   // --- Skills Data Fetching ---
   const { data: skillListData = [], loading: skillLoading } = useRequest(async () => {
     const [, res] = await apiInterceptors(getSkillList({ filter: skillSearch }, { page: "1", page_size: "100" }));
-    return (res as any)?.items || [] as Skill[];
+    return ((res as any)?.items || []) as Skill[];
   }, {
     refreshDeps: [skillSearch]
   });
@@ -90,8 +89,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   // --- Local Tools Data Fetching ---
   const { data: localTools = [] } = useRequest(async () => {
     const [, res] = await apiInterceptors(mcpToolList({ }));
-    // @ts-expect-error - API response type is not fully defined
-    return (res?.items || []) as LocalTool[];
+    return ((res as any)?.items || []) as LocalTool[];
   });
 
   const filteredSkills = skillListData.filter((skill: Skill) => {
