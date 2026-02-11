@@ -8,7 +8,11 @@ from typing import Dict, List, Optional, Tuple, Union
 from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool
 from derisk.agent.core.system_tool_registry import system_tool
 from derisk.sandbox.base import SandboxBase
-from derisk.sandbox.sandbox_utils import collect_shell_output, normalize_sandbox_path, detect_path_kind
+from derisk.sandbox.sandbox_utils import (
+    collect_shell_output,
+    normalize_sandbox_path,
+    detect_path_kind,
+)
 
 _VIEW_PROMPT = """
 {
@@ -73,7 +77,9 @@ def _parse_view_range(view_range) -> Optional[Union[Tuple[int, int], str]]:
         parts = _RANGE_SPLIT_RE.split(view_range)
         parts = [p for p in parts if p]
         if len(parts) != 2:
-            return f"错误: 无法解析 view_range 字符串: {view_range}，期望格式如 [1, 100]"
+            return (
+                f"错误: 无法解析 view_range 字符串: {view_range}，期望格式如 [1, 100]"
+            )
         try:
             start = int(parts[0])
             end = int(parts[1])
@@ -103,8 +109,7 @@ def _format_size(size: int) -> str:
 
 
 def _format_text_content(
-        content: str,
-        view_range: Optional[Tuple[int, int]] = None
+    content: str, view_range: Optional[Tuple[int, int]] = None
 ) -> str:
     """格式化文本内容，处理范围与长度限制。"""
     lines = content.splitlines(keepends=True)
@@ -229,7 +234,9 @@ async def _render_directory_listing(client, abs_path: str) -> str:
     ).strip()
 
     command = f"python3 - <<'PY' {shlex.quote(abs_path)}\n{script}\nPY"
-    result = await client.shell.exec_command(command=command, work_dir=client.work_dir, timeout=60.0)
+    result = await client.shell.exec_command(
+        command=command, work_dir=client.work_dir, timeout=60.0
+    )
     if getattr(result, "status", None) != "completed":
         return f"[错误: 目录读取失败，状态: {getattr(result, 'status', None)}]"
 
@@ -293,14 +300,22 @@ async def _read_image_base64(client, abs_path: str) -> Dict[str, Union[str, int]
     ).strip()
 
     command = f"python3 - <<'PY' {shlex.quote(abs_path)}\n{script}\nPY"
-    result = await client.shell.exec_command(command=command, work_dir=client.work_dir, timeout=60.0)
+    result = await client.shell.exec_command(
+        command=command, work_dir=client.work_dir, timeout=60.0
+    )
     if getattr(result, "status", None) != "completed":
-        return {"type": "error", "message": f"读取图片失败: {getattr(result, 'status', None)}"}
+        return {
+            "type": "error",
+            "message": f"读取图片失败: {getattr(result, 'status', None)}",
+        }
 
     cleaned = _clean_terminal_output(result)
     data = _extract_first_json_object(cleaned)
     if data is None:
-        return {"type": "error", "message": f"读取图片失败: 返回内容无法解析\n{cleaned}"}
+        return {
+            "type": "error",
+            "message": f"读取图片失败: 返回内容无法解析\n{cleaned}",
+        }
 
     if "error" in data:
         return {"type": "error", "message": f"读取图片失败: {data['error']}"}
@@ -310,7 +325,6 @@ async def _read_image_base64(client, abs_path: str) -> Dict[str, Union[str, int]
         "data": data.get("data", ""),
         "size": data.get("size", 0),
     }
-
 
 
 @sandbox_tool(
@@ -328,26 +342,21 @@ async def _read_image_base64(client, abs_path: str) -> Dict[str, Union[str, int]
                     {
                         "maxItems": 2,
                         "minItems": 2,
-                        "prefixItems": [
-                            {"type": "integer"},
-                            {"type": "integer"}
-                        ],
-                        "type": "array"
+                        "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+                        "type": "array",
                     },
-                    {"type": "null"}
+                    {"type": "null"},
                 ],
                 "default": None,
-                "description": "行号范围 [start, end]（从1开始）。\\n- 强制场景：读取 >100 行的代码或日志时必填。\\n- 特殊值：使用 -1 代表文件末尾（例如 [50, -1] 读取从第50行到最后）。"
-            }
+                "description": "行号范围 [start, end]（从1开始）。\\n- 强制场景：读取 >100 行的代码或日志时必填。\\n- 特殊值：使用 -1 代表文件末尾（例如 [50, -1] 读取从第50行到最后）。",
+            },
         },
-        "required": ["path"]
+        "required": ["path"],
     },
     owner="tuyang.yhj",
 )
 async def execute_view(
-    client: SandboxBase,
-    path: str,
-    view_range: Optional[List[int]] = None
+    client: SandboxBase, path: str, view_range: Optional[List[int]] = None
 ) -> str:
     """
     查看文件或目录内容。
@@ -394,7 +403,7 @@ async def execute_view(
             f"Type: {mime_type}",
             f"Size: {size_mb:.2f}MB",
             "Base64 data:",
-            img_result.get("data", "")
+            img_result.get("data", ""),
         ]
         return "\n".join(header)
 
@@ -412,18 +421,24 @@ async def main():
     template = "c589607d-7c7a-442c-bb20-a74ac62f273b"
     # template = "9c85374e-1564-4313-be9f-3432f576b19e"
     from derisk_ext.sandbox.xic.xic_client import XICSandbox
-    xic_client: SandboxBase = await XICSandbox.create(user_id="184089", agent="derisk", template=template)
+
+    xic_client: SandboxBase = await XICSandbox.create(
+        user_id="184089", agent="derisk", template=template
+    )
 
     from derisk_ext.agent.sandbox.tools.create_file_tool import execute_create_file
+
     # await execute_create_file(xic_client,"创建文件", "/home/ubuntu/test.txt", "hello world")
     # result = await execute_view("/home/ubuntu")
-    result = await execute_view(xic_client,"/mnt/derisk/skills")
+    # Use skill_dir from sandbox client instead of hardcoded path
+    skill_dir = xic_client.skill_dir or "/mnt/derisk/skills"
+    result = await execute_view(xic_client, skill_dir)
     print(result)
 
     await xic_client.kill(template)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import asyncio
 
     print(asyncio.run(main()))

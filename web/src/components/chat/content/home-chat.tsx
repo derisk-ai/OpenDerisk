@@ -1,5 +1,5 @@
 'use client';
-import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, mcpToolList } from '@/client/api';
+import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList } from '@/client/api';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import {
   AppstoreOutlined,
@@ -410,13 +410,13 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
   // Get recommended tools
   useRequest(
     async () => {
-      const [_, data] = await apiInterceptors(mcpToolList({ }));
+      const [_, data] = await apiInterceptors(getToolList('local'));
       return data as any;
     },
     {
       onSuccess: (data: any) => {
-        if (data?.items && Array.isArray(data.items)) {
-          setRecommendedTools(data.items.slice(0, 2));
+        if (Array.isArray(data) && data.length > 0) {
+          setRecommendedTools(data.slice(0, 2));
         }
       },
     },
@@ -697,15 +697,14 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
           <div className="px-3 py-2 text-xs text-gray-400 font-medium mt-1">推荐工具</div>
           {recommendedTools.slice(0, 1).map((tool) => (
             <div
-              key={tool.id || tool.tool_id || tool.uuid || tool.name}
+              key={tool.tool_id}
               className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
               onClick={() => {
-                const toolId = tool.id || tool.tool_id || tool.uuid || tool.name;
                 openConnectorsModal('local');
               }}
             >
               <ToolOutlined className="text-lg" />
-              <span className="text-sm truncate">{tool.name || tool.tool_name}</span>
+              <span className="text-sm truncate">{tool.tool_name}</span>
             </div>
           ))}
         </>

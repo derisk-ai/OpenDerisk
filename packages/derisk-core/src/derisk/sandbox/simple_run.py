@@ -1,9 +1,11 @@
 import asyncio
 import datetime
 import json
+import os
 import posixpath
 import time
 
+from derisk.configs.model_config import DATA_DIR
 from derisk.sandbox.base import SandboxBase, DEFAULT_WORK_DIR
 from derisk.sandbox.client.file.types import FileInfo
 from derisk.sandbox.client.shell.type.shell_command_result import ShellCommandResult
@@ -15,22 +17,30 @@ async def main():
     template = "c589607d-7c7a-442c-bb20-a74ac62f273b"
     # template = "9c85374e-1564-4313-be9f-3432f576b19e"
 
+    # Use DATA_DIR/skill for local development
+    skill_dir = os.path.join(DATA_DIR, "skill")
+
     from derisk_ext.sandbox.xic.xic_client import XICSandbox
-    xic_client: SandboxBase = await XICSandbox.create(user_id="184089", agent="sregpt", template=template,
-                                                      work_dir=DEFAULT_WORK_DIR,
-                                              )
+
+    xic_client: SandboxBase = await XICSandbox.create(
+        user_id="184089",
+        agent="sregpt",
+        template=template,
+        work_dir=DEFAULT_WORK_DIR,
+        skill_dir=skill_dir,
+    )
 
     file_dir = f"{xic_client.work_dir}/chat/test123"
     derisk_skill_dir = f"{xic_client.work_dir}/skills/derisk-knowledge"
-
-    skill_dir = "/mnt/derisk/skills"
 
     # resp: ShellCommandResult = await xic_client.shell.exec_command(command=f"npm install axios")
     # print("打开文件夹:" + json.dumps(resp.to_dict(), ensure_ascii=False))
 
     # resp1: ShellCommandResult = await xic_client.shell.exec_command(command=f" agent-browser --version")
     # resp1: ShellCommandResult = await xic_client.shell.exec_command(command=f"cd /home/ubuntu && export PATH='/home/ubuntu/.npm-global/bin:$PATH' && agent-browser --version")
-    resp1: ShellCommandResult = await xic_client.shell.exec_command(command=f"export PATH='/usr/bin:/home/ubuntu/.npm-global/bin:$PATH' && agent-browser --version")
+    resp1: ShellCommandResult = await xic_client.shell.exec_command(
+        command=f"export PATH='/usr/bin:/home/ubuntu/.npm-global/bin:$PATH' && agent-browser --version"
+    )
     # resp1: ShellCommandResult = await xic_client.shell.exec_command(command=f"source ~/.bashrc && echo $PATH && which agent-browser && agent-browser --version")
 
     # resp1: ShellCommandResult = await xic_client.shell.exec_command(command="export PATH='/home/ubuntu/.npm-global/bin:$PATH' && agent-browser snapshot")

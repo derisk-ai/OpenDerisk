@@ -297,7 +297,7 @@ export default function Chat() {
   // 初始化消息处理
   useAsyncEffect(async () => {
     const initMessage = getInitMessage();
-    if (initMessage && initMessage.id === chatId && appInfo && chatInParams?.length > 0) {
+    if (initMessage && initMessage.id === chatId && appInfo) {
         
         let finalChatInParams = chatInParams;
 

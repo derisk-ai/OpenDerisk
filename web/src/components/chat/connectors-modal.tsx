@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Tabs, List, Avatar, Button, Tag, Typography, Spin, Input, Checkbox } from 'antd';
 import { useRequest } from 'ahooks';
-import { apiInterceptors, getMCPList, getSkillList, mcpToolList } from '@/client/api';
+import { apiInterceptors, getMCPList, getSkillList, getToolList } from '@/client/api';
 import { AppstoreOutlined, ApiOutlined, ToolOutlined, CheckOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
@@ -88,8 +88,8 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
 
   // --- Local Tools Data Fetching ---
   const { data: localTools = [] } = useRequest(async () => {
-    const [, res] = await apiInterceptors(mcpToolList({ }));
-    return ((res as any)?.items || []) as LocalTool[];
+    const [, res] = await apiInterceptors(getToolList('local'));
+    return (res || []) as any[];
   });
 
   const filteredSkills = skillListData.filter((skill: Skill) => {
@@ -109,8 +109,18 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   const filteredLocalTools = localTools.filter((tool: any) => {
     if (!localToolSearch) return true;
     const searchLower = localToolSearch.toLowerCase();
-    const toolName = tool.name || tool.tool_name || '';
-    const toolDesc = tool.description || tool.desc || '';
+    const toolName = tool.tool_name || '';
+    // Tools from /api/v1/tool endpoint don't have description field in the base model
+    // The config field contains JSON with details
+    let toolDesc = '';
+    if (tool.config) {
+      try {
+        const config = JSON.parse(tool.config);
+        toolDesc = config.description || config.desc || '';
+      } catch {
+        // ignore parse error
+      }
+    }
     return toolName.toLowerCase().includes(searchLower) ||
            toolDesc.toLowerCase().includes(searchLower);
   });
@@ -137,7 +147,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   };
 
   const handleLocalToolToggle = (tool: any) => {
-    const toolId = tool.id || tool.tool_id || tool.uuid || tool.name;
+    const toolId = tool.tool_id;
     const newSelected = selectedLocalTools.includes(toolId)
       ? selectedLocalTools.filter(id => id !== toolId)
       : [...selectedLocalTools, toolId];
@@ -153,7 +163,7 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
       isSelected = selectedMcpCodes.includes(mcpCode || '');
     } else if (type === 'local') {
       const toolItem = item as any;
-      const toolId = toolItem.id || toolItem.tool_id || toolItem.uuid || toolItem.name;
+      const toolId = toolItem.tool_id;
       isSelected = selectedLocalTools.includes(toolId);
     }
 
@@ -224,7 +234,7 @@ avatar={
           title={
             <div className="flex items-center gap-2">
               <span className={`font-medium text-base ${isSelected ? `text-${selectedColor}-600 dark:text-${selectedColor}-400` : 'text-gray-900 dark:text-gray-100'}`}>
-                {item.name}
+                {type === 'local' ? (item as any).tool_name : item.name}
               </span>
               {isSelected && <CheckOutlined className={`text-${selectedColor}-500 text-sm`} />}
               {type === 'mcp' && (item as MCP).available && (
@@ -241,7 +251,17 @@ avatar={
                 ellipsis={{ rows: 2 }}
                 className={`!mb-0 text-xs mt-1 ${isSelected ? 'text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400'}`}
               >
-                {item.description}
+                {type === 'local' 
+                  ? (() => {
+                      try {
+                        const config = JSON.parse((item as any).config || '{}');
+                        return config.description || config.desc || '';
+                      } catch {
+                        return '';
+                      }
+                    })()
+                  : item.description
+                }
               </Paragraph>
               {type === 'skill' && (item as Skill).author && (
                 <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">

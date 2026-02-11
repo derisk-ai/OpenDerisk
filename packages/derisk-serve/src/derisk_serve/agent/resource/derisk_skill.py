@@ -175,12 +175,12 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         return self._skill_author
 
     @classmethod
-    def type(cls) -> ResourceType:
+    def type(cls) -> str:
         """Return the resource type.
 
         Returns 'skill' which is the same type as AgentSkillResource.
         """
-        return ResourceType.Tool
+        return "tool(skill)"
 
     @classmethod
     def type_alias(cls) -> str:
