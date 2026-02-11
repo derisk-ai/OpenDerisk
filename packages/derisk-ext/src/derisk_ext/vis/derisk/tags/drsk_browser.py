@@ -29,7 +29,7 @@ class DrskBrowserContent(DrskVisBase):
         description="state of wiki structure",
     )
     avatar: str = Field(
-        default="https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*Iv0MS5hyUMwAAAAAKBAAAAgAeprcAQ/original",
+        default="",
         description="avatar",
     )
 

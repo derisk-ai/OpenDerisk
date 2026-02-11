@@ -11,7 +11,7 @@ from ...utils.oss_utils import OSSUtils
 ## TODO
 DEFAULT_OSS_AK = os.getenv("OSS_AK")
 DEFAULT_OSS_SK = os.getenv("OSS_SK")
-DEFAULT_OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "https://cn-heyuan-alipay-office.oss-alipay.aliyuncs.com")
+DEFAULT_OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "")
 DEFAULT_OSS_BUCKET_NAME = os.getenv("OSS_BUCKET_NAME")
 logger = logging.Logger(__name__)
 
