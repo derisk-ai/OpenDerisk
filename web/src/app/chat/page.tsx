@@ -386,11 +386,12 @@ export default function Chat() {
         refreshDialogList,
         refreshHistory,
         refreshAppInfo,
-        setHistory,
-        isShowDetail,
-        setChatInParams,
-        chatInParams,
-      }}
+         setHistory,
+         isShowDetail,
+         setIsShowDetail,
+         setChatInParams,
+         chatInParams,
+       }}
     >
       <Flex flex={1}>
         <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full'>

@@ -1,4 +1,6 @@
-import ChatInputPanel from '@/components/chat/input/chat-input-panel';
+'use client';
+
+import UnifiedChatInput from '@/components/chat/input/unified-chat-input';
 import { ChatContentContext } from '@/contexts';
 import { IChatDialogueMessageSchema } from '@/types/chat';
 import { cloneDeep } from 'lodash';
@@ -13,11 +15,7 @@ interface BasicChatContentProps {
 
 const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
   const scrollableRef = useRef<HTMLDivElement>(null);
-  const {
-    history,
-    isDebug,
-    isShowDetail,
-  } = useContext(ChatContentContext);
+  const { history, replyLoading } = useContext(ChatContentContext);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
   const [jsonValue, setJsonValue] = useState<string>('');
 
@@ -25,12 +23,10 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
     const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
     return tempMessage
       .filter(item => ['view', 'human'].includes(item.role))
-      .map(item => {
-        return {
-          ...item,
-          key: uuid(),
-        };
-      });
+      .map(item => ({
+        ...item,
+        key: uuid(),
+      }));
   }, [history]);
 
   useEffect(() => {
@@ -39,38 +35,61 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
     }, 50);
   }, [history, history[history.length - 1]?.context]);
 
-  return (
-    <div className="flex flex-1 h-full">
-    <div
-      className={`${isDebug ? 'bg-[transparent]' : 'bg-white'} dark:bg-[rgba(255,255,255,0.16)] flex flex-1 flex-col p-2 items-center relative`}
-      ref={scrollableRef}
-    >
-      <div className={`flex flex-col flex-1 ${isShowDetail ? 'w-3/5' : 'w-full'} h-full`}>
-        <div className='flex-1 overflow-y-scroll'>
-          <ChatHeader isScrollToTop={true} />
-          {!!showMessages.length &&
-            showMessages.map((content, index) => {
-              return (
-                <ChatContent
-                  key={index}
-                  content={content}
-                  onLinkClick={() => {
-                    setJsonModalOpen(true);
-                    setJsonValue(JSON.stringify(content?.context, null, 2));
-                  }}
-                  messages={showMessages}
-                />
-              );
-            })}
-        </div>
+  const hasMessages = showMessages.length > 0;
+  const isProcessing = replyLoading || (history.length > 0 && history[history.length - 1]?.thinking);
 
-        <div className='w-full flex justify-center'>
-          <div className='w-full'>
-            <ChatInputPanel ctrl={ctrl} />
+  return (
+    <div className="flex flex-col h-full bg-[#FAFAFA] dark:bg-[#111]">
+      {/* 标题栏 */}
+      <ChatHeader isProcessing={isProcessing} />
+      
+      {/* 消息列表区域 */}
+      <div 
+        ref={scrollableRef}
+        className="flex-1 overflow-y-auto"
+      >
+        {hasMessages ? (
+          <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
+            <div className="max-w-3xl mx-auto">
+              {showMessages.map((content, index) => (
+                <div key={index} className="mb-6">
+                  <ChatContent
+                    content={content}
+                    onLinkClick={() => {
+                      setJsonModalOpen(true);
+                      setJsonValue(JSON.stringify(content?.context, null, 2));
+                    }}
+                    messages={showMessages}
+                  />
+                </div>
+              ))}
+              {/* 底部留白 */}
+              <div className="h-20" />
+            </div>
           </div>
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-xl shadow-indigo-500/20">
+                <span className="text-4xl">✨</span>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                开始新的对话
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400">
+                输入消息开始与应用对话
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 输入框区域 - 居中且限制宽度 */}
+      <div className="flex-shrink-0 pb-6 pt-2 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto">
+          <UnifiedChatInput ctrl={ctrl} showFloatingActions={hasMessages} />
         </div>
       </div>
-    </div>
     </div>
   );
 };

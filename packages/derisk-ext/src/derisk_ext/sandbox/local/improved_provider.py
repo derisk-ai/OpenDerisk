@@ -202,6 +202,14 @@ class ImprovedLocalSandbox(SandboxBase):
         kwargs.setdefault("local_sandbox_config", {})
         kwargs["local_sandbox_config"]["allow_network"] = allow_internet_access
 
+        # Set work_dir if provided (from kwargs)
+        if "work_dir" in kwargs:
+            kwargs["local_sandbox_config"]["work_dir"] = kwargs["work_dir"]
+
+        # Set skill_dir if provided (from kwargs)
+        if "skill_dir" in kwargs:
+            kwargs["local_sandbox_config"]["skill_dir"] = kwargs["skill_dir"]
+
         # Create instance
         instance = cls(sandbox_id=sandbox_id, user_id=user_id, agent=agent, **kwargs)
 
@@ -376,6 +384,10 @@ class ImprovedLocalSandbox(SandboxBase):
             self._session = None
             return success
         return False
+
+    async def close(self, template: Optional[str] = None) -> bool:
+        """Close the sandbox (alias for kill)."""
+        return await self.kill(template)
 
     async def set_timeout(self, instance_id: str, timeout: int, **kwargs) -> None:
         """Set the timeout for the sandbox."""

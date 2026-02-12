@@ -168,16 +168,25 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
     return (
       <Popover
         content={
-          <div className="p-2 min-w-[200px]">
-            <div className="font-medium text-sm mb-1">{skill.name}</div>
-            <div className="text-xs text-gray-500 mb-2 line-clamp-2">{skill.description}</div>
-            {skill.author && (
-              <div className="text-[10px] text-gray-400">
-                {skill.author} {skill.version && `· v${skill.version}`}
-              </div>
-            )}
+          <div className="w-[280px] p-3">
+            <div className="font-medium text-sm mb-2 break-words">{skill.name}</div>
+            <div className="text-xs text-gray-500 mb-3 break-words leading-5">{skill.description}</div>
+            <div className="flex items-center justify-between">
+              {skill.author && (
+                <div className="text-[10px] text-gray-400 mr-2">
+                  {skill.author}
+                </div>
+              )}
+              {skill.version && (
+                <div className="text-[10px] text-gray-400">
+                  v{skill.version}
+                </div>
+              )}
+            </div>
             {skill.type && (
-              <Tag color="blue" className="mt-1 text-xs">{skill.type}</Tag>
+              <div className="mt-2">
+                <Tag color="blue" className="text-xs">{skill.type}</Tag>
+              </div>
             )}
           </div>
         }
@@ -667,28 +676,41 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
   };
 
   const plusMenuContent = (
-    <div className="flex flex-col gap-1 w-48 p-1">
+    <div className="flex flex-col gap-1 w-52 p-1">
       {recommendedSkills.length > 0 && (
         <>
           <div className="px-3 py-2 text-xs text-gray-400 font-medium">推荐技能</div>
-          {recommendedSkills.slice(0, 1).map((skill) => (
-            <div
-              key={skill.skill_code}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
-              onClick={() => {
-                if (!selectedSkills.find(s => s.skill_code === skill.skill_code)) {
-                  handleSkillsChange([...selectedSkills, skill]);
-                }
-              }}
-            >
-              {skill.icon ? (
-                <img src={skill.icon} className="w-4 h-4" />
-              ) : (
-                <AppstoreOutlined className="text-lg" />
-              )}
-              <span className="text-sm truncate">{skill.name}</span>
-            </div>
-          ))}
+          {recommendedSkills.slice(0, 1).map((skill) => {
+            const isSelected = selectedSkills.some(s => s.skill_code === skill.skill_code);
+            return (
+              <div
+                key={skill.skill_code}
+                className={cls(
+                  "flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                  isSelected
+                    ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300"
+                    : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
+                )}
+                onClick={() => {
+                  if (isSelected) {
+                    handleSkillsChange(selectedSkills.filter(s => s.skill_code !== skill.skill_code));
+                  } else {
+                    handleSkillsChange([...selectedSkills, skill]);
+                  }
+                }}
+              >
+                <div className="flex items-center gap-2 overflow-hidden">
+                  {skill.icon ? (
+                    <img src={skill.icon} className="w-4 h-4 flex-shrink-0" />
+                  ) : (
+                    <AppstoreOutlined className={cls("text-lg", isSelected ? "text-blue-500" : "")} />
+                  )}
+                  <span className="text-sm truncate">{skill.name}</span>
+                </div>
+                {isSelected && <CheckOutlined className="text-blue-500 text-sm flex-shrink-0" />}
+              </div>
+            );
+          })}
         </>
       )}
 

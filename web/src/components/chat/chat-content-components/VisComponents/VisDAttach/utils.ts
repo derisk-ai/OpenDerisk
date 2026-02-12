@@ -7,7 +7,6 @@ import {
   FileWordOutlined,
   FilePptOutlined,
   FileMarkdownOutlined,
-  FileCodeOutlined,
   FileOutlined,
 } from '@ant-design/icons';
 import type { ComponentType } from 'react';
@@ -92,7 +91,7 @@ export function getFileIcon(
   if (type.startsWith('image/')) return FileImageOutlined;
   if (type === 'text/markdown' || type === 'text/x-markdown') return FileMarkdownOutlined;
   if (type === 'application/json' || type === 'text/javascript' || type === 'application/typescript') {
-    return FileCodeOutlined;
+    return FileOutlined;
   }
   if (type === 'text/csv' || type === 'application/vnd.ms-excel' || type.includes('spreadsheet')) {
     return FileExcelOutlined;
@@ -143,7 +142,7 @@ export function getFileIcon(
       case 'html':
       case 'css':
       case 'sql':
-        return FileCodeOutlined;
+        return FileOutlined;
       case 'csv':
       case 'xls':
       case 'xlsx':

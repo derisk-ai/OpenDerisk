@@ -1,4 +1,4 @@
-// running window
+// running window - 渲染数据内容，不包含标题栏等UI元素
 import markdownComponents, {
   markdownPlugins,
 } from "@/components/chat/chat-content-components/config";
@@ -92,6 +92,8 @@ export function useDetailPanel(chatList: any[]): {
   };
 }
 
+// 纯内容渲染组件 - 不包含标题、关闭按钮等UI元素
+// 这些UI元素应该在父组件中处理
 const ChatDetailContent: React.FC<{
   content?: string;
   data?: RunningWindowData;
@@ -110,17 +112,15 @@ const ChatDetailContent: React.FC<{
           items: data.items || workData.items,
         };
         return (
-          <div className="flex flex-col border-dashed border-r0 flex-1 h-full">
-            {/* @ts-ignore */}
-            <GPTVis
-              components={{
-                ...markdownComponents,
-              }}
-              {...markdownPlugins}
-            >
-              {`\`\`\`d-work\n${JSON.stringify(mergedData)}\n\`\`\``}
-            </GPTVis>
-          </div>
+          // @ts-ignore
+          <GPTVis
+            components={{
+              ...markdownComponents,
+            }}
+            {...markdownPlugins}
+          >
+            {`\`\`\`d-work\n${JSON.stringify(mergedData)}\n\`\`\``}
+          </GPTVis>
         );
       } catch (e) {
         console.error('Failed to parse running window data:', e);
@@ -130,20 +130,15 @@ const ChatDetailContent: React.FC<{
 
   // 回退到原来的渲染方式
   return (
-    <>
-      <div className="flex flex-col border-dashed border-r0 flex-1 h-full">
-        {/* @ts-ignore */}
-        <GPTVis
-          components={{
-            ...markdownComponents,
-          }}
-          {...markdownPlugins}
-        >
-          {content || data?.running_window || ''}
-        </GPTVis>
-      </div> 
-    </>
-    
+    // @ts-ignore
+    <GPTVis
+      components={{
+        ...markdownComponents,
+      }}
+      {...markdownPlugins}
+    >
+      {content || data?.running_window || ''}
+    </GPTVis>
   );
 };
 

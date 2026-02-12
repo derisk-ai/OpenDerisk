@@ -11,8 +11,7 @@ from fastapi import BackgroundTasks
 
 from derisk import BaseComponent
 from derisk._private.config import Config
-from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, \
-    AWELTeamContext, LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType
+from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.extract_memory import ExtractMemory
 from derisk.agent.core.memory.gpts import GptsMessage
