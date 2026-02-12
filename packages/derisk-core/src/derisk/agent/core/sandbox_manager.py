@@ -9,7 +9,34 @@ from derisk._private.config import Config
 from derisk.sandbox.base import SandboxBase, DEFAULT_SKILL_DIR
 from derisk.sandbox.sandbox_client import AutoSandbox
 from derisk.sandbox.sandbox_utils import collect_shell_output
-from derisk_app.config import SandboxConfigParameters
+
+# Try to import SandboxConfigParameters, but provide fallback if not available
+try:
+    from derisk_app.config import SandboxConfigParameters
+except ImportError:
+    # Fallback when derisk_app is not available (e.g., during testing)
+    from dataclasses import dataclass
+    from typing import Any, Dict
+
+    @dataclass
+    class SandboxConfigParameters:
+        """Fallback SandboxConfigParameters when derisk_app is not available."""
+
+        type: str = "local"
+        user_id: str = "default"
+        agent_name: str = "default"
+        template_id: Optional[str] = None
+        work_dir: str = "/workspace"
+        skill_dir: Optional[str] = None
+        oss_ak: Optional[str] = None
+        oss_sk: Optional[str] = None
+        oss_endpoint: Optional[str] = None
+        oss_bucket_name: Optional[str] = None
+
+        @classmethod
+        def from_dict(cls, data: Dict[str, Any]) -> "SandboxConfigParameters":
+            return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
+
 
 logger = logging.getLogger(__name__)
 CFG = Config()
