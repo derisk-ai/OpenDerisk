@@ -22,8 +22,8 @@ from derisk.storage.metadata import BaseDao, Model
 
 logger = logging.getLogger(__name__)
 NEX_DOMAIN = {
-    "prepub": "https://nexa-api-pre.alipay.com",
-    "prod": "https://nexa-api.alipay.com",
+    "prepub": "http://localhost:7777",
+    "prod": "http://localhost:7777",
 }
 
 

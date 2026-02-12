@@ -3,20 +3,6 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
 
 本模块提供了一个增强型 ReAct Agent，具备以下核心特性：
 
-1. **ReActMasterV2** - 基础版本，包含：
-   - 末日循环检测 (Doom Loop Detection)
-   - 上下文压缩 (Session Compaction)
-   - 工具输出截断 (Tool Output Truncation)
-   - 历史记录修剪 (History Pruning)
-
-2. **ReActMasterV3** - 最新版本，在 V2 基础上新增：
-   - WorkLog 管理系统替代传统 memory
-   - 自动历史记录压缩（超出 LLM 上下文窗口时）
-   - 集成文件系统进行大结果归档
-   - 更好的追踪和调试能力
-
-## ReActMasterV2 特性
-
 1. **末日循环检测 (Doom Loop Detection)**
    - 智能检测工具调用的重复模式
    - 识别相似参数调用
@@ -37,17 +23,24 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
    - 智能分类消息重要性
    - 保留系统消息和用户消息
 
-## ReActMasterV3 特性
+5. **阶段式 Prompt 管理**
+   - 支持多阶段任务执行（探索/规划/执行/优化/验证/报告）
+   - 自动阶段切换或手动控制
+   - 每个阶段不同的 prompt 指导
 
-添加了 WorkLog 管理系统：
-- 使用 WorkLog 替代传统的 memory_history
-- WorkLog 自动压缩历史记录
-- 大结果自动归档到文件系统
-- 提供 get_work_log_stats() 等方法查询工作日志
+6. **WorkLog 管理系统**
+   - 结构化的工作日志记录
+   - 大结果自动归档到文件系统
+   - 自动历史压缩（超出 LLM 窗口时）
+   - 替代传统 memory 机制
+
+7. **报告生成系统**
+   - 支持 6 种报告类型（摘要/详细/技术/执行/进度/最终）
+   - 支持 4 种输出格式（Markdown/HTML/JSON/纯文本）
+   - AI 增强摘要分析
 
 ## 使用示例
 
-### ReActMasterV2 使用
 ```python
 from derisk.agent.expand.react_master_agent import ReActMasterAgent
 
@@ -65,67 +58,52 @@ agent = ReActMasterAgent(
 await agent.act(message, sender)
 ```
 
-### ReActMasterV3 使用
-```python
-from derisk.agent.expand.react_master_agent import ReActMasterV3Agent
-
-# 创建 Agent
-agent = ReActMasterV3Agent(
-    context_window=128000,
-    compaction_threshold_ratio=0.7,
-    # 继承所有 V2 的配置
-    enable_doom_loop_detection=True,
-    enable_session_compaction=True,
-    enable_output_truncation=True,
-)
-
-# 使用
-await agent.act(message, sender)
-
-# 查询 WorkLog
-stats = await agent.get_work_log_stats()
-context = await agent.get_work_log_context()
-```
-
-## WorkLog 管理器独立使用
-
-也可以独立使用 WorkLog 管理器：
+## 独立使用增强功能
 
 ```python
-from derisk.agent.expand.react_master_agent import create_work_log_manager
+# WorkLog 管理
+from derisk.agent.expand.react_master_agent import WorkLogManager
 
-# 创建管理器
-work_log = await create_work_log_manager(
-    agent_id="my_agent",
-    session_id="session_123",
-    agent_file_system=afs,
-    context_window_tokens=128000,
-)
+work_log = WorkLogManager("agent_id", "session_id")
 
-# 记录动作
-await work_log.record_action(
-    tool_name="search",
-    args={"query": "python"},
-    action_output=action_result,
-    tags=["search"],
-)
+# 阶段管理
+from derisk.agent.expand.react_master_agent import PhaseManager, TaskPhase
 
-# 获取上下文
-context = await work_log.get_context_for_prompt()
+phase_manager = PhaseManager(auto_phase_detection=True)
 
-# 查询统计
-stats = await work_log.get_stats()
+# 报告生成
+from derisk.agent.expand.react_master_agent.report_generator import ReportGenerator
+
+generator = ReportGenerator(work_log, "agent_id", "task_id")
 ```
 """
 
 from .react_master_agent import ReActMasterAgent, ReActMasterParser
-from .react_master_v3 import ReActMasterV3Agent
 from .work_log import (
     WorkLogManager,
     create_work_log_manager,
     WorkEntry,
     WorkLogSummary,
     WorkLogStatus,
+)
+
+from .phase_manager import (
+    PhaseManager,
+    TaskPhase,
+    PhaseContext,
+    create_phase_manager,
+)
+
+from .report_generator import (
+    ReportGenerator,
+    ReportAgent,
+    Report,
+    ReportSection,
+    ReportMetadata,
+    ReportFormat,
+    ReportType,
+    create_report_generator,
+    generate_simple_report,
 )
 from .doom_loop_detector import (
     DoomLoopDetector,
@@ -184,26 +162,24 @@ from .report_generator import (
     generate_simple_report,
 )
 
-__version__ = "3.0.0"
+__version__ = "2.1.0"
 
 __all__ = [
-    # 主要类 - V2
+    # 主要类
     "ReActMasterAgent",
     "ReActMasterParser",
-    # 主要类 - V3 (推荐)
-    "ReActMasterV3Agent",
     # WorkLog 管理
     "WorkLogManager",
     "create_work_log_manager",
     "WorkEntry",
     "WorkLogSummary",
     "WorkLogStatus",
-    # 阶段管理（新）
+    # 阶段管理
     "PhaseManager",
     "TaskPhase",
     "PhaseContext",
     "create_phase_manager",
-    # 报告生成（新）
+    # 报告生成
     "ReportGenerator",
     "ReportAgent",
     "Report",

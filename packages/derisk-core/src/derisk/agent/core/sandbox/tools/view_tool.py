@@ -416,29 +416,3 @@ async def execute_view(
         return content
     return _format_text_content(content, range_tuple)
 
-
-async def main():
-    template = "c589607d-7c7a-442c-bb20-a74ac62f273b"
-    # template = "9c85374e-1564-4313-be9f-3432f576b19e"
-    from derisk_ext.sandbox.xic.xic_client import XICSandbox
-
-    xic_client: SandboxBase = await XICSandbox.create(
-        user_id="184089", agent="derisk", template=template
-    )
-
-    from derisk_ext.agent.sandbox.tools.create_file_tool import execute_create_file
-
-    # await execute_create_file(xic_client,"创建文件", "/home/ubuntu/test.txt", "hello world")
-    # result = await execute_view("/home/ubuntu")
-    # skill_dir from sandbox client now has proper fallback logic
-    skill_dir = xic_client.skill_dir
-    result = await execute_view(xic_client, skill_dir)
-    print(result)
-
-    await xic_client.kill(template)
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    print(asyncio.run(main()))

@@ -26,13 +26,6 @@ Your workspace for thinking through the problem. Use this to:
 - Plan your approach
 </scratch_pad>
 
-<thought>
-Your reasoning about the current step. Explain:
-- What you've learned so far
-- What you need to do next
-- Why you're choosing a specific action
-</thought>
-
 <tool_calls>
 [
   {
