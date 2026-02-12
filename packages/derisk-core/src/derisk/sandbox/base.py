@@ -22,7 +22,7 @@ from .type.sandbox_api import SandboxInfo, SandboxMetrics
 ENVD_API_FILES_ROUTE = "/files"
 ENVD_API_HEALTH_ROUTE = "/health"
 DEFAULT_WORK_DIR = "/home/ubuntu"
-DEFAULT_SKILL_DIR = "/mnt/derisk/skills"
+DEFAULT_SKILL_DIR = None
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,18 @@ class SandboxBase:
         self.__sandbox_domain = sandbox_domain or (
             connection_config.domain if connection_config else None
         )
-        self.__work_dir = work_dir
+        self.__work_dir = work_dir or DEFAULT_WORK_DIR
         self.__enable_skill = enable_skill
+
+        if skill_dir is None:
+            try:
+                from derisk.configs.model_config import DATA_DIR
+                import os
+
+                skill_dir = os.path.join(DATA_DIR, "skill")
+            except ImportError:
+                skill_dir = DEFAULT_SKILL_DIR
+
         self.__skill_dir = skill_dir
         self.__conversation_id = conversation_id
         self._shell: Optional[ShellClient] = None
@@ -108,10 +118,10 @@ class SandboxBase:
 
     @property
     def skill_dir(self) -> str:
-        return self.__skill_dir
+        return self.__skill_dir or DEFAULT_SKILL_DIR or "/mnt/derisk/skills"
 
     @property
-    def enable_skill(self) -> bool:
+    def enable_skill(self) -> Optional[bool]:
         return self.__enable_skill
 
     @property
@@ -126,7 +136,7 @@ class SandboxBase:
         return self.__sandbox_domain
 
     @property
-    def connection_config(self) -> ConnectionConfig:
+    def connection_config(self) -> Optional[ConnectionConfig]:
         return self.__connection_config
 
     @property
@@ -134,15 +144,15 @@ class SandboxBase:
         return self.__conversation_id
 
     @property
-    def shell(self) -> ShellClient:
+    def shell(self) -> Optional[ShellClient]:
         return self._shell
 
     @property
-    def file(self) -> FileClient:
+    def file(self) -> Optional[FileClient]:
         return self._file
 
     @property
-    def browser(self) -> BrowserClient:
+    def browser(self) -> Optional[BrowserClient]:
         return self._browser
 
     def set_work_dir(self, work_dir: str) -> None:
@@ -179,6 +189,7 @@ class SandboxBase:
 
         Use this method instead of using the constructor to create a new sandbox.
         """
+        raise NotImplementedError
 
     @classmethod
     async def recovery(
@@ -219,6 +230,10 @@ class SandboxBase:
         workspace_root = posixpath.normpath(base_dir.rstrip("/") or "/") or "/"
 
         sandbox.set_work_dir(workspace_root)
+
+        if sandbox.file is None:
+            logger.warning("File client not initialized, skipping OSS recovery")
+            return sandbox
 
         conv_id = str(conversation_id)
         storage_prefix = sandbox.file.build_oss_path(f"conversations/{conv_id}").rstrip(

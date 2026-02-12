@@ -97,14 +97,52 @@ REACT_MASTER_USER_TEMPLATE = """## Current Task
 
 {input}
 
-## Conversation History
+## Work Log (Recent Actions)
 
-{memory}
+{work_log}
 
 ## Instructions
 
 Please analyze the task and determine the next step(s) to take.
 Think carefully about what tools to use and how to use them effectively.
+Based on the Work Log above, review what has been done and plan your next actions accordingly.
+"""
+
+# WorkLog 提示模板 - 用于注入历史工作记录
+REACT_MASTER_WORKLOG_TEMPLATE = """{work_log_context}"""
+
+# 摘要通知模板
+REACT_MASTER_WORKLOG_COMPRESSED_NOTIFICATION = """
+🔧 [Work Log Compressed]
+
+Previous work history has been summarized to preserve context.
+- Compressed entries: {compressed_count}
+- Summary provided below
+
+Refer to the summary for context about earlier operations.
+"""
+
+# 带有 WorkLog 上下文的增强用户提示模板
+REACT_MASTER_USER_TEMPLATE_ENHANCED = """## Current Task
+
+{input}
+
+## Work Log
+
+{work_log}
+
+{compaction_notification}
+
+## Instructions
+
+Please analyze the task and determine the next step(s) to take.
+Think carefully about what tools to use and how to use them effectively.
+Based on the Work Log above:
+1. Review what tools have been used and their outcomes
+2. Understand the current state of the task
+3. Plan your next actions logically
+4. Avoid repeating actions that have already been tried
+5. Use the full archived results if needed (references are provided in the work log)
 """
 
 # 写入记忆模板

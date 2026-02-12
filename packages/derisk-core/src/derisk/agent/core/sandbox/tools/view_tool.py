@@ -430,8 +430,8 @@ async def main():
 
     # await execute_create_file(xic_client,"创建文件", "/home/ubuntu/test.txt", "hello world")
     # result = await execute_view("/home/ubuntu")
-    # Use skill_dir from sandbox client instead of hardcoded path
-    skill_dir = xic_client.skill_dir or "/mnt/derisk/skills"
+    # skill_dir from sandbox client now has proper fallback logic
+    skill_dir = xic_client.skill_dir
     result = await execute_view(xic_client, skill_dir)
     print(result)
 
