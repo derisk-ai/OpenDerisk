@@ -20,7 +20,7 @@ from derisk.agent import (
     ProfileConfig,
 )
 from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
-from derisk.agent.core.base_parser import  SchemaType
+from derisk.agent.core.base_parser import SchemaType
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status, DynamicParam, DynamicParamType
 
@@ -34,13 +34,18 @@ from .doom_loop_detector import (
 )
 from .session_compaction import SessionCompaction, CompactionResult
 from .prune import HistoryPruner
-from .truncation import Truncator,  TruncationConfig
+from .truncation import Truncator, TruncationConfig
 from .prompt import (
     REACT_MASTER_SYSTEM_TEMPLATE,
     REACT_MASTER_USER_TEMPLATE,
     REACT_MASTER_WRITE_MEMORY_TEMPLATE,
 )
 from ...core.file_system.agent_file_system import AgentFileSystem
+
+# 新增模块导入
+from .work_log import WorkLogManager, create_work_log_manager
+from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
+from .report_generator import ReportGenerator, ReportType, ReportFormat
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +134,25 @@ class ReActMasterAgent(ConversableAgent):
     enable_history_pruning: bool = True
     prune_protect_tokens: int = 4000
 
+    # 新功能配置 -> WorkLog、Phase、ReportGenerator 集成配置
+    enable_work_log: bool = True
+    enable_phase_management: bool = True
+    enable_auto_report: bool = True
+
+    # WorkLog 配置
+    work_log_context_window: int = 128000
+    work_log_compression_ratio: float = 0.7
+    work_log_large_result_threshold: int = 10 * 1024  # 10KB
+
+    # Phase 配置
+    phase_auto_detection: bool = True
+    phase_enable_prompts: bool = True
+
+    # Report 配置
+    report_auto_generate: bool = False  # 默认不自动生成，可在任务结束时手动调用
+    report_default_type: str = "detailed"
+    report_default_format: str = "markdown"
+
     # 动态变量
     dynamic_variables: List[DynamicParam] = [
         DynamicParam(
@@ -201,6 +225,34 @@ class ReActMasterAgent(ConversableAgent):
                 "Truncator initialized (AgentFileSystem will be initialized on demand)"
             )
 
+        # 5. 初始化 WorkLog 管理器（延迟初始化）
+        if self.enable_work_log:
+            self._work_log_manager = None
+            self._work_log_initialized = False
+            logger.info("WorkLog enabled (will initialize on demand)")
+        else:
+            self._work_log_manager = None
+            self._work_log_initialized = False
+
+        # 6. 初始化阶段管理器
+        if self.enable_phase_management:
+            self._phase_manager = PhaseManager(
+                auto_phase_detection=self.phase_auto_detection,
+                enable_phase_prompts=self.phase_enable_prompts,
+            )
+            logger.info(
+                f"PhaseManager initialized (auto_detection={self.phase_auto_detection})"
+            )
+        else:
+            self._phase_manager = None
+
+        # 7. 准备报告生成器（延迟初始化）
+        if self.enable_auto_report:
+            self._report_generator = None
+            logger.info("ReportGenerator enabled (will initialize on demand)")
+        else:
+            self._report_generator = None
+
     async def _ask_user_permission(self, message: str, context: Dict = None) -> bool:
         """
         请求用户权限回调
@@ -241,12 +293,10 @@ class ReActMasterAgent(ConversableAgent):
         if self._agent_file_system is not None:
             return self._agent_file_system
 
-
         if not self.not_null_agent_context:
             return None
 
         try:
-
             conv_id = self.not_null_agent_context.conv_id or "default"
             session_id = self.not_null_agent_context.conv_session_id or conv_id
 
@@ -255,12 +305,11 @@ class ReActMasterAgent(ConversableAgent):
             try:
                 from derisk.core.interface.file import FileStorageClient
                 from derisk._private.config import Config
+
                 CFG = Config()
                 system_app = CFG.SYSTEM_APP
                 if system_app:
-                    file_storage_client = FileStorageClient.get_instance(
-                        system_app
-                    )
+                    file_storage_client = FileStorageClient.get_instance(system_app)
             except Exception:
                 pass  # FileStorageClient 不可用
 
@@ -605,19 +654,52 @@ class ReActMasterAgent(ConversableAgent):
                     )
                 else:
                     if result:
+                        # 提取工具信息
+                        tool_name = result.action or real_action.name
+                        tool_args = {}
+                        
+                        # 从 action 中获取参数
+                        if hasattr(real_action, 'execute_params'):
+                            tool_args = getattr(real_action, 'execute_params', {})
+                        
+                        # ========== 集成：记录到 WorkLog ==========
+                        await self._record_action_to_work_log(tool_name, tool_args, result)
+                        
+                        # 记录到 PhaseManager
+                        self.record_phase_action(tool_name, result.is_exe_success)
+                        
+                        # ========== 集成：判断是否需要自动生成报告 ==========
+                        # 如果是 terminate action 且启用了自动报告
+                        if self._is_terminate_action(result) and self.report_auto_generate:
+                            self.set_phase("reporting", "任务完成，生成报告")
+                        
                         # 对工具执行结果应用输出截断
                         if isinstance(result, ActionOutput) and result.content:
                             tool_name = result.action or real_action.name
                             result.content = self._truncate_tool_output(
                                 result.content, tool_name
                             )
-
+                        
                         # 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
                             result = await self._attach_delivery_files(result)
-
+                            
+                            # ========== 集成：自动生成报告 ==========
+                            try:
+                                report_content = await self.generate_report(
+                                    report_type=self.report_default_type,
+                                    report_format=self.report_default_format,
+                                    save_to_file=True,
+                                )
+                                logger.info(f"Auto-generated report saved")
+                            except Exception as e:
+                                logger.warning(f"Failed to auto-generate report: {e}")
+                            
+                            # 切换到完成阶段
+                            self.set_phase("complete", "任务全部完成")
+                        
                         act_outs.append(result)
-
+                
                 await self.push_context_event(
                     EventType.AfterAction,
                     ActionPayload(action_output=result),
@@ -805,7 +887,9 @@ class ReActMasterAgent(ConversableAgent):
             if llm_client:
                 self._session_compaction.set_llm_client(llm_client)
 
-            result = await self._session_compaction.compact([item.to_agent_message() for item in messages], force=force)
+            result = await self._session_compaction.compact(
+                [item.to_agent_message() for item in messages], force=force
+            )
 
             if result.success and result.messages_removed > 0:
                 # 更新内存中的消息
@@ -818,6 +902,10 @@ class ReActMasterAgent(ConversableAgent):
 
         return None
 
+    def record_phase_action(self, tool_name: str, success: bool):
+        """记录到阶段管理器（在工具执行后调用）"""
+        if self.enable_phase_management and hasattr(self, "_phase_manager") and self._phase_manager:
+            self._phase_manager.record_action(tool_name, success)
 
 # 导入需要的东西
 from derisk.context.event import ActionPayload, EventType
