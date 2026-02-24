@@ -255,7 +255,7 @@ class AIWrapper:
                 if isinstance(content, list):
                     content_str = "[" + ", ".join([f"{c.get('type', 'unknown')}" for c in content]) + "]"
                 else:
-                    content_str = str(content)[:500] + "..." if len(str(content)) > 500 else str(content)
+                    content_str = str(content)
                 messages_summary.append({
                     "role": msg.role if hasattr(msg, 'role') else "unknown",
                     "content": content_str,

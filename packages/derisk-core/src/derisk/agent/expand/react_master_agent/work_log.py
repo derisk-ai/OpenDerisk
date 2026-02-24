@@ -86,6 +86,7 @@ class WorkEntry:
             lines.append(f"  摘要: {self.summary}")
         if self.full_result_archive:
             lines.append(f"  完整结果已归档: {self.full_result_archive}")
+            lines.append(f"  💡 使用 read_file(file_key=\"{self.full_result_archive}\") 读取完整内容")
         if self.result and not self.full_result_archive:
             result_preview = self.result[:max_length]
             if len(self.result) > max_length:
@@ -307,8 +308,20 @@ class WorkLogManager:
         result_content = action_output.content or ""
         tokens = self._estimate_tokens(result_content)
 
-        # 不再在此处进行大结果归档，由 ToolAction/truncation 处理
-        # 这里只保留摘要，用于 prompt 展示
+        # 从 action_output.extra 中提取归档文件 key
+        archive_file_key = None
+        if action_output.extra and isinstance(action_output.extra, dict):
+            archive_file_key = action_output.extra.get("archive_file_key")
+
+        # 检查 content 中是否包含截断提示（作为备份检测）
+        if not archive_file_key and "完整输出已保存至文件:" in result_content:
+            import re
+            match = re.search(r'完整输出已保存至文件:\s*(\S+)', result_content)
+            if match:
+                archive_file_key = match.group(1).strip()
+                logger.info(f"从截断提示中提取到 file_key: {archive_file_key}")
+
+        # 创建摘要，保持简短
         summary = (
             result_content[:500] + "..."
             if len(result_content) > 500
@@ -321,8 +334,8 @@ class WorkLogManager:
             tool=tool_name,
             args=args,
             summary=summary[:500] if summary else None,
-            result=None,  # 不再保存完整结果，避免重复归档
-            full_result_archive=None,  # 不再在此处归档
+            result=None,  # 不保存完整结果，使用归档
+            full_result_archive=archive_file_key,  # 记录归档文件 key
             success=action_output.is_exe_success,
             tags=tags or [],
             tokens=tokens,
