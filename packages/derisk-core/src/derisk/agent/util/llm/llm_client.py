@@ -113,8 +113,8 @@ class AIWrapper:
 
         if provider_name == "openai":
             self._provider = OpenAIProvider(
-                api_key=final_api_key,
-                base_url=base_url,
+                api_key=final_api_key, 
+                base_url=base_url, 
                 model=self._llm_config.model,
                 **kwargs
             )
@@ -169,7 +169,6 @@ class AIWrapper:
         # Ensure llm_model is a string
         final_llm_model: str = str(llm_model) if llm_model else "default"
 
-
         # 根据模型名从全局缓存获取配置，初始化 provider
         if llm_model and ModelConfigCache.has_model(llm_model):
             model_config_dict = ModelConfigCache.get_config(llm_model)
@@ -193,7 +192,6 @@ class AIWrapper:
                         logger.error(f"Failed to create provider for model {llm_model}: {e}")
                 
                 self._provider = self._provider_cache.get(llm_model)
-
 
         llm_context = extra_kwargs.get("llm_context")
         stream_out = extra_kwargs.get("stream_out", True)

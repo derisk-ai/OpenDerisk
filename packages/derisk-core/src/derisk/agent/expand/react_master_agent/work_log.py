@@ -82,17 +82,14 @@ class WorkEntry:
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
 
         lines = [f"[{time_str}] {self.tool}"]
-
+        
         # 显示参数（如果有重要参数）
         if self.args:
-            important_args = {k: v for k, v in self.args.items()
+            important_args = {k: v for k, v in self.args.items() 
                             if k in ["file_key", "path", "query", "pattern", "offset", "limit"]}
             if important_args:
                 lines.append(f"  参数: {important_args}")
-
-        if self.summary:
-            lines.append(f"  摘要: {self.summary}")
-
+        
         # 显示结果
         if self.result:
             if self.tool == "read_file":
@@ -194,7 +191,7 @@ class WorkLogManager:
         # 配置
         self.large_result_threshold_bytes = 10 * 1024  # 10KB
         self.chars_per_token = 4  # 估算 token 的字符比例
-
+        
         # 特殊工具配置
         # read_file 用于读取归档内容，其结果保留较长的预览但不保存完整内容
         self.read_file_preview_length = 2000  # read_file 结果的预览长度
@@ -321,7 +318,6 @@ class WorkLogManager:
             tool_name: 工具名称
             args: 工具参数
             action_output: ActionOutput 结果
-            tags: 标签列表
 
         Returns:
             WorkEntry: 创建的工作日志条目
