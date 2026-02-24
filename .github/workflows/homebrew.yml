@@ -1,0 +1,34 @@
+name: Publish to Homebrew
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Homebrew Formula
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          URL="https://github.com/derisk-ai/OpenDerisk/archive/refs/tags/v${VERSION}.tar.gz"
+          SHA256=$(curl -sL "$URL" | sha256sum | cut -d' ' -f1)
+          
+          sed -i "s/PLACEHOLDER_SHA256/${SHA256}/g" homebrew/openderisk.rb
+          sed -i "s|url \"https://github.com/derisk-ai/OpenDerisk/archive/refs/tags/v0.2.0.tar.gz\"|url \"${URL}\"|g" homebrew/openderisk.rb
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update homebrew formula for ${{ github.ref_name }}"
+          title: "Update Homebrew formula to ${{ github.ref_name }}"
+          body: |
+            Automated update of Homebrew formula for new release.
+            
+            - Updated URL to ${{ github.ref_name }}
+            - Updated SHA256 checksum
+          branch: update-homebrew-formula
