@@ -629,8 +629,8 @@ class ReActMasterAgent(ConversableAgent):
             # 传入 AgentFileSystem 和截断配置用于大结果归档
             afs = await self._ensure_agent_file_system()
             filtered_kwargs['agent_file_system'] = afs
-            filtered_kwargs['max_output_bytes'] = self._truncator_max_bytes if hasattr(self, '_truncator_max_bytes') else 50 * 1024
-            filtered_kwargs['max_output_lines'] = self._truncator_max_lines if hasattr(self, '_truncator_max_lines') else 2000
+            filtered_kwargs['max_output_bytes'] = self._truncator_max_bytes if hasattr(self, '_truncator_max_bytes') else 5 * 1024
+            filtered_kwargs['max_output_lines'] = self._truncator_max_lines if hasattr(self, '_truncator_max_lines') else 50
 
             tasks = []
             for real_action in real_actions:
