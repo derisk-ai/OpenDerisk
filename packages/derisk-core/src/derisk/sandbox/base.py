@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import os
 import posixpath
 from dataclasses import dataclass
 
@@ -84,11 +85,13 @@ class SandboxBase:
         if skill_dir is None:
             try:
                 from derisk.configs.model_config import DATA_DIR
-                import os
 
                 skill_dir = os.path.join(DATA_DIR, "skill")
             except ImportError:
-                skill_dir = DEFAULT_SKILL_DIR
+                logger.warning(
+                    "Failed to import DATA_DIR, skill_dir will need to be set explicitly"
+                )
+                skill_dir = None
 
         self.__skill_dir = skill_dir
         self.__conversation_id = conversation_id
@@ -118,7 +121,16 @@ class SandboxBase:
 
     @property
     def skill_dir(self) -> str:
-        return self.__skill_dir or DEFAULT_SKILL_DIR or "/mnt/derisk/skills"
+        if self.__skill_dir:
+            return self.__skill_dir
+        # Dynamic fallback: try to get from DATA_DIR
+        try:
+            from derisk.configs.model_config import DATA_DIR
+
+            return os.path.join(DATA_DIR, "skill")
+        except ImportError:
+            logger.warning("DATA_DIR not available, returning default skill_dir")
+            return DEFAULT_SKILL_DIR or "/mnt/derisk/skills"
 
     @property
     def enable_skill(self) -> Optional[bool]:

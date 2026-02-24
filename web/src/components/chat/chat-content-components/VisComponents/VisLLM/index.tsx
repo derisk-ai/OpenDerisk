@@ -1,11 +1,16 @@
-import { RobotOutlined } from '@ant-design/icons';
+import { codeComponents, markdownPlugins } from '../../config';
+import {
+  RobotOutlined,
+} from '@ant-design/icons';
 import { GPTVis } from '@antv/gpt-vis';
 import { Avatar, Descriptions, Flex } from 'antd';
+import { isEqual } from 'lodash';
 import React, { useState } from 'react';
 import { VisLLMDiv } from './style';
-import { codeComponents, markdownPlugins } from '../../config';
+import ThinkInput from './ThinkInput';
 
 interface IProps {
+  footer?: string | React.ReactNode;
   data: {
     llm_avatar?: string;
     token_use?: number | string;
@@ -24,15 +29,16 @@ const VisLLM = ({ data }: IProps) => {
     cost,
     token_speed,
     markdown,
+    link_url,
   } = data || {};
-  const [showModelInput] = useState(false);
+  const [showModelInput, setShowModelInput] = useState(false);
 
   return (
     <VisLLMDiv className="vis-llm">
       <Descriptions
         title={
           <Flex flex={0} align="center" gap={10}>
-            <Avatar src={llm_avatar}>
+            <Avatar onClick={() => setShowModelInput(!showModelInput)} src={llm_avatar}>
               <RobotOutlined />
             </Avatar>
             <div>{data?.llm_model || '模型输出'}</div>
@@ -53,7 +59,7 @@ const VisLLM = ({ data }: IProps) => {
           },
         ]}
       />
-      {showModelInput && <div />}
+      {showModelInput && <ThinkInput url={link_url} />}
       <div>
         {markdown && (
           // @ts-ignore 
@@ -70,4 +76,4 @@ const VisLLM = ({ data }: IProps) => {
   );
 };
 
-export default React.memo(VisLLM);
+export default React.memo(VisLLM, isEqual);

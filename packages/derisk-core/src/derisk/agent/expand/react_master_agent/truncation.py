@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, Tuple, Union
 import asyncio
 
+from derisk.agent.core.memory.gpts.file_base import FileType
+
 if TYPE_CHECKING:
     try:
         from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
@@ -41,8 +43,8 @@ class TruncationResult:
 class TruncationConfig:
     """截断配置"""
     # 默认截断限制
-    DEFAULT_MAX_LINES = 2000
-    DEFAULT_MAX_BYTES = 50 * 1024  # 50KB
+    DEFAULT_MAX_LINES = 50
+    DEFAULT_MAX_BYTES = 5 * 1024  # 5KB
 
     # 建议模板 - 使用 file_key 来引用文件
     TRUNCATION_SUGGESTION_TEMPLATE = """
@@ -50,10 +52,9 @@ class TruncationConfig:
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
 完整输出已保存至文件: {file_key}
 
-建议处理方式:
-1. 使用 Task 工具委托给 explore Agent 来分析完整输出
-2. 使用 Grep 工具搜索特定内容
-3. 使用 Read 工具配合 offset/limit 参数分段读取
+使用 read_file 工具读取完整内容:
+  read_file(file_key="{file_key}", offset=1, limit=500)  # 读取前 500 行
+  read_file(file_key="{file_key}", offset=501, limit=500)  # 读取后续内容
 """
 
     # 备选建议模板（当没有 AFS 时使用路径）
@@ -61,12 +62,6 @@ class TruncationConfig:
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
 完整输出已保存至: {file_path}
-
-建议处理方式:
-1. 使用 Task 工具委托给 explore Agent 来分析完整输出
-2. 使用 Grep 工具搜索特定内容
-3. 使用 Read 工具配合 offset/limit 参数分段读取
-    |path|: "{file_path}"
 """
 
 
@@ -135,7 +130,7 @@ class Truncator:
         file_metadata = await self.agent_file_system.save_file(
             file_key=file_key,
             data=content,
-            file_type="truncated_output",
+            file_type=FileType.TRUNCATED_OUTPUT,
             extension="txt",
             tool_name=tool_name,
         )
@@ -154,16 +149,20 @@ class Truncator:
         Returns:
             Tuple[file_key, local_path]: 文件 key 和本地路径
         """
+        import concurrent.futures
+        
+        async def _save():
+            return await self._save_via_agent_file_system(content, tool_name)
+        
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # 如果在异步环境中，创建一个task
-                return asyncio.create_task(self._save_via_agent_file_system(content, tool_name))
-            else:
-                return loop.run_until_complete(self._save_via_agent_file_system(content, tool_name))
+            loop = asyncio.get_running_loop()
+            # 已经在异步上下文中，使用 run_in_executor 在新线程中运行
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _save())
+                return future.result()
         except RuntimeError:
-            # 没有事件循环，创建一个新的
-            return asyncio.run(self._save_via_agent_file_system(content, tool_name))
+            # 没有运行的事件循环，直接创建新的
+            return asyncio.run(_save())
 
     def _save_to_legacy_temp_file(self, content: str, tool_name: str) -> str:
         """传统模式：将完整内容保存到临时文件"""
@@ -185,6 +184,126 @@ class Truncator:
                 os.close(fd)
                 return ""
 
+    async def truncate_async(
+        self,
+        content: str,
+        tool_name: str = "unknown",
+        max_lines: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+    ) -> TruncationResult:
+        """
+        异步截断工具输出（推荐在异步上下文中使用）
+
+        Args:
+            content: 原始输出内容
+            tool_name: 工具名称，用于生成文件名
+            max_lines: 最大行数限制，默认使用配置值
+            max_bytes: 最大字节数限制，默认使用配置值
+
+        Returns:
+            TruncationResult: 截断结果
+        """
+        if not content:
+            return TruncationResult(
+                content="",
+                is_truncated=False,
+                original_lines=0,
+                truncated_lines=0,
+                original_bytes=0,
+                truncated_bytes=0,
+            )
+
+        max_lines = max_lines or self.max_lines
+        max_bytes = max_bytes or self.max_bytes
+
+        original_bytes = len(content.encode("utf-8"))
+        lines = content.split("\n")
+        original_lines = len(lines)
+
+        # 检查是否需要截断
+        need_truncate = original_lines > max_lines or original_bytes > max_bytes
+
+        if not need_truncate:
+            return TruncationResult(
+                content=content,
+                is_truncated=False,
+                original_lines=original_lines,
+                truncated_lines=original_lines,
+                original_bytes=original_bytes,
+                truncated_bytes=original_bytes,
+            )
+
+        # 执行截断
+        logger.info(
+            f"Truncating output for {tool_name}: "
+            f"{original_lines} lines, {original_bytes} bytes -> "
+            f"max {max_lines} lines, {max_bytes} bytes"
+        )
+
+        # 先按字节截断
+        truncated_content = content
+        if original_bytes > max_bytes:
+            # 保留前 max_bytes 字节，但要确保不切断多字节字符
+            truncated_bytes = content.encode("utf-8")[:max_bytes]
+            truncated_content = truncated_bytes.decode("utf-8", errors="ignore")
+
+        # 再按行截断
+        truncated_lines = truncated_content.split("\n")
+        if len(truncated_lines) > max_lines:
+            truncated_lines = truncated_lines[:max_lines]
+            truncated_content = "\n".join(truncated_lines)
+
+        truncated_lines_count = len(truncated_lines)
+        truncated_bytes_count = len(truncated_content.encode("utf-8"))
+
+        # 保存完整内容到文件（使用 AgentFileSystem 或传统模式）
+        file_key = None
+        temp_file_path = None
+
+        try:
+            if self.agent_file_system and not self.use_legacy_mode:
+                # 使用 AgentFileSystem 管理文件（真正的异步调用）
+                file_key, temp_file_path = await self._save_via_agent_file_system(content, tool_name)
+                suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE.format(
+                    original_lines=original_lines,
+                    original_bytes=original_bytes,
+                    file_key=file_key,
+                )
+            else:
+                # 使用传统模式
+                temp_file_path = self._save_to_legacy_temp_file(content, tool_name)
+                suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS.format(
+                    original_lines=original_lines,
+                    original_bytes=original_bytes,
+                    file_path=temp_file_path or "unknown",
+                )
+        except Exception as e:
+            logger.error(f"Failed to save truncated output: {e}")
+            # 生成提示但不包含文件路径
+            suggestion = f"""
+[输出已截断]
+原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
+完整输出因保存失败而未持久化。
+
+建议处理方式:
+1. 重新执行工具操作
+2. 检查文件系统状态
+"""
+
+        final_content = truncated_content + suggestion
+
+        return TruncationResult(
+            content=final_content,
+            is_truncated=True,
+            original_lines=original_lines,
+            truncated_lines=truncated_lines_count,
+            original_bytes=original_bytes,
+            truncated_bytes=truncated_bytes_count,
+            temp_file_path=temp_file_path,
+            file_key=file_key,
+            suggestion=suggestion,
+        )
+
     def truncate(
         self,
         content: str,
@@ -193,7 +312,9 @@ class Truncator:
         max_bytes: Optional[int] = None,
     ) -> TruncationResult:
         """
-        截断工具输出
+        截断工具输出（同步版本，不推荐在异步上下文中使用）
+
+        注意：在异步上下文中，请使用 truncate_async() 方法以避免潜在的问题。
 
         Args:
             content: 原始输出内容

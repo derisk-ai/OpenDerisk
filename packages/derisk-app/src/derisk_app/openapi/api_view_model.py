@@ -30,6 +30,13 @@ class Result(BaseModel, Generic[T]):
         return model_to_dict(self)
 
 
+class WorkMode(Enum):
+    SIMPLE = "simple"
+    QUICK = "quick"
+    BACKGROUND = "background"
+    ASYNC = "async"
+
+
 class ChatSceneVo(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     chat_scene: Optional[str] = Field(..., description="chat_scene")
@@ -101,6 +108,10 @@ class ConversationVo(BaseModel):
     prompt_code: Optional[str] = Field(None, description="prompt code")
 
     ext_info: Optional[dict] = {}
+
+    work_mode: Optional[WorkMode] = Field(
+        WorkMode.SIMPLE, description="Work mode: simple, quick, background, async"
+    )
 
 
 class MessageVo(BaseModel):

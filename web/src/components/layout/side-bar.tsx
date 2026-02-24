@@ -404,6 +404,22 @@ function SideBar() {
           path: '/agent-skills',
         },
         {
+        key: 'models',
+        name: t('model_manage'),
+        isActive: pathname.startsWith('/models'),
+        icon: (
+          <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
+        ),
+        path: '/models',
+        },
+        {
+        key: 'knowledge',
+        name: t('Knowledge_Space'),
+        isActive: pathname.startsWith('/knowledge'),
+        icon: <PartitionOutlined className='w-5 h-5 text-gray-500'  />,
+        path: '/knowledge',
+        },
+        {
           key: 'MCP',
           name: 'MCP',
           isActive: pathname.startsWith('/mcp'),
@@ -418,27 +434,11 @@ function SideBar() {
           path: '/prompt',
         },
         {
-        key: 'models',
-        name: t('model_manage'),
-        isActive: pathname.startsWith('/models'),
-        icon: (
-          <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
-        ),
-        path: '/models',
-        },
-        {
           key: 'vis_merge_test',
           name: 'GUI',
           isActive: pathname.startsWith('/vis-merge-test'),
           icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
           path: '/vis-merge-test'
-        },
-        {
-        key: 'knowledge',
-        name: t('Knowledge_Space'),
-        isActive: pathname.startsWith('/knowledge'),
-        icon: <PartitionOutlined className='w-5 h-5 text-gray-500'  />,
-        path: '/knowledge',
         },
       ],
       isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp') || pathname.startsWith('/agent-skills') || pathname.startsWith('/vis-merge-test'),

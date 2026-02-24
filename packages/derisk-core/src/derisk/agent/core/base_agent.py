@@ -884,16 +884,16 @@ class ConversableAgent(Role, Agent):
                             logger.warning("No retry available!")
                             break
                         fail_reason = reason
-                        await self.write_memories(
-                            question=question,
-                            ai_message=ai_message,
-                            action_output=act_outs,
-                            check_pass=check_pass,
-                            check_fail_reason=fail_reason,
-                            agent_id=self.not_null_agent_context.agent_app_code,
-                            reply_message=reply_message,
-                            terminate=any([act_out.terminate for act_out in act_outs]),
-                        )
+                        # await self.write_memories(
+                        #     question=question,
+                        #     ai_message=ai_message,
+                        #     action_output=act_outs,
+                        #     check_pass=check_pass,
+                        #     check_fail_reason=fail_reason,
+                        #     agent_id=self.not_null_agent_context.agent_app_code,
+                        #     reply_message=reply_message,
+                        #     terminate=any([act_out.terminate for act_out in act_outs]),
+                        # )
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
                             break
@@ -906,17 +906,17 @@ class ConversableAgent(Role, Agent):
 
                         current_round = self.current_retry_counter + 1
                         # Successful reply
-                        await self.write_memories(
-                            question=question,
-                            ai_message=ai_message,
-                            action_output=act_outs,
-                            check_pass=check_pass,
-                            agent_id=self.not_null_agent_context.agent_app_code
-                                     or self.not_null_agent_context.gpts_app_code,
-                            reply_message=reply_message,
-                            terminate=any([act_out.terminate for act_out in act_outs]),
-                            current_retry_counter=current_round,
-                        )
+                        # await self.write_memories(
+                        #     question=question,
+                        #     ai_message=ai_message,
+                        #     action_output=act_outs,
+                        #     check_pass=check_pass,
+                        #     agent_id=self.not_null_agent_context.agent_app_code
+                        #              or self.not_null_agent_context.gpts_app_code,
+                        #     reply_message=reply_message,
+                        #     terminate=any([act_out.terminate for act_out in act_outs]),
+                        #     current_retry_counter=current_round,
+                        # )
 
                         ### 非LOOP模式以及非FunctionCall模式
                         if (
@@ -1234,6 +1234,8 @@ class ConversableAgent(Role, Agent):
         # LLM inference automatically retries 3 times to reduce interruption
         # probability caused by speed limit and network stability
         while retry_count < 3:
+            llm_model = None
+            llm_context = None
             with root_tracer.start_span(
                 "agent.thinking",
                 metadata={
@@ -1726,13 +1728,19 @@ class ConversableAgent(Role, Agent):
                 model_list = json.loads(model_list)
             except Exception:
                 return default_length
-        llm_client = self.llm_config.llm_client
-        llm_metadata = await llm_client.get_model_metadata(model_list[0])
-        context_length = llm_metadata.context_length
-        logger.info(
-            f"llm token limit model_name: {model_list[0]}, context_length: {context_length}"
-        )
-        return context_length or default_length
+        if self.llm_client:
+            try:
+                llm_metadata = await self.llm_client.get_model_metadata(model_list[0])
+                context_length = llm_metadata.context_length
+                logger.info(
+                    f"llm token limit model_name: {model_list[0]}, context_length: {context_length}"
+                )
+                return context_length or default_length
+            except Exception as e:
+                logger.warning(f"Failed to get model metadata: {e}, using default context length")
+                return default_length
+        
+        return default_length
 
     def register_variables(self):
         """子类通过重写此方法注册变量"""
@@ -2050,25 +2058,71 @@ class ConversableAgent(Role, Agent):
     async def select_llm_model(
         self, excluded_models: Optional[List[str]] = None
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        # logger.info(f"_a_select_llm_model:{excluded_models}")
-        try:
-            llm_strategy_cls = get_llm_strategy_cls(
-                self.not_null_llm_config.llm_strategy
-            )
-            if not llm_strategy_cls:
-                raise ValueError(
-                    f"Configured model policy not found {self.not_null_llm_config.llm_strategy}!"
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+        
+        # 使用全局缓存获取模型配置
+        all_models = ModelConfigCache.get_all_models()
+        
+        if not all_models:
+            # 回退到原有逻辑
+            try:
+                llm_strategy_cls = get_llm_strategy_cls(
+                    self.not_null_llm_config.llm_strategy
                 )
-            llm_strategy = llm_strategy_cls(
-                self.not_null_llm_config.llm_client,
-                self.not_null_llm_config.strategy_context,
-                self.not_null_llm_config.llm_param,
-            )
+                if not llm_strategy_cls:
+                    raise ValueError(
+                        f"Configured model policy not found {self.not_null_llm_config.llm_strategy}!"
+                    )
+                llm_strategy = llm_strategy_cls(
+                    self.not_null_llm_config.llm_client,
+                    self.not_null_llm_config.strategy_context,
+                    self.not_null_llm_config.llm_param,
+                )
+                return await llm_strategy.next_llm(excluded_models=excluded_models)
+            except Exception as e:
+                logger.error(f"{self.role} get next llm failed!{str(e)}")
+                raise ValueError(f"Failed to allocate model service,{str(e)}!")
+        
+        # 获取优先级列表
+        strategy_context = self.llm_config.strategy_context if self.llm_config else None
+        model_list = []
+        if strategy_context:
+            if isinstance(strategy_context, list):
+                model_list = strategy_context
+            elif isinstance(strategy_context, str):
+                try:
+                    import json
+                    model_list = json.loads(strategy_context)
+                except:
+                    model_list = [strategy_context]
+        
+        # 如果没有优先级列表，使用配置中的所有模型
+        if not model_list:
+            model_list = all_models
+        
+        # 根据 excluded_models 过滤，返回第一个可用模型
+        excluded = excluded_models or []
+        for model_name in model_list:
+            if model_name not in excluded and ModelConfigCache.has_model(model_name):
+                logger.info(f"select_llm_model: using model={model_name}")
+                return model_name, None
+        
+        # 如果所有模型都被排除了，返回第一个模型
+        if model_list:
+            logger.warning(f"select_llm_model: all models excluded, using first model={model_list[0]}")
+            return model_list[0], None
+        
+        raise ValueError("No model available!")
 
-            return await llm_strategy.next_llm(excluded_models=excluded_models)
-        except Exception as e:
-            logger.error(f"{self.role} get next llm failed!{str(e)}")
-            raise ValueError(f"Failed to allocate model service,{str(e)}!")
+    @property
+    def mist_keys(self) -> Optional[List[str]]:
+        return (
+            self.agent_context.mist_keys
+            if self.agent_context.mist_keys
+            else self.llm_config.mist_keys
+            if self.llm_config
+            else None
+        )
 
     @property
     def mist_keys(self) -> Optional[List[str]]:

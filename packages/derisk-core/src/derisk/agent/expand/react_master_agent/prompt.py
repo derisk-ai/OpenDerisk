@@ -146,11 +146,11 @@ REACT_MASTER_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动) �
 # Chinese 用户提示模板
 REACT_MASTER_USER_TEMPLATE_CN = """## 当前任务
 
-{input}
+{{input}}
 
 ## 工作日志（最近的操作）
 
-{work_log}
+{{work_log}}
 
 ## 指示
 

@@ -11,21 +11,24 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider(LLMProvider):
     """OpenAI LLM provider."""
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, **kwargs):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, model: Optional[str] = None, **kwargs):
         from openai import AsyncOpenAI
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url, **kwargs)
+        self._configured_model = model
 
     async def generate(self, request: ModelRequest) -> ModelOutput:
         """Generate a response from the model."""
         try:
             openai_messages = request.to_common_messages(support_system_role=True)
-            response = await self.client.chat.completions.create(
-                model=request.model,
-                messages=openai_messages,
-                temperature=request.temperature,
-                max_tokens=request.max_new_tokens,
-                # Add other parameters as needed
-            )
+            params = {
+                "model": request.model,
+                "messages": openai_messages,
+                "temperature": request.temperature,
+            }
+            if request.max_new_tokens and request.max_new_tokens > 0:
+                params["max_tokens"] = request.max_new_tokens
+            
+            response = await self.client.chat.completions.create(**params)
             
             choice = response.choices[0]
             content = choice.message.content
@@ -46,24 +49,28 @@ class OpenAIProvider(LLMProvider):
         """Generate a streaming response from the model."""
         try:
             openai_messages = request.to_common_messages(support_system_role=True)
-            stream = await self.client.chat.completions.create(
-                model=request.model,
-                messages=openai_messages,
-                temperature=request.temperature,
-                max_tokens=request.max_new_tokens,
-                stream=True,
-                # Add other parameters as needed
-            )
+            params = {
+                "model": request.model,
+                "messages": openai_messages,
+                "temperature": request.temperature,
+                "stream": True,
+            }
+            if request.max_new_tokens and request.max_new_tokens > 0:
+                params["max_tokens"] = request.max_new_tokens
+            
+            stream = await self.client.chat.completions.create(**params)
             
             async for chunk in stream:
+                if not chunk.choices:
+                    continue
                 choice = chunk.choices[0]
                 delta = choice.delta
-                content = delta.content
-                tool_calls = delta.tool_calls
+                content = delta.content if delta else None
+                tool_calls = delta.tool_calls if delta else None
                 
                 yield ModelOutput(
                     error_code=0,
-                    text=content,
+                    text=content or "",
                     tool_calls=[tc.model_dump() for tc in tool_calls] if tool_calls else None,
                     finish_reason=choice.finish_reason,
                     incremental=True
@@ -74,12 +81,19 @@ class OpenAIProvider(LLMProvider):
 
     async def models(self) -> List[ModelMetadata]:
         """List available models."""
+        result = []
+        if self._configured_model:
+            result.append(ModelMetadata(model=self._configured_model, context_length=128000))
         try:
             models = await self.client.models.list()
-            return [ModelMetadata(model=m.id) for m in models.data]
+            remote_models = [ModelMetadata(model=m.id) for m in models.data]
+            existing_ids = {m.model for m in result}
+            for m in remote_models:
+                if m.model not in existing_ids:
+                    result.append(m)
         except Exception as e:
-            logger.exception(f"OpenAI models error: {e}")
-            return []
+            logger.warning(f"OpenAI models API error: {e}, using configured model only")
+        return result
 
     async def count_token(self, model: str, prompt: str) -> int:
         """Count tokens in a prompt."""

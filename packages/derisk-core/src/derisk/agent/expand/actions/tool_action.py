@@ -17,6 +17,7 @@ from derisk.vis.vis_converter import SystemVisTag
 from .terminate_action import Terminate
 from ... import ConversableAgent, AgentMemory, AgentContext, AgentMessage
 from ...core import sandbox_tool_dict
+from ...core.system_tool_registry import system_tool_dict
 from ...core.action.base import Action, ActionOutput, AskUserType, ToolCall
 from ...core.schema import Status, ActionInferenceMetrics
 
@@ -163,15 +164,19 @@ class ToolAction(Action[ToolInput]):
         tool_pack = None
         env = "local"
 
+        # 优先检查沙箱工具
         if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
             tool_info = sandbox_tool_dict[param.tool_name]
             if not self.init_params:
                 sandbox_client = agent.sandbox_manager.client
                 self.init_params["client"] = sandbox_client
                 self.init_params["conversation_id"] = agent_context.conv_session_id
-            # env = agent.sandbox_manager.client.sandbox_id
-            # if sandbox_client.detail:
-            #     env = f"{sandbox_client.detail.system.os_version}/{sandbox_client.detail.system.arch}/{sandbox_client.detail.system.timezone}"
+        # 检查系统工具（如 read_file）
+        elif param.tool_name in system_tool_dict:
+            tool_info = system_tool_dict[param.tool_name]
+            # 系统工具需要 agent_file_system 参数
+            if kwargs.get('agent_file_system'):
+                self.init_params["agent_file_system"] = kwargs.get('agent_file_system')
         else:
             tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
         if not tool_info:
@@ -192,6 +197,11 @@ class ToolAction(Action[ToolInput]):
         tool_args.update(args)
         # 使用确定的环境变量覆盖生成变量
         tool_args.update(self.init_params)
+        
+        # 传入 agent_file_system 供 read_file 等工具使用
+        if kwargs.get('agent_file_system'):
+            tool_args['agent_file_system'] = kwargs.get('agent_file_system')
+        
         ## 推送工具执行初始化消息
         await self.push_action_init_msg(gpts_memory=memory.gpts_memory, agent=agent, agent_context=agent_context,
                                         message=current_message, tool_pack=tool_pack, tool_info=tool_info,
@@ -257,20 +267,86 @@ class ToolAction(Action[ToolInput]):
         metrics.result_tokens = len(str(result_content))
         cost_ms = metrics.end_time_ms - metrics.start_time_ms
         metrics.cost_seconds = round(cost_ms / 1000, 2)
+        
+        ## 大结果归档处理 - 使用 Truncator
+        # 注意：read_file 工具用于读取已归档文件，不应再次截断归档，否则会形成死循环
+        attach_view = None
+        archive_file_key = None
+        agent_file_system = kwargs.get('agent_file_system')
+        max_output_bytes = kwargs.get('max_output_bytes', 5 * 1024)  # 默认 50KB
+        max_output_lines = kwargs.get('max_output_lines', 50)
+        truncation_result = None
+        
+        # 跳过 read_file 工具的截断，避免循环归档
+        should_truncate = (
+            result_content 
+            and agent_file_system 
+            and isinstance(result_content, str)
+            and tool_info.name != "read_file"  # 跳过 read_file
+        )
+        
+        if should_truncate:
+            from derisk.agent.expand.react_master_agent.truncation import Truncator
+            
+            truncator = Truncator(
+                max_lines=max_output_lines,
+                max_bytes=max_output_bytes,
+                agent_file_system=agent_file_system,
+            )
+            # 使用异步方法避免事件循环问题
+            truncation_result = await truncator.truncate_async(result_content, tool_info.name)
+            
+            if truncation_result.is_truncated:
+                logger.info(
+                    f"[ToolAction] Output truncated for {tool_info.name}: "
+                    f"{truncation_result.original_lines}->{truncation_result.truncated_lines} lines, "
+                    f"{truncation_result.original_bytes}->{truncation_result.truncated_bytes} bytes, "
+                    f"file_key={truncation_result.file_key}"
+                )
+                archive_file_key = truncation_result.file_key
+                result_content = truncation_result.content
+                
+                # 生成 d-attach 组件展示归档文件
+                if truncation_result.file_key:
+                    try:
+                        file_metadata = await agent_file_system.get_file_info(truncation_result.file_key)
+                        if file_metadata:
+                            from derisk.vis import Vis
+                            attach_view = Vis.of("d-attach").sync_display(content={
+                                "file_id": file_metadata.file_id,
+                                "file_name": file_metadata.file_name or truncation_result.file_key,
+                                "file_type": file_metadata.file_type or "txt",
+                                "file_size": file_metadata.file_size or 0,
+                                "oss_url": file_metadata.oss_url,
+                                "preview_url": file_metadata.preview_url,
+                                "download_url": file_metadata.download_url,
+                                "mime_type": file_metadata.mime_type,
+                            })
+                            logger.info(f"[ToolAction] Generated d-attach for truncated file: {file_metadata.file_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to generate d-attach: {e}")
+        
         ## 可视化数据生成
         view = None
         if need_vis_render:
             if not self.render_protocol:
                 raise NotImplementedError("Render protocol required for visualization")
             ## 构造工具展示效果
-            kwargs = {k: v for k, v in kwargs.items() if k not in
-                               KWARGS_FILTERED}
+            kwargs_filtered = {k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED}
             view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
                                        tool_info=tool_info, tool_result=result_content, tool_cost=metrics.cost_seconds,
                                        status=status, args=param.args,
-                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs)
+                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs_filtered)
+            
+            # 如果有归档文件，追加 d-attach 组件到 view
+            if attach_view:
+                view = view + "\n" + attach_view
 
-        result_content = await self.gen_content(tool_result)
+        # 构建最终的 content：如果是截断结果，使用 content 字段而非整个对象
+        final_content = result_content
+        if truncation_result is not None:
+            final_content = truncation_result.content
+
         return ActionOutput(
             action_id=self.action_uid,
             is_exe_success=tool_result["success"],
@@ -278,7 +354,7 @@ class ToolAction(Action[ToolInput]):
             action=tool_info.name,
             name=self.name,
             action_input=json.dumps(param.args, ensure_ascii=False),
-            content=str(result_content),
+            content=final_content,
             view=view,
             observations=None,
             ask_user=False,
@@ -290,6 +366,7 @@ class ToolAction(Action[ToolInput]):
             metrics=metrics,
             start_time=start_time,
             eval_view=tool_result.get("eval_view", {}),
+            extra={"archive_file_key": archive_file_key} if archive_file_key else None,
         )
 
     async def push_action_init_msg(self, gpts_memory, agent, agent_context, message: AgentMessage,

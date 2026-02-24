@@ -35,6 +35,7 @@ def scan_serve_configs():
         "derisk_serve.building.recommend_question",
         "derisk_serve.asset",
         "derisk_serve.config",
+        "derisk_serve.version",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
@@ -394,4 +395,18 @@ def register_serve_apps(
     )
 
     # ################################ Skill Serve Register End   ################
+
+    # ################################ Version Serve Register Begin ####################
+    from derisk_serve.version.serve import Serve as VersionServe
+
+    system_app.register(
+        VersionServe,
+        api_prefix="/api/v1/version",
+        config=get_config(
+            serve_configs,
+            VersionServe.name,
+            derisk_serve.version.serve.ServeConfig,
+        ),
+    )
+    # ################################ Version Serve Register End ######################
 

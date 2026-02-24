@@ -44,6 +44,7 @@ from derisk_app.openapi.api_view_model import (
     DeltaMessage,
     MessageVo,
     Result,
+    WorkMode,
 )
 from derisk_serve.agent.agents.controller import multi_agents
 from derisk_serve.agent.db.gpts_app import UserRecentAppsDao
@@ -173,99 +174,6 @@ def get_executor() -> Executor:
     ).create()
 
 
-@router.get("/v1/chat/db/list", response_model=Result)
-async def db_connect_list(
-        db_name: Optional[str] = Query(default=None, description="database name"),
-        user_info: UserRequest = Depends(get_user_from_headers),
-):
-    results = CFG.local_db_manager.get_db_list(
-        db_name=db_name, user_id=user_info.user_id
-    )
-    # 排除部分数据库不允许用户访问
-    if results and len(results):
-        results = [
-            d
-            for d in results
-            if d.get("db_name") not in ["auth", "derisk", "test", "public"]
-        ]
-    return Result.succ(results)
-
-
-@router.post("/v1/chat/db/add", response_model=Result)
-async def db_connect_add(
-        db_config: DBConfig = Body(),
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    return Result.succ(CFG.local_db_manager.add_db(db_config, user_token.user_id))
-
-
-@router.get("/v1/permission/db/list", response_model=Result[List])
-async def permission_db_list(
-        db_name: str = None,
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    return Result.succ()
-
-
-@router.post("/v1/chat/db/edit", response_model=Result)
-async def db_connect_edit(
-        db_config: DBConfig = Body(),
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    return Result.succ(CFG.local_db_manager.edit_db(db_config))
-
-
-@router.post("/v1/chat/db/delete", response_model=Result[bool])
-async def db_connect_delete(db_name: str = None):
-    CFG.local_db_manager.db_summary_client.delete_db_profile(db_name)
-    return Result.succ(CFG.local_db_manager.delete_db(db_name))
-
-
-@router.post("/v1/chat/db/refresh", response_model=Result[bool])
-async def db_connect_refresh(db_config: DBConfig = Body()):
-    CFG.local_db_manager.db_summary_client.delete_db_profile(db_config.db_name)
-    success = await CFG.local_db_manager.async_db_summary_embedding(
-        db_config.db_name, db_config.db_type
-    )
-    return Result.succ(success)
-
-
-async def async_db_summary_embedding(db_name, db_type):
-    db_summary_client = DBSummaryClient(system_app=CFG.SYSTEM_APP)
-    db_summary_client.db_summary_embedding(db_name, db_type)
-
-
-@router.post("/v1/chat/db/test/connect", response_model=Result[bool])
-async def test_connect(
-        db_config: DBConfig = Body(),
-        user_token: UserRequest = Depends(get_user_from_headers),
-):
-    try:
-        # TODO Change the synchronous call to the asynchronous call
-        CFG.local_db_manager.test_connect(db_config)
-        return Result.succ(True)
-    except Exception as e:
-        return Result.failed(code="E1001", msg=str(e))
-
-
-@router.post("/v1/chat/db/summary", response_model=Result[bool])
-async def db_summary(db_name: str, db_type: str):
-    # TODO Change the synchronous call to the asynchronous call
-    async_db_summary_embedding(db_name, db_type)
-    return Result.succ(True)
-
-
-@router.get("/v1/chat/db/support/type", response_model=Result[List[DbTypeInfo]])
-async def db_support_types():
-    support_types = CFG.local_db_manager.get_all_completed_types()
-    db_type_infos = []
-    for type in support_types:
-        db_type_infos.append(
-            DbTypeInfo(db_type=type.value(), is_file_db=type.is_file_db())
-        )
-    return Result[DbTypeInfo].succ(db_type_infos)
-
-
 @router.post("/v1/resource/params/list", response_model=Result[List[dict]])
 async def resource_params_list(
         resource_type: str,
@@ -392,7 +300,7 @@ async def chat_completions(
 ):
     logger.info(
         f"chat_completions:{dialogue.team_mode},{dialogue.select_param},"
-        f"{dialogue.model_name}, timestamp={int(time.time() * 1000)}"
+        f"{dialogue.model_name}, work_mode={dialogue.work_mode}, timestamp={int(time.time() * 1000)}"
     )
 
     if not dialogue.conv_uid:
