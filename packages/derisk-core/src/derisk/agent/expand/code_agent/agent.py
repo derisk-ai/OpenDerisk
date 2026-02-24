@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from derisk._private.pydantic import Field
+from derisk._private.pydantic import Field, PrivateAttr
 from derisk.core import ModelMessageRoleType
 from derisk.sandbox.base import SandboxBase
 from derisk.util.string_utils import str_to_bool
@@ -25,15 +25,12 @@ from ...core.agent import Agent, AgentMessage
 from ...core.base_agent import ConversableAgent
 from ...core.file_system.agent_file_system import AgentFileSystem
 from ...core.memory.gpts.file_base import FileType
-from ...core.profile import DynConfig, ProfileConfig
+from ...core.profile import ProfileConfig
 from .actions.code_action import CodeAction, ExecutionResult
 from .prompt import (
-    get_check_result_system_message,
-    get_profile_constraints,
-    get_profile_desc,
-    get_profile_goal,
-    get_profile_name,
-    get_profile_role,
+    CHECK_RESULT_SYSTEM_MESSAGE,
+    SYSTEM_PROMPT,
+    USER_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,37 +46,7 @@ class CodeLanguage(Enum):
     UNKNOWN = "unknown"
 
 
-class ExecutionResult:
-    """Code execution result wrapper."""
-    
-    def __init__(
-        self,
-        success: bool,
-        output: str = "",
-        error: Optional[str] = None,
-        exit_code: int = 0,
-        language: str = "python",
-        execution_time_ms: int = 0,
-        file_paths: Optional[List[str]] = None,
-    ):
-        self.success = success
-        self.output = output
-        self.error = error
-        self.exit_code = exit_code
-        self.language = language
-        self.execution_time_ms = execution_time_ms
-        self.file_paths = file_paths or []
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "success": self.success,
-            "output": self.output,
-            "error": self.error,
-            "exit_code": self.exit_code,
-            "language": self.language,
-            "execution_time_ms": self.execution_time_ms,
-            "file_paths": self.file_paths,
-        }
+
 
 
 class CodeAssistantAgent(ConversableAgent):
@@ -104,53 +71,21 @@ class CodeAssistantAgent(ConversableAgent):
     max_code_length: int = Field(default=50000, description="Maximum code length in characters")
     execution_timeout: int = Field(default=300, description="Execution timeout in seconds")
     auto_save_code: bool = Field(default=True, description="Auto-save executed code to file system")
-    prompt_language: str = Field(default="zh", description="Prompt language (zh/en)")
 
-    def __init__(self, prompt_language: str = "zh", **kwargs):
-        self._prompt_language = prompt_language
-        self._profile_config = self._build_profile_config(prompt_language)
+
+    profile: ProfileConfig = ProfileConfig(
+        name="CodeAssistant",
+        role="CodeAssistant",
+        goal="你是一个专业的代码助手，专注于代码生成和执行。",
+        system_prompt_template=SYSTEM_PROMPT,
+        user_prompt_template=USER_PROMPT,
+    )
+
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._init_actions([CodeAction])
         self._execution_history: List[ExecutionResult] = []
         self._current_sandbox: Optional[SandboxBase] = None
-
-    @property
-    def profile(self) -> ProfileConfig:
-        return self._profile_config
-
-    @profile.setter
-    def profile(self, value: ProfileConfig):
-        self._profile_config = value
-
-    def _build_profile_config(self, language: str = "zh") -> ProfileConfig:
-        """Build profile config based on language."""
-        return ProfileConfig(
-            name=DynConfig(
-                get_profile_name(language),
-                category="agent",
-                key="derisk_agent_expand_code_assistant_agent_profile_name",
-            ),
-            role=DynConfig(
-                get_profile_role(language),
-                category="agent",
-                key="derisk_agent_expand_code_assistant_agent_profile_role",
-            ),
-            goal=DynConfig(
-                get_profile_goal(language),
-                category="agent",
-                key="derisk_agent_expand_code_assistant_agent_profile_goal",
-            ),
-            constraints=DynConfig(
-                get_profile_constraints(language),
-                category="agent",
-                key="derisk_agent_expand_code_assistant_agent_profile_constraints",
-            ),
-            desc=DynConfig(
-                get_profile_desc(language),
-                category="agent",
-                key="derisk_agent_expand_code_assistant_agent_profile_desc",
-            ),
-        )
+        self._init_actions([CodeAction])
 
     @property
     def execution_history(self) -> List[ExecutionResult]:
@@ -161,15 +96,6 @@ class CodeAssistantAgent(ConversableAgent):
         if self.sandbox_manager:
             return self.sandbox_manager.client
         return self._current_sandbox
-
-    @property
-    def prompt_language(self) -> str:
-        return self._prompt_language
-
-    @prompt_language.setter
-    def prompt_language(self, value: str):
-        self._prompt_language = value
-        self._profile_config = self._build_profile_config(value)
 
     async def get_file_system(self) -> Optional[AgentFileSystem]:
         if not self.agent_context:
@@ -260,7 +186,7 @@ class CodeAssistantAgent(ConversableAgent):
             
             execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
             
-            file_paths = []
+            saved_files = []
             if save_to_file and self.auto_save_code:
                 file_system = await self.get_file_system()
                 if file_system:
@@ -273,7 +199,7 @@ class CodeAssistantAgent(ConversableAgent):
                         extension=extension,
                         created_by=self.name,
                     )
-                    file_paths.append(saved_key)
+                    saved_files.append(saved_key)
             
             execution_result = ExecutionResult(
                 success=success,
@@ -282,7 +208,7 @@ class CodeAssistantAgent(ConversableAgent):
                 exit_code=exit_code,
                 language=language,
                 execution_time_ms=execution_time_ms,
-                file_paths=file_paths,
+                saved_files=saved_files,
             )
             
             self._execution_history.append(execution_result)
@@ -387,7 +313,7 @@ class CodeAssistantAgent(ConversableAgent):
         
         from ...util.llm.llm_client import AgentLLMOut
         
-        check_prompt = get_check_result_system_message(self._prompt_language)
+        check_prompt = CHECK_RESULT_SYSTEM_MESSAGE
         
         agent_llm_out: AgentLLMOut = await self.thinking(
             messages=[

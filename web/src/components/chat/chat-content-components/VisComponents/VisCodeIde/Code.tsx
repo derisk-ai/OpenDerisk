@@ -1,6 +1,6 @@
-import CodePreview from '@/CodePreview';
-import { codeComponents } from '@/CustomCard/VisCard/config';
-import { Iframe } from '@alipay/tech-ui';
+import { CodePreview } from '../../code-preview';
+import { codeComponents } from '../../config';
+
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { GPTVisLite } from '@antv/gpt-vis';
 import { Space, Tabs } from 'antd';
@@ -39,7 +39,11 @@ function Code(props: Props) {
           style={{ width: '100%' }}
           className="vis-codeide-code-html-preview"
         >
-          <Iframe srcDoc={markdown} />
+          <iframe
+            srcDoc={markdown}
+            style={{ width: '100%', height: '100%', border: 'none' }}
+            sandbox="allow-scripts"
+          />
         </div>
       );
 
