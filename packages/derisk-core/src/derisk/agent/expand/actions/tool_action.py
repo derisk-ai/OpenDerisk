@@ -192,6 +192,11 @@ class ToolAction(Action[ToolInput]):
         tool_args.update(args)
         # 使用确定的环境变量覆盖生成变量
         tool_args.update(self.init_params)
+        
+        # 传入 agent_file_system 供 read_file 等工具使用
+        if kwargs.get('agent_file_system'):
+            tool_args['agent_file_system'] = kwargs.get('agent_file_system')
+        
         ## 推送工具执行初始化消息
         await self.push_action_init_msg(gpts_memory=memory.gpts_memory, agent=agent, agent_context=agent_context,
                                         message=current_message, tool_pack=tool_pack, tool_info=tool_info,
