@@ -162,7 +162,8 @@ class SandboxManager:
         Returns:
             SandboxRuntimeState: 包含初始化完成的状态
         """
-        # 1. 直接使用 sandbox 已设置的工作目录（创建和恢复场景都已经正确设置）
+        # 1. 从 sandbox 获取工作目录
+        self._work_dir = sandbox.work_dir
 
         # 2. 确保工作目录存在
         await self._ensure_directory(self.work_dir)

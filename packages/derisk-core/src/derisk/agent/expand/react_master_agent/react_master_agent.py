@@ -23,6 +23,9 @@ from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
 from derisk.agent.core.base_parser import SchemaType
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status, DynamicParam, DynamicParamType
+from derisk.sandbox.base import SandboxBase
+from derisk.util.template_utils import render
+from derisk_serve.agent.resource.tool.mcp import MCPToolPack
 
 from ..react_agent.react_parser import ReActOutputParser, ReActOut
 
@@ -39,6 +42,14 @@ from .prompt import (
     REACT_MASTER_SYSTEM_TEMPLATE,
     REACT_MASTER_USER_TEMPLATE,
     REACT_MASTER_WRITE_MEMORY_TEMPLATE,
+    REACT_MASTER_SYSTEM_TEMPLATE_CN,
+    REACT_MASTER_USER_TEMPLATE_CN,
+    REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
+    DOOM_LOOP_WARNING_PROMPT_CN,
+    TOOL_TRUNCATION_REMINDER_CN,
+    COMPACTION_NOTIFICATION_CN,
+    PRUNE_NOTIFICATION_CN,
+    REACT_PARSE_ERROR_PROMPT_CN,
 )
 from ...core.file_system.agent_file_system import AgentFileSystem
 
@@ -46,6 +57,9 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 from .work_log import WorkLogManager, create_work_log_manager
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
+from ...resource import BaseTool, RetrieverResource, FunctionTool
+from ...resource.agent_skills import AgentSkillResource
+from ...resource.app import AppResource
 
 logger = logging.getLogger(__name__)
 
@@ -114,10 +128,10 @@ class ReActMasterAgent(ConversableAgent):
         default_factory=lambda: ProfileConfig(
             name="ReActMasterV2",
             role="ReActMasterV2",
-            goal="A best-practice ReAct agent that efficiently solves complex tasks through systematic reasoning and tool usage.",
-            system_prompt_template=REACT_MASTER_SYSTEM_TEMPLATE,
-            user_prompt_template=REACT_MASTER_USER_TEMPLATE,
-            write_memory_template=REACT_MASTER_WRITE_MEMORY_TEMPLATE,
+            goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
+            system_prompt_template=REACT_MASTER_SYSTEM_TEMPLATE_CN,
+            user_prompt_template=REACT_MASTER_USER_TEMPLATE_CN,
+            write_memory_template=REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
         )
     )
 
@@ -157,7 +171,7 @@ class ReActMasterAgent(ConversableAgent):
     dynamic_variables: List[DynamicParam] = [
         DynamicParam(
             key="memory_history",
-            name="Memory History",
+            name="MEMORY_HISTORY_ARG_SUPPLIER",
             type=DynamicParamType.CUSTOM.value,
         ),
     ]
@@ -172,6 +186,11 @@ class ReActMasterAgent(ConversableAgent):
     _tool_call_count: int = PrivateAttr(default=0)
     _compaction_count: int = PrivateAttr(default=0)
     _prune_count: int = PrivateAttr(default=0)
+
+    available_system_tools: Dict[str, FunctionTool] = Field(default_factory=dict, description="available system tools")
+    # FunctionCall函数和action的绑定
+    enable_function_call: bool = False
+
 
     def __init__(self, **kwargs):
         """Initialize ReActMaster Agent."""
@@ -537,7 +556,7 @@ class ReActMasterAgent(ConversableAgent):
 
         return result
 
-    async def _load_thinking_messages(
+    async def load_thinking_messages(
         self,
         received_message: AgentMessage,
         sender: Agent,
@@ -556,7 +575,7 @@ class ReActMasterAgent(ConversableAgent):
             context,
             system_prompt,
             user_prompt,
-        ) = await super()._load_thinking_messages(
+        ) = await super().load_thinking_messages(
             received_message, sender, rely_messages, **kwargs
         )
 
@@ -657,33 +676,38 @@ class ReActMasterAgent(ConversableAgent):
                         # 提取工具信息
                         tool_name = result.action or real_action.name
                         tool_args = {}
-                        
+
                         # 从 action 中获取参数
-                        if hasattr(real_action, 'execute_params'):
-                            tool_args = getattr(real_action, 'execute_params', {})
-                        
+                        if hasattr(real_action, "execute_params"):
+                            tool_args = getattr(real_action, "execute_params", {})
+
                         # ========== 集成：记录到 WorkLog ==========
-                        await self._record_action_to_work_log(tool_name, tool_args, result)
-                        
+                        await self._record_action_to_work_log(
+                            tool_name, tool_args, result
+                        )
+
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
-                        
+
                         # ========== 集成：判断是否需要自动生成报告 ==========
                         # 如果是 terminate action 且启用了自动报告
-                        if self._is_terminate_action(result) and self.report_auto_generate:
+                        if (
+                            self._is_terminate_action(result)
+                            and self.report_auto_generate
+                        ):
                             self.set_phase("reporting", "任务完成，生成报告")
-                        
+
                         # 对工具执行结果应用输出截断
                         if isinstance(result, ActionOutput) and result.content:
                             tool_name = result.action or real_action.name
                             result.content = self._truncate_tool_output(
                                 result.content, tool_name
                             )
-                        
+
                         # 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
                             result = await self._attach_delivery_files(result)
-                            
+
                             # ========== 集成：自动生成报告 ==========
                             try:
                                 report_content = await self.generate_report(
@@ -694,12 +718,12 @@ class ReActMasterAgent(ConversableAgent):
                                 logger.info(f"Auto-generated report saved")
                             except Exception as e:
                                 logger.warning(f"Failed to auto-generate report: {e}")
-                            
+
                             # 切换到完成阶段
                             self.set_phase("complete", "任务全部完成")
-                        
+
                         act_outs.append(result)
-                
+
                 await self.push_context_event(
                     EventType.AfterAction,
                     ActionPayload(action_output=result),
@@ -904,9 +928,144 @@ class ReActMasterAgent(ConversableAgent):
 
     def record_phase_action(self, tool_name: str, success: bool):
         """记录到阶段管理器（在工具执行后调用）"""
-        if self.enable_phase_management and hasattr(self, "_phase_manager") and self._phase_manager:
+        if (
+            self.enable_phase_management
+            and hasattr(self, "_phase_manager")
+            and self._phase_manager
+        ):
             self._phase_manager.record_action(tool_name, success)
 
+    def register_variables(self):
+        """子类通过重写此方法注册变量"""
+        logger.info(f"register_variables {self.role}")
+        super().register_variables()
+
+        @self._vm.register('available_agents', '可用Agents资源')
+        async def var_available_agents(instance):
+            logger.info("注入agent资源")
+            prompts = ""
+            for k, v in self.resource_map.items():
+                if isinstance(v[0], AppResource):
+                    for item in v:
+                        app_item: AppResource = item  # type:ignore
+                        prompts += (
+                            f"- <agent><code>{app_item.app_code}</code><name>{app_item.app_name}</name><description>{app_item.app_desc}</description>\n</agent>\n")
+            return prompts
+
+        @self._vm.register('available_knowledges', '可用知识库')
+        async def var_available_knowledges(instance):
+            logger.info("注入knowledges资源")
+
+            prompts = ""
+            for k, v in self.resource_map.items():
+                if isinstance(v[0], RetrieverResource):
+                    for item in v:
+                        if hasattr(item, "knowledge_spaces") and item.knowledge_spaces:
+                            for i, knowledge_space in enumerate(item.knowledge_spaces):
+                                prompts += (
+                                    f"- <knowledge><id>{knowledge_space.knowledge_id}</id><name>{knowledge_space.name}</name><description>{knowledge_space.desc}</description></knowledge>\n")
+
+                        else:
+                            logger.error(f"当前知识资源无法使用!{k}")
+            return prompts
+
+        @self._vm.register('available_skills', '可用技能')
+        async def var_skills(instance):
+            logger.info("注入技能资源")
+
+            prompts = ""
+            for k, v in self.resource_map.items():
+                if isinstance(v[0], AgentSkillResource):
+                    for item in v:
+                        skill_item: AgentSkillResource = item  # type:ignore
+                        mode, branch = "release", "master"
+                        debug_info = getattr(skill_item, 'debug_info', None)
+                        if debug_info and debug_info.get('is_debug'):
+                            mode, branch = "debug", debug_info.get('branch')
+                        prompts += (
+                            f"- <skill>"
+                            f"<name>{skill_item.skill_meta(mode).name}</name>"
+                            f"<description>{skill_item.skill_meta(mode).description}</description>"
+                            f"<path>{skill_item.skill_meta(mode).path}</path>"
+                            f"<branch>{branch}</branch>"
+                            f"\n</skill>\n")
+            return prompts
+
+        @self._vm.register('system_tools', '系统工具')
+        async def var_system_tools(instance):
+            result = ""
+            if self.available_system_tools:
+                logger.info("注入系统工具")
+                tool_prompts = ""
+                for k, v in self.available_system_tools.items():
+                    t_prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
+                    tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+                return tool_prompts
+
+            return None
+
+        @self._vm.register('custom_tools', '自定义工具')
+        async def var_custom_tools(instance):
+
+            logger.info("注入自定义工具")
+            tool_prompts = ""
+            for k, v in self.resource_map.items():
+                if isinstance(v[0], BaseTool):
+                    for item in v:
+                        t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
+                        tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+                ## 临时兼容MCP 因为异步加载
+                elif isinstance(v[0], MCPToolPack):
+                    for mcp in v:
+                        if mcp and mcp.sub_resources:
+                            for item in mcp.sub_resources:
+                                t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
+                                tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+            return tool_prompts
+
+        @self._vm.register('sandbox', '沙箱配置')
+        async def var_sandbox(instance):
+            logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
+            if instance and instance.sandbox_manager:
+                if instance.sandbox_manager.initialized == False:
+                    logger.warning(
+                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})")
+                sandbox_client: SandboxBase = instance.sandbox_manager.client
+
+                from derisk.agent.core.sandbox.prompt import sandbox_prompt
+                from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool_dict
+                from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
+
+                sandbox_tool_prompts = []
+                browser_tool_prompts = []
+                for k, v in sandbox_tool_dict.items():
+                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
+                    if k in BROWSER_TOOLS:
+                        browser_tool_prompts.append(f"- <tool>{prompt}</tool>")
+                    else:
+                        sandbox_tool_prompts.append(f"- <tool>{prompt}</tool>")
+
+                param = {
+                    "sandbox": {
+                        "work_dir": sandbox_client.work_dir,
+                        "use_agent_skill": sandbox_client.enable_skill,
+                        "agent_skill_dir": sandbox_client.skill_dir,
+                    }
+                }
+
+                return {
+                    "tools": "\n".join([item for item in sandbox_tool_prompts]),
+                    "browser_tools": "\n".join([item for item in browser_tool_prompts]),
+                    "enable": True if sandbox_client else False,
+                    "prompt": render(sandbox_prompt, param)
+                }
+            else:
+                return {
+                    "enable": False,
+                    "prompt": ""
+                }
+
+        logger.info(f"register_variables end {self.role}")
 # 导入需要的东西
 from derisk.context.event import ActionPayload, EventType
 
