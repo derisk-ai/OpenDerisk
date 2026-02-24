@@ -1,0 +1,1 @@
+"""Version module for querying application version."""
