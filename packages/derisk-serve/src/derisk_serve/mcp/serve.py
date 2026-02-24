@@ -92,3 +92,81 @@ class Serve(BaseServe):
             init_db.create_all()
         except Exception as e:
             logger.warning(f"Failed to create MCP tables: {e}")
+
+        # Sync default MCP server configurations from derisk-mcps config files
+        self._sync_default_mcp_configs()
+
+    def _sync_default_mcp_configs(self):
+        """Clone MCP config repo from GitHub and sync default configs to DB.
+
+        Follows the same pattern as the skill module:
+        1. Clone (or pull) the remote repo to
+           ``pilot/data/mcp/.git_cache/<md5-hash>/``
+        2. Compare the HEAD commit hash to detect changes
+        3. Copy JSON config files from ``servers/`` to ``pilot/data/mcp/``
+        4. Load configs and insert new MCP servers into the database
+           (idempotent)
+
+        If git clone fails (e.g. no network), falls back to loading from
+        any previously copied local files in ``pilot/data/mcp/``.
+        """
+        try:
+            from .default_configs import sync_default_mcps_from_repo
+            from .models.models import ServeDao
+
+            dao = ServeDao(self._config)
+
+            repo_url = (
+                self._config.default_mcp_repo_url if self._config else None
+            )
+            if not repo_url:
+                logger.info(
+                    "Default MCP repo URL is not configured, skipping sync"
+                )
+                return
+
+            branch = (
+                self._config.default_mcp_repo_branch
+                if self._config
+                else "main"
+            )
+            mcp_dir = (
+                self._config.get_mcp_dir()
+                if self._config
+                else None
+            )
+            git_cache_dir = (
+                self._config.get_mcp_git_cache_dir()
+                if self._config
+                else None
+            )
+            servers_subdir = (
+                self._config.default_mcp_servers_subdir
+                if self._config
+                else "servers"
+            )
+            overwrite = (
+                self._config.default_mcp_overwrite
+                if self._config
+                else False
+            )
+
+            synced = sync_default_mcps_from_repo(
+                dao=dao,
+                repo_url=repo_url,
+                branch=branch,
+                mcp_dir=mcp_dir,
+                git_cache_dir=git_cache_dir,
+                servers_subdir=servers_subdir,
+                overwrite=overwrite,
+            )
+            if synced > 0:
+                logger.info(
+                    "Synced %d default MCP server(s) from repo %s",
+                    synced,
+                    repo_url,
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to sync default MCP configs: %s", e, exc_info=True
+            )
