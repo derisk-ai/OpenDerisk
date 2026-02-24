@@ -1,7 +1,8 @@
+"use client";
 import { EllipsisOutlined } from '@ant-design/icons';
 import { Divider, DropDownProps, Dropdown, Tooltip, Typography } from 'antd';
 import cls from 'classnames';
-import { t } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import Image from 'next/image';
 import React from 'react';
 import './style.css';
@@ -43,11 +44,12 @@ const BlurredCard: React.FC<{
   }
 
   return (
-    <div className={cls('hover-underline-gradient flex justify-center mt-6 relative group w-1/3 px-2 mb-6', className)}>
+    <div className={cls('hover-underline-gradient flex justify-center mt-6 relative group w-1/3 min-w-[300px] h-[220px] px-2 mb-6', className)}>
       <div
         onClick={onClick}
-        className='backdrop-filter backdrop-blur-lg cursor-pointer  bg-white/70  border-2 border-white rounded-lg shadow p-4 relative w-full h-full dark:border-[#6f7f95] dark:bg-[#6f7f95]/60'
+        className='backdrop-filter backdrop-blur-lg cursor-pointer  bg-white/70  border-2 border-white rounded-lg shadow p-4 relative w-full h-full dark:border-[#6f7f95] dark:bg-[#6f7f95]/60 flex flex-col justify-between'
       >
+        <div>
         <div className='flex items-end relative bottom-8 justify-between w-full'>
           <div className='flex items-end gap-4 w-11/12  flex-1'>
             <div className='bg-white rounded-lg shadow-sm w-14 h-14 flex items-center p-2'>
@@ -91,10 +93,13 @@ const BlurredCard: React.FC<{
           </span>
         </div>
         {description}
+        </div>
+        <div>
         <div className='relative bottom-2'>{Tags}</div>
         <div className='flex justify-between items-center'>
           <div>{LeftBottom}</div>
           <div>{RightBottom}</div>
+        </div>
         </div>
         {code && (
           <>
@@ -113,7 +118,10 @@ const ChatButton: React.FC<{
   onClick?: () => void;
   Icon?: React.ReactNode | string;
   text?: string;
-}> = ({ onClick, Icon = '/pictures/card_chat.png', text = t('start_chat') }) => {
+}> = ({ onClick, Icon = '/pictures/card_chat.png', text }) => {
+  const { t } = useTranslation();
+  const displayText = text || t('start_chat');
+
   if (typeof Icon === 'string') {
     Icon = <Image src={Icon as string} alt={Icon as string} width={17} height={15} />;
   }
@@ -127,7 +135,7 @@ const ChatButton: React.FC<{
       }}
     >
       {Icon}
-      <span>{text}</span>
+      <span>{displayText}</span>
     </div>
   );
 };

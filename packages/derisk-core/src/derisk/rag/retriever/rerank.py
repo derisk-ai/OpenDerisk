@@ -317,15 +317,27 @@ class RerankEmbeddingsRanker(Ranker):
         Returns:
             List[Chunk], reranked candidates
         """
-        if not candidates_with_scores or not query:
-            return candidates_with_scores
+        try:
+            if not candidates_with_scores or not query:
+                return candidates_with_scores
+            contents = []
+            for candidate in candidates_with_scores:
+                if candidate.metadata.get('title'):
+                    contents.append(f"{candidate.metadata.get('title')}\n{candidate.content}\n{candidate.metadata.get('title')}")
+                else:
+                    contents.append(candidate.content)
+            rank_scores = await self._model.apredict(query, contents)
+            for candidate, content in zip(candidates_with_scores, contents):
+                candidate.content = content
 
-        contents = [candidate.content for candidate in candidates_with_scores]
-        rank_scores = await self._model.apredict(query, contents)
-        new_candidates_with_scores = self._rerank_with_scores(
-            candidates_with_scores, rank_scores
-        )
-        return new_candidates_with_scores[: self.topk]
+            new_candidates_with_scores = self._rerank_with_scores(
+                candidates_with_scores, rank_scores
+            )
+            return new_candidates_with_scores[: self.topk]
+        except Exception as e:
+            logger.error("Rerank Embeddings rank "
+                         " error: {}".format(e))
+            return candidates_with_scores[: self.topk]
 
 
 class RetrieverNameRanker(Ranker):

@@ -4,8 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional, List, Union
 
-from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict, Field
-from derisk.agent import AgentResource, AWELTeamContext
+from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict, Field, model_validator
+from derisk.agent import AgentResource
 from derisk.agent.core.plan.base import TeamContext, SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.schema import DynamicParam
@@ -100,6 +100,12 @@ class LLMResource(BaseModel):
     llm_param: Optional[Dict] = Field(
         None, description="The llm model param config"
     )
+    mist_keys: Optional[List[str]] = Field(
+        None, description="The mist keys configuration"
+    )
+    agent_llm_config: Optional[Dict[str, Any]] = Field(
+        None, description="The agent llm config"
+    )
 
     def to_dict(self, **kwargs) -> Dict[str, Any]:
         """Convert the model to a dictionary"""
@@ -128,7 +134,7 @@ class ServeRequest(BaseModel):
     team_mode: Optional[str] = Field(None, description="当前版本配置的对话模式")
     team_context: Optional[
         Union[
-            AutoTeamContext, SingleAgentContext, AWELTeamContext, NativeTeamContext
+            str, AutoTeamContext, SingleAgentContext
         ]
     ] = Field(None, description="应用的TeamContext信息")
     resources: Optional[List[AgentResource]] = Field(None, description="应用的Resources信息")
@@ -163,6 +169,61 @@ class ServeRequest(BaseModel):
                                                                      description="推理引擎配置,Agent为ReasoningPlanner时可用")
     ## 上下文工程配置
     context_config: Optional[GroupedConfigItem] = Field(None, description="上下文工程配置")
+
+    @staticmethod
+    def _parse_team_context(
+        team_mode: Optional[str], team_context: Optional[Union[str, dict, AutoTeamContext, SingleAgentContext]]
+    ) -> Optional[Union[AutoTeamContext, SingleAgentContext]]:
+        """Parse team_context from string to appropriate object type"""
+        if team_context is None:
+            return None
+
+        # Already an instance of the expected type
+        if isinstance(team_context, (AutoTeamContext, SingleAgentContext)):
+            return team_context
+
+        # Handle JSON string
+        if isinstance(team_context, str):
+            try:
+                context_dict = json.loads(team_context)
+            except json.JSONDecodeError:
+                # If it's not valid JSON, return the string as is
+                return None  # or could return team_context as raw string
+
+            # Parse based on team_mode
+            from derisk_serve.agent.team.base import TeamMode
+            if team_mode == TeamMode.SINGLE_AGENT.value:
+                return SingleAgentContext(**context_dict)
+            elif team_mode == TeamMode.AUTO_PLAN.value:
+                return AutoTeamContext(**context_dict)
+            return SingleAgentContext(**context_dict)  # Default fallback
+
+        # Handle dict
+        if isinstance(team_context, dict):
+            from derisk_serve.agent.team.base import TeamMode
+            if team_mode == TeamMode.SINGLE_AGENT.value:
+                return SingleAgentContext(**team_context)
+            elif team_mode == TeamMode.AUTO_PLAN.value:
+                return AutoTeamContext(**team_context)
+            return SingleAgentContext(**team_context)  # Default fallback
+
+        return None
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_team_context(cls, values: Union[Dict[str, Any], Any]) -> Union[Dict[str, Any], Any]:
+        """Validate and parse team_context field"""
+        if not isinstance(values, dict):
+            return values
+
+        team_mode = values.get("team_mode")
+        team_context = values.get("team_context")
+
+        parsed_context = cls._parse_team_context(team_mode, team_context)
+        if parsed_context is not None:
+            values["team_context"] = parsed_context
+
+        return values
 
     def to_dict(self, **kwargs) -> Dict[str, Any]:
         """Convert the model to a dictionary"""

@@ -194,3 +194,4 @@ configs/local
 
 .cursorignore
 /pilot/datasets/
+/.claude/

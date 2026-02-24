@@ -1,8 +1,9 @@
 """Adapter for chat history storage."""
 
 import json
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type, Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from derisk.core.interface.message import (
@@ -15,7 +16,6 @@ from derisk.core.interface.message import (
     _messages_from_dict,
 )
 from derisk.core.interface.storage import StorageItemAdapter
-
 from .chat_history_db import ChatHistoryEntity, ChatHistoryMessageEntity
 
 
@@ -47,7 +47,7 @@ class DBStorageConversationItemAdapter(
             app_code=item.app_code,
         )
 
-    def from_storage_format(self, model: ChatHistoryEntity) -> StorageConversation:
+    def from_storage_format(self, model: ChatHistoryEntity, **kwargs) -> StorageConversation:
         """Convert from storage format."""
         message_ids = model.message_ids.split(",") if model.message_ids else []
         old_conversations: List[Dict] = (
@@ -70,6 +70,7 @@ class DBStorageConversationItemAdapter(
             save_message_independent=save_message_independent,
             messages=old_messages,
             app_code=model.app_code,
+            async_load=kwargs.get("async_load", False)
         )
 
     def get_query_for_identifier(
@@ -85,6 +86,15 @@ class DBStorageConversationItemAdapter(
         return session.query(ChatHistoryEntity).filter(
             ChatHistoryEntity.conv_uid == resource_id.conv_uid
         )
+
+    def get_stmt_for_identifier(
+        self,
+        storage_format: Type[ChatHistoryEntity],
+        resource_id: ConversationIdentifier,  # type: ignore
+        **kwargs,
+    ) -> Any:
+        """Get the async session stmt for the resource identifier."""
+        return select(ChatHistoryEntity).where(ChatHistoryEntity.conv_uid == resource_id.conv_uid)
 
 
 class DBMessageStorageItemAdapter(
@@ -104,7 +114,7 @@ class DBMessageStorageItemAdapter(
         )
 
     def from_storage_format(
-        self, model: ChatHistoryMessageEntity
+        self, model: ChatHistoryMessageEntity, **kwargs
     ) -> MessageStorageItem:
         """Convert from storage format."""
         message_detail = (
@@ -132,6 +142,17 @@ class DBMessageStorageItemAdapter(
             ChatHistoryMessageEntity.conv_uid == resource_id.conv_uid,
             ChatHistoryMessageEntity.index == resource_id.index,
         )
+
+    def get_stmt_for_identifier(
+        self,
+        storage_format: Type[ChatHistoryMessageEntity],
+        resource_id: MessageIdentifier,  # type: ignore
+        **kwargs,
+    ) -> Any:
+        """Get the async session stmt for the resource identifier."""
+        return select(ChatHistoryMessageEntity).where(
+            ChatHistoryMessageEntity.conv_uid == resource_id.conv_uid,
+            ChatHistoryMessageEntity.index == resource_id.index,)
 
 
 def _parse_old_conversations(old_conversations: List[Dict]) -> List[BaseMessage]:

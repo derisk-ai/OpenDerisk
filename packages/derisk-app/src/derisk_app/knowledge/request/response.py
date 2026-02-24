@@ -163,6 +163,9 @@ class SpaceQueryResponse(BaseModel):
     """doc_count: doc_count"""
     docs: Optional[int] = None
 
+    """docs_tree: docs_tree"""
+    doc_tree: Optional[List] = None
+
 
 class KnowledgeQueryResponse(BaseModel):
     """source: knowledge reference source"""

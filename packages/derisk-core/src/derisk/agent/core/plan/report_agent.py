@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from derisk.rag.retriever.rerank import RetrieverNameRanker
+from ..action.report_action import ReportAction
 
 from ... import AgentMessage, Agent
 from ...core.action.blank_action import BlankAction
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 class ReportAssistantAgent(ConversableAgent):
     """Reporter Assistant Agent."""
-
     profile: ProfileConfig = ProfileConfig(
         name=DynConfig(
             "reporter",
@@ -60,11 +60,16 @@ class ReportAssistantAgent(ConversableAgent):
         ),
     )
     current_goal: str = "答案报告回复"
+
     def __init__(self, **kwargs):
         """Create a new SummaryAssistantAgent instance."""
         super().__init__(**kwargs)
         self._post_reranks = [RetrieverNameRanker(5)]
-        self._init_actions([BlankAction])
+        self._init_actions([ReportAction])
+
+    @property
+    def is_reporter(self):
+        return True
 
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""

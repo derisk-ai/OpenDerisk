@@ -14,6 +14,10 @@ import Icon, {
   PartitionOutlined,
   SettingOutlined,
   ShareAltOutlined,
+  AppstoreOutlined,
+  SearchOutlined,
+  RobotOutlined,
+  ExperimentOutlined
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { App, Flex, Input, Popover, Spin, Tooltip, Typography } from 'antd';
@@ -124,7 +128,7 @@ const MenuItem: React.FC<{
   return (
     <Flex
       align='center'
-      className={cls(`group/item w-full cursor-pointer relative max-w-full`, )}
+      className={cls(`group/item w-full cursor-pointer relative max-w-full my-0.5`, )}
       onClick={() => {
         if (historyLoading) {
           return;
@@ -132,40 +136,34 @@ const MenuItem: React.FC<{
         router.push(`/chat/?conv_uid=${item.conv_uid}&app_code=${item.app_code}`);
       }}
     >
-      <Tooltip title={item.chat_mode}>
-        {typeof item.icon === 'string' ? (
-          <img src={item.icon} className='flex-shrink-0 w-6 h-6 rounded-lg mr-3' />
-        ) : (
-          <div className='flex items-center justify-center w-6 h-6 rounded-lg flex-shrink-0'>{item.icon}</div>
-        )}
-      </Tooltip>
-      <div className={cls('flex-1 flex flex-row min-w-0 overflow-hidden hover:bg-slate-100 dark:hover:bg-theme-dark rounded-md px-3 py-1', {
-        'bg-white dark:bg-black': isActive,
+      <div className={cls('flex-1 flex flex-row min-w-0 overflow-hidden hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg px-3 py-2 transition-colors duration-200', {
+        'bg-gray-100 dark:bg-gray-800': isActive,
       })}>
-        <div className='flex-1 min-w-0 overflow-hidden hover:bg-slate-100 dark:hover:bg-theme-dark'>
+        <div className='flex-1 min-w-0 overflow-hidden'>
           <Typography.Text
             ellipsis={{
               tooltip: true,
             }}
-            className='block text-gray-500 text-[14px]'
+            className={cls('block text-sm font-medium', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
           >
             {item.label}
           </Typography.Text>
           {/* 第二行：用户名和创建时间 */}
-          <div className='flex text-xs text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis'>
+          <div className='flex text-xs text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis mt-0.5'>
             <span className='mr-2'>{item.user_name}</span>
             <span>{item.gmt_created ? moment(item.gmt_created).format('YYYY-MM-DD HH:mm') : item.gmt_modified}</span>
           </div>
         </div>
-        <div className='flex gap-1 ml-1 flex-shrink-0'>
+        <div className='flex gap-1 ml-1 flex-shrink-0 items-center'>
           <div
-            className='group-hover/item:opacity-100 cursor-pointer opacity-0'
+            className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
             onClick={e => {
               e.stopPropagation();
             }}
           >
             <ShareAltOutlined
-              style={{ fontSize: 16 }}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              style={{ fontSize: 14 }}
               onClick={() => {
                 const success = copy(`${location.origin}/chat?scene=${item.chat_mode}&id=${item.conv_uid}`);
                 message[success ? 'success' : 'error'](success ? t('copy_success') : t('copy_failed'));
@@ -173,13 +171,13 @@ const MenuItem: React.FC<{
             />
           </div>
           <div
-            className='group-hover/item:opacity-100 cursor-pointer opacity-0'
+            className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
             onClick={e => {
               e.stopPropagation();
               handleDelChat();
             }}
           >
-            <DeleteOutlined style={{ fontSize: 16 }} />
+            <DeleteOutlined className="text-gray-400 hover:text-red-500" style={{ fontSize: 14 }} />
           </div>
         </div>
       </div>
@@ -266,59 +264,6 @@ function SideBar() {
   }, [i18n]);
   const settings = useMemo(() => {
     const items: SettingItem[] = [
-      // {
-      //   key: 'theme',
-      //   name: t('Theme'),
-      //   icon: mode === 'dark' ? <Icon component={DarkSvg} /> : <Icon component={SunnySvg} />,
-      //   items: [
-      //     {
-      //       key: 'light',
-      //       label: (
-      //         <div className='py-1 flex justify-between gap-8 '>
-      //           <span className='flex gap-2 items-center'>
-      //             <Image src='/pictures/theme_light.png' alt='english' width={38} height={32}></Image>
-      //             <span>Light</span>
-      //           </span>
-      //           <span
-      //             className={cls({
-      //               block: mode === 'light',
-      //               hidden: mode !== 'light',
-      //             })}
-      //           >
-      //             ✓
-      //           </span>
-      //         </div>
-      //       ),
-      //     },
-      //     {
-      //       key: 'dark',
-      //       label: (
-      //         <div className='py-1 flex justify-between gap-8 '>
-      //           <span className='flex gap-2 items-center'>
-      //             <Image src='/pictures/theme_dark.png' alt='english' width={38} height={32}></Image>
-      //             <span>Dark</span>
-      //           </span>
-      //           <span
-      //             className={cls({
-      //               block: mode === 'dark',
-      //               hidden: mode !== 'dark',
-      //             })}
-      //           >
-      //             ✓
-      //           </span>
-      //         </div>
-      //       ),
-      //     },
-      //   ],
-      //   onClick: handleToggleTheme,
-      //   onSelect: ({ key }: { key: string }) => {
-      //     if (mode === key) return;
-      //     setMode(key as 'light' | 'dark');
-      //     localStorage.setItem(STORAGE_THEME_KEY, key);
-      //   },
-      //   defaultSelectedKeys: [mode],
-      //   placement: 'topLeft',
-      // },
       {
         key: 'language',
         name: t('language'),
@@ -403,9 +348,9 @@ function SideBar() {
           key='image_chat'
           src={app.icon || '/pictures/chat.png'}
           alt='chat_image'
-          width={30}
-          height={30}
-          className='rounded-2xl'
+          width={24}
+          height={24}
+          className='rounded-md'
         />
       ),
       path: '/',
@@ -430,36 +375,18 @@ function SideBar() {
   }, [dialogueList]);
 
   const functions = useMemo(() => {
-    const currentAppCode = searchParams?.get('app_code');
+            const currentAppCode = searchParams?.get('app_code');
     const items: RouteItem[] = [
-      {
-      key: 'chat',
-      name: t('chat_online'),
-      icon: (
-        <Image
-        key='image_chat'
-        src={pathname.startsWith('/chat') ? '/pictures/chat_active.png' : '/pictures/chat.png'}
-        alt='chat_image'
-        width={40}
-        height={40}
-        />
-      ),
-      path: '/chat/',
-      isActive: (pathname === '/chat' || pathname === '/chat/') && !currentAppCode,
-      },
-      ...appLists,
+      // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
+      // ...appLists, // Remove appList from menu items since we have a new way to start chats
+      // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
+      // ...appLists, // Remove appList from menu items since we have a new way to start chats
       {
       key: 'application',
       name: t('application'),
       isActive: pathname.startsWith('/application'),
       icon: (
-        <Image
-        key='image_application'
-        src={pathname.startsWith('/application') ? '/pictures/app_active.png' : '/pictures/app.png'}
-        alt='application_image'
-        width={40}
-        height={40}
-        />
+        <AppstoreOutlined className='w-5 h-5 text-gray-500' />
       ),
       path: '/application/app',
       },
@@ -474,7 +401,7 @@ function SideBar() {
         name: t('model_manage'),
         isActive: pathname.startsWith('/models'),
         icon: (
-          <Icon component={ModelSvg} className='w-5 h-5 text-[#515964]' />
+          <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
         ),
         path: '/models',
         },
@@ -482,25 +409,39 @@ function SideBar() {
         key: 'knowledge',
         name: t('Knowledge_Space'),
         isActive: pathname.startsWith('/knowledge'),
-        icon: <PartitionOutlined className='w-5 h-5 text-[#515964]'  />,
+        icon: <PartitionOutlined className='w-5 h-5 text-gray-500'  />,
         path: '/knowledge',
         },
         {
           key: 'MCP',
           name: 'MCP',
           isActive: pathname.startsWith('/mcp'),
-          icon: <ConsoleSqlOutlined className='w-5 h-5 text-[#515964]' />,
+          icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
           path: '/mcp',
         },
         {
-        key: 'prompt',
-        name: t('Prompt'),
-        isActive: pathname.startsWith('/prompt'),
-        icon: <MessageOutlined  className='w-5 h-5 text-[#515964]' />,
-        path: '/prompt',
+          key: 'prompt',
+          name: t('Prompt'),
+          isActive: pathname.startsWith('/prompt'),
+          icon: <MessageOutlined  className='w-5 h-5 text-gray-500' />,
+          path: '/prompt',
+        },
+        {
+          key: 'agent_skills',
+          name: t('agent_skills'),
+          isActive: pathname.startsWith('/agent-skills'),
+          icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
+          path: '/agent-skills',
+        },
+        {
+          key: 'vis_merge_test',
+          name: 'VIS合并测试',
+          isActive: pathname.startsWith('/vis-merge-test'),
+          icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+          path: '/vis-merge-test'
         },
       ],
-      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp'),
+      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp') || pathname.startsWith('/agent-skills') || pathname.startsWith('/vis-merge-test'),
       },
     ];
     return items;
@@ -536,45 +477,45 @@ function SideBar() {
     }
   };
 
-  if (pathname === '/') return null;
+  // if (pathname === '/') return null;
 
   if (!isMenuExpand) {
     return (
-      <div className='flex flex-col justify-between pt-4 h-screen bg-bar dark:bg-[#232734] animate-fade animate-duration-300 '>
+      <div className='flex flex-col justify-between pt-3 h-screen bg-[#F9FAFB] dark:bg-[#111] border-r border-gray-100 dark:border-gray-800 animate-fade animate-duration-300 '>
         <div>
-          <Link href='/' className='flex justify-center items-center pb-4'>
+          <Link href='/' className='flex justify-center items-center pb-2'>
             <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={40} height={40} />
           </Link>
-          <div className='flex flex-col gap-3 items-center'>
+          <div className='flex flex-col gap-3 items-center px-2'>
             {functions.map(item => {
               if (item?.children) {
                 return (
-                  <div className='w-10 h-10 flex items-center justify-center' onClick={() => setIsMenuExpand(true)}>{item.icon}</div>
+                  <div className='w-10 h-10 flex items-center justify-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors' onClick={() => setIsMenuExpand(true)}>{item.icon}</div>
                 )
               }
               if ((item as any).app) {
                 return (
-                  <div className='h-10 flex items-center justify-center' onClick={() => handleChat((item as any).app)} key={item.key + Date.now()}>
-                    <div className='w-8 h-8 items-center justify-center'>{item.icon}</div>
+                  <div className='h-10 w-10 flex items-center justify-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors' onClick={() => handleChat((item as any).app)} key={item.key + Date.now()}>
+                    <div className='w-6 h-6 flex items-center justify-center'>{item.icon}</div>
                   </div>
                 );
               }
 
               return (
-                <Link key={item.key} className='h-10 flex items-center justify-center' href={item.path || '#'}>
-                  <div className='w-8 h-8 flex items-center justify-center'>{item.icon}</div>
+                <Link key={item.key} className='h-10 w-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors' href={item.path || '#'}>
+                  <div className='w-5 h-5 flex items-center justify-center'>{item.icon}</div>
                 </Link>
               );
             })}
           </div>
         </div>
-        <div className='py-4'>
+        <div className='py-4 flex flex-col items-center gap-2'>
           <UserBar onlyAvatar />
           {settings
             .filter(item => item.noDropdownItem)
             .map(item => (
               <Tooltip key={item.key} title={item.name} placement='right'>
-                <div className={smallMenuItemStyle()} onClick={item.onClick}>
+                <div className='w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors' onClick={item.onClick}>
                   {item.icon}
                 </div>
               </Tooltip>
@@ -587,22 +528,32 @@ function SideBar() {
   return (
     <div
       className={cls(
-        'flex flex-col justify-between flex-1 px-4 pt-2 overflow-hidden',
-        'bg-bar dark:bg-[#232734]',
-        'animate-fade animate-duration-300 max-w-[240px]',
+        'flex flex-col justify-between flex-1 pt-3 overflow-hidden h-screen',
+        'bg-[#F9FAFB] dark:bg-[#111] border-r border-gray-100 dark:border-gray-800',
+        'animate-fade animate-duration-300 max-w-[260px] w-[260px]',
       )}
     >
-      <div className='flex flex-col w-full'>
+      <div className='flex flex-col w-full px-4'>
         {/* LOGO */}
-        <Link href='/' className='flex ml-[-10px] mt-[-8px] flex-row justify-space-between items-center'>
-          <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={160} height={38} />
-          {/* <Fold onClick={(e) => {
-            e && e.stopPropagation();
-            setIsMenuExpand(!isMenuExpand);
-          }} /> */}
+        <Link href='/' className='flex flex-row justify-between items-center mb-2 pl-1'>
+          <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={120} height={30} className="object-contain" />
         </Link>
-        {/* functions */}
-        <div className='flex flex-col flex-1 w-full' key={Date.now()}>
+        
+        {/* New Chat Button */}
+        <Link 
+          href="/chat" 
+          className="flex items-center gap-2 px-3 py-2 mb-4 bg-white dark:bg-[#1F1F1F] hover:bg-gray-50 dark:hover:bg-[#2A2A2A] border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm transition-all group"
+        >
+           <div className="w-5 h-5 flex items-center justify-center text-gray-500 group-hover:text-blue-500 transition-colors">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 4V20M4 12H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+           </div>
+           <span className="font-medium text-gray-700 dark:text-gray-200 text-sm">新对话</span>
+        </Link>
+
+        {/* Navigation Menu */}
+        <div className='flex flex-col w-full space-y-1 mb-6'>
           {functions.map(item => {
             if (item?.children) {
               return <MenuList value={item} isStow={false} key={item.key + Date.now()} />;
@@ -614,15 +565,15 @@ function SideBar() {
                 <div
                   onClick={() => handleChat((item as any).app)}
                   className={cls(
-                    'flex items-center w-full h-10 cursor-pointer text-black dark:text-white pl-1',
-                    'hover:bg-slate-100 hover:rounded-md',
-                    'dark:hover:bg-theme-dark',
-                    { 'bg-white rounded-md dark:bg-black': item.isActive },
+                    'flex items-center w-full h-9 cursor-pointer px-3 rounded-lg transition-all duration-200',
+                    item.isActive 
+                      ? 'bg-gray-200/50 dark:bg-gray-800 text-gray-900 dark:text-white font-medium' 
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                   )}
                   key={item.key + Date.now()}
                 >
-                  <div className='mr-3 w-5 h-5'>{item.icon}</div>
-                  <span className='text-sm'>{item.name}</span>
+                  <div className='mr-3 w-5 h-5 flex-shrink-0 flex items-center justify-center opacity-80'>{item.icon}</div>
+                  <span className='text-sm truncate'>{item.name}</span>
                 </div>
               );
             }
@@ -631,87 +582,95 @@ function SideBar() {
               <Link
                 href={item.path ?? '/'}
                 className={cls(
-                  'flex items-center w-full h-10 cursor-pointer text-black dark:text-white pl-1 mt-1',
-                  'hover:bg-slate-100 hover:rounded-md',
-                  'dark:hover:bg-theme-dark',
-                  { 'bg-white rounded-md dark:bg-black': item.isActive },
-                  {'border-t border-gray-300 dark:border-gray-700': item.key === 'application'}
+                  'flex items-center w-full h-9 cursor-pointer px-3 rounded-lg transition-all duration-200',
+                  item.isActive 
+                    ? 'bg-gray-200/50 dark:bg-gray-800 text-gray-900 dark:text-white font-medium' 
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800',
+                  item.key === 'application' ? 'mt-4' : ''
                 )}
                 key={item.key}
               >
-                <div className='mr-3 w-6 h-6'>{item.icon}</div>
-                <span className='text-sm'>{t(item.name as any)}</span>
+                <div className='mr-3 w-5 h-5 flex-shrink-0 flex items-center justify-center opacity-80'>{item.icon}</div>
+                <span className='text-sm truncate'>{t(item.name as any)}</span>
               </Link>
             );
           })}
         </div>
       </div>
 
-      {/* dialog */}
-      <div className="text-base flex flex-row items-center font-medium text-sm py-1 px-2 border-t border-gray-300 dark:border-gray-700 mt-1">
-        <ClockCircleOutlined className='mr-1 w-7 h-7' />
-         {t('chat_history')}
-      </div>
-      
-      {/* 筛选框 */}
-      <div className='pb-1 px-3'>
-        <Input.Search
-          placeholder={t('search_session_placeholder')}
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          onSearch={handleSearch}
-          allowClear
-          loading={listLoading}
-        />
-      </div>
+      <div className="flex-1 flex flex-col overflow-hidden px-4">
+        {/* Chat History Header */}
+        <div className="flex items-center justify-between text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-3">
+           <span>{t('chat_history')}</span>
+           <SearchOutlined className="cursor-pointer hover:text-gray-600" />
+        </div>
+        
+        {/* Search Input (Hidden by default, shown when needed or implement toggle) */}
+        {/* 
+        <div className='pb-2'>
+          <Input.Search
+            placeholder={t('search_session_placeholder')}
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            onSearch={handleSearch}
+            allowClear
+            loading={listLoading}
+            size="small"
+            className="text-xs"
+          />
+        </div>
+        */}
 
-      <div className='flex-1 overflow-y-auto'>
-        {listLoading ? (
-          // 显示加载状态
-          Array.from({ length: 3 }).map((_, index) => (
-            <MenuItem
-              key={`loading-${index}`}
-              item={{}}
-              order={{ current: 0 }}
-              loading={true}
-            />
-          ))
-        ) : dialogueLists.length > 0 ? (
-          dialogueLists.map(item => (
-            <MenuItem
-              key={item.key}
-              item={{
-                label: item.name || 'Untitled',
-                app_code: item.dialogue.app_code || '',
-                ...item.dialogue,
-                default: false,
-              }}
-              order={{ current: 0 }}
-            />
-          ))
-        ) : (
-          <div className='px-8 text-gray-500 text-sm py-4'>
-            {searchValue ? t('no_matching_session') : t('no_history_session')}
-          </div>
-        )}
-      </div>
-
-      {/* Settings */}
-      <div className='py-2'>
-        <span className={cls('flex items-center w-full h-10 px-4 bg-[#F1F5F9] dark:bg-theme-dark rounded-xl')}>
-          <div className='mr-3 w-full'>
-            <UserBar />
-          </div>
-        </span>
-        <div className='flex items-center justify-around pt-2 border-t border-dashed border-gray-200 dark:border-gray-700'>
-          {settings.map(item => (
-            <div key={item.key}>
-              <Popover content={item.disable ? `${item.name}`: item.name}>
-                <div className={cls('flex-1 flex items-center justify-center cursor-pointer text-xl', { 'text-gray-400': item.disable })} onClick={item.onClick}>
-                  {item.icon}
-                </div>
-              </Popover>
+        <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar'>
+          {listLoading ? (
+            // 显示加载状态
+            Array.from({ length: 3 }).map((_, index) => (
+              <MenuItem
+                key={`loading-${index}`}
+                item={{}}
+                order={{ current: 0 }}
+                loading={true}
+              />
+            ))
+          ) : dialogueLists.length > 0 ? (
+            dialogueLists.map(item => (
+              <MenuItem
+                key={item.key}
+                item={{
+                  label: item.name || 'Untitled',
+                  app_code: item.dialogue.app_code || '',
+                  ...item.dialogue,
+                  default: false,
+                }}
+                order={{ current: 0 }}
+              />
+            ))
+          ) : (
+            <div className='px-4 text-gray-400 text-xs py-4 text-center'>
+              {searchValue ? t('no_matching_session') : t('no_history_session')}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* User & Settings */}
+      <div className='px-4 py-4 mt-2 border-t border-gray-100 dark:border-gray-800 bg-[#F9FAFB] dark:bg-[#111] flex items-center justify-between gap-2'>
+        <div className='flex-1 min-w-0 overflow-hidden'>
+           <UserBar />
+        </div>
+        <div className='flex items-center gap-1 shrink-0'>
+          {settings.map(item => (
+            <Tooltip key={item.key} title={item.name} placement='top'>
+              <div 
+                className={cls(
+                  'w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer transition-colors text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800', 
+                  { 'text-gray-300 cursor-not-allowed': item.disable }
+                )} 
+                onClick={item.onClick}
+              >
+                {item.icon}
+              </div>
+            </Tooltip>
           ))}
         </div>
       </div>

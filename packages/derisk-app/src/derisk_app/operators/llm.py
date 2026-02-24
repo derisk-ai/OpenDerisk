@@ -140,9 +140,10 @@ class BaseHOLLMOperator(
             if isinstance(arg, HOContextBody):
                 dynamic_inputs.append(arg)
         # Load and store chat history, default use InMemoryStorage.
-        storage_conv, history_messages = await self.blocking_func_to_async(
-            self._build_storage, req
-        )
+        # storage_conv, history_messages = await self.blocking_func_to_async(
+        #     self._build_storage, req
+        # )
+        storage_conv, history_messages = await self._build_storage(req)
         # Save the storage conversation to share data, for the child operators
         await self.current_dag_context.save_to_share_data(
             self.SHARE_DATA_KEY_STORAGE_CONVERSATION, storage_conv
@@ -190,12 +191,12 @@ class BaseHOLLMOperator(
             self._sub_compose_dag = self._build_conversation_composer_dag()
         return self._sub_compose_dag
 
-    def _build_storage(
+    async def _build_storage(
         self, req: CommonLLMHttpRequestBody
     ) -> Tuple[StorageConversation, List[BaseMessage]]:
         # Create a new storage conversation, this will load the conversation from
         # storage, so we must do this async
-        storage_conv: StorageConversation = StorageConversation(
+        storage_conv: StorageConversation = await StorageConversation(
             conv_uid=req.conv_uid,
             chat_mode=req.chat_mode,
             user_name=req.user_name,
@@ -204,7 +205,8 @@ class BaseHOLLMOperator(
             message_storage=self.message_storage,
             param_type="",
             param_value=req.chat_param,
-        )
+            async_load=True,
+        ).async_load()
         # Get history messages from storage
         history_messages: List[BaseMessage] = storage_conv.get_history_message(
             include_system_message=False

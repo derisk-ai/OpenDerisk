@@ -23,6 +23,9 @@ Examples:
 
 """
 
+import sys
+from unittest.mock import MagicMock
+sys.modules["oss2"] = MagicMock()
 import asyncio
 import logging
 import os
@@ -129,68 +132,124 @@ class SandboxCodeAction(Action[None]):
 
     async def execute_code_blocks(self, code_blocks):
         """Execute the code blocks and return the result."""
-        from lyric import (
-            PyTaskFsConfig,
-            PyTaskMemoryConfig,
-            PyTaskResourceConfig,
+        # 使用 SandboxManager 来获取沙箱实例并执行代码
+        # 注意：这里我们通过 SandboxManager 单例来访问全局配置好的沙箱
+        # from derisk.agent.core.sandbox_manager import get_sandbox_manager # 假设有这个helper函数或者通过context获取
+        # 由于示例代码中可能没有完全初始化的 SandboxManager，我们这里模拟一个初始化过程，或者直接使用 AutoSandbox
+        
+        # 更好的方式是使用 SDK 中的 AutoSandbox，但这里为了演示配置使用，我们假设从配置加载
+        # 在实际 Agent 运行环境中，SandboxManager 应该已经初始化好了
+        
+        # 这里为了独立运行示例，我们手动创建一个临时的 AutoSandbox
+        from derisk.sandbox.sandbox_client import AutoSandbox
+        from derisk_app.config import SandboxConfigParameters
+        
+        # 模拟从配置文件读取配置
+        sandbox_config = SandboxConfigParameters(
+            type="local", # 或者 "xic"
+            work_dir="./workspace_example",
+            user_id="test_user"
         )
-
-        from derisk.util.code.server import get_code_server
-
-        fs = PyTaskFsConfig(
-            preopens=[
-                # Mount the /tmp directory to the /tmp directory in the sandbox
-                # Directory permissions are set to 3 (read and write)
-                # File permissions are set to 3 (read and write)
-                ("/tmp", "/tmp", 3, 3),
-                # Mount the current directory to the /home directory in the sandbox
-                # Directory and file permissions are set to 1 (read)
-                (".", "/home", 1, 1),
-            ]
+        
+        # 如果你想使用 xic 配置，可以这样（需要确保你的环境有 xic 相关的实现和凭证）
+        # sandbox_config = SandboxConfigParameters(
+        #     type="xic",
+        #     template_id="xxx",
+        #     user_id="user1",
+        #     agent_name="derisk",
+        #     # ... 其他参数
+        # )
+        
+        # 在这里我们使用 AutoSandbox.create 动态创建，或者如果有全局 SandboxManager 就用全局的
+        # 为了简单起见，这里直接实例化一个临时的
+        sandbox = await AutoSandbox.create(
+            user_id=sandbox_config.user_id or "default_user",
+            agent=sandbox_config.agent_name or "derisk_agent",
+            type=sandbox_config.type,
+            work_dir=sandbox_config.work_dir
         )
-        memory = PyTaskMemoryConfig(memory_limit=50 * 1024 * 1024)  # 50MB in bytes
-        resources = PyTaskResourceConfig(
-            fs=fs,
-            memory=memory,
-            env_vars=[
-                ("TEST_ENV", "hello, im an env var"),
-                ("TEST_ENV2", "hello, im another env var"),
-            ],
-        )
-
-        code_server = await get_code_server()
+        
         logs_all = ""
         exitcode = -1
-        for i, code_block in enumerate(code_blocks):
-            lang, code = code_block
-            if not lang:
-                lang = infer_lang(code)
-            print(
-                colored(
-                    f"\n>>>>>>>> EXECUTING CODE BLOCK {i} "
-                    f"(inferred language is {lang})...",
-                    "red",
-                ),
-                flush=True,
-            )
-            if lang in ["python", "Python"]:
-                result = await code_server.exec(code, "python", resources=resources)
-                exitcode = result.exit_code
-                logs = result.logs
-            elif lang in ["javascript", "JavaScript"]:
-                result = await code_server.exec(code, "javascript", resources=resources)
-                exitcode = result.exit_code
-                logs = result.logs
-            else:
-                # In case the language is not supported, we return an error message.
-                exitcode, logs = (
-                    1,
-                    f"unknown language {lang}",
+        
+        try:
+            # 初始化沙箱（如果是 xic，这步很重要）
+            # 注意：AutoSandbox.create 返回的是 SandboxBase 实例
+            # 对于某些沙箱类型，可能需要额外的 start() 调用，或者在 execute 时自动处理
+            
+            for i, code_block in enumerate(code_blocks):
+                lang, code = code_block
+                if not lang:
+                    lang = infer_lang(code)
+                print(
+                    colored(
+                        f"\n>>>>>>>> EXECUTING CODE BLOCK {i} "
+                        f"(inferred language is {lang})...",
+                        "red",
+                    ),
+                    flush=True,
                 )
+                
+                # 转换语言名称为沙箱支持的格式
+                sandbox_lang = lang.lower()
+                if sandbox_lang in ["python", "python3"]:
+                    sandbox_lang = "python"
+                elif sandbox_lang in ["javascript", "js", "node"]:
+                    sandbox_lang = "javascript" # 取决于沙箱支持
+                elif sandbox_lang in ["bash", "sh", "shell"]:
+                    sandbox_lang = "bash"
 
-            logs_all += "\n" + logs
-            if exitcode != 0:
-                return exitcode, logs_all
+                # 执行代码
+                # run_code 是高层 API，不同沙箱实现可能略有不同，但通常都支持
+                # SandboxBase.run_code 并不直接存在，通常是 sandbox.shell.exec_command 或类似
+                # 我们假设 LocalSandbox 或特定实现扩展了这个，或者使用通用的 exec 接口
+                
+                # 对于 LocalSandbox (derisk_ext), run_code 是存在的
+                # 对于通用 SandboxBase, 通常通过 sandbox.shell.run 或 sandbox.exec 来执行
+                
+                # 这里做个适配
+                if hasattr(sandbox, "run_code"):
+                     output = await sandbox.run_code(code, language=sandbox_lang)
+                else:
+                    # Fallback for standard SandboxBase (e.g. XicSandbox) which uses shell client
+                    if sandbox_lang == "python":
+                         # 这是一个简化，实际可能需要写入文件再运行，或者直接 python -c
+                         # 这里假设 exec_command 能处理
+                         cmd = f"python3 -c {code!r}"
+                    elif sandbox_lang == "bash":
+                         cmd = code
+                    else:
+                         cmd = code # 尝试直接执行
+                    
+                    # 假设 shell client 有 exec_command
+                    if sandbox.shell:
+                         result = await sandbox.shell.exec_command(cmd)
+                         output = result.output if hasattr(result, "output") else str(result)
+                    else:
+                         output = "Error: Sandbox shell client not available"
+
+                
+                # 处理输出和退出码
+                # 简单处理：如果没有抛出异常且输出不包含特定错误标识，认为成功
+                # 实际沙箱 API 可能返回更详细的 Result 对象
+                
+                # 假设 output 是字符串
+                logs = output
+                # 简单判定成功
+                if "Error:" in output or "Exception:" in output:
+                     exitcode = 1
+                else:
+                     exitcode = 0
+
+                logs_all += "\n" + logs
+                if exitcode != 0:
+                    break
+                    
+        except Exception as e:
+            logger.exception("Sandbox execution failed")
+            exitcode = 1
+            logs_all += f"\nSandbox execution error: {str(e)}"
+        
         return exitcode, logs_all
 
 

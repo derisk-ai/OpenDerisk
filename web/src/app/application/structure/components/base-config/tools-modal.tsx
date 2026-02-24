@@ -18,29 +18,13 @@ function ToolsModal({
   onToolsChange,
 }: ToolsModalProps) {
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
-  const [toolKey, setToolKey] = useState<string>("tool");
+  const [toolKey, setToolKey] = useState<string>("tool(skill)");
   const { appInfo } = useContext(AppContext);
 
   const {
-    data: appToolsData,
-    run: fetchToolsData,
-    loading,
-  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
-    manual: true,
-  });
-
-  const {
-    data: httpToolsData,
-    run: fetchHttpToolsData,
-    loading: httpLoading,
-  } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
-    manual: true,
-  });
-
-  const {
-    data: trToolsData,
-    run: fetchTrToolsData,
-    loading: trLoading,
+    data: skillToolsData,
+    run: fetchSkillToolsData,
+    loading: skillLoading,
   } = useRequest(async (type: string) => await getResourceV2({ type: type }), {
     manual: true,
   });
@@ -63,59 +47,11 @@ function ToolsModal({
 
   useEffect(() => {
     if (visible) {
-      fetchToolsData('tool');
-      fetchLocalToolsData(toolKey);
-      // fetchHttpToolsData(toolKey);
-      // fetchTrToolsData(toolKey);
+      fetchLocalToolsData('tool(local)');
+      fetchSkillToolsData('tool(skill)');
       fetchMcpToolsData('tool(mcp(sse))');
     }
-  }, [visible, fetchToolsData, fetchHttpToolsData, fetchTrToolsData, fetchLocalToolsData, fetchMcpToolsData]);
-
-  const appList = useMemo(() => {
-    return (
-      appToolsData?.data?.data
-        // ?.filter((v) => v.param_name === "name")
-        ?.flatMap(
-          (item: any) =>
-            item.valid_values?.map((option: any) => ({
-              ...option,
-              value: option.key,
-              label: option.label,
-              selected: true,
-            })) || []
-        )
-    );
-  }, [appToolsData]);
-
-  const httpAppList = useMemo(() => {
-    return (
-      httpToolsData?.data?.data
-        ?.flatMap(
-          (item: any) =>
-            item.valid_values?.map((option: any) => ({
-              ...option,
-              value: option.label,
-              label: option.label,
-              selected: true,
-            })) || []
-        )
-    );
-  }, [httpToolsData]);
-
-  const trAppList = useMemo(() => {
-    return (
-      trToolsData?.data?.data
-        ?.flatMap(
-          (item: any) =>
-            item.valid_values?.map((option: any) => ({
-              ...option,
-              value: option.label,
-              label: option.label,
-              selected: true,
-            })) || []
-        )
-    );
-  }, [trToolsData]);
+  }, [visible, fetchLocalToolsData, fetchMcpToolsData, fetchSkillToolsData]);
 
   const localAppList = useMemo(() => {
     return (
@@ -131,6 +67,21 @@ function ToolsModal({
         )
     );
   }, [localToolsData]);
+
+  const skillAppList = useMemo(() => {
+    return (
+      skillToolsData?.data?.data
+        ?.flatMap(
+          (item: any) =>
+            item.valid_values?.map((option: any) => ({
+              ...option,
+              value: option.key,
+              label: option.label,
+              selected: true,
+            })) || []
+        )
+    );
+  }, [skillToolsData]);
 
   const mcpAppList = useMemo(() => {
     return (
@@ -150,101 +101,6 @@ function ToolsModal({
 
   const handleChange = () => {
     const allToolsList = [];
-    // 处理 tool 类型
-    const tools = form.getFieldValue('tools') || [];
-    const toolsList = tools?.map((item: any) => {
-      const existed = (appInfo?.resource_tool || []).find(
-        (t: any) =>
-          t.type === 'tool' &&
-          (() => {
-            try {
-              const val = JSON.parse(t.value || '{}');
-              return val.key === item;
-            } catch {
-              return false;
-            }
-          })(),
-      );
-      if (existed) {
-        return existed;
-      }
-      const tool = appList?.find((v: any) => v.key === item);
-      if (tool) {
-        const { selected, ...rest } = tool;
-        return {
-          type: 'tool',
-          name: rest.label,
-          value: JSON.stringify({
-            ...rest,
-            value: tool.key,
-          }),
-        };
-      }
-    }).filter(Boolean) || [];
-    
-    // 处理 tool(http) 类型
-    const httpTools = form.getFieldValue('tool(http)') || [];
-    const httpToolsList = httpTools?.map((item: any) => {
-      const existed = (appInfo?.resource_tool || []).find(
-        (t: any) =>
-          t.type === 'tool(http)' &&
-          (() => {
-            try {
-              const val = JSON.parse(t.value || '{}');
-              return val.key === item;
-            } catch {
-              return false;
-            }
-          })(),
-      );
-      if (existed) {
-        return existed;
-      }
-      const tool = httpAppList?.find((v: any) => v.key === item);
-      if (tool) {
-        const { selected, ...rest } = tool;
-        return {
-          type: 'tool(http)',
-          name: rest.label,
-          value: JSON.stringify({
-            ...rest,
-            value: tool.key,
-          }),
-        };
-      }
-    }).filter(Boolean) || [];
-    
-    // 处理 tool(tr) 类型
-    const trTools = form.getFieldValue('tool(tr)') || [];
-    const trToolsList = trTools?.map((item: any) => {
-      const existed = (appInfo?.resource_tool || []).find(
-        (t: any) =>
-          t.type === 'tool(tr)' &&
-          (() => {
-            try {
-              const val = JSON.parse(t.value || '{}');
-              return val.key === item;
-            } catch {
-              return false;
-            }
-          })(),
-      );
-      if (existed) {
-        return existed;
-      }
-      const tool = trAppList?.find((v: any) => v.key === item);
-      if (tool) {
-        const { selected, ...rest } = tool;
-        return {
-          type: 'tool(tr)',
-          name: rest.label,
-          value: JSON.stringify({
-            ...rest,
-            value: tool.key,
-          }),
-        };
-      }
-    }).filter(Boolean) || [];
 
     // 处理 tool(local) 类型
     const localTools = form.getFieldValue('tool(local)') || [];
@@ -269,6 +125,38 @@ function ToolsModal({
         const { selected, ...rest } = tool;
         return {
           type: 'tool(local)',
+          name: rest.label,
+          value: JSON.stringify({
+            ...rest,
+            value: tool.key,
+          }),
+        };
+      }
+    }).filter(Boolean) || [];
+
+    // 处理 tool(skill) 类型
+    const skillTools = form.getFieldValue('tool(skill)') || [];
+    const skillToolsList = skillTools?.map((item: any) => {
+      const existed = (appInfo?.resource_tool || []).find(
+        (t: any) =>
+          t.type === 'tool(skill)' &&
+          (() => {
+            try {
+              const val = JSON.parse(t.value || '{}');
+              return val.key === item;
+            } catch {
+              return false;
+            }
+          })(),
+      );
+      if (existed) {
+        return existed;
+      }
+      const tool = skillAppList?.find((v: any) => v.key === item);
+      if (tool) {
+        const { selected, ...rest } = tool;
+        return {
+          type: 'tool(skill)',
           name: rest.label,
           value: JSON.stringify({
             ...rest,
@@ -311,7 +199,7 @@ function ToolsModal({
     }).filter(Boolean) || [];
     
     // 合并所有工具
-    allToolsList.push(...toolsList, ...httpToolsList, ...trToolsList, ...localToolsList, ...mcpToolsList);
+    allToolsList.push(...localToolsList, ...skillToolsList, ...mcpToolsList);
     
     onToolsChange([...allToolsList]);
   };
@@ -347,24 +235,49 @@ function ToolsModal({
             setToolKey(key);
           }}
           items={[
+            // { 
+            //   label: "工具集", 
+            //   key: "tool",
+            //   children: (
+            //     <Form
+            //       layout="horizontal"
+            //       className="flex flex-col gap-4 flex-1 mt-2"
+            //       form={form}
+            //     >
+            //       <Form.Item label="请选择工具" name="tool(local)">
+            //         <Select
+            //           mode="multiple"
+            //           allowClear
+            //           style={{ width: "100%" }}
+            //           placeholder="请选择工具"
+            //           value={selectedTools}
+            //           loading={localLoading}
+            //           options={localAppList}
+            //           onChange={setSelectedTools}
+            //           optionFilterProp="label"
+            //         />
+            //       </Form.Item>
+            //     </Form>
+            //   )
+            // },
             { 
-              label: "工具集", 
-              key: "tool",
+              label: "技能", 
+              key: "tool(skill)",
               children: (
                 <Form
                   layout="horizontal"
                   className="flex flex-col gap-4 flex-1 mt-2"
                   form={form}
                 >
-                  <Form.Item label="请选择技能" name="tools">
+                  <Form.Item label="请选择技能" name="tool(skill)">
                     <Select
                       mode="multiple"
                       allowClear
                       style={{ width: "100%" }}
                       placeholder="请选择技能"
                       value={selectedTools}
-                      loading={loading}
-                      options={appList}
+                      loading={skillLoading}
+                      options={skillAppList}
                       onChange={setSelectedTools}
                       optionFilterProp="label"
                     />

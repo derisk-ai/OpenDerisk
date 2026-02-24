@@ -25,13 +25,7 @@ def signal_handler(sig, frame):
     os._exit(0)
 
 
-def async_db_summary(system_app: SystemApp):
-    """async db schema into vector db"""
-    from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
 
-    client = DBSummaryClient(system_app=system_app)
-    thread = threading.Thread(target=client.init_db_summary)
-    thread.start()
 
 
 def server_init(param: ApplicationConfig, system_app: SystemApp):
@@ -49,7 +43,7 @@ def server_init(param: ApplicationConfig, system_app: SystemApp):
 def _create_model_start_listener(system_app: SystemApp):
     def startup_event(wh):
         print("begin run _add_app_startup_event")
-        async_db_summary(system_app)
+
 
     return startup_event
 
@@ -79,15 +73,16 @@ def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
 
     disable_alembic_upgrade = param.web.disable_alembic_upgrade
     db_ssl_verify = param.web.db_ssl_verify
-    connector = db_config.create_connector()
-    if not isinstance(connector, RDBMSConnector):
-        raise ValueError("Only support RDBMSConnector")
+    # connector = db_config.create_connector()
+    # if not isinstance(connector, RDBMSConnector):
+    #     raise ValueError("Only support RDBMSConnector")
     db_url = db_config.db_url(ssl=db_ssl_verify, charset="utf8mb4")
-    db_type = connector.db_type
+    # db_type = connector.db_type
     db_engine_args: Optional[Dict[str, Any]] = db_config.engine_args()
+    
     _initialize_db(
         db_url,
-        db_type,
+        # db_type,
         db_name,
         db_engine_args,
         try_to_create_db=not disable_alembic_upgrade,
@@ -140,7 +135,7 @@ def _migration_db_storage(
 
 def _initialize_db(
     db_url: str,
-    db_type: str,
+    # db_type: str,
     db_name: str,
     db_engine_args: Optional[Dict[str, Any]] = None,
     try_to_create_db: Optional[bool] = False,
@@ -159,16 +154,16 @@ def _initialize_db(
     )
 
     default_meta_data_path = os.path.join(PILOT_PATH, "meta_data")
-    if db_type == "mysql":
-        # Try to create database, if failed, will raise exception
-        _create_mysql_database(db_name, db_url, try_to_create_db)
-    elif db_type == "oceanbase":
-        _create_mysql_database(db_name, db_url, try_to_create_db)
+    # if db_type == "mysql":
+    #     # Try to create database, if failed, will raise exception
+    #     _create_mysql_database(db_name, db_url, try_to_create_db)
+    # elif db_type == "oceanbase":
+    #     _create_mysql_database(db_name, db_url, try_to_create_db)
 
     if not db_engine_args:
         db_engine_args = {
-            "pool_size": 10,
-            "max_overflow": 20,
+            "pool_size": 100,
+            "max_overflow": 100,
             "pool_timeout": 30,
             "pool_recycle": 3600,
             "pool_pre_ping": True,

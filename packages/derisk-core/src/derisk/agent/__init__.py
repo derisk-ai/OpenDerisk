@@ -5,8 +5,8 @@ from .core.agent import (  # noqa: F401
     Agent,
     AgentContext,
     AgentGenerateContext,
-    AgentMessage,
 )
+from .core.types import AgentMessage    # noqa: F401
 from .core.agent_manage import (  # noqa: F401
     AgentManager,
     get_agent_manager,
@@ -14,6 +14,7 @@ from .core.agent_manage import (  # noqa: F401
 )
 from .core.base_agent import ConversableAgent  # noqa: F401
 from .core.memory import *  # noqa: F401, F403
+from .core.memory.gpts.agent_system_message import AgentSystemMessage
 from .core.memory.gpts.gpts_memory import GptsMemory  # noqa: F401
 from .core.plan import *  # noqa: F401, F403
 from .core.plan.planning_agent import PlanningAgent  # noqa: F401
@@ -30,6 +31,7 @@ __ALL__ = [
     "AgentContext",
     "AgentGenerateContext",
     "AgentMessage",
+    "AgentSystemMessage",
     "AgentManager",
     "initialize_agent",
     "get_agent_manager",

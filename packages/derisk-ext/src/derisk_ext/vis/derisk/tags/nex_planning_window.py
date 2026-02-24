@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional, Union
 from pydantic_core._pydantic_core import ValidationError
 
 from derisk.vis import Vis
+
 from derisk._private.pydantic import (
     BaseModel,
     ConfigDict,

@@ -47,6 +47,10 @@ export type NewDialogueParam = {
   chat_mode?: string;
   model?: string;
   app_code?:string;
+  // Resource parameters for selected skills, tools, mcp
+  skills?: string[];  // Array of skill names
+  tools?: string[];   // Array of tool names
+  mcp_servers?: string[];  // Array of mcp server names
 };
 
 export type ChatHistoryResponse = IChatDialogueMessageSchema[];

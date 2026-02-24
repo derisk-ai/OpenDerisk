@@ -16,9 +16,6 @@ from ..api.schemas import DatasourceCreateRequest
 from .connect_config_db import ConnectConfigDao
 from .db_conn_info import DBConfig
 
-if TYPE_CHECKING:
-    # TODO: Don't depend on the rag module.
-    from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
 
 logger = logging.getLogger(__name__)
 
@@ -32,18 +29,14 @@ class ConnectorManager(BaseComponent):
         """Create a new ConnectorManager."""
         self.storage = ConnectConfigDao()
         self.system_app = system_app
-        self._db_summary_client: Optional["DBSummaryClient"] = None
         super().__init__(system_app)
 
     def init_app(self, system_app: SystemApp):
         """Init component."""
         self.system_app = system_app
 
-    def on_init(self):
-        """Execute on init.
-
-        Load all connector classes.
-        """
+    @classmethod
+    def pkg_import(cls):
         from derisk.datasource.rdbms.base import RDBMSConnector  # noqa: F401
         from derisk_ext.datasource.conn_tugraph import TuGraphConnector  # noqa: F401
 
@@ -64,18 +57,16 @@ class ConnectorManager(BaseComponent):
 
         from .connect_config_db import ConnectConfigEntity  # noqa: F401
 
+    def on_init(self):
+        """Execute on init.
+
+        Load all connector classes.
+        """
+        self.pkg_import()
+
     def before_start(self):
         """Execute before start."""
-        from derisk_serve.datasource.service.db_summary_client import DBSummaryClient
 
-        self._db_summary_client = DBSummaryClient(self.system_app)
-
-    @property
-    def db_summary_client(self) -> "DBSummaryClient":
-        """Get DBSummaryClient."""
-        if not self._db_summary_client:
-            raise ValueError("DBSummaryClient is not initialized")
-        return self._db_summary_client
 
     def _get_all_subclasses(
         self, cls: Type[BaseConnector]
@@ -291,13 +282,6 @@ class ConnectorManager(BaseComponent):
             db_info.comment,
         )
 
-    async def async_db_summary_embedding(self, db_name, db_type):
-        """Async db summary embedding."""
-        executor = self.system_app.get_component(
-            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-        ).create()  # type: ignore
-        executor.submit(self.db_summary_client.db_summary_embedding, db_name, db_type)
-        return True
 
     @Deprecated(
         version="0.7.0",
@@ -333,15 +317,6 @@ class ConnectorManager(BaseComponent):
                     db_info.comment,
                     user_id,
                 )
-            # async embedding
-            executor = self.system_app.get_component(
-                ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-            ).create()  # type: ignore
-            executor.submit(
-                self.db_summary_client.db_summary_embedding,
-                db_info.db_name,
-                db_info.db_type,
-            )
         except Exception as e:
             raise ValueError("Add db connect info error!" + str(e))
 

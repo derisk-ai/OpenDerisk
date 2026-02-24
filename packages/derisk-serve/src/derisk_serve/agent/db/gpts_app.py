@@ -17,9 +17,9 @@ from sqlalchemy import (
 from derisk._private.pydantic import (
     BaseModel,
     Field,
-    model_to_json,
+    model_to_json, model_to_dict,
 )
-from derisk.agent.core.plan import AWELTeamContext
+
 from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.resource.base import AgentResource, ResourceType
@@ -85,10 +85,10 @@ class UserRecentAppsEntity(Model):
 
 class UserRecentAppsDao(BaseDao):
     def query(
-        self,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
-        app_code: Optional[str] = None,
+            self,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
+            app_code: Optional[str] = None,
     ):
         with self.session() as session:
             recent_app_qry = session.query(UserRecentAppsEntity)
@@ -123,10 +123,10 @@ class UserRecentAppsDao(BaseDao):
             return apps
 
     def upsert(
-        self,
-        user_code: Optional[str] = None,
-        sys_code: Optional[str] = None,
-        app_code: Optional[str] = None,
+            self,
+            user_code: Optional[str] = None,
+            sys_code: Optional[str] = None,
+            app_code: Optional[str] = None,
     ):
         with self.session() as session:
             try:
@@ -224,15 +224,15 @@ class GptsAppDao(BaseDao):
             session.close()
 
     def _entity_to_app_dict(
-        self,
-        app_info: GptsAppEntity,
-        app_details: List[GptsAppDetailEntity],
-        hot_app_map: dict = None,
-        app_collects: List[str] = [],
-        parse_llm_strategy: bool = False,
-        owner_name: str = None,
-        owner_avatar_url: str = None,
-        recommend_questions: List[RecommendQuestionEntity] = None,
+            self,
+            app_info: GptsAppEntity,
+            app_details: List[GptsAppDetailEntity],
+            hot_app_map: dict = None,
+            app_collects: List[str] = [],
+            parse_llm_strategy: bool = False,
+            owner_name: str = None,
+            owner_avatar_url: str = None,
+            recommend_questions: List[RecommendQuestionEntity] = None,
     ):
         return {
             "app_code": app_info.app_code,
@@ -311,7 +311,6 @@ class GptsAppDao(BaseDao):
             )
             app_details = app_detail_qry.all()
 
-
             recommend_questions = session.query(RecommendQuestionEntity).filter(
                 RecommendQuestionEntity.app_code == app_code
             ).all()
@@ -329,7 +328,6 @@ class GptsAppDao(BaseDao):
                 return app
             else:
                 return app_info
-
 
     # def delete(
     #     self,
@@ -358,7 +356,6 @@ class GptsAppDao(BaseDao):
     #         )
     #         app_collect_qry.delete()
     #     recommend_question_dao.delete_by_app_code(app_code)
-
 
     def create(self, gpts_app: GptsApp):
         with self.session() as session:
@@ -530,7 +527,7 @@ class GptsAppDao(BaseDao):
 def _parse_team_context(
         team_context: Optional[
             Union[
-                str, AutoTeamContext, SingleAgentContext, AWELTeamContext, NativeTeamContext
+                str, AutoTeamContext, SingleAgentContext
             ]
         ] = None,
 ):
@@ -538,9 +535,7 @@ def _parse_team_context(
     parse team_context to str
     """
     if (
-            isinstance(team_context, AWELTeamContext)
-            or isinstance(team_context, NativeTeamContext)
-            or isinstance(team_context, AutoTeamContext)
+            isinstance(team_context, AutoTeamContext)
             or isinstance(team_context, SingleAgentContext)
     ):
         return model_to_json(team_context)
@@ -548,9 +543,9 @@ def _parse_team_context(
 
 
 def _load_team_context(
-    team_mode: str = None, team_context: str = None
+        team_mode: str = None, team_context: str = None
 ) -> Union[
-    str, AWELTeamContext, SingleAgentContext, NativeTeamContext, AutoTeamContext
+    str, SingleAgentContext, AutoTeamContext
 ]:
     """
     load team_context to str or AWELTeamContext
@@ -572,18 +567,7 @@ def _load_team_context(
                         f"team_context={team_context}, {ex}"
                     )
                     return None
-            case TeamMode.AWEL_LAYOUT.value:
-                try:
-                    if team_context:
-                        awel_team_ctx = AWELTeamContext(**json.loads(team_context))
-                        return awel_team_ctx
-                    else:
-                        return None
-                except Exception as ex:
-                    logger.exception(
-                        f"_load_team_context error, team_mode={team_mode}, "
-                        f"team_context={team_context}, {ex}"
-                    )
+
             case TeamMode.AUTO_PLAN.value:
                 try:
                     if team_context:
@@ -605,21 +589,7 @@ def _load_team_context(
                         f"_load_team_context error, team_mode={team_mode}, "
                         f"team_context={team_context}, {ex}"
                     )
-            case TeamMode.NATIVE_APP.value:
-                try:
-                    if team_context:
-                        native_team_ctx = NativeTeamContext(**json.loads(team_context))
-                        return native_team_ctx
-                    else:
-                        return None
-                except Exception as ex:
-                    logger.exception(
-                        f"_load_team_context error, team_mode={team_mode}, "
-                        f"team_context={team_context}, {ex}"
-                    )
     return team_context
-
-
 
 
 class TransferSseRequest(BaseModel):
@@ -629,37 +599,43 @@ class TransferSseRequest(BaseModel):
     faas_function_pre: Optional[str] = None
     uri: Optional[str] = None
 
+    def to_dict(self):
+        return model_to_dict(self)
 
-class AllowToolsRequest(BaseModel):
+
+class SubToolConfig(BaseModel):
+    sub_tool_name: str = None
+    description: str = None
+    post_script: str = None
+    post_check: bool = None
+    input_schema: Optional[Any] = None
+
+    def to_dict(self):
+            return self.model_dump()
+
+
+class SkillConfig(BaseModel):
+    is_debug: Optional[bool] = False
+    debug: Optional[Dict] = None
+    release: Optional[Dict] = None
+
+    def to_dict(self):
+            return self.model_dump()
+
+
+class DynamicEditToolsRequest(BaseModel):
     app_code: str
-    mcp_server_id: str
-    allow_tools: List[str]
+    tool_type: str = None
+    tool_id: str = None
+    mcp_server_id: str = None
+    allow_tools: List[str] = None
+    description: str = None
+    post_script: str = None
+    post_check: bool = False
+    input_schema: Optional[Any] = None
+    sub_tool_config: List[SubToolConfig] = None
+    config_code: Optional[str] = None
+    skill_config: Optional[SkillConfig] = None
 
-
-def mcp_address(
-    source: str, mcp_server: str, uri: str, faas_function_pre: Optional[str] = None
-):
-    if mcp_server == "mcp-linglongcopilot":
-        return None
-    if source.lower() == "df":
-        return {
-            "name": mcp_server,
-            "mcp_servers": f"{uri}/mcp/sse?server_name={mcp_server}",
-        }
-    elif source.lower() == "faas":
-
-        def to_camel_case(text):
-            words = text.replace("-", " ").replace("_", " ").split()
-            return words[0] + "".join(word.capitalize() for word in words[1:])
-
-        return {
-            "name": mcp_server,
-            "mcp_servers": f"{uri}/sse",
-            "headers": json.dumps(
-                {
-                    "x-mcp-server-code": f"{faas_function_pre}.{to_camel_case(mcp_server)}"
-                }
-            ),
-        }
-    else:
-        return None
+    def to_dict(self):
+        return self.model_dump()

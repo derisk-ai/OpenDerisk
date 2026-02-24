@@ -5,6 +5,7 @@ import uuid
 from typing import Dict, List, Optional, Tuple
 
 from derisk.agent.core.plan.planning_agent import PlanningAgent
+from derisk.agent.util.llm.llm_client import AgentLLMOut
 from derisk.core.interface.message import ModelMessageRoleType
 
 from derisk.agent.core.action.base import ActionOutput
@@ -117,7 +118,7 @@ class AutoPlanChatManager(ManagerAgent):
             # auto speaker selection
             # TODO selector a_thinking It has been overwritten and cannot be used.
             agent_names = [agent.name for agent in agents]
-            fina_name, model = await selector.thinking(
+            agent_llm_out:AgentLLMOut = await selector.thinking(
                 messages=[
                     AgentMessage(
                         role=ModelMessageRoleType.HUMAN,
@@ -131,11 +132,11 @@ class AutoPlanChatManager(ManagerAgent):
                 reply_message_id=uuid.uuid4().hex,
                 prompt=self.select_speaker_msg(agents),
             )
-            if not fina_name:
+            if not agent_llm_out.content:
                 raise ValueError("Unable to select next speaker!")
             else:
-                name = fina_name
-
+                name = agent_llm_out.content
+                model = agent_llm_out.llm_name
         # If exactly one agent is mentioned, use it. Otherwise, leave the OAI response
         # unmodified
         mentions = mentioned_agents(name, agents)
@@ -162,33 +163,36 @@ class AutoPlanChatManager(ManagerAgent):
         is_retry_chat: bool = False,
         last_speaker_name: Optional[str] = None,
         **kwargs,
-    ) -> ActionOutput:
+    ) -> List[ActionOutput]:
         """Perform an action based on the received message."""
         if not sender:
-            return ActionOutput(
+            return [ActionOutput(
+                name=self.name,
                 is_exe_success=False,
                 content="The sender cannot be empty!",
-            )
+            )]
         speaker: Agent = sender
         final_message = message.content
         rounds = message.rounds
         for i in range(self.max_round):
             if not self.memory:
-                return ActionOutput(
+                return [ActionOutput(
+                    name=self.name,
                     is_exe_success=False,
                     content="The memory cannot be empty!",
-                )
-            plans = self.memory.plans_memory.get_by_conv_id(
+                )]
+            plans = await self.memory.gpts_memory.get_plans(
                 self.not_null_agent_context.conv_id
             )
 
             if not plans or len(plans) <= 0:
                 if i > 3:
-                    return ActionOutput(
+                    return [ActionOutput(
+                        name=self.name,
                         is_exe_success=False,
                         content="Retrying 3 times based on current application "
-                        "resources still fails to build a valid reasoning_engine！",
-                    )
+                        "resources still fails to build a valid plan！",
+                    )]
                 planner: ConversableAgent = (
                     await PlanningAgent()
                     .bind(self.memory)
@@ -219,10 +223,11 @@ class AutoPlanChatManager(ManagerAgent):
                     # The reasoning_engine has been fully executed and a success message is sent
                     # to the user.
                     # complete
-                    return ActionOutput(
+                    return [ActionOutput(
+                        name=self.name,
                         is_exe_success=True,
                         content=final_message,  # work results message
-                    )
+                    )]
                 else:
                     try:
                         now_plan: GptsPlan = todo_plans[0]
@@ -301,6 +306,7 @@ class AutoPlanChatManager(ManagerAgent):
                                 result=plan_result,
                             )
                             return ActionOutput(
+                                name=self.name,
                                 is_exe_success=False, content=plan_result
                             )
 
@@ -310,11 +316,13 @@ class AutoPlanChatManager(ManagerAgent):
                             f" current reasoning_engine step.{str(e)}"
                         )
                         return ActionOutput(
+                            name=self.name,
                             is_exe_success=False,
                             content=f"An exception was encountered during the execution"
                             f" of the current reasoning_engine step.{str(e)}",
                         )
         return ActionOutput(
+            name=self.name,
             is_exe_success=False,
             content=f"Maximum number of dialogue rounds exceeded.{self.max_round}",
         )
@@ -327,13 +335,10 @@ class AutoPlanChatManager(ManagerAgent):
         prompt: Optional[str] = None,
         received_message: Optional[AgentMessage] = None,
         **kwargs
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> AgentLLMOut:
         """Think and reason about the current task goal."""
         # TeamManager, which is based on processes and plans by default, only needs to
         # ensure execution and does not require additional thinking.
-        if messages is None or len(messages) <= 0:
-            return None, None
-        else:
-            message = messages[-1]
-            self.messages.append(message.to_llm_message())
-            return None, message.content, None
+        message = messages[-1]
+        self.messages.append(message.to_llm_message())
+        return AgentLLMOut(content=message.content)

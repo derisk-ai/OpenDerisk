@@ -327,7 +327,7 @@ class ClaudeProxyTokenizer(ProxyTokenizer):
 
         This is relying on the claude beta API, which is not available for some users.
         """
-        from derisk.util.chat_util import run_async_tasks
+        from derisk.util.executor_utils import run_async_tasks
 
         tasks = []
         model_name = model_name or "claude-3-5-sonnet-20241022"

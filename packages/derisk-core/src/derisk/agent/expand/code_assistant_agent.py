@@ -10,6 +10,7 @@ from ..core.agent import AgentMessage
 from ..core.base_agent import ConversableAgent
 from ..core.profile import DynConfig, ProfileConfig
 from .actions.code_action import CodeAction
+from ..util.llm.llm_client import AgentLLMOut
 
 CHECK_RESULT_SYSTEM_MESSAGE = (
     "You are an expert in analyzing the results of task execution. Your responsibility "
@@ -129,7 +130,8 @@ class CodeAssistantAgent(ConversableAgent):
         action_report = message.action_report
         if not action_report:
             return False, "No execution solution results were checked"
-        thinking, check_result, model = await self.thinking(
+        # thinking, check_result, model = await self.thinking(
+        agent_llm_out: AgentLLMOut = await self.thinking(
             messages=[
                 AgentMessage(
                     role=ModelMessageRoleType.HUMAN,
@@ -142,12 +144,12 @@ class CodeAssistantAgent(ConversableAgent):
             reply_message_id=uuid.uuid4().hex,
             prompt=CHECK_RESULT_SYSTEM_MESSAGE,
         )
-        success = str_to_bool(check_result)
+        success = str_to_bool(agent_llm_out.content)
         fail_reason = None
         if not success:
             fail_reason = (
                 f"Your answer was successfully executed by the agent, but "
                 f"the goal cannot be completed yet. Please regenerate based on the "
-                f"failure reason:{check_result}"
+                f"failure reason:{agent_llm_out.content}"
             )
         return success, fail_reason

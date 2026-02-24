@@ -83,6 +83,12 @@ art, fashion, and culture.
 {text}
 """
 
+_DEFAULT_TOPIC_LIST = [
+    {"name": "陈述性记忆","description": "陈述性记忆（declarative memory）,knowing what:每一个陈述性记忆是一个基于事实的、非推测的属性信息。从对话中提取关键字相关的陈述性记忆，并将其组织成独立、可管理的事实，尽可能的简洁明了"},
+    {"name":"程序性记忆", "description":"程序性记忆（procedural memory），knowing how：每一个程序性记忆是指抽取出来的流程信息（从上下文信息中提取出的SOP步骤），提取为一个string"}
+]
+
+
 @dataclasses.dataclass
 class MemoryParameters(ResourceParameters):
     enable_global_session: bool = dataclasses.field(
@@ -93,12 +99,13 @@ class MemoryParameters(ResourceParameters):
     discard_strategy: str = dataclasses.field(
         default="fifo", metadata={"help": _("记忆淘汰策略:\n"
                                             "lru:最近最少使用策略, 优先淘汰最长时间未被访问的数据\n"
-                                            "fifo: 先进先出策略, 按照数据进入的顺序进行淘汰\n"
+                                            "fifo: 先进先出策略, 优先淘汰最近的记忆，按照数据进入的顺序进行淘汰\n"
+                                            "lifo: 后进先出策略, 优先淘汰最近的记忆\n"
                                             "similarity:相似度策略。基于新信息与现有记忆的相似程度来决定淘汰\n"
                                             "condense: 压缩策略。通过总结或合并多条相关信息来减少占用空间"
                                             "而不是直接删除。"),
                                   "label": _("记忆淘汰策略"),
-                                  "options": [{"name":"fifo","desc":"先进先出"}, {"name":"lru", "desc":"最近最少使用"}, {"name":"similarity","desc": "语义相似度"}, {"name":"condense","desc":"记忆压缩"}]}
+                                  "options": [{"name":"fifo","desc":"先进先出"},{"name":"lifo","desc":"后进先出"}, {"name":"lru", "desc":"最近最少使用"}, {"name":"similarity","desc": "语义相似度"}, {"name":"condense","desc":"记忆压缩"}]}
     )
     retrieve_strategy: str = dataclasses.field(
         default="sliding_window", metadata={"help": _(
@@ -120,7 +127,7 @@ class MemoryParameters(ResourceParameters):
         default=False, metadata={"help": _("是否开启消息压缩"), "label": _("消息压缩")}
     )
     message_condense_model: Optional[str] = dataclasses.field(
-        default="deepseek-v3",
+        default="aistudio/DeepSeek-V3",
         metadata={"help": _("消息压缩模型"), "label": _("压缩模型")}
     )
     message_condense_strategy: Optional[str] = dataclasses.field(
@@ -210,6 +217,36 @@ public class MathUtils {{
         default=False, metadata={"help": _("是否开启用户记忆"),
                                 "label": _("用户记忆")}
     )
+    agent_whitelist: Optional[str] = dataclasses.field(
+        default="all", metadata={
+            "help": _("查看指定agent记忆"), "label": _("查看指定agent记忆")
+        }
+    )
+    enable_collect_long_term: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否开启长期记忆，开启后将在当前工作空间下创建一个长期记忆提取agent并添加到当前agent的子agent列表中，"
+                                           "关闭后将自动移除记忆提取子agent。"),
+                                 "label": _("是否开启长期记忆")}
+    )
+
+    memory_topic_list: List[dict[str, str]] = dataclasses.field(
+        default_factory=lambda: [],
+        metadata={"help": _("长期记忆使用的topic"),
+                  "label": _("长期记忆topic"),
+                  "options": _DEFAULT_TOPIC_LIST}
+    )
+
+    topic_option_list: List[dict[str, str]] = dataclasses.field(
+        default_factory=lambda :_DEFAULT_TOPIC_LIST,
+        metadata={"help": _("长期记忆topic列表:\n"),
+                  "label": _("长期记忆topic列表"),
+                  "options": _DEFAULT_TOPIC_LIST}
+    )
+
+    enable_long_term_use: bool = dataclasses.field(
+        default=False,
+        metadata={"help": _("是否使用长期记忆，开启后将会把长期记忆输入prompt中"), "label": _("是否使用长期记忆")}
+    )
+
     name: Optional[str] = dataclasses.field(
         default="MemoryResource", metadata={"help": _(
             "MemoryResource"
@@ -228,8 +265,14 @@ class MemoryResource(Resource[ResourceParameters]):
         top_k: int = 50,
         score_threshold: Optional[float] = 0.0,
         enable_message_condense: bool = False,
-        message_condense_model: Optional[str] = "deepseek-v3",
+        message_condense_model: Optional[str] = "aistudio/DeepSeek-V3",
         message_condense_prompt: Optional[str] = None,
+        agent_whitelist: Optional[str] = None,
+        enable_user_memory: bool = False,
+        enable_collect_long_term: bool = False,
+        enable_long_term_use: bool = False,
+        memory_topic_list:  list[dict[str, str]] = None,
+        topic_option_list: list[dict[str, str]] = None,
         **kwargs,
     ):
         """
@@ -250,6 +293,18 @@ class MemoryResource(Resource[ResourceParameters]):
             "message_condense_prompt": message_condense_prompt,
             "name": self._name,
         }
+        if agent_whitelist:
+            memory_params["agent_whitelist"] = agent_whitelist
+        if enable_user_memory:
+            memory_params["enable_user_memory"] = enable_user_memory
+        if enable_collect_long_term:
+            memory_params["enable_long_term_use"] = enable_long_term_use
+        if enable_long_term_use:
+            memory_params["enable_long_term_use"] = enable_long_term_use
+        if memory_topic_list:
+            memory_params["memory_topic_list"] = memory_topic_list
+        if topic_option_list:
+            memory_params["topic_option_list"] = topic_option_list
         self._memory_params = MemoryParameters(**(memory_params or {}))
 
     @classmethod
@@ -302,10 +357,15 @@ class MemoryResource(Resource[ResourceParameters]):
             top_k=50,
             score_threshold=0.0,
             enable_message_condense=False,
-            message_condense_model="deepseek-v3",
+            message_condense_model="aistudio/DeepSeek-V3",
             message_condense_prompt=None,
             name="MemoryResource",
             condense_max_token=5000,
+            enable_user_memory=False,
+            enable_long_term_use=False,
+            enable_collect_long_term=False,
+            memory_topic_list=[],
+            topic_option_list=_DEFAULT_TOPIC_LIST,
         )
 
 

@@ -1,6 +1,5 @@
 """Auto reasoning_engine chat manager agent."""
 
-import json
 import logging
 import uuid
 from typing import List, Optional, Tuple
@@ -8,7 +7,7 @@ from derisk._private.pydantic import (
     Field,
     model_to_dict,
 )
-from derisk.util.json_utils import serialize
+from derisk.agent.util.llm.llm_client import AgentLLMOut
 
 from ..base import TeamContext
 from ..planning_action import Plan, PlanningOutput
@@ -20,8 +19,10 @@ from ...base_agent import (
     ProfileConfig,
 )
 from ...base_team import ManagerAgent
+from ...file_system.file_tree import TreeNodeData
 from ...memory.gpts import GptsPlan
 from derisk.util.configure import DynConfig
+from ...memory.gpts.gpts_memory import AgentTaskContent
 from ...schema import Status
 
 logger = logging.getLogger(__name__)
@@ -79,20 +80,31 @@ class ReActPlanChatManager(ManagerAgent):
         super().__init__(**kwargs)
 
     async def act(
-            self,
-            message: Optional[AgentMessage],
-            sender: Optional[Agent] = None,
-            reviewer: Optional[Agent] = None,
-            **kwargs,
-    ) -> Optional[ActionOutput]:
+        self,
+        message: Optional[AgentMessage],
+        sender: Optional[Agent] = None,
+        reviewer: Optional[Agent] = None,
+        **kwargs,
+    ) -> List[ActionOutput]:
         """Perform an action based on the received message."""
         if not sender:
-            return ActionOutput(
+            return [ActionOutput(
                 is_exe_success=False,
                 content="The sender cannot be empty!",
-            )
-
+            )]
+        mng_status = Status.RUNNING.value
         try:
+            # ## 开始当前的任务空间
+            received_message = kwargs.get('received_message')
+            # await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
+            #                                           task=TreeNodeData(
+            #                                               node_id=message.message_id,
+            #                                               parent_id=message.goal_id,
+            #                                               content=AgentTaskContent(agent=self),
+            #                                               state=mng_status,
+            #                                               name=message.current_goal,
+            #                                               description=message.content
+            #                                           ))
             all_task_messages: List = []
             all_messages: List = []
             ## 绑定Agent处理，和解决内外置规划、总结Agent逻辑
@@ -117,6 +129,7 @@ class ReActPlanChatManager(ManagerAgent):
                             .bind(self.agent_context)
                             .bind(self.llm_config)
                             .build())
+                await self.memory.gpts_memory.set_agent(self.agent_context.conv_id, reporter)
             valid_agents.append(reporter)
 
             if not planner:
@@ -125,6 +138,7 @@ class ReActPlanChatManager(ManagerAgent):
                            .bind(self.agent_context)
                            .bind(self.llm_config)
                            .build())
+                await self.memory.gpts_memory.set_agent(self.agent_context.conv_id, planner)
             planner.hire(valid_agents)
 
             ## 处理后的所有有效Agent
@@ -135,10 +149,10 @@ class ReActPlanChatManager(ManagerAgent):
             planning_retry_count: int = 0
             for i in range(self.max_round):
                 if not self.memory:
-                    return ActionOutput(
+                    return [ActionOutput(
                         is_exe_success=False,
                         content="The memory cannot be empty!",
-                    )
+                    )]
 
                 ## 读取新的背景知识
 
@@ -148,12 +162,14 @@ class ReActPlanChatManager(ManagerAgent):
                 if i <= 0:
                     plan_in_message = AgentMessage.init_new(
                         content=message.content, rounds=plan_in_rounds,
+                        goal_id=received_message.message_id,
                         current_goal=f"第{i + 1}轮{planner.current_goal}",
                         context=message.context
                     )
                 else:
 
                     plan_in_message = AgentMessage.init_new(
+                        goal_id=received_message.message_id,
                         content=f"继续根据给定的规则对目标问题进行推理:\n\n{message.content}\n\n",
                         rounds=plan_in_rounds, current_goal=f"第{i + 1}轮{planner.current_goal}",
                         context=message.context
@@ -188,18 +204,10 @@ class ReActPlanChatManager(ManagerAgent):
                 # ================================↑↑↑ 规划记忆写入 ↑↑↑================================ #
 
                 plan_round_count = plan_round_count + 1
-                await self.send(
-                    message=plan_in_message, recipient=planner, request_reply=False
-                )
-
-                plan_message = await planner.generate_reply(
-                    received_message=plan_in_message,
-                    sender=self,
-                    reviewer=reviewer,
-                    historical_dialogues=sorted(all_task_messages, key=lambda obj: obj.rounds),
-                    force_use_historical=True,
-                )
-
+                plan_message: AgentMessage = await self.send(message=plan_in_message, recipient=planner,
+                                                             request_reply=True,
+                                                             reply_to_sender=False,
+                                                             request_sender_reply=False)
                 all_messages.append(plan_in_message)
                 await planner.send(
                     message=plan_message, recipient=self, request_reply=False
@@ -207,7 +215,7 @@ class ReActPlanChatManager(ManagerAgent):
 
                 all_messages.append(plan_message)
 
-                if plan_message.action_report.is_exe_success:
+                if plan_message.action_report[0].is_exe_success:
                     ## 如果成功 planning重试技术清0
                     planning_retry_count = 0
 
@@ -218,7 +226,8 @@ class ReActPlanChatManager(ManagerAgent):
                     planning_retry_count += 1
                     if planning_retry_count > planner.max_retry_count:
                         if plan_message.action_report:
-                            raise ValueError(f"规划失败超过最大次数！失败原因:\\n{plan_message.action_report.content}")
+                            raise ValueError(
+                                f"规划失败超过最大次数！失败原因:\\n{plan_message.action_report[0].content}")
                         else:
                             raise ValueError(f"规划失败超过最大次数！失败原因:\\n{plan_message.content}")
                     continue
@@ -258,21 +267,27 @@ class ReActPlanChatManager(ManagerAgent):
                         ask_user = agent_goal
                         continue
 
-                    task_in_message = AgentMessage.init_new(
-                        content=f"任务目标:{agent_goal}\n参数信息:{task.sub_task_content}",
-                        current_goal=agent_goal,
-                        goal_id=task.task_uid,
-                        rounds=plan_in_rounds + task_round_init,
-                        context=message.context
-                    )
+
 
                     ### 处理任务分派对话, reporter如果和其他任务出现在同一个维度，先不进行执行，其他任务执行完成后再开始，兜底并行输出了reporter角色问题
                     if task_agent.name == reporter.name:
+                        reporter_in_message = AgentMessage.init_new(
+                            content=f"任务目标:{agent_goal}\n参数信息:{task.sub_task_content}",
+                            current_goal="结论整理",
+                            goal_id=received_message.message_id,
+                            rounds=plan_in_rounds + task_round_init,
+                            context=message.context
+                        )
                         reporter_agent = task_agent
-                        task_in_message.current_goal = self.current_goal
-                        reporter_in_message = task_in_message
                         reporter_plan = task
                     else:
+                        task_in_message = AgentMessage.init_new(
+                            content=f"任务目标:{agent_goal}\n参数信息:{task.sub_task_content}",
+                            current_goal=agent_goal,
+                            goal_id=plan_in_message.message_id,
+                            rounds=plan_in_rounds + task_round_init,
+                            context=message.context
+                        )
                         # task_agent.stream_out = False
                         task_round_count = task_round_count + 1
                         api_tasks.append(self.just_chat_to_agent(task_in_message, task_agent, task, reviewer))
@@ -280,7 +295,7 @@ class ReActPlanChatManager(ManagerAgent):
                         all_task_messages.append(task_in_message)
                         all_messages.append(task_in_message)
 
-                from derisk.util.chat_util import run_async_tasks
+                from derisk.util.executor_utils import run_async_tasks
 
                 results: List[AgentMessage] = await run_async_tasks(
                     tasks=api_tasks, concurrency_limit=self.concurrency_limit
@@ -296,17 +311,29 @@ class ReActPlanChatManager(ManagerAgent):
                                                            plan=reporter_plan, reviewer=reviewer,
                                                            historical_dialogues=sorted(all_task_messages,
                                                                                        key=lambda obj: obj.rounds))
-                    self.current_goal = reporter.current_goal
                     self.last_message_round = result.rounds + 1
                     return result.action_report
 
                 ## 处理用户代理任务，终断循环，进入用户交互
                 if ask_user:
-                    return ActionOutput(is_exe_success=True, content=ask_user)
+                    mng_status = Status.COMPLETE.value
+                    return [ActionOutput(is_exe_success=True, content=ask_user)]
         except Exception as e:
             logger.exception("ReAct Team Chat Exception！")
+            mng_status = Status.FAILED.value
             self.last_message_round = 9999
-            return ActionOutput(is_exe_success=False, content=str(e))
+            return [ActionOutput(is_exe_success=False, content=str(e))]
+        finally:
+            pass
+            # ## 更新当前的任务空间
+            # await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
+            #                                           task=TreeNodeData(
+            #                                               node_id=received_message.message_id,
+            #                                               parent_id=message.goal_id,
+            #                                               state=mng_status,
+            #                                               name=message.current_goal,
+            #                                               description=message.content
+            #                                           ))
 
     async def just_chat_to_agent(self,
                                  received_message: AgentMessage,
@@ -315,28 +342,24 @@ class ReActPlanChatManager(ManagerAgent):
                                  reviewer: Optional[ConversableAgent] = None,
                                  historical_dialogues: Optional[List[AgentMessage]] = None, ):
         logger.info(f"just_chat_to_agent:{recipient},{received_message}")
-        await self.send(
-            message=received_message,
-            recipient=recipient,
-            request_reply=False,
-            silent=True
-        )
 
         plan.state = Status.RUNNING.value
         await self.memory.gpts_memory.update_plan(self.agent_context.conv_id, plan)
-        result: AgentMessage = await recipient.generate_reply(
-            received_message=received_message,
-            sender=self,
-            reviewer=reviewer,
-            rely_messages=None,  # 会变成单轮消息
-            historical_dialogues=historical_dialogues,
-            force_use_historical=True
-        )
-        await recipient.send(
-            message=result, recipient=self, request_reply=False
-        )
 
-        if result.action_report.is_exe_success:
+        ## 临时修复下固定Action的ActionID并行bug，后续通过解耦Action和Agent的绑定关系处理
+        if recipient.actions:
+            for action in recipient.actions:
+                action.action_uid = uuid.uuid4().hex
+
+        result: AgentMessage = await self.send(message=received_message, recipient=recipient, reviewer=reviewer,
+                                               historical_dialogues=historical_dialogues,
+                                               request_reply=True,
+                                               reply_to_sender=False,
+                                               request_sender_reply=False)
+
+        await recipient.send(message=result, recipient=self, request_reply=False)
+
+        if result.action_report[0].is_exe_success:
             plan.state = Status.COMPLETE.value
         else:
             plan.state = Status.FAILED.value
@@ -345,9 +368,9 @@ class ReActPlanChatManager(ManagerAgent):
         return result
 
     async def adjust_final_message(
-            self,
-            is_success: bool,
-            reply_message: AgentMessage,
+        self,
+        is_success: bool,
+        reply_message: AgentMessage,
     ):
         """Adjust final message after agent reply."""
         reply_message.rounds = self.last_message_round
@@ -361,13 +384,10 @@ class ReActPlanChatManager(ManagerAgent):
         prompt: Optional[str] = None,
         received_message: Optional[AgentMessage] = None,
         **kwargs
-    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> AgentLLMOut:
         """Think and reason about the current task goal."""
         # TeamManager, which is based on processes and plans by default, only needs to
         # ensure execution and does not require additional thinking.
-        if messages is None or len(messages) <= 0:
-            return None, None, None
-        else:
-            message = messages[-1]
-            self.messages.append(message.to_llm_message())
-            return message.thinking, message.content, None
+        message = messages[-1]
+        self.messages.append(message.to_llm_message())
+        return AgentLLMOut(content=message.content)

@@ -14,11 +14,11 @@ DEFAULT_REASONING_PLANNER_NAME = "DEFAULT"
 
 
 class ReasoningPlan(BaseModel):
-    reason: str = Field(
+    reason: Optional[str] = Field(
         None, description="必须执行的具体依据（需关联前置分析或执行结果）"
     )
 
-    intention: str = Field(..., description="新动作目标")
+    intention: Optional[str] = Field(None, description="新动作目标")
     id: str = Field(..., description="工具ID")
     parameters: dict = Field(None, description="执行参数")
 
@@ -26,28 +26,32 @@ class ReasoningPlan(BaseModel):
 class ReasoningModelOutput(BaseModel):
     """Origin output of the reasoning model"""
 
-    reason: str = Field(None, description="详细解释状态判定和plan拆解依据")
+    reason: Optional[str] = Field(None, description="详细解释状态判定和plan拆解依据")
 
-    status: str = Field(
+    status: Optional[str] = Field(
         ...,
         description="planing (仅当需要执行下一步动作时) | done (仅当任务可终结时) | abort (仅当任务异常或无法推进或需要用户提供更多信息时)",
     )
 
-    plans: list[ReasoningPlan] = Field(
+    plans: Optional[list[ReasoningPlan]] = Field(
         None, description="新动作目标（需对比历史动作确保不重复）"
     )
 
-    plans_brief_description: str = Field(
+    plans_brief_description: Optional[str] = Field(
         None, description="简短介绍要执行的动作，不超过10个字"
     )
 
-    summary: str = Field(
+    summary: Optional[str] = Field(
         None,
         description="当done/abort状态时出现，将历史动作总结为自然语言文本，按时间排序，需包含：执行动作(含参数)+核心发现+最终结论(若有)",
     )
 
-    answer: str = Field(
+    answer: Optional[str] = Field(
         None, description="当done/abort状态时出现，根据上下文信息给出任务结论"
+    )
+
+    ask_user: Optional[str] = Field(
+        None, description="需要向用户咨询的内容"
     )
 
 
@@ -90,6 +94,12 @@ class ReasoningEngineOutput:
 
         # 模型指标
         self.model_metrics: Optional[ModelInferenceMetrics] = None
+
+        # 需要向用户咨询的内容
+        self.ask_user: Optional[str] = None
+
+        # 状态
+        self.status: Optional[str] = None
 
 
 class ReasoningEngine(ABC):
@@ -155,7 +165,7 @@ class ReasoningEngine(ABC):
         return ""
 
     # @deprecated
-    @abstractmethod
+    # @abstractmethod
     async def invoke(
         self,
         agent: Any,
@@ -183,7 +193,6 @@ class ReasoningEngine(ABC):
     ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
         """组装模型消息 返回: 模型消息、resource_info、系统提示词、用户提示词"""
 
-    @abstractmethod
     def parse_output(
         self,
         agent: "ReasoningAgent",
@@ -191,3 +200,5 @@ class ReasoningEngine(ABC):
         **kwargs
     ) -> ReasoningEngineOutput:
         """解析模型结果"""
+        from derisk_ext.agent.agents.reasoning.utils import parse_output
+        return parse_output(self, agent=agent, reply_message=reply_message, **kwargs)

@@ -2,10 +2,10 @@
 import logging
 
 from derisk.agent.core.profile import DynConfig, ProfileConfig
-from derisk_ext.agent.agents.reasoning.default.reasoning_agent import ReasoningAgent
+from derisk.agent.expand.react_agent.react_agent import ReActAgent
 
 logger = logging.getLogger(__name__)
-class ExcelAnalyzeAgent(ReasoningAgent):
+class ExcelAnalyzeAgent(ReActAgent):
     """Reasoning Agent."""
 
     profile: ProfileConfig = ProfileConfig(

@@ -50,7 +50,7 @@ class SiliconFlowDeployModelParameters(OpenAICompatibleDeployModelParameters):
     )
 
     api_key: Optional[str] = field(
-        default="${env:SILICONFLOW_API_KEY}",
+        default="",
         metadata={
             "help": _("The API key of the SiliconFlow API."),
             "tags": "privacy",
@@ -94,7 +94,7 @@ class SiliconFlowLLMClient(OpenAILLMClient):
             or os.getenv("SILICONFLOW_API_BASE")
             or "https://api.siliconflow.cn/v1"
         )
-        api_key = api_key or os.getenv("SILICONFLOW_API_KEY")
+        api_key = api_key
         model = model or _SILICONFLOW_DEFAULT_MODEL
         if not context_length:
             if "200k" in model:

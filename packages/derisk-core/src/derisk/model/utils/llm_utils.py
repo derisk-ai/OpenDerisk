@@ -95,7 +95,8 @@ def parse_model_request(
         is_reasoning_model=params.get("is_reasoning_model", False),
         trace_id=params.get("trace_id"),
         rpc_id=params.get("rpc_id"),
-        extra=param_context.get("extra") if param_context else None
+        extra=param_context.get("extra") if param_context else None,
+        not_parse_output=param_context.get("not_parse_output", False) if param_context else None
     )
     request = ModelRequest.build_request(
         default_model,
@@ -105,5 +106,8 @@ def parse_model_request(
         # max_new_tokens=params.get("max_new_tokens"),
         stop=params.get("stop"),
         top_p=params.get("top_p"),
+        tool_choice=params.get("tool_choice"),
+        tools=params.get("tools"),
+        parallel_tool_calls=params.get("parallel_tool_calls"),
     )
     return request

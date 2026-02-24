@@ -22,18 +22,23 @@ class GptAppResource(AppResource):
         self._app_desc = kwargs.get("app_desc")
 
     @property
-    def app_desc(self):
+    def app_code(self) -> str:
+        """Return the app code."""
+        return self._app_code
+
+    @property
+    def app_desc(self) -> str:
         """Return the app description."""
         return self._app_desc
 
     @property
-    def app_name(self):
+    def app_name(self) -> str:
         """Return the app name."""
         return self._app_name
 
     @property
-    def app_icon(self):
-        """Return the app name."""
+    def app_icon(self) -> str:
+        """Return the app icon."""
         return self._app_icon
 
     @classmethod

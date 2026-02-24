@@ -3,7 +3,7 @@ import markdownComponents, {
   preprocessLaTeX,
 } from "@/components/chat/chat-content-components/config";
 import { IChatDialogueMessageSchema } from "@/types/chat";
-import { STORAGE_USERINFO_KEY } from "@/utils/constants/index";
+import { STORAGE_USERINFO_KEY } from "@/utils/constants/storage";
 import {
   CheckOutlined,
   ClockCircleOutlined,
@@ -11,6 +11,7 @@ import {
   LoadingOutlined,
 } from "@ant-design/icons";
 import { GPTVis } from "@antv/gpt-vis";
+import { Avatar } from "antd";
 import classNames from "classnames";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -18,17 +19,21 @@ import React, { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 const UserIcon: React.FC = () => {
-  const user = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? "");
-  const avatarUrl = user?.avatar_url || "/agents/sre.png";
+  let user: any = {};
+  try {
+    user = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? "{}");
+  } catch (e) {
+    console.error(e);
+  }
 
   return (
-    <Image
-      className="rounded-full border border-gray-200 object-contain bg-white inline-block"
-      width={32}
-      height={32}
-      src={avatarUrl}
-      alt={"User Avatar"}
-    />
+    <Avatar
+      src={user?.avatar_url}
+      className="bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer shrink-0"
+      size={32}
+    >
+      {user?.nick_name}
+    </Avatar>
   );
 };
 
@@ -140,7 +145,7 @@ const ChatContent: React.FC<{
 
           return replacement;
         } catch (e) {
-          console.log((e as any).message, e);
+          console.error(e);
           return matchVal;
         }
       }
@@ -199,7 +204,7 @@ const ChatContent: React.FC<{
   return (
     <>
       {!isRobot && (
-        <div className='flex flex-1 justify-end items-start pb-4' style={{ gap: 12 }}>
+        <div className='flex flex-1 justify-end items-start pb-4 pt-6' style={{ gap: 12 }}>
           <span
             className='break-words'
             style={{

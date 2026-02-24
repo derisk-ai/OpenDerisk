@@ -91,6 +91,7 @@ class ChromaStore(VectorStoreBase):
         chroma_client: Optional["PersistentClient"] = None,  # type: ignore # noqa
         collection_metadata: Optional[dict] = None,
         executor: Optional[ThreadPoolExecutor] = None,
+        **kwargs,
     ) -> None:
         """Create a ChromaStore instance.
 

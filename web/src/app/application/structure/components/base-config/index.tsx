@@ -2,9 +2,9 @@
 import { getChatInputConfig, getChatLayout, getResourceV2, getChatInputConfigParams, apiInterceptors, getUsableModels } from '@/client/api';
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
-import { DeleteOutlined, NodeCollapseOutlined, SettingOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, SettingOutlined, DatabaseOutlined, ToolOutlined, UsergroupAddOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { App, Form, FormProps, Spin } from 'antd';
+import { App, Form, FormProps, Spin, Button, Tooltip, Tag } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import AgentModal from './agent-modal';
@@ -37,8 +37,6 @@ function AppConfig() {
   const [showKnowledgeModal, setShowKnowledgeModal] = useState(false);
   const [showToolsModal, setShowToolsModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeKey, setActiveKey] = useState<string[]>(['0', '1', '2']);
   const [selectedKnowledgeList, setSelectedKnowledgeList] = useState<any[]>([]);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
 
@@ -238,16 +236,6 @@ function AppConfig() {
       label: item,
     }));
   }, [modelList]);
-
-  const handleToggleAll = () => {
-    if (isCollapsed) {
-      setActiveKey(['0', '1', '2']);
-      setIsCollapsed(false);
-    } else {
-      setActiveKey([]);
-      setIsCollapsed(true);
-    }
-  };
 
   const layoutConfigChange = () => {
     const changeFieldValue = form.getFieldValue('chat_in_layout') || [];
@@ -465,6 +453,20 @@ function AppConfig() {
             ...appInfo,
             resource_tool: updatedTools,
           });
+        } else if (tool.type === 'tool(skill)') {
+          // 删除 skill
+          const updatedTools = appInfo.resource_tool.filter((item: any) => {
+            if (item.type !== 'tool(skill)') return true;
+            // skill 的唯一标识可能是 value 里的 name，或者直接比较对象引用(不太靠谱)，或者比较 value 字符串
+            // 这里假设 skill 的 value 是 JSON 字符串，里面有 name
+            const itemValue = isString(item.value) ? safeJsonParse(item.value, {}) : item.value;
+            const toolValue = isString(tool.value) ? safeJsonParse(tool.value, {}) : tool.value;
+            return itemValue?.name !== toolValue?.name;
+          });
+          fetchUpdateApp({
+            ...appInfo,
+            resource_tool: updatedTools,
+          });
         }
       },
     });
@@ -490,27 +492,21 @@ function AppConfig() {
   };
 
   return (
-    <div className='flex-1 border-r-1 p-4 border-r-[#D9D9D9] h-full overflow-y-auto'>
-      <Spin spinning={false} 
-        wrapperClassName="h-full w-full max-h-full" 
-      >
-        {/* 基础配置 */}
-        <div className='p-4 flex pt-1 flex-row items-center text-[18px]'>
-          <div className='flex flex-row items-center flex-1'>
-            <SettingOutlined className='pr-2' />
-            <h2 className='font-semibold'>{t('base_config_config')}</h2>
+    <div className='flex flex-col h-full bg-white'>
+      <div className='px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-white to-gray-50'>
+        <div className='flex items-center gap-2'>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+            <SettingOutlined className='text-white text-sm' />
           </div>
-          <div className='flex items-center gap-1 cursor-pointer transition-colors ml-auto' onClick={handleToggleAll}>
-            <img src={isCollapsed ? '/icons/collapsed.svg' : '/icons/uncollapsed.svg'} alt='toggle' className='w-5 h-5'/>
-          </div>
+          <h2 className='font-semibold text-base text-gray-800'>{t('base_config_config')}</h2>
         </div>
-        <div className='overflow-y-auto flex-1'>
-          <Form form={form} onValuesChange={onValuesChange}>
+      </div>
+      
+      <div className='flex-1 overflow-y-auto custom-scrollbar p-4'>
+        <Form form={form} layout="vertical" onValuesChange={onValuesChange}>
+          <section className="mb-6">
             <BaseInfo
               form={form}
-              activeKey={activeKey}
-              setActiveKey={setActiveKey}
-              setIsCollapsed={setIsCollapsed}
               layoutDataOptions={layoutDataOptions}
               reasoningEngineOptions={reasoningEngineOptions}
               chatConfigOptions={chatConfigOptions}
@@ -519,61 +515,32 @@ function AppConfig() {
               resourceOptions={resourceOptions}
               modelOptions={modelOptions}
             />
-          </Form>
+          </section>
 
-          {/* 知识配置 */}
-          <div>
-            <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
-              <div className='flex flex-row items-center'>
-                <img src='/icons/knowledge.svg' alt='知识图标' style={{ width: 18, height: 18, marginRight: 8 }} />
-                <h2 className='font-semibold'>{t('base_config_knowledge')}</h2>
-              </div>
-              <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
-                <span className='cursor-pointer flex items-center' onClick={() => setShowKnowledgeModal(true)}>
-                  <span className='text-[16px] mr-1'>+</span>
-                  <span>{t('base_config_link_knowledge')}</span>
-                </span>
-              </div>
-            </div>
-            {/* 使用 knowledge_pack 特殊处理 */}
-            {appInfo?.resource_knowledge?.length > 0 ? (
-              <div>
-                {selectedKnowledgeList?.map((item: any) => {
-                  return (
-                    <div
-                      key={item.name + item.id}
-                      className='flex items-center justify-between py-2 border-gray-200 bg-[#F2F2F2] mb-1'
-                    >
-                      <div className='px-4 flex-row display flex flex-1 items-center justify-between'>
-                        <div className='flex-1'>{item.name}</div>
-                        <DeleteOutlined onClick={() => deleteKnowledge(item.value)} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              ''
-            )}
-          </div>
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
 
-          {/* 技能配置 */}
-          <div>
-            <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
-              <div className='flex flex-row items-center'>
-                <img src='/icons/skill.svg' alt='技能图标' style={{ width: 18, height: 18, marginRight: 8 }} />
-                <h2 className='font-semibold'>{t('base_config_skill')}</h2>
+          <section className="mb-6">
+             <div className='flex items-center justify-between mb-3'>
+              <div className='flex items-center gap-2'>
+                <div className="w-6 h-6 rounded-md bg-purple-100 flex items-center justify-center">
+                  <ToolOutlined className="text-purple-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_skill')}</span>
               </div>
-              <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
-                <span className='cursor-pointer flex items-center' onClick={() => setShowToolsModal(true)}>
-                  <span className='text-[16px] mr-1'>+</span>
-                  <span>{t('base_config_link_skill')}</span>
-                </span>
-              </div>
+              <Button 
+                type="text" 
+                icon={<PlusOutlined />} 
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
+                onClick={() => setShowToolsModal(true)}
+              >
+                {t('base_config_link_skill')}
+              </Button>
             </div>
-            {appInfo?.resource_tool?.length > 0 ? (
-              <div>
-                {appInfo?.resource_tool?.map((item: any) => {
+
+             <div className="flex flex-col gap-2">
+              {appInfo?.resource_tool?.length > 0 ? (
+                appInfo?.resource_tool?.map((item: any) => {
                   const { value } = item || {};
                   const name =
                     item.type === 'tool'
@@ -582,89 +549,163 @@ function AppConfig() {
                   return (
                     <div
                       key={name + item.id}
-                      className='flex items-center justify-between py-2 border-gray-200 bg-[#F2F2F2] mb-1'
+                      className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-purple-200 hover:bg-purple-50/30 hover:shadow-sm transition-all'
                     >
-                      <div className='px-4 flex-row display flex flex-1 items-center justify-between'>
-                        <div className='flex-1'>{name}</div>
-                        <DeleteOutlined onClick={() => deleteTool(item)} />
+                      <div className="flex items-center gap-2 flex-1 overflow-hidden">
+                        <Tag className="mr-0 text-xs" color={item.type.includes('skill') ? 'green' : item.type.includes('mcp') ? 'purple' : 'blue'}>
+                      {item.type.includes('skill') ? 'Skill' : item.type.includes('mcp') ? 'MCP' : 'Tool'}
+                    </Tag>
+                        <span className='text-sm text-gray-600 truncate'>{name}</span>
                       </div>
+                       <Tooltip title={t('common_delete')}>
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          danger 
+                          icon={<DeleteOutlined />} 
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => deleteTool(item)} 
+                        />
+                      </Tooltip>
                     </div>
                   );
-                })}
-              </div>
-            ) : (
-              ''
-            )}
-          </div>
-
-          {/* Agent 配置 */}
-          <div>
-            <div className='p-4 flex flex-row items-center text-[18px] justify-between'>
-              <div className='flex flex-row items-center'>
-                <img src='/icons/agent.svg' alt='Agent图标' style={{ width: 18, height: 18, marginRight: 8 }} />
-                <h2 className='font-semibold  text-[16px]'>{t('base_config_agent')}</h2>
-              </div>
-              <div className='flex flex-row items-center text-[14px] text-[#0c75fc] cursor-pointer'>
-                <span
-                  className='cursor-pointer flex items-center justify-center'
-                  onClick={() => setShowAgentModal(true)}
-                >
-                  <span className='text-[16px] mr-1'>+</span>
-                  <span>{t('base_config_link_agent')}</span>
-                </span>
-              </div>
+                })
+              ) : (
+                 <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
+                  {t('base_config_no_skill')}
+                </div>
+              )}
             </div>
-            {appInfo?.resource_agent?.length > 0 ? (
-              <div>
-                {appInfo?.resource_agent?.map((item: any) => {
+          </section>
+
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
+
+          <section className="mb-6">
+            <div className='flex items-center justify-between mb-3'>
+              <div className='flex items-center gap-2'>
+                <div className="w-6 h-6 rounded-md bg-green-100 flex items-center justify-center">
+                  <UsergroupAddOutlined className="text-green-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_agent')}</span>
+              </div>
+               <Button 
+                type="text" 
+                icon={<PlusOutlined />} 
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
+                onClick={() => setShowAgentModal(true)}
+              >
+                {t('base_config_link_agent')}
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {appInfo?.resource_agent?.length > 0 ? (
+                appInfo?.resource_agent?.map((item: any) => {
                   const { value } = item || {};
                   const name = JSON.parse(value || '{}')?.name || JSON.parse(value || '{}')?.label;
                   return (
                     <div
                       key={name + item.key}
-                      className='flex items-center justify-between py-2 border-gray-200 bg-[#F2F2F2] mb-1'
+                      className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-green-200 hover:bg-green-50/30 hover:shadow-sm transition-all'
                     >
-                      <div className='px-4 flex-row display flex flex-1 items-center justify-between'>
-                        <div className='flex-1'>{name}</div>
-                        <DeleteOutlined onClick={() => deleteAgent(item)} />
-                      </div>
+                      <span className='text-sm text-gray-600 truncate flex-1 mr-2'>{name}</span>
+                       <Tooltip title={t('common_delete')}>
+                        <Button 
+                          type="text" 
+                          size="small" 
+                          danger 
+                          icon={<DeleteOutlined />} 
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => deleteAgent(item)} 
+                        />
+                      </Tooltip>
                     </div>
                   );
-                })}
-              </div>
-            ) : (
-              ''
-            )}
-          </div>
+                })
+              ) : (
+                 <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
+                  {t('base_config_no_agent')}
+                </div>
+              )}
+            </div>
+          </section>
 
-          {/* 知识选择 Modal */}
-          {showKnowledgeModal && (
-            <KnowledgeSelectModal
-              form={form}
-              visible={showKnowledgeModal}
-              onKnowledgeChange={onKnowledgeChange}
-              onCancel={() => setShowKnowledgeModal(false)}
-            />
-          )}
-          {/* 技能选择 Modal */}
-          {showToolsModal && (
-            <ToolsModal
-              form={form}
-              visible={showToolsModal}
-              onCancel={() => setShowToolsModal(false)}
-              onToolsChange={onToolsChange}
-            />
-          )}
-          {showAgentModal && (
-            <AgentModal
-              visible={showAgentModal}
-              onCancel={() => setShowAgentModal(false)}
-              onAgentChange={onAgentChange}
-              form={form}
-            />
-          )}
-        </div>
-      </Spin>
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-5" />
+
+          <section className="mb-6">
+            <div className='flex items-center justify-between mb-3'>
+              <div className='flex items-center gap-2'>
+                <div className="w-6 h-6 rounded-md bg-blue-100 flex items-center justify-center">
+                  <DatabaseOutlined className="text-blue-500 text-xs" />
+                </div>
+                <span className='font-medium text-gray-700 text-sm'>{t('base_config_knowledge')}</span>
+              </div>
+              <Button
+                type="text"
+                icon={<PlusOutlined />}
+                size="small"
+                className="text-blue-500 hover:bg-blue-50 text-xs"
+                onClick={() => setShowKnowledgeModal(true)}
+              >
+                {t('base_config_link_knowledge')}
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {appInfo?.resource_knowledge?.length > 0 && selectedKnowledgeList?.length > 0 ? (
+                selectedKnowledgeList.map((item: any) => (
+                  <div
+                    key={item.name + item.id}
+                    className='group flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50/50 hover:border-blue-200 hover:bg-blue-50/30 hover:shadow-sm transition-all'
+                  >
+                    <span className='text-sm text-gray-600 truncate flex-1 mr-2'>{item.name}</span>
+                    <Tooltip title={t('common_delete')}>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => deleteKnowledge(item.value)}
+                      />
+                    </Tooltip>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6 text-gray-400 text-xs border border-dashed border-gray-200 rounded-lg bg-gray-50/50">
+                  {t('base_config_no_knowledge')}
+                </div>
+              )}
+            </div>
+          </section>
+        </Form>
+      </div>
+
+      {showKnowledgeModal && (
+        <KnowledgeSelectModal
+          form={form}
+          visible={showKnowledgeModal}
+          onKnowledgeChange={onKnowledgeChange}
+          onCancel={() => setShowKnowledgeModal(false)}
+        />
+      )}
+      {showToolsModal && (
+        <ToolsModal
+          form={form}
+          visible={showToolsModal}
+          onCancel={() => setShowToolsModal(false)}
+          onToolsChange={onToolsChange}
+        />
+      )}
+      {showAgentModal && (
+        <AgentModal
+          visible={showAgentModal}
+          onCancel={() => setShowAgentModal(false)}
+          onAgentChange={onAgentChange}
+          form={form}
+        />
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from pydantic_core._pydantic_core import ValidationError
 
 from derisk.vis import Vis
-
+from derisk_ext.vis.derisk.tags.drsk_msg import DrskMsgContent
 
 logger = logging.getLogger(__name__)
 class NexMsg(Vis):
@@ -23,7 +23,6 @@ class NexMsg(Vis):
         """
         content = kwargs["content"]
         try:
-            from derisk_ext.vis.derisk.tags.drsk_msg import DrskMsgContent
             DrskMsgContent.model_validate(content)
             return content
         except ValidationError as e:

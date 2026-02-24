@@ -2,12 +2,13 @@ import asyncio
 import logging
 import logging.handlers
 import os
-import re
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from logging import Logger
 from logging.handlers import TimedRotatingFileHandler
+from queue import Queue
 from typing import Any, List, Optional, cast
 
 from derisk.configs.model_config import resolve_root_path, LOGDIR
@@ -22,7 +23,10 @@ except ImportError:
         return x
 
 if not os.path.exists(LOGDIR):
-    os.mkdir(LOGDIR)
+    try:
+        os.mkdir(LOGDIR)
+    except FileExistsError:
+        pass
 
 server_error_msg = (
     "**NETWORK ERROR DUE TO HIGH TRAFFIC. PLEASE REGENERATE OR REFRESH THIS PAGE.**"
@@ -31,6 +35,9 @@ server_error_msg = (
 
 class TraceIdFilter(logging.Filter):
     def filter(self, record):
+        if "trace_id" in record.__dict__:
+            return True
+
         from derisk.util.tracer import root_tracer
 
         trace_id = root_tracer.get_context_trace_id()
@@ -40,6 +47,9 @@ class TraceIdFilter(logging.Filter):
 
 class ConvIdFilter(logging.Filter):
     def filter(self, record):
+        if "conv_id" in record.__dict__:
+            return True
+
         from derisk.util.tracer import root_tracer
 
         conv_id = root_tracer.get_context_conv_id()
@@ -86,8 +96,30 @@ class LoggingParameters(BaseParameters):
     )
 
     formatter: Optional[str] = field(
-        default="%(asctime)s | %(levelname)s | %(name)s | [%(trace_id)s][%(conv_id)s]%(message)s",
+        default="%(asctime)s.%(msecs)03d | %(levelname)s | %(name)s | [%(trace_id)s][%(conv_id)s]%(message)s",
         metadata={"help": _("The formatter of log record")},
+    )
+
+    propagate: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": _("Whether to propagate to parent logger"),
+        }
+    )
+
+    backup_count: Optional[int] = field(
+        default=2,
+        metadata={
+            "help": _("Size of backup log files."),
+        }
+    )
+
+    when: Optional[str] = field(
+        default="midnight",
+        metadata={
+            "help": _("Log file rollover strategy. S - Seconds, M - Minutes, H - Hours, "
+                      "D - Days, midnight - roll over at midnight, W{0-6} - roll over on a certain day(0 - Monday)"),
+        }
     )
 
     # redirect_stdio: Optional[bool] = field(
@@ -135,8 +167,6 @@ def setup_logging(
         pass
     return logger
 
-def digest(logger:Logger, digest_name:str, **items):
-    logger.info(f"[DIGEST][{digest_name}]" + ",".join([f"{key}=[{value}]" for key, value in items.items()]))
 
 def get_gpu_memory(max_gpus=None):
     import torch
@@ -151,8 +181,8 @@ def get_gpu_memory(max_gpus=None):
         with torch.cuda.device(gpu_id):
             device = torch.cuda.current_device()
             gpu_properties = torch.cuda.get_device_properties(device)
-            total_memory = gpu_properties.total_memory / (1024**3)
-            allocated_memory = torch.cuda.memory_allocated() / (1024**3)
+            total_memory = gpu_properties.total_memory / (1024 ** 3)
+            allocated_memory = torch.cuda.memory_allocated() / (1024 ** 3)
             available_memory = total_memory - allocated_memory
             gpu_memory.append(available_memory)
     return gpu_memory
@@ -163,22 +193,18 @@ def _build_logger(
     log_config: LoggingParameters,
 ) -> Logger:
     def _build_handler(_config: LoggingParameters) -> logging.Handler:
-        # 创建TimedRotatingFileHandler，每天午夜轮转
-        _handler = TimedRotatingFileHandler(
+        # 创建TimedRotatingFileHandler，定时轮转
+        _handler = DeRiskTimedRotatingFileHandler(
             filename=os.path.join(
                 LOGDIR, _config.file or "derisk_default.log"
             ),  # 日志文件名
-            when="midnight",  # 每天午夜轮转
-            interval=1,  # 间隔1天
-            backupCount=7,  # 保留7天日志
+            when=log_config.when,  # 日志轮转
+            interval=1,  # 间隔1个时间单位
+            backupCount=_config.backup_count,  # 保留n份日志
             encoding="utf-8",  # 编码
             delay=False,  # 立即写入
             utc=False,  # 使用本地时间
         )
-        # 自定义文件名后缀（格式为yyyymmdd）
-        _handler.suffix = "%Y%m%d"
-        # 更新正则表达式以匹配新后缀格式（确保自动删除旧文件）
-        _handler.extMatch = re.compile(r"^\d{8}$", re.ASCII)
 
         # 设置日志格式
         _handler.setFormatter(
@@ -239,7 +265,7 @@ def _build_logger(
         logger.setLevel(log_config.level if log_config.level else _get_logging_level())
 
         # 由于propagate=True，所有日志都会落到root logger中 因此只需root logger输出到stdout中 以免重复
-        logger.propagate = True
+        logger.propagate = log_config.propagate
         if not logger_name:  # or log_config.redirect_stdio:
             for hdlr in _get_stdout_handlers():
                 logger.addHandler(hdlr)
@@ -277,40 +303,116 @@ def logging_str_to_uvicorn_level(log_level_str):
     return level_str_mapping.get(log_level_str.upper(), "info")
 
 
-class EndpointFilter(logging.Filter):
-    """Disable access log on certain endpoint
+# class EndpointFilter(logging.Filter):
+#     """Disable access log on certain endpoint
+#
+#     source: https://github.com/encode/starlette/issues/864#issuecomment-1254987630
+#     """
+#
+#     def __init__(
+#         self,
+#         path: str,
+#         *args: Any,
+#         **kwargs: Any,
+#     ):
+#         super().__init__(*args, **kwargs)
+#         self._path = path
+#
+#     def filter(self, record: logging.LogRecord) -> bool:
+#         return record.getMessage().find(self._path) == -1
+#
+#
+# def setup_http_service_logging(exclude_paths: Optional[List[str]] = None):
+#     """Setup http service logging
+#
+#     Now just disable some logs
+#
+#     Args:
+#         exclude_paths (List[str]): The paths to disable log
+#     """
+#     if not exclude_paths:
+#         # Not show heartbeat log
+#         exclude_paths = ["/api/controller/heartbeat", "/api/health"]
+#     uvicorn_logger = logging.getLogger("uvicorn.access")
+#     if uvicorn_logger:
+#         for path in exclude_paths:
+#             uvicorn_logger.addFilter(EndpointFilter(path=path))
+#     httpx_logger = logging.getLogger("httpx")
+#     if httpx_logger:
+#         httpx_logger.setLevel(logging.WARNING)
 
-    source: https://github.com/encode/starlette/issues/864#issuecomment-1254987630
-    """
 
-    def __init__(
-        self,
-        path: str,
-        *args: Any,
-        **kwargs: Any,
-    ):
-        super().__init__(*args, **kwargs)
-        self._path = path
+class DeRiskTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """优化日志的rotate逻辑 总是在时间单位的整点rotate(eg. 整天/整小时)"""
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.getMessage().find(self._path) == -1
+    def computeRollover(self, currentTime):
+        result = super().computeRollover(currentTime)
+        if self.when in ("H", "M", "S"):
+            _truncate = (result + self.interval) % self.interval
+            result = result - _truncate
+        return result
 
 
-def setup_http_service_logging(exclude_paths: Optional[List[str]] = None):
-    """Setup http service logging
+class AsyncDigestLogger:
+    def __init__(self):
+        self.queue = Queue()
+        self.running = True
+        self.worker_thread = None
 
-    Now just disable some logs
+    def _ensure_worker(self):
+        if self.worker_thread is None:
+            self.worker_thread = threading.Thread(target=self._worker, daemon=True)
+            self.worker_thread.start()
 
-    Args:
-        exclude_paths (List[str]): The paths to disable log
-    """
-    if not exclude_paths:
-        # Not show heartbeat log
-        exclude_paths = ["/api/controller/heartbeat", "/api/health"]
-    uvicorn_logger = logging.getLogger("uvicorn.access")
-    if uvicorn_logger:
-        for path in exclude_paths:
-            uvicorn_logger.addFilter(EndpointFilter(path=path))
-    httpx_logger = logging.getLogger("httpx")
-    if httpx_logger:
-        httpx_logger.setLevel(logging.WARNING)
+    def _worker(self):
+        batch = []
+        last_flush = time.time()
+
+        while self.running:
+            try:
+                # 批量收集日志，最多等待0.1秒或收集100条
+                # while len(batch) < 100 and (time.time() - last_flush) < 0.1:
+                while len(batch) < 100:
+                    try:
+                        item = self.queue.get(timeout=0.01)
+                        batch.append(item)
+                    except Exception as e:
+                        break
+
+                    if (time.time() - last_flush) >= 0.1:
+                        break
+
+                if batch:
+                    self._flush_batch(batch)
+                    batch = []
+                    last_flush = time.time()
+
+            except Exception as e:
+                # 错误处理
+                pass
+
+    def _flush_batch(self, batch):
+        for logger, digest_name, extra, items in batch:
+            logger.info(f"[DIGEST][{digest_name}]" + ",".join([f"{key}=[{value}]" for key, value in items.items()]), extra=extra)
+
+    def add_log(self, logger, digest_name, extra, **items):
+        self._ensure_worker()
+        self.queue.put((logger, digest_name, extra, items))
+
+
+_async_digest_logger = AsyncDigestLogger()
+
+
+def digest(logger: Optional[Logger], digest_name: str, **items):
+    if not logger:
+        from .log_util import DIGEST_LOGGER
+        logger = DIGEST_LOGGER
+
+    # 异步线程写入日志 需要传递当前trace_id、conv_id
+    from derisk.util.tracer import root_tracer
+    extra = {
+        "trace_id": root_tracer.get_context_trace_id() or "",
+        "conv_id": root_tracer.get_context_conv_id() or "",
+    }
+    if _async_digest_logger:
+        _async_digest_logger.add_log(logger, digest_name, extra=extra, **items)

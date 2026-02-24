@@ -116,6 +116,7 @@ class AWELBaseManager(ManagerAgent, ABC):
         last_speaker_name: Optional[str] = None,
         historical_dialogues: Optional[List[AgentMessage]] = None,
         rely_messages: Optional[List[AgentMessage]] = None,
+        **kwargs
     ) -> None:
         """Recive message by base team."""
         if request_reply is False or request_reply is None:
@@ -145,7 +146,7 @@ class AWELBaseManager(ManagerAgent, ABC):
         is_retry_chat: bool = False,
         last_speaker_name: Optional[str] = None,
         **kwargs,
-    ) -> ActionOutput:
+    ) -> List[ActionOutput]:
         """Perform the action."""
         try:
             agent_dag = self.get_dag()
@@ -183,10 +184,10 @@ class AWELBaseManager(ManagerAgent, ABC):
                     view_message = last_message.action_report.view
                 else:
                     view_message = last_message.action_report.content
-            return ActionOutput(
+            return [ActionOutput(
                 content=last_message.content,
                 view=view_message,
-            )
+            )]
         except Exception as e:
             logger.exception(f"DAG run failed!{str(e)}")
             failed_out = ActionOutput(
@@ -208,7 +209,7 @@ class AWELBaseManager(ManagerAgent, ABC):
                 is_retry_chat=is_retry_chat,
                 last_speaker_name=last_speaker_name,
             )
-            return failed_out
+            return [failed_out]
 
 
 class WrappedAWELLayoutManager(AWELBaseManager):
@@ -248,7 +249,7 @@ class WrappedAWELLayoutManager(AWELBaseManager):
         is_retry_chat: bool = False,
         last_speaker_name: Optional[str] = None,
         **kwargs,
-    ) -> ActionOutput:
+    ) -> List[ActionOutput]:
         """Perform the action."""
         try:
             dag = self.get_dag()
@@ -280,16 +281,8 @@ class WrappedAWELLayoutManager(AWELBaseManager):
                     last_speaker_name=last_speaker_name,
                 )
 
-            view_message = None
-            if last_message.action_report:
-                if last_message.action_report.view:
-                    view_message = last_message.action_report.view
-                else:
-                    view_message = last_message.action_report.content
-            return ActionOutput(
-                content=last_message.content,
-                view=view_message,
-            )
+            return last_message.action_report
+
         except Exception as e:
             logger.exception(f"DAG run failed!{str(e)}")
 
@@ -312,7 +305,7 @@ class WrappedAWELLayoutManager(AWELBaseManager):
                 is_retry_chat=is_retry_chat,
                 last_speaker_name=last_speaker_name,
             )
-            return failed_out
+            return [failed_out]
 
 
 class DefaultAWELLayoutManager(AWELBaseManager):
@@ -322,7 +315,7 @@ class DefaultAWELLayoutManager(AWELBaseManager):
 
     dag: AWELTeamContext = Field(...)
 
-    @validator("dag")
+    # @validator("dag")
     def check_dag(cls, value):
         """Check the DAG of the manager."""
         assert value is not None and value != "", "dag must not be empty"

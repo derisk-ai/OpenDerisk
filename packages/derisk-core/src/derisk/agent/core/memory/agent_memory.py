@@ -57,11 +57,13 @@ class AgentMemoryFragment(MemoryFragment):
         task_goal: Optional[str] = None,
         thought: Optional[str] = None,
         action: Optional[str] = None,
+        actions: Optional[List[dict]] = None,
         action_result: Optional[str] = None,
         agent_type: Optional[str] = None,
         condense: Optional[bool] = False,
         user_input: Optional[str] = None,
         ai_message: Optional[str] = None,
+        raw_action_outputs: Optional[str] = None,
     ):
         """Create a memory fragment."""
         if not memory_id:
@@ -83,11 +85,13 @@ class AgentMemoryFragment(MemoryFragment):
         self._task_goal: Optional[str] = task_goal
         self._thought: Optional[str] = thought
         self._action: Optional[str] = action
+        self._actions: Optional[List[dict]] = actions
         self._action_result: Optional[str] = action_result
         self._agent_type: Optional[str] = agent_type
         self._condense: Optional[bool] = condense
-        self._user_input: Optional[bool] = user_input
-        self._ai_message: Optional[bool] = ai_message
+        self._user_input: Optional[str] = user_input
+        self._ai_message: Optional[str] = ai_message
+        self._raw_action_outputs: Optional[str] = raw_action_outputs
 
     @property
     def id(self) -> int:
@@ -98,6 +102,11 @@ class AgentMemoryFragment(MemoryFragment):
     def raw_observation(self) -> str:
         """Return the raw observation."""
         return self.observation
+
+    @property
+    def raw_action_outputs(self) -> str:
+        """Return the raw observation."""
+        return self._raw_action_outputs
 
     @property
     def embeddings(self) -> Optional[List[float]]:
@@ -193,6 +202,16 @@ class AgentMemoryFragment(MemoryFragment):
             Optional[str]: str.
         """
         return self._action
+
+
+    @property
+    def actions(self) -> Optional[List[dict]]:
+        """Return the action.
+
+        Returns:
+            Optional[str]: str.
+        """
+        return self._actions
 
     @property
     def action_result(self) -> Optional[str]:
@@ -326,11 +345,13 @@ class AgentMemoryFragment(MemoryFragment):
         task_goal: Optional[str] = None,
         thought: Optional[str] = None,
         action: Optional[str] = None,
+        actions: Optional[List[dict]] = None,
         action_result: Optional[str] = None,
         agent_type: Optional[str] = None,
         condense: Optional[bool] = None,
         user_input: Optional[bool] = None,
         ai_message: Optional[bool] = None,
+        raw_action_outputs: Optional[str] = None,
         **kwargs,
     ) -> "AgentMemoryFragment":
         """Build a memory fragment from the given parameters."""
@@ -349,12 +370,14 @@ class AgentMemoryFragment(MemoryFragment):
             task_goal=task_goal,
             thought=thought,
             action=action,
+            actions=actions,
             action_result=action_result,
             role=role,
             agent_type=agent_type,
             condense=condense,
             user_input=user_input,
             ai_message=ai_message,
+            raw_action_outputs=raw_action_outputs,
         )
 
     def copy(self: "AgentMemoryFragment") -> "AgentMemoryFragment":
@@ -374,12 +397,14 @@ class AgentMemoryFragment(MemoryFragment):
             task_goal=self._task_goal,
             thought=self._thought,
             action=self._action,
+            actions=self._actions,
             action_result=self._action_result,
             role=self.role,
             agent_type=self.agent_type,
             condense=self.condense,
             user_input=self.user_input,
             ai_message=self.ai_message,
+            raw_action_outputs=self._raw_action_outputs,
         )
 
     def to_dict(self):
@@ -399,11 +424,13 @@ class AgentMemoryFragment(MemoryFragment):
             "task_goal": self._task_goal,
             "thought": self._thought,
             "action": self._action,
+            "actions": self._actions,
             "action_result": self._action_result,
             "agent_type": self._agent_type,
             "condense": self._condense,
             "user_input": self._user_input,
             "ai_message": self._ai_message,
+            "raw_action_outputs": self._raw_action_outputs,
         }
 
 
@@ -505,6 +532,7 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         importance_scorer: Optional[ImportanceScorer[AgentMemoryFragment]] = None,
         insight_extractor: Optional[InsightExtractor[AgentMemoryFragment]] = None,
         gpts_memory: Optional[GptsMemory] = None,
+        extract_memory: Optional[Memory[MemoryFragment]] = None,
     ):
         """Create an agent memory.
 
@@ -515,6 +543,7 @@ class AgentMemory(Memory[AgentMemoryFragment]):
             insight_extractor(InsightExtractor[AgentMemoryFragment]): Extractor to
                 extract insights from memory fragments
             gpts_memory(GptsMemory): Memory to store GPTs related information
+            extract_memory(ExtractMemory[AgentExtractMemoryFragment]): long term memories
         """
         if not memory:
             memory = ShortTermMemory(buffer_size=5)
@@ -530,6 +559,8 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         self.importance_scorer = importance_scorer
         self.insight_extractor = insight_extractor
         self.gpts_memory = gpts_memory
+        if extract_memory:
+            self.extract_memory = cast(Memory[MemoryFragment], extract_memory)
 
     @immutable
     def structure_clone(
@@ -585,9 +616,10 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         self,
         memory_fragments: List[AgentMemoryFragment],
         now: Optional[datetime] = None,
+        **kwargs,
     ) -> Optional[DiscardedMemoryFragments[AgentMemoryFragment]]:
         """Write a batch of memory fragments to the memory."""
-        return await self.memory.write_batch(memory_fragments, now)
+        return await self.memory.write_batch(memory_fragments, now, **kwargs)
 
     @immutable
     async def read(
@@ -618,12 +650,13 @@ class AgentMemory(Memory[AgentMemoryFragment]):
         discard_strategy: Optional[str] = "fifo",
         score_threshold: Optional[float] = 0.0,
         condense_prompt: Optional[str] = "",
-        condense_model: Optional[str] = "deepseek-v3",
+        condense_model: Optional[str] = "aistudio/DeepSeek-V3",
         llm_token_limit: Optional[int] = 4096,
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         user_id: Optional[str] = None,
         enable_global_session: Optional[bool] = False,
+        sub_agent_ids: Optional[List[str]] = None,
         metadata_filters: Optional[MetadataFilters] = None,
         alpha: Optional[float] = None,
         beta: Optional[float] = None,
@@ -647,6 +680,7 @@ class AgentMemory(Memory[AgentMemoryFragment]):
             user_id(str): User ID for filtering results
             enable_global_session(bool): False to use session_id, True to use global
             session.
+            sub_agent_ids(List[str]): Sub agent IDs for filtering results
             metadata_filters(MetadataFilters): Metadata filters for results
             alpha(float): Importance weight
             beta(float): Time weight
@@ -671,6 +705,7 @@ class AgentMemory(Memory[AgentMemoryFragment]):
             session_id=session_id,
             agent_id=agent_id,
             user_id=user_id,
+            sub_agent_ids=sub_agent_ids,
             metadata_filters=metadata_filters,
         )
 

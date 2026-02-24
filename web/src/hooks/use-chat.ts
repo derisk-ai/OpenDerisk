@@ -91,7 +91,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
             onClose?.();
           },
           onerror(err) {
-             console.log('err', err);
+             console.error('err', err);
             throw new Error(err);
           },
           onmessage: event => {

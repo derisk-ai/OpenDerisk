@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from typing import Optional, Dict, Any
 from derisk._private.pydantic import (
@@ -15,7 +17,23 @@ from .drsk_base import DrskVisBase
 class DrskTextContent(DrskVisBase):
     markdown: str = Field(..., description="drsk drsk_vis message content")
 
+def format_nested_json(data, indent=0):
+    lines = []
+    indent_str = "  " * indent
 
+    for key, value in data.items():
+        if isinstance(value, dict):
+            lines.append(f"{indent_str}{key}:")
+            lines.append(format_nested_json(value, indent + 1))
+        else:
+            lines.append(f"{indent_str}{key}: {value}")
+
+    return "\n".join(lines)
+def get_quoted_content(text):
+    """提取'''与'''之间的内容，保留引号"""
+    pattern = r"```json\n(.*?)\n```"
+    matches = re.findall(pattern, text, re.DOTALL)
+    return matches
 class DrskContent(Vis):
     """DrskThinking."""
 
@@ -44,6 +62,14 @@ class DrskContent(Vis):
                 content["uid"] = self._uid
             if "type" not in content:
                 content["type"] = "all"
+            # result=""
+            # if "tool_result" in content:
+            #     tool_result = content["tool_result"]
+            #     result = get_quoted_content(tool_result)
+            # results = {}
+            # if result:
+            #     results = json.loads(result[0])
+            # content["markdown"] = format_nested_json(results)
             return content
         else:
             return content

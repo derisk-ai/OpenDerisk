@@ -9,7 +9,7 @@ import {
 } from '@/contexts';
 import { Bubble } from '@ant-design/x';
 import { markdownComponents, markdownPlugins } from '../../config';
-import { GPTVisLite } from '@antv/gpt-vis';
+import { GPTVis } from '@antv/gpt-vis';
 
 interface IProps {
   data: any;
@@ -98,13 +98,13 @@ const ThinkCard = ({ data }: IProps) => {
                   if (data?.markdown) {
                     return (
                       // @ts-ignore
-                      <GPTVisLite
+                      <GPTVis
                         className="whitespace-normal"
                         components={markdownComponents}
                         {...markdownPlugins}
                       >
                         {data?.markdown || '-'}
-                      </GPTVisLite>
+                      </GPTVis>
                     );
                   }
                 }}

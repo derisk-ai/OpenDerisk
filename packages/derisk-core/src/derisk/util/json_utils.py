@@ -5,6 +5,9 @@ import logging
 import re
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
+from typing import Any
+
+from json_repair import json_repair
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +15,11 @@ LLM_DEFAULT_RESPONSE_FORMAT = "llm_response_format_1"
 
 
 def serialize(obj):
+    if isinstance(obj, datetime):
+        return obj.replace(microsecond=0).isoformat()
     if isinstance(obj, date):
         return obj.isoformat()
+    return str(obj)
 
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -103,7 +109,6 @@ def parse_or_raise_error(text: str, is_array: bool = False):
     return parsed_objs if is_array else parsed_objs[0]
 
 
-@staticmethod
 def _format_json_str(jstr):
     """Remove newlines outside of quotes, and handle JSON escape sequences.
 
@@ -157,3 +162,97 @@ def compare_json_properties_ex(json1, json2):
         return True
 
     return False
+
+
+def _fix_newlines(text: str) -> str:
+    """修复换行符问题"""
+    return text.replace('\\n', '\n')
+
+
+def _fix_escapes(text: str) -> str:
+    """修复转义字符问题"""
+    return text.replace('\\\\', '')
+
+
+def _fix_trailing_commas(text: str) -> str:
+    """修复尾随逗号问题"""
+    # 移除对象或数组末尾的逗号
+    text = re.sub(r',(\s*[}\]])', r'\1', text)
+    return text
+
+
+def _fix_quotes(text: str) -> str:
+    """修复引号问题"""
+    # 尝试修复常见的引号问题
+    text = re.sub(r'([{,]\s*)(\w+)(\s*:)', r'\1"\2"\3', text)
+    return text
+
+
+def get_fix_strategies() -> list:
+    """
+    获取JSON修复策略列表。
+
+    Returns:
+        list: 修复函数列表
+    """
+    return [
+        _fix_newlines,
+        _fix_escapes,
+        _fix_trailing_commas,
+        _fix_quotes
+    ]
+
+
+def extract_tool_calls(text: str) -> list:
+    """
+    从文本中提取工具调用列表。
+
+    该方法会尝试多种修复策略来解析可能格式不正确的JSON。
+
+    Args:
+        text: 包含工具调用的文本
+
+    Returns:
+        list: 工具调用列表，每个元素是一个字典
+    """
+
+    try:
+        tool_calls = json_repair.loads(text)
+        if _is_valid_tool_calls(tool_calls):
+            return _normalize_tool_calls(tool_calls)
+    except Exception as e:
+        logger.warning(f"第一次解析失败: {e}")
+
+    # 尝试修复常见的格式问题
+    for fix_strategy in get_fix_strategies():
+        try:
+            fixed_text = fix_strategy(text)
+            tool_calls = json_repair.loads(fixed_text)
+            if _is_valid_tool_calls(tool_calls):
+                logger.info(f"使用修复策略成功解析: {fix_strategy.__name__}")
+                return _normalize_tool_calls(tool_calls)
+        except Exception as e:
+            logger.debug(f"修复策略 {fix_strategy.__name__} 失败: {e}")
+            continue
+
+    logger.error(f"[extract_tool_calls] 所有解析策略都失败: {text}")
+    return []
+
+
+def _is_valid_tool_calls(tool_calls: Any) -> bool:
+    """
+    验证工具调用格式是否正确。
+
+    Args:
+        tool_calls: 待验证的工具调用数据
+
+    Returns:
+        bool: 格式是否正确
+    """
+    return (isinstance(tool_calls, list) and
+            all(isinstance(item, dict) for item in tool_calls))
+
+
+def _normalize_tool_calls(tool_calls: list) -> list:
+    """过滤并返回有效的工具调用列表。"""
+    return [dict(entry) for entry in tool_calls if isinstance(entry, dict)]

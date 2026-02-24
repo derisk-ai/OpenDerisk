@@ -72,6 +72,18 @@ class FullTextStoreBase(IndexStoreBase):
             The response from the Elasticsearch _update_by_query API.
         """
 
+    def delete_by_query(self, query_conditions: Dict[str, Any]) -> Dict[
+        str, Any]:
+        """
+        Internal helper to perform a _delete_by_query operation based on multiple AND query conditions.
+        Args:
+            query_conditions: A dictionary where keys are field names and values are the exact
+                              values to match (e.g., {"document_id": "doc123", "status": "expired"}).
+        Returns:
+            The response from the Elasticsearch _delete_by_query API.
+        """
+        raise NotImplementedError
+
 
     def search(
         self,

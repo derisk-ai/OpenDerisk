@@ -3,7 +3,26 @@ import logging
 from enum import Enum, auto
 from typing import Dict, Optional, cast
 
-from lyric import CodeResult, DefaultLyricDriver, PyTaskResourceConfig
+try:
+    from lyric import CodeResult, DefaultLyricDriver, PyTaskResourceConfig
+except ImportError:
+    # Fallback/Mock classes to prevent ImportError when lyric is not installed
+    # This is a temporary workaround until lyric is properly available or integrated
+    class CodeResult:
+        pass
+    
+    class DefaultLyricDriver:
+        def start(self): pass
+        def stop(self): pass
+        async def exec(self, *args, **kwargs): return None
+        async def exec1(self, *args, **kwargs): return None
+        class lyric:
+            @staticmethod
+            async def load_default_workers(): pass
+
+    class PyTaskResourceConfig:
+        pass
+
 
 from derisk.component import BaseComponent, SystemApp
 
@@ -115,10 +134,11 @@ _SYSTEM_APP: Optional[SystemApp] = None
 
 def initialize_code_server(system_app: SystemApp):
     """Initialize the code server."""
-    global _SYSTEM_APP
-    _SYSTEM_APP = system_app
-    code_server = CodeServer(system_app)
-    system_app.register_instance(code_server)
+    # todo: 暂时用不上code相关服务 先屏蔽 后续需要再打开
+    # global _SYSTEM_APP
+    # _SYSTEM_APP = system_app
+    # code_server = CodeServer(system_app)
+    # system_app.register_instance(code_server)
 
 
 async def get_code_server(

@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 
 from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict, Field
 from derisk.core import ModelInferenceMetrics
+from derisk.util.date_utils import current_ms
 
 
 class PluginStorageType(Enum):
@@ -33,6 +34,7 @@ class Status(Enum):
     RETRYING = "retrying"
     FAILED = "failed"
     COMPLETE = "complete"
+    BLOCKED = "blocked"
 
 
 class DynamicParamType(Enum):
@@ -142,7 +144,7 @@ class ActionInferenceMetrics(BaseModel):
     result_tokens: Optional[int] = None
     """The total number of tokens (action result)."""
 
-    cost_seconds: Optional[int] = None
+    cost_seconds: Optional[float] = None
     """The total number of action cost (action cost)."""
 
     def to_dict(self) -> Dict:
@@ -188,9 +190,9 @@ class ActionInferenceMetrics(BaseModel):
 class MessageMetrics(BaseModel):
     llm_metrics: Optional[ModelInferenceMetrics] = None
     """模型性能指标信息"""
-    action_metrics: Optional[ActionInferenceMetrics] = None
+    action_metrics: Optional[List[ActionInferenceMetrics]] = None
     """Action性能指标信息"""
-    start_time_ms:  Optional[int] = None
+    start_time_ms:  Optional[int] = current_ms()
     """消息开始时间戳"""
     end_time_ms:  Optional[int] = None
     """消息结束时间戳"""
@@ -203,7 +205,7 @@ class MessageMetrics(BaseModel):
         """Convert the model inference metrics to dict."""
         return {
             "llm_metrics": self.llm_metrics.to_dict() if self.llm_metrics else None,
-            "action_metrics": self.action_metrics.to_dict() if self.action_metrics else None,
+            "action_metrics": [item.to_dict() for item in self.action_metrics] if self.action_metrics else None,
             "start_time_ms": self.start_time_ms,
             "end_time_ms": self.end_time_ms,
             "retry_count": self.retry_count,

@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks
 
 from derisk.core import HumanMessage, StorageConversation
+from derisk.util.date_utils import current_ms
+from derisk.util.tracer import root_tracer
 from derisk_serve.agent.agents.chat.agent_chat import AgentChat, _format_vis_msg
 from derisk_serve.building.config.api.schemas import ChatInParamValue
 
@@ -40,7 +42,7 @@ class BackGroundAgentChat(AgentChat):
         Tuple[ChatState, asyncio.Queue, StorageConversation], None]:
         """管理聊天会话的上下文"""
         state = ChatState()
-        task_queue: asyncio.Queue = asyncio.Queue()
+        task_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
 
         # 初始化会话
         current_message = await self._initialize_conversation(
@@ -125,7 +127,8 @@ class BackGroundAgentChat(AgentChat):
     async def _cleanup_conversation(self, processor_task: asyncio.Task,
                                     state: ChatState, conv_uid: str,
                                     current_message: StorageConversation,
-                                    chat_call_back: Optional[Any]) -> None:
+                                    chat_call_back: Optional[Any],
+                                    first_chunk_ms: Optional[int]=None) -> None:
         """清理会话资源"""
         try:
             await asyncio.shield(processor_task)
@@ -139,6 +142,7 @@ class BackGroundAgentChat(AgentChat):
                 current_message,
                 err_msg=error,
                 chat_call_back=chat_call_back,
+                first_chunk_ms=first_chunk_ms,
             )
             logger.debug(f"Conversation persisted: {conv_uid}")
 
@@ -158,40 +162,59 @@ class BackGroundAgentChat(AgentChat):
     ) -> AsyncGenerator[str, None]:
         """处理聊天请求的主入口"""
         logger.info(f"Simple app chat: {gpts_name}, {user_query}, {conv_uid}")
+        start_ms = root_tracer.get_context_entrance_ms() or current_ms()
+        ttft = None
+        with root_tracer.start_span(
+            "agent_chat",
+            metadata={
+                "chat_type": "background",
+                "app_code": gpts_name,
+                "ttft": None,
+                "succeed": False,
+            }
+        ) as span:
 
-        async with self._manage_chat_session(conv_uid, user_query, gpts_name, **ext_info) as (
-            state, task_queue, current_message):
-            processing_complete = asyncio.Event()
+            async with self._manage_chat_session(conv_uid, user_query, gpts_name, **ext_info) as (
+                state, task_queue, current_message):
+                processing_complete = asyncio.Event()
 
-            # 创建并启动处理任务
-            processor_task = asyncio.create_task(
-                self._process_agent_chat(
-                    state, task_queue, conv_uid, gpts_name, user_query,
-                    user_code=user_code,
-                    sys_code=sys_code,
-                    specify_config_code=specify_config_code,
-                    stream=stream,
-                    chat_in_params=chat_in_params,
-                    chat_call_back=chat_call_back,
-                    **ext_info
+                # 创建并启动处理任务
+                processor_task = asyncio.create_task(
+                    self._process_agent_chat(
+                        state, task_queue, conv_uid, gpts_name, user_query,
+                        user_code=user_code,
+                        sys_code=sys_code,
+                        specify_config_code=specify_config_code,
+                        stream=stream,
+                        chat_in_params=chat_in_params,
+                        chat_call_back=chat_call_back,
+                        **ext_info
+                    )
                 )
-            )
 
-            try:
-                async for chunk, agent_conv_id in self._stream_response(state, task_queue, processing_complete, processor_task):  # 传入 processor_task
-                    yield chunk, agent_conv_id
-            except asyncio.CancelledError:
-                logger.info(f"Client disconnected: {conv_uid}")
-                processor_task.cancel()  # 确保取消处理任务
-            except Exception as e:
-                processor_task.cancel()
-                logger.exception(f"Chat [{conv_uid}] exception！")
-                raise
-            finally:
-                processing_complete.set()
-                # 添加清理任务
-                background_tasks.add_task(
-                    self._cleanup_conversation,
-                    processor_task, state, conv_uid,
-                    current_message, chat_call_back
-                )
+                first_chunk_ms = None
+                try:
+                    async for chunk, agent_conv_id in self._stream_response(state, task_queue, processing_complete, processor_task):  # 传入 processor_task
+                        first_chunk_ms = first_chunk_ms if first_chunk_ms is not None else current_ms()
+                        if ttft is None:
+                            ttft = current_ms() - start_ms
+                            span.metadata["ttft"] = ttft
+                            span.metadata["conv_id"] = agent_conv_id
+                        yield chunk, agent_conv_id
+                except asyncio.CancelledError:
+                    logger.info(f"Client disconnected: {conv_uid}")
+                    processor_task.cancel()  # 确保取消处理任务
+                except Exception as e:
+                    processor_task.cancel()
+                    logger.exception(f"Chat [{conv_uid}] exception！")
+                    raise
+                finally:
+                    processing_complete.set()
+                    # 添加清理任务
+                    background_tasks.add_task(
+                        self._cleanup_conversation,
+                        processor_task, state, conv_uid,
+                        current_message, chat_call_back, first_chunk_ms
+                    )
+
+            span.metadata["succeed"] = True

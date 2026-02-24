@@ -1,6 +1,8 @@
+import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
+from derisk.configs.model_config import DATA_DIR
 from derisk.datasource.parameter import BaseDatasourceParameters
 from derisk.model.parameter import (
     ModelsDeployParameters,
@@ -13,7 +15,6 @@ from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer import TracerParameters
 from derisk.util.logger import LoggingParameters
-from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
 from derisk_ext.storage.knowledge_graph.knowledge_graph import (
     BuiltinKnowledgeGraphConfig,
 )
@@ -25,6 +26,12 @@ from derisk_serve.core.config import GPTsAppConfig
 class SystemParameters:
     """System parameters."""
 
+    workers: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": _("worker node size"),
+        },
+    )
     language: str = field(
         default="en",
         metadata={
@@ -49,6 +56,14 @@ class SystemParameters:
         default="your_secret_key",
         metadata={"help": _("The key to encrypt the data")},
     )
+    enable_performance_sampling: Optional[bool] = field(
+        default=False,
+        metadata={"help": _("Whether to enable performance sampling")},
+    )
+    enable_llm_stream_print: Optional[bool] = field(
+        default=False,
+        metadata={"help": _("Whether to enable llm stream print")},
+    )
 
 
 @dataclass
@@ -65,10 +80,10 @@ class StorageConfig(BaseParameters):
             "help": _("default graph type"),
         },
     )
-    full_text: BuiltinKnowledgeGraphConfig = field(
-        default_factory=BuiltinKnowledgeGraphConfig,
+    full_text: VectorStoreConfig = field(
+        default_factory=VectorStoreConfig,
         metadata={
-            "help": _("default graph type"),
+            "help": _("default full text type"),
         },
     )
 
@@ -147,9 +162,7 @@ class ServiceWebParameters(BaseParameters):
         },
     )
     database: BaseDatasourceParameters = field(
-        default_factory=lambda: SQLiteConnectorParameters(
-            path="pilot/meta_data/derisk.db"
-        ),
+        default=None,
         metadata={
             "help": _(
                 "Database connection config, now support SQLite, OceanBase and MySQL"
@@ -264,7 +277,72 @@ class MCPConfigParameters(BaseParameters):
         default="origin",
         metadata={"help": _("The mcp client mode，default origin `,`")},
     )
-    enable_mcp_gateway: bool = field(default=False, metadata={"help": _("enable mcp gateway, default disable")})
+    enable_mcp_gateway: bool = field(
+        default=False, metadata={"help": _("enable mcp gateway, default disable")}
+    )
+
+
+@dataclass
+class SandboxConfigParameters(BaseParameters):
+    type: Optional[str] = field(
+        default="local",
+        metadata={"help": _("The sandbox type.")},
+    )
+    template_id: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox template code.")},
+    )
+    user_id: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox default user id.")},
+    )
+    agent_name: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox defualt agent name.")},
+    )
+    repo_url: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox skill repo url.")},
+    )
+    work_dir: Optional[str] = field(
+        default="/home/ubuntu",
+        metadata={"help": _("The sandbox work dir.")},
+    )
+    skill_dir: Optional[str] = field(
+        default=None,  # Will be set dynamically based on sandbox type
+        metadata={
+            "help": _(
+                "The sandbox skill dir. Defaults to DATA_DIR/skill for local sandbox."
+            )
+        },
+    )
+
+    def __post_init__(self):
+        """Set default skill_dir based on sandbox type if not provided."""
+        if self.skill_dir is None:
+            if self.type == "local":
+                # For local sandbox, use DATA_DIR/skill
+                self.skill_dir = os.path.join(DATA_DIR, "skill")
+            else:
+                # For remote sandboxes (e.g., xic), use the traditional path
+                self.skill_dir = "/mnt/derisk/skills"
+
+    oss_ak: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss ak.")},
+    )
+    oss_sk: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss sk.")},
+    )
+    oss_endpoint: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss endpoint.")},
+    )
+    oss_bucket_name: Optional[str] = field(
+        default=None,
+        metadata={"help": _("The sandbox oss bucket.")},
+    )
 
 
 @dataclass
@@ -324,5 +402,15 @@ class ApplicationConfig:
         default_factory=MCPConfigParameters,
         metadata={
             "help": _("MCP configuration"),
+        },
+    )
+    sandbox: SandboxConfigParameters = field(
+        default_factory=SandboxConfigParameters,
+        metadata={"help": _("SandBox configuration")},
+    )
+    agent: Dict[str, Any] = field(
+        default_factory=dict,
+        metadata={
+            "help": _("Agent configuration"),
         },
     )

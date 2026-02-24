@@ -37,17 +37,29 @@ export const CustomPopoverWrapper = styled.div`
 `;
 
 export const CustomPluginContent = styled.div`
-  display: inline-block;
-  background: #1b62ff1a;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  color: #1b62ff;
-  line-height: 24px;
-  padding: 0px 6px;
-  margin: 2px;
+  font-size: 13px;
+  color: #1677ff;
+  line-height: 20px;
+  padding: 0 6px;
+  margin: 0 2px;
+  vertical-align: baseline;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: #bae0ff;
+    border-color: #69b1ff;
+  }
+
   img {
     margin-right: 4px;
+    width: 14px !important;
+    height: 14px !important;
   }
 `;
 
