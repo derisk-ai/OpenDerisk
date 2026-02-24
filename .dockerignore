@@ -1,20 +1,75 @@
-.env
+# ============================================================
+# OpenDerisk .dockerignore
+# ============================================================
+
+# Version control
 .git/
-./.mypy_cache/
-models/
-plugins/
-pilot/data
-pilot/message
-logs/
+.github/
+.gitignore
+
+# Python caches & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.ruff_cache/
 venv/
 .venv/
 .venv.make/
+build/
+dist/
+
+# Environment files (secrets)
+.env
+.env.local
+
+# Data directories (persisted via volumes)
+pilot/data/
+pilot/message/
+pilot/meta_data/*.db
+logs/
+models/
+plugins/
+
+# Frontend build artifacts
 web/node_modules/
 web/.next/
+web/out/
+web/build/
 web/.env
-web/out
-web/build
+web/.env.local
+
+# Documentation
 docs/node_modules/
-build/
 docs/build/
-docs/Dockerfile-deploy
+docs/.docusaurus/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker files (prevent recursive context)
+docker-compose*.yml
+docker-compose*.yaml
+Dockerfile
+
+# Test files
+**/tests/
+**/test_*.py
+**/*_test.py
+
+# CI/CD
+.github/
+
+# Misc
+*.md
+!packages/**/README.md
+LICENSE
+Makefile
