@@ -76,6 +76,7 @@ class AIWrapper:
         self._llm_config = llm_config
         self._provider: Optional[LLMProvider] = None
         self._output_parser = output_parser or BaseOutputParser(is_stream_out=False)
+        self._provider_cache: Dict[str, LLMProvider] = {}
 
         if self._llm_config:
             self._init_provider()
@@ -110,7 +111,12 @@ class AIWrapper:
         kwargs = self._llm_config.extra_kwargs.copy()
 
         if provider_name == "openai":
-            self._provider = OpenAIProvider(api_key=final_api_key, base_url=base_url, **kwargs)
+            self._provider = OpenAIProvider(
+                api_key=final_api_key, 
+                base_url=base_url, 
+                model=self._llm_config.model,
+                **kwargs
+            )
         elif provider_name == "claude":
             self._provider = ClaudeProvider(api_key=final_api_key, base_url=base_url, **kwargs)
         else:
@@ -145,6 +151,9 @@ class AIWrapper:
         return create_config, extra_kwargs
 
     async def create(self, **config):
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+        from derisk.agent.core.llm_config import AgentLLMConfig
+        
         # merge the input config with the i-th config in the config list
         full_config = {**config}
         # separate the config into create_config and extra_kwargs
@@ -158,6 +167,30 @@ class AIWrapper:
 
         # Ensure llm_model is a string
         final_llm_model: str = str(llm_model) if llm_model else "default"
+
+        # 根据模型名从全局缓存获取配置，初始化 provider
+        if llm_model and ModelConfigCache.has_model(llm_model):
+            model_config_dict = ModelConfigCache.get_config(llm_model)
+            if model_config_dict:
+                # 检查是否已有缓存的 provider
+                if llm_model not in self._provider_cache:
+                    try:
+                        temp_llm_config = AgentLLMConfig.from_dict(model_config_dict)
+                        provider_name = temp_llm_config.provider.lower()
+                        api_key = temp_llm_config.api_key
+                        base_url = temp_llm_config.base_url
+                        
+                        if provider_name == "openai":
+                            self._provider_cache[llm_model] = OpenAIProvider(
+                                api_key=api_key or "",
+                                base_url=base_url,
+                                model=temp_llm_config.model,
+                            )
+                            logger.info(f"Created OpenAIProvider for model={llm_model}")
+                    except Exception as e:
+                        logger.error(f"Failed to create provider for model {llm_model}: {e}")
+                
+                self._provider = self._provider_cache.get(llm_model)
 
         llm_context = extra_kwargs.get("llm_context")
         stream_out = extra_kwargs.get("stream_out", True)
@@ -253,15 +286,30 @@ class AIWrapper:
                  raise ValueError("No LLM provider or client configured.")
 
             if stream_out:
-                # Type ignore: client can be LLMProvider (async gen) or LLMClient (async gen but typed as Coroutine in some contexts)
-                # We verified both have generate_stream returning AsyncIterator
+                accumulated_thinking = ""
+                accumulated_content = ""
+                # 根据 provider 返回的 incremental 属性判断是否需要累积
+                need_accumulate = None  # 延迟判断，根据第一个 chunk 确定
+                
                 async for output in client.generate_stream(request):  # type: ignore
                     model_output: ModelOutput = output
-                    # 恢复模型调用异常，触发后续的模型兜底策略
                     if model_output.error_code != 0:
                         raise LLMChatError(model_output.text, original_exception=model_output.error_code)
 
                     thinking_text, content_text = model_output.gen_text_and_thinking()
+                    
+                    # 根据第一个 chunk 的 incremental 属性确定累积策略
+                    if need_accumulate is None:
+                        need_accumulate = model_output.incremental
+                    
+                    # 如果是增量模式，累积内容；否则直接使用
+                    if need_accumulate:
+                        if thinking_text:
+                            accumulated_thinking += thinking_text
+                        if content_text:
+                            accumulated_content += content_text
+                        thinking_text = accumulated_thinking
+                        content_text = accumulated_content
 
                     think_blank = not thinking_text or len(thinking_text) <= 0
                     content_blank = not content_text or len(content_text) <= 0
@@ -297,3 +345,21 @@ class AIWrapper:
             map(lambda m: m if isinstance(m, dict) else m.dict(), metadata["messages"])
         )
         return metadata
+
+    async def get_model_metadata(self, model: str) -> "ModelMetadata":
+        """Get model metadata from the provider or LLM client."""
+        from derisk.core.interface.llm import ModelMetadata
+        
+        if self._provider:
+            models = await self._provider.models()
+            for m in models:
+                if m.model == model:
+                    return m
+            if models:
+                return models[0]
+            return ModelMetadata(model=model, context_length=128000)
+        
+        if self._llm_client:
+            return await self._llm_client.get_model_metadata(model)
+        
+        return ModelMetadata(model=model, context_length=128000)

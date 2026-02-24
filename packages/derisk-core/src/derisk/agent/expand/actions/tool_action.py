@@ -257,20 +257,62 @@ class ToolAction(Action[ToolInput]):
         metrics.result_tokens = len(str(result_content))
         cost_ms = metrics.end_time_ms - metrics.start_time_ms
         metrics.cost_seconds = round(cost_ms / 1000, 2)
+        
+        ## 大结果归档处理 - 使用 Truncator
+        attach_view = None
+        agent_file_system = kwargs.get('agent_file_system')
+        max_output_bytes = kwargs.get('max_output_bytes', 50 * 1024)  # 默认 50KB
+        max_output_lines = kwargs.get('max_output_lines', 2000)
+        
+        if result_content and agent_file_system and isinstance(result_content, str):
+            from derisk.agent.expand.react_master_agent.truncation import Truncator
+            
+            truncator = Truncator(
+                max_lines=max_output_lines,
+                max_bytes=max_output_bytes,
+                agent_file_system=agent_file_system,
+            )
+            truncation_result = truncator.truncate(result_content, tool_info.name)
+            
+            if truncation_result.is_truncated:
+                logger.info(
+                    f"[ToolAction] Output truncated for {tool_info.name}: "
+                    f"{truncation_result.original_lines}->{truncation_result.truncated_lines} lines, "
+                    f"{truncation_result.original_bytes}->{truncation_result.truncated_bytes} bytes"
+                )
+                result_content = truncation_result.content
+                
+                # 生成 d-attach 组件展示归档文件
+                if truncation_result.file_key:
+                    try:
+                        file_metadata = await agent_file_system.get_file_metadata(truncation_result.file_key)
+                        if file_metadata:
+                            from derisk.vis import Vis
+                            attach_view = Vis.of("d-attach").display(content={
+                                "file_type": file_metadata.file_type or "txt",
+                                "name": file_metadata.file_name or truncation_result.file_key,
+                                "url": file_metadata.url or "",
+                                "size": file_metadata.size,
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to generate d-attach: {e}")
+        
         ## 可视化数据生成
         view = None
         if need_vis_render:
             if not self.render_protocol:
                 raise NotImplementedError("Render protocol required for visualization")
             ## 构造工具展示效果
-            kwargs = {k: v for k, v in kwargs.items() if k not in
-                               KWARGS_FILTERED}
+            kwargs_filtered = {k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED}
             view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
                                        tool_info=tool_info, tool_result=result_content, tool_cost=metrics.cost_seconds,
                                        status=status, args=param.args,
-                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs)
+                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs_filtered)
+            
+            # 如果有归档文件，追加 d-attach 组件到 view
+            if attach_view:
+                view = view + "\n" + attach_view
 
-        result_content = await self.gen_content(tool_result)
         return ActionOutput(
             action_id=self.action_uid,
             is_exe_success=tool_result["success"],

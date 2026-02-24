@@ -60,6 +60,10 @@ from .report_generator import ReportGenerator, ReportType, ReportFormat
 from ...resource import BaseTool, RetrieverResource, FunctionTool
 from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
+from ..actions.agent_action import AgentStart
+from ..actions.knowledge_action import KnowledgeSearch
+from ..actions.terminate_action import Terminate
+from ..actions.tool_action import ToolAction
 
 logger = logging.getLogger(__name__)
 
@@ -187,15 +191,23 @@ class ReActMasterAgent(ConversableAgent):
     _compaction_count: int = PrivateAttr(default=0)
     _prune_count: int = PrivateAttr(default=0)
 
-    available_system_tools: Dict[str, FunctionTool] = Field(default_factory=dict, description="available system tools")
+    available_system_tools: Dict[str, FunctionTool] = Field(
+        default_factory=dict, description="available system tools"
+    )
     # FunctionCall函数和action的绑定
     enable_function_call: bool = False
-
 
     def __init__(self, **kwargs):
         """Initialize ReActMaster Agent."""
         super().__init__(**kwargs)
+        self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction])
         self._initialize_components()
+
+    async def preload_resource(self) -> None:
+        """Preload resources and inject system tools."""
+        await super().preload_resource()
+        await self.system_tool_injection()
+        await self.sandbox_tool_injection()
 
     def _initialize_components(self):
         """初始化核心组件"""
@@ -432,35 +444,6 @@ class ReActMasterAgent(ConversableAgent):
 
         return result.pruned_messages
 
-    def _truncate_tool_output(
-        self,
-        content: str,
-        tool_name: str,
-    ) -> str:
-        """
-        截断工具输出
-
-        Args:
-            content: 原始输出内容
-            tool_name: 工具名称
-
-        Returns:
-            str: 处理后的输出内容
-        """
-        if not self.enable_output_truncation or not self._truncator:
-            return content
-
-        result = self._truncator.truncate(content, tool_name)
-
-        if result.is_truncated:
-            logger.info(
-                f"Output truncated for {tool_name}: "
-                f"{result.original_lines}->{result.truncated_lines} lines, "
-                f"{result.original_bytes}->{result.truncated_bytes} bytes"
-            )
-
-        return result.content
-
     async def _check_doom_loop(
         self,
         tool_name: str,
@@ -634,6 +617,12 @@ class ReActMasterAgent(ConversableAgent):
             filtered_kwargs = {
                 k: v for k, v in kwargs.items() if k not in explicit_keys
             }
+            
+            # 传入 AgentFileSystem 和截断配置用于大结果归档
+            afs = await self._ensure_agent_file_system()
+            filtered_kwargs['agent_file_system'] = afs
+            filtered_kwargs['max_output_bytes'] = self._truncator_max_bytes if hasattr(self, '_truncator_max_bytes') else 50 * 1024
+            filtered_kwargs['max_output_lines'] = self._truncator_max_lines if hasattr(self, '_truncator_max_lines') else 2000
 
             tasks = []
             for real_action in real_actions:
@@ -681,13 +670,16 @@ class ReActMasterAgent(ConversableAgent):
                         if hasattr(real_action, "execute_params"):
                             tool_args = getattr(real_action, "execute_params", {})
 
-                        # ========== 集成：记录到 WorkLog ==========
-                        await self._record_action_to_work_log(
-                            tool_name, tool_args, result
-                        )
+                        logger.info(f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}")
 
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
+
+                        # ========== 集成：记录到 WorkLog ==========
+                        logger.info(f"📝 Calling _record_action_to_work_log for {tool_name}...")
+                        await self._record_action_to_work_log(
+                            tool_name, tool_args, result
+                        )
 
                         # ========== 集成：判断是否需要自动生成报告 ==========
                         # 如果是 terminate action 且启用了自动报告
@@ -697,14 +689,7 @@ class ReActMasterAgent(ConversableAgent):
                         ):
                             self.set_phase("reporting", "任务完成，生成报告")
 
-                        # 对工具执行结果应用输出截断
-                        if isinstance(result, ActionOutput) and result.content:
-                            tool_name = result.action or real_action.name
-                            result.content = self._truncate_tool_output(
-                                result.content, tool_name
-                            )
-
-                        # 如果是terminate action，附加交付文件
+# 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
                             result = await self._attach_delivery_files(result)
 
@@ -723,6 +708,8 @@ class ReActMasterAgent(ConversableAgent):
                             self.set_phase("complete", "任务全部完成")
 
                         act_outs.append(result)
+                    else:
+                        logger.warning(f"⚠️ Tool execution returned None/empty result for action: {real_action.name}")
 
                 await self.push_context_event(
                     EventType.AfterAction,
@@ -940,7 +927,7 @@ class ReActMasterAgent(ConversableAgent):
         logger.info(f"register_variables {self.role}")
         super().register_variables()
 
-        @self._vm.register('available_agents', '可用Agents资源')
+        @self._vm.register("available_agents", "可用Agents资源")
         async def var_available_agents(instance):
             logger.info("注入agent资源")
             prompts = ""
@@ -948,11 +935,10 @@ class ReActMasterAgent(ConversableAgent):
                 if isinstance(v[0], AppResource):
                     for item in v:
                         app_item: AppResource = item  # type:ignore
-                        prompts += (
-                            f"- <agent><code>{app_item.app_code}</code><name>{app_item.app_name}</name><description>{app_item.app_desc}</description>\n</agent>\n")
+                        prompts += f"- <agent><code>{app_item.app_code}</code><name>{app_item.app_name}</name><description>{app_item.app_desc}</description>\n</agent>\n"
             return prompts
 
-        @self._vm.register('available_knowledges', '可用知识库')
+        @self._vm.register("available_knowledges", "可用知识库")
         async def var_available_knowledges(instance):
             logger.info("注入knowledges资源")
 
@@ -962,14 +948,13 @@ class ReActMasterAgent(ConversableAgent):
                     for item in v:
                         if hasattr(item, "knowledge_spaces") and item.knowledge_spaces:
                             for i, knowledge_space in enumerate(item.knowledge_spaces):
-                                prompts += (
-                                    f"- <knowledge><id>{knowledge_space.knowledge_id}</id><name>{knowledge_space.name}</name><description>{knowledge_space.desc}</description></knowledge>\n")
+                                prompts += f"- <knowledge><id>{knowledge_space.knowledge_id}</id><name>{knowledge_space.name}</name><description>{knowledge_space.desc}</description></knowledge>\n"
 
                         else:
                             logger.error(f"当前知识资源无法使用!{k}")
             return prompts
 
-        @self._vm.register('available_skills', '可用技能')
+        @self._vm.register("available_skills", "可用技能")
         async def var_skills(instance):
             logger.info("注入技能资源")
 
@@ -979,61 +964,70 @@ class ReActMasterAgent(ConversableAgent):
                     for item in v:
                         skill_item: AgentSkillResource = item  # type:ignore
                         mode, branch = "release", "master"
-                        debug_info = getattr(skill_item, 'debug_info', None)
-                        if debug_info and debug_info.get('is_debug'):
-                            mode, branch = "debug", debug_info.get('branch')
+                        debug_info = getattr(skill_item, "debug_info", None)
+                        if debug_info and debug_info.get("is_debug"):
+                            mode, branch = "debug", debug_info.get("branch")
                         prompts += (
                             f"- <skill>"
                             f"<name>{skill_item.skill_meta(mode).name}</name>"
                             f"<description>{skill_item.skill_meta(mode).description}</description>"
                             f"<path>{skill_item.skill_meta(mode).path}</path>"
                             f"<branch>{branch}</branch>"
-                            f"\n</skill>\n")
+                            f"\n</skill>\n"
+                        )
             return prompts
 
-        @self._vm.register('system_tools', '系统工具')
+        @self._vm.register("system_tools", "系统工具")
         async def var_system_tools(instance):
             result = ""
             if self.available_system_tools:
                 logger.info("注入系统工具")
                 tool_prompts = ""
                 for k, v in self.available_system_tools.items():
-                    t_prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
+                    t_prompt, _ = await v.get_prompt(
+                        lang=instance.agent_context.language
+                    )
                     tool_prompts += f"- <tool>{t_prompt}</tool>\n"
                 return tool_prompts
 
             return None
 
-        @self._vm.register('custom_tools', '自定义工具')
+        @self._vm.register("custom_tools", "自定义工具")
         async def var_custom_tools(instance):
-
             logger.info("注入自定义工具")
             tool_prompts = ""
             for k, v in self.resource_map.items():
                 if isinstance(v[0], BaseTool):
                     for item in v:
-                        t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
+                        t_prompt, _ = await item.get_prompt(
+                            lang=instance.agent_context.language
+                        )
                         tool_prompts += f"- <tool>{t_prompt}</tool>\n"
                 ## 临时兼容MCP 因为异步加载
                 elif isinstance(v[0], MCPToolPack):
                     for mcp in v:
                         if mcp and mcp.sub_resources:
                             for item in mcp.sub_resources:
-                                t_prompt, _ = await item.get_prompt(lang=instance.agent_context.language)
+                                t_prompt, _ = await item.get_prompt(
+                                    lang=instance.agent_context.language
+                                )
                                 tool_prompts += f"- <tool>{t_prompt}</tool>\n"
             return tool_prompts
 
-        @self._vm.register('sandbox', '沙箱配置')
+        @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
             if instance and instance.sandbox_manager:
                 if instance.sandbox_manager.initialized == False:
                     logger.warning(
-                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})")
+                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
+                    )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
                 from derisk.agent.core.sandbox.prompt import sandbox_prompt
-                from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool_dict
+                from derisk.agent.core.sandbox.sandbox_tool_registry import (
+                    sandbox_tool_dict,
+                )
                 from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 
                 sandbox_tool_prompts = []
@@ -1055,17 +1049,257 @@ class ReActMasterAgent(ConversableAgent):
 
                 return {
                     "tools": "\n".join([item for item in sandbox_tool_prompts]),
-                    "browser_tools": "\n".join([item for item in browser_tool_prompts]),
+                    # "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
-                    "prompt": render(sandbox_prompt, param)
+                    "prompt": render(sandbox_prompt, param),
                 }
             else:
-                return {
-                    "enable": False,
-                    "prompt": ""
-                }
+                return {"enable": False, "prompt": ""}
+
+        @self._vm.register("input", "用户输入")
+        def var_input(received_message):
+            if received_message:
+                return received_message.content
+            return ""
+
+        @self._vm.register("work_log", "工作日志")
+        async def var_work_log(instance):
+            logger.info("var_work_log: fetching work log...")
+            if not instance.enable_work_log:
+                logger.info("var_work_log: work_log is disabled")
+                return ""
+
+            await instance._ensure_work_log_manager()
+            if not instance._work_log_manager or not instance._work_log_initialized:
+                logger.warning("var_work_log: WorkLogManager not initialized")
+                return ""
+
+            await instance._work_log_manager.initialize()
+            context = await instance._work_log_manager.get_context_for_prompt(
+                max_entries=50
+            )
+            logger.info(f"var_work_log: fetched work log, entries={len(instance._work_log_manager.work_log)}")
+            return context
 
         logger.info(f"register_variables end {self.role}")
+
+    async def _ensure_work_log_manager(self):
+        """确保 WorkLog 管理器已初始化"""
+        if not self.enable_work_log:
+            logger.debug("_ensure_work_log_manager: work_log is disabled")
+            return
+
+        # 添加锁保护防止并发初始化
+        if not hasattr(self, '_work_log_initialization_lock'):
+            self._work_log_initialization_lock = asyncio.Lock()
+
+        async with self._work_log_initialization_lock:
+            # 双重检查
+            if self._work_log_manager and self._work_log_initialized:
+                logger.info("WorkLogManager already initialized, skipping re-initialization")
+                return
+
+            logger.info("Initializing WorkLogManager...")
+
+            conv_id = "default"
+            session_id = "default"
+
+            if self.not_null_agent_context:
+                conv_id = self.not_null_agent_context.conv_id or "default"
+                session_id = self.not_null_agent_context.conv_session_id or conv_id
+
+            logger.info(f"WorkLogManager session info: conv_id={conv_id}, session_id={session_id}")
+
+            afs = await self._ensure_agent_file_system()
+            if not afs:
+                logger.warning("AgentFileSystem not available, WorkLogManager will not initialize")
+                return
+
+            self._work_log_manager = await create_work_log_manager(
+                agent_id=self.name,
+                session_id=session_id,
+                agent_file_system=afs,
+                context_window_tokens=self.work_log_context_window,
+                compression_threshold_ratio=self.work_log_compression_ratio,
+            )
+
+            self._work_log_initialized = True
+            logger.info(f"WorkLogManager initialized: agent_id={self.name}, session_id={session_id}")
+
+            await self._work_log_manager.initialize()
+            logger.info(f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries")
+
+    async def _record_action_to_work_log(
+        self,
+        tool_name: str,
+        args: Optional[Dict[str, Any]],
+        action_output: ActionOutput,
+    ):
+        """记录操作到 WorkLog"""
+        logger.info(f"_record_action_to_work_log: start, tool={tool_name}, enable_work_log={self.enable_work_log}")
+        
+        if not self.enable_work_log:
+            logger.info("_record_action_to_work_log: work_log disabled, returning")
+            return
+
+        # 确保工作日志管理器已初始化
+        logger.info("_record_action_to_work_log: calling _ensure_work_log_manager...")
+        await self._ensure_work_log_manager()
+        logger.info(f"_record_action_to_work_log: _ensure_work_log_manager done, manager={self._work_log_manager is not None}, initialized={self._work_log_initialized}")
+
+        if not self._work_log_manager:
+            logger.warning("Failed to initialize WorkLogManager, skipping work log recording")
+            return
+
+        tags = []
+        if not action_output.is_exe_success:
+            tags.append("error")
+        if action_output.content and len(action_output.content) > 10000:
+            tags.append("large_output")
+
+        try:
+            logger.info(f"_record_action_to_work_log: calling record_action for {tool_name}...")
+            entry = await self._work_log_manager.record_action(
+                tool_name=tool_name,
+                args=args if args is not None else {},
+                action_output=action_output,
+                tags=tags,
+            )
+            logger.info(f"✅ Recorded work log: tool={tool_name}, success={action_output.is_exe_success}, "
+                       f"total_entries={len(self._work_log_manager.work_log)}")
+        except Exception as e:
+            logger.exception(f"Failed to record work log for {tool_name}: {e}")
+
+    def _is_terminate_action(self, action_output: ActionOutput) -> bool:
+        """判断是否为 terminate action"""
+        if not action_output:
+            return False
+        if not action_output.content:
+            return False
+
+        content_lower = action_output.content.lower()
+        return any(
+            keyword in content_lower
+            for keyword in [
+                "terminate",
+                "finish",
+                "complete",
+                "end",
+                "done",
+                "stop",
+                "final",
+            ]
+        )
+
+    def set_phase(self, phase: str, reason: str = ""):
+        """手动设置阶段"""
+        if self.enable_phase_management and self._phase_manager:
+            phase_enum = TaskPhase(phase.lower())
+            self._phase_manager.set_phase(phase_enum, reason)
+            logger.info(f"Phase set to {phase}: {reason}")
+        else:
+            logger.warning("PhaseManager is not enabled")
+
+    async def generate_report(
+        self,
+        report_type: str = "detailed",
+        report_format: str = "markdown",
+        save_to_file: bool = False,
+    ) -> str:
+        """
+        生成任务报告
+
+        Args:
+            report_type: 报告类型（summary/detailed/technical/executive/progress/final）
+            report_format: 报告格式（markdown/html/json/plain）
+            save_to_file: 是否保存到文件系统
+
+        Returns:
+            报告内容字符串
+        """
+        if not self.enable_auto_report:
+            logger.warning(
+                "ReportGenerator is not enabled. Set enable_auto_report=True"
+            )
+            return ""
+
+        await self._ensure_work_log_manager()
+
+        if not self._work_log_manager or not self._work_log_initialized:
+            logger.warning("WorkLog must be initialized for report generation")
+            return ""
+
+        report_generator = ReportGenerator(
+            work_log_manager=self._work_log_manager,
+            agent_id=self.name,
+            task_id=self.not_null_agent_context.conv_id
+            if self.not_null_agent_context
+            else "unknown",
+            llm_client=None,
+        )
+
+        try:
+            report_type_enum = ReportType(report_type.lower())
+        except ValueError:
+            report_type_enum = ReportType.DETAILED
+
+        try:
+            report_format_enum = ReportFormat(report_format.lower())
+        except ValueError:
+            report_format_enum = ReportFormat.MARKDOWN
+
+        report = await report_generator.generate_report(
+            report_type=report_type_enum,
+            report_format=report_format_enum,
+        )
+
+        if report_format_enum == ReportFormat.MARKDOWN:
+            content = report.to_markdown()
+        elif report_format_enum == ReportFormat.HTML:
+            content = report.to_html()
+        elif report_format_enum == ReportFormat.JSON:
+            content = report.to_json()
+        else:
+            content = report.to_plain_text()
+
+        if save_to_file:
+            await self._save_report_to_file(content, report_format_enum)
+
+        logger.info(f"Report generated: {report_type}/{report_format}")
+        return content
+
+    async def _save_report_to_file(
+        self,
+        content: str,
+        report_format: ReportFormat,
+    ):
+        """保存报告到文件系统"""
+        if not self._agent_file_system:
+            logger.warning("AgentFileSystem not available, cannot save report to file")
+            return
+
+        import time
+
+        timestamp = int(time.time())
+
+        extension = {
+            ReportFormat.MARKDOWN: "md",
+            ReportFormat.HTML: "html",
+            ReportFormat.JSON: "json",
+        }.get(report_format, "md")
+
+        report_key = f"{self.name}_report_{timestamp}"
+
+        await self._agent_file_system.save_file(
+            file_key=report_key,
+            data=content,
+            file_type="report",
+            extension=extension,
+        )
+
+        logger.info(f"Report saved: {report_key}")
+
+
 # 导入需要的东西
 from derisk.context.event import ActionPayload, EventType
 

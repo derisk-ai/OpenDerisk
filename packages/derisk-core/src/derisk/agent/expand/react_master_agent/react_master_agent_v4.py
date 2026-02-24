@@ -7,6 +7,7 @@ ReActMasterAgentV4 - 集成了 WorkLog、PhaseManager 和 ReportGenerator 的完
 - ReportGenerator 自动报告生成
 """
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from derisk._private.pydantic import Field, PrivateAttr
@@ -109,13 +110,8 @@ class ReActMasterAgentV4(ReActMasterAgent):
         """初始化 V4 特有的组件"""
         super()._initialize_components()
 
-        # 1. WorkLog 管理器（延迟初始化）
-        if self.enable_work_log:
-            self._work_log_manager_v4 = None
-            self._work_log_initialized_v4 = False
-        else:
-            self._work_log_manager_v4 = None
-            self._work_log_initialized_v4 = False
+        # V4 直接使用父类的 _work_log_manager，不再单独初始化 _work_log_manager_v4
+        # 这样 var_work_log 变量才能正确获取到记录的内容
 
         # 2. PhaseManager
         if self.enable_phase_management:
@@ -134,39 +130,8 @@ class ReActMasterAgentV4(ReActMasterAgent):
             self._report_generator_v4 = None
 
     async def _ensure_work_log_v4(self):
-        """确保 WorkLog 管理器已初始化（异步）"""
-        if not self.enable_work_log:
-            return
-
-        if self._work_log_manager_v4 and self._work_log_initialized_v4:
-            return
-
-        # 准备参数
-        conv_id = "default"
-        session_id = "default"
-
-        if self.not_null_agent_context:
-            conv_id = self.not_null_agent_context.conv_id or "default"
-            session_id = self.not_null_agent_context.conv_session_id or conv_id
-
-        # 获取 AgentFileSystem
-        afs = await self._ensure_agent_file_system()
-
-        # 创建 WorkLog 管理器
-        from derisk.agent.expand.react_master_agent.work_log import (
-            create_work_log_manager,
-        )
-
-        self._work_log_manager_v4 = await create_work_log_manager(
-            agent_id=self.name,
-            session_id=session_id,
-            agent_file_system=afs,
-            context_window_tokens=self.work_log_context_window,
-            compression_threshold_ratio=self.work_log_compression_ratio,
-        )
-
-        self._work_log_initialized_v4 = True
-        logger.info(f"✅ WorkLogManager initialized")
+        """确保 WorkLog 管理器已初始化 - 直接使用父类的方法"""
+        await self._ensure_work_log_manager()
 
     async def _record_action_to_work_log(
         self,
@@ -174,30 +139,8 @@ class ReActMasterAgentV4(ReActMasterAgent):
         args: Optional[Dict[str, Any]],
         action_output: ActionOutput,
     ):
-        """记录操作到 WorkLog"""
-        if (
-            not self.enable_work_log
-            or not self._work_log_manager_v4
-            or not self._work_log_initialized_v4
-        ):
-            return
-
-        # 提取标签
-        tags = []
-        if not action_output.is_exe_success:
-            tags.append("error")
-        if action_output.content and len(action_output.content) > 10000:
-            tags.append("large_output")
-
-        # 记录到 WorkLog
-        await self._work_log_manager_v4.record_action(
-            tool_name=tool_name,
-            args=args if args is not None else {},
-            action_output=action_output,
-            tags=tags,
-        )
-
-        logger.debug(f"✅ Recorded {tool_name} to WorkLog")
+        """记录操作到 WorkLog - 直接调用父类方法"""
+        await super()._record_action_to_work_log(tool_name, args, action_output)
 
     def _is_terminate_action(self, action_output: ActionOutput) -> bool:
         """判断是否为 terminate action"""
@@ -225,17 +168,17 @@ class ReActMasterAgentV4(ReActMasterAgent):
     async def get_work_log_stats(self) -> Dict[str, Any]:
         """获取 WorkLog 统计信息"""
         if self.enable_work_log:
-            await self._ensure_work_log_v4()
-            if self._work_log_manager_v4 and self._work_log_initialized_v4:
-                return await self._work_log_manager_v4.get_stats()
+            await self._ensure_work_log_manager()
+            if self._work_log_manager and self._work_log_initialized:
+                return await self._work_log_manager.get_stats()
         return {}
 
     async def get_work_log_context(self, max_entries: int = 50) -> str:
         """获取 WorkLog 上下文（用于 prompt）"""
         if self.enable_work_log:
-            await self._ensure_work_log_v4()
-            if self._work_log_manager_v4 and self._work_log_initialized_v4:
-                return await self._work_log_manager_v4.get_context_for_prompt(
+            await self._ensure_work_log_manager()
+            if self._work_log_manager and self._work_log_initialized:
+                return await self._work_log_manager.get_context_for_prompt(
                     max_entries=max_entries
                 )
         return ""
@@ -282,9 +225,9 @@ class ReActMasterAgentV4(ReActMasterAgent):
                 "ReportGenerator is not enabled. Set enable_auto_report=True"
             )
 
-        await self._ensure_work_log_v4()
+        await self._ensure_work_log_manager()
 
-        if not self._work_log_manager_v4 or not self._work_log_initialized:
+        if not self._work_log_manager or not self._work_log_initialized:
             raise ValueError("WorkLog must be initialized for report generation")
 
         # 初始化报告生成器
@@ -293,7 +236,7 @@ class ReActMasterAgentV4(ReActMasterAgent):
         )
 
         self._report_generator_v4 = ReportGenerator(
-            work_log_manager=self._work_log_manager_v4,
+            work_log_manager=self._work_log_manager,
             agent_id=self.name,
             task_id=self.not_null_agent_context.conv_id
             if self.not_null_agent_context

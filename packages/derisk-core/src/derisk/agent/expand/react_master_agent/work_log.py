@@ -300,7 +300,6 @@ class WorkLogManager:
             tool_name: 工具名称
             args: 工具参数
             action_output: ActionOutput 结果
-            tags: 标签列表
 
         Returns:
             WorkEntry: 创建的工作日志条目
@@ -308,31 +307,22 @@ class WorkLogManager:
         result_content = action_output.content or ""
         tokens = self._estimate_tokens(result_content)
 
-        # 判断是否需要保存大结果
-        full_result_archive = None
-        if len(result_content) > self.large_result_threshold_bytes:
-            full_result_archive = await self._save_large_result(
-                tool_name, result_content
-            )
-            # 对于已归档的结果，生成摘要（截断前500字符）
-            summary = (
-                result_content[:500] + "..."
-                if len(result_content) > 500
-                else result_content
-            )
-        else:
-            summary = result_content
+        # 不再在此处进行大结果归档，由 ToolAction/truncation 处理
+        # 这里只保留摘要，用于 prompt 展示
+        summary = (
+            result_content[:500] + "..."
+            if len(result_content) > 500
+            else result_content
+        )
 
         # 创建工作日志条目
         entry = WorkEntry(
             timestamp=time.time(),
             tool=tool_name,
             args=args,
-            summary=summary[:500] if summary else None,  # 限制摘要长度
-            result=result_content
-            if not full_result_archive
-            else None,  # 已归档则不保存完整结果
-            full_result_archive=full_result_archive,
+            summary=summary[:500] if summary else None,
+            result=None,  # 不再保存完整结果，避免重复归档
+            full_result_archive=None,  # 不再在此处归档
             success=action_output.is_exe_success,
             tags=tags or [],
             tokens=tokens,
