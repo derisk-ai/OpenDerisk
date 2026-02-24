@@ -50,10 +50,9 @@ class TruncationConfig:
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
 完整输出已保存至文件: {file_key}
 
-建议处理方式:
-1. 使用 Task 工具委托给 explore Agent 来分析完整输出
-2. 使用 Grep 工具搜索特定内容
-3. 使用 Read 工具配合 offset/limit 参数分段读取
+使用 read_file 工具读取完整内容:
+  read_file(file_key="{file_key}", offset=1, limit=500)  # 读取前 500 行
+  read_file(file_key="{file_key}", offset=501, limit=500)  # 读取后续内容
 """
 
     # 备选建议模板（当没有 AFS 时使用路径）
@@ -61,12 +60,6 @@ class TruncationConfig:
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
 完整输出已保存至: {file_path}
-
-建议处理方式:
-1. 使用 Task 工具委托给 explore Agent 来分析完整输出
-2. 使用 Grep 工具搜索特定内容
-3. 使用 Read 工具配合 offset/limit 参数分段读取
-    |path|: "{file_path}"
 """
 
 

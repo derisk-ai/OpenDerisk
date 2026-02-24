@@ -13,13 +13,16 @@ export const VisLLMDiv = styled.div`
       padding-bottom: 2px;
     }
   }
+
   .vis-llm-coll-header {
     padding-left: 0 !important;
     align-items: center !important;
     display: none !important;
   }
-  .vis-llm-col-content {
-    .ant-collapse-content-box {
+
+  .vis-llm-col-content{
+    .ant-collapse-content-box{
+      // padding: 0 !important;
       max-height: 70vh;
       margin-top: 8px;
       margin-bottom: 8px;

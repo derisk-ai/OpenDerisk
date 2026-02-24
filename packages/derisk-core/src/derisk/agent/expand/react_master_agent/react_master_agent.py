@@ -64,6 +64,8 @@ from ..actions.agent_action import AgentStart
 from ..actions.knowledge_action import KnowledgeSearch
 from ..actions.terminate_action import Terminate
 from ..actions.tool_action import ToolAction
+# 导入 read_file 工具使其注册到 system_tool_dict
+from ...core.tools.read_file_tool import read_file  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +210,12 @@ class ReActMasterAgent(ConversableAgent):
         await super().preload_resource()
         await self.system_tool_injection()
         await self.sandbox_tool_injection()
+        
+        # 注入 read_file 工具
+        from ...core.system_tool_registry import system_tool_dict
+        if "read_file" in system_tool_dict:
+            self.available_system_tools["read_file"] = system_tool_dict["read_file"]
+            logger.info("read_file 工具已注入")
 
     def _initialize_components(self):
         """初始化核心组件"""

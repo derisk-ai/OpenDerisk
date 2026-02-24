@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Union
@@ -245,6 +246,25 @@ class AIWrapper:
         }
 
         logger.info(f"Model Request:{llm_model}")
+        
+        # 详细输入日志，方便调试
+        if request.messages:
+            messages_summary = []
+            for msg in request.messages:
+                content = msg.content if hasattr(msg, 'content') else str(msg)
+                if isinstance(content, list):
+                    content_str = "[" + ", ".join([f"{c.get('type', 'unknown')}" for c in content]) + "]"
+                else:
+                    content_str = str(content)[:500] + "..." if len(str(content)) > 500 else str(content)
+                messages_summary.append({
+                    "role": msg.role if hasattr(msg, 'role') else "unknown",
+                    "content": content_str,
+                })
+            logger.info(f"Model Input Messages: {json.dumps(messages_summary, ensure_ascii=False, indent=2)}")
+        
+        if request.tools:
+            tool_names = [t.get("function", {}).get("name", "unknown") for t in request.tools]
+            logger.info(f"Model Input Tools: {tool_names}")
 
         span = root_tracer.start_span(
             "Agent.llm_client.no_streaming_call",
