@@ -7,7 +7,7 @@ from typing import List, Optional
 from sqlalchemy import or_
 
 from derisk._private.config import Config
-from derisk.agent import get_agent_manager, AgentResource, AWELTeamContext, ResourceType
+from derisk.agent import get_agent_manager, AgentResource, ResourceType
 from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.context.utils import build_by_agent_config
@@ -143,7 +143,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if request.agent:
                 ag_mg = get_agent_manager()
                 ag = ag_mg.get(request.agent)
-                if ag.is_team:
+                if ag and ag.is_team:
                     request.team_mode = TeamMode.AUTO_PLAN.value
                     if not request.team_context:
                         team_context = AutoTeamContext(teamleader=request.agent)
@@ -268,7 +268,8 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 # 应用配置代码更新
                 app_entry.config_code = new_config_code
                 app_entry.config_version = release_config_version
-                app_entry.published = carefully_chosen
+                # When publishing, the app should be visible (published=1)
+                app_entry.published = 1
                 app_entry.updated_at = now
 
                 session.merge(app_config_entry)
@@ -311,10 +312,25 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             #     app_qry = app_qry.filter(ServeEntity.app_code.in_(app_codes))
             # if query.is_recent_used and query.is_recent_used.lower() == "true":
             #     app_qry = app_qry.filter(ServeEntity.app_code.in_(recent_app_codes))
-            if query.published and str(query.published).lower() in ("true", "false"):
-                app_qry = app_qry.filter(
-                    ServeEntity.published == query.published
-                )
+            if query.published is not None:
+                # Database may store published as integer (0/1) or string ("false"/"true")
+                # Support both formats for compatibility
+                if query.published:
+                    app_qry = app_qry.filter(
+                        or_(
+                            ServeEntity.published == "true",
+                            ServeEntity.published == "1",
+                            ServeEntity.published == 1,
+                        )
+                    )
+                else:
+                    app_qry = app_qry.filter(
+                        or_(
+                            ServeEntity.published == "false",
+                            ServeEntity.published == "0",
+                            ServeEntity.published == 0,
+                        )
+                    )
             if query.app_codes:
                 app_qry = app_qry.filter(ServeEntity.app_code.in_(query.app_codes))
             total_count = app_qry.count()
@@ -510,11 +526,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             # if not building_mode:
             app_resp.all_resources = all_resources
 
-            if isinstance(app_config.team_context, NativeTeamContext):
-                app_resp.agent = app_config.team_context.agent_name
-            elif isinstance(app_config.team_context, AWELTeamContext):
-                app_resp.agent = "flow"  ## TODO
-            elif isinstance(app_config.team_context, SingleAgentContext):
+            if isinstance(app_config.team_context, SingleAgentContext):
                 app_resp.agent = app_config.team_context.agent_name
             else:
                 if app_config.team_context:
@@ -660,11 +672,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     gpts_app.team_context.llm_strategy_value = None
 
         # 获取当前应用对应的Agent信息
-        if isinstance(gpts_app.team_context, NativeTeamContext):
-            gpts_app.agent = gpts_app.app_code
-        elif isinstance(gpts_app.team_context, AWELTeamContext):
-            gpts_app.agent = "flow"  ## TODO
-        elif isinstance(gpts_app.team_context, SingleAgentContext):
+        if isinstance(gpts_app.team_context, SingleAgentContext):
             gpts_app.agent = gpts_app.team_context.agent_name
         else:
             if gpts_app.team_context:
@@ -796,7 +804,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                             await self.new_define_app(request=ServeRequest.from_dict(item))
                 logger.info(f"应用成功加载: {file}")
             except Exception as e:
-                logger.warning(f"应用加载失败 {file}: {str(e)}", e)
+                logger.warning(f"应用加载失败 {file}: {str(e)}", exc_info=True)
 
     def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a App entity
@@ -926,3 +934,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         if app_res:
             return app_res.app_hub_code
         return None
+
+    def set_published_status(self, app_code: str, published: int = 1):
+        """Set the published status of an app.
+
+        Args:
+            app_code: The application code
+            published: Published status (0 or 1), default is 1 (published)
+        """
+        with self.dao.session() as session:
+            app_qry = session.query(ServeEntity).filter(
+                ServeEntity.app_code == app_code
+            )
+            entity = app_qry.one()
+            entity.published = published
+            session.merge(entity)
+            session.commit()
+            logger.info(f"Set app {app_code} published status to {published}")

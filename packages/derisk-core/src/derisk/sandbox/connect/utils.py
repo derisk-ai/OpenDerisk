@@ -1,0 +1,51 @@
+import base64
+
+from typing import Optional
+from packaging.version import Version
+
+from .client import ConnectException, Code
+from ..exceptions import InvalidArgumentException, AuthenticationException, NotFoundException, \
+    format_sandbox_timeout_exception, RateLimitException, TimeoutException, SandboxException
+
+
+def handle_rpc_exception(e: Exception):
+    if isinstance(e, ConnectException):
+        if e.status == Code.invalid_argument:
+            return InvalidArgumentException(e.message)
+        elif e.status == Code.unauthenticated:
+            return AuthenticationException(e.message)
+        elif e.status == Code.not_found:
+            return NotFoundException(e.message)
+        elif e.status == Code.unavailable:
+            return format_sandbox_timeout_exception(e.message)
+        elif e.status == Code.resource_exhausted:
+            return RateLimitException(
+                f"{e.message}: Rate limit exceeded, please try again later."
+            )
+        elif e.status == Code.canceled:
+            return TimeoutException(
+                f"{e.message}: This error is likely due to exceeding 'request_timeout'. You can pass the request timeout value as an option when making the request."
+            )
+        elif e.status == Code.deadline_exceeded:
+            return TimeoutException(
+                f"{e.message}: This error is likely due to exceeding 'timeout' — the total time a long running request (like process or directory watch) can be active. It can be modified by passing 'timeout' when making the request. Use '0' to disable the timeout."
+            )
+        else:
+            return SandboxException(f"{e.status}: {e.message}")
+    else:
+        return e
+
+
+def authentication_header(
+    envd_version: Version, user: Optional[str] = None
+) -> dict[str, str]:
+
+
+    if not user:
+        return {}
+
+    value = f"{user}:"
+
+    encoded = base64.b64encode(value.encode("utf-8")).decode("utf-8")
+
+    return {"Authorization": f"Basic {encoded}"}

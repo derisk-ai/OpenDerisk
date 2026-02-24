@@ -1,11 +1,9 @@
 import Avatar from '../../avatar';
 import React from 'react';
 import { VisMsgCardWrap } from './style';
-import { markdownComponents } from '../../config';
+import { markdownComponents, markdownPlugins } from '../../config';
 import { VisMsgWrapContext } from '@/contexts';
-import { GPTVisLite } from '@antv/gpt-vis';
-import rehypeRaw from 'rehype-raw';
-import remarkGfm from 'remark-gfm';
+import { GPTVis } from '@antv/gpt-vis';
 import { Bubble } from '@ant-design/x';
 
 interface IProps {
@@ -30,13 +28,13 @@ const VisMsgCard = ({ data }: IProps) => {
             data?.name || undefined
           }
           messageRender={() => (
-            <GPTVisLite
+            // @ts-ignore
+            <GPTVis
               components={markdownComponents}
-              rehypePlugins={[rehypeRaw]}
-              remarkPlugins={[remarkGfm]}
+              {...markdownPlugins}
             >
               {data?.markdown?.replaceAll('~', '&#126;')}
-            </GPTVisLite>
+            </GPTVis>
           )}
           style={{
             width: '100%',

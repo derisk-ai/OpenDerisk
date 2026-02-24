@@ -27,6 +27,9 @@ class ReasoningManage(BaseComponent):
 def _register():
     from derisk.util.module_utils import ModelScanner, ScannerConfig
 
+    # from derisk_ext.reasoning_engine.default_reasoning_engine import DefaultReasoningEngine
+    # ReasoningEngine.register(DefaultReasoningEngine)
+
     for baseclass, path in [
         (ReasoningEngine, "derisk_ext.reasoning_engine"),
         (ReasoningArgSupplier, "derisk_ext.reasoning_arg_supplier"),

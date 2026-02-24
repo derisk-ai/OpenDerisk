@@ -1,11 +1,14 @@
+import logging
 from abc import abstractmethod, ABC
 from enum import Enum
-from typing import TypeVar, Generic, Any, Union, Dict, Optional
+from typing import TypeVar, Generic, Any, Union, Dict, Optional, Type
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
 from derisk.context.event import Event, EventType
+from derisk.util.module_utils import model_scan
 
 T = TypeVar("T")
+logger = logging.getLogger("context")
 
 
 class ConfigItemType(str, Enum):
@@ -67,12 +70,17 @@ class ConfigDynamic(BaseModel):
 
 class GroupedConfigItem(ConfigItem):
     type: ConfigItemType = ConfigItemType.GROUP
-    title_field: Optional[str] = Field(None, description="哪个字段需要展示在group title(即使group折叠也要展示")
+    title_field: Optional[ValuedConfigItem] = Field(None, description="哪个字段需要展示在group title(即使group折叠也要展示")
     fields: Optional[list[ConfigItemUnion]] = Field(None, description="分组内的字段列表")
     dynamic: Optional[list[ConfigDynamic]] = Field(None, description="动态显示的字段")
 
     def get(self, name: str) -> Any:
         """获取指定name的配置值"""
+        if self.title_field is not None:
+            value = self.title_field.get(name)
+            if value is not None:
+                return value
+
         if self.fields:
             for field in self.fields:
                 value = field.get(name)
@@ -112,3 +120,23 @@ class Operator(ABC):
     @abstractmethod
     async def handle(self, event: Event, agent: "ConversableAgent" = None, **kwargs):
         """处理上下文事件"""
+
+
+class OperatorManager:
+    event_subscribe: dict[EventType, list[Type[Operator]]] = {}
+
+    @classmethod
+    def operator_scan(cls):
+        for _, operator_cls in model_scan("derisk_ext.context.operator", Operator).items():
+            for event_type in operator_cls.subscribed():
+                operators = cls.event_subscribe.get(event_type, [])
+                operators.append(operator_cls)
+                cls.event_subscribe[event_type] = operators
+
+    @classmethod
+    def operator_clss_by_type(cls, event_type: EventType) -> list[Type[Operator]]:
+        return cls.event_subscribe.get(event_type, [])
+
+    @classmethod
+    def operator_clss(cls) -> dict[EventType, list[Type[Operator]]]:
+        return cls.event_subscribe

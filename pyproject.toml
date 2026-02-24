@@ -1,6 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "derisk-mono"
-version = "0.2.0"
+dynamic = ["version"]
 description = """
     Building AI-Native Risk Intelligent Systems,
     Our vision is to provide every production system with a 7 * 24H AI teammate in the future,
@@ -11,7 +15,8 @@ authors = [
     { name = "HongjunYang", email = "yhjun1026@gmail.com" }
 ]
 dependencies = [
-    "allpairspy>=2.5.1"
+    "allpairspy>=2.5.1",
+
 ]
 readme = "README.md"
 requires-python = ">= 3.10"
@@ -79,3 +84,9 @@ select = ["E", "F", "I"]
 [tool.ruff.isort]
 # Specify the local modules (first-party)
 known-first-party = ["derisk", "derisk_client", "derisk_ext", "derisk_serve", "derisk_app"]
+
+[tool.hatch.version]
+path = "packages/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["packages"]

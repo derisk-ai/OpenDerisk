@@ -40,10 +40,48 @@ class LocalToolPackResourceParameters(PackResourceParameters):
         )
         version = version or cls._resource_version()
         if version != "v1":
-            return conf
+            for param in conf:
+                if param.param_name == "tool_name":
+                    try:
+                        tools = gpts_tool_dao.get_tool_by_type('LOCAL')
+                        filter_tools = []
+                        user_code = kwargs.get("user_code")
+                        sys_code = kwargs.get("sys_code")
+                        if user_code and sys_code:
+                            for tool in tools:
+                                if tool.owner == user_code or tool.owner == sys_code:
+                                    filter_tools.append(tool)
+                        else:
+                            filter_tools = tools
+                        param.valid_values = [
+                            {
+                                "label": tool.label,
+                                "key": tool.tool_name,
+                                "description": tool.description,
+                                "name": tool.tool_name,
+                            }
+                            for tool in filter_tools
+                        ]
+                    except Exception as e:
+                        logger.error(f"get local tool error: {e}")
+        return conf
         # Compatible with old version
         for param in conf:
             if param.param_name == "tool_name":
+                try:
+                    tools = gpts_tool_dao.get_tool_by_type('LOCAL')
+                    filter_tools = []
+                    user_code = kwargs.get("user_code")
+                    sys_code = kwargs.get("sys_code")
+                    if user_code and sys_code:
+                        for tool in tools:
+                            if tool.owner == user_code or tool.owner == sys_code:
+                                filter_tools.append(tool)
+                    else:
+                        filter_tools = tools
+                    param.valid_values = [tool.tool_name for tool in filter_tools]
+                except Exception as e:
+                    logger.error(f"get local tool error: {e}")
                 return param.valid_values or []
         return []
 

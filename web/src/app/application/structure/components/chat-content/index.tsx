@@ -5,7 +5,7 @@ import { Layout } from 'antd';
 import ChatContentContainer from '@/components/chat/chat-content-container';
 import useChat from '@/hooks/use-chat';
 import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
-import { CaretRightOutlined } from '@ant-design/icons';
+import { CaretRightOutlined, MessageOutlined } from '@ant-design/icons';
 const { Content } = Layout;
 
 function ChatContent() {
@@ -229,25 +229,30 @@ function ChatContent() {
         setHistory,
         isShowDetail: collapsed,
         isDebug: true,
-        setAppInfo: () => {}, // Add a proper implementation if needed
-        refreshDialogList: () => {} // Add a proper implementation if needed
+        setAppInfo: () => {},
+        refreshDialogList: () => {}
       }}
     >
-      <div className={`flex-1 flex flex-row h-full transition-all duration-300`}>
+      <div className="flex-1 flex flex-col h-full relative">
         {collapsed && (
-          <div className='flex flex-col items-center justify-center pl-2'>
+          <div className='absolute top-0 left-0 right-0 px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-white to-gray-50 z-10'>
+            <div className='flex items-center gap-2'>
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                <MessageOutlined className='text-white text-sm' />
+              </div>
+              <h2 className='font-semibold text-base text-gray-800'>Chat Preview</h2>
+            </div>
             <button
               onClick={() => setCollapsed(!collapsed)}
-              className='w-5 h-10 border-[1px] bg-[#f3f5f9] border-[#D9D9D9] pl-1 rounded-[24px] transform -translate-y-1/'
+              className='w-8 h-8 bg-white border border-gray-200 rounded-lg shadow-sm flex items-center justify-center text-gray-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-all'
             >
-             <CaretRightOutlined /> 
+              <CaretRightOutlined className="text-sm" /> 
             </button>
           </div>
         )}
 
-        {/* 右侧主内容区 */}
-        <div className='flex-1 h-full'>
-           <Content className='flex flex-col flex-1 h-full'>
+        <div className={`flex-1 h-full bg-white ${collapsed ? 'pt-14' : ''}`}>
+          <Content className='flex flex-col flex-1 h-full'>
             <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
         </div>

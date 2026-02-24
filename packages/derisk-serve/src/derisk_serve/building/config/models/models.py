@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Union, Optional, List, Type
 from derisk._private.pydantic import BaseModel
-from derisk.agent import AWELTeamContext, AgentResource
+from derisk.agent import AgentResource
 from derisk.agent.core.plan.base import SingleAgentContext, TeamContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.schema import DynamicParam
@@ -81,7 +81,7 @@ class ServeEntity(Model):
 def _load_team_context(
         team_mode: str, team_context: Optional[Union[str, dict]] = None
 ) -> Optional[Union[
-    str, AWELTeamContext, SingleAgentContext, NativeTeamContext, AutoTeamContext
+    str,  SingleAgentContext, AutoTeamContext
 ]]:
     """
     load team_context to str or AWELTeamContext
@@ -112,14 +112,8 @@ def _load_team_context(
             case TeamMode.SINGLE_AGENT.value:
                 return _str_to_team_context(SingleAgentContext, team_context)
 
-            case TeamMode.AWEL_LAYOUT.value:
-                return _str_to_team_context(AWELTeamContext, team_context)
-
             case TeamMode.AUTO_PLAN.value:
                 return _str_to_team_context(AutoTeamContext, team_context)
-
-            case TeamMode.NATIVE_APP.value:
-                return _str_to_team_context(NativeTeamContext, team_context)
 
     return team_context
 

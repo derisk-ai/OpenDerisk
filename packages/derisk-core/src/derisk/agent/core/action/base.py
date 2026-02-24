@@ -1,9 +1,11 @@
 """Base Action class for defining agent actions."""
-
+import dataclasses
 import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
+from datetime import datetime
+from enum import Enum
 from typing import (
     Any,
     Dict,
@@ -18,7 +20,8 @@ from typing import (
     get_origin,
 )
 
-from ..schema import ActionInferenceMetrics
+from ..schema import ActionInferenceMetrics, Status
+from ...resource.base import Resource, ResourceType
 from ...._private.pydantic import (
     BaseModel,
     field_default,
@@ -26,45 +29,67 @@ from ...._private.pydantic import (
     model_fields,
     model_to_dict,
     model_validator,
+    ValidationError
 )
 from ....util.json_utils import find_json_objects
 from ....vis import VisProtocolConverter
 from ....vis.base import Vis
-from ...resource.base import AgentResource, Resource, ResourceType
 from ....vis.vis_converter import DefaultVisConverter
 
 logger = logging.getLogger(__name__)
 
-
 T = TypeVar("T", bound=Union[BaseModel, List[BaseModel], None])
 
 JsonMessageType = Union[Dict[str, Any], List[Dict[str, Any]]]
+
+@dataclasses.dataclass
+class ToolCall:
+    name: str
+    args: Optional[Dict] = None
+    tool_call_id: str = dataclasses.field(default_factory=lambda: uuid.uuid4().hex)
+    thought: Optional[str] = None
+
+class OutputType(Enum):
+    JSON = "json"
+    MARKDOWN = "markdown"
+    FILE = "file"
+
+
+class AskUserType(Enum):
+    """向用户提问的类型"""
+    NESTED_ACTION = "nested_action"  # 嵌套Action 实际的类型需要查看子Action
+    NESTED_AGENT = "nested_agent"  # 嵌套Action 实际的类型需要查看子Agent
+    BEFORE_ACTION = "before_action"  # 动作执行前需要用户确认
+    AFTER_ACTION = "after_action"  # 动作执行后需要用户确认
+    CONCLUSION_INCOMPLETE = "conclusion_incomplete"  # 不完整的结论 需要用户补充信息
 
 
 class ActionOutput(BaseModel):
     """Action output model."""
 
     content: str
-    content_summary: Optional[str] = None # content总结
+    action_id: str = uuid.uuid4().hex
+    name: Optional[str] = None  # 当前结论输出的Action名字
+    content_summary: Optional[str] = None  # content总结
     is_exe_success: bool = True
+    start_time: Optional[datetime] = None  # 记录开始执行时间
     view: Optional[str] = None  # 给人看的信息
-    simple_view: Optional[str] = None # 最简单的给人看的消息，比如不带参数的工具结果，没有代码的执行结果
+    simple_view: Optional[str] = None  # 最简单的给人看的消息，比如不带参数的工具结果，没有代码的执行结果
     model_view: Optional[str] = None  # 多轮聊天 给模型看的信息
-    action_id: Optional[str] = (
-        None  # eg. 2.4-1.5，其中横线-表示派生关系，2.2表示父agent第2轮第4个action，1.5表示子agent第1轮第5个action
-    )
+
     action_intention: Optional[str] = None  # 本次action对应的intention
     action_reason: Optional[str] = None  # 本次action对应的reason
     resource_type: Optional[str] = None
     resource_value: Optional[Any] = None
     action: Optional[str] = None
     action_name: Optional[str] = None
-    action_input: Optional[str] = None
+    action_input: Optional[Any] = None
     thoughts: Optional[str] = None
     observations: Optional[str] = None
 
     have_retry: Optional[bool] = True
     ask_user: Optional[bool] = False
+    ask_type: Optional[str] = None  # 想用户询问内容的类型
     # 如果当前agent能确定下个发言者，需要在这里指定
     next_speakers: Optional[List[str]] = None
     # Terminate the conversation, it is a special action
@@ -75,13 +100,21 @@ class ActionOutput(BaseModel):
     # time.
     memory_fragments: Optional[Dict[str, Any]] = None
     extra: Optional[dict[str, Any]] = None
-    cost_ms: Optional[int] = None
+    cost_ms: Optional[float] = None
     # 输出文件列表
     output_files: Optional[List[Any]] = None
     state: Optional[str] = None
 
     # 当前Action的运行指标
     metrics: Optional[ActionInferenceMetrics] = None
+
+    # 是否评测模式
+    eval_mode: Optional[bool] = False
+    # 评测模式下运行过程数据展示
+    eval_view: Optional[dict[str, Any]] = None
+
+    # 是否流式Action
+    stream: bool = False
 
 
     @model_validator(mode="before")
@@ -108,23 +141,86 @@ class ActionOutput(BaseModel):
         """Convert the object to a dictionary."""
         return model_to_dict(self)
 
+    @classmethod
+    def parse_action_reports(cls, raw: Union[str, bytes]) -> List["ActionOutput"]:
+        """
+        Parse raw string (JSON) into a list of ActionOutput objects.
+
+        Supports:
+          - Single object: '{"content": "..."}'
+          - List of objects: '[{"content": "..."}, {...}]'
+
+        Always returns a list.
+        """
+        if not raw:
+            return []
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to decode action_report as JSON: {e}")
+            # Fallback: treat raw as content of a single ActionOutput
+            return [ActionOutput(name=cls.name,content=str(raw))]
+
+        if isinstance(data, dict):
+            # Single object
+            try:
+                if "action_id" not in data or not data['action_id']:
+                    data['action_id'] = uuid.uuid4().hex
+                return [ActionOutput.model_validate(data)]
+            except ValidationError as e:
+                logger.warning(f"Validation error for single ActionOutput: {e}")
+                return [ActionOutput(content=json.dumps(data, ensure_ascii=False))]
+
+        elif isinstance(data, list):
+            # List of objects
+            outputs = []
+            for item in data:
+                if isinstance(item, dict):
+                    try:
+                        outputs.append(ActionOutput.model_validate(item))
+                    except ValidationError as e:
+                        logger.warning(f"Skip invalid ActionOutput item: {e}")
+                        # Optionally fallback to raw string
+                        outputs.append(ActionOutput(content=json.dumps(item, ensure_ascii=False)))
+                else:
+                    # Non-dict item in list → wrap as content
+                    outputs.append(ActionOutput(content=str(item)))
+            return outputs
+
+        else:
+            # Unexpected type (int, str, etc.)
+            logger.warning(f"Unexpected action_report type: {type(data)}")
+            return [ActionOutput(content=str(data))]
+
 
 class Action(ABC, Generic[T]):
     """Base Action class for defining agent actions."""
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if 'name' not in cls.__dict__:
+            _name = cls.__name__
+            if _name.endswith("Action"):
+                cls.name = _name[:-6]
+            cls.name = _name
+
     def __init__(self, language: str = "en", name: Optional[str] = None, **kwargs):
         """Create an action."""
-        self.resource: Optional[Resource] = None
+        self.resource: Optional[Resource] = kwargs.get("resource")
         self.language: str = language
         self._name = name
-        self.action_input: Optional[T] = None
+        self.action_input: Optional[T] = kwargs.get("action_input")
+        self.init_params: Optional[Dict] = kwargs.get("init_params", {})
         self.action_view_tag: Optional[str] = None
         self.intention: Optional[str] = None
         self.reason: Optional[str] = None
-        self._render: Optional[VisProtocolConverter] = None
-        self._action_uid = kwargs.get("action_uid") if kwargs.get("action_uid") else f"action_{uuid.uuid4().hex}"
+        self._render: Optional[VisProtocolConverter] = kwargs.get(
+            "render_protocol", DefaultVisConverter()
+        )
+        self._action_uid = kwargs.get("action_uid") if kwargs.get("action_uid") else uuid.uuid4().hex
 
-    def init_action(self, **kwargs):
+    async def init_action(self, **kwargs):
         self._render: VisProtocolConverter = kwargs.get(
             "render_protocol", DefaultVisConverter()
         )
@@ -132,6 +228,10 @@ class Action(ABC, Generic[T]):
     @property
     def action_uid(self):
         return self._action_uid
+
+    @action_uid.setter
+    def action_uid(self, value):
+        self._action_uid = value
 
     @property
     def render_protocol(self) -> Optional[Vis]:
@@ -150,15 +250,6 @@ class Action(ABC, Generic[T]):
         """Return the resource type needed for the action."""
         return None
 
-    @property
-    def name(self) -> str:
-        """Return the action name."""
-        if self._name:
-            return self._name
-        _name = self.__class__.__name__
-        if _name.endswith("Action"):
-            return _name[:-6]
-        return _name
 
     @classmethod
     def get_action_description(cls) -> str:
@@ -225,9 +316,12 @@ class Action(ABC, Generic[T]):
         """Return the AI output schema."""
 
         json_format_data = self.ai_out_schema_json
-        return f"""Please reply strictly in the following json format:
-        {json_format_data}
-        Make sure the reply content only has the correct json."""  # noqa: E501
+        if json_format_data:
+            return f"""Please reply strictly in the following json format:
+            {json_format_data}
+            Make sure the reply content only has the correct json."""  # noqa: E501
+        else:
+            return None
 
     def _ai_message_2_json(self, ai_message: str) -> JsonMessageType:
         json_objects = find_json_objects(ai_message)
@@ -249,8 +343,8 @@ class Action(ABC, Generic[T]):
     @classmethod
     def parse_action(
         cls,
-        ai_message: str,
-        default_action: "Action",
+        tool_call: ToolCall,
+        default_action: Optional["Action"] = None,
         resource: Optional[Resource] = None,
         **kwargs,
     ) -> Optional["Action"]:
@@ -260,13 +354,31 @@ class Action(ABC, Generic[T]):
         """
         return default_action
 
+    async def before_run(self, **kwargs):
+        self._action_uid = kwargs.get("action_uid", uuid.uuid4().hex)
+
+    async def init_out(self, view:str = None):
+        return ActionOutput(
+            name=self.name,
+            content='执行中...',
+            action='执行中...',
+            action_input='执行中...',
+            view=view,
+            action_id=self.action_uid,
+            state=Status.RUNNING.value,
+        )
+
     @abstractmethod
     async def run(
         self,
         ai_message: str = None,
-        resource: Optional[AgentResource] = None,
+        resource: Optional[Resource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,
+        received_message: Optional["AgentMessage"] = None,
         **kwargs,
     ) -> ActionOutput:
         """Perform the action."""
+
+    async def terminate(self, message_id: str):
+        pass

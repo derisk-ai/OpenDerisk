@@ -27,25 +27,16 @@ class GptVisTagPackage(Enum):
     Tools = "vis-tools"
     Thinking = "vis-thinking"
     Text = "vis-text"
-    VisTasks = "vis-tasks"
-    VisTabs = "vis-tabs"
 
 
 class GptVisConverter(VisProtocolConverter):
+    def __init__(self, paths: Optional[str] = None, **kwargs):
+        default_tag_paths = ["derisk_ext.vis.gptvis.tags"]
+        super().__init__(paths if paths else default_tag_paths)
 
-    @property
-    def web_use(self) -> bool:
-        return True
-    @property
-    def description(self) -> str:
-        return "基础消息布局(gpt_vis)"
     @property
     def render_name(self):
-        return "gpt_vis"
-    def __init__(self, paths: Optional[str] = None, **kwargs):
-        default_tag_paths = ["derisk_ext.vis.gptvis.tags", "derisk_ext.vis.common.tags"]
-        super().__init__(paths if paths else default_tag_paths, **kwargs)
-
+        return "gpt_vis_all"
     def system_vis_tag_map(self):
         return {
             SystemVisTag.VisMessage.value: GptVisTagPackage.AgentMessage.value,
@@ -63,20 +54,22 @@ class GptVisConverter(VisProtocolConverter):
         self,
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str,"GptsPlan"]] = None,
-        senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         return await self.visualization(messages, plans_map)
 
     async def visualization(
-            self,
-            messages: List["GptsMessage"],
-            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
-            gpt_msg: Optional["GptsMessage"] = None,
-            stream_msg: Optional[Union[Dict, str]] = None,
-            new_plans: Optional[List["GptsPlan"]] = None,
-            is_first_chunk: bool = False,
-            incremental: bool = False,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        messages: List[GptsMessage],
+        plans_map: Optional[Dict[str, GptsPlan]] = None,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         # VIS消息组装
         deal_messages: List[GptsMessage] = []

@@ -1,5 +1,6 @@
 import logging
-from derisk_ext.vis.gptvis.tags.vis_refs import VisRefs
+
+from derisk_ext.vis.common.tags.vis_refs import VisRefs
 
 logger = logging.getLogger(__name__)
 

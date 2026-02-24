@@ -9,6 +9,7 @@ import dataclasses
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 from .base import Resource, ResourceParameters, ResourceType
+from ...util.executor_utils import run_async_tasks
 
 
 @dataclasses.dataclass
@@ -51,8 +52,9 @@ class ResourcePack(Resource[PackResourceParameters]):
 
     async def preload_resource(self):
         """Preload the resource."""
-        for sub_resource in self.sub_resources:
-            await sub_resource.preload_resource()
+        await run_async_tasks([sub_resource.preload_resource() for sub_resource in self.sub_resources])
+        # for sub_resource in self.sub_resources:
+        #     await sub_resource.preload_resource()
 
     async def get_prompt(
         self,
@@ -74,7 +76,8 @@ class ResourcePack(Resource[PackResourceParameters]):
                 resource_name=resource_name,
                 **kwargs,
             )
-            prompt_list.append(prompt)
+            if prompt:
+                prompt_list.append(prompt)
             if resource_reference is not None:
                 info_map.update(resource_reference)
         return self._prompt_separator.join(prompt_list), info_map

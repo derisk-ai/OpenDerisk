@@ -54,6 +54,13 @@ export type IApp = {
   };
   config_code?: string;
   icon?: string; // 添加icon字段
+  /**
+   * LLM配置信息
+   */
+  llm_config?: {
+    llm_strategy?: string;
+    llm_strategy_value?: string[];
+  };
 };
 
 export type IAppData = {

@@ -483,3 +483,13 @@ export const mcpToolConnect = (data: Record<string, string>) => {
 export const initConfig = (data?: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/init/config', data);
 };
+
+/** Tool list by type */
+export const getToolList = (type: string, userId?: string) => {
+  const params = new URLSearchParams();
+  params.append('type', type);
+  if (userId) {
+    params.append('user_id', userId);
+  }
+  return GET<null, any[]>(`/api/v1/tool?${params.toString()}`);
+};

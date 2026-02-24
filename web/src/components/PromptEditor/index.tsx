@@ -1,13 +1,12 @@
 import { Rect } from '@codemirror/view';
 import { createTheme } from '@uiw/codemirror-themes';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
+import { Button, Tooltip } from 'antd';
+import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import type { FC } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
-import CommonPlugin from './components/CommonPlugin';
-// import HighlightTitlePlugin from './components/HighlightTitlePlugin';
-// import MentionPanel from './components/MentionPanel';
-// import VariableChangeModal from './components/VariableChangeModal';
-// import VariablePlugin from './components/VariablePlugin';
+import ReactMarkdown from 'react-markdown';
+import VariablePlugin from './components/VariablePlugin';
 import { PromptEditorWrapper } from './style';
 import { getCursorPosition, getCursorSelection } from './utils';
 
@@ -26,6 +25,7 @@ export type IPromptInputProps = {
   knowledgeList?: any[];
   className?: string;
   teamMode?: boolean;
+  showPreview?: boolean;
 };
 
 interface Range {
@@ -48,6 +48,7 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     knowledgeList = [],
     className,
     teamMode,
+    showPreview = false,
   } = props;
   // 选区信息
   const [selectionRange, setSelectionRange] = useState<Range | undefined>();
@@ -60,6 +61,11 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
 
   // 变量切换弹窗
   const [showVarChangeModalOpen, setShowVarChangeModalOpen] = useState(false);
+
+  // 内部状态控制预览显示，默认为 false
+  const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const getJoinText = (params: { title?: string; mentionType?: string }) => {
     const { title, mentionType } = params;
@@ -126,22 +132,15 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     });
   };
   // 扩展插件
+  // @ts-ignore
   const basicExtensions = [
     // 变量插件
-    // VariablePlugin({
-    //   variableList,
-    //   clickChangeVariable: handleClickChangeVariable,
-    //   reasoningArgSuppliers,
-    //   readonly,
-    // }),
-    // 通用插件（技能/知识/agent）
-    CommonPlugin({
-      skillList,
-      agentList,
-      knowledgeList,
+    VariablePlugin({
+      variableList,
+      clickChangeVariable: handleClickChangeVariable,
+      reasoningArgSuppliers,
+      readonly,
     }),
-    // 高亮标题插件
-    // HighlightTitlePlugin,
   ];
 
   const theme = createTheme({
@@ -270,65 +269,66 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
   }, []);
   return (
     <>
-      {/* {showVarChangeModalOpen && (
-        <VariableChangeModal
-          open={showVarChangeModalOpen}
-          setOpen={setShowVarChangeModalOpen}
-          handleChangeVar={handleChangeVar}
-          variableList={variableList}
-          changeVarInfo={changeVarInfo}
-        />
-      )} */}
-
-      <PromptEditorWrapper style={style} className={className}>
-        {/* 变量选择浮层 */}
-        <div className='custom-choose'>
-          {/* {showVarChooseModalOpen && (
-            <MentionPanel
-              skillList={skillList || []}
-              agentList={agentList || []}
-              variableList={variableList || []}
-              knowledgeList={knowledgeList || []}
-              cursorPosition={cursorPosition}
-              getPopPosition={getPopPosition}
-              setOpen={setShowVarChooseModalOpen}
-              handleChangeVar={handleChangeVar}
-              teamMode={teamMode}
-            />
-          )} */}
+      <PromptEditorWrapper style={style} className={`${className} relative`}>
+        {showPreview && (
+          <div className="absolute top-2 right-4 z-30">
+             <Tooltip title={isPreviewVisible ? "关闭预览 / Close Preview" : "开启预览 / Open Preview"}>
+                <Button 
+                    type="text" 
+                    icon={isPreviewVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />} 
+                    onClick={() => setIsPreviewVisible(!isPreviewVisible)}
+                    size="small"
+                    className="bg-white/90 backdrop-blur-sm shadow-md hover:bg-white border border-gray-200"
+                />
+             </Tooltip>
+          </div>
+        )}
+        
+        <div className="flex h-full w-full relative">
+            <div className="h-full w-full">
+                <CodeMirror
+                  theme={theme}
+                  className={'InputCodeMirror'}
+                  readOnly={readonly}
+                  value={value}
+                  onChange={curValue => {
+                    if (onChange) {
+                      onChange(curValue);
+                    }
+                  }}
+                  onCreateEditor={handleCreateEditor}
+                  placeholder={placeholder}
+                  basicSetup={{
+                    lineNumbers: false,
+                    highlightActiveLineGutter: false,
+                    foldGutter: false,
+                    autocompletion: false,
+                    indentOnInput: false,
+                    highlightActiveLine: false,
+                    highlightSelectionMatches: false,
+                  }}
+                  // @ts-ignore
+                  extensions={basicExtensions}
+                  height='100%'
+                  style={{
+                    fontSize: 14,
+                    height: '100%',
+                    minHeight: '200px',
+                  }}
+                />
+            </div>
+            
+            {showPreview && isPreviewVisible && (
+              <div 
+                ref={previewRef}
+                className="absolute inset-0 z-20 overflow-y-auto px-5 py-4 pt-12 bg-gray-50/95 backdrop-blur-sm prose prose-sm max-w-none"
+              >
+                <ReactMarkdown>
+                  {value || ''}
+                </ReactMarkdown>
+              </div>
+            )}
         </div>
-        <CodeMirror
-          theme={theme}
-          className={'InputCodeMirror'}
-          readOnly={readonly}
-          value={value}
-          onChange={curValue => {
-            if (onChange) {
-              onChange(curValue);
-            }
-          }}
-          onCreateEditor={handleCreateEditor}
-          placeholder={placeholder}
-          basicSetup={{
-            lineNumbers: false,
-            highlightActiveLineGutter: false,
-            foldGutter: false,
-            autocompletion: false,
-            //关闭自己显示另一开括号
-            // closeBrackets: false,
-            indentOnInput: false,
-            highlightActiveLine: false,
-            //自动突出显示与当前选中内容相匹配的其它部分
-            highlightSelectionMatches: false,
-          }}
-          extensions={[basicExtensions]}
-          height='100%'
-          style={{
-            fontSize: 14,
-            height: '100%',
-            minHeight: '200px',
-          }}
-        />
       </PromptEditorWrapper>
     </>
   );

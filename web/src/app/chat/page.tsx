@@ -6,7 +6,8 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { useAsyncEffect, useDebounceFn, useRequest } from 'ahooks';
 import useChat from '@/hooks/use-chat';
 import ChatContentContainer from '@/components/chat/chat-content-container';
-import { getInitMessage, STORAGE_INIT_MESSAGE_KET, transformFileMarkDown, transformFileUrl } from '@/utils';
+import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
+import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { Flex, Layout, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
 import { ChatContentContext } from '@/contexts';
@@ -296,12 +297,48 @@ export default function Chat() {
   // 初始化消息处理
   useAsyncEffect(async () => {
     const initMessage = getInitMessage();
-    if (initMessage && initMessage.id === chatId && appInfo && chatInParams?.length > 0) {
+    if (initMessage && initMessage.id === chatId && appInfo) {
+        
+        let finalChatInParams = chatInParams;
+
+        // Handle multiple file resources
+        const fileResources = initMessage.resources || (initMessage.resource ? [initMessage.resource] : []);
+        
+        if (fileResources.length > 0) {
+            const resourceParamIndex = finalChatInParams.findIndex(p => p.param_type === 'resource');
+            const resourceLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'resource');
+            
+            if (resourceParamIndex >= 0) {
+                const newParams = [...finalChatInParams];
+                newParams[resourceParamIndex] = {
+                    ...newParams[resourceParamIndex],
+                    param_value: JSON.stringify(fileResources)
+                };
+                finalChatInParams = newParams;
+            } else if (resourceLayout) {
+                finalChatInParams = [
+                    ...finalChatInParams,
+                    {
+                        param_type: 'resource',
+                        param_value: JSON.stringify(fileResources),
+                        sub_type: resourceLayout.sub_type || 'common_file'
+                    }
+                ];
+            }
+            
+            setResourceValue(fileResources);
+        }
+        
+        if (initMessage.model) {
+           setModelValue(initMessage.model);
+        }
+
         debouncedChat.run(initMessage.message, {
           app_code: appInfo?.app_code,
-          ...(chatInParams?.length && {
-            chat_in_params: chatInParams,
+          ...(finalChatInParams?.length && {
+            chat_in_params: finalChatInParams,
           }),
+          ...(initMessage.model && { model_name: initMessage.model }),
         });
         refreshDialogList && await refreshDialogList();
         localStorage.removeItem(STORAGE_INIT_MESSAGE_KET);
@@ -349,11 +386,12 @@ export default function Chat() {
         refreshDialogList,
         refreshHistory,
         refreshAppInfo,
-        setHistory,
-        isShowDetail,
-        setChatInParams,
-        chatInParams,
-      }}
+         setHistory,
+         isShowDetail,
+         setIsShowDetail,
+         setChatInParams,
+         chatInParams,
+       }}
     >
       <Flex flex={1}>
         <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full'>

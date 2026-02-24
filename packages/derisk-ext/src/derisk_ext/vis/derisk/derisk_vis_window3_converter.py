@@ -1,0 +1,1365 @@
+import json
+import logging
+from enum import Enum
+from typing import List, Optional, Dict, Union, Tuple
+
+from derisk.agent import ActionOutput, ConversableAgent, BlankAction
+from derisk.agent.core.action.report_action import ReportAction
+from derisk.agent.core.file_system.file_tree import TreeManager, TreeNodeData
+from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
+from derisk.agent.core.memory.gpts.gpts_memory import AgentTaskContent, AgentTaskType
+from derisk.agent.core.plan.planning_action import PlanningAction
+
+from derisk.agent.core.reasoning.reasoning_action import (
+    AgentAction,
+    KnowledgeRetrieveAction,
+)
+from derisk.agent.core.schema import Status
+from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
+from derisk.agent.expand.actions.agent_action import AgentStart
+from derisk.agent.expand.actions.code_action import CodeAction
+from derisk.agent.expand.actions.tool_action import ToolAction
+from derisk.agent.expand.react_agent.react_parser import (
+    CONST_LLMOUT_THOUGHT,
+    CONST_LLMOUT_TITLE,
+    CONST_LLMOUT_TOOLS,
+)
+from derisk.vis.schema import VisAttachListContent, VisAttachContent
+from derisk.vis.vis_converter import SystemVisTag
+from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
+from derisk_ext.vis.common.tags.derisk_plan import AgentPlan, AgentPlanItem
+from derisk_ext.vis.common.tags.derisk_planning_space import (
+    PlanningSpaceContent,
+    PlanningSpace,
+)
+from derisk_ext.vis.common.tags.derisk_todo_list import TodoList
+from derisk_ext.vis.common.tags.derisk_thinking import (
+    DeriskThinking,
+    DrskThinkingContent,
+)
+from derisk_ext.vis.common.tags.derisk_tool import ToolSpace
+from derisk_ext.vis.common.tags.derisk_work_space import (
+    WorkSpaceContent,
+    WorkSpace,
+    FolderNode,
+)
+from .derisk_vis_incr_converter import DeriskVisIncrConverter
+from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
+from derisk_ext.vis.derisk.tags.derisk_agent_folder import AgentFolder
+from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpaceContent, LLMSpace
+from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
+
+from derisk_ext.vis.vis_protocol_data import UpdateType
+from ..common.tags.derisk_attach_list import DeriskAttachList
+from ...agent.actions.derisk_tool_action import DeriskToolAction
+from ...agent.actions.monitor_action import MonitorAction
+
+logger = logging.getLogger(__name__)
+
+
+# ╔══════════════════════════════════════════════════════════════════════════════
+# ║ 🚨🚨🚨 重要逻辑提示：请勿随意修改以下代码！ 🚨🚨🚨
+# ╟──────────────────────────────────────────────────────────────────────────────
+# ║ 下面注释逻辑提示了VIS增量传输核心规则直接关系到
+# ║   • 可视化展示
+# ║   • 数据传输
+# ║   • 页面布局和数据转换逻辑
+# ║
+# ║ VIS数据增量传输协议：
+# ║   1. type=INCR得情况下，组件按UID匹配，数据内容中markdown和items做增量追加, 其他字段如果有值做替换，无值不变
+# ║   2. type=ALL的模式下, 所有字段 都完全替换 包括如果是空也替换为空
+# ║
+# ║ 💡 小贴士：基于上述逻辑合理进行VIS组件动态更新数据的协议转换
+# ║
+# ║ 🔧 2025-02-04 优化：
+# ║   后端只发送变更的叶子节点数据（不再递归构建完整树结构）
+# ║   前端根据 uid 自动合并增量数据
+# ║   优势：大幅减少数据传输量，后端逻辑简化
+# ╚══════════════════════════════════════════════════════════════════════════════
+
+
+class NexVisTagPackage(Enum):
+    """System Vis Tags."""
+
+    NexMessage = "nex-msg"
+    NexStep = "nex-step"
+    NexPlanningWindow = "nex-planning-window"
+    NexRunningWindow = "nex-running-window"
+
+
+# task_type ["tool","report","knowledge","code", "monitor","agent","plan"]
+ACTION_TASK_MAP = {
+    BlankAction.name: "report",
+    ReportAction.name: "report",
+    KnowledgeRetrieveAction.name: "knowledge",
+    PlanningAction.name: "plan",
+    AgentAction.name: "agent",
+    MonitorAction.name: "monitor",
+    CodeAction.name: "code",
+    ToolAction.name: "tool",
+    DeriskToolAction.name: "tool",
+    # 有展示分类需求的再这里进行分类处理
+}
+
+
+class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
+    """Incremental task window mode protocol converter."""
+
+    def __init__(self, paths: Optional[str] = None, **kwargs):
+        super().__init__(paths, **kwargs)
+        # self._drsk_web_url = Config().DERISK_WEB_URL
+        self._drsk_web_url = ""
+
+    def system_vis_tag_map(self):
+        return {
+            SystemVisTag.VisTool.value: ToolSpace.vis_tag(),
+            SystemVisTag.VisText.value: DrskVisTagPackage.DrskContent.value,
+            SystemVisTag.VisThinking.value: DrskVisTagPackage.DeriskThinking.value,
+            SystemVisTag.VisSelect.value: DrskVisTagPackage.DrskSelect.value,
+            SystemVisTag.VisRefs.value: DrskVisTagPackage.DrskRefs.value,
+            SystemVisTag.VisConfirm.value: DrskVisTagPackage.DrskConfirm.value,
+            SystemVisTag.VisPlans.value: DrskVisTagPackage.DrskPlans.value,
+            SystemVisTag.VisReport.value: DrskVisTagPackage.NexReport.value,
+            SystemVisTag.VisAttach.value: DeriskAttach.vis_tag(),
+            SystemVisTag.VisTodo.value: TodoList.vis_tag(),
+        }
+
+    @property
+    def web_use(self) -> bool:
+        return True
+
+    @property
+    def reuse_name(self):
+        ## 复用下面转换器的前端布局
+        from derisk_ext.vis.derisk.derisk_vis_window_converter import (
+            DeriskIncrVisWindowConverter,
+        )
+
+        return DeriskIncrVisWindowConverter().render_name
+
+    @property
+    def render_name(self):
+        return "vis_window3"
+
+    @property
+    def description(self) -> str:
+        return "文件系统可视化布局"
+
+    async def visualization(
+        self,
+        messages: List[GptsMessage],
+        plans_map: Optional[Dict[str, GptsPlan]] = None,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        main_agent_name: Optional[str] = None,
+        is_first_push: bool = False,
+        **kwargs,
+    ):
+        ## 并行情况下搜集当前运行中Agent信息
+        running_agents: List[str] = []
+        for k, v in senders_map.items():
+            agent_state = await v.agent_state()
+            if agent_state == Status.RUNNING:
+                running_agents.append(v.name)
+
+        task_manager: TreeManager = kwargs.get("task_manager")
+        try:
+            planning_vis = ""
+            ## 规划空间更新
+            new_task_nodes = kwargs.get("new_task_nodes")
+            ## 规划空间内容增量更新
+            if new_task_nodes or stream_msg:
+                planning_vis = await self._planning_vis_build(
+                    messages=messages,
+                    stream_msg=stream_msg,
+                    new_task_nodes=new_task_nodes,
+                    is_first_chunk=is_first_chunk,
+                    senders_map=senders_map,
+                    main_agent_name=main_agent_name,
+                    actions_map=kwargs.get("actions_map"),
+                    task_manager=task_manager,
+                )
+
+            ## 工作空间增量更新
+            work_vis = ""
+            if gpt_msg or stream_msg:
+                work_vis = await self._running_vis_build(
+                    gpt_msg=gpt_msg,
+                    stream_msg=stream_msg,
+                    is_first_push=is_first_push,
+                    is_first_chunk=is_first_chunk,
+                    senders_map=senders_map,
+                    main_agent_name=main_agent_name,
+                    running_agents=running_agents,
+                )
+
+            planning_window = planning_vis
+            if gpt_msg:
+                foot_vis = await self._footer_vis_build(gpt_msg)
+                if foot_vis:
+                    planning_window = planning_window + "\n" + foot_vis
+            if planning_vis or work_vis:
+                return json.dumps(
+                    {"planning_window": planning_window, "running_window": work_vis},
+                    ensure_ascii=False,
+                )
+            else:
+                return None
+        except Exception as e:
+            logger.exception("vis_window2异常!")
+            return None
+
+    async def _gen_plan_items(
+        self,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        layer_count: int = 0,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        plan_tasks_vis = []
+        thought = None
+        title = None
+        if gpt_msg:
+            action_outs: Optional[List[ActionOutput]] = gpt_msg.action_report
+            agent = senders_map.get(gpt_msg.sender_name) if senders_map else None
+            message_id = gpt_msg.message_id
+            if agent and agent.agent_parser:
+                thought = agent.agent_parser.parse_streaming_xml(
+                    gpt_msg.content, CONST_LLMOUT_THOUGHT
+                )
+                title = agent.agent_parser.parse_streaming_xml(
+                    gpt_msg.content, CONST_LLMOUT_TITLE
+                )
+
+        elif stream_msg:
+            prev_content = stream_msg.get("prev_content")
+            sender_name = stream_msg.get("sender_name")
+            message_id = stream_msg.get("message_id")
+            action_outs: Optional[List[ActionOutput]] = stream_msg.get("action_report")
+            agent = senders_map.get(sender_name) if senders_map else None
+            if agent and agent.agent_parser and prev_content:
+                title = agent.agent_parser.parse_streaming_xml(
+                    prev_content, CONST_LLMOUT_TITLE
+                )
+                thought = agent.agent_parser.parse_streaming_xml(
+                    prev_content, CONST_LLMOUT_THOUGHT
+                )
+                tools = agent.agent_parser.parse_streaming_xml(
+                    prev_content, CONST_LLMOUT_TOOLS
+                )
+                # 开始输出别的就不在获取title了
+                if tools or thought:
+                    title = None
+            ## 流式输出过程，规划内容不展示工具输出过程(也可以考虑展示为Loading待实现)
+            # if not action_outs and tools:
+            #     return None
+        else:
+            return None
+        if title or thought:
+            step_thought = ""
+            if title:
+                step_thought += f"{title}"
+            # if thought:
+            #     step_thought += f"{thought}\n"
+            if step_thought:
+                report_content = DrskTextContent(
+                    dynamic=False,
+                    markdown=step_thought,
+                    uid=f"{message_id}_'step_thought'",
+                    type="all",
+                )
+                plan_tasks_vis.append(
+                    DrskContent().sync_display(
+                        content=report_content.to_dict(exclude_none=True)
+                    )
+                )
+
+        ## 行动区域，每个action out为一个单独文件
+        if action_outs:
+            for action_out in action_outs:
+                ## 规划的Agent转发任务已经在任务中通过空间挂载，不需要Action展示
+                plan_item = self._act_out_2_plan(action_out, layer_count)
+                if plan_item:
+                    plan_tasks_vis.append(plan_item)
+
+        return "\n".join(plan_tasks_vis)
+
+    def _unpack_agent(self, parent_agent: ConversableAgent, parent: FolderNode):
+        details: List[FolderNode] = []
+        if hasattr(parent_agent, "agents"):
+            for item in parent_agent.agents:
+                detail_folder: FolderNode = FolderNode(
+                    uid=f"{parent_agent.agent_context.conv_session_id}_{item.agent_context.agent_app_code}",
+                    type=UpdateType.INCR.value,
+                    item_type="folder",
+                    title=item.name,
+                    description=item.desc,
+                    avatar=item.avatar,
+                    items=[],
+                )
+                details.append(detail_folder)
+                if item.is_team:
+                    self._unpack_agent(item, detail_folder)
+            parent.items.extend(details)
+
+    async def _process_stream_msg(
+        self,
+        stream_msg: Dict,
+        senders_map: Optional[Dict[str, "ConversableAgent"]],
+        task_manager: Optional[TreeManager] = None,
+    ) -> Optional[str]:
+        """处理 stream_msg 虚拟节点数据，message本身是hidden节点，需要把当前叶子节点内容挂载到父节点，也就是goal_id节点。"""
+        goal_id = stream_msg.get("goal_id")
+        if not goal_id:
+            return None
+
+        leaf_item_vis = await self._gen_plan_items(
+            stream_msg=stream_msg,
+            layer_count=0,
+            senders_map=senders_map,
+        )
+
+        if not leaf_item_vis:
+            return None
+
+        # 父节点挂载stream msg
+        stream_item = AgentPlanItem(
+            uid=goal_id,
+            type=UpdateType.INCR.value,
+            markdown=leaf_item_vis,
+        )
+
+        return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+            content=stream_item.to_dict()
+        )
+
+    def _build_task_item(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        markdown: str,
+        senders_map: Optional[Dict[str, "ConversableAgent"]],
+    ) -> AgentPlanItem:
+        """构建任务节点的 AgentPlanItem。"""
+        agent = (
+            senders_map.get(task_node.content.agent_name) if task_node.content else None
+        )
+
+        return AgentPlanItem(
+            uid=task_node.node_id,
+            parent_uid=task_node.parent_id,
+            type=UpdateType.INCR.value,
+            title=task_node.name,
+            description=task_node.description,
+            item_type=(
+                task_node.content.task_type or AgentTaskType.PLAN.value
+                if task_node.content
+                else AgentTaskType.PLAN.value
+            ),
+            agent_role=agent.role if agent else None,
+            agent_name=agent.name if agent else None,
+            agent_avatar=agent.avatar if agent else None,
+            status=task_node.state,
+            start_time=task_node.created_at,
+            layer_count=task_node.layer_count,
+            cost=task_node.content.cost if task_node.content else 0,
+            markdown=markdown,
+        )
+
+    async def _build_nested_task_nodes(
+        self,
+        new_task_nodes: List[TreeNodeData[AgentTaskContent]],
+        messages: List[GptsMessage],
+        senders_map: Optional[Dict[str, "ConversableAgent"]],
+        task_manager: Optional[TreeManager] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+    ) -> List[str]:
+        """构建嵌套任务节点。
+
+        核心逻辑：
+        1. hidden 类型节点：渲染结果为空，不输出任何内容
+        2. 非 hidden 节点：查找父节点，如果父节点是 hidden，parent_uid 设置为父节点的父节点
+        3. stream_msg 虚拟节点：处理逻辑与普通节点一致，节点 id 为 message_id
+
+        Returns list of vis texts.
+        """
+        messages_map = {item.message_id: item for item in messages}
+        result_vis_list: List[str] = []
+
+        # 处理 stream_msg 虚拟节点
+        if stream_msg and isinstance(stream_msg, dict):
+            stream_vis = await self._process_stream_msg(
+                stream_msg, senders_map, task_manager
+            )
+            if stream_vis:
+                result_vis_list.append(stream_vis)
+
+        # 按有效父节点分组
+        parent_groups: Dict[Optional[str], List[TreeNodeData[AgentTaskContent]]] = {}
+
+        for task_node in new_task_nodes:
+            if task_node.node_id == task_node.parent_id or not task_node.parent_id:
+                parent_groups.setdefault(None, []).append(task_node)
+            else:
+                parent_groups.setdefault(task_node.parent_id, []).append(task_node)
+
+        # 处理有父节点的任务（作为子节点挂载到父节点下）
+        for parent_id, children in parent_groups.items():
+            # 收集所有子节点的 vis
+            children_vis_list: List[str] = []
+            for child_node in children:
+                # 生成子节点的内容(Task节点根据消息生成，非Task类型节点直接生成任务节点)
+                leaf_item_vis = ""
+                if child_node.content is None:
+                    continue
+                if child_node.content.task_type == AgentTaskType.TASK.value:
+                    gpt_msg = messages_map.get(child_node.content.message_id)
+                    if gpt_msg:
+                        leaf_item_vis = await self._gen_plan_items(
+                            gpt_msg=gpt_msg,
+                            layer_count=child_node.layer_count + 1,
+                            senders_map=senders_map,
+                        )
+
+                else:
+                    leaf_item_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                        content=self._build_task_item(
+                            child_node, "", senders_map
+                        ).to_dict()
+                    )
+
+                children_vis_list.append(leaf_item_vis)
+
+            if parent_id and children_vis_list:
+                parent_task = task_manager.get_node(parent_id)
+                parent_item = AgentPlanItem(
+                    uid=parent_task.node_id,
+                    type=UpdateType.INCR.value,
+                    item_type=parent_task.content.task_type,
+                    status=parent_task.state,
+                    start_time=parent_task.created_at,
+                    cost=parent_task.content.cost if parent_task.content else 0,
+                    markdown="\n".join(children_vis_list),
+                )
+
+                parent_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                    content=parent_item.to_dict()
+                )
+                result_vis_list.append(parent_vis)
+            else:
+                logger.info("没有父节点的 子节点直接作为根节点返回")
+                ## 没有父节点的 子节点直接作为根节点返回
+                result_vis_list.extend(children_vis_list)
+        return result_vis_list
+
+    async def _footer_vis_build(self, gpt_msg: GptsMessage):
+        plans_vis = []
+        foot_vis = None
+        confirm_vis = None
+        # 任务更新(属于规划任务的消息都需要更新规划)
+        if gpt_msg:
+            if gpt_msg.action_report:
+                confirm_vis = await self._render_confirm_action(
+                    gpt_msg.message_id, gpt_msg.action_report
+                )
+
+            if gpt_msg.receiver == HUMAN_ROLE:
+                foot_vis = ""
+
+                notice_view = await self.gen_one_final_notice_vis(gpt_msg)
+                if notice_view:
+                    foot_vis = foot_vis + "\n" + notice_view
+        ## 规划空间的footer信息
+        if foot_vis:
+            plans_vis.append(foot_vis)
+
+        if confirm_vis:
+            plans_vis.append(confirm_vis)
+
+        return "\n".join(plans_vis)
+
+    def _find_agent_root_node(
+        self, task_manager: TreeManager
+    ) -> Optional[TreeNodeData]:
+        if not task_manager:
+            return None
+        # 优先查找 item_type='agent' 的节点
+        for node in task_manager.node_map.values():
+            if (
+                node.content
+                and hasattr(node.content, "task_type")
+                and node.content.task_type == "agent"
+            ):
+                return node
+        # 降级策略：查找根节点
+        for node in task_manager.node_map.values():
+            if not node.parent_id:
+                return node
+        return None
+
+    def _is_hidden_node(self, task_node: TreeNodeData[AgentTaskContent]) -> bool:
+        """检查节点是否为 hidden 类型。"""
+        return (
+            task_node.content
+            and task_node.content.task_type == AgentTaskType.HIDDEN.value
+        )
+
+    def _get_effective_parent_id(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        task_manager: Optional[TreeManager],
+    ) -> Optional[str]:
+        """获取有效的父节点 ID。
+
+        如果直接父节点是 hidden 类型，则返回父节点的父节点（跳过 hidden 节点）。
+        """
+        if not task_manager:
+            return task_node.parent_id
+
+        # 如果没有父节点或者父节点不存在，根节点作为父节点
+        parent_id = task_node.parent_id
+        if not parent_id or task_node.parent_id == task_node.node_id:
+            return None
+
+        parent_task = task_manager.get_node(parent_id)
+
+        if not parent_task:
+            return None
+
+        # 如果父节点是 hidden，向上查找直到非 hidden 节点
+        if self._is_hidden_node(parent_task):
+            return parent_task.parent_id
+
+        return parent_id
+
+    async def _planning_vis_build(
+        self,
+        messages: Optional[List[GptsMessage]] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_task_nodes: Optional[List[TreeNodeData[AgentTaskContent]]] = None,
+        is_first_chunk: bool = False,
+        main_agent_name: Optional[str] = None,
+        actions_map: Optional[Dict[str, "ActionOutput"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        task_manager: Optional[TreeManager] = None,
+    ) -> Optional[str]:
+        """构建规划空间可视化数据。
+
+        优化：只发送变更的叶子节点，前端根据 uid 自动合并。
+        不再递归构建完整树结构，大幅降低数据传输量。
+        """
+        if main_agent_name not in senders_map:
+            logger.warning(
+                f"main_agent_name '{main_agent_name}' not found in senders_map：{senders_map}"
+            )
+        main_agent = senders_map[main_agent_name]
+        conv_id: str = main_agent.agent_context.conv_id
+
+        task_items_vis = []
+
+        # --- 新增逻辑：提取看板相关工具的输出 ---
+        kanban_todolist_content = None
+        target_actions = ["create_kanban", "submit_deliverable"]
+
+        # 检查流式消息
+        if stream_msg:
+            action_outs = stream_msg.get("action_report")
+            if action_outs:
+                for out in action_outs:
+                    if out.name in target_actions or out.action in target_actions:
+                        kanban_todolist_content = (
+                            out.simple_view or out.view or out.content
+                        )
+
+        # 检查新任务节点中的消息
+        if new_task_nodes and messages:
+            messages_map = {m.message_id: m for m in messages}
+            for node in new_task_nodes:
+                if node.content is None:
+                    continue
+                msg = messages_map.get(node.content.message_id)
+                if msg and msg.action_report:
+                    for out in msg.action_report:
+                        if out.name in target_actions or out.action in target_actions:
+                            kanban_todolist_content = (
+                                out.simple_view or out.view or out.content
+                            )
+
+        # 如果有看板更新，挂载到 Agent 根节点
+        if kanban_todolist_content and task_manager:
+            root_node = self._find_agent_root_node(task_manager)
+            if root_node:
+                # 创建一个虚拟的子节点来承载 TodoList，确保状态单一且能刷新
+                # 使用 UpdateType.ALL 确保每次都是全量替换，避免重复追加
+                todolist_item = AgentPlanItem(
+                    uid=root_node.node_id,
+                    parent_uid=root_node.parent_id,
+                    type=UpdateType.INCR.value,
+                    # title="Task Board",
+                    # description="Mission deliverables and status",
+                    markdown=kanban_todolist_content,
+                    status=Status.RUNNING.value,
+                )
+                task_items_vis.append(
+                    self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                        content=todolist_item.to_dict()
+                    )
+                )
+        # 处理 stream_msg 和 new_task_nodes
+        # stream_msg 作为虚拟节点，与 new_task_nodes 统一处理
+        if stream_msg or new_task_nodes:
+            nested_vis_list = await self._build_nested_task_nodes(
+                new_task_nodes or [],
+                messages,
+                senders_map,
+                task_manager,
+                stream_msg,
+            )
+            task_items_vis.extend(nested_vis_list)
+
+        if task_items_vis:
+            return "\n".join(task_items_vis)
+        else:
+            return None
+
+    async def gen_work_item(
+        self,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        is_first_chunk: bool = False,
+        senders_map: Optional[Dict] = None,
+    ) -> Optional[List[FolderNode]]:
+        status = Status.COMPLETE.value
+        conv_id = None
+        goal = None
+        cost = 0
+
+        ## 任务项，区分多Action和单Action， 如果多Action进行文件拆分，单Action模型和Action合并到一个文件
+
+        result: List[FolderNode] = []
+        update_type = UpdateType.INCR.value
+        thinkin_expand: bool = True
+        thinking: Optional[str] = None
+        content: Optional[str] = None
+
+        is_strem: bool = False
+        if gpt_msg:
+            if not gpt_msg.action_report:
+                return None
+            sender_name = gpt_msg.sender_name
+            action_outs: Optional[List[ActionOutput]] = gpt_msg.action_report
+
+            message_id = gpt_msg.message_id
+            start_time = gpt_msg.created_at
+            llm_model = gpt_msg.model_name
+            llm_avatar = gpt_msg.model_name
+            thinking = gpt_msg.thinking
+            content = gpt_msg.content
+            thinkin_expand = False
+            total_tokens = (
+                gpt_msg.metrics.llm_metrics.total_tokens
+                if gpt_msg.metrics and gpt_msg.metrics.llm_metrics
+                else 0
+            )
+            tokens = (
+                gpt_msg.metrics.llm_metrics.completion_tokens
+                if gpt_msg.metrics and gpt_msg.metrics.llm_metrics
+                else 0
+            )
+            update_type = UpdateType.ALL.value
+        elif stream_msg:
+            sender_name = stream_msg.get("sender")
+            action_outs: Optional[List[ActionOutput]] = stream_msg.get("action_report")
+
+            message_id = stream_msg.get("message_id")
+            start_time = stream_msg.get("start_time")
+            llm_model = stream_msg.get("model")
+            llm_avatar = stream_msg.get("llm_avatar")
+            tokens = stream_msg.get("tokens", 0)
+            total_tokens = stream_msg.get("total_tokens", 0)
+            thinking = stream_msg.get("thinking")
+            content = stream_msg.get("content")
+            if content:
+                thinkin_expand = False
+            if is_first_chunk:
+                update_type = UpdateType.ALL.value
+            else:
+                update_type = UpdateType.INCR.value
+        else:
+            return None
+
+        sender: ConversableAgent = senders_map.get(sender_name)
+        if not sender:
+            return None
+        ## 模型数据文件
+        llm_content_md = ""
+        if thinking:
+            thinking_content = DrskThinkingContent(
+                markdown=thinking,
+                uid=message_id + "_thinking",
+                type=update_type,
+                expand=thinkin_expand,
+            )
+            vis_thinking = DeriskThinking().sync_display(
+                content=thinking_content.to_dict(exclude_none=True)
+            )
+            llm_content_md = llm_content_md + "\n" + vis_thinking
+
+        if content:
+            llm_content = DrskTextContent(
+                markdown=content, uid=message_id + "_content", type=update_type
+            )
+            vis_content = DrskContent().sync_display(
+                content=llm_content.to_dict(exclude_none=True)
+            )
+            llm_content_md = llm_content_md + "\n" + vis_content
+
+        if llm_content_md:
+            # Handle potential None values for metrics
+            cost_val = 0
+            speed_val = 0.0
+
+            if gpt_msg and gpt_msg.metrics and gpt_msg.metrics.llm_metrics:
+                if (
+                    gpt_msg.metrics.llm_metrics.end_time_ms
+                    and gpt_msg.metrics.start_time_ms
+                ):
+                    cost_val = (
+                        gpt_msg.metrics.llm_metrics.end_time_ms
+                        - gpt_msg.metrics.start_time_ms
+                    ) // 1000
+                if gpt_msg.metrics.llm_metrics.speed_per_second is not None:
+                    speed_val = float(gpt_msg.metrics.llm_metrics.speed_per_second)
+
+            llm_vis_md = LLMSpace().sync_display(
+                content=LLMSpaceContent(
+                    uid=message_id + "_llm_",
+                    type=UpdateType.INCR.value,
+                    markdown=llm_content_md,
+                    llm_model=llm_model,
+                    llm_avatar=llm_avatar,
+                    token_use=tokens or 0,
+                    total_tokens=total_tokens or 0,
+                    start_time=start_time,
+                    cost=cost_val,
+                    token_speed=speed_val,
+                    link_url=f"{self._drsk_web_url}/api/derisk/thinking/detail?message_id={message_id}",
+                ).to_dict()
+            )
+
+            result.append(
+                FolderNode(
+                    uid=message_id + "_task_llm",
+                    type=UpdateType.INCR.value,
+                    item_type="file",
+                    conv_id=conv_id,
+                    tags=[goal] if goal else [],
+                    path=f"{sender.agent_context.conv_session_id}_{sender.agent_context.agent_app_code}",
+                    title=llm_model,
+                    avatar=llm_avatar,
+                    description=None,
+                    status=status,
+                    task_type="llm",
+                    start_time=start_time,
+                    cost=cost,
+                    markdown=llm_vis_md,
+                )
+            )
+
+        ## 行动区域，每个action out为一个单独文件
+        if action_outs:
+            for action_out in action_outs:
+                if (
+                    action_out.name == AgentAction.name
+                    or action_out.name == PlanningAction.name
+                ):
+                    continue
+                result.append(
+                    FolderNode(
+                        uid=action_out.action_id,
+                        type=UpdateType.INCR.value
+                        if action_out.stream
+                        else UpdateType.ALL.value,
+                        item_type="file",
+                        conv_id=conv_id,
+                        tags=[goal] if goal else [],
+                        path=f"{sender.agent_context.conv_session_id}_{sender.agent_context.agent_app_code}",
+                        title=action_out.action_name or action_out.action,
+                        description=action_out.thoughts or str(action_out.action_input),
+                        status=action_out.state,
+                        task_type=ACTION_TASK_MAP[action_out.name]
+                        if action_out.name in ACTION_TASK_MAP
+                        else "tool",
+                        start_time=action_out.start_time
+                        if action_out.start_time
+                        else None,
+                        cost=action_out.metrics.cost_seconds
+                        if action_out.metrics
+                        else 0,
+                        markdown=action_out.view or action_out.content,
+                    )
+                )
+
+        return result
+
+    async def _build_agent_folder(
+        self,
+        main_agent: Optional["ConversableAgent"],
+    ) -> FolderNode:
+        main_agent_folder = FolderNode(
+            uid=f"{main_agent.agent_context.conv_session_id}_{main_agent.agent_context.agent_app_code}",
+            type=UpdateType.INCR.value,
+            item_type="folder",
+            title=main_agent.name,
+            description=main_agent.desc,
+            avatar=main_agent.avatar,
+            items=[],
+        )
+        self._unpack_agent(main_agent, main_agent_folder)
+        return main_agent_folder
+
+    async def _running_vis_build(
+        self,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        is_first_chunk: bool = False,
+        is_first_push: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        main_agent_name: Optional[str] = None,
+        running_agents: Optional[List[str]] = None,
+    ):
+        main_agent = senders_map[main_agent_name]
+        conv_session_id = main_agent.agent_context.conv_session_id
+        # 不要因为有 gpt_msg 但没有 action_report 就返回 None
+        # LLM 流式输出可能没有 action_report，但仍然需要显示内容
+        # if gpt_msg and not gpt_msg.action_report and not is_first_push:
+        #     return None
+
+        work_items = await self.gen_work_item(
+            gpt_msg=gpt_msg,
+            stream_msg=stream_msg,
+            is_first_chunk=is_first_chunk,
+            senders_map=senders_map,
+        )
+        main_agent_folder = None
+        if is_first_push:
+            logger.info("构建vis_window2空间，进行首次资源管理器刷新!")
+            main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+
+        work_space_content = None
+        if work_items and main_agent_folder:
+            work_space_content = WorkSpaceContent(
+                uid=conv_session_id,
+                type=UpdateType.INCR.value,
+                running_agents=running_agents,
+                explorer=self.vis_inst(AgentFolder.vis_tag()).sync_display(
+                    content=main_agent_folder.to_dict()
+                ),
+                items=work_items,
+            )
+        elif work_items:
+            work_space_content = WorkSpaceContent(
+                uid=conv_session_id, type=UpdateType.INCR.value, items=work_items
+            )
+        elif main_agent_folder:
+            work_space_content = WorkSpaceContent(
+                uid=conv_session_id,
+                type=UpdateType.INCR.value,
+                running_agents=running_agents,
+                explorer=self.vis_inst(AgentFolder.vis_tag()).sync_display(
+                    content=main_agent_folder.to_dict()
+                ),
+                items=[],
+            )
+
+        if work_space_content:
+            return self.vis_inst(WorkSpace.vis_tag()).sync_display(
+                content=work_space_content.to_dict()
+            )
+        else:
+            return None
+
+    def _act_out_2_plan(
+        self,
+        action_out: ActionOutput,
+        layer_count: int,
+    ):
+        # 过滤看板相关动作，这些内容会通过 _find_kanban_for_node 单独挂载到对应节点下
+        target_actions = ["create_kanban", "submit_deliverable"]
+        if action_out.action in target_actions or action_out.name in target_actions:
+            return None
+        else:
+            title = action_out.action
+            if action_out.name in [AgentStart.name]:
+                title = action_out.name
+            return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+                content=AgentPlanItem(
+                    uid=action_out.action_id,
+                    type=UpdateType.INCR.value,
+                    item_type="task",
+                    task_type=ACTION_TASK_MAP[action_out.name]
+                    if action_out.name in ACTION_TASK_MAP
+                    else "tool",
+                    title=title,
+                    description=str(action_out.action_input)
+                    if action_out.action_input
+                    else None,
+                    status=action_out.state,
+                    start_time=action_out.start_time,
+                    layer_count=layer_count,
+                    markdown=action_out.simple_view
+                    or action_out.view
+                    or action_out.content
+                    if action_out.terminate
+                    else None,
+                    cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
+                ).to_dict()
+            )
+
+    def _collect_kanban_for_agents(
+        self,
+        task_node: TreeNodeData[AgentTaskContent],
+        task_manager: TreeManager,
+        messages_map: Optional[Dict[str, GptsMessage]] = None,
+    ) -> Dict[str, Tuple[int, str]]:
+        """预收集看板信息，返回 {agent_node_id: (position, kanban_content)}。
+
+        position 是第一次发现看板的位置（第几个子节点下）。
+        content 是最后一个看板的内容（支持多次更新）。
+        遇到子 Agent 时停止遍历（属于另一个 Agent 的看板逻辑）。
+        """
+        # 结构：{agent_id: {"position": int, "content": str}}
+        result: Dict[str, Dict[str, any]] = {}
+
+        if not messages_map:
+            return {}
+
+        target_actions = ["create_kanban", "submit_deliverable"]
+
+        def collect_from_agent(agent_node: TreeNodeData[AgentTaskContent]):
+            """从 Agent 节点开始遍历其子节点，收集看板信息。"""
+            agent_id = agent_node.node_id
+
+            for position, child_id in enumerate(agent_node.child_ids):
+                child = task_manager.get_node(child_id)
+                if not child:
+                    continue
+
+                # 跳过子 Agent（属于另一个 Agent 的看板逻辑）
+                if (
+                    child.content
+                    and child.content.task_type == AgentTaskType.AGENT.value
+                ):
+                    continue
+
+                # 在当前子树中搜索看板
+                search_in_subtree(child, agent_id, position, result)
+
+        def search_in_subtree(
+            node: TreeNodeData[AgentTaskContent],
+            agent_id: str,
+            position: int,
+            result: Dict[str, Dict[str, any]],
+        ):
+            """在非 Agent 子树中搜索看板，position 记录相对于 Agent 子节点的位置。
+
+            遇到看板就更新 content（保留最后一个），但 position 只记录第一次的。
+            """
+            if not node.content:
+                # 继续递归子节点（跳过子 Agent）
+                for child_id in node.child_ids:
+                    child = task_manager.get_node(child_id)
+                    if (
+                        child
+                        and child.content
+                        and child.content.task_type == AgentTaskType.AGENT.value
+                    ):
+                        continue
+                    if child:
+                        search_in_subtree(child, agent_id, position, result)
+                return
+
+            # 检查当前节点是否有看板
+            message = messages_map.get(node.content.message_id)
+            if message and message.action_report:
+                for out in message.action_report:
+                    if out.name in target_actions or out.action in target_actions:
+                        kanban_content = out.simple_view or out.view or out.content
+                        # 第一次发现：记录 position 和 content
+                        # 后续发现：只更新 content（保留最后一个）
+                        if agent_id not in result:
+                            result[agent_id] = {
+                                "position": position,
+                                "content": kanban_content,
+                            }
+                        else:
+                            result[agent_id]["content"] = kanban_content
+                        break
+
+            # 继续递归子节点（跳过子 Agent）
+            for child_id in node.child_ids:
+                child = task_manager.get_node(child_id)
+                if (
+                    child
+                    and child.content
+                    and child.content.task_type == AgentTaskType.AGENT.value
+                ):
+                    continue
+                if child:
+                    search_in_subtree(child, agent_id, position, result)
+
+        # 从根节点开始，找到每个 Agent 及其看板
+        def traverse_for_agents(node: TreeNodeData[AgentTaskContent]):
+            """遍历树，对每个 Agent 节点收集看板。"""
+            if not node.content:
+                for child_id in node.child_ids:
+                    child = task_manager.get_node(child_id)
+                    if child:
+                        traverse_for_agents(child)
+                return
+
+            if node.content.task_type == AgentTaskType.AGENT.value:
+                # 处理这个 Agent
+                collect_from_agent(node)
+
+            # 继续遍历子节点
+            for child_id in node.child_ids:
+                child = task_manager.get_node(child_id)
+                if child:
+                    traverse_for_agents(child)
+
+        traverse_for_agents(task_node)
+
+        # 转换为最终格式
+        return {
+            agent_id: (info["position"], info["content"])
+            for agent_id, info in result.items()
+        }
+
+    async def _unpack_task_space(
+        self,
+        task_space: TreeNodeData[AgentTaskContent],
+        task_manager: TreeManager,
+        actions_map: Dict[str, "ActionOutput"],
+        messages_map: Optional[Dict[str, GptsMessage]] = None,
+        agent_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        kanban_mount_map: Optional[Dict[str, Tuple[int, str]]] = None,
+    ) -> Optional[str]:
+        """递归解包任务空间，返回当前节点的渲染结果。
+
+        核心逻辑：
+        1. TASK 类型叶子节点：直接返回 _gen_plan_items 结果（不包装）
+        2. 非 TASK 类型节点：包装成 AgentPlanItem，子节点作为 markdown
+        3. Agent 节点：根据 kanban_mount_map 在指定位置挂载看板内容
+        """
+        if kanban_mount_map is None:
+            kanban_mount_map = {}
+
+        is_task = (
+            task_space.content
+            and task_space.content.task_type == AgentTaskType.TASK.value
+        )
+        is_agent = (
+            task_space.content
+            and task_space.content.task_type == AgentTaskType.AGENT.value
+        )
+        message = (
+            messages_map.get(task_space.content.message_id)
+            if messages_map and task_space.content
+            else None
+        )
+
+        # 1. 递归处理所有子节点
+        children_vis_list: List[str] = []
+
+        for child_id in task_space.child_ids:
+            child: TreeNodeData[AgentTaskContent] = task_manager.get_node(child_id)
+            if child:
+                child_vis = await self._unpack_task_space(
+                    child,
+                    task_manager,
+                    actions_map,
+                    messages_map,
+                    agent_map,
+                    kanban_mount_map,
+                )
+                if child_vis:
+                    children_vis_list.append(child_vis)
+
+        # 2. 如果是 Agent 节点，挂载看板到指定位置
+        if is_agent and task_space.node_id in kanban_mount_map:
+            position, kanban_content = kanban_mount_map[task_space.node_id]
+            # position 表示在第几个子节点位置插入看板
+            if position <= 0:
+                children_vis_list.insert(0, kanban_content)
+            elif position >= len(children_vis_list):
+                children_vis_list.append(kanban_content)
+            else:
+                children_vis_list.insert(position, kanban_content)
+
+        # 3. TASK 类型处理
+        if is_task:
+            node_content = ""
+            if message:
+                node_content = (
+                    await self._gen_plan_items(
+                        gpt_msg=message,
+                        layer_count=task_space.layer_count + 1,
+                        senders_map=agent_map,
+                    )
+                    or ""
+                )
+
+            # TASK 叶子节点：直接返回内容
+            if not children_vis_list:
+                return node_content
+
+            # TASK 有子节点：内容 + 子节点
+            markdown = "\n".join([node_content] + children_vis_list)
+        else:
+            markdown = "\n".join(children_vis_list)
+
+        # 4. 非 TASK 节点构建 AgentPlanItem
+        agent = (
+            agent_map.get(task_space.content.agent_name)
+            if task_space.content and agent_map
+            else None
+        )
+
+        plan_item = AgentPlanItem(
+            uid=task_space.node_id,
+            parent_uid=task_space.parent_id,
+            type=UpdateType.INCR.value,
+            item_type=task_space.content.task_type
+            if task_space.content
+            else AgentTaskType.PLAN.value,
+            title=task_space.name,
+            description=task_space.description,
+            status=task_space.state,
+            agent_name=agent.name if agent else None,
+            agent_avatar=agent.avatar if agent else None,
+            start_time=task_space.created_at,
+            layer_count=task_space.layer_count,
+            cost=task_space.content.cost if task_space.content else 0,
+            markdown=markdown,
+        )
+        return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+            content=plan_item.to_dict()
+        )
+
+    async def _planning_vis_all(
+        self,
+        messages_map: Dict[str, "GptsMessage"],
+        actions_map: Dict[str, "ActionOutput"],
+        main_agent: Optional["ConversableAgent"] = None,
+        task_manager: Optional[TreeManager] = None,
+        input_message_id: Optional[str] = None,
+        output_message_id: Optional[str] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ):
+        conv_id: str = main_agent.agent_context.conv_id
+        user_message: Optional[GptsMessage] = messages_map.get(input_message_id)
+        if not user_message:
+            logger.warning("_planning_vis_all eroor, not have user in message!")
+
+        task_items_vis = []
+
+        ## 处理 任务推进显示
+        root_task_space = task_manager.get_node(user_message.goal_id)
+
+        # 预收集看板挂载信息 {agent_id: (position, content)}
+        kanban_mount_map = self._collect_kanban_for_agents(
+            root_task_space, task_manager, messages_map
+        )
+
+        # 递归构建 vis，传入看板挂载信息
+        root_vis = await self._unpack_task_space(
+            root_task_space,
+            task_manager,
+            actions_map,
+            messages_map,
+            senders_map,
+            kanban_mount_map,
+        )
+
+        if root_vis:
+            task_items_vis.append(root_vis)
+
+        foot_vis = ""
+        output_message: Optional[GptsMessage] = messages_map.get(output_message_id)
+        if output_message:
+            logger.info(f"output message is {output_message.content}")
+
+        return "\n".join(task_items_vis) + "\n" + foot_vis
+
+    async def _running_vis_all(
+        self,
+        messages: List["GptsMessage"],
+        main_agent_name: Optional[str] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ):
+        main_agent = senders_map[main_agent_name]
+        conv_session_id = main_agent.agent_context.conv_session_id
+        main_agent_folder = await self._build_agent_folder(main_agent)
+
+        work_items = []
+        for item in messages:
+            work_item = await self.gen_work_item(
+                gpt_msg=item,
+                stream_msg=None,
+                is_first_chunk=True,
+                senders_map=senders_map,
+            )
+            if work_item:
+                work_items.extend(work_item)
+
+        work_space_content = WorkSpaceContent(
+            uid=conv_session_id,
+            type=UpdateType.INCR.value,
+            running_agents=[],
+            explorer=self.vis_inst(AgentFolder.vis_tag()).sync_display(
+                content=main_agent_folder.to_dict()
+            ),
+            items=work_items,
+        )
+
+        return self.vis_inst(WorkSpace.vis_tag()).sync_display(
+            content=work_space_content.to_dict()
+        )
+
+    async def _render_terminate_files(
+        self,
+        messages: List["GptsMessage"],
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        """渲染terminate时交付的文件列表.
+
+        从messages中查找terminate action，并提取其中的文件信息，
+        使用d-attach-list组件渲染文件列表。
+
+        Returns:
+            d-attach-list组件的vis字符串，如果没有文件则返回None
+        """
+        from derisk.agent.expand.actions.terminate_action import Terminate
+
+        file_contents = []
+
+        for msg in messages:
+            if not msg.action_report:
+                continue
+            for action_out in msg.action_report:
+                # 检查是否是terminate action
+                if action_out.name != Terminate.name:
+                    continue
+
+                # 从output_files获取文件信息
+                output_files = action_out.output_files or []
+                if not output_files:
+                    continue
+
+                for file_info in output_files:
+                    if isinstance(file_info, dict):
+                        # 构建VisAttachContent
+                        attach_content = VisAttachContent(
+                            uid=f"file_{file_info.get('file_id', 'unknown')}",
+                            type=UpdateType.ALL.value,
+                            file_id=file_info.get("file_id", ""),
+                            file_name=file_info.get("file_name", "未知文件"),
+                            file_type=file_info.get("file_type", "unknown"),
+                            file_size=file_info.get("file_size", 0),
+                            oss_url=file_info.get("oss_url"),
+                            preview_url=file_info.get("preview_url"),
+                            download_url=file_info.get("download_url"),
+                            mime_type=file_info.get("mime_type"),
+                            created_at=file_info.get("created_at"),
+                            task_id=file_info.get("task_id"),
+                            description=file_info.get("description"),
+                        )
+                        file_contents.append(attach_content)
+
+        if not file_contents:
+            return None
+
+        # 构建VisAttachListContent
+        total_size = sum(f.file_size for f in file_contents)
+
+        attach_list_content = VisAttachListContent(
+            uid=f"terminate_files_{messages[0].conv_id if messages else 'unknown'}",
+            type=UpdateType.ALL.value,
+            title="交付文件",
+            description=f"共 {len(file_contents)} 个文件，总大小 {self._format_file_size(total_size)}",
+            files=file_contents,
+            total_count=len(file_contents),
+            total_size=total_size,
+            show_batch_download=True,
+        )
+
+        # 渲染d-attach-list组件
+        return self.vis_inst(DeriskAttachList.vis_tag()).sync_display(
+            content=attach_list_content.to_dict()
+        )
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        """格式化文件大小显示."""
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    async def final_view(
+        self,
+        messages: List["GptsMessage"],
+        plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs,
+    ):
+        if not messages:
+            return None
+        logger.info(f"final_view:{messages[0].conv_id}")
+        main_agent_name = kwargs.get("main_agent_name")
+
+        messages_map = kwargs.get("messages_map")
+        actions_map = kwargs.get("actions_map")
+        task_manager = kwargs.get("task_manager")
+        input_message_id = kwargs.get("input_message_id")
+        output_message_id = kwargs.get("output_message_id")
+
+        main_agent = senders_map.get(main_agent_name)
+        if not main_agent:
+            logger.warning(f"can't find main agent [{main_agent_name}] in sender's map")
+
+        all_plans_view = await self._planning_vis_all(
+            messages_map=messages_map,
+            actions_map=actions_map,
+            main_agent=main_agent,
+            task_manager=task_manager,
+            input_message_id=input_message_id,
+            output_message_id=output_message_id,
+            senders_map=senders_map,
+        )
+
+        all_running_view = await self._running_vis_all(
+            messages=messages, main_agent_name=main_agent_name, senders_map=senders_map
+        )
+
+        # 渲染terminate文件交付
+        files_view = await self._render_terminate_files(messages, senders_map)
+
+        # 如果有文件交付，添加到running_window
+        if files_view and all_running_view:
+            all_running_view = all_running_view + "\n" + files_view
+        elif files_view:
+            all_running_view = files_view
+
+        all_vis = json.dumps(
+            {"planning_window": all_plans_view, "running_window": all_running_view},
+            ensure_ascii=False,
+        )
+        return all_vis

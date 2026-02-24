@@ -1,25 +1,33 @@
 import json
-from typing import Optional, List
+import logging
+import time
+from datetime import datetime
+from typing import Optional, List, Any
 
 from pydantic import BaseModel, Field
 
-from derisk.agent import (
-    Action,
-    AgentResource,
+from derisk._private.pydantic import model_to_dict
+from ..agent import (
     ActionOutput,
     AgentMessage,
-    ResourceType,
-    Resource,
-    ConversableAgent,
+    AgentContext,
+    AgentMemory,
 )
-from derisk.agent.core.reasoning.reasoning_engine import REASONING_LOGGER as LOGGER
-from derisk.agent.resource import ResourcePack
-from derisk.context.manager import Manager
+from ..action.base import AskUserType, Action
+from .reasoning_engine import REASONING_LOGGER as LOGGER
+from ..schema import ActionInferenceMetrics, Status
+from ...resource import ResourcePack
+from derisk.context.window import ContextWindow
 from derisk.util.tracer import root_tracer
 from derisk.vis import SystemVisTag
+from derisk.vis.schema import VisStepContent
+
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource, \
     KnowledgeActionOperation
+from ... import GptsMemory, AgentResource, ConversableAgent, ResourceType, Resource
 from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AgentActionInput(BaseModel):
@@ -33,17 +41,50 @@ class AgentActionInput(BaseModel):
         ...,
         description="Instructions or information sent to the agent.",
     )
-    thought: str = Field(..., description="Summary of thoughts to the user")
-    extra_info: dict = Field(
+    thought: Optional[str] = Field(None, description="Summary of thoughts to the user")
+    extra_info: Optional[dict] = Field(
         None,
         description="Additional metadata or contextual data supporting the agent's action.",
     )
 
+    def to_dict(self):
+        return model_to_dict(self)
+
 
 class AgentAction(Action[AgentActionInput]):
+    name = "Agent"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.action_view_tag = SystemVisTag.VisPlans.value
+
+    async def _action_init_push(self, gpts_memory: GptsMemory, agent: "ConversableAgent",  message: AgentMessage,
+                                agent_context: AgentContext, start_time, content:Optional[str] = None):
+        init_action_outs = [ActionOutput(
+            name=self.name,
+            content=content or f"{agent.name}Agent启动中",
+            start_time=start_time,
+            action_id=self.action_uid,
+            thoughts=self.action_input.thought,
+            action=self.action_input.agent_name,
+            action_input=self.action_input.to_dict(),
+            state=Status.RUNNING.value,
+        )]
+
+        ## 展示工具任务基础信息
+        await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
+            "uid": message.message_id,
+            "type": "all",
+            "sender": agent.name or agent.role,
+            "goal_id": message.goal_id,
+            "sender_role": agent.role,
+            "message_id": message.message_id,
+            "conv_id": agent_context.conv_id,
+            "conv_session_uid": agent_context.conv_session_id,
+            "app_code": agent_context.gpts_app_code,
+            "start_time": start_time,
+            "action_report": init_action_outs
+        }, )
 
     async def run(
         self,
@@ -57,93 +98,127 @@ class AgentAction(Action[AgentActionInput]):
         action_input = self.action_input or AgentActionInput.model_validate_json(
             json_data=ai_message
         )
-        sender: ConversableAgent = kwargs["agent"]
-        recipient = next(
-            (agent for agent in sender.agents if agent.name == action_input.agent_name),
-            None,
-        )
-        if not recipient:
-            raise RuntimeError("recipient can't by empty")
+        metrics = ActionInferenceMetrics()
+        metrics.start_time_ms = time.time_ns() // 1_000_000
+        try:
 
-        received_message = (
-            kwargs["message"] if "message" in kwargs else AgentMessage.init_new()
-        )
-        # goal_id = uuid.uuid4().hex
-        message = await sender.init_reply_message(received_message=received_message)
-        message.rounds = await sender.memory.gpts_memory.next_message_rounds(
-            sender.not_null_agent_context.conv_id
-        )
-        message.show_message = False
-        message.user_prompt = received_message.user_prompt
-        message.system_prompt = received_message.system_prompt
-        message.content = (
-            action_input.content
-            + "\n\n"
-            + json.dumps(action_input.extra_info, ensure_ascii=False)
-        )
-        # message.goal_id = kwargs["action_id"] if "action_id" in kwargs else ""
-        # message.current_goal = action_input.content
-        # 合并context 且action_input.extra_info优先级更高
-        message.context = (message.context or {}) | (action_input.extra_info or {})
-
-        # await sender.memory.gpts_memory.append_plans(conv_id=sender.agent_context.conv_id, plans=[GptsPlan(
-        #     conv_id=sender.agent_context.conv_id,
-        #     conv_round=message.rounds,
-        #     task_parent=get_parent_action_id(action_id),
-        #     task_uid=goal_id,
-        #     sub_task_id=action_id,
-        #     sub_task_num=message.rounds,
-        #     sub_task_title="",
-        #     sub_task_content=message.content,
-        #     sub_task_agent=recipient.name,
-        # )])
-
-        LOGGER.info(
-            f"[ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]"
-        )
-        ## 构建一个独立的对话消息轮次(不依赖对话循环)
-        await sender.send(message=message, recipient=recipient, request_reply=False)
-
-        with Manager.new_window():
-            answer: AgentMessage = await recipient.generate_reply(
-                received_message=message,
-                sender=sender,
-                recipient=recipient,
-                is_retry_chat=kwargs.get("is_retry_chat", False),
-                require_approval=kwargs.get("require_approval", True),
+            action_id = kwargs.get("action_id", None)
+            sender: ConversableAgent = kwargs["agent"]
+            recipient = next(
+                (agent for agent in sender.agents if
+                 agent.name == action_input.agent_name or agent.agent_context.agent_app_code == action_input.agent_name),
+                None,
             )
-            await recipient.send(message=answer, recipient=sender, request_reply=False)
-            ask_user = True if answer and answer.action_report and answer.action_report.ask_user else False
+            if not recipient:
+                raise RuntimeError("recipient can't be empty")
+
+            received_message = (
+                kwargs["message"] if "message" in kwargs else AgentMessage.init_new()
+            )
+            start_time = datetime.now()
+            memory: AgentMemory = kwargs.get('memory')
+            agent: ConversableAgent = kwargs.get('agent')
+            agent_context: AgentContext = kwargs.get('agent_context')
+            message_id: str = kwargs.get('message_id')
+            self._render = kwargs.get("render_protocol") or self._render
+            current_message: AgentMessage = kwargs.get('current_message')
+
+            # 初始化AgentAction的展示
+            await self._action_init_push(gpts_memory=memory.gpts_memory, agent=agent, message=current_message,
+                                         agent_context=agent_context, start_time=start_time, content=action_input.content)
+
+            #  构建转发给Agent的新消息
+            message = AgentMessage.init_new(
+                content=(
+                    action_input.content
+                    + "\n\n"
+                    + json.dumps(action_input.extra_info, ensure_ascii=False)
+                ),
+                context=(received_message.context or {}) | (action_input.extra_info or {}),
+                rounds=await sender.memory.gpts_memory.next_message_rounds(sender.not_null_agent_context.conv_id),
+                name=sender.name,
+                role=sender.role,
+                show_message=False,
+                observation=action_input.content,
+                current_goal=action_input.content,
+                goal_id=received_message.goal_id,
+            )
+            # message.goal_id = kwargs["action_id"] if "action_id" in kwargs else ""
+            # message.current_goal = action_input.content
+            # 合并context 且action_input.extra_info优先级更高
+            message.message_id = self.action_uid
+            message.context = (message.context or {}) | (action_input.extra_info or {})
+
+            LOGGER.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> [{recipient.name}]")
+
+            await ContextWindow.create(agent=recipient, task_id=message.message_id)
+            answer: AgentMessage = await sender.send(message=message, recipient=recipient, request_reply=True,
+                                                     request_sender_reply=False)
+
+            from derisk.agent.core.scheduled_agent import ScheduledAgent
+            if isinstance(recipient, ScheduledAgent) and recipient.scheduler and recipient.scheduler.running():
+                # ScheduledAgent由scheduler驱动，其他Agent由send/receive/generate_reply的loop驱动
+                # ScheduledAgent receive后直接就return了，再异步act
+                # 因此这里不能直接return，而需要确保所有异步act都执行完成了
+                await recipient.scheduler.schedule()
+
+            metrics.end_time_ms = time.time_ns() // 1_000_000
+            ask_user = True if answer and answer.action_report and any(
+                [act_out.ask_user for act_out in answer.action_report]) else False
+            ## 终止状态要排除正常返回的报告Agent
+            # terminate = True if answer and answer.action_report and any([act_out.terminate for act_out in answer.action_report]) else False
+            ask_type = AskUserType.NESTED_AGENT if ask_user else None
+            LOGGER.info(f"[ACTION]---------->   Agent Action [{sender.name}] --> answer: {answer}")
             return ActionOutput.from_dict({
+                "action_id": action_id or self.action_uid,
                 "is_exe_success": True,
+                "thoughts": action_input.thought,
                 "action": action_input.agent_name,
-                "action_name": self.name,
+                "name": self.name,
+                "state": Status.TODO.value,
                 "action_input": action_input.content,
-                "content": answer.message_id,
-                "observations": answer.message_id,
+                "content": answer.message_id or answer.content if answer else "Not Have Answer！",
+                "observations": answer.message_id or answer.content if answer else "Not Have Answer！",
                 "ask_user": ask_user,
+                "ask_type": ask_type,
+                "metrics": metrics,
+            })
+
+        except Exception as e:
+            logger.exception(f"Agent Action Run Failed!{str(e)}")
+            metrics.end_time_ms = time.time_ns() // 1_000_000
+            return ActionOutput.from_dict({
+                "action_id": self.action_uid,
+                "is_exe_success": False,
+                "thoughts": action_input.thought,
+                "action": action_input.agent_name,
+                "name": self.name,
+                "state": Status.FAILED.value,
+                "action_input": action_input.to_dict(),
+                "content": f"Agent启动异常！{str(e)}",
+                "metrics": metrics,
             })
 
 
 class KnowledgeRetrieveActionInput(BaseModel):
     query: str = Field(..., description="query to retrieve")
-    knowledge_ids: Optional[List[str]] = Field(
-        None, description="selected knowledge ids"
-    )
-    func: Optional[str] = Field("search", description="search(语义搜索知识) | read(读取文档内容) | doc_ls(查文档大纲目录) | ls(查阅知识库目录)")
+    knowledge_ids: Optional[List[str]] = Field(None, description="selected knowledge ids")
+    func: Optional[str] = Field("search",
+                                description="search(语义搜索知识) | read(读取文档内容) | doc_ls(查文档大纲目录) | ls(查阅知识库目录)")
     doc_uuids: Optional[List[str]] = Field(
         None, description="selected doc uuids"
     )
     header: Optional[str] = Field("header", description="具体文档大纲标题")
-    intention: Optional[str] = Field("", description="Summary of intention to the user")
-    thought: Optional[str] = Field("", description="Summary of thoughts to the user")
-    # space_ids: list[str] = Field(..., description="knowledge space id list")
+    intention: Optional[str] = Field("", description="intention to the user")
+    thought: Optional[str] = Field("", description="thoughts to the user")
 
 
 class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
+    name = "KnowledgeRetrieve"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.action_view_tag = SystemVisTag.VisPlans.value
+        self.action_view_tag: str = SystemVisTag.VisTool.value
 
     @property
     def resource_need(self) -> Optional[ResourceType]:
@@ -164,16 +239,15 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
 
         return _unpack(self.resource)
 
-
     async def _retrieve_doc_directory(
-            self,
-            resource: Optional[AgentResource] = None,
-            agent: Optional[ConversableAgent] = None,
+        self,
+        resource: Optional[KnowledgePackSearchResource] = None,
+        agent: Optional[ConversableAgent] = None,
     ) -> ActionOutput:
         output_dict = {
             "is_exe_success": True,
             "action": "查阅文档目录大纲",
-            "action_name": self.name,
+            "action_name": self.action_input.intention,
             "action_input": self.action_input.query,
         }
         try:
@@ -190,7 +264,6 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 else "未找到相关目录知识"
             )
             output_dict["content"] = summary
-            output_dict["view"] = summary
             output_dict["resource_value"] = (
                 summary_res.dict()
                 if isinstance(summary_res, KnowledgeSearchResponse)
@@ -211,15 +284,14 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
         action_output = ActionOutput.from_dict(output_dict)
         return action_output
 
-
     async def _retrieve_book_directory(self,
-            resource: Optional[AgentResource] = None,
-            agent: Optional[ConversableAgent] = None,
-    ) -> ActionOutput:
+                                       resource: Optional[KnowledgePackSearchResource] = None,
+                                       agent: Optional[ConversableAgent] = None,
+                                       ) -> ActionOutput:
         output_dict = {
             "is_exe_success": True,
             "action": "检索语雀知识库目录",
-            "action_name": self.name,
+            "action_name": self.action_input.intention,
             "action_input": self.action_input.query,
         }
         try:
@@ -236,7 +308,6 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 else "未找到相关语雀知识库目录知识"
             )
             output_dict["content"] = summary
-            output_dict["view"] = summary
             output_dict["resource_value"] = (
                 summary_res.dict()
                 if isinstance(summary_res, KnowledgeSearchResponse)
@@ -257,15 +328,14 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
         action_output = ActionOutput.from_dict(output_dict)
         return action_output
 
-
     async def _read_document(self,
-            resource: Optional[AgentResource] = None,
-            agent: Optional[ConversableAgent] = None,
-    ) -> ActionOutput:
+                             resource: Optional[KnowledgePackSearchResource] = None,
+                             agent: Optional[ConversableAgent] = None,
+                             ) -> ActionOutput:
         output_dict = {
             "is_exe_success": True,
             "action": "读取文档内容",
-            "action_name": self.name,
+            "action_name": self.action_input.intention,
             "action_input": self.action_input.query,
         }
         try:
@@ -283,7 +353,6 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 else "未找到相关单个文档知识"
             )
             output_dict["content"] = summary
-            output_dict["view"] = summary
             output_dict["resource_value"] = (
                 summary_res.dict()
                 if isinstance(summary_res, KnowledgeSearchResponse)
@@ -304,15 +373,15 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
         action_output = ActionOutput.from_dict(output_dict)
         return action_output
 
-
     async def _retrieve_knowledge_summary(self,
-            resource: Optional[AgentResource] = None,
-            agent: Optional[ConversableAgent] = None,
-    )-> ActionOutput:
+                                          resource: Optional[KnowledgePackSearchResource] = None,
+                                          agent: Optional[ConversableAgent] = None,
+                                          ) -> ActionOutput:
         output_dict = {
             "is_exe_success": True,
             "action": "知识检索",
-            "action_name": self.name,
+            "action_name": self.action_input.intention,
+            "thoughts": self.action_input.thought,
             "action_input": self.action_input.query,
         }
         try:
@@ -328,7 +397,6 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
                 else "未找到相关知识"
             )
             output_dict["content"] = summary
-            output_dict["view"] = summary
             output_dict["resource_value"] = (
                 summary_res.dict()
                 if isinstance(summary_res, KnowledgeSearchResponse)
@@ -349,7 +417,38 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
         action_output = ActionOutput.from_dict(output_dict)
         return action_output
 
+    async def push_action_init_msg(self, gpts_memory, agent, agent_context, message_id,
+                                   start_time: Optional[Any] = None):
 
+        init_action_report = ActionOutput(
+            name=self.name,
+            content='正在检索知识..',
+            view=await self.gen_view(message_id=message_id, tool_call_id=self.action_uid,
+                                     tool_name=self.action_input.intention,
+                                     args=self.action_input.query,
+                                     status=Status.RUNNING.value,
+                                     start_time=start_time),
+            action_id=self.action_uid,
+            action=self.action_input.intention,
+            action_name=self.action_input.thought,
+            action_input=self.action_input.query,
+            state=Status.RUNNING.value,
+        )
+
+        ## 展示工具任务基础信息
+        await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
+            "uid": message_id,
+            "type": "all",
+            "sender": agent.name or agent.role,
+            "sender_role": agent.role,
+            "message_id": message_id,
+            "avatar": agent.avatar,
+            "conv_id": agent_context.conv_id,
+            "conv_session_uid": agent_context.conv_session_id,
+            "app_code": agent_context.gpts_app_code,
+            "start_time": start_time,
+            "action_report": [init_action_report]
+        }, )
 
     async def run(
         self,
@@ -359,40 +458,148 @@ class KnowledgeRetrieveAction(Action[KnowledgeRetrieveActionInput]):
         **kwargs,
     ) -> ActionOutput:
         """Perform the action."""
+        logger.info(f"{self.name} action run!")
         agent: Optional[ConversableAgent] = kwargs.get("agent", None)
-        with root_tracer.start_span(
-            "agent.resource.knowledge_retrieve",
-            metadata={
-                "message_id": kwargs.get("message_id"),
-                "rag_span_type": "knowledge_retrieve",
-                "conv_id": agent.agent_context.conv_id if agent else None,
-                "app_code": agent.agent_context.gpts_app_code if agent else None,
-            },
-        ) as span:
-            resource = self._inited_resource()
-            if not resource:
-                raise RuntimeError("knowledge resource is empty or not init")
-            if self.action_input.func == KnowledgeActionOperation.DOC_LS.action:
-                # func1: 查文档目录大纲
-                return await self._retrieve_doc_directory(
-                    resource=resource, agent=agent
-                )
-            elif self.action_input.func == KnowledgeActionOperation.LS.action:
-                # func2: 查知识库目录
-                return await self._retrieve_book_directory(
-                    resource=resource, agent=agent
-                )
-            elif self.action_input.func ==KnowledgeActionOperation.READ.action:
-                # func3: 检索文档内容
-                return await self._read_document(
-                    resource=resource, agent=agent
-                )
-            else:
-                # func4: 默认的检索所有知识
-                return await self._retrieve_knowledge_summary(
-                    resource=resource, agent=agent
-                )
+        start_time = datetime.now()
+        metrics = ActionInferenceMetrics()
+        metrics.start_time_ms = time.time_ns() // 1_000_000
+        try:
+            with root_tracer.start_span(
+                "agent.resource.knowledge_retrieve",
+                metadata={
+                    "message_id": kwargs.get("message_id"),
+                    "rag_span_type": "knowledge_retrieve",
+                    "conv_id": agent.agent_context.conv_id if agent else None,
+                    "app_code": agent.agent_context.gpts_app_code if agent else None,
+                },
+            ) as span:
+                agent_context: AgentContext = kwargs.get('agent_context')
+                action_id = kwargs.get("action_id", None)
+                message_id = kwargs.get("message_id", None)
+                memory: AgentMemory = kwargs.get('memory')
+                resource_map: dict[str, List[Resource]] = kwargs.get("resource_map")
+                # resource: Resource = kwargs.get("resource")
 
+                self._render = kwargs.get("render_protocol") or self._render
+                ## 推送工具执行初始化消息
+                await self.push_action_init_msg(gpts_memory=memory.gpts_memory, agent=agent,
+                                                agent_context=agent_context,
+                                                message_id=message_id, start_time=start_time)
+
+                if resource_map:
+                    resource_lst = resource_map.get(KnowledgePackSearchResource.type())
+                    resource = resource_lst[0] if resource_lst else None
+                else:
+                    resource = self._inited_resource()
+                if not resource:
+                    raise RuntimeError("knowledge resource is empty or not init")
+                if self.action_input.func == KnowledgeActionOperation.DOC_LS.action:
+                    # func1: 查文档目录大纲
+                    action_out = await self._retrieve_doc_directory(
+                        resource=resource,
+                        agent=agent
+                    )
+                elif self.action_input.func == KnowledgeActionOperation.LS.action:
+                    # func2: 查知识库目录
+                    action_out = await self._retrieve_book_directory(
+                        resource=resource, agent=agent
+                    )
+                elif self.action_input.func == KnowledgeActionOperation.READ.action:
+                    # func3: 检索文档内容
+                    action_out = await self._read_document(
+                        resource=resource, agent=agent
+                    )
+                else:
+                    # func4: 默认的检索所有知识
+                    action_out = await self._retrieve_knowledge_summary(
+                        resource=resource, agent=agent
+                    )
+
+                metrics.end_time_ms = time.time_ns() // 1_000_000
+                metrics.result_tokens = len(str(action_out.content))
+                cost_ms = metrics.end_time_ms - metrics.start_time_ms
+                metrics.cost_seconds = round(cost_ms / 1000, 2)
+
+                action_out.metrics = metrics
+
+                status = Status.COMPLETE.value if action_out.is_exe_success else Status.FAILED.value
+                err_msg = action_out.view if not action_out.is_exe_success else None
+                action_out.name = self.name
+                action_out.state = Status.COMPLETE.value
+                action_out.action_id = action_id or self.action_uid
+                kn_view = await self.gen_view(message_id=message_id, tool_call_id=action_out.action_id,
+                                              status=status, tool_name=action_out.action_name,
+                                              args=action_out.action_input, tool_result=action_out.content,
+                                              err_msg=err_msg, tool_cost=metrics.cost_seconds,
+                                              start_time=start_time)
+                # ref_view = None
+                # if action_out.resource_value:
+                #     ref_view = await self._render_reference_view(self._render, action_out.resource_value, message_id)
+                # if ref_view:
+                #     action_out.view = kn_view + "\n" + ref_view
+                # else:
+                action_out.view = kn_view
+                action_out.thoughts = self.action_input.thought
+                return action_out
+        except Exception as e:
+            logger.exception(f"Knowledge Action Run Failed!{str(e)}")
+            metrics.end_time_ms = time.time_ns() // 1_000_000
+            return ActionOutput.from_dict({
+                "action_id": self.action_uid,
+                "is_exe_success": False,
+                "thoughts": self.action_input.thought,
+                "action": self.action_input.func,
+                "action_input": self.action_input.query,
+                "name": self.name,
+                "state": Status.FAILED.value,
+                "content": str(e),
+                "metrics": metrics,
+            })
+
+    async def gen_view(self, message_id, tool_call_id, status,
+                       tool_name: str, tool_description: Optional[str] = None,
+                       args: Optional[Any] = None,
+                       out_type: Optional[str] = "markdown",
+                       tool_result: Optional[Any] = None, err_msg: Optional[str] = None, tool_cost: float = 0,
+                       start_time: Optional[Any] = None, **kwargs):
+        # 设置进度
+        progress = 100 if status == "completed" else (
+            50 if status == "running" else 0
+        )
+        # Build visualization content
+        drsk_content = VisStepContent(
+            uid=tool_call_id,
+            message_id=message_id,
+            type="all",
+            avatar=None,
+            tool_name=tool_name,
+            tool_desc=tool_description,
+            tool_version=None,
+            tool_author=None,
+            tool_args=args,
+            status=status,
+            out_type=out_type,
+            tool_result=tool_result,
+            err_msg=err_msg,
+            tool_cost=tool_cost,
+            start_time=start_time,
+            progress=progress,
+        )
+        self.action_view_tag: str = SystemVisTag.VisTool.value
+        return self.render_protocol.sync_display(
+            content=drsk_content.to_dict()
+        )
+
+    async def _render_reference_view(
+        self, render_protocol, ref_resources: List[dict], message_id: Optional[str] = None
+    ) -> str:
+        """Render a reference view for the given text."""
+        vis_refs = self._render.vis_inst(SystemVisTag.VisRefs.value)
+        if not vis_refs:
+            return ""
+        return vis_refs.sync_display(
+            content=ref_resources, uid=self.action_uid + "_ref", message_id=message_id
+        )
 
 
 class UserConfirmAction(Action[None]):

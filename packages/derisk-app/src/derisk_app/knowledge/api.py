@@ -52,7 +52,7 @@ from derisk_serve.rag.api.schemas import (
     KnowledgeDomainType,
     KnowledgeStorageType,
     KnowledgeSyncRequest,
-    SpaceServeRequest,
+    SpaceServeRequest, KnowledgeStorageDomain,
 )
 
 # from derisk_serve.rag.connector import VectorStoreConnector
@@ -323,7 +323,7 @@ def chunk_strategies():
 async def space_config() -> Result[KnowledgeConfigResponse]:
     """Get space config"""
     try:
-        storage_list: List[KnowledgeStorageType] = []
+        storage_list: List[KnowledgeStorageDomain] = []
         dag_manager: DAGManager = get_dag_manager()
         # Vector Storage
         vs_domain_types = [KnowledgeDomainType(name="Normal", desc="Normal")]
@@ -340,7 +340,7 @@ async def space_config() -> Result[KnowledgeConfigResponse]:
             )
 
         storage_list.append(
-            KnowledgeStorageType(
+            KnowledgeStorageDomain(
                 name="VectorStore",
                 desc=_("Vector Store"),
                 domain_types=vs_domain_types,
@@ -348,7 +348,7 @@ async def space_config() -> Result[KnowledgeConfigResponse]:
         )
         # Graph Storage
         storage_list.append(
-            KnowledgeStorageType(
+            KnowledgeStorageDomain(
                 name="KnowledgeGraph",
                 desc=_("Knowledge Graph"),
                 domain_types=[KnowledgeDomainType(name="Normal", desc="Normal")],
@@ -356,7 +356,7 @@ async def space_config() -> Result[KnowledgeConfigResponse]:
         )
         # Full Text
         storage_list.append(
-            KnowledgeStorageType(
+            KnowledgeStorageDomain(
                 name="FullText",
                 desc=_("Full Text"),
                 domain_types=[KnowledgeDomainType(name="Normal", desc="Normal")],
@@ -598,6 +598,23 @@ def chunk_edit(
         return Result.succ(service.update_chunk(request=serve_request))
     except Exception as e:
         return Result.failed(code="E000X", msg=f"document chunk edit error {e}")
+
+@router.post("/knowledge/{knowledge_id}/vector/delete")
+def chunk_edit(
+    knowledge_id: str,
+    request: dict,
+    service: Service = Depends(get_rag_service),
+):
+    ids = request.get("ids")
+    logger.info(f"/vector/delete params: {knowledge_id}, {ids}")
+    try:
+        storage_manager = StorageManager.get_instance(CFG.SYSTEM_APP)
+        vector_store_connector = storage_manager.create_vector_store(
+            index_name=knowledge_id)
+        success = vector_store_connector.delete_by_ids(ids=ids)
+        return Result.succ(success)
+    except Exception as e:
+        return Result.failed(code="E000X", msg=f"vector delete edit error {e}")
 
 
 @router.post("/knowledge/{vector_name}/query")

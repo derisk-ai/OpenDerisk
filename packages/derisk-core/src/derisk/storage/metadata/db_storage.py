@@ -1,9 +1,10 @@
 """Database storage implementation using SQLAlchemy."""
 
-from contextlib import contextmanager
-from typing import Dict, Iterator, List, Optional, Type, Union
+from contextlib import contextmanager, asynccontextmanager
+from typing import Dict, Iterator, List, Optional, Type, Union, AsyncIterator
 
 from sqlalchemy import URL, inspect
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeMeta, Session
 
 from derisk.core import Serializer
@@ -14,7 +15,6 @@ from derisk.core.interface.storage import (
     StorageItemAdapter,
     T,
 )
-
 from .db_manager import BaseModel, BaseQuery, DatabaseManager
 
 
@@ -53,6 +53,11 @@ class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
     def session(self) -> Iterator[Session]:
         """Return a session."""
         with self.db_manager.session() as session:
+            yield session
+
+    @asynccontextmanager
+    async def a_session(self, commit: Optional[bool] = True) -> AsyncIterator[AsyncSession]:
+        async with self.db_manager.a_session(commit=commit) as session:
             yield session
 
     def save(self, data: T) -> None:
@@ -98,6 +103,19 @@ class SQLAlchemyStorage(StorageInterface[T, BaseModel]):
             model_instance = query.with_session(session).first()
             if model_instance:
                 return self.adapter.from_storage_format(model_instance)
+            return None
+
+    async def a_load(self, resource_id: ResourceIdentifier, cls: Type[T]) -> Optional[T]:
+        """Load data by identifier from the storage."""
+        async with self.a_session(commit=False) as session:
+            stmt = self.adapter.get_stmt_for_identifier(self._model_class, resource_id)
+            record = await session.execute(stmt)
+            model_instance = record.scalar_one_or_none()
+            if model_instance:
+                data = self.adapter.from_storage_format(model_instance, async_load=True)
+                if hasattr(data, "async_load"):
+                    await data.async_load()
+                return data
             return None
 
     def delete(self, resource_id: ResourceIdentifier) -> None:

@@ -25,6 +25,9 @@ class TeamContext(BaseModel):
     llm_strategy_value: Union[Optional[str], Optional[List[Any]]] = Field(
         None, description="The team leader's llm config"
     )
+    mist_keys: Optional[List[str]] = Field(
+        None, description="独立分配的AI云mist"
+    )
     prompt_template: Optional[str] = Field(
         None, description="The team leader's system prompt template!"
     )
@@ -40,7 +43,9 @@ class TeamContext(BaseModel):
     resources: Optional[list[AgentResource]] = Field(
         None, description="The team leader's resource!"
     )
-
+    use_sandbox: Optional[bool]= Field(
+        False, description="This Agent Use sandbox"
+    )
 
 
     @model_validator(mode="before")

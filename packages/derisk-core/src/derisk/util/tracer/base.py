@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import secrets
 import uuid
 from abc import ABC, abstractmethod
@@ -144,7 +145,7 @@ class SpanStorage(BaseComponent, ABC):
     implemented.
     """
 
-    name = ComponentType.TRACER_SPAN_STORAGE.value
+    name = "base_derisk_span_storage_component"
 
     def init_app(self, system_app: SystemApp):
         """Initialize the storage with the given application context."""
@@ -189,6 +190,7 @@ class Tracer(BaseComponent, ABC):
         parent_span_id: str = None,
         span_type: SpanType = None,
         metadata: Dict = None,
+        span_id: str = None,
     ) -> Span:
         """Begin a new span for the given operation. If provided, the span will be
         a child of the span with the given parent_span_id.
@@ -249,7 +251,8 @@ def _new_random_span_id() -> str:
     """Create a new random span ID."""
 
     # Generate a 64-bit hex string
-    return secrets.token_hex(8)
+    # return secrets.token_hex(8)
+    return f"{random.getrandbits(64):016x}"
 
 
 def _is_valid_span_id(span_id: Union[str, int]) -> bool:
@@ -279,11 +282,15 @@ class TracerContext:
     span_id: Optional[str] = None
     conv_id: Optional[str] = None
     cookie: Optional[str] = None
+    digital_iam_token: Optional[str] = None
     rpc_id: Optional[str] = None
     entrance: Optional[str] = None
-    agent_id: Optional[str] = None
+    entrance_ms: Optional[int] = None # 进入时间(eg. 接收到http请求)
+    agent_id: Optional[str] = None # 入口agent
+    current_agent_id: Optional[str] = None # 当前agent
     agent_hub_id: Optional[str] = None
     user_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 def _clean_for_json(data: Optional[str, Any] = None):

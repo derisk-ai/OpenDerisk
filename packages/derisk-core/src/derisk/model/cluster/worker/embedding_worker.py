@@ -127,3 +127,20 @@ class RerankerModelWorker(EmbeddingsModelWorker):
 
     def worker_type(self) -> WorkerType:
         return WorkerType.RERANKER
+
+    def support_async(self) -> bool:
+        """Whether support async, if True, invoke async_generate_stream, async_generate
+        and async_embeddings instead of generate_stream, generate and embeddings"""
+        return True
+
+    async def async_embeddings(self, params: Dict) -> List[List[float]]:
+        """Return embeddings asynchronously for the given input parameters."""
+        model = params.get("model")
+        logger.info(f"Receive embeddings request, model: {model}")
+        textx: List[str] = params["input"]
+        if isinstance(self._embeddings_impl, RerankEmbeddings):
+            query = params["query"]
+            scores: List[float] = await self._embeddings_impl.apredict(query, textx)
+            return [scores]
+        else:
+            return self._embeddings_impl.embed_documents(textx)

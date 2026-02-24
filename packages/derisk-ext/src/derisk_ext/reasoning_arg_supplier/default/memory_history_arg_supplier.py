@@ -7,12 +7,8 @@ from datetime import datetime, timedelta
 from derisk.agent import AgentMessage, AgentContext, ConversableAgent, AgentMemory, Agent
 from derisk.agent.resource.memory import MemoryParameters
 from derisk.util import pypantic_utils
-from derisk_ext.agent.agents.reasoning.default.reasoning_agent import (
-    ReasoningAgent,
-)
-from derisk_ext.reasoning_arg_supplier.default.default_history_arg_supplier import \
-    DefaultHistoryArgSupplier
 from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters, FilterOperator
+from derisk_ext.reasoning_arg_supplier.default.default_history_arg_supplier import DefaultHistoryArgSupplier
 
 MEMORY_HISTORY_ARG_SUPPLIER_NAME = "MEMORY_HISTORY_ARG_SUPPLIER"
 _NAME = MEMORY_HISTORY_ARG_SUPPLIER_NAME

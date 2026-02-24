@@ -10,7 +10,6 @@ from derisk._private.pydantic import (
     Field,
     model_validator,
 )
-from derisk.agent.core.plan import AWELTeamContext
 from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.schema import DynamicParam
@@ -118,7 +117,7 @@ class GptsApp(BaseModel):
     language: Optional[str] = "zh"
     team_context: Optional[
         Union[
-             str, AutoTeamContext, SingleAgentContext, AWELTeamContext, NativeTeamContext
+             str, AutoTeamContext, SingleAgentContext
         ]
     ] = None
     user_code: Optional[str] = None

@@ -1,6 +1,7 @@
 """Re-rank embeddings."""
-
+import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Type, cast
 
@@ -15,7 +16,7 @@ from derisk.model.adapter.base import register_embedding_adapter
 from derisk.model.adapter.embed_metadata import RERANKER_COMMON_HF_MODELS
 from derisk.util.i18n_utils import _
 from derisk.util.tracer import DERISK_TRACER_SPAN_ID, root_tracer
-
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CrossEncoderRerankEmbeddingsParameters(RerankerDeployModelParameters):
@@ -354,7 +355,7 @@ class TongyiRerankEmbeddingsParameters(OpenAPIRerankerDeployModelParameters):
         },
     )
     api_key: Optional[str] = field(
-        default="${env:SILICONFLOW_API_KEY}",
+        default="",
         metadata={
             "help": _("The API key for the rerank API."),
         },
@@ -458,7 +459,7 @@ class SiliconFlowRerankEmbeddingsParameters(OpenAPIRerankerDeployModelParameters
         },
     )
     api_key: Optional[str] = field(
-        default="${env:SILICONFLOW_API_KEY}",
+        default="",
         metadata={
             "help": _("The API key for the rerank API."),
         },
@@ -475,8 +476,6 @@ class SiliconFlowRerankEmbeddings(OpenAPIRerankEmbeddings):
     def __init__(self, **kwargs: Any):
         """Initialize the SiliconFlowRerankEmbeddings."""
         # If the API key is not provided, try to get it from the environment
-        if "api_key" not in kwargs:
-            kwargs["api_key"] = os.getenv("SILICONFLOW_API_KEY")
 
         if "api_url" not in kwargs:
             env_api_url = os.getenv("SILICONFLOW_API_BASE")

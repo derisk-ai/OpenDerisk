@@ -1,13 +1,13 @@
 """Base classes for managing a group of agents in a team chat."""
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
-
-from .agent import Agent, AgentMessage
+from .agent import Agent
 from .base_agent import ConversableAgent
 from .profile import ProfileConfig
+from .scheduled_agent import ScheduledAgent
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class Team(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    agents: List[Agent] = Field(default_factory=list)
+    agents: List[ConversableAgent] = Field(default_factory=list)
     messages: List[Dict] = Field(default_factory=list)
     max_round: int = 100
     is_team: bool = True
@@ -143,7 +143,6 @@ class ManagerAgent(ConversableAgent, Team):
         Team.__init__(self, **kwargs)
         ConversableAgent.__init__(self, **kwargs)
 
-
     # async def _load_thinking_messages(
     #     self,
     #     received_message: AgentMessage,
@@ -158,3 +157,6 @@ class ManagerAgent(ConversableAgent, Team):
     #     """Load messages for thinking."""
     #     return [AgentMessage(content=received_message.content)], None, None, None
 
+
+class ScheduledManagerAgent(ScheduledAgent, ManagerAgent):
+    is_team: bool = True

@@ -8,9 +8,7 @@ from derisk._private.config import Config
 from derisk.agent import (
     AgentContext,
     AgentMemory,
-    AutoPlanChatManager,
     ConversableAgent,
-    DefaultAWELLayoutManager,
     GptsMemory,
     LLMConfig,
     UserProxyAgent,
@@ -73,10 +71,10 @@ class AppManager(BaseComponent, ABC):
         else:
             return []
 
-    def get_app(self, app_code) -> GptsApp:
+    async def get_app(self, app_code) -> GptsApp:
         """get app"""
         app_service = AppService.get_instance(CFG.SYSTEM_APP)
-        return app_service.sync_app_detail(app_code)
+        return await app_service.sync_app_detail(app_code)
 
     async def create_app_agent(
             self,
@@ -143,7 +141,7 @@ class AppManager(BaseComponent, ABC):
                 plans_memory=DefaultGptsPlansMemory(),
                 message_memory=DefaultGptsMessageMemory(),
             )
-            gpt_memory.init(conv_uid)
+            await gpt_memory.init(conv_uid)
             agent_memory = AgentMemory(gpts_memory=gpt_memory)
 
         if context is None:
@@ -222,29 +220,18 @@ async def create_agent_of_gpts_app(
         agent_of_app: ConversableAgent = employees[0]
     else:
         if TeamMode.AUTO_PLAN == team_mode:
-            if gpts_app.team_context:
-                agent_manager = get_agent_manager()
-                auto_team_ctx = AutoTeamContext(**json.loads(gpts_app.team_context))
-                manager_cls: Type[ManagerAgent] = agent_manager.get_teamleader_by_name(
-                    auto_team_ctx.teamleader
-                )
-                manager = manager_cls()
-            else:
-                ## default
-                manager = AutoPlanChatManager()
+            agent_manager = get_agent_manager()
+            auto_team_ctx = AutoTeamContext(**json.loads(gpts_app.team_context))
+            manager_cls: Type[ManagerAgent] = agent_manager.get_team_leader_by_name(
+                auto_team_ctx.teamleader
+            )
+            manager = manager_cls()
+
 
             if not gpts_app.details or len(gpts_app.details) < 0:
                 raise ValueError("APP exception no available agent！")
             llm_config = employees[0].llm_config
 
-        elif TeamMode.AWEL_LAYOUT == team_mode:
-            if not team_context:
-                raise ValueError(
-                    "Your APP has not been developed yet, please bind Flow!"
-                )
-            manager = DefaultAWELLayoutManager(dag=team_context)
-        elif TeamMode.NATIVE_APP == team_mode:
-            raise ValueError("Native APP chat not supported!")
         else:
             raise ValueError(f"Unknown Agent Team Mode!{team_mode}")
         manager = await manager.bind(context).bind(memory).bind(llm_config).build()

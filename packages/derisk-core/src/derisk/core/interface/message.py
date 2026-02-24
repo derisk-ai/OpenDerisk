@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from datetime import datetime
+from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple, Union, cast
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
@@ -15,10 +16,18 @@ from derisk.core.interface.storage import (
     StorageInterface,
     StorageItem,
 )
-
 from ..schema.types import ChatCompletionMessageParam
 
 MessageContentType = Union[str, List[MediaContent]]
+
+
+class ToolChoiceModeEnum(Enum):
+    AUTO = "auto"
+    NONE = "none"
+    REQUIRED = "required"
+
+
+ToolChoiceType = Union[ToolChoiceModeEnum, List[dict]]
 
 
 class BaseMessage(BaseModel, ABC):
@@ -91,6 +100,8 @@ class BaseMessage(BaseModel, ABC):
             return SystemMessage(content=content)
         elif role == "view":
             return ViewMessage(content=content)
+        elif role == "tool":
+            return ToolMessage(content=content)
 
     @property
     def last_text(self) -> str:
@@ -136,6 +147,7 @@ class AIMessage(BaseMessage):
     """Type of message that is spoken by the AI."""
 
     example: bool = False
+    tool_calls: Optional[List[dict]] = None
 
     @property
     def type(self) -> str:
@@ -171,12 +183,23 @@ class SystemMessage(BaseMessage):
         return "system"
 
 
+class ToolMessage(BaseMessage):
+    """Type of message that is a function message."""
+    tool_call_id: str
+
+    @property
+    def type(self) -> str:
+        """Type of the message, used for serialization."""
+        return "tool"
+
+
 class ModelMessageRoleType:
     """Type of ModelMessage role."""
 
     SYSTEM = "system"
     HUMAN = "human"
     AI = "ai"
+    TOOL = "tool"
     VIEW = "view"
 
 
@@ -187,6 +210,8 @@ class ModelMessage(BaseModel):
     role: str
     content: Union[str, List[MediaContent]]
     round_index: Optional[int] = 0
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[List[Dict]] = None
 
     @property
     def pass_to_model(self) -> bool:
@@ -201,6 +226,7 @@ class ModelMessage(BaseModel):
             ModelMessageRoleType.SYSTEM,
             ModelMessageRoleType.HUMAN,
             ModelMessageRoleType.AI,
+            ModelMessageRoleType.TOOL,
         ]
 
     @staticmethod
@@ -230,12 +256,19 @@ class ModelMessage(BaseModel):
                         role=ModelMessageRoleType.AI,
                         content=content,
                         round_index=round_index,
+                        tool_calls=message.tool_calls,
                     )
                 )
             elif isinstance(message, SystemMessage):
                 result.append(
                     ModelMessage(
                         role=ModelMessageRoleType.SYSTEM, content=message.content
+                    )
+                )
+            elif isinstance(message, ToolMessage):
+                result.append(
+                    ModelMessage(
+                        role=ModelMessageRoleType.TOOL, content=message.content, tool_call_id=message.tool_call_id
                     )
                 )
         return result
@@ -294,38 +327,64 @@ class ModelMessage(BaseModel):
         Returns:
             List[ModelMessage]: The model messages
         """
+        parsed_content = MediaContent.parse_chat_completion_message(message)
+        if isinstance(parsed_content, MediaContent):
+            if parsed_content.type == MediaContentType.TEXT:
+                return [
+                    ModelMessage(
+                        role=ModelMessageRoleType.HUMAN, content=parsed_content.get_text()
+                    )
+                ]
+            else:
+                return [
+                    ModelMessage(role=ModelMessageRoleType.HUMAN, content=[parsed_content])
+                ]
+        elif isinstance(parsed_content, list):
+            return [ModelMessage(role=ModelMessageRoleType.HUMAN, content=parsed_content)]
+        else:
+            raise ValueError(f"Unknown content type: {message} of humman message")
+
+    @staticmethod
+    def _parse_openai_tool_message(
+        message: ChatCompletionMessageParam,
+    ) -> List[ModelMessage]:
+        """Parse tool message from OpenAI format.
+
+        Args:
+            message (ChatCompletionMessageParam): The OpenAI message
+
+        Returns:
+            List[ModelMessage]: The model messages
+        """
         result = []
         content = message["content"]
+        tool_call_id = message['tool_call_id']
         if isinstance(content, str):
             result.append(
-                ModelMessage(role=ModelMessageRoleType.HUMAN, content=content)
+                ModelMessage(role=ModelMessageRoleType.TOOL, content=content, tool_call_id=tool_call_id)
             )
         elif isinstance(content, Iterable):
             for item in content:
                 if isinstance(item, str):
                     result.append(
-                        ModelMessage(role=ModelMessageRoleType.HUMAN, content=item)
+                        ModelMessage(role=ModelMessageRoleType.TOOL, content=item, tool_call_id=tool_call_id)
                     )
                 elif isinstance(item, dict) and "type" in item:
                     type = item["type"]
                     if type == "text" and "text" in item:
                         result.append(
                             ModelMessage(
-                                role=ModelMessageRoleType.HUMAN, content=item["text"]
+                                role=ModelMessageRoleType.TOOL, content=item["text"], tool_call_id=tool_call_id
                             )
                         )
-                    elif type == "image_url":
-                        raise ValueError("Image message is not supported now")
-                    elif type == "input_audio":
-                        raise ValueError("Input audio message is not supported now")
                     else:
                         raise ValueError(
-                            f"Unknown message type: {item} of human message"
+                            f"Unknown message type: {item} of tool message"
                         )
                 else:
-                    raise ValueError(f"Unknown message type: {item} of humman message")
+                    raise ValueError(f"Unknown message type: {item} of tool message")
         else:
-            raise ValueError(f"Unknown content type: {message} of humman message")
+            raise ValueError(f"Unknown content type: {message} of tool message")
         return result
 
     @staticmethod
@@ -342,27 +401,22 @@ class ModelMessage(BaseModel):
         """
         result = []
         content = message["content"]
+        tool_calls = message['tool_calls']
         if isinstance(content, str):
-            result.append(ModelMessage(role=ModelMessageRoleType.AI, content=content))
+            result.append(ModelMessage(role=ModelMessageRoleType.AI, content=content, tool_calls=tool_calls))
         elif isinstance(content, Iterable):
             for item in content:
                 if isinstance(item, str):
-                    result.append(
-                        ModelMessage(role=ModelMessageRoleType.AI, content=item)
-                    )
+                    result.append(ModelMessage(role=ModelMessageRoleType.AI, content=item, tool_calls=tool_calls))
                 elif isinstance(item, dict) and "type" in item:
                     type = item["type"]
                     if type == "text" and "text" in item:
                         result.append(
-                            ModelMessage(
-                                role=ModelMessageRoleType.AI, content=item["text"]
-                            )
+                            ModelMessage(role=ModelMessageRoleType.AI, content=item["text"], tool_calls=tool_calls)
                         )
                     elif type == "refusal" and "refusal" in item:
                         result.append(
-                            ModelMessage(
-                                role=ModelMessageRoleType.AI, content=item["refusal"]
-                            )
+                            ModelMessage(role=ModelMessageRoleType.AI, content=item["refusal"], tool_calls=tool_calls)
                         )
                     else:
                         raise ValueError(
@@ -392,12 +446,12 @@ class ModelMessage(BaseModel):
                 result.extend(ModelMessage._parse_openai_user_message(message))
             elif msg_role == "assistant":
                 result.extend(ModelMessage._parse_assistant_message(message))
+            elif msg_role == "tool":
+                result.extend(ModelMessage._parse_openai_tool_message(message))
             elif msg_role == "function":
                 raise ValueError(
                     "Function role is not supported in ModelMessage format"
                 )
-            elif msg_role == "tool":
-                raise ValueError("Tool role is not supported in ModelMessage format")
             else:
                 raise ValueError(f"Unknown role: {msg_role}")
         return result
@@ -433,7 +487,7 @@ class ModelMessage(BaseModel):
         history = []
         # Add history conversation
         for message in messages:
-            if message.role == ModelMessageRoleType.HUMAN:
+            if message.role == ModelMessageRoleType.HUMAN or message.role =="user":
                 history.append(
                     MediaContent.to_chat_completion_message(
                         "user",
@@ -454,11 +508,23 @@ class ModelMessage(BaseModel):
                         type_mapping=type_mapping,
                     )
                 )
-            elif message.role == ModelMessageRoleType.AI:
+            elif message.role == ModelMessageRoleType.AI or message.role =="assistant":
                 history.append(
-                    MediaContent.to_chat_completion_message(
+                    MediaContent.to_chat_ai_message(
                         "assistant",
                         message.content,
+                        tool_calls=message.tool_calls,
+                        support_media_content=support_media_content,
+                        type_mapping=type_mapping,
+                    )
+                )
+            elif message.role == ModelMessageRoleType.TOOL:
+
+                history.append(
+                    MediaContent.to_chat_tool_message(
+                        "tool",
+                        message.content,
+                        tool_call_id=message.tool_call_id,
                         support_media_content=support_media_content,
                         type_mapping=type_mapping,
                     )
@@ -1224,6 +1290,7 @@ class StorageConversation(OnceConversation, StorageItem):
         conv_storage: Optional[StorageInterface] = None,
         message_storage: Optional[StorageInterface] = None,
         load_message: bool = True,
+        async_load: bool = False,  # 性能优化: 异步加载 兼容旧逻辑
         **kwargs,
     ):
         """Create a conversation."""
@@ -1245,8 +1312,14 @@ class StorageConversation(OnceConversation, StorageItem):
             message_storage = InMemoryStorage()
         self.conv_storage = conv_storage
         self.message_storage = message_storage
+        if not async_load:
+            self.load_from_storage(self.conv_storage, self.message_storage)
+
+    async def async_load(self):
         # Load from storage
-        self.load_from_storage(self.conv_storage, self.message_storage)
+        await self.a_load_from_storage(self.conv_storage, self.message_storage)
+
+        return self
 
     @property
     def message_ids(self) -> List[str]:
@@ -1277,7 +1350,7 @@ class StorageConversation(OnceConversation, StorageItem):
         self._message_ids = [
             message.identifier.str_identifier for message in message_list
         ]
-        messages_to_save = message_list[self._has_stored_message_index + 1 :]
+        messages_to_save = message_list[self._has_stored_message_index + 1:]
         self._has_stored_message_index = len(message_list) - 1
         if self.save_message_independent:
             # Save messages independently
@@ -1318,6 +1391,9 @@ class StorageConversation(OnceConversation, StorageItem):
             messages = [message.to_message() for message in message_list]
         else:
             messages = []
+        self._load_from_storage(conversation, messages)
+
+    def _load_from_storage(self, conversation: Optional[StorageConversation], messages) -> None:
         real_messages = messages or conversation.messages
         conversation.messages = real_messages
         # This index is used to save the message to the storage(Has not been saved)
@@ -1326,11 +1402,36 @@ class StorageConversation(OnceConversation, StorageItem):
         conversation.chat_order = (
             max(m.round_index for m in real_messages) if real_messages else 0
         )
+        message_ids = conversation._message_ids or []
         self._append_additional_kwargs(conversation, real_messages)
         self._message_ids = message_ids
         self._has_stored_message_index = len(real_messages) - 1
         self.save_message_independent = conversation.save_message_independent
         self.from_conversation(conversation)
+
+    async def a_load_from_storage(
+        self, conv_storage: StorageInterface, message_storage: StorageInterface
+    ) -> None:
+        conversation: Optional[StorageConversation] = await conv_storage.a_load(
+            self._id, StorageConversation
+        )
+        if conversation is None:
+            return
+        message_ids = conversation._message_ids or []
+
+        if self._load_message:
+            # Load messages
+            message_list = await message_storage.a_load_list(
+                [
+                    MessageIdentifier.from_str_identifier(message_id)
+                    for message_id in message_ids
+                ],
+                MessageStorageItem,
+            )
+            messages = [message.to_message() for message in message_list]
+        else:
+            messages = []
+        self._load_from_storage(conversation, messages)
 
     def _append_additional_kwargs(
         self, conversation: StorageConversation, messages: List[BaseMessage]

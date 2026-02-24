@@ -8,20 +8,25 @@ interface Resources {
   translation: Record<I18nKeys, string>;
 }
 
-i18n.use(initReactI18next).init({
-  resources: {
-    en: {
-      translation: en,
+if (!i18n.isInitialized) {
+  i18n.use(initReactI18next).init({
+    resources: {
+      en: {
+        translation: en,
+      },
+      zh: {
+        translation: zh,
+      },
     },
-    zh: {
-      translation: zh,
+    lng: 'en',
+    interpolation: {
+      escapeValue: false,
     },
-  },
-  lng: 'en',
-  interpolation: {
-    escapeValue: false,
-  },
-});
+    react: {
+      useSuspense: false, // Avoid suspense issues during SSR
+    }
+  });
+}
 
 export default i18n;
 

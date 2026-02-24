@@ -26,12 +26,16 @@ def scan_serve_configs():
         "derisk_serve.file",
         "derisk_serve.flow",
         "derisk_serve.model",
+        "derisk_serve.mcp",
         "derisk_serve.prompt",
+        "derisk_serve.skill",
         "derisk_serve.rag",
         "derisk_serve.building.app",
         "derisk_serve.building.config",
         "derisk_serve.building.recommend_question",
-        "derisk_serve.mcp",
+        "derisk_serve.asset",
+        "derisk_serve.config",
+        "derisk_serve.version",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
@@ -133,22 +137,23 @@ def register_serve_apps(
     )
     # ################################ Conversation Serve Register End ################
 
-    # ################################ AWEL Flow Serve Register Begin #################
-    from derisk_serve.flow.serve import Serve as FlowServe
-
-    # Register serve app
-    system_app.register(
-        FlowServe,
-        config=get_config(
-            serve_configs,
-            FlowServe.name,
-            derisk_serve.flow.serve.ServeConfig,
-            encrypt_key=app_config.system.encrypt_key,
-            api_keys=global_api_keys,
-        ),
-    )
-
-    # ################################ AWEL Flow Serve Register End ###################
+    # AWEL暂未使用 暂时注掉
+    # # ################################ AWEL Flow Serve Register Begin #################
+    # from derisk_serve.flow.serve import Serve as FlowServe
+    #
+    # # Register serve app
+    # system_app.register(
+    #     FlowServe,
+    #     config=get_config(
+    #         serve_configs,
+    #         FlowServe.name,
+    #         derisk_serve.flow.serve.ServeConfig,
+    #         encrypt_key=app_config.system.encrypt_key,
+    #         api_keys=global_api_keys,
+    #     ),
+    # )
+    #
+    # # ################################ AWEL Flow Serve Register End ###################
 
     # ################################ Rag Serve Register Begin #######################
 
@@ -279,6 +284,7 @@ def register_serve_apps(
     )
     # ################################ Evaluate Serve Register End ####################
 
+
     # ################################ Model Serve Register Begin #####################
     from derisk_serve.model.serve import Serve as ModelServe
 
@@ -330,17 +336,77 @@ def register_serve_apps(
     )
     # ################################ App Building Serve Register End #####################
 
-    # ################################ MCP Serve Register Begin #####################
-    from derisk_serve.mcp.serve import Serve as MCPServe
+    # ################################ Datasource Serve Register Begin ################
 
-    # Register serve model
+    from derisk_serve.asset.serve import Serve as AssetServe
+
+    # Register serve app
     system_app.register(
-        MCPServe,
+        AssetServe,
         config=get_config(
             serve_configs,
-            MCPServe.name,
+            AssetServe.name,
+            derisk_serve.asset.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+
+    # ################################ Config Serve Register Begin ################
+    from derisk_serve.config.serve import  Serve as ConfigServe
+    system_app.register(
+        ConfigServe,
+        config=get_config(
+            serve_configs,
+            ConfigServe.name,
+            derisk_serve.config.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Config Serve Register End   ################
+
+    # ################################ MCP Serve Register Begin ################
+    from derisk_serve.mcp.serve import Serve as McpServe
+
+    system_app.register(
+        McpServe,
+        config=get_config(
+            serve_configs,
+            McpServe.name,
             derisk_serve.mcp.serve.ServeConfig,
             api_keys=global_api_keys,
         ),
     )
-    # ################################ MCP Serve Register End   #####################
+
+    # ################################ MCP Serve Register End   ################
+
+    # ################################ Skill Serve Register Begin ################
+    from derisk_serve.skill.serve import Serve as SkillServe
+
+    system_app.register(
+        SkillServe,
+        config=get_config(
+            serve_configs,
+            SkillServe.name,
+            derisk_serve.skill.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Skill Serve Register End   ################
+
+    # ################################ Version Serve Register Begin ####################
+    from derisk_serve.version.serve import Serve as VersionServe
+
+    system_app.register(
+        VersionServe,
+        api_prefix="/api/v1/version",
+        config=get_config(
+            serve_configs,
+            VersionServe.name,
+            derisk_serve.version.serve.ServeConfig,
+        ),
+    )
+    # ################################ Version Serve Register End ######################
+

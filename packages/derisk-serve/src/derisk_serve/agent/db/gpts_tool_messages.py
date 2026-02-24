@@ -31,6 +31,7 @@ class GptsToolMessages(BaseModel):
     success: Optional[int]
     error: Optional[str] = None
     trace_id: Optional[str] = None
+    session_id: Optional[str] = None
     gmt_create: datetime = datetime.utcnow
     gmt_modified: datetime = datetime.utcnow
 
@@ -59,6 +60,7 @@ class GptsToolMessages(BaseModel):
             success=d.get("success", None),
             error=d.get("error", None),
             trace_id=d.get("trace_id", None),
+            session_id=d.get("session_id", None),
             gmt_create=d.get("gmt_create", datetime.utcnow),
             gmt_modified=d.get("gmt_modified", datetime.utcnow),
         )
@@ -76,15 +78,35 @@ class GptsToolMessagesEntity(Model):
     success = Column(Integer, nullable=False, comment="tool success")
     error = Column(Text, nullable=True, comment="tool error")
     trace_id = Column(String(255), nullable=True, comment="tool trace id")
+    session_id = Column(String(255), nullable=True, comment="tool session id")
     gmt_create = Column(DateTime, name="gmt_create", default=datetime.utcnow, comment="create time")
     gmt_modified = Column(DateTime, name="gmt_modified", default=datetime.utcnow, onupdate=datetime.utcnow,
                           comment="last update time", )
 
     __table_args__ = (
         Index("idx_tool_id", "tool_id"),
-        Index("idx_name", "name"),
+        Index("idx_tool_name", "name"),
         Index("idx_tool_name_sub_name", "name", "sub_name"),
+        Index("idx_session_id", "session_id")
     )
+
+    def to_dict(self):
+        """将实体转换为字典格式"""
+        return {
+            'id': self.id,
+            'tool_id': self.tool_id,
+            'name': self.name,
+            'sub_name': self.sub_name,
+            'type': self.type,
+            'input': self.input,
+            'output': self.output,
+            'success': self.success,
+            'error': self.error,
+            'trace_id': self.trace_id,
+            'session_id': self.session_id,
+            'gmt_create': self.gmt_create.isoformat() if self.gmt_create else None,
+            'gmt_modified': self.gmt_modified.isoformat() if self.gmt_modified else None,
+        }
 
 
 class GptsToolMessagesDao(BaseDao):
@@ -100,6 +122,7 @@ class GptsToolMessagesDao(BaseDao):
             success=gpts_tool_messages.success,
             error=gpts_tool_messages.error,
             trace_id=gpts_tool_messages.trace_id,
+            session_id=gpts_tool_messages.session_id
         )
         session.add(tool_message_entity)
         session.commit()
@@ -134,7 +157,8 @@ class GptsToolMessagesDao(BaseDao):
             GptsToolMessagesEntity.output == gpts_tool_messages.output if gpts_tool_messages.output else True,
             GptsToolMessagesEntity.success == gpts_tool_messages.success if gpts_tool_messages.success else True,
             GptsToolMessagesEntity.error == gpts_tool_messages.error if gpts_tool_messages.error else True,
-            GptsToolMessagesEntity.trace_id == gpts_tool_messages.trace_id if gpts_tool_messages.trace_id else True
+            GptsToolMessagesEntity.trace_id == gpts_tool_messages.trace_id if gpts_tool_messages.trace_id else True,
+            GptsToolMessagesEntity.session_id == gpts_tool_messages.session_id if gpts_tool_messages.session_id else True
         )
         tool_messages = tool_message_query.all()
         session.close()

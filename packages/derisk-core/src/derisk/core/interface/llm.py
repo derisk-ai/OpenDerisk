@@ -124,9 +124,11 @@ class ModelInferenceMetrics:
         end_time_ms = current_time_ms
 
         # 计算速度
+        speed_per_second = None
         if start_time_ms and end_time_ms and completion_tokens:
             cost_seconds = (end_time_ms - start_time_ms) // 1000
-            speed_per_second = round(completion_tokens / cost_seconds, 2)
+            if cost_seconds > 0:
+                speed_per_second = round(completion_tokens / cost_seconds, 2)
 
         return ModelInferenceMetrics(
             start_time_ms=start_time_ms,
@@ -253,6 +255,9 @@ class ModelRequestContext:
     is_reasoning_model: Optional[bool] = False
     """Whether the model is a reasoning model."""
 
+    not_parse_output: bool = False
+    """默认把模型输出解析为标准对象，如果不解析模型输出(为True时)原文从ModelOut.text输出出来"""
+
     def to_dict(self) -> Dict:
         """Convert the model inference metrics to dict."""
         return asdict(self)
@@ -274,6 +279,8 @@ class ModelOutput:
     usage: Optional[Dict[str, Any]] = None
     metrics: Optional[ModelInferenceMetrics] = None
     """Some metrics for model inference"""
+    tool_calls: Optional[Union[List[Dict[str, Any]], str]] = None
+    """The tool_calls info."""
 
     def __init__(
         self,
@@ -302,6 +309,7 @@ class ModelOutput:
                 "finish_reason",
                 "usage",
                 "metrics",
+                "tool_calls",
             ]:
                 setattr(self, k, v)
 
@@ -434,6 +442,7 @@ class ModelOutput:
         finish_reason: Optional[str] = None,
         is_reasoning_model: bool = False,
         metrics: Optional[ModelInferenceMetrics] = None,
+        tool_calls: Optional[Union[str, List[Dict[str, Any]]]] = None,
     ) -> "ModelOutput":
         if thinking and text:
             # Has thinking and text
@@ -458,6 +467,7 @@ class ModelOutput:
             usage=usage,
             finish_reason=finish_reason,
             metrics=metrics,
+            tool_calls=tool_calls,
         )
 
     @property
@@ -513,6 +523,15 @@ class ModelRequest:
         default_factory=lambda: ModelRequestContext()
     )
     """The context of the model inference."""
+
+    tool_choice: Optional[Union[List[dict], str]] = None
+    """Function calling mode mandatory selection tool."""
+    tools: Optional[List[dict]] = None
+    """List of available tools for function calling mode."""
+    parallel_tool_calls: bool = True
+    """Function calling mode enables parallel usage of tools."""
+    tool_use_few_shots: List[dict] = None
+    """Few shots of function calling pattern."""
 
     @property
     def stream(self) -> bool:
@@ -588,7 +607,7 @@ class ModelRequest:
     @staticmethod
     def build_request(
         model: str,
-        messages: List[ModelMessage],
+        messages: _ModelMessageType,
         context: Optional[Union[ModelRequestContext, Dict[str, Any], BaseModel]] = None,
         stream: bool = False,
         echo: bool = False,
@@ -702,11 +721,11 @@ class ModelRequest:
         common_messages = []
         system_messages = []
         for message in messages:
-            if message.role == ModelMessageRoleType.HUMAN:
+            if message.role == ModelMessageRoleType.HUMAN or message.role == "user":
                 common_messages.append({"role": "user", "content": message.content})
             elif message.role == ModelMessageRoleType.SYSTEM:
                 system_messages.append(message.content)
-            elif message.role == ModelMessageRoleType.AI:
+            elif message.role == ModelMessageRoleType.AI or message.role == "assistant":
                 common_messages.append(
                     {"role": "assistant", "content": message.content}
                 )
@@ -796,6 +815,14 @@ class ModelMetadata(BaseParameters):
     ext_metadata: Optional[ModelExtraMedata] = field(
         default_factory=ModelExtraMedata,
         metadata={"help": "Model extra metadata"},
+    )
+    llm_vendor: Optional[str] = field(
+        default=None,
+        metadata={"help": "Model vendor"},
+    )
+    llm_logo: Optional[str] = field(
+        default=None,
+        metadata={"help": "Model logo"},
     )
 
     @classmethod
@@ -906,7 +933,7 @@ class DefaultMessageConverter(MessageConverter):
         # 1. Just keep system, human and AI messages
         messages = list(filter(lambda m: m.pass_to_model, messages))
         # 2. Move the last user's message to the end of the list
-        messages = self.move_last_user_message_to_end(messages)
+        # messages = self.move_last_user_message_to_end(messages)
 
         if not model_metadata or not model_metadata.ext_metadata:
             logger.warning("No model metadata, skip message system message conversion")
@@ -1152,7 +1179,8 @@ class LLMClient(ABC):
             return request
         new_request = request.copy()
         model_metadata = await self.get_model_metadata(request.model)
-        new_messages = message_converter.convert(request.get_messages(), model_metadata)
+        model_messages = request.get_messages()
+        new_messages = message_converter.convert(model_messages, model_metadata)
         new_request.messages = new_messages
         return new_request
 

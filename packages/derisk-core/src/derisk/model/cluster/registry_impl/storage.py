@@ -243,7 +243,7 @@ class StorageModelRegistry(ModelRegistry):
                 ):
                     instance.healthy = False
                     self._storage.update(instance)
-            time.sleep(self.heartbeat_interval_secs)
+            time.sleep(self.heartbeat_interval_secs) # 单独进程 sleep不会阻塞主事件循环
 
     async def register_instance(self, instance: ModelInstance) -> bool:
         model_name = instance.model_name.strip()

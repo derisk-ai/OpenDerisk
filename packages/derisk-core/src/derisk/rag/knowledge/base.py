@@ -14,8 +14,8 @@ from derisk.rag.text_splitter.text_splitter import (
     SeparatorTextSplitter,
     TextSplitter,
     BlankSplitter,
+    DeriskTestSplitter,
 )
-from derisk_ext.rag.text_splitter.derisk_test_splitter import DeriskTestSplitter
 from derisk_serve.core import blocking_func_to_async
 from bs4 import BeautifulSoup
 
@@ -228,6 +228,12 @@ class Knowledge(ABC):
         """Load knowledge from data loader."""
         return await blocking_func_to_async(
             self._system_app, self.load
+        )
+
+    async def aload_full_content(self):
+        """Load full content from data loader."""
+        return await blocking_func_to_async(
+            self._system_app, self._load_full_content
         )
 
     def extract(

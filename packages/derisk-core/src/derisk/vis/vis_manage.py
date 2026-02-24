@@ -36,7 +36,7 @@ class VisConvertManager(BaseComponent):
 
 
         """Register Extend VisConvert"""
-        for _, convert in scan_agents("derisk_ext.vis").items():
+        for _, convert in scan_vis_converts("derisk_ext.vis").items():
             try:
                 self.register_vis_convert(convert)
             except Exception as e:
@@ -57,6 +57,7 @@ class VisConvertManager(BaseComponent):
 
     def get(self, render_name: str) -> VisProtocolConverter:
         if render_name not in self._vis_converts:
+            logger.error(f"VisConvert:{render_name} not register!")
             raise ValueError(f"VisConvert:{render_name} not register!")
         return self._vis_converts[render_name][1]
     def get_by_name(self, render_name: str) -> Type[VisProtocolConverter]:
@@ -135,7 +136,7 @@ def get_vis_manager(system_app: Optional[SystemApp] = None) -> VisConvertManager
 
 
 
-def scan_agents(path:str):
+def scan_vis_converts(path:str):
     """Scan and register all agents."""
     from derisk.util.module_utils import ModelScanner, ScannerConfig
 

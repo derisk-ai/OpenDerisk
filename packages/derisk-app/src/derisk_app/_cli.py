@@ -289,6 +289,7 @@ def _get_migration_config(
     from derisk_app.base import _initialize_db
     from derisk_app.initialization.db_model_initialization import _MODELS  # noqa: F401
     from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
+    from derisk_ext.ant.utils.configure.mist_hook import MistVarSetHook  # noqa: F401
 
     cfg = ConfigurationManager.from_file(_GLOBAL_CONFIG)
     db_config = cfg.parse_config(

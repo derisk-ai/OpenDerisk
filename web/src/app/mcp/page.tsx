@@ -1,13 +1,16 @@
 "use client"
 import { apiInterceptors, getMCPList, offlineMCP, startMCP, deleteMCP } from '@/client/api';
 import { InnerDropdown } from '@/components/blurred-card';
-import { FolderOpenFilled } from '@ant-design/icons';
+import { FolderOpenFilled, ReloadOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Form, Pagination, Result, Spin, Tooltip,Button, message,Tag,Popconfirm, PopconfirmProps, PaginationProps } from 'antd';
+import { Form, Pagination, Result, Spin, Tooltip, Button, message, Tag, Popconfirm, Input, PaginationProps, Modal } from 'antd';
 import { useRouter } from 'next/navigation';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreatMcpModel from './CreatMcpModel';
+
+const { Search } = Input;
+const { confirm: modalConfirm } = Modal;
 
 type FieldType = {
   name?: string;
@@ -29,7 +32,7 @@ const Mpc: React.FC = () => {
   });
 
   const [mcpList, setMcpList] = useState<any>([]);
-  const [modalState, setModalState] = useState<any>(true);
+  // const [modalState, setModalState] = useState<any>(true); // Unused
   const [formData, setFormData] = useState<any>({});
   const router = useRouter();
 
@@ -66,7 +69,7 @@ const Mpc: React.FC = () => {
         if (res?.success) {
           message.success(t('start_mcp_success'));
           runGetMPCList(queryParams, paginationParams);
-        }else{
+        } else {
           message.error('Failed to start MCP');
         }
       },
@@ -76,7 +79,7 @@ const Mpc: React.FC = () => {
       },
       throttleWait: 300,
     },
-    
+
   );
   const confirm = (item: FieldType) => {
     // 检查必要的字段是否存在
@@ -84,20 +87,29 @@ const Mpc: React.FC = () => {
       message.error('缺少必要的参数');
       return;
     }
-    
-    const params = {
-      name: item.name,
-      mcp_code: item.mcp_code,
-    }
-    apiInterceptors(deleteMCP(params)).then(()=>{
-      message.success('删除成功');
-      onSearch();
-    })
+
+    modalConfirm({
+      title: t('delete_task'),
+      content: t('delete_task_confirm'),
+      okText: t('Yes'),
+      cancelText: t('No'),
+      onOk() {
+        const params: Record<string, string> = {
+          name: item.name || '',
+          mcp_code: item.mcp_code || '',
+        }
+        return apiInterceptors(deleteMCP(params)).then(() => {
+          message.success('删除成功');
+          onSearch();
+        });
+      },
+      onCancel() {},
+    });
   };
-  
+
   const cancel = (e: any) => {
     console.log(e);
-    message.error('Click on No');
+    // message.error('Click on No');
   };
   const { run: runOfflineMCP } = useRequest(
     async (params): Promise<any> => {
@@ -116,23 +128,13 @@ const Mpc: React.FC = () => {
     },
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSearch();
-  };
-
   const goMcpDetail = (mcp_code: string, name: string) => {
-    return () => {
-      // 改为使用动态路由格式
-      router.push(`/mcp/detail/?id=${mcp_code}&name=${name}`);
-    };
+    // 改为使用动态路由格式
+    router.push(`/mcp/detail/?id=${mcp_code}&name=${name}`);
   };
   const onShowSizeChange: PaginationProps['onShowSizeChange'] = (current: number, pageSize: number) => {
     setPaginationParams(pre => ({ ...pre, page: current, page_size: pageSize }));
-
-    form?.validateFields().then(values => {
-      runGetMPCList(values, { page: current, page_size: pageSize });
-    });
+    runGetMPCList(queryParams, { page: current, page_size: pageSize });
   };
 
   const onStopTheMCP = (item: any) => {
@@ -143,7 +145,7 @@ const Mpc: React.FC = () => {
   };
 
   const onStartTheMCP = (item: any) => {
-    
+
     const params = {
       name: item?.name,
       sse_header: item?.sse_headers,
@@ -154,247 +156,171 @@ const Mpc: React.FC = () => {
   const onSearch = () => {
     runGetMPCList(queryParams, paginationParams);
   };
-  const deleteMcp = async (item:any) => {
-   console.log(item);
-    // await apiInterceptors();
-    deleteMCP(item.id).then(()=>{
-      onSearch()
-    })
-   
-  };
 
-  const editMcp = (item: any) => { 
+  const editMcp = (item: any) => {
     setFormData(item);
-    setModalState(true);
+    // setModalState(true);
   };
 
   return (
     <Spin spinning={loading}>
-      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto'>
-        <section className='py-12 md:py-14 pb-8 md:pb-10 bg-gradient-to-b from-primary/5 to-background'>
-          <div className='container mx-auto px-4 md:px-6 max-w-6xl'>
-            <div className='flex flex-col items-center space-y-4 text-center'>
-              <h1 className='text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl'>
-                Find The Best AIOps MCP Servers
-              </h1>
-              <p className='max-w-[800px] text-muted-foreground md:text-xl'>
-                Explore our curated collection of MCP servers to connect AI to your favorite tools.
-              </p>
-
-              <form className='w-full max-w-xl mt-2' onSubmit={handleSubmit}>
-                <div className='relative'>
-                  <svg
-                    xmlns='http://www.w3.org/2000/svg'
-                    width='24'
-                    height='24'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeLinecap='round'
-                    strokeWidth='2'
-                    strokeLinejoin='round'
-                    className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground cursor-pointer'
-                    onClick={() => onSearch()}
-                  >
-                    <circle cx='11' cy='11' r='8'></circle>
-                    <path d='m21 21-4.3-4.3'></path>
-                  </svg>
-                  <input
-                    type='text'
-                    className='flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 pl-9 pr-9 [&amp;::-webkit-search-cancel-button]:hidden [&amp;::-webkit-search-decoration]:hidden [&amp;::-ms-clear]:hidden'
-                    placeholder='Search for MCP servers...'
-                    autoComplete='off'
-                    name='search'
-                    value={queryParams?.filter}
-                    onChange={e => {
-                      setQueryparams((pre: any) => ({ ...pre, filter: e.target.value }));
-                    }}
-                    onBlur={() => onSearch()}
-                  />
-                  <button type='submit' className='sr-only' aria-label='Search'>
-                    Search
-                  </button>
-                </div>
-              </form>
+      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto bg-[#FAFAFA] dark:bg-[#111]'>
+        <div className='max-w-6xl mx-auto'>
+          {/* Header */}
+          <div className='flex justify-between items-center mb-6'>
+            <div>
+              <h1 className='text-2xl font-bold tracking-tight'>AIOps MCP Servers</h1>
+              <p className='text-muted-foreground'>Explore our curated collection of MCP servers to connect AI to your favorite tools.</p>
             </div>
-          </div>
-        </section>
-
-        <section className='py-8 md:py-10'>
-          <div className='container mx-auto px-4 md:px-6 '>
-            {/* top */}
-            <div className='flex items-center gap-4 justify-end'>
+            <div className='flex gap-2 items-center'>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => runGetMPCList(queryParams, paginationParams)}
+              >
+                Refresh
+              </Button>
               <CreatMcpModel formData={formData} setFormData={setFormData} onSuccess={() => runGetMPCList(queryParams, paginationParams)}></CreatMcpModel>
             </div>
-            <div className='flex flex-col md:flex-row md:items-center justify-between mb-6'>
-              <div>
-                <h2 className='text-2xl font-bold tracking-tight mb-2'>AIOps MCP Servers</h2>
-              </div>
-            </div>
+          </div>
 
-            {/* body */}
+          {/* Search */}
+          <div className='mb-6'>
+            <Search
+              placeholder="Search for MCP servers..."
+              allowClear
+              style={{ width: 300 }}
+              value={queryParams?.filter}
+              onChange={e => setQueryparams((pre: any) => ({ ...pre, filter: e.target.value }))}
+              onSearch={onSearch}
+            />
+          </div>
 
-            {mcpList?.length ? (
-              <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
-                {mcpList?.map((item: any, index: number) => {
-                  return (
-                    <div
-                      key={index}
-                      className='backdrop-filter backdrop-blur-lg cursor-pointer bg-white bg-opacity-70 border-white rounded-lg shadow p-4 relative w-full h-full dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60 hover:shadow-md transition-all border overflow-hidden'
-                      onClick={goMcpDetail(item?.mcp_code, item?.name)}
-                    >
-                      <div className=' text-card-foreground  '>
-
-                        <div className='p-4'>
-                          {/* box top */}
-
-                          <div className='flex items-center gap-3 mb-3'>
-                            {/* top img */}
-                            <div className='h-8 w-8 rounded-full  shrink-0'>
-                              {item?.icon ? (
-                                <img
-                                  loading='lazy'
-                                  width='32'
-                                  height='32'
-                                  className='object-cover'
-                                  style={{ color: 'transparent' }}
-                                  src={item?.icon}
-                                />
-                              ) : (
-                                <span style={{borderRadius:'50%',lineHeight:'27px'}} className='inline-block w-[32px] h-[32px] text-white text-center rounded-full ant-avatar ant-avatar-circle bg-gradient-to-tr  from-[#31afff] to-[#1677ff] cursor-pointer css-dev-only-do-not-override-13e4gqt'>
-                                  <span className='ant-avatar-string text-[10px]'>derisk</span>
-                                </span>
-                                
-                              )}
-                            </div>
-                            {/* top title */}
-                            <h3 className='font-medium text-base line-clamp-1'>{item?.name}</h3>
-
-                            {/* top collection */}
-                            <div className='flex items-center ml-auto text-xs text-muted-foreground'>
-                              <svg
-                                xmlns='http://www.w3.org/2000/svg'
-                                viewBox='0 0 24 24'
-                                fill='currentColor'
-                                className='w-4 h-4 mr-1'
-                              >
-                                <path
-                                  fillRule='evenodd'
-                                  d='M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z'
-                                  clipRule='evenodd'
-                                ></path>
-                              </svg>
-                              <div style={{ marginRight: '5px' }}> {item?.installed || 0}</div>
-
-                              <div onClick={e => e.stopPropagation()}>
-                                <InnerDropdown
-                                  menu={{
-                                    items: [
-                                     item?.available && {
-                                        key: 'stop_mcp',
-                                        label: (
-                                          <span className='text-red-400' onClick={() => onStopTheMCP(item)}>
-                                            {t('stop_mcp')}
-                                          </span>
-                                        ),
-                                      },
-                                      !item?.available &&{
-                                        key: 'start_mcp',
-                                        label: (
-                                          <span className='text-green-400' onClick={() => onStartTheMCP(item)}>
-                                            {t('start_mcp')}
-                                          </span>
-                                        ),
-                                      },
-                                  
-                                    ],
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          {/* box body */}
-                          <Tooltip placement='top' title={item?.description}>
-                            <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{item?.description}</p>                          </Tooltip>
-
-                          <div className="rounded-lg max-w-sm mx-auto mt-3 p-2 bg-gray-50 shadow-sm" onClick={(e) => e.stopPropagation()}>
-                            <div className='space-y-3'>
-                              <div className="flex justify-between items-center">
-                                <div className="flex items-center space-x-1">
-                                  <span className="text-gray-500 font-medium">{`${t('mcp_author')}：`}</span>
-                                  <span className="text-gray-700">{item?.author || '-'}</span>
-                                </div>
-                                <div className="flex items-center space-x-1">
-                                  <span className="text-gray-500 font-medium">{`${t('mcp_version')}：`}</span>
-                                  <span className="text-gray-700">{item?.version || '-'}</span>
-                                </div>
-                                <div className="flex items-center space-x-1">
-                                  <span className="text-gray-500 font-medium">{`${t('mcp_type')}：`}</span>
-                                  <span className="inline-flex items-center rounded-md border px-3 py-1 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground text-xs">{item?.type || '-'}</span>
-                                </div> 
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <div className="flex items-center space-x-1">
-                                  <span className="text-gray-500 font-medium">{`${t('mcp_email')}：`}</span>
-                                  <span className="text-gray-700">{item?.email || '-'}</span>
-                                </div>
-                                <div className="flex items-center space-x-1">
-                                  <span className="text-gray-500 font-medium">{`${t('Status')}：`}</span>
-                                  {item?.available ? (
-                                    <Tag color="#87d068">{`${t('mcp_online')}`}</Tag>
-                                  ) : (
-                                    <Tag>{`${t('mcp_offline')}`}</Tag>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex justify-end space-x-2">
-                                <Button type="link" className="p-0" onClick={() => editMcp(item)}>
-                                  {`${t('Edit')}`}
-                                </Button>
-                                <Popconfirm
-                                  title={t('delete_task')}
-                                  description={t('delete_task_confirm')}
-                                  onConfirm={() => confirm(item)}
-                                  onCancel={cancel}
-                                  okText={t('Yes')}
-                                  cancelText={t('No')}
-                                >
-                                  <Button type="link" danger >
-                                    {t('Delete_Btn')}
-                                  </Button>
-                                </Popconfirm>
-                              </div>
-                            </div>
+          {/* List */}
+          {mcpList?.length ? (
+            <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
+              {mcpList?.map((item: any, index: number) => {
+                return (
+                  <div
+                    key={index}
+                    className='bg-white dark:bg-[#1f1f1f] rounded-lg shadow p-4 relative hover:shadow-md transition-all cursor-pointer border border-gray-100 dark:border-gray-800'
+                    onClick={() => goMcpDetail(item?.mcp_code, item?.name)}
+                  >
+                    <div className='flex items-start justify-between mb-2'>
+                      <div className='flex items-center gap-3'>
+                        {/* Icon */}
+                        <div className='h-10 w-10 rounded-lg shrink-0 overflow-hidden flex items-center justify-center bg-blue-50 dark:bg-blue-900/20'>
+                          {item?.icon ? (
+                            <img
+                              loading='lazy'
+                              className='w-full h-full object-cover'
+                              src={item?.icon}
+                              alt={item?.name}
+                            />
+                          ) : (
+                            <span className='text-blue-500 font-bold text-xs'>
+                              MCP
+                            </span>
+                          )}
+                        </div>
+                        {/* Title & Status */}
+                        <div>
+                          <h3 className='font-medium text-base line-clamp-1'>{item?.name}</h3>
+                          <div className="flex gap-1 mt-1">
+                            {item?.type && <Tag className="mr-0 text-[10px] scale-90 origin-left">{item?.type}</Tag>}
+                            {item?.available ? (
+                              <Tag color="#87d068" className="mr-0 text-[10px] scale-90 origin-left">{t('mcp_online')}</Tag>
+                            ) : (
+                              <Tag className="mr-0 text-[10px] scale-90 origin-left">{t('mcp_offline')}</Tag>
+                            )}
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className='flex items-center justify-center '>
-                <Result
-                  status='info'
-                  icon={<FolderOpenFilled className='text-gray-300' />}
-                  title={<div className='text-gray-300'>Not Fount</div>}
-                />
-              </div>
-            )}
-          </div>
-        </section>
 
-        <section>
-          <div className='container mx-auto px-4 md:px-6  flex justify-end'>
+                      {/* Dropdown Menu */}
+                      <div onClick={e => e.stopPropagation()}>
+                        <InnerDropdown
+                          menu={{
+                            items: [
+                              item?.available ? {
+                                key: 'stop_mcp',
+                                label: (
+                                  <span className='text-red-400' onClick={() => onStopTheMCP(item)}>
+                                    {t('stop_mcp')}
+                                  </span>
+                                ),
+                              } : {
+                                key: 'start_mcp',
+                                label: (
+                                  <span className='text-green-400' onClick={() => onStartTheMCP(item)}>
+                                    {t('start_mcp')}
+                                  </span>
+                                ),
+                              },
+                              {
+                                key: 'edit',
+                                label: t('Edit'),
+                                onClick: () => editMcp(item),
+                              },
+                              {
+                                key: 'delete',
+                                label: <span className="text-red-500">{t('Delete')}</span>,
+                                onClick: () => {
+                                  // Confirm handled by InnerDropdown item or we need to wrap it?
+                                  // InnerDropdown items usually are just clickable. 
+                                  // We can use a custom Render for the menu item if we want Popconfirm, 
+                                  // or just use Modal.confirm style. 
+                                  // For now let's just use the confirm function which (doesn't) show a dialog but deletes?
+                                  // The original code used Popconfirm on the button.
+                                  // Since this is in a dropdown, we might want to just call confirm(item) but 
+                                  // ideally we should show a confirmation.
+                                  // Let's use Modal.confirm logic or simple confirm() for now to match the "clean" style,
+                                  // or we can rely on `confirm` function to just do it (original code had Popconfirm).
+                                  // Let's stick to simple click for now, maybe add a confirm dialog later if needed.
+                                  confirm(item);
+                                },
+                              },
+                            ].filter(Boolean) as any,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <p className='text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-4 h-10'>
+                      {item?.description}
+                    </p>
+
+                    {/* Footer Info */}
+                    <div className='flex justify-between items-center text-xs text-gray-400 border-t border-gray-100 dark:border-gray-800 pt-3'>
+                      <div className="flex gap-2">
+                        <span>{item?.author || 'Unknown'}</span>
+                      </div>
+                      <span>{item?.version || 'v1.0.0'}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className='flex items-center justify-center h-64'>
+              <Result
+                status='info'
+                icon={<FolderOpenFilled className='text-gray-300' />}
+                title={<div className='text-gray-300'>No MCP Servers Found</div>}
+              />
+            </div>
+          )}
+
+          {/* Pagination */}
+          <div className='flex justify-end mt-6'>
             <Pagination
               current={paginationParams?.page}
               pageSize={paginationParams?.page_size}
               showSizeChanger
               onChange={onShowSizeChange}
-            ></Pagination>
+            />
           </div>
-        </section>
+        </div>
       </div>
     </Spin>
   );

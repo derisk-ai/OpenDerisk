@@ -98,21 +98,6 @@ class SimpleAssistantAgent(ConversableAgent):
                 return resource_prompt, resource_reference
         return None, None
 
-    async def init_reply_message(
-        self,
-        received_message: AgentMessage,
-        rely_messages: Optional[List[AgentMessage]] = None,
-        sender: Optional[Agent] = None,
-    ) -> AgentMessage:
-        reply_message = await super().init_reply_message(
-            received_message=received_message,
-            rely_messages=rely_messages,
-            sender=sender,
-        )
-        reply_message.context = {
-            "user_question": received_message.content,
-        }
-        return reply_message
 
     def post_filters(self, resource_candidates_map: Optional[Dict[str, Tuple]] = None):
         """Post filters for resource candidates."""

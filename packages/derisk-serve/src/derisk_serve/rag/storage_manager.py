@@ -8,7 +8,7 @@ from derisk import BaseComponent
 from derisk.component import ComponentType, SystemApp
 from derisk.model import DefaultLLMClient
 from derisk.model.cluster import WorkerManagerFactory
-from derisk.rag.embedding import EmbeddingFactory
+from derisk.rag.embedding import EmbeddingFactory, DefaultEmbeddingFactory
 from derisk.storage.base import IndexStoreBase
 from derisk.storage.full_text.base import FullTextStoreBase
 from derisk.storage.vector_store.base import VectorStoreBase, VectorStoreConfig
@@ -71,126 +71,74 @@ class StorageManager(BaseComponent):
         else:
             raise ValueError(f"Does not support storage type {storage_type}")
 
-    def create_vector_store(self, index_name) -> VectorStoreBase:
+    def create_vector_store(
+            self,
+            index_name,
+            extra_indexes: Optional[List[str]] = None
+    ) -> VectorStoreBase:
         """Create vector store."""
         collection_name = self.gen_collection_by_id(index_name)
         app_config = self.system_app.config.configs.get("app_config")
         storage_config = app_config.rag.storage
         if collection_name in self._store_cache:
             return self._store_cache[collection_name]
-        with self._cache_lock:
+        try:
             embedding_factory = self.system_app.get_component(
                 "embedding_factory", EmbeddingFactory
             )
             embedding_fn = embedding_factory.create()
-            vector_store_config: VectorStoreConfig = storage_config.vector
-            executor = DefaultExecutorFactory.get_instance(self.system_app).create()
-            new_store = vector_store_config.create_store(
-                name=collection_name,
-                embedding_fn=embedding_fn,
-                executor=executor,
+        except ValueError as e:
+            logger.warning(
+                f"embedding factory not found: {e}, try to use DefaultEmbeddingFactory"
             )
-            self._store_cache[collection_name] = new_store
-            return new_store
+            # Check if default_embedding is configured, otherwise fallback to a safe default
+            default_model_name = getattr(app_config.models, "default_embedding", "text2vec")
+            if not default_model_name:
+                 default_model_name = "text2vec"
+                 
+            embedding_fn = DefaultEmbeddingFactory(
+                self.system_app, default_model_name=default_model_name
+            ).create()
 
-    def create_kg_store(
-        self, index_name, llm_model: Optional[str] = None
-    ) -> BuiltinKnowledgeGraph:
-        """Create knowledge graph store."""
-        collection_name = self.gen_collection_by_id(index_name)
-        app_config = self.system_app.config.configs.get("app_config")
-        rag_config = app_config.rag
-        storage_config = app_config.rag.storage
-        worker_manager = self.system_app.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        llm_client = DefaultLLMClient(worker_manager=worker_manager)
-        embedding_factory = self.system_app.get_component(
-            "embedding_factory", EmbeddingFactory
+        # Try to get type from config object, handling both dict-like and object-like access
+        vector_store_type = getattr(storage_config.vector, "type", None)
+        if not vector_store_type:
+            vector_store_type = getattr(storage_config.vector, "__type__", None)
+            
+        if vector_store_type == "chroma":
+             from derisk_ext.storage.vector_store.chroma_store import ChromaStore, ChromaVectorConfig
+             
+             # Extract persist_path safely
+             persist_path = getattr(storage_config.vector, "persist_path", None)
+             
+             vector_store_config = ChromaVectorConfig(
+                 persist_path=persist_path
+             )
+             new_store = ChromaStore(
+                 vector_store_config=vector_store_config,
+                 name=index_name,
+                 embedding_fn=embedding_fn
+             )
+             self._store_cache[index_name] = new_store
+             return new_store
+
+        account = storage_config.full_text.account
+        secret = storage_config.full_text.secret
+
+        from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
+        zsearch_config = ZSearchStoreConfig(
+            index_name=index_name,
+            account=account,
+            secret=secret,
         )
-        embedding_fn = embedding_factory.create()
-        if storage_config.graph:
-            graph_config = storage_config.graph
-            graph_config.llm_model = llm_model
-            if hasattr(graph_config, "enable_summary") and graph_config.enable_summary:
-                from derisk_ext.storage.knowledge_graph.community_summary import (
-                    CommunitySummaryKnowledgeGraph,
-                )
-
-                return CommunitySummaryKnowledgeGraph(
-                    config=storage_config.graph,
-                    name=collection_name,
-                    llm_client=llm_client,
-                    vector_store_config=storage_config.vector,
-                    kg_extract_top_k=rag_config.kg_extract_top_k,
-                    kg_extract_score_threshold=rag_config.kg_extract_score_threshold,
-                    kg_community_top_k=rag_config.kg_community_top_k,
-                    kg_community_score_threshold=rag_config.kg_community_score_threshold,
-                    kg_triplet_graph_enabled=rag_config.kg_triplet_graph_enabled,
-                    kg_document_graph_enabled=rag_config.kg_document_graph_enabled,
-                    kg_chunk_search_top_k=rag_config.kg_chunk_search_top_k,
-                    kg_extraction_batch_size=rag_config.kg_extraction_batch_size,
-                    kg_community_summary_batch_size=rag_config.kg_community_summary_batch_size,
-                    kg_embedding_batch_size=rag_config.kg_embedding_batch_size,
-                    kg_similarity_top_k=rag_config.kg_similarity_top_k,
-                    kg_similarity_score_threshold=rag_config.kg_similarity_score_threshold,
-                    kg_enable_text_search=rag_config.kg_enable_text_search,
-                    kg_text2gql_model_enabled=rag_config.kg_text2gql_model_enabled,
-                    kg_text2gql_model_name=rag_config.kg_text2gql_model_name,
-                    embedding_fn=embedding_fn,
-                    kg_max_chunks_once_load=rag_config.max_chunks_once_load,
-                    kg_max_threads=rag_config.max_threads,
-                )
-        return BuiltinKnowledgeGraph(
-            config=storage_config.graph,
-            name=collection_name,
-            llm_client=llm_client,
+        from derisk_ext.storage.full_text.zsearch import ZsearchStore
+        new_store = ZsearchStore(
+            name=index_name,
+            embedding_fn=embedding_fn,
+            vector_store_config=zsearch_config
         )
-
-    def create_full_text_store(self, index_name) -> FullTextStoreBase:
-        """Create Full Text store."""
-        collection_name = self.gen_collection_by_id(index_name)
-        app_config = self.system_app.config.configs.get("app_config")
-        rag_config = app_config.rag
-        storage_config = app_config.rag.storage
-        return ElasticDocumentStore(
-            es_config=storage_config.full_text,
-            name=collection_name,
-            k1=rag_config.bm25_k1,
-            b=rag_config.bm25_b,
-        )
-
-    def create_search_store(self, index_name: Optional[str] = None) -> FullTextStoreBase:
-        """Create Search store."""
-        app_config = self.system_app.config.configs.get("app_config")
-        storage_config = app_config.rag.storage
-        if index_name is None:
-            index_name = app_config.rag.storage.full_text.index_name
-        logger.info(f"search store index_name is {index_name}")
-        if index_name in self._store_cache:
-            return self._store_cache[index_name]
-        with self._cache_lock:
-            embedding_factory = self.system_app.get_component(
-                "embedding_factory", EmbeddingFactory
-            )
-            embedding_fn = embedding_factory.create()
-            account = storage_config.full_text.account
-            secret = storage_config.full_text.secret
-
-            from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
-            zsearch_config = ZSearchStoreConfig(
-                index_name=index_name,
-                account=account,
-                secret=secret,
-            )
-            from derisk_ext.storage.full_text.zsearch import ZsearchStore
-            new_store = ZsearchStore(
-                name=index_name,
-                embedding_fn=embedding_fn,
-                vector_store_config=zsearch_config
-            )
-            self._store_cache[index_name] = new_store
-            return new_store
+        self._store_cache[index_name] = new_store
+        return new_store
 
 
     @property

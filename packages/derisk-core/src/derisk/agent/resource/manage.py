@@ -5,13 +5,15 @@ import logging
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Type, Union, cast
 
+import orjson
+
 from derisk._private.pydantic import BaseModel, ConfigDict, model_validator
 from derisk.component import BaseComponent, ComponentType, SystemApp
 from derisk.util.parameter_utils import ParameterDescription
-
 from .base import AgentResource, Resource, ResourceParameters, ResourceType
 from .pack import ResourcePack
 from .tool.pack import ToolResourceType, _is_function_tool, _to_tool_list
+from ...util.executor_utils import execute_to_thread, t
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +155,6 @@ class ResourceManager(BaseComponent):
             configs: Any = parameter_class.to_configurations(
                 parameter_class,
                 version=version,
-                cache_enable= kwargs['cache_enable'] if 'cache_enable' in kwargs else None
             )
             all_instance_options = []
             if (
@@ -237,7 +238,7 @@ class ResourceManager(BaseComponent):
                     return (
                         i.resource_instance
                         if return_resource
-                        else {"name": real_resource_name }
+                        else {"name": real_resource_name}
                     )
             raise ValueError(
                 f"Resource {real_resource_name} not found in {type_unique_key}"
@@ -253,7 +254,7 @@ class ResourceManager(BaseComponent):
             try:
                 parameter_cls = single_item.get_parameter_class()
                 param = parameter_cls.from_dict(
-                    resource_value if v2_resource else agent_resource.to_dict()
+                    resource_value if v2_resource else agent_resource.to_dict(), ignore_extra_fields=True
                 )
                 param_dict = param.to_dict()
                 if not return_resource:
@@ -285,12 +286,41 @@ class ResourceManager(BaseComponent):
         """
         if not agent_resources:
             return None
-        dependencies: List[Resource] = []
-        for resource in agent_resources:
-            resource_inst = cast(
-                Resource, self.build_resource_by_type(resource.type, resource)
-            )
-            dependencies.append(resource_inst)
+        dependencies: List[Resource] = execute_to_thread(*[t(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
+        # dependencies: List[Resource] = execute_parallel_sync([(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
+        # dependencies: List[Resource] = []
+        # for resource in agent_resources:
+        #     resource_inst = cast(
+        #         Resource, self.build_resource_by_type(resource.type, resource)
+        #     )
+        #     dependencies.append(resource_inst)
+        if len(dependencies) == 1:
+            return dependencies[0]
+        else:
+            return ResourcePack(dependencies)
+
+    async def a_build_resource(
+        self,
+        agent_resources: Optional[List[AgentResource]] = None,
+    ) -> Optional[Resource]:
+        """Build a resource.
+
+        If there is only one resource, return the resource instance, otherwise return a
+        ResourcePack.
+
+        Args:
+            agent_resources: The agent resources.
+            version: The resource version.
+
+        Returns:
+            Optional[Resource]: The resource instance.
+        """
+        if not agent_resources:
+            return None
+        dependencies: List[Resource] = execute_to_thread(*[t(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
+        # Summary Agent不放入resource中
+        dependencies = [dependency for dependency in dependencies if not await is_summary_agent_resource(dependency)]
+
         if len(dependencies) == 1:
             return dependencies[0]
         else:
@@ -316,3 +346,35 @@ def get_resource_manager(system_app: Optional[SystemApp] = None) -> ResourceMana
         initialize_resource(system_app)
     app = system_app or _SYSTEM_APP
     return ResourceManager.get_instance(cast(SystemApp, app))
+
+
+async def is_summary_agent_resource(resource: Resource) -> bool:
+    from derisk_serve.agent.resource.app import GptAppResource
+    if not resource or not isinstance(resource, GptAppResource):
+        return False
+
+    from derisk_serve.building.app.service.service import Service as AppService
+    from derisk._private.config import Config
+    app_service: AppService = AppService.get_instance(Config().SYSTEM_APP)
+    app_detail = await app_service.app_detail(resource.app_code)
+    if not app_detail.all_resources:
+        return False
+
+    for r in app_detail.all_resources:
+        if await is_summary_engine_resource(r):
+            return True
+    return False
+
+
+async def is_summary_engine_resource(resource: AgentResource) -> bool:
+    if not resource or resource.type != ResourceType.ReasoningEngine.value or not resource.value:
+        return False
+    if isinstance(resource.value, str):
+        value = orjson.loads(resource.value)
+    else:
+        value = resource.value
+    if not value:
+        return False
+
+    from derisk_ext.reasoning_engine.summary_reasoning_engine import SUMMARY_REPORT_ENGINE_NAME
+    return value.get("name", "") == SUMMARY_REPORT_ENGINE_NAME

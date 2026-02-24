@@ -6,15 +6,15 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Dict, Union
 
-from derisk.agent import ActionOutput
 from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
 from derisk.agent.core.schema import Status, AgentSpaceMode
 from derisk.vis.vis_converter import SystemVisTag
+from derisk_ext.vis.common.tags.derisk_work_space import WorkSpaceContent, FolderNode
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
 from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
-from derisk_ext.vis.derisk.tags.derisk_llm_space import LLMSpace, LLMSpaceContent
 from derisk_ext.vis.derisk.tags.derisk_running_window import DeriskRunningWindow, RunningWindowContent
-from derisk_ext.vis.derisk.tags.derisk_work_space import WorkSpaceContent, WorkItem
+from derisk_ext.vis.derisk.tags.derisk_space_llm import LLMSpace, LLMSpaceContent
+
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
 from derisk_ext.vis.derisk.tags.drsk_thinking import DrskThinkingContent, DrskThinking
 from derisk_ext.vis.derisk.tags.nex_planning_window import NexPlansContent, NexTaskContent, PlanningWindowContent
@@ -67,15 +67,16 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
         return "(视窗模式2)VIS可视化布局数据转换协议"
 
     async def visualization(
-            self,
-            messages: List[GptsMessage],
-            plans_map: Optional[Dict[str, GptsPlan]] = None,
-            gpt_msg: Optional[GptsMessage] = None,
-            stream_msg: Optional[Union[Dict, str]] = None,
-            new_plans: Optional[List[GptsPlan]] = None,
-            is_first_chunk: bool = False,
-            incremental: bool = False,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        messages: List[GptsMessage],
+        plans_map: Optional[Dict[str, GptsPlan]] = None,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         ### 增量模式，处理当前最小的消息或者最新的计划或者流式数据
 
@@ -126,7 +127,7 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
                     uid=k,
                     type=UpdateType.ALL.value,
                     title=v.sub_task_title or v.sub_task_content,
-                    descriptio=v.sub_task_content,
+                    description=v.sub_task_content,
                     task_id=k,
                     status=v.state,
                     avatar=avatar,
@@ -335,17 +336,18 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
                     start_time = gpt_msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
                 title = gpt_msg.observation
 
-                action_report_str = gpt_msg.action_report
                 view_info = gpt_msg.content
-                if action_report_str and len(action_report_str) > 0:
-                    action_out = ActionOutput.from_dict(json.loads(action_report_str))
-                    if action_out is not None:  # noqa
+                action_views: List[str] = []
+                if gpt_msg.action_report:
+                    for action_out in gpt_msg.action_report:
                         if action_out.is_exe_success:  # noqa
                             view = action_out.view
-                            view_info = view if view else action_out.content
+                            action_views.append( view if view else action_out.content)
                         else:
                             status = Status.FAILED.value
 
+                if action_views:
+                    view_info = "\n".join(action_views)
                 action_space_markdown = view_info
 
                 llm_space = await self.gen_llm_space(gpt_msg)
@@ -367,7 +369,7 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
             markdown = llm_space
         if markdown:
             markdown = markdown + "\n" + action_space_markdown
-        return WorkItem(
+        return FolderNode(
             uid=uid,
             type=UpdateType.INCR.value,
             conv_id=conv_id,
@@ -381,10 +383,11 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
         )
 
     async def final_view(
-            self,
-            messages: List["GptsMessage"],
-            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        messages: List["GptsMessage"],
+        plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         if not messages:
             return None
@@ -398,7 +401,9 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
         re_messages.reverse()
         for message in re_messages:
             if message.receiver == HUMAN_ROLE:
-                report_view = await self.gen_final_report_vis(message)
+                final_report_vis = await self.gen_final_report_vis(message)
+                if final_report_vis:
+                    report_view = final_report_vis
 
         new_running_view = await self._all_running_vis_build(messages, senders_map)
 
@@ -453,13 +458,13 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
     async def gen_llm_space(self, message: GptsMessage) -> Optional[str]:
         cost = 0
         tokens = 0
-        action_report_str = message.action_report
         content = message.content
-        if action_report_str and len(action_report_str) > 0:
-            action_out = ActionOutput.from_dict(json.loads(action_report_str))
-            if action_out is not None:  # noqa
-                content = action_out.thoughts or action_out.content
-
+        action_contents = []
+        if message.action_report:
+            for action_out in message.action_report:
+                action_contents.append(action_out.thoughts or action_out.content)
+        if action_contents:
+            content = "\n".join(action_contents)
         return await self._gen_llm_space(message_id=message.message_id, llm_model=message.model_name,
                                          thinking=message.thinking, content=content, tokens=tokens, cost=cost,
                                          start_time=message.created_at)

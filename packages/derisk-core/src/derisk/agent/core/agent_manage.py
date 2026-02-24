@@ -71,8 +71,7 @@ class AgentManager(BaseComponent):
         self._core_agents = list(core_agents)
 
         """Register Extend Agent"""
-        ext_agents = scan_agents("derisk_ext.agent.agents").items()
-        for _, agent in ext_agents:
+        for _, agent in scan_agents("derisk_ext.agent.agents").items():
             try:
                 self.register_agent(agent)
             except Exception as e:
@@ -90,7 +89,6 @@ class AgentManager(BaseComponent):
 
         self.register_agent(ReActPlanChatManager)
         self.register_agent(AutoPlanChatManager)
-
 
     def register_agent(
         self, cls: Type[ConversableAgent], ignore_duplicate: bool = False
@@ -171,6 +169,7 @@ class AgentManager(BaseComponent):
                     "is_team": True if hasattr(value[1], "is_team") and value[1].is_team else False,
                 }
             )
+        result.sort(key=lambda a:a["name"])
         _CACHED_AGENTS = result
         return result
 

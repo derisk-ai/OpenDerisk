@@ -9,7 +9,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Union, Tuple
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -49,6 +49,7 @@ from derisk.model.parameter import (
     WorkerType,
 )
 from derisk.model.utils.llm_utils import list_supported_models
+from derisk.util.executor_utils import run_async_tasks
 from derisk.util.fastapi import create_app, register_event_handler
 from derisk.util.parameter_utils import (
     ParameterDescription,
@@ -59,7 +60,7 @@ from derisk.util.tracer import SpanType, SpanTypeRunName, initialize_tracer, roo
 from derisk.util.tracer.tracer_impl import TracerParameters
 from derisk.util.logger import (
     LoggingParameters,
-    setup_http_service_logging,
+    # setup_http_service_logging,
     setup_logging,
 )
 
@@ -80,7 +81,7 @@ async def _async_heartbeat_sender(
         try:
             await send_heartbeat_func(worker_run_data)
         except Exception as e:
-            logger.warn(f"Send heartbeat func error: {str(e)}")
+            logger.warn(f"Send heartbeat func error: {worker_run_data.model_params.name} - {str(e)}")
         finally:
             await asyncio.sleep(heartbeat_interval)
 
@@ -145,61 +146,69 @@ class LocalWorkerManager(WorkerManager):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self.executor, func, *args)
 
-
     async def load_model_storage(self):
         try:
             logger.info("There has model storage, start the model from storage")
             startup_reqs = await self.run_blocking_func(
                 self.model_storage.all_models
             )
+            tasks = []
             for startup_req in startup_reqs:
                 try:
-                    need_load = True
+                    need_load = False
                     model_key = self._worker_key(startup_req.worker_type, startup_req.model)
                     work = self.workers.get(model_key)
                     if work:
-                        logger.info(f"{model_key} worker instances is exist！")
+                        # logger.info(f"{model_key} worker instances is exist！")
                         need_load = False
-                        run_datas: List[WorkerRunData] =self.workers[model_key]
+                        run_datas: List[WorkerRunData] = self.workers[model_key]
                         # 如果模型已经加载除非api_key变化其他修改不进行热加载
-                        if hasattr( run_datas[0].model_params, "api_key"):
+                        if hasattr(run_datas[0].model_params, "api_key"):
                             if startup_req.params.get('api_key') != run_datas[0].model_params.api_key:
                                 logger.info(f"{model_key} api_key change， need restart！")
                                 need_load = True
+                    else:
+                        need_load = True
 
                     if need_load:
                         # Update host and port
                         startup_req.host = self.host
                         startup_req.port = self.port
-                        logger.info(f"Start model {model_key} from storage")
-                        await self.model_startup(startup_req)
-                        logger.info(f"Start model {model_key} successfully")
+                        # logger.info(f"Start model {model_key} from storage")
+                        # await self.model_startup(startup_req)
+                        # logger.info(f"Start model {model_key} successfully")
+                        tasks.append(self.model_startup(WorkerStartupRequest.model_validate(startup_req.model_dump())))
                 except Exception as e:
                     logger.warning(
                         f"Start model {startup_req.model} error: {str(e)}"
                     )
+            if tasks:
+                await run_async_tasks(tasks, concurrency_limit=10)
         except Exception as e:
             logger.warning(f"Load model storage error: {str(e)}")
 
     async def start(self):
+
+        logger.info("[DEBUG] LocalModel Manager Start！")
         if len(self.workers) > 0:
-            out = await self._start_all_worker(apply_req=None)
+            out = await self._start_all_worker(apply_req=None, parallel_num=100)
             if not out.success:
                 raise Exception(out.message)
         if self.register_func:
             await self.register_func(self.run_data)
         if self.send_heartbeat_func:
-            asyncio.create_task(_async_heartbeat_sender(self.run_data, 20, self.send_heartbeat_func))
+            task = asyncio.create_task(_async_heartbeat_sender(self.run_data, 20, self.send_heartbeat_func))
         if self.model_storage:
             # 存储任务引用以便后续取消
             self._periodic_task = None
+
+            # 立即执行一次
+            await self.load_model_storage()
             async def periodic_task():
                 try:
-                    # 立即执行一次
-                    await self.load_model_storage()
                     # 每30秒执行一次
                     while True:
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(180)
                         await self.load_model_storage()
                 except asyncio.CancelledError:
                     # 任务被取消
@@ -207,6 +216,7 @@ class LocalWorkerManager(WorkerManager):
                 except Exception as e:
                     print(f"Periodic task failed: {e}")
                     # 可以选择重新启动任务或记录错误
+
             # 启动任务
             self._periodic_task = asyncio.create_task(periodic_task())
 
@@ -344,7 +354,7 @@ class LocalWorkerManager(WorkerManager):
         )
         if not success:
             msg = f"Add worker {model_name}@{worker_type}, worker instances is exist"
-            logger.warning(f"{msg}, worker_params: {worker_params}")
+            logger.warning(f"{msg}")
             self._remove_worker(worker_params, model_name)
             raise Exception(msg)
         supported_types = WorkerType.values()
@@ -618,7 +628,7 @@ class LocalWorkerManager(WorkerManager):
 
     async def _apply_worker(
         self, apply_req: WorkerApplyRequest, apply_func: ApplyFunction
-    ) -> None:
+    ) -> Tuple[Any]:
         """Apply function to worker instances in parallel
 
         Args:
@@ -674,7 +684,7 @@ class LocalWorkerManager(WorkerManager):
                             worker_run_data.worker_params.send_heartbeat
                             and self.send_heartbeat_func
                         ):
-                            asyncio.create_task(
+                            task =asyncio.create_task(
                                 _async_heartbeat_sender(
                                     worker_run_data,
                                     worker_run_data.worker_params.heartbeat_interval,
@@ -1002,7 +1012,7 @@ def _setup_fastapi(
 ):
     if not app:
         app = create_app()
-        setup_http_service_logging()
+        # setup_http_service_logging()
 
         if system_app:
             system_app._asgi_app = app
@@ -1124,10 +1134,12 @@ def _create_local_model_manager(
             return await client.deregister_instance(instance)
 
         async def send_heartbeat_func(worker_run_data: WorkerRunData):
-            instance = ModelInstance(
-                model_name=worker_run_data.worker_key, host=register_host, port=port
-            )
-            return await client.send_heartbeat(instance)
+            # instance = ModelInstance(
+            #     model_name=worker_run_data.worker_key, host=register_host, port=port
+            # )
+            # return await client.send_heartbeat(instance)
+            # 性能消耗较大 站内用不到 先注掉
+            pass
 
         return LocalWorkerManager(
             register_func=register_func,
@@ -1282,7 +1294,6 @@ def initialize_worker_manager_in_client(
                 llm_deploy_config,
                 model_storage=model_storage,
             )
-        worker_manager.after_start(start_listener)
         for embedding_deploy_config in models_config.embeddings:
             _start_local_embedding_worker(
                 worker_manager,
@@ -1296,6 +1307,7 @@ def initialize_worker_manager_in_client(
                 worker_type=WorkerType.RERANKER.value,
                 model_storage=model_storage,
             )
+        worker_manager.after_start(start_listener)
     else:
         from derisk.model.cluster.controller.controller import (
             ModelRegistryClient,

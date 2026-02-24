@@ -1,4 +1,5 @@
 import dataclasses
+import json
 from enum import Enum
 from typing import List, Optional, Union, Any
 
@@ -112,6 +113,8 @@ class DocumentServeRequest(BaseModel):
     meta_data: Optional[dict] = Field(None, description="meta data")
     """questions: questions"""
     questions: Optional[List[str]] = Field(None, description="questions")
+    """user login name"""
+    user_login_name: Optional[str] = Field(None, description="user login name")
 
 
 class DocumentServeResponse(BaseModel):
@@ -179,13 +182,13 @@ class ChunkServeResponse(BaseModel):
     content: Optional[str] = Field(None, description="chunk content")
     meta_data: Optional[str] = Field(None, description="chunk meta info")
     questions: Optional[str] = Field(None, description="chunk questions")
-    chunk_id: Optional[str] = Field(None, description="chunk id")
-    tags: Optional[str] = Field(None, description="The doc tags")
+    # tags: Optional[str] = Field(None, description="The doc tags")
     tags: Optional[List[str]] = Field(None, description="The doc tags")
     chunk_type: Optional[str] = Field("text", description="chunk type")
     image_url: Optional[str] = Field(None, description="image_url")
     knowledge_id: Optional[str] = Field(None, description="knowledge id")
     yuque_url: Optional[str] = Field(None, description="yuque url")
+    yuque_type: Optional[str] = Field(None, description="yuque type")
     gmt_created: Optional[str] = Field(None, description="chunk create time")
     gmt_modified: Optional[str] = Field(None, description="chunk modify time")
 
@@ -241,7 +244,7 @@ class ChunkEditRequest(BaseModel):
     """id: id"""
 
     """chunk_id: chunk_id"""
-    chunk_id: Optional[int] = None
+    chunk_id: Optional[str] = None
     """chunk content: content"""
     content: Optional[str] = None
     """label: label"""
@@ -260,6 +263,25 @@ class ChunkEditRequest(BaseModel):
 
     """first_level_header: first_level_header"""
     first_level_header: Optional[str] = None
+
+    """vlm_model: vlm model"""
+    vlm_model: Optional[str] = None
+    """vlm_prompt: vlm prompt"""
+    vlm_prompt: Optional[str] = None
+
+
+
+class ChunkSplitParams(BaseModel):
+    """status: status"""
+    status: Optional[str] = "FINISHED"
+
+    """vlm_model: vlm model"""
+    vlm_model: Optional[str] = None
+
+    """vlm_prompt: vlm prompt"""
+    vlm_prompt: Optional[str] = None
+
+
 
 class KnowledgeSearchDirectoryRequest(BaseModel):
     """knowledge directory request"""
@@ -284,7 +306,7 @@ class KnowledgeSearchRequest(BaseModel):
     enable_rerank: Optional[bool] = True
     enable_summary: Optional[bool] = True
     enable_tag_filter: Optional[bool] = True
-    summary_model: Optional[str] = "deepseek-v3"
+    summary_model: Optional[str] = "aistudio/DeepSeek-V3"
     rerank_model: Optional[str] = "bge-reranker-v2-m3"
     summary_prompt: Optional[
         str
@@ -384,18 +406,18 @@ class KnowledgeDomainType(BaseModel):
     desc: str = Field(..., description="The domain type description")
 
 
-class KnowledgeStorageType(BaseModel):
+class KnowledgeStorageDomain(BaseModel):
     """Knowledge storage type"""
 
     name: str = Field(..., description="The storage type name")
-    desc: str = Field(..., description="The storage type description")
-    domain_types: List[KnowledgeDomainType] = Field(..., description="The domain types")
+    desc: Optional[str] = Field(None, description="The storage type description")
+    domain_types: Optional[List[KnowledgeDomainType]] = Field(None, description="The domain types")
 
 
 class KnowledgeConfigResponse(BaseModel):
     """Knowledge config response"""
 
-    storage: List[KnowledgeStorageType] = Field(..., description="The storage types")
+    storage: List[KnowledgeStorageDomain] = Field(..., description="The storage types")
 
 
 class KnowledgeDocumentRequest(BaseModel):
@@ -441,6 +463,8 @@ class KnowledgeDocumentRequest(BaseModel):
     tags: Optional[List[dict]] = None
 
     file_params: Optional[str] = None
+    """operator: operator"""
+    operator: Optional[str] = None
 
 
 class YuqueRequest(BaseModel):
@@ -472,7 +496,13 @@ class YuqueRequest(BaseModel):
     extract_image: Optional[bool] = False
     """tags: tags (meta_data)"""
     tags: Optional[List[dict]] = None
+    """operator: operator"""
+    operator: Optional[str] = None
 
+class YuqueUrlRequest(BaseModel):
+    token: Optional[str] = None
+    yuque_urls: Optional[List[str]] = None
+    chunk_parameters: Optional[ChunkParameters] = None
 
 
 class YuqueDocDetail(BaseModel):
@@ -480,6 +510,7 @@ class YuqueDocDetail(BaseModel):
 
     child_doc_slug: Optional[str] = None
     doc_slug: Optional[str] = None
+    doc_url: Optional[str] = None
     """file_id: file id/ doc id"""
     file_id: Optional[str] = None
     file_status: Optional[str] = None
@@ -614,7 +645,7 @@ class SettingsRequest(BaseModel):
 class CreateDocRequest(BaseModel):
     slug: Optional[str] = None
     title: Optional[str] = None
-    """公开性: (0:私密, 1:公开, 2:企业内公开)"""
+    """公开性: (0:仅协作者可见，1:集团所有人可访问,2:集团正式员工可访问；)"""
     public: Optional[int] = 0
     format: Optional[str] = "lake"
     """使用body_lake语雀内容"""
@@ -627,6 +658,7 @@ class CreateDocRequest(BaseModel):
     tags: Optional[List[dict]] = None
     target_uuid: Optional[str] = None
     content: Optional[str] = None
+    operator: Optional[str] = None
 
 class UpdateTocRequest(BaseModel):
     token: Optional[str] = None
@@ -674,6 +706,27 @@ class GraphProject(BaseModel):
     graph: Optional[str] = None
     project_id: Optional[str] = None
     name_zh: Optional[str] = None
+
+
+class GraphProjectResponse(BaseModel):
+    id: Optional[int] = Field(None, description="")
+    project_id: Optional[int] = Field(None, description="")
+    project_name: Optional[str] = Field(None, description="")
+    type: Optional[str] = Field(None, description="")
+    entity_count: Optional[int] = Field(None, description="")
+    relation_count: Optional[int] = Field(None, description="")
+    member_count: Optional[int] = Field(None, description="")
+    gmt_create: Optional[str] = Field(None, description="")
+    gmt_modified: Optional[str] = Field(None, description="")
+
+class CreateGraphProjectDbRequest(BaseModel):
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
+    type: Optional[str] = None
+    entity_count: Optional[int] = None
+    relation_count: Optional[int] = None
+    member_count: Optional[int] = None
+
 
 
 class CreateGraphRelationRequest(BaseModel):
@@ -751,7 +804,21 @@ class RefreshTimeType(Enum):
     HOURLY_1 = "每1小时同步"
     MINUTELY_30 = "每30分钟同步"
     MINUTELY_10 = "每10分钟同步"
+    MINUTELY_5 = "每5分钟同步"
+    MINUTELY_2 = "每2分钟同步"
+    MINUTELY_1 = "每1分钟同步"
 
+
+class RefreshTimeSeconds(Enum):
+    T_PLUS_1 = 86400
+    HOURLY_12 = 43200
+    HOURLY_6 = 21600
+    HOURLY_1 = 3600
+    MINUTELY_30 = 1800
+    MINUTELY_10 = 600
+    MINUTELY_5 = 300
+    MINUTELY_2 = 120
+    MINUTELY_1 = 60
 
 
 @dataclasses.dataclass
@@ -765,12 +832,16 @@ class KnowledgeSetting:
                                   "label": _("是否定时同步")}
     )
     scheduled_refresh_time: str = dataclasses.field(
-        default=RefreshTimeType.T_PLUS_1.value, metadata={"help": _("定时同步时间"),
+        default=RefreshTimeType.T_PLUS_1.name, metadata={"help": _("定时同步时间"),
                                   "label": _("定时同步时间"),
                                   "options": [
                                       {"name": m.name, "value": m.value}
                                       for m in RefreshTimeType
                                   ]}
+    )
+    last_refresh_time: str = dataclasses.field(
+        default="", metadata={"help": _("最后同步时间"),
+                                  "label": _("最后同步时间")}
     )
     refresh_mode: str = dataclasses.field(
         default=RefreshModeType.REFRESH_EXISTING_ONLY.name, metadata={"help": _("同步模式"),
@@ -822,6 +893,11 @@ class KnowledgeSetting:
         default="", metadata={"help": _("语雀"),
                                   "label": _("语雀")}
     )
+    cover_all: bool = dataclasses.field(
+        default=False, metadata={"help": _("是否覆盖所有文档"),
+                                  "label": _("是否覆盖所有文档")}
+    )
+
 
 class KnowledgeWriteRequest(BaseModel):
     """doc_name: doc path"""
@@ -829,6 +905,59 @@ class KnowledgeWriteRequest(BaseModel):
     file_path: Optional[str] = None
     content: Optional[str] = None
     tag: Optional[List[dict]] = None
+
+
+class KnowledgeStorageType(Enum):
+    POLYGONSTORE = "polygonstore"
+    AKG = "AKG"
+
+class ChunkType(Enum):
+    TEXT = "text"
+    IMAGE = "image"
+
+
+class KnowledgeCount(BaseModel):
+    """ graph、 rag"""
+    storage_type: Optional[str] = None
+
+    doc_count: Optional[int] = None
+    failed_doc_count: Optional[int] = None
+    chunk_count: Optional[int] = None
+    extract_image_count: Optional[int] = None
+    all_image_count: Optional[int] = None
+
+    node_count: Optional[int] = None
+    entity_count: Optional[int] = None
+    relation_count: Optional[int] = None
+    member_count: Optional[int] = None
+
+
+class ExcelData(BaseModel):
+    id: Optional[str] = None
+    name: Optional[str] = None
+    index: Optional[int] = None
+    rowCount: Optional[int] = None
+    colCount: Optional[int] = None
+    table: Optional[List[List[Any]]] = None
+
+
+class ExcelDataJSONEncoder(json.JSONEncoder):
+    """自定义JSON编码器"""
+    def default(self, obj):
+        # 处理 ExcelData 对象
+        if isinstance(obj, ExcelData):
+            return {
+                "id": obj.id,
+                "name": obj.name,
+                "index": obj.index,
+                "rowCount": obj.rowCount,
+                "colCount": obj.colCount,
+                "table": obj.table
+            }
+        # 处理其他不可序列化对象
+        return super().default(obj)
+
+
 
 
 

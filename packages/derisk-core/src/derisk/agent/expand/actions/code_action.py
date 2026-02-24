@@ -1,15 +1,16 @@
 """Code Action Module."""
 
 import logging
+import uuid
 from typing import Optional, Union
 
 from derisk.util.code_utils import UNKNOWN, execute_code, extract_code, infer_lang, extract_code_v2
 from derisk.util.logger import colored
 from derisk.vis import SystemVisTag
-from derisk_ext.vis.gptvis.tags.vis_code import Vis, VisCode
+from ... import AgentContext
 
 from ...core.action.base import Action, ActionOutput
-from ...resource.base import AgentResource
+from ...resource.base import AgentResource, Resource
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +28,23 @@ class CodeAction(Action[None]):
     async def run(
         self,
         ai_message: str = None,
-        resource: Optional[AgentResource] = None,
+        resource: Optional[Resource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,
+        received_message: Optional["AgentMessage"] = None,
         **kwargs,
     ) -> ActionOutput:
         """Perform the action."""
         try:
+            self.action_uid = uuid.uuid4().hex
+            action_id = kwargs.get("action_id", None)
             code_blocks, text_info = extract_code_v2(ai_message)
             if len(code_blocks) < 1:
                 logger.info(
                     f"No executable code found in answer,{ai_message}",
                 )
                 return ActionOutput(
+                    name=self.name,
                     is_exe_success=False, content="No executable code found in answer."
                 )
             elif len(code_blocks) > 1 and code_blocks[0][0] == UNKNOWN:
@@ -49,11 +54,12 @@ class CodeAction(Action[None]):
                     f"{ai_message}",
                 )
                 return ActionOutput(
+                    name=self.name,
                     is_exe_success=False,
                     content="Missing available code block type, "
                     "unable to execute code.",
                 )
-            exitcode, logs = self.execute_code_blocks(code_blocks)
+            exitcode, logs = await self.execute_code_blocks(code_blocks)
             exit_success = exitcode == 0
 
             content = (
@@ -73,6 +79,8 @@ class CodeAction(Action[None]):
             view = await self.render_protocol.display(content=param)
 
             return ActionOutput(
+                name=self.name,
+                action_id=action_id or self.action_uid,
                 is_exe_success=exit_success,
                 content=content,
                 view=view,
@@ -83,10 +91,11 @@ class CodeAction(Action[None]):
         except Exception as e:
             logger.exception("Code Action Run Failed！")
             return ActionOutput(
+                name=self.name,
                 is_exe_success=False, content="Code execution exception，" + str(e)
             )
 
-    def execute_code_blocks(self, code_blocks):
+    async def execute_code_blocks(self, code_blocks, agent_context: Optional[AgentContext] = None):
         """Execute the code blocks and return the result."""
         logs_all = ""
         exitcode = -1

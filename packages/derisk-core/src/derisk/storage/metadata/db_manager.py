@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
-from typing import ClassVar, Dict, Generic, Iterator, Optional, Type, TypeVar, Union
+from contextlib import contextmanager, asynccontextmanager
+from typing import ClassVar, Dict, Generic, Iterator, Optional, Type, TypeVar, Union, AsyncIterator
 
 from sqlalchemy import URL, Engine, MetaData, create_engine, inspect, orm
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import (
     DeclarativeMeta,
     Session,
@@ -168,6 +169,8 @@ class DatabaseManager:
         self._base: DeclarativeMeta = self._make_declarative_base(_Model)
         self._engine: Optional[Engine] = None
         self._session: Optional[scoped_session] = None
+        self._async_engine = None
+        self._async_session = None
 
     @property
     def Model(self) -> _Model:
@@ -254,6 +257,80 @@ class DatabaseManager:
         finally:
             session.close()
 
+    @asynccontextmanager
+    async def a_session(self, commit: Optional[bool] = True) -> AsyncIterator[AsyncSession]:
+        """Get the session with context manager.
+
+        This context manager handles the lifecycle of a SQLAlchemy session.
+        It automatically commits or rolls back transactions based on
+        the execution and handles session closure.
+
+        The `commit` parameter controls whether the session should commit
+        changes at the end of the block. This is useful for separating
+        read and write operations.
+
+        Examples:
+            .. code-block:: python
+
+                # For write operations (insert, update, delete):
+                with db.session() as session:
+                    user = User(name="John Doe")
+                    session.add(user)
+                    # session.commit() is called automatically
+
+                # For read-only operations:
+                with db.session(commit=False) as session:
+                    user = session.query(User).filter_by(name="John Doe").first()
+                    # session.commit() is NOT called, as it's unnecessary for read
+                    # operations
+
+        Args:
+            commit (Optional[bool], optional): Whether to commit the session.
+                If True (default), the session will commit changes at the end
+                of the block. Use False for read-only operations or when manual
+                control over commit is needed. Defaults to True.
+
+        Yields:
+            Session: The SQLAlchemy session object.
+
+        Raises:
+            RuntimeError: Raised if the database manager is not initialized.
+            Exception: Propagates any exception that occurred within the block.
+
+        Important Notes:
+            - DetachedInstanceError: This error occurs when trying to access or
+              modify an instance that has been detached from its session.
+              DetachedInstanceError can occur in scenarios where the session is
+              closed, and further interaction with the ORM object is attempted,
+              especially when accessing lazy-loaded attributes. To avoid this:
+                a. Ensure required attributes are loaded before session closure.
+                b. Avoid closing the session before all necessary interactions
+                   with the ORM object are complete.
+                c. Re-bind the instance to a new session if further interaction
+                   is required after the session is closed.
+        """
+        if not self.is_initialized:
+            raise RuntimeError("The database manager is not initialized.")
+        session = None
+        try:
+            session = self._async_session()
+            yield session
+            if commit:
+                await session.commit()
+        except Exception:
+            if commit and (session is not None):
+                try:
+                    await session.rollback()
+                except Exception as e:
+                    logger.error(f"session rollback error: {e}")
+            raise
+        finally:
+            if session is not None:
+                try:
+                    await session.close()
+                except Exception as e:
+                    logger.error(f"session close error: {e}")
+
     def _make_declarative_base(
         self, model: Union[Type[DeclarativeMeta], Type[_Model]]
     ) -> DeclarativeMeta:
@@ -317,6 +394,47 @@ class DatabaseManager:
         self._session = session_factory  # type: ignore
         self._base.metadata.bind = self._engine  # type: ignore
 
+        async_url = db_url
+        if isinstance(async_url, URL):
+            async_url = async_url.render_as_string(hide_password=False)
+
+        if async_url.startswith("mysql+ob://"):
+            # 替换为asyncmy驱动
+            async_url = async_url.replace("mysql+ob://", "mysql+asyncmy://")
+        if async_url.startswith("sqlite"):
+            # Don't upgrade memory db to async sqlite in tests, it fails with sync engine
+            # unless we know for sure it's not a test using sync engine
+            if ":memory:" not in async_url:
+                 async_url = async_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+            else:
+                 # If it is memory db, we might still want async if specifically requested
+                 # But standard test fixtures use sync engine with sqlite:///:memory:
+                 pass
+        
+        # Only create async engine if the driver supports async
+        # This prevents errors when falling back to sync sqlite in tests
+        self._async_engine = None
+        self._async_session = None
+        
+        # NOTE: Even after replacement, check if aiosqlite is actually in the string
+        if "aiosqlite" in async_url or "asyncmy" in async_url or "asyncpg" in async_url:
+             try:
+                # IMPORTANT: We MUST pass the async driver URL to create_async_engine
+                # create_async_engine expects the URL to have the async driver (e.g. +aiosqlite)
+                # If we passed the sync URL by mistake, it might default to the sync driver which causes the error.
+                self._async_engine = create_async_engine(async_url, **(engine_args or {}))
+                self._async_session = async_sessionmaker(
+                    bind=self._async_engine,
+                    class_=AsyncSession,
+                    expire_on_commit=False,
+                )
+             except Exception as e:
+                 # logger.warning(f"Could not create async engine for {async_url}: {e}")
+                 self._async_engine = None
+                 self._async_session = None
+
+        # self._init_listener()
+
     def init_default_db(
         self,
         sqlite_path: str,
@@ -338,8 +456,8 @@ class DatabaseManager:
         """
         if not engine_args:
             engine_args = {
-                # Pool class
-                "poolclass": QueuePool,
+                # # Pool class
+                # "poolclass": QueuePool,
                 # The number of connections to keep open inside the connection pool.
                 "pool_size": 10,
                 # The maximum overflow size of the pool when the number of connections
@@ -420,6 +538,11 @@ class DatabaseManager:
                 f"db_url_or_db should be either url or a DatabaseManager, got "
                 f"{type(db_url_or_db)}"
             )
+
+    # def _init_listener(self):
+    #     scan = model_scan("derisk_ext.storage.listener", DbEventListener)
+    #     for _, listener_cls in scan.items():
+    #         event.listen(self._engine, listener_cls.subscribe(), listener_cls.listen)
 
 
 db = DatabaseManager()

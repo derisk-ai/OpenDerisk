@@ -1,17 +1,20 @@
 import json
 import logging
+import uuid
 from collections import defaultdict
 from enum import Enum
 from typing import List, Optional, Dict, Union
 
 from derisk.agent import ActionOutput
 from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
+from derisk.agent.core.reasoning.reasoning_action import AgentAction
+from derisk.vis.schema import VisTaskContent, VisTextContent, VisConfirm, VisPlansContent
 from derisk.vis.vis_converter import SystemVisTag
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
 from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
 from derisk_ext.vis.derisk.tags.nex_planning_window import NexPlansContent, NexTaskContent, PlanningWindowContent
 from derisk_ext.vis.derisk.tags.nex_running_window import RunningContent, RunningWindowContent
-from derisk_ext.vis.gptvis.gpt_vis_converter import  GptVisTagPackage
+from derisk_ext.vis.gptvis.gpt_vis_converter import GptVisTagPackage
 
 from derisk_ext.vis.vis_protocol_data import UpdateType
 
@@ -45,25 +48,30 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
             SystemVisTag.VisSelect.value: DrskVisTagPackage.DrskSelect.value,
             SystemVisTag.VisRefs.value: DrskVisTagPackage.DrskRefs.value,
         }
+
     @property
     def web_use(self) -> bool:
         return True
+
     @property
     def render_name(self):
         return "derisk_vis_window"
+
     @property
     def description(self) -> str:
         return "(视窗模式)VIS可视化布局数据转换协议"
+
     async def visualization(
-            self,
-            messages: List[GptsMessage],
-            plans_map: Optional[Dict[str, GptsPlan]] = None,
-            gpt_msg: Optional[GptsMessage] = None,
-            stream_msg: Optional[Union[Dict, str]] = None,
-            new_plans: Optional[List[GptsPlan]] = None,
-            is_first_chunk: bool = False,
-            incremental: bool = False,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        messages: List[GptsMessage],
+        plans_map: Optional[Dict[str, GptsPlan]] = None,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        new_plans: Optional[List[GptsPlan]] = None,
+        is_first_chunk: bool = False,
+        incremental: bool = False,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         ### 增量模式，处理当前最小的消息或者最新的计划或者流式数据
 
@@ -191,7 +199,6 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
     async def _all_running_vis_build(self, messages: List[GptsMessage],
                                      senders_map: Optional[Dict[str, "ConversableAgent"]] = None):
 
-
         from derisk.agent import ConversableAgent
         ## 通过消息构建 agent items
         grouped = defaultdict(list)
@@ -259,21 +266,86 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
             content=running_window_content.to_dict()
         )
 
+
+
+
+    async def _render_actions_view(
+        self, action_reports: list[ActionOutput], message_id: str
+    ) -> str:
+        # AgentAction放前面 统一放在VisPlansContent里
+        # 其他Action(Tool/RAG)放后面 统一放在VisStepContent里
+        all_views: List[str] = []
+        agent_action_contents: List[VisTaskContent] = []
+        agent_action_views: List[str] = []
+        other_action_views: List[str] = []
+        for output in action_reports:
+            if output.name == AgentAction.name:
+
+                if not output.view:
+                    content = VisTaskContent(task_uid=uuid.uuid4().hex, task_content=output.action_input,
+                                             task_name=output.action_input, agent_name=output.action)
+                    agent_action_contents.append(content)
+                else:
+                    agent_action_views.append(output.view)
+            else:
+                other_action_views.append(output.view or output.content)
+        if action_reports[0].thoughts:
+            reasoning_view = self.vis_inst(SystemVisTag.VisText.value).sync_display(content=VisTextContent(
+                markdown=action_reports[0].thoughts, type="all", uid=message_id + "_reason", message_id=message_id
+            ).to_dict())
+            all_views.append(reasoning_view)
+        if agent_action_views:
+            all_views.extend(agent_action_views)
+        if agent_action_contents:
+            all_views.append(self.vis_inst(vis_tag=SystemVisTag.VisPlans.value).sync_display(
+                content=VisPlansContent(
+                    uid=message_id + "_action_agent",
+                    type="all",
+                    message_id=message_id + "_action_agent",
+                    tasks=agent_action_contents,
+                ).to_dict()
+            ))
+        if other_action_views:
+            all_views.extend(other_action_views)
+
+        return "\n".join(all_views)
+
+    async def _render_confirm_action(self, message_id: str, action_reports: list[ActionOutput]) -> str:
+
+        def _make_one_markdown(report: ActionOutput) -> str:
+            return f"* 动作:{report.action_name}({report.action}),参数:{report.action_input}"
+
+        markdown = "\n\n".join([_make_one_markdown(report)
+                                for report in action_reports if report.ask_user])
+        if not markdown:
+            return ""
+
+        markdown = "将执行如下动作:\n\n" + markdown + "\n\n是否确认执行?"
+        return await self.vis_inst(vis_tag=SystemVisTag.VisConfirm.value).display(
+            content=VisConfirm(
+                uid=message_id + "_confirm",
+                message_id=message_id + "_confirm",
+                type="all",
+                markdown=markdown,
+                extra={"approval_message_id": message_id}
+            ).to_dict()
+        )
+
     async def _messages_to_agents_vis(
-            self, messages: List[GptsMessage], is_last_message: bool = False
+        self, messages: List[GptsMessage], is_last_message: bool = False
     ):
         if messages is None or len(messages) <= 0:
             return ""
         messages_view = []
         for message in messages:
-            action_report_str = message.action_report
-            view_info = message.content
-            if action_report_str and len(action_report_str) > 0:
-                action_out = ActionOutput.from_dict(json.loads(action_report_str))
-                if action_out is not None:  # noqa
-                    if action_out.is_exe_success or is_last_message:  # noqa
-                        view = action_out.view
-                        view_info = view if view else action_out.content
+            action_reports = message.action_report
+            content_view = ""
+            if action_reports and len(action_reports) > 0:
+                content_view = await self._render_actions_view(action_reports, message.message_id)
+            view_info = content_view
+            if not view_info:
+                view_info = message.content
+
 
             thinking = message.thinking
             vis_thinking = self.vis_inst(SystemVisTag.VisThinking.value)
@@ -298,10 +370,11 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
         )
 
     async def final_view(
-            self,
-            messages: List["GptsMessage"],
-            plans_map: Optional[Dict[str, "GptsPlan"]] = None,
-            senders_map: Optional[Dict[str, "ConversableAgent"]] = None
+        self,
+        messages: List["GptsMessage"],
+        plans_map: Optional[Dict[str, "GptsPlan"]] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs
     ):
         if not messages:
             return None
@@ -315,7 +388,9 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
         re_messages.reverse()
         for message in re_messages:
             if message.receiver == HUMAN_ROLE:
-                report_view = await self.gen_final_report_vis(message)
+                final_report_vis = await self.gen_final_report_vis(message)
+                if final_report_vis:
+                    report_view = final_report_vis
 
         new_running_view = await self._all_running_vis_build(messages, senders_map)
 

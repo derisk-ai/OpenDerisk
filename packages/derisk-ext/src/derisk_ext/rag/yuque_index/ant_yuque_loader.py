@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 knowledge_yuque_dao = KnowledgeYuqueDao()
 knowledge_document_dao = KnowledgeDocumentDao()
 
-ant_yuque_api_url = "https://yuque-api.antfin-inc.com"
+ant_yuque_api_url = "https://yuque-api.com"
 
 API_GROUP_BOOK_DOCS_PATH = "/api/v2/repos/{group_login}/{book_slug}/docs"
 
@@ -39,7 +39,7 @@ class AntYuqueLoader:
         """Initialize with Yuque access_token and api_url.
 
         Args:
-            access_token: group access token - see https://yuque.antfin-inc.com/lark/openapi/api
+            access_token: group access token - see https://yuque.com/lark/openapi/api
             api_url: Yuque API url.
         """
         self.access_token = access_token

@@ -91,7 +91,7 @@ class QueryRewrite:
         Returns:
             queries: List[str]
         """
-        from derisk.util.chat_util import run_async_tasks
+        from derisk.util.executor_utils import run_async_tasks
 
         prompt = self._prompt_template.format(
             context=context, original_query=origin_query, nums=nums

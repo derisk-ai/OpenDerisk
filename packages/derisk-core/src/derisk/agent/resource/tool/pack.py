@@ -2,6 +2,7 @@
 
 import logging
 import os
+import asyncio
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Type, Union, cast
 from derisk.util.json_utils import parse_or_raise_error
@@ -104,6 +105,10 @@ class ToolPack(ResourcePack):
         parse_execute_args_func: Optional[PARSE_EXECUTE_ARGS_FUNCTION] = None,
         overwrite: bool = False,
         ask_user: bool = False,
+        is_mcp_tool: bool = False,
+        is_stream: bool = False,
+        stream_queue: Optional[asyncio.Queue[str]] = None,
+        input_schema: Optional[Dict] = None
     ) -> None:
         """Add a command to the commands.
 
@@ -157,6 +162,10 @@ class ToolPack(ResourcePack):
             description=command_label,
             parse_execute_args_func=parse_execute_args_func,
             ask_user=ask_user,
+            is_mcp_tool=is_mcp_tool,
+            is_stream=is_stream,
+            stream_queue=stream_queue,
+            input_schema=input_schema
         )
         self.append(ft, overwrite=overwrite)
 
@@ -205,7 +214,7 @@ class ToolPack(ResourcePack):
         tl = self._get_execution_tool(resource_name)
         try:
             arguments = {k: v for k, v in kwargs.items()}
-            arguments = self._get_call_args(arguments, tl)
+            #arguments = self._get_call_args(arguments, tl)
             if tl.is_async:
                 raise ToolExecutionException("Async execution is not supported")
             else:
@@ -239,7 +248,7 @@ class ToolPack(ResourcePack):
         tl = self._get_execution_tool(resource_name)
         try:
             arguments = {k: v for k, v in kwargs.items()}
-            arguments = self._get_call_args(arguments, tl)
+            #arguments = self._get_call_args(arguments, tl)
             if tl.is_async:
                 return await tl.async_execute(**arguments)
             else:
@@ -250,11 +259,12 @@ class ToolPack(ResourcePack):
 
     def is_terminal(self, resource_name: Optional[str] = None) -> bool:
         """Check if the tool is terminal."""
-        from ...expand.actions.react_action import Terminate
+
 
         if not resource_name:
             return False
         tl = self._get_execution_tool(resource_name)
+        from derisk.agent.expand.actions.terminate_action import Terminate
         return isinstance(tl, Terminate)
 
 

@@ -1,43 +1,33 @@
-// running window
+// running window - 渲染数据内容，不包含标题栏等UI元素
 import markdownComponents, {
   markdownPlugins,
 } from "@/components/chat/chat-content-components/config";
 import { GPTVis } from "@antv/gpt-vis";
-import React, { memo, } from "react";
-import { useState, useEffect } from "react";
-import { combineMarkdownString } from "@/utils/parse-vis";
+import React, { memo, useState, useEffect } from "react";
 
-// export function useDetailPanel(chatList: any[]) {
-//   const [runningWindowMarkdown, setRunningWindowMarkdown] =
-//     useState<string>("");
-//   useEffect(() => {
-//     const newRunningMarkdown = chatList.reduce((pre: string, cur: any) => {
-//       try {
-//         const curRunningWindow = JSON.parse(cur.context).running_window || "";
-//         if (!pre) return curRunningWindow || "";
-//         return combineMarkdownString(pre, curRunningWindow);
-//       } catch {
-//         console.error("fail to parse vis-running-window");
-//         return pre || "";
-//       }
-//     }, "");
-//     setRunningWindowMarkdown(newRunningMarkdown || "");
-//   }, [chatList]);
+export interface RunningWindowData {
+  running_window?: string;
+  explorer?: string;
+  items?: any[];
+  [key: string]: any;
+}
 
-//   return {
-//     runningWindowMarkdown,
-//   };
-// }
-
-export function useDetailPanel(chatList: any[]) {
+export function useDetailPanel(chatList: any[]): { 
+  runningWindowData: RunningWindowData;
+  runningWindowMarkdown: string;
+} {
+  const [runningWindowData, setRunningWindowData] = useState<RunningWindowData>({});
   const [runningWindowMarkdown, setRunningWindowMarkdown] = useState<string>("");
 
   useEffect(() => {
     if (!Array.isArray(chatList)) {
+      setRunningWindowData({});
       setRunningWindowMarkdown("");
       return;
     }
-    let markdownContent:any = "";
+
+    let mergedData: RunningWindowData = {};
+    let markdownContent = "";
 
     for (const item of chatList) {
       try {
@@ -51,13 +41,35 @@ export function useDetailPanel(chatList: any[]) {
           ? JSON.parse(item.context) 
           : item.context;
         
-        // 获取running_window内容（支持多种可能的字段名）
-        const visualContent = context.running_window || "";
+        // 尝试从多个可能的位置获取running_window
+        let runningWindowContent = "";
+        let explorerContent = "";
+        let itemsData = [];
+        
+        // 情况2a: 直接包含 running_window
+        if (context.running_window) {
+          runningWindowContent = context.running_window;
+        }
+        // 情况2b: 包含 vis 字段，vis 中包含 running_window
+        else if (context.vis) {
+          const visData = typeof context.vis === 'string' 
+            ? JSON.parse(context.vis) 
+            : context.vis;
+          runningWindowContent = visData.running_window || "";
+          explorerContent = visData.explorer || mergedData.explorer || "";
+          itemsData = visData.items || [];
+        }
 
-        if (visualContent && typeof visualContent === 'string') {
-          markdownContent = markdownContent 
-            ? combineMarkdownString(markdownContent, visualContent || "") 
-            : (visualContent || "");
+        // 合并数据：保留 explorer（如果新的没有，保留旧的）
+        if (explorerContent) {
+          mergedData.explorer = explorerContent;
+        }
+        if (itemsData.length > 0) {
+          mergedData.items = [...(mergedData.items || []), ...itemsData];
+        }
+        if (runningWindowContent) {
+          mergedData.running_window = runningWindowContent;
+          markdownContent = runningWindowContent;
         }
       } catch (error) {
         console.debug("Skipping invalid chat item context:", {
@@ -70,31 +82,63 @@ export function useDetailPanel(chatList: any[]) {
       }
     }
 
+    setRunningWindowData(mergedData);
     setRunningWindowMarkdown(markdownContent);
   }, [chatList]);
 
-  return { runningWindowMarkdown };
+  return { 
+    runningWindowData,
+    runningWindowMarkdown 
+  };
 }
 
+// 纯内容渲染组件 - 不包含标题、关闭按钮等UI元素
+// 这些UI元素应该在父组件中处理
 const ChatDetailContent: React.FC<{
-  content: string
-}> = ({ content }) => {
+  content?: string;
+  data?: RunningWindowData;
+}> = ({ content, data }) => {
+  // 如果有完整数据对象，直接渲染 RunningWindow
+  if (data?.running_window) {
+    // 解析 d-work 组件
+    const workMatch = data.running_window.match(/```d-work\n([\s\S]*?)\n```/);
+    if (workMatch) {
+      try {
+        const workData = JSON.parse(workMatch[1]);
+        // 合并 explorer 和 items
+        const mergedData = {
+          ...workData,
+          explorer: data.explorer || workData.explorer,
+          items: data.items || workData.items,
+        };
+        return (
+          // @ts-ignore
+          <GPTVis
+            components={{
+              ...markdownComponents,
+            }}
+            {...markdownPlugins}
+          >
+            {`\`\`\`d-work\n${JSON.stringify(mergedData)}\n\`\`\``}
+          </GPTVis>
+        );
+      } catch (e) {
+        console.error('Failed to parse running window data:', e);
+      }
+    }
+  }
 
+  // 回退到原来的渲染方式
   return (
-    <>
-      <div className="flex flex-col border-dashed border-r0 flex-1 h-full">
-        {/* @ts-ignore */}
-        <GPTVis
-          components={{
-            ...markdownComponents,
-          }}
-          {...markdownPlugins}
-        >
-          {content}
-        </GPTVis>
-      </div> 
-    </>
-    
+    // @ts-ignore
+    <GPTVis
+      components={{
+        ...markdownComponents,
+      }}
+      {...markdownPlugins}
+    >
+      {content || data?.running_window || ''}
+    </GPTVis>
   );
 };
 
