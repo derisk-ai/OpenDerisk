@@ -791,11 +791,11 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col items-center justify-center w-full max-w-5xl mx-auto px-4 mt-10">
         {/* Title */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 -translate-y-[10px]">
           <h1 className="text-4xl font-medium text-gray-900 dark:text-gray-100 tracking-tight mb-3">
             <span className="mr-2">🚀</span>
-            OpenDeRisk智能风险深度
-            <span className="text-orange-500">洞察</span>
+            You Command, We
+            <span className="text-orange-500 ml-2">Defend.</span>
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-base">
             OpenDeRisk—AI原生风险智能系统，为每个应用系统提供一个7*24H的AI系统数字管家
@@ -951,7 +951,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         </div>
 
         {/* Quick Actions - SRE Domain Scenarios */}
-        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl">
+        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl translate-y-[10px]">
           <QuickActionButton 
             icon={<HeartOutlined />} 
             text="AI应用健康" 
