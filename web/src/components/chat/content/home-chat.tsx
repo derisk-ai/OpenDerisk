@@ -2,7 +2,6 @@
 import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList } from '@/client/api';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import {
-  AppstoreOutlined,
   ArrowUpOutlined,
   BulbOutlined,
   CodeOutlined,
@@ -229,7 +228,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
           ) : skill.icon ? (
             <img src={skill.icon} alt={skill.name} className="w-6 h-6 object-contain" />
           ) : (
-            <AppstoreOutlined className="text-blue-500 text-lg" />
+            <span className="text-blue-500 text-lg font-semibold">{skill.name ? skill.name.charAt(0).toUpperCase() : 'S'}</span>
           )}
         </div>
       </Popover>
@@ -644,19 +643,26 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
     const remainingCount = selectedSkills.length - MAX_DISPLAY_SKILLS;
 
     return (
-      <div className="flex items-center gap-2 mr-2">
-        {displaySkills.map((skill) => (
-          <SkillIconPreview
-            key={skill.skill_code}
-            skill={skill}
-            onRemove={() => handleSkillRemove(skill.skill_code)}
-          />
-        ))}
-        {remainingCount > 0 && (
-          <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center">
-            <Text className="text-xs text-gray-500 font-medium">+{remainingCount}</Text>
-          </div>
-        )}
+      <div className="flex items-center mr-2" style={{ width: '160px', minWidth: '160px' }}>
+        <div className="flex items-center" style={{ marginLeft: 0 }}>
+          {displaySkills.map((skill, index) => (
+            <div key={skill.skill_code} style={{ marginLeft: index === 0 ? 0 : -8, zIndex: displaySkills.length - index }}>
+              <SkillIconPreview
+                key={skill.skill_code}
+                skill={skill}
+                onRemove={() => handleSkillRemove(skill.skill_code)}
+              />
+            </div>
+          ))}
+          {remainingCount > 0 && (
+            <div
+              className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center"
+              style={{ marginLeft: -8, zIndex: 0 }}
+            >
+              <Text className="text-xs text-gray-500 font-medium">+{remainingCount}</Text>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -703,7 +709,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
                   {skill.icon ? (
                     <img src={skill.icon} className="w-4 h-4 flex-shrink-0" />
                   ) : (
-                    <AppstoreOutlined className={cls("text-lg", isSelected ? "text-blue-500" : "")} />
+                    <span className={cls("text-sm font-semibold w-4 h-4 flex items-center justify-center flex-shrink-0", isSelected ? "text-blue-500" : "")}>{skill.name ? skill.name.charAt(0).toUpperCase() : 'S'}</span>
                   )}
                   <span className="text-sm truncate">{skill.name}</span>
                 </div>

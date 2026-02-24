@@ -221,7 +221,7 @@ avatar={
               shape="circle"
               size={48}
               src={item.icon}
-              icon={!item.icon && (type === 'mcp' ? <ApiOutlined /> : type === 'local' ? <ToolOutlined /> : <AppstoreOutlined />)}
+              icon={!item.icon && (type === 'mcp' ? <ApiOutlined /> : type === 'local' ? <ToolOutlined /> : undefined)}
               className={`
                 bg-white dark:bg-gray-800 border-2
                 ${isSelected
@@ -229,7 +229,10 @@ avatar={
                   : 'border-gray-200 dark:border-gray-700 text-gray-500'
                 }
               `}
-            />
+              style={!item.icon && type === 'skill' ? { fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' } : undefined}
+            >
+              {!item.icon && type === 'skill' && (item.name ? item.name.charAt(0).toUpperCase() : 'S')}
+            </Avatar>
           }
           title={
             <div className="flex items-center gap-2">

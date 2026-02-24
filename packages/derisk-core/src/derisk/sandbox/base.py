@@ -129,8 +129,8 @@ class SandboxBase:
 
             return os.path.join(DATA_DIR, "skill")
         except ImportError:
-            logger.warning("DATA_DIR not available, returning empty skill_dir")
-            return ""
+            logger.warning("DATA_DIR not available, returning default skill_dir")
+            return DEFAULT_SKILL_DIR or "/mnt/derisk/skills"
 
     @property
     def enable_skill(self) -> Optional[bool]:

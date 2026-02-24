@@ -65,7 +65,8 @@ async def get_mcp_tool_list(
         allow_tools: Optional[List[str]] = None,
         server_ssl_verify: Optional[Any] = None,
         use_cache: bool = True,
-        tool_id: Optional[str] = None
+        tool_id: Optional[str] = None,
+        timeout: Optional[int] = None
 ):
     trace_id = (
         root_tracer.get_current_span().trace_id
@@ -74,6 +75,9 @@ async def get_mcp_tool_list(
     )
     rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
     cookie = root_tracer.get_context_cookie()
+
+    if headers is None:
+        headers = {}
 
     async def mcp_tool_list(server: str):
         try:
@@ -113,7 +117,7 @@ async def get_mcp_tool_list(
             raise e
 
     try:
-        time_out = 30
+        time_out = timeout if timeout else 60
         if CFG.debug_mode:
             logger.info("MCP Enter DebugMode, Use local mcp gateways!")
             server = f"http://localhost:{CFG.DERISK_WEBSERVER_PORT}/mcp/sse"
@@ -147,6 +151,9 @@ async def call_mcp_tool(
     )
     rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
     cookie = root_tracer.get_context_cookie()
+
+    if headers is None:
+        headers = {}
 
     if not tool_id: 
         tool_id = str(uuid.uuid4()) 

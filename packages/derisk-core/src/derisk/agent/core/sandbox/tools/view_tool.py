@@ -415,3 +415,4 @@ async def execute_view(
     if content.startswith("[错误:"):
         return content
     return _format_text_content(content, range_tuple)
+

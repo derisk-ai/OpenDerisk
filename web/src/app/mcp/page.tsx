@@ -1,15 +1,15 @@
 "use client"
 import { apiInterceptors, getMCPList, offlineMCP, startMCP, deleteMCP } from '@/client/api';
 import { InnerDropdown } from '@/components/blurred-card';
-import { FolderOpenFilled, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Form, Pagination, Result, Spin, Tooltip, Button, message, Tag, Popconfirm, Input, PaginationProps, Modal } from 'antd';
+import { Pagination, Spin, Button, message, PaginationProps, Modal } from 'antd';
 import { useRouter } from 'next/navigation';
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreatMcpModel from './CreatMcpModel';
+import './index.css';
 
-const { Search } = Input;
 const { confirm: modalConfirm } = Modal;
 
 type FieldType = {
@@ -19,9 +19,9 @@ type FieldType = {
   [key: string]: any;
 };
 
-const Mpc: React.FC = () => {
+const McpPage: React.FC = () => {
   const { t } = useTranslation();
-  const [form] = Form.useForm();
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const [queryParams, setQueryparams] = useState({
     filter: '',
@@ -32,19 +32,13 @@ const Mpc: React.FC = () => {
   });
 
   const [mcpList, setMcpList] = useState<any>([]);
-  // const [modalState, setModalState] = useState<any>(true); // Unused
   const [formData, setFormData] = useState<any>({});
   const router = useRouter();
 
   const { loading, run: runGetMPCList } = useRequest(
     async (
-      params = {
-        filter: '',
-      },
-      other = {
-        page: 1,
-        page_size: 20,
-      },
+      params = { filter: '' },
+      other = { page: 1, page_size: 20 },
     ): Promise<any> => {
       return await apiInterceptors(getMCPList(params, other));
     },
@@ -70,47 +64,40 @@ const Mpc: React.FC = () => {
           message.success(t('start_mcp_success'));
           runGetMPCList(queryParams, paginationParams);
         } else {
-          message.error('Failed to start MCP');
+          message.error(t('start_mcp_failed'));
         }
       },
-      onError: (error) => {
-        message.error('Failed to start MCP');
-        console.error('Start MCP error:', error);
+      onError: () => {
+        message.error(t('start_mcp_failed'));
       },
       throttleWait: 300,
     },
-
   );
+
   const confirm = (item: FieldType) => {
-    // 检查必要的字段是否存在
     if (!item.name || !item.mcp_code) {
-      message.error('缺少必要的参数');
+      message.error(t('missing_params'));
       return;
     }
-
     modalConfirm({
       title: t('delete_task'),
       content: t('delete_task_confirm'),
       okText: t('Yes'),
       cancelText: t('No'),
+      okButtonProps: { danger: true },
       onOk() {
         const params: Record<string, string> = {
           name: item.name || '',
           mcp_code: item.mcp_code || '',
-        }
+        };
         return apiInterceptors(deleteMCP(params)).then(() => {
-          message.success('删除成功');
+          message.success(t('delete_success'));
           onSearch();
         });
       },
-      onCancel() {},
     });
   };
 
-  const cancel = (e: any) => {
-    console.log(e);
-    // message.error('Click on No');
-  };
   const { run: runOfflineMCP } = useRequest(
     async (params): Promise<any> => {
       return await apiInterceptors(offlineMCP(params));
@@ -129,28 +116,20 @@ const Mpc: React.FC = () => {
   );
 
   const goMcpDetail = (mcp_code: string, name: string) => {
-    // 改为使用动态路由格式
     router.push(`/mcp/detail/?id=${mcp_code}&name=${name}`);
   };
+
   const onShowSizeChange: PaginationProps['onShowSizeChange'] = (current: number, pageSize: number) => {
     setPaginationParams(pre => ({ ...pre, page: current, page_size: pageSize }));
     runGetMPCList(queryParams, { page: current, page_size: pageSize });
   };
 
   const onStopTheMCP = (item: any) => {
-    const params = {
-      id: item?.id,
-    };
-    runOfflineMCP(params);
+    runOfflineMCP({ id: item?.id });
   };
 
   const onStartTheMCP = (item: any) => {
-
-    const params = {
-      name: item?.name,
-      sse_header: item?.sse_headers,
-    };
-    runStartMCP(params);
+    runStartMCP({ name: item?.name, sse_headers: item?.sse_headers });
   };
 
   const onSearch = () => {
@@ -159,171 +138,229 @@ const Mpc: React.FC = () => {
 
   const editMcp = (item: any) => {
     setFormData(item);
-    // setModalState(true);
   };
+
+  // Stats
+  const stats = useMemo(() => {
+    const total = mcpList?.length || 0;
+    const online = mcpList?.filter((i: any) => i?.available)?.length || 0;
+    const offline = total - online;
+    return { total, online, offline };
+  }, [mcpList]);
 
   return (
     <Spin spinning={loading}>
-      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto bg-[#FAFAFA] dark:bg-[#111]'>
-        <div className='max-w-6xl mx-auto'>
+      <div className='mcp-page-root'>
+        {/* Ambient background */}
+        <div className='mcp-page-bg' />
+
+        <div className='mcp-page-content'>
           {/* Header */}
-          <div className='flex justify-between items-center mb-6'>
-            <div>
-              <h1 className='text-2xl font-bold tracking-tight'>AIOps MCP Servers</h1>
-              <p className='text-muted-foreground'>Explore our curated collection of MCP servers to connect AI to your favorite tools.</p>
+          <div className='mcp-header'>
+            <div className='mcp-header-left'>
+              <div className='mcp-header-icon'>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div>
+                <h1 className='mcp-title'>MCP Servers</h1>
+                <p className='mcp-subtitle'>
+                  {t('mcp_page_subtitle')}
+                </p>
+              </div>
             </div>
-            <div className='flex gap-2 items-center'>
+            <div className='mcp-header-actions'>
               <Button
+                className='mcp-btn-refresh'
                 icon={<ReloadOutlined />}
                 onClick={() => runGetMPCList(queryParams, paginationParams)}
-              >
-                Refresh
-              </Button>
-              <CreatMcpModel formData={formData} setFormData={setFormData} onSuccess={() => runGetMPCList(queryParams, paginationParams)}></CreatMcpModel>
-            </div>
-          </div>
-
-          {/* Search */}
-          <div className='mb-6'>
-            <Search
-              placeholder="Search for MCP servers..."
-              allowClear
-              style={{ width: 300 }}
-              value={queryParams?.filter}
-              onChange={e => setQueryparams((pre: any) => ({ ...pre, filter: e.target.value }))}
-              onSearch={onSearch}
-            />
-          </div>
-
-          {/* List */}
-          {mcpList?.length ? (
-            <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
-              {mcpList?.map((item: any, index: number) => {
-                return (
-                  <div
-                    key={index}
-                    className='bg-white dark:bg-[#1f1f1f] rounded-lg shadow p-4 relative hover:shadow-md transition-all cursor-pointer border border-gray-100 dark:border-gray-800'
-                    onClick={() => goMcpDetail(item?.mcp_code, item?.name)}
-                  >
-                    <div className='flex items-start justify-between mb-2'>
-                      <div className='flex items-center gap-3'>
-                        {/* Icon */}
-                        <div className='h-10 w-10 rounded-lg shrink-0 overflow-hidden flex items-center justify-center bg-blue-50 dark:bg-blue-900/20'>
-                          {item?.icon ? (
-                            <img
-                              loading='lazy'
-                              className='w-full h-full object-cover'
-                              src={item?.icon}
-                              alt={item?.name}
-                            />
-                          ) : (
-                            <span className='text-blue-500 font-bold text-xs'>
-                              MCP
-                            </span>
-                          )}
-                        </div>
-                        {/* Title & Status */}
-                        <div>
-                          <h3 className='font-medium text-base line-clamp-1'>{item?.name}</h3>
-                          <div className="flex gap-1 mt-1">
-                            {item?.type && <Tag className="mr-0 text-[10px] scale-90 origin-left">{item?.type}</Tag>}
-                            {item?.available ? (
-                              <Tag color="#87d068" className="mr-0 text-[10px] scale-90 origin-left">{t('mcp_online')}</Tag>
-                            ) : (
-                              <Tag className="mr-0 text-[10px] scale-90 origin-left">{t('mcp_offline')}</Tag>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Dropdown Menu */}
-                      <div onClick={e => e.stopPropagation()}>
-                        <InnerDropdown
-                          menu={{
-                            items: [
-                              item?.available ? {
-                                key: 'stop_mcp',
-                                label: (
-                                  <span className='text-red-400' onClick={() => onStopTheMCP(item)}>
-                                    {t('stop_mcp')}
-                                  </span>
-                                ),
-                              } : {
-                                key: 'start_mcp',
-                                label: (
-                                  <span className='text-green-400' onClick={() => onStartTheMCP(item)}>
-                                    {t('start_mcp')}
-                                  </span>
-                                ),
-                              },
-                              {
-                                key: 'edit',
-                                label: t('Edit'),
-                                onClick: () => editMcp(item),
-                              },
-                              {
-                                key: 'delete',
-                                label: <span className="text-red-500">{t('Delete')}</span>,
-                                onClick: () => {
-                                  // Confirm handled by InnerDropdown item or we need to wrap it?
-                                  // InnerDropdown items usually are just clickable. 
-                                  // We can use a custom Render for the menu item if we want Popconfirm, 
-                                  // or just use Modal.confirm style. 
-                                  // For now let's just use the confirm function which (doesn't) show a dialog but deletes?
-                                  // The original code used Popconfirm on the button.
-                                  // Since this is in a dropdown, we might want to just call confirm(item) but 
-                                  // ideally we should show a confirmation.
-                                  // Let's use Modal.confirm logic or simple confirm() for now to match the "clean" style,
-                                  // or we can rely on `confirm` function to just do it (original code had Popconfirm).
-                                  // Let's stick to simple click for now, maybe add a confirm dialog later if needed.
-                                  confirm(item);
-                                },
-                              },
-                            ].filter(Boolean) as any,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <p className='text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-4 h-10'>
-                      {item?.description}
-                    </p>
-
-                    {/* Footer Info */}
-                    <div className='flex justify-between items-center text-xs text-gray-400 border-t border-gray-100 dark:border-gray-800 pt-3'>
-                      <div className="flex gap-2">
-                        <span>{item?.author || 'Unknown'}</span>
-                      </div>
-                      <span>{item?.version || 'v1.0.0'}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className='flex items-center justify-center h-64'>
-              <Result
-                status='info'
-                icon={<FolderOpenFilled className='text-gray-300' />}
-                title={<div className='text-gray-300'>No MCP Servers Found</div>}
+              />
+              <CreatMcpModel
+                formData={formData}
+                setFormData={setFormData}
+                onSuccess={() => runGetMPCList(queryParams, paginationParams)}
               />
             </div>
+          </div>
+
+          {/* Stats bar */}
+          <div className='mcp-stats-bar'>
+            <div className='mcp-stats-group'>
+              <div className='mcp-stat'>
+                <span className='mcp-stat-value'>{stats.total}</span>
+                <span className='mcp-stat-label'>{t('mcp_stat_total')}</span>
+              </div>
+              <div className='mcp-stat-divider' />
+              <div className='mcp-stat'>
+                <span className='mcp-stat-value mcp-stat-online'>{stats.online}</span>
+                <span className='mcp-stat-label'>{t('mcp_stat_online')}</span>
+              </div>
+              <div className='mcp-stat-divider' />
+              <div className='mcp-stat'>
+                <span className='mcp-stat-value mcp-stat-offline'>{stats.offline}</span>
+                <span className='mcp-stat-label'>{t('mcp_stat_offline')}</span>
+              </div>
+            </div>
+
+            <div className='mcp-toolbar'>
+              <div className='mcp-search-wrapper'>
+                <SearchOutlined className='mcp-search-icon' />
+                <input
+                  className='mcp-search-input'
+                  placeholder={t('Search MCP servers...')}
+                  value={queryParams?.filter}
+                  onChange={e => setQueryparams(pre => ({ ...pre, filter: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && onSearch()}
+                />
+              </div>
+              <div className='mcp-view-toggle'>
+                <button
+                  className={`mcp-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                >
+                  <AppstoreOutlined />
+                </button>
+                <button
+                  className={`mcp-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                >
+                  <UnorderedListOutlined />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Cards */}
+          {mcpList?.length ? (
+            <div className={viewMode === 'grid' ? 'mcp-grid' : 'mcp-list-view'}>
+              {mcpList.map((item: any, index: number) => (
+                <div
+                  key={item?.mcp_code || index}
+                  className={`mcp-card ${item?.available ? 'mcp-card--online' : 'mcp-card--offline'} ${viewMode === 'list' ? 'mcp-card--list' : ''}`}
+                  onClick={() => goMcpDetail(item?.mcp_code, item?.name)}
+                >
+                  {/* Status glow */}
+                  {item?.available && <div className='mcp-card-glow' />}
+
+                  <div className='mcp-card-header'>
+                    <div className='mcp-card-identity'>
+                      <div className={`mcp-card-avatar ${item?.available ? 'mcp-card-avatar--online' : ''}`}>
+                        {item?.icon ? (
+                          <img loading='lazy' src={item?.icon} alt={item?.name} />
+                        ) : (
+                          <span className='mcp-card-avatar-text'>
+                            {(item?.name || 'M').charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className='mcp-card-meta'>
+                        <h3 className='mcp-card-name'>{item?.name}</h3>
+                        <div className='mcp-card-badges'>
+                          {item?.type && (
+                            <span className='mcp-badge mcp-badge--type'>{item.type.toUpperCase()}</span>
+                          )}
+                          <span className={`mcp-badge ${item?.available ? 'mcp-badge--online' : 'mcp-badge--offline'}`}>
+                            <span className={`mcp-status-dot ${item?.available ? 'mcp-status-dot--online' : ''}`} />
+                            {item?.available ? t('mcp_online') : t('mcp_offline')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div onClick={e => e.stopPropagation()} className='mcp-card-actions'>
+                      <InnerDropdown
+                        menu={{
+                          items: [
+                            item?.available
+                              ? {
+                                  key: 'stop_mcp',
+                                  label: (
+                                    <span className='mcp-dropdown-danger' onClick={() => onStopTheMCP(item)}>
+                                      {t('stop_mcp')}
+                                    </span>
+                                  ),
+                                }
+                              : {
+                                  key: 'start_mcp',
+                                  label: (
+                                    <span className='mcp-dropdown-success' onClick={() => onStartTheMCP(item)}>
+                                      {t('start_mcp')}
+                                    </span>
+                                  ),
+                                },
+                            {
+                              key: 'edit',
+                              label: t('Edit'),
+                              onClick: () => editMcp(item),
+                            },
+                            { type: 'divider' as const },
+                            {
+                              key: 'delete',
+                              label: <span className='mcp-dropdown-danger'>{t('Delete')}</span>,
+                              onClick: () => confirm(item),
+                            },
+                          ].filter(Boolean) as any,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <p className='mcp-card-desc'>{item?.description}</p>
+
+                  <div className='mcp-card-footer'>
+                    <div className='mcp-card-footer-left'>
+                      {item?.author && (
+                        <span className='mcp-card-author'>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                          </svg>
+                          {item.author}
+                        </span>
+                      )}
+                    </div>
+                    <span className='mcp-card-version'>{item?.version || 'v1.0.0'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            !loading && (
+              <div className='mcp-empty'>
+                <div className='mcp-empty-icon'>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" />
+                    <path d="M2 17L12 22L22 17" />
+                    <path d="M2 12L12 17L22 12" />
+                  </svg>
+                </div>
+                <h3 className='mcp-empty-title'>{t('No MCP servers found')}</h3>
+                <p className='mcp-empty-desc'>
+                  {t('mcp_empty_desc')}
+                </p>
+              </div>
+            )
           )}
 
           {/* Pagination */}
-          <div className='flex justify-end mt-6'>
-            <Pagination
-              current={paginationParams?.page}
-              pageSize={paginationParams?.page_size}
-              showSizeChanger
-              onChange={onShowSizeChange}
-            />
-          </div>
+          {mcpList?.length > 0 && (
+            <div className='mcp-pagination'>
+              <Pagination
+                current={paginationParams?.page}
+                pageSize={paginationParams?.page_size}
+                showSizeChanger
+                onChange={onShowSizeChange}
+                size="small"
+              />
+            </div>
+          )}
         </div>
       </div>
     </Spin>
   );
 };
 
-export default memo(Mpc);
+export default memo(McpPage);

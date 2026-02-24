@@ -17,6 +17,7 @@ type FieldType = {
   description?: string;
   type?: string;
   sse_url?: string;
+  sse_headers?: string;
   token?: string;
   email?: string;
   version?: string;
@@ -66,6 +67,15 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
 
   const handleOk = () => {
     form?.validateFields().then(async values => {
+      // Parse sse_headers from JSON string to dict before submit
+      if (values.sse_headers && typeof values.sse_headers === 'string') {
+        try {
+          values.sse_headers = JSON.parse(values.sse_headers);
+        } catch {
+          message.error(t('mcp_headers_invalid_json'));
+          return;
+        }
+      }
       // If editing, include mcp_code from formData
       const submitData = formData?.mcp_code ? { ...values, mcp_code: formData.mcp_code } : values;
       runAddMCP(submitData);
@@ -82,8 +92,13 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
   // Populate form when editing
   useEffect(() => {
     if (Object.keys(formData || {}).length > 0 && isModalOpen) {
-      form?.setFieldsValue(formData);
-      setMcpType(formData?.type || 'http');
+      const displayData = { ...formData };
+      // Convert sse_headers dict to JSON string for display in textarea
+      if (displayData.sse_headers && typeof displayData.sse_headers === 'object') {
+        displayData.sse_headers = JSON.stringify(displayData.sse_headers, null, 2);
+      }
+      form?.setFieldsValue(displayData);
+      setMcpType(displayData?.type || 'http');
     }
   }, [formData, form, isModalOpen]);
 
@@ -110,10 +125,21 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
         onCancel={handleCancel}
         confirmLoading={loading}
         okButtonProps={{ className: 'bg-button-gradient' }}
-        width={800}
+        width={720}
         centered
+        className="mcp-modal"
+        destroyOnClose
       >
-        <Form initialValues={{ type: 'http' }} autoComplete='off' form={form}>
+        <Form
+          initialValues={{ type: 'http' }}
+          autoComplete='off'
+          form={form}
+          layout='vertical'
+          requiredMark={false}
+        >
+          {/* -- Basic Info Section -- */}
+          <div className="mcp-modal-section-title">{t('mcp_section_basic')}</div>
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item<FieldType>
@@ -134,7 +160,7 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
                   onChange={(value) => setMcpType(value)}
                   placeholder={t('mcp_type_placeholder')}
                 >
-                  <Select.Option value="http">HTTP/SSE</Select.Option>
+                  <Select.Option value="http">HTTP / SSE</Select.Option>
                   <Select.Option value="stdio">STDIO</Select.Option>
                 </Select>
               </Form.Item>
@@ -146,29 +172,61 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
             name='description'
             rules={[{ required: true, message: t('mcp_description_required') }]}
           >
-            <Input.TextArea rows={3} placeholder={t('mcp_description_placeholder')} />
+            <Input.TextArea rows={2} placeholder={t('mcp_description_placeholder')} />
           </Form.Item>
 
+          {/* -- Connection Section -- */}
+          <div className="mcp-modal-section-title">{t('mcp_section_connection')}</div>
+
           {mcpType === 'http' && (
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item<FieldType>
-                  label={t('mcp_sse_url', { defaultValue: 'MCP SSE URL' })}
-                  name='sse_url'
-                  rules={[{ required: true, message: t('mcp_sse_url_required') }]}
-                >
-                  <Input placeholder={t('mcp_sse_url_placeholder')} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item<FieldType>
-                  label={t('mcp_token')}
-                  name='token'
-                >
-                  <Input.Password placeholder={t('mcp_token_placeholder')} />
-                </Form.Item>
-              </Col>
-            </Row>
+            <>
+              <Row gutter={16}>
+                <Col span={14}>
+                  <Form.Item<FieldType>
+                    label={t('mcp_sse_url')}
+                    name='sse_url'
+                    rules={[{ required: true, message: t('mcp_sse_url_required') }]}
+                  >
+                    <Input placeholder={t('mcp_sse_url_placeholder')} />
+                  </Form.Item>
+                </Col>
+                <Col span={10}>
+                  <Form.Item<FieldType>
+                    label={t('mcp_token')}
+                    name='token'
+                  >
+                    <Input.Password placeholder={t('mcp_token_placeholder')} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item<FieldType>
+                label={t('mcp_headers')}
+                name='sse_headers'
+                rules={[
+                  {
+                    validator: (_, value) => {
+                      if (!value || value.trim() === '') return Promise.resolve();
+                      try {
+                        const parsed = JSON.parse(value);
+                        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+                          return Promise.reject(t('mcp_headers_must_be_object'));
+                        }
+                        return Promise.resolve();
+                      } catch {
+                        return Promise.reject(t('mcp_headers_invalid_json'));
+                      }
+                    },
+                  },
+                ]}
+                extra={t('mcp_headers_extra')}
+              >
+                <Input.TextArea
+                  rows={3}
+                  placeholder={t('mcp_headers_placeholder')}
+                  style={{ fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace", fontSize: 12 }}
+                />
+              </Form.Item>
+            </>
           )}
 
           {mcpType === 'stdio' && (
@@ -180,9 +238,13 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
               <Input.TextArea
                 rows={3}
                 placeholder={t('mcp_stdio_cmd_placeholder')}
+                style={{ fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace", fontSize: 12 }}
               />
             </Form.Item>
           )}
+
+          {/* -- Metadata Section -- */}
+          <div className="mcp-modal-section-title">{t('mcp_section_metadata')}</div>
 
           <Row gutter={16}>
             <Col span={8}>
