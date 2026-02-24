@@ -20,9 +20,8 @@ export const VisLLMDiv = styled.div`
     display: none !important;
   }
 
-  .vis-llm-col-content{
-    .ant-collapse-content-box{
-      // padding: 0 !important;
+  .vis-llm-col-content {
+    .ant-collapse-content-box {
       max-height: 70vh;
       margin-top: 8px;
       margin-bottom: 8px;

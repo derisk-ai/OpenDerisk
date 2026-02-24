@@ -107,6 +107,7 @@ class McpRunRequest(BaseModel):
     sse_url: Optional[str] = Field(None, description="mcp sse connect url")
     sse_headers: Optional[Dict[str, str]] = Field(None, description="mcp sse connect headers (auto-convert to JSON)")
     token: Optional[str] = Field(None, description="mcp sse connect token")
+    timeout: Optional[int] = Field(None, ge=1, le=300, description="mcp connection timeout in seconds, default 60")
 
     method: Optional[str] = Field(None, description="mcp sse call method")
     params: Optional[dict[str, Any]] = Field(None, description="mcp tool call params")

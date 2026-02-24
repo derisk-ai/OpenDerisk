@@ -64,7 +64,8 @@ async def get_mcp_tool_list(
         allow_tools: Optional[List[str]] = None,
         server_ssl_verify: Optional[Any] = None,
         use_cache: bool = True,
-        tool_id: Optional[str] = None
+        tool_id: Optional[str] = None,
+        timeout: Optional[int] = None
 ):
     trace_id = (
         root_tracer.get_current_span().trace_id
@@ -115,7 +116,7 @@ async def get_mcp_tool_list(
             raise e
 
     try:
-        time_out = 30
+        time_out = timeout if timeout else 60
         if CFG.debug_mode:
             logger.info("MCP Enter DebugMode, Use local mcp gateways!")
             server = f"http://localhost:{CFG.DERISK_WEBSERVER_PORT}/mcp/sse"
@@ -247,11 +248,12 @@ async def call_mcp_tool(
     except Exception as e:
         raise ValueError(f"MCP服务{mcp_name}:{tool_name}工具调用异常!", e)
 
-async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] = None):
+async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] = None, timeout: Optional[int] = None):
     """
     测试连接MCP服务, 并确认是否可以调用工具。
     :param mcp_name: MCP服务名称
     :param headers: 连接头
+    :param timeout: 连接超时时间(秒)
     :return: True or False
     """ 
     try: 
@@ -261,7 +263,8 @@ async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] =
             mcp_name=mcp_name,
             server=server,
             headers=headers,
-            use_cache=False
+            use_cache=False,
+            timeout=timeout
         )
         if tool_list and tool_list.tools:
             return True

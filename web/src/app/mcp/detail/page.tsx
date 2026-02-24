@@ -1,41 +1,32 @@
 "use client"
 import { ChatContext } from '@/contexts';
 import { apiInterceptors, getMCPListQuery, mcpToolList, mcpToolRun } from '@/client/api';
-import { DiffOutlined, RedoOutlined } from '@ant-design/icons';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import { CopyOutlined, RedoOutlined, ArrowLeftOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useRequest } from 'ahooks';
-import { Button, Card, Form, Input, Select, Spin, App } from 'antd';
-import classNames from 'classnames';
-import { useSearchParams } from 'next/navigation';
+import { Button, Form, Input, Spin, App, Tooltip } from 'antd';
+import { useSearchParams, useRouter } from 'next/navigation';
 import React, { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../index.css';
 
-export default function MpcDetail() {
+export default function McpDetail() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { mode } = useContext(ChatContext);
   const { t } = useTranslation();
   const { message } = App.useApp();
-  const titleOption = [
-    {
-      label: t('mcp_tools'),
-      value: 'Tools',
-    },
-  ];
-  const [alignment, setAlignment] = useState<string | null>('Tools');
-  const [requestType, setRequestType] = useState<string>('HTTP');
+
   const [mcpInfo, setMcpInfo] = useState<any>({});
-  const [selectUrl, setSelectUrl] = useState<any>('');
-  const [connect, setConnect] = useState<any>('');
+  const [selectUrl, setSelectUrl] = useState<string>('');
+  const [runResult, setRunResult] = useState<any>(null);
   const [toolList, setToolList] = useState<Array<{ name: string; description: string; param_schema: any }>>([]);
   const theme = mode === 'dark' ? githubDarkTheme : githubLightTheme;
   const queryParams = {
     id: searchParams.get('id') || '',
-    name: searchParams.get('name') || ''
+    name: searchParams.get('name') || '',
   };
   const [form] = Form.useForm();
 
@@ -51,15 +42,13 @@ export default function MpcDetail() {
       manual: true,
       onSuccess: data => {
         const [, , res] = data;
-
         if (res?.success) {
           message.success(t('success'));
           if (res?.data !== null && typeof res?.data === 'object') {
             try {
-              setConnect(res || '');
-            } catch (error) {
-              console.log(error);
-              setConnect('');
+              setRunResult(res || null);
+            } catch {
+              setRunResult(null);
             }
           }
         }
@@ -70,15 +59,9 @@ export default function MpcDetail() {
 
   const { loading: mcpQueryLoading } = useRequest(
     async (): Promise<any> => {
-      // 确保 name 参数存在再发起请求
-      if (!queryParams.name) {
-        console.error('Missing name parameter');
-        return Promise.reject('Missing name parameter');
-      }
+      if (!queryParams.name) return Promise.reject('Missing name parameter');
       return await apiInterceptors(
-        getMCPListQuery({
-          name: queryParams.name,
-        }),
+        getMCPListQuery({ name: queryParams.name }),
       );
     },
     {
@@ -92,16 +75,8 @@ export default function MpcDetail() {
   );
 
   const { loading: listLoading, run: runToolList } = useRequest(
-    async (
-      params = {
-        name: queryParams.name,
-      },
-    ): Promise<any> => {
-      // 确保 name 参数存在再发起请求
-      if (!params.name) {
-        console.error('Missing name parameter for tool list');
-        return Promise.reject('Missing name parameter');
-      }
+    async (params = { name: queryParams.name }): Promise<any> => {
+      if (!params.name) return Promise.reject('Missing name parameter');
       return await apiInterceptors(mcpToolList(params));
     },
     {
@@ -116,38 +91,19 @@ export default function MpcDetail() {
     },
   );
 
-  const handleAlignment = (event: React.MouseEvent<HTMLElement>, newAlignment: string | null) => {
-    console.log(event);
-    if (newAlignment === alignment || !newAlignment) return false;
-    setAlignment(newAlignment);
-  };
-
   const handleCopy = () => {
+    const text = runResult ? JSON.stringify(runResult, null, 2) : '';
     navigator.clipboard
-      .writeText(connect)
-      .then(() => {
-        message.success(t('success'));
-      })
-      .catch(err => message.error(err));
+      .writeText(text)
+      .then(() => message.success(t('success')))
+      .catch(err => message.error(String(err)));
   };
 
-  const handleRefparams = async () => {
-    let params = {};
-    await form
-      .validateFields()
-      .then(values => {
-        params = values;
-      })
-      .catch(() => {
-        params = false;
-      });
-    return params;
-  };
-
-  const handleSelectUsrl = async (key: string) => {
+  const handleSelectTool = (key: string) => {
     if (key === selectUrl) return;
     setSelectUrl(key);
-    const _params = await handleRefparams();
+    form.resetFields();
+    setRunResult(null);
   };
 
   const handleRefresh = async () => {
@@ -155,34 +111,33 @@ export default function MpcDetail() {
   };
 
   const onGoRun = async () => {
-    if (!selectUrl) return message.warning(t('please_select_mcp'));
-    const _params = await handleRefparams();
-    if (!_params) {
-      message.error(t('form_required'));
+    if (!selectUrl) {
+      message.warning(t('please_select_mcp'));
       return;
     }
-
-    await runMcpToolRun({
-      name: queryParams?.name,
-  
-      params:{
-        name: selectUrl,
-        arguments: {
-          ..._params,
+    try {
+      const values = await form.validateFields();
+      await runMcpToolRun({
+        name: queryParams?.name,
+        params: {
+          name: selectUrl,
+          arguments: { ...values },
         },
-      }
-     
-    });
+      });
+    } catch {
+      message.error(t('form_required'));
+    }
   };
 
   const formData: any = useMemo(() => {
     return toolList?.find(item => item?.name === selectUrl)?.param_schema || {};
-  }, [selectUrl]);
+  }, [selectUrl, toolList]);
 
-  // 如果参数还未就绪，显示加载状态
+  const formKeys = useMemo(() => Object.keys(formData || {}), [formData]);
+
   if (!queryParams.name || !queryParams.id) {
     return (
-      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto flex items-center justify-center'>
+      <div className='mcp-detail-root' style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spin size="large" />
       </div>
     );
@@ -190,191 +145,194 @@ export default function MpcDetail() {
 
   return (
     <Spin spinning={listLoading || runLoading || mcpQueryLoading}>
-      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto'>
-        <header className='mb-8 pb-6 border-b'>
-          <div className='flex items-center gap-3 mb-3'>
-            <div className='relative h-8 w-8 overflow-hidden rounded-full'>
+      <div className='mcp-detail-root'>
+        <div className='mcp-detail-content'>
+          {/* Back button */}
+          <div style={{ marginBottom: 8 }}>
+            <Button
+              type='text'
+              icon={<ArrowLeftOutlined />}
+              onClick={() => router.push('/mcp')}
+              style={{ color: 'var(--mcp-text-secondary)', padding: '4px 8px', marginLeft: -8 }}
+            >
+              {t('mcp_back_to_list')}
+            </Button>
+          </div>
+
+          {/* Header */}
+          <div className='mcp-detail-header'>
+            <div className='mcp-detail-avatar'>
               {mcpInfo?.icon ? (
-                <img
-                  decoding='async'
-                  data-nimg='fill'
-                  className='object-contain'
-                  src={mcpInfo?.icon}
-                  style={{ position: 'absolute', height: '100%', width: '100%', inset: '0px', color: 'transparent' }}
-                />
+                <img src={mcpInfo?.icon} alt={mcpInfo?.name} />
               ) : (
-                <span
-                  style={{ borderRadius: '50%', lineHeight: '27px' }}
-                  className='inline-block w-[32px] h-[32px] text-white text-center rounded-full'
-                >
-                  <span className='ant-avatar-string text-[10px]'>derisk22</span>
+                <span className='mcp-detail-avatar-fallback'>
+                  {(mcpInfo?.name || 'M').charAt(0).toUpperCase()}
                 </span>
               )}
             </div>
-            <h1 className='text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight break-words'>{mcpInfo?.name}</h1>
+            <div className='mcp-detail-info'>
+              <h1 className='mcp-detail-name'>{mcpInfo?.name}</h1>
+              <p className='mcp-detail-desc'>{mcpInfo?.description}</p>
+            </div>
           </div>
 
-          <p className='text-base md:text-lg text-muted-foreground max-w-prose'>{mcpInfo?.description}</p>
-        </header>
-        <div className='mb-3 flex flex-nowrap'>
-          <Input
-            size='large'
-            addonBefore={
-              <Select
-                placeholder={requestType}
-                style={{ width: 150 }}
-                value={requestType}
-                options={[{ label: 'HTTP', value: 'HTTP' }]}
-                onChange={e => setRequestType(e)}
-              />
-            }
-            value={mcpInfo?.sse_url}
-            disabled
-          />
-        </div>
-        <div className='grid grid-cols-1 md:grid-cols-5 gap-6 md:gap-8'>
-          <div className='md:col-span-3'>
-            <Card dir='ltr' data-orientation='horizontal' className='w-full'>
-              <div className='flex items-center justify-between mb-1 flex-wrap'>
-                <ToggleButtonGroup
-                  value={alignment}
-                  exclusive
-                  onChange={handleAlignment}
-                  aria-label='text alignment'
-                  className='p-1 h-12  '
-                >
-                  {titleOption?.map(item => (
-                    <ToggleButton
-                      key={item.value}
-                      className={`border-0 rounded-[6px] ${mode === 'light' ? 'text-black' : 'text-white'}`}
-                      value={item?.value}
-                    >
-                      {item?.label}
-                    </ToggleButton>
-                  ))}
-                </ToggleButtonGroup>
+          {/* Endpoint bar */}
+          {mcpInfo?.sse_url && (
+            <div className='mcp-endpoint-bar'>
+              <div className='mcp-endpoint-method'>SSE</div>
+              <div className='mcp-endpoint-url'>{mcpInfo?.sse_url}</div>
+              <Tooltip title={t('copy')}>
+                <Button
+                  type='text'
+                  icon={<CopyOutlined />}
+                  onClick={() => {
+                    navigator.clipboard.writeText(mcpInfo?.sse_url || '');
+                    message.success(t('success'));
+                  }}
+                  style={{ marginRight: 8, color: 'var(--mcp-text-tertiary)' }}
+                />
+              </Tooltip>
+            </div>
+          )}
 
-                <div className='flex items-center gap-2'>
-                  <Button type='text' icon={<RedoOutlined className='text-2xl' onClick={handleRefresh} />}></Button>
+          {/* Split panes: Tools | Params + Results */}
+          <div className='mcp-detail-grid'>
+            {/* Left: Tool List */}
+            <div className='mcp-panel'>
+              <div className='mcp-panel-header'>
+                <span className='mcp-panel-title'>{t('mcp_tools')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className='mcp-panel-badge'>{toolList?.length || 0}</span>
+                  <Button
+                    type='text'
+                    size='small'
+                    icon={<RedoOutlined />}
+                    onClick={handleRefresh}
+                    style={{ color: 'var(--mcp-text-tertiary)' }}
+                  />
                 </div>
               </div>
-              {/* body left */}
-              <div className='ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 mt-6'>
-                <div className='rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden'>
-                  {alignment === 'Tools' && (
-                    <div className='p-5 pt-6 space-y-8'>
-                      {toolList?.map((item, index) => {
-                        return (
-                          <div
-                            key={index}
-                            onClick={() => handleSelectUsrl(item?.name)}
-                            style={{
-                              backgroundColor: selectUrl === item?.name ? '#0069fe' : '#fff',
-                              color: selectUrl === item?.name ? '#fff' : '#000',
-                            }} 
-                            className={`cursor-pointer transition-all p-2 rounded-lg ${
-                              selectUrl === item?.name ? '' : 'hover:text-[#0069fe]'
-                            }`}
-                            
-                          >
-                            <div className='p-4 rounded-lg border transition-all hover:shadow-md' 
-                               style={{
-                               backgroundColor: selectUrl === item?.name ? '#0069fe' : '#f9f9f9',
-                               color: selectUrl === item?.name ? '#fff' : '#333',
-                               }}>
-                              <h2 
-                              className='text-lg md:text-xl font-bold mb-2 p-2 rounded' 
-                              style={{
-                                backgroundColor: selectUrl === item?.name ? '#0056d2' : '#e6f7ff',
-                                color: selectUrl === item?.name ? '#fff' : '#0056d2',
-                              }}>
-                              {item.name}
-                              </h2>
-                              <p 
-                              className='text-sm md:text-base leading-relaxed' 
-                              style={{
-                                color: selectUrl === item?.name ? '#d1eaff' : '#888',
-                              }}>
-                              {item?.description}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })}
+              <div className='mcp-panel-body'>
+                {toolList?.length > 0 ? (
+                  toolList.map((item, index) => (
+                    <div
+                      key={index}
+                      className={`mcp-tool-item ${selectUrl === item?.name ? 'mcp-tool-item--active' : ''}`}
+                      onClick={() => handleSelectTool(item?.name)}
+                    >
+                      <div className='mcp-tool-name'>{item.name}</div>
+                      <div className='mcp-tool-desc'>{item?.description}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className='mcp-result-empty'>
+                    {t('mcp_no_tools')}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Params + Results */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Parameters panel */}
+              <div className='mcp-panel'>
+                <div className='mcp-panel-header'>
+                  <span className='mcp-panel-title'>
+                    {selectUrl
+                      ? selectUrl
+                      : t('mcp_select_tool_hint')}
+                  </span>
+                </div>
+                <div className='mcp-form-section'>
+                  {selectUrl && formKeys.length > 0 ? (
+                    <Form form={form} layout='vertical'>
+                      {formKeys.map((item) => (
+                        <Form.Item
+                          key={item}
+                          label={formData?.[item]?.title || item}
+                          name={item}
+                          rules={[
+                            {
+                              required: formData?.[item]?.required,
+                              message: `${t('please_enter')} ${item}`,
+                            },
+                          ]}
+                          initialValue={formData?.[item]?.default}
+                        >
+                          <Input placeholder={formData?.[item]?.description} />
+                        </Form.Item>
+                      ))}
+                      <Form.Item style={{ marginBottom: 0 }}>
+                        <Button
+                          type='primary'
+                          icon={<ThunderboltOutlined />}
+                          className='mcp-run-btn'
+                          onClick={onGoRun}
+                          loading={runLoading}
+                        >
+                          {t('mcp_trial_run')}
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  ) : selectUrl ? (
+                    <div>
+                      <p style={{ color: 'var(--mcp-text-tertiary)', fontSize: 13, marginBottom: 16 }}>
+                        {t('mcp_no_params')}
+                      </p>
+                      <Button
+                        type='primary'
+                        icon={<ThunderboltOutlined />}
+                        className='mcp-run-btn'
+                        onClick={onGoRun}
+                        loading={runLoading}
+                      >
+                        {t('mcp_trial_run')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className='mcp-result-empty'>
+                      {t('mcp_select_tool_desc')}
                     </div>
                   )}
                 </div>
               </div>
-            </Card>
-          </div>
-          <div className='space-y-6 md:col-span-2'>
-            <Card
-              title={
-                <div className='flex'>
-                  <div className='flex-1'>{t('mcp_parameter_name')}</div>
-                  <div className='flex-1'>{t('mcp_parameter_value')}</div>
-                </div>
-              }
-            >
-              <div className='flex'>
-                <div className='w-full'>
-                  <Form className='font-[400]' style={{ width: '100%' }} form={form}>
-                    {Object.keys(formData || {})?.map((item, index) => {
-                      return (
-                        <Form.Item
-                          key={item + index}
-                          label={formData?.[item]?.title}
-                          name={item}
-                          className='w-full'
-                          rules={[{ required: formData?.[item]?.required, message: `${t('please_enter')}${item}` }]}
-                        >
-                          <div className='flex w-full'>
-                            <Input
-                              className='flex-1'
-                              placeholder={formData?.[item]?.description}
-                              defaultValue={formData?.[item]?.default}
-                            />
-                          </div>
-                        </Form.Item>
-                      );
-                    })}
 
-                    <Form.Item>
-                      <Button type='primary' htmlType='submit' className='w-full' onClick={onGoRun}>
-                        {t('mcp_trial_run')}
-                      </Button>
-                    </Form.Item>
-                  </Form>
+              {/* Results panel */}
+              <div className='mcp-panel mcp-result-panel'>
+                <div className='mcp-panel-header'>
+                  <span className='mcp-panel-title'>{t('mcp_run_results')}</span>
+                  {runResult && (
+                    <Button
+                      type='text'
+                      size='small'
+                      icon={<CopyOutlined />}
+                      onClick={handleCopy}
+                      style={{ color: 'var(--mcp-text-tertiary)' }}
+                    />
+                  )}
+                </div>
+                <div className='mcp-result-body'>
+                  {runData?.[3]?.data?.success && runResult ? (
+                    <JsonView
+                      style={{ ...theme, width: '100%', padding: 0, overflow: 'auto', background: 'transparent' }}
+                      value={runResult}
+                      enableClipboard={false}
+                      displayDataTypes={false}
+                      objectSortKeys={false}
+                    />
+                  ) : runData?.[3]?.data?.err_msg ? (
+                    <div className='mcp-result-error'>{runData[3].data.err_msg}</div>
+                  ) : (
+                    <div className='mcp-result-empty'>
+                      {t('mcp_no_results')}
+                    </div>
+                  )}
                 </div>
               </div>
-            </Card>
-
-            <Card
-              title={
-                <div className='flex justify-between'>
-                  {t('mcp_run_results')}{' '}
-                  <Button type='text' icon={<DiffOutlined className='text-[18px]' />} onClick={handleCopy} />
-                </div>
-              }
-            >
-              {runData?.[3]?.data?.success ? (
-                <JsonView
-                  style={{ ...theme, width: '100%', padding: 10, overflow: 'auto' }}
-                  className={classNames({
-                    'bg-[#fafafa]': mode === 'light',
-                  })}
-                  value={connect}
-                  enableClipboard={false}
-                  displayDataTypes={false}
-                  objectSortKeys={false}
-                />
-              ) : (
-                <div className='text-red-500'>{runData?.[3]?.data?.err_msg}</div>
-              )}
-            </Card>
+            </div>
           </div>
         </div>
       </div>
     </Spin>
   );
-};
+}

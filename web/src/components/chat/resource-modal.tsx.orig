@@ -150,12 +150,11 @@ export const ResourceModal: React.FC<ResourceModalProps> = ({
             flex-shrink-0 ${isSelected ? 'bg-blue-100 dark:bg-blue-900' : 'bg-gray-100 dark:bg-gray-700'}
           `}
           icon={
+            type === 'skill' ? <AppstoreOutlined className="text-blue-500" /> :
             type === 'tool' ? <ToolOutlined className="text-green-500" /> :
-            type === 'mcp' ? <ApiOutlined className="text-purple-500" /> : undefined
+            <ApiOutlined className="text-purple-500" />
           }
-        >
-          {type === 'skill' && <span className="text-blue-500 text-lg font-semibold">{resource.name ? resource.name.charAt(0).toUpperCase() : 'S'}</span>}
-        </Avatar>
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate">

@@ -139,6 +139,7 @@ class ReActOutputParser(AgentParser):
         )
 
         if tool_calls_match:
+            # group(1) 捕获的是 <tool_calls> 和 (</tool_calls> 或字符串末尾) 之间的内容
             tool_calls_str = tool_calls_match.group(1).strip()
             tool_calls = extract_tool_calls(tool_calls_str)
             for item in tool_calls:

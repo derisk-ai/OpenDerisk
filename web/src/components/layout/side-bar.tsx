@@ -397,6 +397,13 @@ function SideBar() {
       path: '/',
       children: [
         {
+          key: 'agent_skills',
+          name: t('agent_skills'),
+          isActive: pathname.startsWith('/agent-skills'),
+          icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
+          path: '/agent-skills',
+        },
+        {
         key: 'models',
         name: t('model_manage'),
         isActive: pathname.startsWith('/models'),
@@ -427,15 +434,8 @@ function SideBar() {
           path: '/prompt',
         },
         {
-          key: 'agent_skills',
-          name: t('agent_skills'),
-          isActive: pathname.startsWith('/agent-skills'),
-          icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
-          path: '/agent-skills',
-        },
-        {
           key: 'vis_merge_test',
-          name: 'VIS合并测试',
+          name: 'GUI',
           isActive: pathname.startsWith('/vis-merge-test'),
           icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
           path: '/vis-merge-test'

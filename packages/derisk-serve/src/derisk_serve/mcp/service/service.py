@@ -156,16 +156,18 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         """
         return self.dao.filter_list_page(query_request, page, page_size, desc_order_column)
 
-    async def connect_mcp(self, mcp_name: str, headers: Optional[dict]):
+    async def connect_mcp(self, mcp_name: str, headers: Optional[dict], timeout: Optional[int] = None):
         logger.info(f"connect_mcp:{mcp_name},{headers}")
         mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
         
+        mcp_headers = self._build_headers(mcp_resp, headers)
         from derisk.agent.resource.tool.mcp.mcp_utils import connect_mcp
-        return await connect_mcp(mcp_name, mcp_resp.sse_url, headers)
+        return await connect_mcp(mcp_name, mcp_resp.sse_url, mcp_headers, timeout=timeout)
 
-    async def list_tools(self, mcp_name: str, mcp_sse_url: Optional[str], headers: Optional[dict[str, Any]] = None) -> \
+    async def list_tools(self, mcp_name: str, mcp_sse_url: Optional[str], headers: Optional[dict[str, Any]] = None,
+                         timeout: Optional[int] = None) -> \
     Optional[List[McpTool]]:
         logger.info(f"mcp list tools:{mcp_name},{mcp_sse_url},{headers}")
         tool_list = []
@@ -174,13 +176,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
 
         from derisk.agent.resource.tool.mcp.mcp_utils import get_mcp_tool_list
-        mcp_headers = {}
-
-        if mcp_resp.sse_headers:
-            mcp_headers.update(**mcp_resp.sse_headers)
-        if headers:
-            mcp_headers.update(**headers)
-        result = await get_mcp_tool_list(mcp_name, mcp_sse_url if mcp_sse_url else mcp_resp.sse_url, mcp_headers)
+        mcp_headers = self._build_headers(mcp_resp, headers)
+        result = await get_mcp_tool_list(mcp_name, mcp_sse_url if mcp_sse_url else mcp_resp.sse_url, mcp_headers,
+                                         timeout=timeout)
         for tool in result.tools:
             tool_list.append(McpTool(name=tool.name, description=tool.description,
                                      param_schema=switch_mcp_input_schema(tool.inputSchema)))
@@ -188,17 +186,36 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
     async def call_tool(self, mcp_name: str, tool_name: str, mcp_sse_url: Optional[str] = None,
                         arguments: dict[str, Any] | None = None,
-                        headers: Optional[dict] = None):
+                        headers: Optional[dict] = None,
+                        timeout: Optional[int] = None):
         logger.info(f"call mcp tool:{mcp_name},{mcp_sse_url}")
         mcp_resp = self.get(ServeRequest(name=mcp_name))
         if not mcp_resp:
             raise ValueError(f"不存在的mcp[{mcp_name}]!")
 
-        mcp_headers = {}
-        if mcp_resp.sse_headers:
-            mcp_headers.update(**mcp_resp.sse_headers)
-        if headers:
-            mcp_headers.update(**headers)
+        mcp_headers = self._build_headers(mcp_resp, headers)
         return await call_mcp_tool(mcp_name=mcp_name, tool_name=tool_name,
                                    server=mcp_sse_url if mcp_sse_url else mcp_resp.sse_url, headers=mcp_headers,
+                                   timeout=timeout,
                                    **arguments)
+
+    def _build_headers(
+        self, mcp_resp: ServerResponse, extra_headers: Optional[dict] = None
+    ) -> dict:
+        """Build merged headers from DB sse_headers, token and extra request headers.
+
+        Priority (low -> high):
+          1. sse_headers stored in DB
+          2. token field auto-converted to Authorization Bearer header
+             (only if Authorization is not already set by sse_headers)
+          3. extra_headers passed at request time (highest priority override)
+        """
+        mcp_headers: dict[str, str] = {}
+        if mcp_resp.sse_headers:
+            mcp_headers.update(**mcp_resp.sse_headers)
+        # Auto-convert token to Authorization header when not explicitly set
+        if mcp_resp.token and "Authorization" not in mcp_headers:
+            mcp_headers["Authorization"] = f"Bearer {mcp_resp.token}"
+        if extra_headers:
+            mcp_headers.update(**extra_headers)
+        return mcp_headers
