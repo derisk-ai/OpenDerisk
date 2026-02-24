@@ -165,6 +165,24 @@ class AgentChat(BaseComponent, ABC):
 
     def init_app(self, system_app: SystemApp):
         self.system_app = system_app
+        # 注册全局模型配置缓存
+        self._register_model_configs()
+    
+    def _register_model_configs(self):
+        """注册全局模型配置到缓存"""
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache, parse_provider_configs
+        
+        global_agent_conf = self.system_app.config.get("agent.llm")
+        if not global_agent_conf:
+            agent_conf = self.system_app.config.get("agent")
+            if isinstance(agent_conf, dict):
+                global_agent_conf = agent_conf.get("llm")
+        
+        if global_agent_conf:
+            model_configs = parse_provider_configs(global_agent_conf)
+            if model_configs:
+                ModelConfigCache.register_configs(model_configs)
+                logger.info(f"Registered {len(model_configs)} models to global cache")
 
     async def _get_or_create_sandbox_manager(
             self,

@@ -16,7 +16,7 @@ sandbox_prompt = """\n
 
 <execution_environment>
 - 系统环境：Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）
-- 工作目录：{{work_dir}}（用于所有临时工作）
+- 工作目录：{{sandbox.work_dir}}（用于所有临时工作）
 - Python 环境：版本：3.12.0，命令：python3, pip3（不支持 python, pip）
 - Node.js 环境：版本：18.19.1，命令：node, pnpm（预装 pnpm, yarn）。
 - 沙箱说明：
@@ -71,7 +71,7 @@ sandbox_prompt = """\n
 当技能指示运行脚本时（例如 `python scripts/tool.py`）：
 - 原地执行：不要将脚本复制到工作区。使用 `shell_exec` 直接从其源位置运行。
 - 解析绝对路径：将当前 `SKILL.md` 所在目录与脚本的相对路径组合，构建完整路径。
-   - 示例：如果 `SKILL.md` 位于 `/mnt/skills/abc/def/SKILL.md`，则执行：`python /mnt/skills/abc/def/scripts/tool.py`。
+   - 示例：如果 `SKILL.md` 位于 `{{sandbox.agent_skill_dir}}/abc/def/SKILL.md`，则执行：`python {{sandbox.agent_skill_dir}}/abc/def/scripts/tool.py`。
 </agent-skill-introduce>
 <agent-skill-files>
 所有的agent-skill资源都存放在如下目录：

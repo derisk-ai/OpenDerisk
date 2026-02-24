@@ -19,7 +19,7 @@ _VIEW_PROMPT = """
   "name": "view",
   "description": "沙箱文件系统交互接口。用于列出目录结构、读取文件内容或渲染图片资源。",
   "instructions": [
-    "SKILL.md 加载互斥锁：当访问 /mnt/derisk/skills 路径时，单次交互严格禁止读取超过 1 个 markdown 文件。必须遵循“读取单项技能 -> 执行对应逻辑”的原子化流程，防止领域知识污染。",
+    "SKILL.md 加载互斥锁：当访问技能目录路径时，单次交互严格禁止读取超过 1 个 markdown 文件。必须遵循"读取单项技能 -> 执行对应逻辑"的原子化流程，防止领域知识污染。",
     "大文件熔断保护：对于未知大小的业务文件（日志、数据、代码），禁止在无 view_range 限制下全量读取。必须先读取摘要或特定片段。",
     "只读安全边界：此工具仅用于被动获取信息，严禁产生任何副作用（如创建、修改文件）。"
   ],
@@ -415,4 +415,3 @@ async def execute_view(
     if content.startswith("[错误:"):
         return content
     return _format_text_content(content, range_tuple)
-

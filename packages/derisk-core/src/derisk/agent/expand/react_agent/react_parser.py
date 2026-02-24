@@ -1,7 +1,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import  List, Optional, Type
+from typing import List, Optional, Type
 
 from derisk.agent import Action, BlankAction
 from derisk.agent.core.action.base import ToolCall
@@ -32,6 +32,7 @@ MEMORY_MARK = ["summary", "review"]
 CONST_LLMOUT_THOUGHT = "thought"
 CONST_LLMOUT_TITLE = "scratch_pad"
 CONST_LLMOUT_TOOLS = "tool_calls"
+
 
 class ReActOutputParser(AgentParser):
     DEFAULT_SCHEMA_TYPE: SchemaType = SchemaType.XML
@@ -78,9 +79,9 @@ class ReActOutputParser(AgentParser):
     def model_type(self) -> Optional[Type[ReActOut]]:
         return ReActOut
 
-
-    def parse_actions(self, llm_out:  AgentLLMOut, action_cls_list: List[Type[Action]], **kwargs) -> Optional[list[Action]]:
-
+    def parse_actions(
+        self, llm_out: AgentLLMOut, action_cls_list: List[Type[Action]], **kwargs
+    ) -> Optional[list[Action]]:
         actions: List[Action] = []
         react_out: ReActOut = self.parse(llm_out)
         ## 根据工具名称解析Action
@@ -88,7 +89,6 @@ class ReActOutputParser(AgentParser):
             actions.append(BlankAction(terminate=True))
         else:
             for item in react_out.steps:
-
                 for action_cls in action_cls_list:
                     action = action_cls.parse_action(item, **kwargs)
                     if action:
@@ -96,7 +96,7 @@ class ReActOutputParser(AgentParser):
                         break
         return actions
 
-    def parse(self, llm_out:  AgentLLMOut) -> ReActOut:
+    def parse(self, llm_out: AgentLLMOut) -> ReActOut:
         """
         Parse the ReAct format output text into structured steps.
 
@@ -116,7 +116,9 @@ class ReActOutputParser(AgentParser):
 
         # 提取 <scratch_pad> 内容
         scratch_pad = ""
-        scratch_pad_match = re.search(r"<scratch_pad>(.*?)</scratch_pad>", text, re.DOTALL)
+        scratch_pad_match = re.search(
+            r"<scratch_pad>(.*?)</scratch_pad>", text, re.DOTALL
+        )
         if scratch_pad_match:
             scratch_pad = scratch_pad_match.group(1).strip()
         else:
@@ -132,16 +134,24 @@ class ReActOutputParser(AgentParser):
 
         # 提取 <tool_calls> 内容
         steps = []
-        tool_calls_match = re.search(r"<tool_calls>(.*?)(?:</tool_calls>|\Z)", text, re.DOTALL)
+        tool_calls_match = re.search(
+            r"<tool_calls>(.*?)(?:</tool_calls>|\Z)", text, re.DOTALL
+        )
 
         if tool_calls_match:
-            # group(1) 捕获的是 <tool_calls> 和 (</tool_calls> 或字符串末尾) 之间的内容
             tool_calls_str = tool_calls_match.group(1).strip()
             tool_calls = extract_tool_calls(tool_calls_str)
             for item in tool_calls:
-                for k, v in item.items():
-                    steps.append(ToolCall(name=k, args=v))
+                name = item.get("tool_name") or item.get("name") or item.get("action")
+                args = item.get("args", {})
+                thought = item.get("thought")
+                if name:
+                    if args is None:
+                        args = {}
+                    steps.append(ToolCall(name=name, args=args, thought=thought))
         else:
             logger.warning("未找到 <tool_calls> 标签内容")
 
-        return ReActOut(steps=steps, is_terminal=False, thought=thought, scratch_pad=scratch_pad)
+        return ReActOut(
+            steps=steps, is_terminal=False, thought=thought, scratch_pad=scratch_pad
+        )
