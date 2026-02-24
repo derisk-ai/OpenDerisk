@@ -1728,6 +1728,7 @@ class ConversableAgent(Role, Agent):
                 model_list = json.loads(model_list)
             except Exception:
                 return default_length
+        
         if self.llm_client:
             try:
                 llm_metadata = await self.llm_client.get_model_metadata(model_list[0])
@@ -2113,16 +2114,6 @@ class ConversableAgent(Role, Agent):
             return model_list[0], None
         
         raise ValueError("No model available!")
-
-    @property
-    def mist_keys(self) -> Optional[List[str]]:
-        return (
-            self.agent_context.mist_keys
-            if self.agent_context.mist_keys
-            else self.llm_config.mist_keys
-            if self.llm_config
-            else None
-        )
 
     @property
     def mist_keys(self) -> Optional[List[str]]:

@@ -44,7 +44,7 @@ class TruncationConfig:
     """截断配置"""
     # 默认截断限制
     DEFAULT_MAX_LINES = 50
-    DEFAULT_MAX_BYTES = 5 * 1024  # 5KB
+    DEFAULT_MAX_BYTES = 5 * 1024  # 50KB
 
     # 建议模板 - 使用 file_key 来引用文件
     TRUNCATION_SUGGESTION_TEMPLATE = """

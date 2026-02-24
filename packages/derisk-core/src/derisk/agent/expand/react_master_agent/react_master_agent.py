@@ -452,35 +452,6 @@ class ReActMasterAgent(ConversableAgent):
 
         return result.pruned_messages
 
-    def _truncate_tool_output(
-        self,
-        content: str,
-        tool_name: str,
-    ) -> str:
-        """
-        截断工具输出
-
-        Args:
-            content: 原始输出内容
-            tool_name: 工具名称
-
-        Returns:
-            str: 处理后的输出内容
-        """
-        if not self.enable_output_truncation or not self._truncator:
-            return content
-
-        result = self._truncator.truncate(content, tool_name)
-
-        if result.is_truncated:
-            logger.info(
-                f"Output truncated for {tool_name}: "
-                f"{result.original_lines}->{result.truncated_lines} lines, "
-                f"{result.original_bytes}->{result.truncated_bytes} bytes"
-            )
-
-        return result.content
-
     async def _check_doom_loop(
         self,
         tool_name: str,
@@ -707,13 +678,13 @@ class ReActMasterAgent(ConversableAgent):
                         if hasattr(real_action, "execute_params"):
                             tool_args = getattr(real_action, "execute_params", {})
 
-                        logger.info(f"Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}")
+                        logger.info(f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}")
 
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
 
                         # ========== 集成：记录到 WorkLog ==========
-                        logger.info(f"Calling _record_action_to_work_log for {tool_name}...")
+                        logger.info(f"📝 Calling _record_action_to_work_log for {tool_name}...")
                         await self._record_action_to_work_log(
                             tool_name, tool_args, result
                         )
@@ -726,14 +697,7 @@ class ReActMasterAgent(ConversableAgent):
                         ):
                             self.set_phase("reporting", "任务完成，生成报告")
 
-                        # 对工具执行结果应用输出截断
-                        if isinstance(result, ActionOutput) and result.content:
-                            tool_name = result.action or real_action.name
-                            result.content = self._truncate_tool_output(
-                                result.content, tool_name
-                            )
-
-                        # 如果是terminate action，附加交付文件
+# 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
                             result = await self._attach_delivery_files(result)
 
@@ -753,7 +717,7 @@ class ReActMasterAgent(ConversableAgent):
 
                         act_outs.append(result)
                     else:
-                        logger.warning(f"Tool execution returned None/empty result for action: {real_action.name}")
+                        logger.warning(f"⚠️ Tool execution returned None/empty result for action: {real_action.name}")
 
                 await self.push_context_event(
                     EventType.AfterAction,
@@ -1064,7 +1028,6 @@ class ReActMasterAgent(ConversableAgent):
             if instance and instance.sandbox_manager:
                 if instance.sandbox_manager.initialized == False:
                     logger.warning(
-                    logger.warning(
                         f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
@@ -1094,7 +1057,7 @@ class ReActMasterAgent(ConversableAgent):
 
                 return {
                     "tools": "\n".join([item for item in sandbox_tool_prompts]),
-                    "browser_tools": "\n".join([item for item in browser_tool_prompts]),
+                    # "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
                     "prompt": render(sandbox_prompt, param),
                 }
