@@ -110,7 +110,7 @@ class ConversationVo(BaseModel):
     ext_info: Optional[dict] = {}
 
     work_mode: Optional[WorkMode] = Field(
-        WorkMode.ASYNC, description="Work mode: simple, quick, background, async"
+        WorkMode.SIMPLE, description="Work mode: simple, quick, background, async"
     )
 
 
