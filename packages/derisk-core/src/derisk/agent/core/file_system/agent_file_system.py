@@ -605,7 +605,7 @@ class AgentFileSystem:
             file_type=actual_file_type,
             file_size=file_size,
             local_path=str(local_path),
-            oss_url=storage_uri if storage_uri.startswith("oss://") else None,
+            oss_url=storage_uri if storage_uri.startswith(("oss://", "derisk-fs://")) else None,
             preview_url=preview_url,
             download_url=download_url,
             content_hash=content_hash,

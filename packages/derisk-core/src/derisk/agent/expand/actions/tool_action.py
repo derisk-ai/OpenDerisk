@@ -312,11 +312,11 @@ class ToolAction(Action[ToolInput]):
                         file_metadata = await agent_file_system.get_file_info(truncation_result.file_key)
                         if file_metadata:
                             from derisk.vis import Vis
-                            attach_view = Vis.of("d-attach").display(content={
+                            attach_view = Vis.of("d-attach").sync_display(content={
                                 "file_type": file_metadata.file_type or "txt",
                                 "name": file_metadata.file_name or truncation_result.file_key,
-                                "url": file_metadata.url or "",
-                                "size": file_metadata.size,
+                                "url": file_metadata.oss_url or file_metadata.download_url or "",
+                                "size": file_metadata.file_size,
                             })
                     except Exception as e:
                         logger.warning(f"Failed to generate d-attach: {e}")
