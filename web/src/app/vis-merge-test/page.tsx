@@ -135,9 +135,9 @@ export default function VisMergeTestPage() {
 
   return (
     <div className="p-6 max-w-full w-full h-full overflow-y-auto">
-      <Title level={2}>VIS 数据合并测试</Title>
+      <Title level={2}>DeRisk-GUI</Title>
       <Text type="secondary" className="mb-6 block">
-        测试 VIS chunk 数据的合并效果，支持手动输入合并和 JSONL 文件回放两种模式。
+        DeRisk GUI智能生成预览, 支持手动输入合并和 JSONL 文件回放两种模式
       </Text>
 
       <div className="w-full">
