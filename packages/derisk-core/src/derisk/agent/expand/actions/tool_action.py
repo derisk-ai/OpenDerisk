@@ -313,11 +313,16 @@ class ToolAction(Action[ToolInput]):
                         if file_metadata:
                             from derisk.vis import Vis
                             attach_view = Vis.of("d-attach").sync_display(content={
+                                "file_id": file_metadata.file_id,
+                                "file_name": file_metadata.file_name or truncation_result.file_key,
                                 "file_type": file_metadata.file_type or "txt",
-                                "name": file_metadata.file_name or truncation_result.file_key,
-                                "url": file_metadata.oss_url or file_metadata.download_url or "",
-                                "size": file_metadata.file_size,
+                                "file_size": file_metadata.file_size or 0,
+                                "oss_url": file_metadata.oss_url,
+                                "preview_url": file_metadata.preview_url,
+                                "download_url": file_metadata.download_url,
+                                "mime_type": file_metadata.mime_type,
                             })
+                            logger.info(f"[ToolAction] Generated d-attach for truncated file: {file_metadata.file_name}")
                     except Exception as e:
                         logger.warning(f"Failed to generate d-attach: {e}")
         
