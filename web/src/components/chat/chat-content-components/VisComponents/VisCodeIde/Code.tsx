@@ -1,23 +1,17 @@
-import React from 'react';
+import CodePreview from '@/CodePreview';
+import { codeComponents } from '@/CustomCard/VisCard/config';
+import { Iframe } from '@alipay/tech-ui';
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
-import { GPTVis } from '@antv/gpt-vis';
+import { GPTVisLite } from '@antv/gpt-vis';
 import { Space, Tabs } from 'antd';
+import { isEqual } from 'lodash';
+import React from 'react';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { CodePreview } from '../../code-preview';
-import { codeComponents, markdownPlugins } from '../../config';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 
-interface CodeItem {
-  language?: string;
-  markdown?: string;
-  path?: string;
-  console?: string;
-  cost?: number;
-  exit_success?: boolean;
-  env?: string;
+interface Props extends TS.CodeIde {
   pureCode?: boolean;
-}
-
-interface Props extends CodeItem {
   showType?: 'code-with-console' | 'html-preview' | 'code';
 }
 
@@ -29,18 +23,14 @@ function Code(props: Props) {
     cost,
     exit_success,
     env,
-    console: consoleOutput,
+    console: _console,
   } = props;
 
   switch (showType) {
     case 'code':
       return (
         <div style={{ width: '100%' }} className="vis-codeide-code">
-          <CodePreview
-            language={language || 'text'}
-            code={markdown || ''}
-            light={oneLight}
-          />
+          <CodePreview lang={language} code={markdown || ''} style={oneLight} />
         </div>
       );
     case 'html-preview':
@@ -49,14 +39,10 @@ function Code(props: Props) {
           style={{ width: '100%' }}
           className="vis-codeide-code-html-preview"
         >
-          <iframe
-            title="html-preview"
-            srcDoc={markdown}
-            style={{ width: '100%', minHeight: 200, border: 'none' }}
-            sandbox="allow-scripts"
-          />
+          <Iframe srcDoc={markdown} />
         </div>
       );
+
     case 'code-with-console':
       return (
         <>
@@ -65,12 +51,14 @@ function Code(props: Props) {
             className="vis-codeide-code-with-console"
           >
             <CodePreview
-              language={language || 'text'}
+              lang={language}
               code={markdown || ''}
-              light={oneLight}
+              style={oneLight}
             />
             <Tabs
-              tabBarStyle={{ marginBottom: 10 }}
+              tabBarStyle={{
+                marginBottom: 10,
+              }}
               type="card"
               size="small"
               defaultActiveKey="1"
@@ -97,16 +85,16 @@ function Code(props: Props) {
                   key: '1',
                   children: (
                     <div>
-                      {consoleOutput && (
-                        //@ts-ignore
-                        <GPTVis
+                      {_console && (
+                        <GPTVisLite
                           components={codeComponents}
-                          {...markdownPlugins}
+                          rehypePlugins={[rehypeRaw]}
+                          remarkPlugins={[remarkGfm]}
                         >
                           {`\`\`\`shell
-${consoleOutput}
+${_console}
 \`\`\``}
-                        </GPTVis>
+                        </GPTVisLite>
                       )}
                     </div>
                   ),
@@ -117,8 +105,8 @@ ${consoleOutput}
         </>
       );
     default:
-      return null;
+      return <></>;
   }
 }
 
-export default React.memo(Code);
+export default React.memo(Code, isEqual);
