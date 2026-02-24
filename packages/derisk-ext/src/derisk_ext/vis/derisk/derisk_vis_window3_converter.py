@@ -245,7 +245,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 title = agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_TITLE
                 )
-                thought= agent.agent_parser.parse_streaming_xml(
+                thought = agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_THOUGHT
                 )
                 tools = agent.agent_parser.parse_streaming_xml(
@@ -312,8 +312,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         senders_map: Optional[Dict[str, "ConversableAgent"]],
         task_manager: Optional[TreeManager] = None,
     ) -> Optional[str]:
-        """处理 stream_msg 虚拟节点数据，message本身是hidden节点，需要把当前叶子节点内容挂载到父节点，也就是goal_id节点。
-        """
+        """处理 stream_msg 虚拟节点数据，message本身是hidden节点，需要把当前叶子节点内容挂载到父节点，也就是goal_id节点。"""
         goal_id = stream_msg.get("goal_id")
         if not goal_id:
             return None
@@ -346,9 +345,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     ) -> AgentPlanItem:
         """构建任务节点的 AgentPlanItem。"""
         agent = (
-            senders_map.get(task_node.content.agent_name)
-            if task_node.content
-            else None
+            senders_map.get(task_node.content.agent_name) if task_node.content else None
         )
 
         return AgentPlanItem(
@@ -416,6 +413,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             for child_node in children:
                 # 生成子节点的内容(Task节点根据消息生成，非Task类型节点直接生成任务节点)
                 leaf_item_vis = ""
+                if child_node.content is None:
+                    continue
                 if child_node.content.task_type == AgentTaskType.TASK.value:
                     gpt_msg = messages_map.get(child_node.content.message_id)
                     if gpt_msg:
@@ -427,7 +426,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
                 else:
                     leaf_item_vis = self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                        content=self._build_task_item(child_node, "", senders_map).to_dict()
+                        content=self._build_task_item(
+                            child_node, "", senders_map
+                        ).to_dict()
                     )
 
                 children_vis_list.append(leaf_item_vis)
@@ -577,6 +578,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if new_task_nodes and messages:
             messages_map = {m.message_id: m for m in messages}
             for node in new_task_nodes:
+                if node.content is None:
+                    continue
                 msg = messages_map.get(node.content.message_id)
                 if msg and msg.action_report:
                     for out in msg.action_report:
@@ -725,9 +728,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     and gpt_msg.metrics.start_time_ms
                 ):
                     cost_val = (
-                                   gpt_msg.metrics.llm_metrics.end_time_ms
-                                   - gpt_msg.metrics.start_time_ms
-                               ) // 1000
+                        gpt_msg.metrics.llm_metrics.end_time_ms
+                        - gpt_msg.metrics.start_time_ms
+                    ) // 1000
                 if gpt_msg.metrics.llm_metrics.speed_per_second is not None:
                     speed_val = float(gpt_msg.metrics.llm_metrics.speed_per_second)
 
@@ -908,8 +911,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     start_time=action_out.start_time,
                     layer_count=layer_count,
                     markdown=action_out.simple_view
-                             or action_out.view
-                             or action_out.content
+                    or action_out.view
+                    or action_out.content
                     if action_out.terminate
                     else None,
                     cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
@@ -946,7 +949,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     continue
 
                 # 跳过子 Agent（属于另一个 Agent 的看板逻辑）
-                if child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                if (
+                    child.content
+                    and child.content.task_type == AgentTaskType.AGENT.value
+                ):
                     continue
 
                 # 在当前子树中搜索看板
@@ -966,7 +972,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 # 继续递归子节点（跳过子 Agent）
                 for child_id in node.child_ids:
                     child = task_manager.get_node(child_id)
-                    if child and child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                    if (
+                        child
+                        and child.content
+                        and child.content.task_type == AgentTaskType.AGENT.value
+                    ):
                         continue
                     if child:
                         search_in_subtree(child, agent_id, position, result)
@@ -981,7 +991,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                         # 第一次发现：记录 position 和 content
                         # 后续发现：只更新 content（保留最后一个）
                         if agent_id not in result:
-                            result[agent_id] = {"position": position, "content": kanban_content}
+                            result[agent_id] = {
+                                "position": position,
+                                "content": kanban_content,
+                            }
                         else:
                             result[agent_id]["content"] = kanban_content
                         break
@@ -989,7 +1002,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             # 继续递归子节点（跳过子 Agent）
             for child_id in node.child_ids:
                 child = task_manager.get_node(child_id)
-                if child and child.content and child.content.task_type == AgentTaskType.AGENT.value:
+                if (
+                    child
+                    and child.content
+                    and child.content.task_type == AgentTaskType.AGENT.value
+                ):
                     continue
                 if child:
                     search_in_subtree(child, agent_id, position, result)
@@ -1017,7 +1034,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         traverse_for_agents(task_node)
 
         # 转换为最终格式
-        return {agent_id: (info["position"], info["content"]) for agent_id, info in result.items()}
+        return {
+            agent_id: (info["position"], info["content"])
+            for agent_id, info in result.items()
+        }
 
     async def _unpack_task_space(
         self,
@@ -1038,9 +1058,19 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if kanban_mount_map is None:
             kanban_mount_map = {}
 
-        is_task = task_space.content and task_space.content.task_type == AgentTaskType.TASK.value
-        is_agent = task_space.content and task_space.content.task_type == AgentTaskType.AGENT.value
-        message = messages_map.get(task_space.content.message_id) if messages_map and task_space.content else None
+        is_task = (
+            task_space.content
+            and task_space.content.task_type == AgentTaskType.TASK.value
+        )
+        is_agent = (
+            task_space.content
+            and task_space.content.task_type == AgentTaskType.AGENT.value
+        )
+        message = (
+            messages_map.get(task_space.content.message_id)
+            if messages_map and task_space.content
+            else None
+        )
 
         # 1. 递归处理所有子节点
         children_vis_list: List[str] = []
@@ -1049,7 +1079,12 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             child: TreeNodeData[AgentTaskContent] = task_manager.get_node(child_id)
             if child:
                 child_vis = await self._unpack_task_space(
-                    child, task_manager, actions_map, messages_map, agent_map, kanban_mount_map
+                    child,
+                    task_manager,
+                    actions_map,
+                    messages_map,
+                    agent_map,
+                    kanban_mount_map,
                 )
                 if child_vis:
                     children_vis_list.append(child_vis)
@@ -1069,11 +1104,14 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if is_task:
             node_content = ""
             if message:
-                node_content = await self._gen_plan_items(
-                    gpt_msg=message,
-                    layer_count=task_space.layer_count + 1,
-                    senders_map=agent_map,
-                ) or ""
+                node_content = (
+                    await self._gen_plan_items(
+                        gpt_msg=message,
+                        layer_count=task_space.layer_count + 1,
+                        senders_map=agent_map,
+                    )
+                    or ""
+                )
 
             # TASK 叶子节点：直接返回内容
             if not children_vis_list:
@@ -1085,13 +1123,19 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             markdown = "\n".join(children_vis_list)
 
         # 4. 非 TASK 节点构建 AgentPlanItem
-        agent = agent_map.get(task_space.content.agent_name) if task_space.content and agent_map else None
+        agent = (
+            agent_map.get(task_space.content.agent_name)
+            if task_space.content and agent_map
+            else None
+        )
 
         plan_item = AgentPlanItem(
             uid=task_space.node_id,
             parent_uid=task_space.parent_id,
             type=UpdateType.INCR.value,
-            item_type=task_space.content.task_type if task_space.content else AgentTaskType.PLAN.value,
+            item_type=task_space.content.task_type
+            if task_space.content
+            else AgentTaskType.PLAN.value,
             title=task_space.name,
             description=task_space.description,
             status=task_space.state,
@@ -1105,8 +1149,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         return self.vis_inst(AgentPlan.vis_tag()).sync_display(
             content=plan_item.to_dict()
         )
-
-
 
     async def _planning_vis_all(
         self,

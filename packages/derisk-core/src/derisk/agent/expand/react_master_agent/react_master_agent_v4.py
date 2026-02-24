@@ -9,9 +9,17 @@ ReActMasterAgentV4 - 集成了 WorkLog、PhaseManager 和 ReportGenerator 的完
 
 import logging
 from typing import Any, Dict, List, Optional
-
-from derisk.agent import ActionOutput, Agent, AgentMessage
+from derisk._private.pydantic import Field, PrivateAttr
+from derisk.agent import ActionOutput, Agent, AgentMessage, ProfileConfig
 from derisk.agent.core.base_agent import ConversableAgent
+from . import (
+    REACT_MASTER_SYSTEM_TEMPLATE,
+    REACT_MASTER_USER_TEMPLATE,
+    REACT_MASTER_WRITE_MEMORY_TEMPLATE,
+    REACT_MASTER_SYSTEM_TEMPLATE_CN,
+    REACT_MASTER_USER_TEMPLATE_CN,
+    REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
+)
 
 # 导入现有类
 try:
@@ -51,6 +59,17 @@ class ReActMasterAgentV4(ReActMasterAgent):
     - generate_report() - 生成报告
     """
 
+    profile: ProfileConfig = Field(
+        default_factory=lambda: ProfileConfig(
+            name="ReActMasterV4",
+            role="ReActMasterV4",
+            goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
+            system_prompt_template=REACT_MASTER_SYSTEM_TEMPLATE_CN,
+            user_prompt_template=REACT_MASTER_USER_TEMPLATE_CN,
+            write_memory_template=REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
+        )
+    )
+
     # 新功能配置（可选覆盖父类配置）
     enable_work_log: bool = True
     enable_phase_management: bool = True
@@ -67,11 +86,17 @@ class ReActMasterAgentV4(ReActMasterAgent):
     # Report 配置
     report_default_type: str = "detailed"
     report_default_format: str = "markdown"
+    report_auto_generate: bool = (
+        False  # Alias for enable_auto_report for parent compatibility
+    )
 
     def __init__(self, **kwargs):
         """初始化 ReActMasterAgentV4"""
         # 调用父类初始化
         super().__init__(**kwargs)
+
+        # Sync report_auto_generate with enable_auto_report for parent compatibility
+        self.report_auto_generate = self.enable_auto_report
 
         # 初始化新组件
         self._initialize_components_v4()
@@ -143,7 +168,7 @@ class ReActMasterAgentV4(ReActMasterAgent):
         self._work_log_initialized_v4 = True
         logger.info(f"✅ WorkLogManager initialized")
 
-    async def _record_action_to_work_log_v4(
+    async def _record_action_to_work_log(
         self,
         tool_name: str,
         args: Optional[Dict[str, Any]],
@@ -174,7 +199,7 @@ class ReActMasterAgentV4(ReActMasterAgent):
 
         logger.debug(f"✅ Recorded {tool_name} to WorkLog")
 
-    def _is_terminate_action_v4(self, action_output: ActionOutput) -> bool:
+    def _is_terminate_action(self, action_output: ActionOutput) -> bool:
         """判断是否为 terminate action"""
         if not action_output:
             return False
@@ -462,13 +487,13 @@ class ReActMasterAgentV4(ReActMasterAgent):
                 if "params" in kwargs and isinstance(kwargs["params"], dict):
                     tool_args = kwargs["params"]
 
-                await self._record_action_to_work_log_v4(tool_name, tool_args, act_out)
+                await self._record_action_to_work_log(tool_name, tool_args, act_out)
 
                 # 记录到 PhaseManager
                 self.record_phase_action(tool_name, act_out.is_exe_success)
 
                 # 如果是 terminate action 且启用了自动报告
-                if self._is_terminate_action_v4(act_out) and self.report_auto_generate:
+                if self._is_terminate_action(act_out) and self.enable_auto_report:
                     self.set_phase("reporting", "任务完成，生成报告")
 
                     try:
