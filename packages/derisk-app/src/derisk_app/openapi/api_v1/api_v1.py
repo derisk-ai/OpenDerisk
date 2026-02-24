@@ -292,6 +292,41 @@ async def chat_stop(
         return Result.failed(msg=f"停止对话失败！{str(e)}")
 
 
+@router.get("/v1/chat/query")
+async def chat_query(
+    conv_id: str,
+    vis_render: Optional[str] = Query(default=None, description="可视化协议名称"),
+    user_token: UserRequest = Depends(get_user_from_headers),
+):
+    """查询会话状态和最终结论
+    
+    Args:
+        conv_id: Agent会话ID (agent_conv_id)
+        vis_render: 可视化协议名称
+    """
+    logger.info(f"chat_query: {conv_id}")
+    try:
+        result = await multi_agents.query_chat(
+            conv_id=conv_id,
+            vis_render=vis_render
+        )
+        if result is None:
+            return Result.failed(code="E0103", msg=f"会话 {conv_id} 不存在")
+        
+        vis_final, user_answer, current_vis_render, is_final, state = result
+        return Result.succ({
+            "conv_id": conv_id,
+            "state": state,
+            "is_final": is_final,
+            "vis_final": vis_final,
+            "user_answer": user_answer,
+            "vis_render": current_vis_render,
+        })
+    except Exception as e:
+        logger.exception("查询会话异常!")
+        return Result.failed(code="E0104", msg=f"查询会话失败: {str(e)}")
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(
         background_tasks: BackgroundTasks,

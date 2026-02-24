@@ -1472,7 +1472,7 @@ class AgentChat(BaseComponent, ABC):
 
             # 返回对应协议的最终消息内容
             return await gpts_memory.vis_final(conv_id), await gpts_memory.user_answer(
-                conv_id), current_vis_render, is_final
+                conv_id), current_vis_render, is_final, gpts_conversation.state
         finally:
             await gpts_memory.clear(conv_id)
 
