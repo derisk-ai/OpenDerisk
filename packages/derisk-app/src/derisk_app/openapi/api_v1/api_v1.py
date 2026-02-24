@@ -334,30 +334,6 @@ async def chat_completions(
         "Transfer-Encoding": "chunked",
     }
     try:
-        if dialogue.team_mode == TeamMode.NATIVE_APP.value:
-            with root_tracer.start_span(
-                    "get_chat_instance", span_type=SpanType.CHAT, metadata=dialogue.dict()
-            ):
-                in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
-
-                async def chat_wrapper():
-                    async for chunk, agent_conv_id in multi_agents.quick_app_chat(
-                        conv_session_id=dialogue.conv_uid,
-                        user_query=in_message,
-                        model=dialogue.model_name,
-                        model_tokens=dialogue.max_new_tokens,
-                        temperature=dialogue.temperature,
-                        chat_in_params=dialogue.chat_in_params,
-                        app_code=dialogue.app_code,
-                        **dialogue.ext_info,
-                    ):
-                        yield chunk
-                return StreamingResponse(
-                    chat_wrapper(),
-                    headers=headers,
-                    media_type="text/event-stream",
-                )
-
         dialogue.ext_info.update({"model_name": dialogue.model_name})
         dialogue.ext_info.update({"incremental": dialogue.incremental})
         dialogue.ext_info.update({"temperature": dialogue.temperature})
