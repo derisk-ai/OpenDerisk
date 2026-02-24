@@ -1,4 +1,3 @@
-
 import os
 import shutil
 import asyncio
@@ -63,7 +62,6 @@ class LocalFileClient(FileClient):
                 # Let's be strict for now to mimic sandbox behavior.
                 # raise ValueError(f"Path {path} is outside sandbox workspace")
                 pass
-
 
         return full_path
 

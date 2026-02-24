@@ -292,41 +292,6 @@ async def chat_stop(
         return Result.failed(msg=f"停止对话失败！{str(e)}")
 
 
-@router.get("/v1/chat/query")
-async def chat_query(
-    conv_id: str,
-    vis_render: Optional[str] = Query(default=None, description="可视化协议名称"),
-    user_token: UserRequest = Depends(get_user_from_headers),
-):
-    """查询会话状态和最终结论
-    
-    Args:
-        conv_id: Agent会话ID (agent_conv_id)
-        vis_render: 可视化协议名称
-    """
-    logger.info(f"chat_query: {conv_id}")
-    try:
-        result = await multi_agents.query_chat(
-            conv_id=conv_id,
-            vis_render=vis_render
-        )
-        if result is None:
-            return Result.failed(code="E0103", msg=f"会话 {conv_id} 不存在")
-        
-        vis_final, user_answer, current_vis_render, is_final, state = result
-        return Result.succ({
-            "conv_id": conv_id,
-            "state": state,
-            "is_final": is_final,
-            "vis_final": vis_final,
-            "user_answer": user_answer,
-            "vis_render": current_vis_render,
-        })
-    except Exception as e:
-        logger.exception("查询会话异常!")
-        return Result.failed(code="E0104", msg=f"查询会话失败: {str(e)}")
-
-
 @router.post("/v1/chat/completions")
 async def chat_completions(
         background_tasks: BackgroundTasks,
@@ -337,6 +302,136 @@ async def chat_completions(
         f"chat_completions:{dialogue.team_mode},{dialogue.select_param},"
         f"{dialogue.model_name}, work_mode={dialogue.work_mode}, timestamp={int(time.time() * 1000)}"
     )
+
+    if not dialogue.conv_uid:
+        dialogue.conv_uid = uuid.uuid1().hex
+    
+    # Adapt OpenAI messages format to user_input
+    if not dialogue.user_input and dialogue.messages:
+        try:
+            # Extract the last user message content
+            last_message = next((msg for msg in reversed(dialogue.messages) if msg.get("role") == "user"), None)
+            if last_message:
+                dialogue.user_input = last_message.get("content", "")
+                logger.info(f"Extracted user_input from messages: {dialogue.user_input}")
+        except Exception as e:
+            logger.warning(f"Failed to extract user_input from messages: {e}")
+
+    dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
+    dialogue.ext_info.update(
+        {
+            "trace_id": first(
+                root_tracer.get_context_trace_id(), default=uuid.uuid4().hex
+            )
+        }
+    )
+    dialogue.ext_info.update({"rpc_id": "0.1"})
+
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked",
+    }
+    try:
+        dialogue.ext_info.update({"model_name": dialogue.model_name})
+        dialogue.ext_info.update({"incremental": dialogue.incremental})
+        dialogue.ext_info.update({"temperature": dialogue.temperature})
+        dialogue.ext_info.update({"max_new_tokens": dialogue.max_new_tokens})
+
+        in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
+
+        work_mode = dialogue.work_mode or WorkMode.ASYNC
+
+        if work_mode == WorkMode.QUICK:
+            async def chat_wrapper():
+                async for chunk, agent_conv_id in multi_agents.quick_app_chat(
+                    conv_session_id=dialogue.conv_uid,
+                    user_query=in_message,
+                    chat_in_params=dialogue.chat_in_params,
+                    app_code=dialogue.app_code,
+                    user_code=dialogue.user_name,
+                    sys_code=dialogue.sys_code,
+                    **dialogue.ext_info,
+                ):
+                    yield chunk
+            return StreamingResponse(
+                chat_wrapper(),
+                headers=headers,
+                media_type="text/event-stream",
+            )
+        elif work_mode == WorkMode.BACKGROUND:
+            async def chat_wrapper():
+                async for chunk, agent_conv_id in multi_agents.app_chat_v2(
+                    conv_uid=dialogue.conv_uid,
+                    background_tasks=background_tasks,
+                    gpts_name=dialogue.app_code,
+                    specify_config_code=dialogue.app_config_code,
+                    user_query=in_message,
+                    user_code=dialogue.user_name,
+                    sys_code=dialogue.sys_code,
+                    chat_in_params=dialogue.chat_in_params,
+                    **dialogue.ext_info,
+                ):
+                    yield chunk
+            return StreamingResponse(
+                chat_wrapper(),
+                headers=headers,
+                media_type="text/event-stream",
+            )
+        elif work_mode == WorkMode.ASYNC:
+            result = await multi_agents.app_chat_v3(
+                conv_uid=dialogue.conv_uid,
+                background_tasks=background_tasks,
+                gpts_name=dialogue.app_code,
+                specify_config_code=dialogue.app_config_code,
+                user_query=in_message,
+                user_code=dialogue.user_name,
+                sys_code=dialogue.sys_code,
+                chat_in_params=dialogue.chat_in_params,
+                **dialogue.ext_info,
+            )
+            # result 是 (None, agent_conv_id) 元组，提取会话ID
+            agent_conv_id = result[1] if result else None
+            return Result.succ(data={"conv_id": agent_conv_id})
+        else:
+            async def chat_wrapper():
+                async for chunk, agent_conv_id in multi_agents.app_chat(
+                    conv_uid=dialogue.conv_uid,
+                    gpts_name=dialogue.app_code,
+                    specify_config_code=dialogue.app_config_code,
+                    user_query=in_message,
+                    user_code=dialogue.user_name,
+                    sys_code=dialogue.sys_code,
+                    chat_in_params=dialogue.chat_in_params,
+                    **dialogue.ext_info,
+                ):
+                    yield chunk
+            return StreamingResponse(
+                chat_wrapper(),
+                headers=headers,
+                media_type="text/event-stream",
+            )
+
+    except Exception as e:
+        logger.exception(f"Chat Exception!{dialogue}", e)
+
+        async def error_text(err_msg):
+            yield f"data:{err_msg}\n\n"
+
+        return StreamingResponse(
+            error_text(str(e)),
+            headers=headers,
+            media_type="text/plain",
+        )
+    finally:
+        # write to recent usage app.
+        if dialogue.user_name is not None and dialogue.app_code is not None:
+            user_recent_app_dao.upsert(
+                user_code=dialogue.user_name,
+                sys_code=dialogue.sys_code,
+                app_code=dialogue.app_code,
+            )
 
     if not dialogue.conv_uid:
         dialogue.conv_uid = uuid.uuid1().hex

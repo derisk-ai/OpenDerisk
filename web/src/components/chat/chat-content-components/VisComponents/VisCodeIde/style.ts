@@ -6,21 +6,21 @@ export const VisCodeIdeDiv = styled.div`
     display: none;
   }
   .CodePreviewClass {
-    pre::-webkit-scrollbar {
-      height: 8px;
-      display: block;
-    }
-    pre::-webkit-scrollbar-track {
-      background: transparent;
-      border-radius: 4px;
-    }
-    pre::-webkit-scrollbar-thumb {
-      background: #888;
-      border-radius: 4px;
-      &:hover {
-        background: #333;
+      pre::-webkit-scrollbar {
+        height: 8px;
+        display: block;
       }
-    }
+      pre::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 4px;
+      }
+      pre::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+        &:hover {
+          background: #333;
+        }
+      }
   }
 `;
 

@@ -1,0 +1,145 @@
+[
+  {
+    "app_code": "open-rca-react-master",
+    "app_name": "OpenRCA-Master",
+    "app_describe": "AI驱动的故障根因分析智能体（ReAct架构），通过系统化推理和委派执行，精准定位故障根本原因。",
+    "team_mode": "single_agent",
+    "language": "zh",
+    "agent": "OpenRcaMaster",
+    "team_context": {
+      "can_ask_user": true,
+      "agent_name": "OpenRcaMaster"
+    },
+    "icon": "/agents/agent5.jpg",
+    "user_name": "derisk",
+    "owner_name": "derisk",
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": [
+        "deepseek-r1",
+        "Kimi-K2-Instruct"
+      ]
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "derisk_vis_window2",
+        "incremental": true,
+        "description": "(视窗模式2)VIS可视化布局数据转换协议"
+      },
+      "chat_in_layout": [
+        {
+          "param_type": "resource",
+          "sub_type": "open_rca_scene",
+          "param_description": "诊断场景选择",
+          "param_render_type": "select",
+          "param_type_options": [
+            {"label": "银行场景 (Bank)", "value": "bank"},
+            {"label": "电信场景 (Telecom)", "value": "telecom"},
+            {"label": "市场场景 (Market)", "value": "market"}
+          ],
+          "param_default_value": "bank"
+        }
+      ]
+    },
+    "resource_knowledge": null,
+    "resource_tool": null,
+    "resource_agent": [
+      {
+        "type": "app",
+        "value": "{\"label\":\"Coder(Magic)[Python数据分析Agent，用于执行数据分析代码]\",\"key\":\"ai-coder\",\"app_code\":\"ai-coder\",\"app_name\":\"Coder(Magic)\",\"app_icon\":\"/agents/agent2.jpg\",\"value\":\"ai-coder\"}",
+        "name": "Coder(Magic)",
+        "is_dynamic": false,
+        "context": null,
+        "version": "v2",
+        "unique_id": null
+      },
+      {
+        "type": "app",
+        "value": "{\"label\":\"Reporter(Kevin)[诊断报告生成Agent]\",\"key\":\"ai-reporter\",\"app_code\":\"ai-reporter\",\"app_name\":\"Reporter(Kevin)\",\"app_icon\":\"/agents/agent3.jpg\",\"value\":\"ai-reporter\"}",
+        "name": "Reporter(Kevin)",
+        "is_dynamic": false,
+        "version": "v2"
+      }
+    ],
+    "keep_start_rounds": 1,
+    "keep_end_rounds": 2
+  },
+  {
+    "app_code": "open-rca-coder",
+    "app_name": "OpenRCA-Coder",
+    "app_describe": "Python数据分析Agent，执行故障诊断过程中的数据加载、预处理、阈值计算和异常检测代码。接收主Agent的委派任务。",
+    "team_mode": "single_agent",
+    "language": "zh",
+    "agent": "Coder",
+    "team_context": {
+      "can_ask_user": true,
+      "agent_name": "Coder"
+    },
+    "icon": "/agents/agent2.jpg",
+    "user_name": "derisk",
+    "owner_name": "derisk",
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": [
+        "deepseek-v3",
+        "deepseek-r1"
+      ]
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "derisk_vis_window",
+        "incremental": true,
+        "description": "(视窗模式)VIS可视化布局数据转换协议"
+      },
+      "chat_in_layout": [
+        {
+          "param_type": "resource",
+          "sub_type": "open_rca_scene",
+          "param_description": "资源选项",
+          "param_render_type": "select",
+          "param_type_options": null,
+          "param_default_value": "bank"
+        }
+      ]
+    }
+  },
+  {
+    "app_code": "open-rca-reporter",
+    "app_name": "OpenRCA-Reporter",
+    "app_describe": "诊断报告生成Agent，根据诊断过程生成结构化的故障根因分析报告。",
+    "team_mode": "single_agent",
+    "language": "zh",
+    "agent": "Reporter",
+    "team_context": {
+      "can_ask_user": true,
+      "agent_name": "Reporter"
+    },
+    "icon": "/agents/agent3.jpg",
+    "user_name": "derisk",
+    "owner_name": "derisk",
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": [
+        "Kimi-K2-Instruct",
+        "deepseek-r1"
+      ]
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "derisk_vis_incr",
+        "incremental": true,
+        "description": "(消息模式)VIS可视化布局数据转换协议"
+      },
+      "chat_in_layout": [
+        {
+          "param_type": "resource",
+          "sub_type": "open_rca_scene",
+          "param_description": "资源选项",
+          "param_render_type": "select",
+          "param_type_options": null,
+          "param_default_value": "bank"
+        }
+      ]
+    }
+  }
+]
