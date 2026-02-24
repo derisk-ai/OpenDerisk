@@ -16,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
-from derisk._private.pydantic import Field, PrivateAttr
+from derisk._private.pydantic import Field
 from derisk.core import ModelMessageRoleType
 from derisk.sandbox.base import SandboxBase
 from derisk.util.string_utils import str_to_bool
