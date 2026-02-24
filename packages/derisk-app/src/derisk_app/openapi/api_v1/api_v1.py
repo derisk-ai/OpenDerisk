@@ -391,7 +391,9 @@ async def chat_completions(
                 chat_in_params=dialogue.chat_in_params,
                 **dialogue.ext_info,
             )
-            return Result.succ(data=result)
+            # result 是 (None, agent_conv_id) 元组，提取会话ID
+            agent_conv_id = result[1] if result else None
+            return Result.succ(data={"conv_id": agent_conv_id})
         else:
             async def chat_wrapper():
                 async for chunk, agent_conv_id in multi_agents.app_chat(
