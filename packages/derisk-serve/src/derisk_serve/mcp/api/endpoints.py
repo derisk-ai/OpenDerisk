@@ -265,7 +265,7 @@ async def connect(
 ) -> Result[bool]:
     try:
         return Result.succ(
-            await service.connect_mcp(request.name, request.sse_headers)
+            await service.connect_mcp(request.name, request.sse_headers, timeout=request.timeout)
         )
     except Exception as e:
         return Result.failed(str(e))
@@ -281,7 +281,7 @@ async def tool_list(
 ) -> Result[List[McpTool]]:
     try:
         return Result.succ(
-            await service.list_tools(request.name, request.sse_url, request.sse_headers)
+            await service.list_tools(request.name, request.sse_url, request.sse_headers, timeout=request.timeout)
         )
     except Exception as e:
         logger.exception("mcp list tool exception!")
@@ -309,6 +309,7 @@ async def run(
                 request.sse_url,
                 arguments,
                 request.sse_headers,
+                timeout=request.timeout,
             )
         )
     except Exception as e:
