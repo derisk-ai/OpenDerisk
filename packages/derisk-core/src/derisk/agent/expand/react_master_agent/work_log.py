@@ -82,16 +82,28 @@ class WorkEntry:
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
 
         lines = [f"[{time_str}] {self.tool}"]
-        if self.summary:
-            lines.append(f"  摘要: {self.summary}")
-        if self.full_result_archive:
+        
+        # 显示参数（如果有重要参数）
+        if self.args:
+            important_args = {k: v for k, v in self.args.items() 
+                            if k in ["file_key", "path", "query", "pattern", "offset", "limit"]}
+            if important_args:
+                lines.append(f"  参数: {important_args}")
+        
+        # 显示结果
+        if self.result:
+            if self.tool == "read_file":
+                lines.append(f"  读取内容预览:")
+            result_lines = self.result.split('\n')[:10]  # 最多显示10行
+            preview = '\n'.join(result_lines)
+            if len(preview) > max_length:
+                preview = preview[:max_length] + "... (已截断)"
+            if len(self.result.split('\n')) > 10:
+                preview += "\n  ... (共 {} 行)".format(len(self.result.split('\n')))
+            lines.append(f"  {preview}")
+        elif self.full_result_archive:
             lines.append(f"  完整结果已归档: {self.full_result_archive}")
             lines.append(f"  💡 使用 read_file(file_key=\"{self.full_result_archive}\") 读取完整内容")
-        if self.result and not self.full_result_archive:
-            result_preview = self.result[:max_length]
-            if len(self.result) > max_length:
-                result_preview += "... (已截断)"
-            lines.append(f"  结果: {result_preview}")
 
         return "\n".join(lines)
 
@@ -179,6 +191,11 @@ class WorkLogManager:
         # 配置
         self.large_result_threshold_bytes = 10 * 1024  # 10KB
         self.chars_per_token = 4  # 估算 token 的字符比例
+        
+        # 特殊工具配置
+        # read_file 用于读取归档内容，其结果保留较长的预览但不保存完整内容
+        self.read_file_preview_length = 2000  # read_file 结果的预览长度
+        self.summary_only_tools = {"grep", "search", "find"}  # 这些工具只保存摘要
 
         # 锁
         self._lock = asyncio.Lock()
@@ -328,13 +345,60 @@ class WorkLogManager:
             else result_content
         )
 
+        # 决定是否保存完整结果：
+        # 分三种情况处理：
+        # 1. read_file 工具：保存较长预览（让 LLM 知道读了什么），但不保存完整内容
+        # 2. grep/search/find 等工具：只保存摘要（结果通常是列表，太大）
+        # 3. 普通工具：正常处理（有归档用归档，无归档存结果，大结果自动归档）
+        
+        result_to_save = None
+        archive_file_key_from_action = archive_file_key  # 保存 action_output 中的归档 key
+        
+        if tool_name == "read_file":
+            # read_file 特殊处理：保存较长预览，完整内容归档
+            if len(result_content) > self.read_file_preview_length:
+                result_to_save = result_content[:self.read_file_preview_length] + "\n... (内容已截断，如需更多请再次调用 read_file)"
+                # 如果结果很大，也归档一份
+                if len(result_content) > self.large_result_threshold_bytes:
+                    saved_archive_key = await self._save_large_result(tool_name, result_content)
+                    if saved_archive_key:
+                        archive_file_key = saved_archive_key
+            else:
+                result_to_save = result_content
+                
+        elif tool_name in self.summary_only_tools:
+            # grep/search/find 等：只保存摘要，大结果自动归档
+            if len(result_content) > self.large_result_threshold_bytes:
+                saved_archive_key = await self._save_large_result(tool_name, result_content)
+                if saved_archive_key:
+                    archive_file_key = saved_archive_key
+            result_to_save = None  # 不保存结果，只用 summary
+            
+        elif archive_file_key_from_action:
+            # 已有归档文件，不保存完整结果
+            result_to_save = None
+        else:
+            # 普通工具，没有归档文件
+            if len(result_content) > self.large_result_threshold_bytes:
+                # 结果太大且没有归档，尝试创建归档
+                saved_archive_key = await self._save_large_result(tool_name, result_content)
+                if saved_archive_key:
+                    archive_file_key = saved_archive_key
+                    result_to_save = None
+                else:
+                    # 归档失败，保存截断的结果
+                    result_to_save = result_content[:self.large_result_threshold_bytes]
+            else:
+                # 结果不大，直接保存
+                result_to_save = result_content
+
         # 创建工作日志条目
         entry = WorkEntry(
             timestamp=time.time(),
             tool=tool_name,
             args=args,
             summary=summary[:500] if summary else None,
-            result=None,  # 不保存完整结果，使用归档
+            result=result_to_save,  # 根据情况保存完整结果或 None
             full_result_archive=archive_file_key,  # 记录归档文件 key
             success=action_output.is_exe_success,
             tags=tags or [],
