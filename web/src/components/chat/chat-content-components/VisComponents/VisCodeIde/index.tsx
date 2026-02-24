@@ -1,20 +1,12 @@
 import { Segmented, Tabs } from 'antd';
-import { set } from 'lodash';
+import { isEqual, set } from 'lodash';
 import React, { useEffect, useState } from 'react';
 import Code from './Code';
 import { VisCodeIdeDiv, VisPureCode } from './style';
 
-interface CodeItem {
-  path?: string;
-  markdown?: string;
-  language?: string;
-  console?: string;
-  pureCode?: boolean;
-}
-
 interface Props {
   pureCode?: boolean;
-  items?: CodeItem[];
+  items?: TS.CodeIde[];
 }
 
 const VisCodeIde = ({ items = [], pureCode = false }: Props) => {
@@ -36,21 +28,21 @@ const VisCodeIde = ({ items = [], pureCode = false }: Props) => {
     }
   }, [currentCode, currentIsHTML, tabIndex]);
 
-  const changeType =
-    currentIsHTML && (
-      <Segmented
-        value={currentType}
-        onChange={(v) => {
-          setShowTypeList([...set(showTypeList, tabIndex, v as typeof currentType)]);
-        }}
-        options={[
-          { label: '代码', value: 'code' },
-          { label: '预览', value: 'html-preview' },
-        ]}
-      />
-    );
+  const changeType = currentIsHTML && (
+    <Segmented
+      value={currentType}
+      onChange={(v) => {
+        setShowTypeList([...set(showTypeList, tabIndex, v)]);
+      }}
+      options={[
+        { label: '代码', value: 'code' },
+        { label: '预览', value: 'html-preview' },
+      ]}
+    />
+  );
 
   if (pureCode) {
+    // 没有 console
     return (
       <VisCodeIdeDiv className="vis-code-ide-code">
         <VisPureCode className="vis-pure-code">
@@ -69,15 +61,25 @@ const VisCodeIde = ({ items = [], pureCode = false }: Props) => {
       <VisCodeIdeDiv className="vis-code-ide scrollbar-default">
         <Tabs
           defaultActiveKey={`${tabIndex}`}
-          onChange={(i) => setTabIndex(parseInt(i, 10))}
-          tabBarStyle={{ marginBottom: 0 }}
-          tabBarExtraContent={{ right: changeType }}
+          onChange={(i) => {
+            setTabIndex(parseInt(i));
+          }}
+          tabBarStyle={{
+            marginBottom: 0,
+          }}
+          tabBarExtraContent={{
+            right: changeType,
+          }}
           items={items.map((item, i) => {
             const showType = showTypeList[i];
             return {
               label: item?.path,
               key: `${i}`,
-              children: <Code key={i} {...item} showType={showType} />,
+              children: (
+                <>
+                  <Code key={i} {...item} showType={showType} />
+                </>
+              ),
             };
           })}
         />
@@ -86,4 +88,4 @@ const VisCodeIde = ({ items = [], pureCode = false }: Props) => {
   );
 };
 
-export default React.memo(VisCodeIde);
+export default React.memo(VisCodeIde, isEqual);
