@@ -866,12 +866,24 @@ class AgentFileSystem:
         """收集用于交付的文件列表.
 
         适用于terminate时收集所有相关文件进行交付。
+        默认收集所有对话过程中产生的文件，包括：
+        - CONCLUSION: 结论文件
+        - DELIVERABLE: 交付物
+        - TRUNCATED_OUTPUT: 工具大结果归档
+        - TOOL_OUTPUT: 工具输出文件
+        - WRITE_FILE: write工具创建的文件
 
         Returns:
             文件信息字典列表
         """
         if file_types is None:
-            file_types = [FileType.CONCLUSION, FileType.DELIVERABLE]
+            file_types = [
+                FileType.CONCLUSION,
+                FileType.DELIVERABLE,
+                FileType.TRUNCATED_OUTPUT,
+                FileType.TOOL_OUTPUT,
+                FileType.WRITE_FILE,
+            ]
 
         all_files = []
         for file_type in file_types:

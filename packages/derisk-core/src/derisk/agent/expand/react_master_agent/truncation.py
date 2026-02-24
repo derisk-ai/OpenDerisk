@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, Tuple, Union
 import asyncio
 
+from derisk.agent.core.memory.gpts.file_base import FileType
+
 if TYPE_CHECKING:
     try:
         from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
@@ -128,7 +130,7 @@ class Truncator:
         file_metadata = await self.agent_file_system.save_file(
             file_key=file_key,
             data=content,
-            file_type="truncated_output",
+            file_type=FileType.TRUNCATED_OUTPUT,
             extension="txt",
             tool_name=tool_name,
         )
