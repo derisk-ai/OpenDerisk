@@ -497,7 +497,7 @@ class ConversableAgent(Role, Agent):
         finally:
             root_tracer.set_current_agent_id(origin_current_agent_id)
 
-    def prepare_act_param(
+    async def prepare_act_param(
         self,
         received_message: Optional[AgentMessage],
         sender: Agent,
@@ -759,7 +759,7 @@ class ConversableAgent(Role, Agent):
                     )
 
                     # logger.info(f'after generate_think_message, reply_message:{reply_message}')
-                    act_extent_param = self.prepare_act_param(
+                    act_extent_param = await self.prepare_act_param(
                         received_message=received_message,
                         sender=sender,
                         rely_messages=rely_messages,
@@ -850,17 +850,23 @@ class ConversableAgent(Role, Agent):
                     # 发送当前轮的结果消息(fuctioncall执行结果、非LOOP模式下的异常记录、LOOP模式的上一轮消息)
                     await self.send(reply_message, recipient=self, request_reply=False)
                     # # 任务完成记录任务结论
-                    await self.memory.gpts_memory.upsert_task(conv_id=self.agent_context.conv_id,
-                                                              task=TreeNodeData(
-                                                                  node_id=reply_message.message_id,
-                                                                  parent_id=reply_message.goal_id,
-                                                                  content=AgentTaskContent(agent_name=self.name,
-                                                                                           task_type=AgentTaskType.TASK.value,
-                                                                                           message_id=reply_message.message_id),
-                                                                  state=Status.COMPLETE.value if check_pass else Status.FAILED.value,
-                                                                  name=received_message.current_goal,
-                                                                  description=received_message.content
-                                                              ))
+                    await self.memory.gpts_memory.upsert_task(
+                        conv_id=self.agent_context.conv_id,
+                        task=TreeNodeData(
+                            node_id=reply_message.message_id,
+                            parent_id=reply_message.goal_id,
+                            content=AgentTaskContent(
+                                agent_name=self.name,
+                                task_type=AgentTaskType.TASK.value,
+                                message_id=reply_message.message_id,
+                            ),
+                            state=Status.COMPLETE.value
+                            if check_pass
+                            else Status.FAILED.value,
+                            name=received_message.current_goal,
+                            description=received_message.content,
+                        ),
+                    )
 
                     # 5.Optimize wrong answers myself
                     if not check_pass:
@@ -884,16 +890,23 @@ class ConversableAgent(Role, Agent):
                             logger.warning("No retry available!")
                             break
                         fail_reason = reason
-                        # await self.write_memories(
-                        #     question=question,
-                        #     ai_message=ai_message,
-                        #     action_output=act_outs,
-                        #     check_pass=check_pass,
-                        #     check_fail_reason=fail_reason,
-                        #     agent_id=self.not_null_agent_context.agent_app_code,
-                        #     reply_message=reply_message,
-                        #     terminate=any([act_out.terminate for act_out in act_outs]),
-                        # )
+
+                        # 构建执行历史上下文，确保失败信息能写入记忆
+                        extra_context = self._build_memory_context(
+                            act_outs, fail_reason
+                        )
+
+                        await self.write_memories(
+                            question=question,
+                            ai_message=ai_message,
+                            action_output=act_outs,
+                            check_pass=check_pass,
+                            check_fail_reason=fail_reason,
+                            agent_id=self.not_null_agent_context.agent_app_code,
+                            reply_message=reply_message,
+                            terminate=any([act_out.terminate for act_out in act_outs]),
+                            extra_context=extra_context,
+                        )
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
                             break
@@ -906,17 +919,17 @@ class ConversableAgent(Role, Agent):
 
                         current_round = self.current_retry_counter + 1
                         # Successful reply
-                        # await self.write_memories(
-                        #     question=question,
-                        #     ai_message=ai_message,
-                        #     action_output=act_outs,
-                        #     check_pass=check_pass,
-                        #     agent_id=self.not_null_agent_context.agent_app_code
-                        #              or self.not_null_agent_context.gpts_app_code,
-                        #     reply_message=reply_message,
-                        #     terminate=any([act_out.terminate for act_out in act_outs]),
-                        #     current_retry_counter=current_round,
-                        # )
+                        await self.write_memories(
+                            question=question,
+                            ai_message=ai_message,
+                            action_output=act_outs,
+                            check_pass=check_pass,
+                            agent_id=self.not_null_agent_context.agent_app_code
+                            or self.not_null_agent_context.gpts_app_code,
+                            reply_message=reply_message,
+                            terminate=any([act_out.terminate for act_out in act_outs]),
+                            current_retry_counter=current_round,
+                        )
 
                         ### 非LOOP模式以及非FunctionCall模式
                         if (
@@ -930,8 +943,6 @@ class ConversableAgent(Role, Agent):
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
                             break
-
-
 
             reply_message.success = is_success
             # 6.final message adjustment
@@ -1295,8 +1306,8 @@ class ConversableAgent(Role, Agent):
                         current_content = output.content
 
                         if self.not_null_agent_context.incremental:
-                            res_thinking = current_thinking[len(prev_thinking):]
-                            res_content = current_content[len(prev_content):]
+                            res_thinking = current_thinking[len(prev_thinking) :]
+                            res_content = current_content[len(prev_content) :]
                             prev_thinking = current_thinking
                             temp_prev_content = current_content
 
@@ -1518,6 +1529,66 @@ class ConversableAgent(Role, Agent):
         #     raise ValueError("Action should return value！")
         return act_outs
 
+    def _build_memory_context(
+        self,
+        action_outputs: List[ActionOutput],
+        fail_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """构建记忆上下文，把执行历史转换为模板需要的 action 和 observation 变量。
+
+        Args:
+            action_outputs: 执行结果列表
+            fail_reason: 失败原因
+
+        Returns:
+            包含 action、observation 等模板变量的字典
+        """
+        if not action_outputs:
+            return {}
+
+        action_texts = []
+        observation_texts = []
+        action_input_texts = []
+
+        for i, out in enumerate(action_outputs):
+            # 构建动作描述
+            action_desc = out.action if out.action else f"step_{i + 1}"
+            action_texts.append(f"[{i + 1}] {action_desc}")
+
+            # 构建执行结果（观察）
+            obs_parts = []
+            if not out.is_exe_success:
+                obs_parts.append(
+                    f"执行失败: {out.content if out.content else '未知错误'}"
+                )
+            elif out.observations:
+                obs_parts.append(out.observations)
+            elif out.content:
+                # 截取过长内容
+                content = (
+                    out.content[:500] + "..." if len(out.content) > 500 else out.content
+                )
+                obs_parts.append(content)
+
+            if obs_parts:
+                observation_texts.append(f"[{i + 1}] " + "\n    ".join(obs_parts))
+
+            # 添加动作输入
+            if out.action_input:
+                action_input_texts.append(f"[{i + 1}] {out.action_input}")
+
+        extra_context = {}
+        if action_texts:
+            extra_context["action"] = "\n".join(action_texts)
+        if observation_texts:
+            extra_context["observation"] = "\n".join(observation_texts)
+        if action_input_texts:
+            extra_context["action_input"] = "\n".join(action_input_texts)
+        if fail_reason:
+            extra_context["fail_reason"] = fail_reason
+
+        return extra_context
+
     async def correctness_check(
         self, message: AgentMessage, **kwargs
     ) -> Tuple[bool, Optional[str]]:
@@ -1728,7 +1799,7 @@ class ConversableAgent(Role, Agent):
                 model_list = json.loads(model_list)
             except Exception:
                 return default_length
-        
+
         if self.llm_client:
             try:
                 llm_metadata = await self.llm_client.get_model_metadata(model_list[0])
@@ -1738,9 +1809,11 @@ class ConversableAgent(Role, Agent):
                 )
                 return context_length or default_length
             except Exception as e:
-                logger.warning(f"Failed to get model metadata: {e}, using default context length")
+                logger.warning(
+                    f"Failed to get model metadata: {e}, using default context length"
+                )
                 return default_length
-        
+
         return default_length
 
     def register_variables(self):
@@ -1805,7 +1878,7 @@ class ConversableAgent(Role, Agent):
             if received_message:
                 return received_message.content
             return None
-        
+
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
@@ -2060,10 +2133,10 @@ class ConversableAgent(Role, Agent):
         self, excluded_models: Optional[List[str]] = None
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         from derisk.agent.util.llm.model_config_cache import ModelConfigCache
-        
+
         # 使用全局缓存获取模型配置
         all_models = ModelConfigCache.get_all_models()
-        
+
         if not all_models:
             # 回退到原有逻辑
             try:
@@ -2083,7 +2156,7 @@ class ConversableAgent(Role, Agent):
             except Exception as e:
                 logger.error(f"{self.role} get next llm failed!{str(e)}")
                 raise ValueError(f"Failed to allocate model service,{str(e)}!")
-        
+
         # 获取优先级列表
         strategy_context = self.llm_config.strategy_context if self.llm_config else None
         model_list = []
@@ -2093,26 +2166,29 @@ class ConversableAgent(Role, Agent):
             elif isinstance(strategy_context, str):
                 try:
                     import json
+
                     model_list = json.loads(strategy_context)
                 except:
                     model_list = [strategy_context]
-        
+
         # 如果没有优先级列表，使用配置中的所有模型
         if not model_list:
             model_list = all_models
-        
+
         # 根据 excluded_models 过滤，返回第一个可用模型
         excluded = excluded_models or []
         for model_name in model_list:
             if model_name not in excluded and ModelConfigCache.has_model(model_name):
                 logger.info(f"select_llm_model: using model={model_name}")
                 return model_name, None
-        
+
         # 如果所有模型都被排除了，返回第一个模型
         if model_list:
-            logger.warning(f"select_llm_model: all models excluded, using first model={model_list[0]}")
+            logger.warning(
+                f"select_llm_model: all models excluded, using first model={model_list[0]}"
+            )
             return model_list[0], None
-        
+
         raise ValueError("No model available!")
 
     @property

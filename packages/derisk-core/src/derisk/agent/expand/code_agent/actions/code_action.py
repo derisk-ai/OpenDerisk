@@ -10,6 +10,7 @@ Supports:
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -29,6 +30,33 @@ from derisk.agent.resource.base import Resource
 
 
 logger = logging.getLogger(__name__)
+
+FILENAME_PATTERN = re.compile(r"^#\s*filename\s*:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def parse_code_metadata(code: str) -> Tuple[str, Optional[str], Dict[str, Any]]:
+    """Parse code block metadata.
+    
+    Args:
+        code: Raw code string
+        
+    Returns:
+        Tuple of (clean_code, filename, metadata)
+        - clean_code: Code with metadata comments removed
+        - filename: Extracted filename or None
+        - metadata: Additional metadata dict
+    """
+    metadata = {}
+    filename = None
+    clean_code = code
+    
+    match = FILENAME_PATTERN.search(code)
+    if match:
+        filename = match.group(1).strip()
+        clean_code = FILENAME_PATTERN.sub("", code, count=1).lstrip("\n")
+        metadata["filename"] = filename
+    
+    return clean_code, filename, metadata
 
 
 @dataclass
@@ -298,10 +326,12 @@ class CodeAction(Action[None]):
                 logs_all += f"\n[Code Block {i} - {current_language}]\n{logs}\n"
 
                 if auto_save_code and file_system:
+                    clean_code, filename, _ = parse_code_metadata(code)
                     saved_key = await self._save_code_to_filesystem(
                         file_system=file_system,
-                        code=code,
+                        code=clean_code,
                         language=current_language,
+                        filename=filename,
                     )
                     if saved_key:
                         saved_files.append(saved_key)
@@ -343,17 +373,15 @@ class CodeAction(Action[None]):
     ) -> Tuple[int, str]:
         """Execute Python code in sandbox."""
         try:
-            filename = None
-            if code.startswith("# filename: "):
-                filename = code[11:code.find("\n")].strip()
-                code = code[code.find("\n") + 1:]
+            clean_code, filename, metadata = parse_code_metadata(code)
             
             if filename:
                 file_path = f"{work_dir}/{filename}"
-                await sandbox.file.create(file_path, code)
+                await sandbox.file.create(file_path, clean_code)
                 cmd = f"python3 {file_path}"
+                logger.info(f"Created Python file in sandbox: {file_path}")
             else:
-                escaped_code = code.replace("'", "'\"'\"'")
+                escaped_code = clean_code.replace("'", "'\"'\"'")
                 cmd = f"python3 -c '{escaped_code}'"
             
             result = await sandbox.shell.exec_command(
@@ -367,6 +395,9 @@ class CodeAction(Action[None]):
             
             if getattr(result, "status", None) != "completed":
                 exit_code = 1
+            
+            if filename:
+                output = f"[File saved: {filename}]\n{output}"
             
             return exit_code, output
             
@@ -462,13 +493,10 @@ class CodeAction(Action[None]):
                         language=current_language,
                     )
 
-                filename = None
-                if code.startswith("# filename: "):
-                    filename = code[11:code.find("\n")].strip()
+                clean_code, filename, metadata = parse_code_metadata(code)
 
-                # Use original execute_code for local execution
                 exit_code, logs, image = execute_code(
-                    code,
+                    clean_code,
                     lang=current_language,
                     filename=filename,
                     timeout=execution_timeout,
@@ -478,13 +506,17 @@ class CodeAction(Action[None]):
                 if image is not None:
                     self._code_execution_config["use_docker"] = image
 
+                if filename:
+                    logs = f"[File saved: {filename}]\n{logs}"
+
                 logs_all += f"\n[Code Block {i} - {current_language}]\n{logs}\n"
 
                 if auto_save_code and file_system:
                     saved_key = await self._save_code_to_filesystem(
                         file_system=file_system,
-                        code=code,
+                        code=clean_code,
                         language=current_language,
+                        filename=filename,
                     )
                     if saved_key:
                         saved_files.append(saved_key)
@@ -522,20 +554,27 @@ class CodeAction(Action[None]):
         file_system: AgentFileSystem,
         code: str,
         language: str,
+        filename: Optional[str] = None,
     ) -> Optional[str]:
         """Save code to AgentFileSystem."""
         try:
             extension = self._get_file_extension(language)
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            file_key = f"code_{timestamp}_{uuid.uuid4().hex[:8]}"
+            
+            if filename:
+                clean_filename = filename.rsplit(".", 1)[0] if "." in filename else filename
+                file_key = f"code_{timestamp}_{clean_filename}"
+            else:
+                file_key = f"code_{timestamp}_{uuid.uuid4().hex[:8]}"
             
             await file_system.save_file(
                 file_key=file_key,
                 data=code,
                 file_type=FileType.SANDBOX_FILE,
                 extension=extension,
+                file_name=filename,
                 created_by="CodeAction",
-                metadata={"language": language},
+                metadata={"language": language, "original_filename": filename} if filename else {"language": language},
             )
             
             logger.info(f"Saved code to file system: {file_key}")

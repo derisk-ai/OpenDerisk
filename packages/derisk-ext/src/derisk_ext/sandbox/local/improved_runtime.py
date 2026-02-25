@@ -4,6 +4,7 @@ Improved Local Sandbox Implementation with Security Isolation
 Enhanced runtime with proper sandboxing support for macOS and Linux.
 Integrates sandbox-exec for process isolation and Playwright for browser automation.
 """
+
 import asyncio
 import logging
 import os
@@ -26,7 +27,10 @@ from derisk.sandbox.providers.base import (
     SandboxSession,
     SessionConfig,
 )
-from derisk_ext.sandbox.local.macos_sandbox import MacOSSandboxWrapper, create_sandbox_wrapper
+from derisk_ext.sandbox.local.macos_sandbox import (
+    MacOSSandboxWrapper,
+    create_sandbox_wrapper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +83,7 @@ class ImprovedLocalSandboxSession(SandboxSession):
         """Resolve the working directory to a physical path."""
         base = self.session_dir
         if self.config.working_dir:
-            relative = self.config.working_dir.lstrip('/')
+            relative = self.config.working_dir.lstrip("/")
             target = os.path.abspath(os.path.join(base, relative))
             # Ensure directory exists
             os.makedirs(target, exist_ok=True)
@@ -99,11 +103,20 @@ class ImprovedLocalSandboxSession(SandboxSession):
 
             # Set up sandbox wrapper if on macOS
             if self._platform == "macos":
-                self._sandbox_wrapper = create_sandbox_wrapper(
-                    session_id=self.session_id,
-                    work_dir=self._work_dir,
+                from derisk_ext.sandbox.local.macos_sandbox import (
+                    MacOSSandboxProfile,
+                    SandboxProfileConfig,
+                )
+
+                config = SandboxProfileConfig(
+                    profile_name=f"derisk_{self.session_id}",
+                    read_write_paths=[self._work_dir],
                     allow_network=not self.config.network_disabled,
                     max_memory=self.config.max_memory,
+                )
+                self._sandbox_wrapper = MacOSSandboxWrapper(config.profile_name, config)
+                self._sandbox_wrapper.profile_path = (
+                    MacOSSandboxProfile.create_profile_file(config)
                 )
 
             # Start resource monitor if configured
@@ -121,7 +134,9 @@ class ImprovedLocalSandboxSession(SandboxSession):
             return True
 
         except Exception as e:
-            logger.error(f"Failed to start local sandbox session {self.session_id}: {e}")
+            logger.error(
+                f"Failed to start local sandbox session {self.session_id}: {e}"
+            )
             return False
 
     async def _create_venv(self, venv_path: str):
@@ -129,7 +144,10 @@ class ImprovedLocalSandboxSession(SandboxSession):
         logger.info(f"Creating venv at {venv_path}")
 
         proc = await asyncio.create_subprocess_exec(
-            "python3", "-m", "venv", venv_path,
+            "python3",
+            "-m",
+            "venv",
+            venv_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -154,11 +172,16 @@ class ImprovedLocalSandboxSession(SandboxSession):
                     if proc.poll() is None:
                         proc.terminate()
                         try:
-                            await asyncio.wait_for(asyncio.create_task(
-                                asyncio.shield(asyncio.create_subprocess_exec(
-                                    "wait", str(proc.pid)
-                                ).wait())
-                            ), timeout=2.0)
+                            await asyncio.wait_for(
+                                asyncio.create_task(
+                                    asyncio.shield(
+                                        asyncio.create_subprocess_exec(
+                                            "wait", str(proc.pid)
+                                        ).wait()
+                                    )
+                                ),
+                                timeout=2.0,
+                            )
                         except asyncio.TimeoutError:
                             proc.kill()
                 except Exception as e:
@@ -187,7 +210,11 @@ class ImprovedLocalSandboxSession(SandboxSession):
         cmd = [python_exe, script_path]
 
         # Wrap with sandbox-exec if available and configured
-        if self._sandbox_wrapper and self._sandbox_wrapper.is_available and os.path.exists(self._sandbox_wrapper.profile_path):
+        if (
+            self._sandbox_wrapper
+            and self._sandbox_wrapper.is_available
+            and os.path.exists(self._sandbox_wrapper.profile_path)
+        ):
             cmd = self._sandbox_wrapper.get_executable_command(cmd)
 
         return cmd
@@ -196,8 +223,7 @@ class ImprovedLocalSandboxSession(SandboxSession):
         """Execute code with proper isolation and resource limits."""
         if not self._is_active:
             return ExecutionResult(
-                status=ExecutionStatus.ERROR,
-                error="Session is not active"
+                status=ExecutionStatus.ERROR, error="Session is not active"
             )
 
         self.last_accessed = time.time()
@@ -281,8 +307,7 @@ signal.alarm({self.config.timeout})
 
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.config.timeout
+                    process.communicate(), timeout=self.config.timeout
                 )
 
                 execution_time = time.time() - start_time
@@ -293,8 +318,8 @@ signal.alarm({self.config.timeout})
                     self._processes.discard(process)
 
                 # Decode output
-                output_str = stdout.decode('utf-8', errors='replace') if stdout else ""
-                error_str = stderr.decode('utf-8', errors='replace') if stderr else ""
+                output_str = stdout.decode("utf-8", errors="replace") if stdout else ""
+                error_str = stderr.decode("utf-8", errors="replace") if stderr else ""
 
                 # Determine status
                 if exit_code == 124 or execution_time >= self.config.timeout:
@@ -311,7 +336,8 @@ signal.alarm({self.config.timeout})
                     execution_time=execution_time,
                     exit_code=exit_code if exit_code is not None else -1,
                     memory_usage=self._resource_monitor.get_peak_memory()
-                     if self._resource_monitor else 0
+                    if self._resource_monitor
+                    else 0,
                 )
 
             except asyncio.TimeoutError:
@@ -336,7 +362,7 @@ signal.alarm({self.config.timeout})
                 return ExecutionResult(
                     status=ExecutionStatus.TIMEOUT,
                     error=f"Execution timed out after {self.config.timeout} seconds",
-                    execution_time=self.config.timeout
+                    execution_time=self.config.timeout,
                 )
 
         except Exception as e:
@@ -344,7 +370,7 @@ signal.alarm({self.config.timeout})
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 error=str(e),
-                execution_time=time.time() - start_time
+                execution_time=time.time() - start_time,
             )
         finally:
             # Clean up script file
@@ -375,10 +401,14 @@ signal.alarm({self.config.timeout})
     async def install_dependencies(self, dependencies: List[str]) -> ExecutionResult:
         """Install Python dependencies in the session's venv."""
         if not self._is_active:
-            return ExecutionResult(status=ExecutionStatus.ERROR, error="Session not active")
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR, error="Session not active"
+            )
 
         if not dependencies:
-            return ExecutionResult(status=ExecutionStatus.SUCCESS, output="No dependencies to install")
+            return ExecutionResult(
+                status=ExecutionStatus.SUCCESS, output="No dependencies to install"
+            )
 
         start_time = time.time()
 
@@ -404,30 +434,32 @@ signal.alarm({self.config.timeout})
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
-                timeout=300  # 5 minute install timeout
+                timeout=300,  # 5 minute install timeout
             )
 
             execution_time = time.time() - start_time
 
             return ExecutionResult(
-                status=ExecutionStatus.SUCCESS if process.returncode == 0 else ExecutionStatus.ERROR,
-                output=stdout.decode('utf-8') if stdout else "",
-                error=stderr.decode('utf-8') if stderr else "",
+                status=ExecutionStatus.SUCCESS
+                if process.returncode == 0
+                else ExecutionStatus.ERROR,
+                output=stdout.decode("utf-8") if stdout else "",
+                error=stderr.decode("utf-8") if stderr else "",
                 execution_time=execution_time,
-                exit_code=process.returncode if process.returncode is not None else -1
+                exit_code=process.returncode if process.returncode is not None else -1,
             )
 
         except asyncio.TimeoutError:
             return ExecutionResult(
                 status=ExecutionStatus.TIMEOUT,
                 error="Dependency installation timed out",
-                execution_time=time.time() - start_time
+                execution_time=time.time() - start_time,
             )
         except Exception as e:
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 error=f"Failed to install dependencies: {e}",
-                execution_time=time.time() - start_time
+                execution_time=time.time() - start_time,
             )
 
 
@@ -525,7 +557,9 @@ class ImprovedLocalSandboxRuntime(SandboxRuntime):
 
     def __init__(self, runtime_id: str = "improved_local_runtime"):
         super().__init__(runtime_id)
-        self.base_dir = os.path.join(tempfile.gettempdir(), "derisk_improved_sandbox", runtime_id)
+        self.base_dir = os.path.join(
+            tempfile.gettempdir(), "derisk_improved_sandbox", runtime_id
+        )
         os.makedirs(self.base_dir, exist_ok=True)
         self._platform = get_platform()
         logger.info(
@@ -611,9 +645,7 @@ class ImprovedLocalSandboxRuntime(SandboxRuntime):
             return False
         try:
             result = subprocess.run(
-                ["which", "sandbox-exec"],
-                capture_output=True,
-                timeout=5
+                ["which", "sandbox-exec"], capture_output=True, timeout=5
             )
             return result.returncode == 0
         except Exception:

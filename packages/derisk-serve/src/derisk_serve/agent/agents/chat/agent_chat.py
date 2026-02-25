@@ -11,9 +11,19 @@ from fastapi import BackgroundTasks
 
 from derisk import BaseComponent
 from derisk._private.config import Config
-from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType
+from derisk.agent import (
+    AgentMemory,
+    ConversableAgent,
+    get_agent_manager,
+    AgentContext,
+    UserProxyAgent,
+    LLMStrategyType,
+    GptsMemory,
+    LLMConfig,
+    ResourceType,
+    ShortTermMemory,
+)
 from derisk.agent.core.base_team import ManagerAgent
-from derisk.agent.core.memory.extract_memory import ExtractMemory
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.sandbox_manager import SandboxManager
@@ -40,9 +50,16 @@ from derisk.util.logger import digest
 from derisk.util.tracer.tracer_impl import root_tracer, trace
 from derisk.vis import VisProtocolConverter
 from derisk.vis.vis_manage import get_vis_manager
-from derisk_serve.agent.agents.derisks_memory import MetaDerisksPlansMemory, MetaDerisksMessageMemory, \
-    MetaAgentSystemMessageMemory
-from derisk_serve.agent.db import GptsConversationsEntity, GptsConversationsDao, GptsMessagesDao
+from derisk_serve.agent.agents.derisks_memory import (
+    MetaDerisksPlansMemory,
+    MetaDerisksMessageMemory,
+    MetaAgentSystemMessageMemory,
+)
+from derisk_serve.agent.db import (
+    GptsConversationsEntity,
+    GptsConversationsDao,
+    GptsMessagesDao,
+)
 from derisk_serve.agent.db.gpts_tool import GptsToolDao
 from derisk_serve.agent.team.base import TeamMode
 from derisk_serve.building.app.api.schema_app import GptsApp, GptsAppDetail
@@ -66,14 +83,14 @@ def _format_vis_msg(msg: str):
 
 
 async def _build_conversation(
-        conv_id: str,
-        select_param: Union[str, Dict[str, Any]],
-        model_name: str,
-        summary: str,
-        app_code: str,
-        conv_serve: ConversationServe,
-        user_name: Optional[str] = "",
-        sys_code: Optional[str] = "",
+    conv_id: str,
+    select_param: Union[str, Dict[str, Any]],
+    model_name: str,
+    summary: str,
+    app_code: str,
+    conv_serve: ConversationServe,
+    user_name: Optional[str] = "",
+    sys_code: Optional[str] = "",
 ) -> StorageConversation:
     return await StorageConversation(
         conv_uid=conv_id,
@@ -97,6 +114,7 @@ AgentContextType = Union[str, AutoTeamContext]
 
 class GlobalSandboxManagerCache:
     """全局沙箱管理器缓存，用于同一会话内共享 sandbox_manager"""
+
     _repository: Dict[str, SandboxManager] = {}
     _lock: Optional[asyncio.Lock] = None
 
@@ -113,21 +131,27 @@ class GlobalSandboxManagerCache:
         return cls._repository.get(key)
 
     @classmethod
-    async def get_or_create(cls, key: str, creator: Callable[[], Awaitable[SandboxManager]]) -> SandboxManager:
+    async def get_or_create(
+        cls, key: str, creator: Callable[[], Awaitable[SandboxManager]]
+    ) -> SandboxManager:
         """获取或创建沙箱管理器"""
         async with cls.get_lock():
             if key in cls._repository:
                 return cls._repository[key]
             sandbox_manager = await creator()
             cls._repository[key] = sandbox_manager
-            logger.info(f"[Sandbox]创建新sandbox，key={key}, 当前运行中沙箱数量={len(cls._repository)}")
+            logger.info(
+                f"[Sandbox]创建新sandbox，key={key}, 当前运行中沙箱数量={len(cls._repository)}"
+            )
             return sandbox_manager
 
     @classmethod
     def remove(cls, key: str):
         """移除沙箱管理器"""
         cls._repository.pop(key, None)
-        logger.info(f"[Sandbox]移除sandbox，key={key}, 当前运行中沙箱数量={len(cls._repository)}")
+        logger.info(
+            f"[Sandbox]移除sandbox，key={key}, 当前运行中沙箱数量={len(cls._repository)}"
+        )
 
     @classmethod
     async def cleanup_and_remove(cls, key: str):
@@ -136,18 +160,28 @@ class GlobalSandboxManagerCache:
         if sandbox_manager and sandbox_manager.client:
             try:
                 await sandbox_manager.client.kill()
-                logger.info(f"[Sandbox]清理sandbox_manager并kill，key={key}, 杀死后运行中沙箱数量={len(cls._repository)}")
+                logger.info(
+                    f"[Sandbox]清理sandbox_manager并kill，key={key}, 杀死后运行中沙箱数量={len(cls._repository)}"
+                )
             except Exception as e:
-                logger.exception(f"[Sandbox]清理sandbox_manager失败，key={key}, error={str(e)}")
+                logger.exception(
+                    f"[Sandbox]清理sandbox_manager失败，key={key}, error={str(e)}"
+                )
         else:
-            logger.info(f"[Sandbox]清理sandbox_manager（无client），key={key}, 当前运行中沙箱数量={len(cls._repository)}")
+            logger.info(
+                f"[Sandbox]清理sandbox_manager（无client），key={key}, 当前运行中沙箱数量={len(cls._repository)}"
+            )
 
 
 class AgentChat(BaseComponent, ABC):
     name = ComponentType.AGENT_CHAT
 
-    def __init__(self, system_app: SystemApp, gpts_memory: Optional[GptsMemory] = None,
-                 llm_provider: Optional[DefaultLLMClient] = None):
+    def __init__(
+        self,
+        system_app: SystemApp,
+        gpts_memory: Optional[GptsMemory] = None,
+        llm_provider: Optional[DefaultLLMClient] = None,
+    ):
         self.gpts_conversations = GptsConversationsDao()
         self.gpts_messages_dao = GptsMessagesDao()
 
@@ -167,17 +201,20 @@ class AgentChat(BaseComponent, ABC):
         self.system_app = system_app
         # 注册全局模型配置缓存
         self._register_model_configs()
-    
+
     def _register_model_configs(self):
         """注册全局模型配置到缓存"""
-        from derisk.agent.util.llm.model_config_cache import ModelConfigCache, parse_provider_configs
-        
+        from derisk.agent.util.llm.model_config_cache import (
+            ModelConfigCache,
+            parse_provider_configs,
+        )
+
         global_agent_conf = self.system_app.config.get("agent.llm")
         if not global_agent_conf:
             agent_conf = self.system_app.config.get("agent")
             if isinstance(agent_conf, dict):
                 global_agent_conf = agent_conf.get("llm")
-        
+
         if global_agent_conf:
             model_configs = parse_provider_configs(global_agent_conf)
             if model_configs:
@@ -185,10 +222,7 @@ class AgentChat(BaseComponent, ABC):
                 logger.info(f"Registered {len(model_configs)} models to global cache")
 
     async def _get_or_create_sandbox_manager(
-            self,
-            context: AgentContext,
-            app: GptsApp,
-            need_sandbox: bool
+        self, context: AgentContext, app: GptsApp, need_sandbox: bool
     ) -> Optional[SandboxManager]:
         """获取或创建沙箱管理器，同一会话内共享
 
@@ -201,8 +235,12 @@ class AgentChat(BaseComponent, ABC):
             SandboxManager 实例或 None
         """
         # 检查是否需要沙箱
-        if not ((need_sandbox and app.team_context.use_sandbox) or await self._have_agent_skill(
-                app, context.extra.get("dynamic_resources", []))):
+        if not (
+            (need_sandbox and app.team_context.use_sandbox)
+            or await self._have_agent_skill(
+                app, context.extra.get("dynamic_resources", [])
+            )
+        ):
             return None
 
         # 检查缓存中是否已有该会话的 sandbox_manager
@@ -233,9 +271,13 @@ class AgentChat(BaseComponent, ABC):
             sandbox_manager.set_init_task(sandbox_task)
             return sandbox_manager
 
-        return await GlobalSandboxManagerCache.get_or_create(sandbox_key, _create_sandbox_manager)
+        return await GlobalSandboxManagerCache.get_or_create(
+            sandbox_key, _create_sandbox_manager
+        )
 
-    async def _cleanup_sandbox_manager(self, conv_id: str, staff_no: Optional[str] = None):
+    async def _cleanup_sandbox_manager(
+        self, conv_id: str, staff_no: Optional[str] = None
+    ):
         """清理会话的沙箱管理器
 
         Args:
@@ -256,14 +298,14 @@ class AgentChat(BaseComponent, ABC):
             )
 
     async def save_conversation(
-            self,
-            conv_session_id: str,
-            agent_conv_id: str,
-            current_message: StorageConversation,
-            final_message: Optional[str] = None,
-            err_msg: Optional[str] = None,
-            chat_call_back: Optional[Callable[..., Optional[Any]]] = None,
-            first_chunk_ms: Optional[int] = None,
+        self,
+        conv_session_id: str,
+        agent_conv_id: str,
+        current_message: StorageConversation,
+        final_message: Optional[str] = None,
+        err_msg: Optional[str] = None,
+        chat_call_back: Optional[Callable[..., Optional[Any]]] = None,
+        first_chunk_ms: Optional[int] = None,
     ):
         """最终对话保存（按格式收集最终内容，回调，并销毁缓存空间）
 
@@ -290,19 +332,34 @@ class AgentChat(BaseComponent, ABC):
                 post_action_reports: list[dict] = []
                 try:
                     messages = await self.memory.get_messages(agent_conv_id)
-                    post_action_reports = [post_action_report for message in messages if
-                                           (post_action_report := _get_post_action_report(message.context))]
+                    post_action_reports = [
+                        post_action_report
+                        for message in messages
+                        if (
+                            post_action_report := _get_post_action_report(
+                                message.context
+                            )
+                        )
+                    ]
                 except Exception as e:
-                    logger.exception(f"获取{conv_session_id}post_action_reports: {str(e)}")
+                    logger.exception(
+                        f"获取{conv_session_id}post_action_reports: {str(e)}"
+                    )
 
-                await chat_call_back(conv_session_id, agent_conv_id, final_message, final_report, err_msg,
-                                     first_chunk_ms,
-                                     post_action_reports=post_action_reports)
+                await chat_call_back(
+                    conv_session_id,
+                    agent_conv_id,
+                    final_message,
+                    final_report,
+                    err_msg,
+                    first_chunk_ms,
+                    post_action_reports=post_action_reports,
+                )
 
             # logger.info(f"获取{conv_session_id}最终消息: {final_message}, 异常信息:{err_msg}")
+            if not final_message:
+                final_message = ""
             if err_msg:
-                if not final_message:
-                    final_message = ""
                 current_message.add_view_message(final_message)
             else:
                 current_message.add_view_message(final_message)
@@ -314,8 +371,11 @@ class AgentChat(BaseComponent, ABC):
 
     @trace("agent.initialize_conversation", requires=["app_code", "conv_session_id"])
     async def _initialize_conversation(
-            self, conv_session_id: str, app_code: str, user_query: Union[str, HumanMessage],
-            user_code: Optional[str] = None
+        self,
+        conv_session_id: str,
+        app_code: str,
+        user_query: Union[str, HumanMessage],
+        user_code: Optional[str] = None,
     ) -> StorageConversation:
         """初始化会话"""
         conv_serve = ConversationServe.get_instance(CFG.SYSTEM_APP)
@@ -336,10 +396,13 @@ class AgentChat(BaseComponent, ABC):
         )
         return current_message
 
-    @trace("agent.initialize_agent_conversation", requires=["app_code", "conv_session_id"])
+    @trace(
+        "agent.initialize_agent_conversation", requires=["app_code", "conv_session_id"]
+    )
     async def _initialize_agent_conversation(self, conv_session_id: str, **ext_info):
-        gpts_conversations: List[GptsConversationsEntity] = await self.gpts_conversations.get_by_session_id_asc(
-            conv_session_id)
+        gpts_conversations: List[
+            GptsConversationsEntity
+        ] = await self.gpts_conversations.get_by_session_id_asc(conv_session_id)
 
         logger.info(
             f"gpts_conversations count:{conv_session_id}, "
@@ -350,24 +413,26 @@ class AgentChat(BaseComponent, ABC):
             agent_conv_id = last_conversation.conv_id
             logger.info("收到用户动作授权, 恢复会话: " + agent_conv_id)
         else:
-            gpt_chat_order = "1" if not gpts_conversations else str(len(gpts_conversations) + 1)
+            gpt_chat_order = (
+                "1" if not gpts_conversations else str(len(gpts_conversations) + 1)
+            )
             agent_conv_id = conv_session_id + "_" + gpt_chat_order
         return agent_conv_id, gpts_conversations
 
     @abstractmethod
     async def chat(
-            self,
-            conv_uid: str,
-            gpts_name: str,
-            user_query: Union[str, HumanMessage],
-            background_tasks: Optional[BackgroundTasks] = None,
-            specify_config_code: Optional[str] = None,
-            user_code: Optional[str] = None,
-            sys_code: Optional[str] = None,
-            stream: Optional[bool] = True,
-            chat_call_back: Optional[Any] = None,
-            chat_in_params: Optional[List[ChatInParamValue]] = None,
-            **ext_info,
+        self,
+        conv_uid: str,
+        gpts_name: str,
+        user_query: Union[str, HumanMessage],
+        background_tasks: Optional[BackgroundTasks] = None,
+        specify_config_code: Optional[str] = None,
+        user_code: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        stream: Optional[bool] = True,
+        chat_call_back: Optional[Any] = None,
+        chat_in_params: Optional[List[ChatInParamValue]] = None,
+        **ext_info,
     ):
         """会话入口接口,根据需要分开实现. 对外服务
         Args:
@@ -376,18 +441,18 @@ class AgentChat(BaseComponent, ABC):
         raise NotImplementedError
 
     async def aggregation_chat(
-            self,
-            conv_id: str,
-            agent_conv_id: str,
-            gpts_name: str,
-            user_query: Union[str, HumanMessage],
-            user_code: str = None,
-            sys_code: str = None,
-            stream: Optional[bool] = True,
-            gpts_conversations: Optional[List[GptsConversationsEntity]] = None,
-            specify_config_code: Optional[str] = None,
-            chat_in_params: Optional[List[ChatInParamValue]] = None,
-            **ext_info,
+        self,
+        conv_id: str,
+        agent_conv_id: str,
+        gpts_name: str,
+        user_query: Union[str, HumanMessage],
+        user_code: str = None,
+        sys_code: str = None,
+        stream: Optional[bool] = True,
+        gpts_conversations: Optional[List[GptsConversationsEntity]] = None,
+        specify_config_code: Optional[str] = None,
+        chat_in_params: Optional[List[ChatInParamValue]] = None,
+        **ext_info,
     ):
         """具体agent(app)对话入口，构建对话记忆和对话目标等通用的Agent对话逻辑(需要外层基于会话封装一般不直接)
 
@@ -401,12 +466,20 @@ class AgentChat(BaseComponent, ABC):
         #     f"{user_query}"
         # )
         root_tracer.set_current_agent_id(gpts_name)  # 将当前agent app_code写入trace存储
-        digest(CHAT_LOGGER, "CHAT_ENTRY", conv_id=conv_id, app_code=gpts_name, user_code=user_code)
+        digest(
+            CHAT_LOGGER,
+            "CHAT_ENTRY",
+            conv_id=conv_id,
+            app_code=gpts_name,
+            user_code=user_code,
+        )
         start_ts = root_tracer.get_context_entrance_ms() or current_ms()
         succeed = False
         first_chunk_time = None
         if isinstance(user_query, str):
-            user_query: HumanMessage = HumanMessage.parse_chat_completion_message(user_query, ignore_unknown_media=True)
+            user_query: HumanMessage = HumanMessage.parse_chat_completion_message(
+                user_query, ignore_unknown_media=True
+            )
 
         root_tracer.set_context_conv_id(agent_conv_id)
         message_round = 0
@@ -420,7 +493,9 @@ class AgentChat(BaseComponent, ABC):
         web_config = app_config.service.web
 
         app_service = get_app_service()
-        gpt_app: GptsApp = await app_service.app_detail(gpts_name, specify_config_code, building_mode=False)
+        gpt_app: GptsApp = await app_service.app_detail(
+            gpts_name, specify_config_code, building_mode=False
+        )
         await self.dynamic_resource_adapter(gpt_app, ext_info)
         if not gpt_app:
             raise ValueError(f"Not found app {gpts_name}!")
@@ -435,7 +510,9 @@ class AgentChat(BaseComponent, ABC):
                 vis_render = "gpt_vis_all"
 
         vis_converter_mng = get_vis_manager()
-        vis_protocol = vis_converter_mng.get_by_name(vis_render)(derisk_url=web_config.web_url)
+        vis_protocol = vis_converter_mng.get_by_name(vis_render)(
+            derisk_url=web_config.web_url
+        )
         ext_info["incremental"] = vis_protocol.incremental
 
         await self.memory.init(
@@ -451,13 +528,16 @@ class AgentChat(BaseComponent, ABC):
             # 检查最后一个对话记录是否完成，如果是等待状态，则要继续进行当前对话
             if gpts_conversations:
                 last_gpts_conversation: GptsConversationsEntity = gpts_conversations[-1]
-                logger.info(f"last conversation status:{last_gpts_conversation.__dict__}")
+                logger.info(
+                    f"last conversation status:{last_gpts_conversation.__dict__}"
+                )
                 if last_gpts_conversation.state == Status.WAITING.value:
                     is_retry_chat = True
                     agent_conv_id = last_gpts_conversation.conv_id
 
-                    gpts_messages: List[GptsMessage] = await self.gpts_messages_dao.get_by_conv_id(
-                        agent_conv_id)  # type:ignore
+                    gpts_messages: List[
+                        GptsMessage
+                    ] = await self.gpts_messages_dao.get_by_conv_id(agent_conv_id)  # type:ignore
 
                     last_message = gpts_messages[-1]
                     message_round = last_message.rounds + 1
@@ -477,13 +557,13 @@ class AgentChat(BaseComponent, ABC):
                     if gpts_conversations and len(gpts_conversations) > 0:
                         rely_conversations = []
                         if gpt_app.keep_start_rounds + gpt_app.keep_end_rounds < len(
-                                gpts_conversations
+                            gpts_conversations
                         ):
                             if gpt_app.keep_start_rounds > 0:
-                                front = gpts_conversations[gpt_app.keep_start_rounds:]
+                                front = gpts_conversations[gpt_app.keep_start_rounds :]
                                 rely_conversations.extend(front)
                             if gpt_app.keep_end_rounds > 0:
-                                back = gpts_conversations[-gpt_app.keep_end_rounds:]
+                                back = gpts_conversations[-gpt_app.keep_end_rounds :]
                                 rely_conversations.extend(back)
                         else:
                             rely_conversations = gpts_conversations
@@ -496,7 +576,7 @@ class AgentChat(BaseComponent, ABC):
                                 historical_dialogues.append(temps[-1])
 
                 user_goal = json.dumps(user_query.to_dict(), ensure_ascii=False)
-                user_goal = user_goal[:min(len(user_goal), 6500)] if user_goal else ""
+                user_goal = user_goal[: min(len(user_goal), 6500)] if user_goal else ""
                 await self.gpts_conversations.a_add(
                     GptsConversationsEntity(
                         conv_id=agent_conv_id,
@@ -510,7 +590,7 @@ class AgentChat(BaseComponent, ABC):
                         user_code=user_code,
                         sys_code=sys_code,
                         vis_render=vis_render,
-                        extra=orjson.dumps(ext_info).decode()
+                        extra=orjson.dumps(ext_info).decode(),
                     )
                 )
 
@@ -543,10 +623,13 @@ class AgentChat(BaseComponent, ABC):
             if WRITE_TO_FILE:
                 from derisk.configs.model_config import DATA_DIR
                 import os
+
                 chat_chunk_file_path = os.path.join(DATA_DIR, "chat_chunk_file")
                 os.makedirs(chat_chunk_file_path, exist_ok=True)
-                filename = os.path.join(chat_chunk_file_path, f"_chat_file_{agent_conv_id}.jsonl")
-                file_handle = open(filename, 'w', encoding='utf-8')
+                filename = os.path.join(
+                    chat_chunk_file_path, f"_chat_file_{agent_conv_id}.jsonl"
+                )
+                file_handle = open(filename, "w", encoding="utf-8")
             if stream == True:
                 async for chunk in self._chat_messages(agent_conv_id):
                     if chunk and len(chunk) > 0:
@@ -554,7 +637,7 @@ class AgentChat(BaseComponent, ABC):
                             content = orjson.dumps({"vis": chunk}).decode("utf-8")
                             if WRITE_TO_FILE:
                                 file_handle.write(content)
-                                file_handle.write('\n')
+                                file_handle.write("\n")
                             resp = f"data:{content}\n\n"
                             first_chunk_time = first_chunk_time or current_ms()
                             yield task, resp, agent_conv_id
@@ -587,7 +670,7 @@ class AgentChat(BaseComponent, ABC):
                             )
                             if WRITE_TO_FILE:
                                 file_handle.write(content)
-                                file_handle.write('\n')
+                                file_handle.write("\n")
                             resp = f"data:{content}\n\n"
                             first_chunk_time = first_chunk_time or current_ms()
                             last_chunk = task, resp, agent_conv_id
@@ -607,161 +690,117 @@ class AgentChat(BaseComponent, ABC):
             raise e
             # yield task, str(e), agent_conv_id
         finally:
-            digest(CHAT_LOGGER, "CHAT_DONE", conv_id=conv_id, app_code=gpts_name, user_code=user_code,
-                   succeed=succeed, cost_ms=current_ms() - start_ts,
-                   first_chunk_time=(first_chunk_time - start_ts) if first_chunk_time else 0)
+            digest(
+                CHAT_LOGGER,
+                "CHAT_DONE",
+                conv_id=conv_id,
+                app_code=gpts_name,
+                user_code=user_code,
+                succeed=succeed,
+                cost_ms=current_ms() - start_ts,
+                first_chunk_time=(first_chunk_time - start_ts)
+                if first_chunk_time
+                else 0,
+            )
             # 确保文件句柄关闭
             if file_handle:
                 file_handle.close()
 
     def get_or_build_agent_memory(self, conv_id: str, derisks_name: str) -> AgentMemory:
-        from derisk.rag.embedding.embedding_factory import EmbeddingFactory
-        from derisk_serve.rag.storage_manager import StorageManager
-
-        executor = self.system_app.get_component(
-            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-        ).create()
-
-        storage_manager = StorageManager.get_instance(self.system_app)
-        vector_store = storage_manager.create_vector_store(index_name="_agent_memory_")
-        embeddings = EmbeddingFactory.get_instance(self.system_app).create()
-        short_term_memory = EnhancedShortTermMemory(
-            embeddings, executor=executor, buffer_size=10
-        )
-        memory = HybridMemory.from_vstore(
-            vector_store,
-            embeddings=embeddings,
-            executor=executor,
-            short_term_memory=short_term_memory,
-        )
-        agent_memory = AgentMemory(memory, gpts_memory=self.memory)
-
+        session_memory = ShortTermMemory(buffer_size=10)
+        agent_memory = AgentMemory(session_memory, gpts_memory=self.memory)
         return agent_memory
 
     @trace("agent.get_or_build_memory", requires=["conv_id", "agent_id"])
     def get_or_build_derisk_memory(
-            self,
-            conv_id: str,
-            agent_id: str,
-            user_id: str,
-            team_context: Optional[AgentContextType] = None
+        self,
+        conv_id: str,
+        agent_id: str,
+        user_id: str,
+        team_context: Optional[AgentContextType] = None,
     ) -> AgentMemory:
-        """ Get or build a Derisk memory instance for the given conversation ID.
+        """Get or build a Derisk memory instance for the given conversation ID.
 
         Args:
             conv_id:(str) conversation ID
             agent_id:(str) app_code
         """
-        from derisk_serve.rag.storage_manager import StorageManager
-        from derisk_ext.agent.memory.session import SessionMemory
-        from derisk_ext.agent.memory.session import _METADATA_SESSION_ID, _METADATA_AGENT_ID
-        from derisk_ext.agent.memory.preference import PreferenceMemory
-
-        executor = self.system_app.get_component(
-            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-        ).create()
-
-        storage_manager = StorageManager.get_instance(self.system_app)
-        # session_id = f"session_{conv_id}"
-        index_name = f"session_{agent_id}"
-        vector_store = storage_manager.create_vector_store(
-            index_name=index_name,
-            extra_indexes=[_METADATA_SESSION_ID, _METADATA_AGENT_ID],
-        )
-        worker_manager = self.system_app.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        llm_client = DefaultLLMClient(worker_manager=worker_manager)
-        session_memory = SessionMemory(
-            session_id=conv_id,
-            agent_id=agent_id,
-            vector_store=vector_store,
-            executor=executor,
-            gpts_memory=self.memory,
-            llm_client=llm_client,
-        )
-
-        long_term_index_name = "agent_long_term_memory_fragments"
-        extract_vector_store = storage_manager.create_vector_store(index_name=long_term_index_name)
-        extract_memory = ExtractMemory(
-            agent_id=agent_id,
-            vector_store=extract_vector_store,
-            executor=executor,
-        )
-
+        session_memory = ShortTermMemory(buffer_size=20)
         agent_memory = AgentMemory(
-            memory=session_memory, gpts_memory=self.memory, extract_memory=extract_memory
+            memory=session_memory,
+            gpts_memory=self.memory,
         )
-
-        # 配置部分Agent有user preference
-        if team_context:
-            resources = team_context.resources
-            enable_user_memory = False
-            if resources:
-                for resource in resources:
-                    if resource.type == 'memory':
-                        json_val = json.loads(resource.value)
-                        if 'enable_user_memory' in json_val and json_val['enable_user_memory']:
-                            enable_user_memory = True
-
-            if enable_user_memory:
-                logger.info(f"get_or_build_derisk_memory enable_user_memory:{user_id}")
-                index_name = f"user_{user_id}"
-                user_store = storage_manager.create_vector_store(
-                    index_name=index_name
-                )
-                metadata: Dict[str, Any] = {"user_id": user_id}
-                preference_memory = PreferenceMemory(
-                    agent_id=agent_id,
-                    vector_store=user_store,
-                    executor=executor,
-                    metadata=metadata,
-                )
-                agent_memory.preference_memory = preference_memory
         return agent_memory
 
-    async def build_agent_by_app_code(self, app_code: str, context: AgentContext, agent_memory: AgentMemory = None,
-                                      **kwargs) -> ConversableAgent:
+    async def build_agent_by_app_code(
+        self,
+        app_code: str,
+        context: AgentContext,
+        agent_memory: AgentMemory = None,
+        **kwargs,
+    ) -> ConversableAgent:
         app_service = get_app_service()
-        gpts_app: ServerResponse = await app_service.app_detail(app_code, building_mode=False)
-        agent_memory = agent_memory or self.get_or_build_agent_memory(context.conv_id, gpts_app.app_name)
+        gpts_app: ServerResponse = await app_service.app_detail(
+            app_code, building_mode=False
+        )
+        agent_memory = agent_memory or self.get_or_build_agent_memory(
+            context.conv_id, gpts_app.app_name
+        )
         resource_manager: ResourceManager = get_resource_manager()
-        return await self._build_agent_by_gpts(context=context, agent_memory=agent_memory, rm=resource_manager,
-                                               app=gpts_app, **kwargs)
+        return await self._build_agent_by_gpts(
+            context=context,
+            agent_memory=agent_memory,
+            rm=resource_manager,
+            app=gpts_app,
+            **kwargs,
+        )
 
-    async def _have_agent_skill(self, app: GptsApp, dynamic_resources: Optional[List[AgentResource]] = None):
+    async def _have_agent_skill(
+        self, app: GptsApp, dynamic_resources: Optional[List[AgentResource]] = None
+    ):
         """检查应用是否包含 AgentSkill 资源"""
         if app.resource_tool and any(
-                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in app.resource_tool):
+            item.type in [AgentSkillResource.type(), DeriskSkillResource.type()]
+            for item in app.resource_tool
+        ):
             return True
         if app.all_resources and any(
-                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in app.all_resources):
+            item.type in [AgentSkillResource.type(), DeriskSkillResource.type()]
+            for item in app.all_resources
+        ):
             return True
         if dynamic_resources and any(
-                item.type in [AgentSkillResource.type(), DeriskSkillResource.type()] for item in dynamic_resources):
+            item.type in [AgentSkillResource.type(), DeriskSkillResource.type()]
+            for item in dynamic_resources
+        ):
             return True
         return False
 
     @trace("agent.build_agent_by_gpts")
     async def _build_agent_by_gpts(
-            self,
-            context: AgentContext,
-            agent_memory: AgentMemory,
-            rm: ResourceManager,
-            app: GptsApp,
-            scheduler: Optional[Scheduler],
-            need_sandbox: bool = False,
-            **kwargs,
+        self,
+        context: AgentContext,
+        agent_memory: AgentMemory,
+        rm: ResourceManager,
+        app: GptsApp,
+        scheduler: Optional[Scheduler],
+        need_sandbox: bool = False,
+        **kwargs,
     ) -> ConversableAgent:
         """Build a dialogue target agent through gpts configuration"""
         from datetime import datetime
-        logger.info(f"_build_agent_by_gpts:{app.app_code},{app.app_name}, start:{datetime.now()}")
+
+        logger.info(
+            f"_build_agent_by_gpts:{app.app_code},{app.app_name}, start:{datetime.now()}"
+        )
         try:
             ## 检测动态资源
             real_all_resources = kwargs.get("dynamic_resources", [])
 
             # 使用全局缓存获取或创建 sandbox_manager，避免并行创建重复的沙箱
-            sandbox_manager = await self._get_or_create_sandbox_manager(context, app, need_sandbox)
+            sandbox_manager = await self._get_or_create_sandbox_manager(
+                context, app, need_sandbox
+            )
 
             employees: List[ConversableAgent] = []
             if "extra_agents" in kwargs and kwargs.get("extra_agents"):
@@ -769,12 +808,16 @@ class AgentChat(BaseComponent, ABC):
                 employees = await self._build_extra_employees(
                     kwargs.get("extra_agents"), context, agent_memory, rm, scheduler
                 )
-                app.all_resources.extend([self.agent_to_resource(extra_agent) for extra_agent in employees])
+                app.all_resources.extend(
+                    [self.agent_to_resource(extra_agent) for extra_agent in employees]
+                )
             elif app.details is not None and len(app.details) > 0:
                 employees: List[ConversableAgent] = await self._build_employees(
-                    context, agent_memory, rm,
+                    context,
+                    agent_memory,
+                    rm,
                     [deepcopy(item) for item in app.details],
-                    scheduler
+                    scheduler,
                 )
             team_mode = TeamMode(app.team_mode)
             ## 模型服务
@@ -795,13 +838,17 @@ class AgentChat(BaseComponent, ABC):
             )
 
             real_all_resources.extend(app.all_resources)
-            real_all_resources = await self.add_duplicate_allow_tools(real_all_resources)
+            real_all_resources = await self.add_duplicate_allow_tools(
+                real_all_resources
+            )
 
             if team_mode == TeamMode.SINGLE_AGENT or TeamMode.NATIVE_APP == team_mode:
                 if employees is not None and len(employees) == 1:
                     recipient = employees[0]
                 else:
-                    cls: Type[ConversableAgent] = self.agent_manage.get_by_name(app.agent)
+                    cls: Type[ConversableAgent] = self.agent_manage.get_by_name(
+                        app.agent
+                    )
 
                     ## 处理agent资源内容
                     # depend_resource = await blocking_func_to_async(
@@ -839,7 +886,6 @@ class AgentChat(BaseComponent, ABC):
 
                 return recipient
             elif TeamMode.AUTO_PLAN == team_mode:
-
                 agent_manager = get_agent_manager()
                 auto_team_ctx = app.team_context
 
@@ -891,19 +937,22 @@ class AgentChat(BaseComponent, ABC):
                 raise ValueError(f"Unknown Agent Team Mode!{team_mode}")
 
         finally:
-            logger.info(f"_build_agent_by_gpts:{app.app_code},{app.app_name}, end:{datetime.now()}")
+            logger.info(
+                f"_build_agent_by_gpts:{app.app_code},{app.app_name}, end:{datetime.now()}"
+            )
 
     @trace("agent.build_employees")
     async def _build_employees(
-            self,
-            context: AgentContext,
-            agent_memory: AgentMemory,
-            rm: ResourceManager,
-            app_details: List[GptsAppDetail],
-            scheduler: Optional[Scheduler],
+        self,
+        context: AgentContext,
+        agent_memory: AgentMemory,
+        rm: ResourceManager,
+        app_details: List[GptsAppDetail],
+        scheduler: Optional[Scheduler],
     ) -> List[ConversableAgent]:
         """Constructing dialogue members through gpts-related Agent or gpts app information."""
         from datetime import datetime
+
         logger.info(
             f"_build_employees: details={[item.agent_role + ',' + item.agent_name for item in app_details] if app_details else ''},start:{datetime.now()}"
         )
@@ -911,9 +960,12 @@ class AgentChat(BaseComponent, ABC):
 
         async def _build_employee_agent(record: GptsAppDetail):
             logger.info(
-                f"_build_employees循环:{record.agent_role},{record.agent_name}, start:{datetime.now()}")
+                f"_build_employees循环:{record.agent_role},{record.agent_name}, start:{datetime.now()}"
+            )
             if record.type == "app":
-                gpt_app: GptsApp = deepcopy(await app_service.app_detail(record.agent_role, building_mode=False))
+                gpt_app: GptsApp = deepcopy(
+                    await app_service.app_detail(record.agent_role, building_mode=False)
+                )
                 if not gpt_app:
                     raise ValueError(f"Not found app {record.agent_role}!")
                 employee_agent = await self._build_agent_by_gpts(
@@ -921,7 +973,8 @@ class AgentChat(BaseComponent, ABC):
                 )
 
                 logger.info(
-                    f"_build_employees循环:{employee_agent.profile.role},{employee_agent.profile.name},{employee_agent.profile.desc},{id(employee_agent)}, end:{datetime.now()}")
+                    f"_build_employees循环:{employee_agent.profile.role},{employee_agent.profile.name},{employee_agent.profile.desc},{id(employee_agent)}, end:{datetime.now()}"
+                )
                 return employee_agent
             else:
                 raise ValueError("当前应用数据已经无法支持，请重新编辑构建！")
@@ -938,13 +991,13 @@ class AgentChat(BaseComponent, ABC):
 
     @trace("agent.build_extra_agents")
     async def _build_extra_employees(
-            self,
-            extra_agents: List[Union[str, dict]],
-            context: AgentContext,
-            agent_memory: AgentMemory,
-            rm: ResourceManager,
-            scheduler: Optional[Scheduler],
-            need_sandbox: bool = False,
+        self,
+        extra_agents: List[Union[str, dict]],
+        context: AgentContext,
+        agent_memory: AgentMemory,
+        rm: ResourceManager,
+        scheduler: Optional[Scheduler],
+        need_sandbox: bool = False,
     ) -> List[ConversableAgent]:
         logger.info(f"_build_extra_employees: need_sandbox={need_sandbox}")
 
@@ -959,10 +1012,11 @@ class AgentChat(BaseComponent, ABC):
             app = await app_service.app_detail(
                 _extra_agent.get("app_code"),
                 specify_config_code=_extra_agent.get("config_code", None),
-                building_mode=False
+                building_mode=False,
             )
-            agent = await self._build_agent_by_gpts(context, agent_memory, rm, app, scheduler,
-                                                    need_sandbox=need_sandbox)
+            agent = await self._build_agent_by_gpts(
+                context, agent_memory, rm, app, scheduler, need_sandbox=need_sandbox
+            )
             return agent
 
         app_service = get_app_service()
@@ -972,18 +1026,23 @@ class AgentChat(BaseComponent, ABC):
         return list(extra_employees)
 
     def agent_to_resource(self, agent: ConversableAgent) -> AgentResource:
-        return AgentResource.from_dict({
-            "type": ResourceType.App.value,
-            "value": json.dumps({
+        return AgentResource.from_dict(
+            {
+                "type": ResourceType.App.value,
+                "value": json.dumps(
+                    {
+                        "name": f"{agent.name}({agent.agent_context.agent_app_code})",
+                        "app_code": agent.agent_context.agent_app_code,
+                        "app_name": agent.name,
+                        "app_describe": agent.desc,
+                        "icon": agent.avatar,
+                    },
+                    ensure_ascii=False,
+                ),
                 "name": f"{agent.name}({agent.agent_context.agent_app_code})",
-                "app_code": agent.agent_context.agent_app_code,
-                "app_name": agent.name,
-                "app_describe": agent.desc,
-                "icon": agent.avatar,
-            }, ensure_ascii=False),
-            "name": f"{agent.name}({agent.agent_context.agent_app_code})",
-            "unique_id": uuid.uuid4().hex,
-        })
+                "unique_id": uuid.uuid4().hex,
+            }
+        )
 
     async def add_duplicate_allow_tools(self, resources: List[AgentResource]):
         if not resources:
@@ -993,22 +1052,24 @@ class AgentChat(BaseComponent, ABC):
             if resource.type not in [AgentSkillResource.type()]:
                 continue
             value = json.loads(resource.value)
-            tool_id = value.get('tool_id')
+            tool_id = value.get("tool_id")
             if not tool_id:
                 continue
             gpt_tool = gpts_tool_dao.get_tool_by_tool_id(tool_id)
             if not gpt_tool:
                 continue
             config = json.loads(gpt_tool.config)
-            release, debug = config.get('release', None), config.get('debug', None)
+            release, debug = config.get("release", None), config.get("debug", None)
             if release:
-                allow_tools = release.get('metadata', {}).get('allowed-tools')
+                allow_tools = release.get("metadata", {}).get("allowed-tools")
             elif debug:
-                allow_tools = debug.get('metadata', {}).get('allowed-tools')
+                allow_tools = debug.get("metadata", {}).get("allowed-tools")
             else:
                 continue
             if allow_tools:
-                skill_allow_tools = await self._get_skill_allow_tools_resources(allow_tools)
+                skill_allow_tools = await self._get_skill_allow_tools_resources(
+                    allow_tools
+                )
                 resources.extend(skill_allow_tools)
         seen_combinations = set()
         unique_resources = []
@@ -1022,31 +1083,39 @@ class AgentChat(BaseComponent, ABC):
                 unique_resources.append(resource)
         return unique_resources
 
-    async def chat_in_params_to_resource(self, chat_in_params: Optional[List[ChatInParamValue]],
-                                         ext_info: Optional[dict] = None) -> Optional[
-        List[AgentResource]]:
-        SUPPORT_DYNAMIC_RESOURCE_TYPES = [ResourceType.Tool.value, ResourceType.App.value, ResourceType.Knowledge.value,
-                                          ResourceType.AgentSkill.value, 'tool(local)', 'tool(mcp(sse))', 'tool(http)',
-                                          'tool(tr)']
+    async def chat_in_params_to_resource(
+        self,
+        chat_in_params: Optional[List[ChatInParamValue]],
+        ext_info: Optional[dict] = None,
+    ) -> Optional[List[AgentResource]]:
         dynamic_resources = []
         if chat_in_params:
             for chat_in_param in chat_in_params:
-                if chat_in_param.sub_type in SUPPORT_DYNAMIC_RESOURCE_TYPES:
-                    dynamic_resources.append(AgentResource.from_dict({
-                        "type": chat_in_param.sub_type,
-                        "name": f"用户选择了[{chat_in_param.sub_type}]资源",
-                        "value": chat_in_param.param_value
-                    }))
-                    # 处理 AgentSkill 类型的 allowtools 参数
+                if chat_in_param.param_type == "resource":
+                    dynamic_resources.append(
+                        AgentResource.from_dict(
+                            {
+                                "type": chat_in_param.sub_type,
+                                "name": f"用户选择了[{chat_in_param.sub_type}]资源",
+                                "value": chat_in_param.param_value,
+                            }
+                        )
+                    )
                     if chat_in_param.sub_type == ResourceType.AgentSkill.value:
                         skill_param_value = chat_in_param.param_value
                         if isinstance(skill_param_value, str):
                             skill_config = json.loads(skill_param_value)
                         else:
                             skill_config = skill_param_value
-                        metadata = json.loads(skill_config.get("config")).get('release', {}).get('metadata', {})
-                        allow_tools = metadata.get('allowed-tools')
-                        allow_tools_resources = await self._get_skill_allow_tools_resources(allow_tools)
+                        metadata = (
+                            json.loads(skill_config.get("config"))
+                            .get("release", {})
+                            .get("metadata", {})
+                        )
+                        allow_tools = metadata.get("allowed-tools")
+                        allow_tools_resources = (
+                            await self._get_skill_allow_tools_resources(allow_tools)
+                        )
                         if allow_tools_resources:
                             dynamic_resources.extend(allow_tools_resources)
         if ext_info:
@@ -1054,11 +1123,15 @@ class AgentChat(BaseComponent, ABC):
             dynamic_resources.extend(ext_resources)
         return dynamic_resources
 
-    async def _get_skill_allow_tools_resources(self, allow_tools: Optional[Union[str, List[str]]]):
+    async def _get_skill_allow_tools_resources(
+        self, allow_tools: Optional[Union[str, List[str]]]
+    ):
         """根据 Skill 资源的 allow tools 参数获取对应的 Tool 资源列表"""
         try:
             if isinstance(allow_tools, str):
-                allow_tools = [tool.strip() for tool in allow_tools.split(",") if tool.strip()]
+                allow_tools = [
+                    tool.strip() for tool in allow_tools.split(",") if tool.strip()
+                ]
             all_tool_names = []
             mcp_with_allow_tools = {}
             for tool_name in allow_tools:
@@ -1081,47 +1154,58 @@ class AgentChat(BaseComponent, ABC):
                 tools = await gpts_tool_dao.get_tools_by_names(all_tool_names)
                 for tool in tools:
                     try:
-                        tool_config = json.loads(tool.config) if isinstance(tool.config, str) else tool.config
+                        tool_config = (
+                            json.loads(tool.config)
+                            if isinstance(tool.config, str)
+                            else tool.config
+                        )
                         value = {
-                            'name': tool.tool_name,
-                            'tool_id': tool.tool_id,
-                            'description': tool_config.get('description', '')
+                            "name": tool.tool_name,
+                            "tool_id": tool.tool_id,
+                            "description": tool_config.get("description", ""),
                         }
                         match tool.type:
                             case "MCP":
                                 resource_type = "tool(mcp(sse))"
-                                value['headers'] = tool_config.get('headers', {})
-                                value['source'] = tool_config.get('source', 'faas')
-                                value['timeout'] = tool_config.get('timeout', 120)
-                                value['mcp_servers'] = tool_config.get('url', '')
+                                value["headers"] = tool_config.get("headers", {})
+                                value["source"] = tool_config.get("source", "faas")
+                                value["timeout"] = tool_config.get("timeout", 120)
+                                value["mcp_servers"] = tool_config.get("url", "")
                                 if tool.tool_name in mcp_with_allow_tools:
-                                    value['allow_tools'] = mcp_with_allow_tools[tool.tool_name]
-                            case 'HTTP' | 'TR' | 'LOCAL':
-                                resource_type = f'tool({tool.type.lower()})'
-                            case 'SKILL':
-                                resource_type = 'agent_skill'
-                                value['config'] = tool.config
+                                    value["allow_tools"] = mcp_with_allow_tools[
+                                        tool.tool_name
+                                    ]
+                            case "HTTP" | "TR" | "LOCAL":
+                                resource_type = f"tool({tool.type.lower()})"
+                            case "SKILL":
+                                resource_type = "agent_skill"
+                                value["config"] = tool.config
                             case _:
                                 logger.warning(f"Unknown tool type: {tool.type}")
                                 continue
-                        tool_resource = AgentResource.from_dict({
-                            "type": resource_type,
-                            "name": tool.tool_name,
-                            "value": json.dumps(value, ensure_ascii=False),
-                            "is_dynamic": True,
-                            "context": None
-                        })
+                        tool_resource = AgentResource.from_dict(
+                            {
+                                "type": resource_type,
+                                "name": tool.tool_name,
+                                "value": json.dumps(value, ensure_ascii=False),
+                                "is_dynamic": True,
+                                "context": None,
+                            }
+                        )
                         tool_resources.append(tool_resource)
-                        logger.info(f"Added tool resource from allow_tools [{resource_type}]: {tool.tool_name}")
+                        logger.info(
+                            f"Added tool resource from allow_tools [{resource_type}]: {tool.tool_name}"
+                        )
                     except Exception as e:
                         logger.error(f"Skill Failed to load tool {tool.tool_name}: {e}")
             return tool_resources
         except Exception as e:
-            logger.error(f"Failed to load allow_tools for skill {self.name}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to load allow_tools for skill {self.name}: {e}", exc_info=True
+            )
 
     async def _get_resource_from_ext_info(self, ext_info: Optional[dict]):
-        """Solve front chat in params.
-        """
+        """Solve front chat in params."""
         dynamic_resources = []
         if not ext_info or "extraTools" not in ext_info:
             return dynamic_resources
@@ -1132,40 +1216,52 @@ class AgentChat(BaseComponent, ABC):
 
         for tool in extra_tools:
             try:
-                name, tool_id, id, type = tool.get("toolName"), tool.get("toolId"), tool.get("id", None), tool.get(
-                    "type")
-                protocol, description, config = tool.get('protocol'), tool.get("description"), tool.get("config")
+                name, tool_id, id, type = (
+                    tool.get("toolName"),
+                    tool.get("toolId"),
+                    tool.get("id", None),
+                    tool.get("type"),
+                )
+                protocol, description, config = (
+                    tool.get("protocol"),
+                    tool.get("description"),
+                    tool.get("config"),
+                )
                 value = {
-                    'name': name,
-                    'tool_id': tool_id,
-                    'description': description,
-                    'nex_tool_id': id
+                    "name": name,
+                    "tool_id": tool_id,
+                    "description": description,
+                    "nex_tool_id": id,
                 }
-                if type == 'LOCAL':
+                if type == "LOCAL":
                     resource_type = "tool(local)"
                 elif type == "API":
                     if protocol == "HTTP":
-                        resource_type = 'tool(http)'
+                        resource_type = "tool(http)"
                     elif protocol == "TR":
-                        resource_type = 'tool(tr)'
+                        resource_type = "tool(tr)"
                     else:
-                        resource_type = 'tool(http)'
-                elif type == 'MCP':
+                        resource_type = "tool(http)"
+                elif type == "MCP":
                     resource_type = "tool(mcp(sse))"
                     if config:
                         config = json.loads(config)
-                        value['headers'] = config.get('headers', {})
-                        value['source'] = config.get('source', 'faas')
-                        value['timeout'] = config.get('timeout', 120)
-                        value['mcp_servers'] = config.get('url', '')
-                elif type == 'SKILL':
+                        value["headers"] = config.get("headers", {})
+                        value["source"] = config.get("source", "faas")
+                        value["timeout"] = config.get("timeout", 120)
+                        value["mcp_servers"] = config.get("url", "")
+                elif type == "SKILL":
                     resource_type = "agent_skill"
                     if config:
-                        value['config'] = config
-                        metadata = json.loads(config).get('release', {}).get('metadata', {})
-                        allow_tools = metadata.get('allowed-tools')
+                        value["config"] = config
+                        metadata = (
+                            json.loads(config).get("release", {}).get("metadata", {})
+                        )
+                        allow_tools = metadata.get("allowed-tools")
                         if allow_tools:
-                            allow_tool_resources = await self._get_skill_allow_tools_resources(allow_tools)
+                            allow_tool_resources = (
+                                await self._get_skill_allow_tools_resources(allow_tools)
+                            )
                             dynamic_resources.extend(allow_tool_resources)
                 else:
                     logger.warning(f"Unknown tool type: {type}")
@@ -1175,7 +1271,7 @@ class AgentChat(BaseComponent, ABC):
                     name=name,
                     value=json.dumps(value, ensure_ascii=False),
                     unique_id=tool_id,
-                    is_dynamic=True
+                    is_dynamic=True,
                 )
                 dynamic_resources.append(agent_resource)
                 logger.info(f"Added dynamic tool resource: {name}")
@@ -1192,8 +1288,9 @@ class AgentChat(BaseComponent, ABC):
                 unique_resources.append(resource)
         return unique_resources
 
-    def chat_in_params_to_context(self, chat_in_params: Optional[List[ChatInParamValue]], gpts_app: GptsApp) -> Tuple[
-        Dict[str, Any], Dict[str, Any]]:
+    def chat_in_params_to_context(
+        self, chat_in_params: Optional[List[ChatInParamValue]], gpts_app: GptsApp
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """处理对话输出参数"""
         context = {}
         ## 输入层参数转Agent上下文参数
@@ -1215,11 +1312,13 @@ class AgentChat(BaseComponent, ABC):
                             else:
                                 r_value = param.param_value
                             logger.info("加载用户指定的资源")
-                            chat_in_resource = AgentResource.from_dict({
-                                "type": param.sub_type,
-                                "name": f"对话选择[{param.sub_type}]资源",
-                                "value": r_value
-                            })
+                            chat_in_resource = AgentResource.from_dict(
+                                {
+                                    "type": param.sub_type,
+                                    "name": f"对话选择[{param.sub_type}]资源",
+                                    "value": r_value,
+                                }
+                            )
                             if not gpts_app.all_resources:
                                 gpts_app.all_resources = []
                             gpts_app.all_resources.append(chat_in_resource)
@@ -1244,21 +1343,21 @@ class AgentChat(BaseComponent, ABC):
         return llm_context, env_context
 
     async def _inner_chat(
-            self,
-            user_code: str,
-            user_query: HumanMessage,
-            conv_session_id: str,
-            conv_uid: str,
-            gpts_app: GptsApp,
-            agent_memory: AgentMemory,
-            is_retry_chat: bool = False,
-            last_speaker_name: str = None,
-            init_message_rounds: int = 0,
-            historical_dialogues: Optional[List[GptsMessage]] = None,
-            rely_messages: Optional[List[GptsMessage]] = None,
-            stream: Optional[bool] = True,
-            chat_in_params: Optional[List[ChatInParamValue]] = None,
-            **ext_info,
+        self,
+        user_code: str,
+        user_query: HumanMessage,
+        conv_session_id: str,
+        conv_uid: str,
+        gpts_app: GptsApp,
+        agent_memory: AgentMemory,
+        is_retry_chat: bool = False,
+        last_speaker_name: str = None,
+        init_message_rounds: int = 0,
+        historical_dialogues: Optional[List[GptsMessage]] = None,
+        rely_messages: Optional[List[GptsMessage]] = None,
+        stream: Optional[bool] = True,
+        chat_in_params: Optional[List[ChatInParamValue]] = None,
+        **ext_info,
     ):
         ### init chat param
         ## 检查应用是否配置完整
@@ -1268,7 +1367,7 @@ class AgentChat(BaseComponent, ABC):
             raise ValueError("当前应用还没配置模型无法开始对话!")
         recipient: Optional[ConversableAgent] = None
         gpts_status = Status.COMPLETE.value
-        staff_no = ext_info.get('staff_no') or gpts_app.user_code or 'derisk'
+        staff_no = ext_info.get("staff_no") or gpts_app.user_code or "derisk"
         try:
             if isinstance(user_query.content, List):
                 from derisk_serve.file.serve import Serve as FileServe
@@ -1285,11 +1384,16 @@ class AgentChat(BaseComponent, ABC):
 
             from derisk.agent.core.types import ENV_CONTEXT_KEY
             from derisk.agent.core.types import LLM_CONTEXT_KEY
+
             ## 处理对话输入参数
             ### 环境参数穿透当前会话不落表，llm参数作为消息的扩展参数随消息落表，agent控制是否向下传递
-            llm_context, env_context = self.chat_in_params_to_context(chat_in_params, gpts_app)
+            llm_context, env_context = self.chat_in_params_to_context(
+                chat_in_params, gpts_app
+            )
             ### 获取Agent对话资源
-            dynamic_resources = await self.chat_in_params_to_resource(chat_in_params, ext_info)
+            dynamic_resources = await self.chat_in_params_to_resource(
+                chat_in_params, ext_info
+            )
             if dynamic_resources:
                 ext_info["dynamic_resources"] = dynamic_resources
 
@@ -1376,10 +1480,7 @@ class AgentChat(BaseComponent, ABC):
             await self._cleanup_sandbox_manager(conv_uid, staff_no)
         return conv_uid
 
-    async def _chat_messages(
-            self,
-            conv_id: str
-    ):
+    async def _chat_messages(self, conv_id: str):
         if not (iterator := await self.memory.queue_iterator(conv_id)):
             return
 
@@ -1438,21 +1539,28 @@ class AgentChat(BaseComponent, ABC):
             message_memory=MetaDerisksMessageMemory(),
         )
         try:
-            gpts_conversation: GptsConversationsEntity = self.gpts_conversations.get_by_conv_id(conv_id)
+            gpts_conversation: GptsConversationsEntity = (
+                self.gpts_conversations.get_by_conv_id(conv_id)
+            )
             if not gpts_conversation:
                 return None
             is_final = False
             if gpts_conversation.state in [Status.COMPLETE.value, Status.FAILED.value]:
                 is_final = True
-            logger.info(f"query_chat gpts_conversation vis render:{vis_render},{gpts_conversation.vis_render}")
-            current_vis_render = vis_render or gpts_conversation.vis_render or "nex_vis_window"
+            logger.info(
+                f"query_chat gpts_conversation vis render:{vis_render},{gpts_conversation.vis_render}"
+            )
+            current_vis_render = (
+                vis_render or gpts_conversation.vis_render or "nex_vis_window"
+            )
 
             app_config = self.system_app.config.configs.get("app_config")
             web_config = app_config.service.web
             vis_manager = get_vis_manager()
 
-            vis_convert: VisProtocolConverter = vis_manager.get_by_name(current_vis_render)(
-                derisk_url=web_config.web_url)
+            vis_convert: VisProtocolConverter = vis_manager.get_by_name(
+                current_vis_render
+            )(derisk_url=web_config.web_url)
 
             ## 重新初始化对话memory数据
             await gpts_memory.init(conv_id=conv_id, vis_converter=vis_convert)
@@ -1471,17 +1579,20 @@ class AgentChat(BaseComponent, ABC):
             #     logger.warning(f"查询会话时，恢复agent对象异常！{str(e)}")
 
             # 返回对应协议的最终消息内容
-            return await gpts_memory.vis_final(conv_id), await gpts_memory.user_answer(
-                conv_id), current_vis_render, is_final, gpts_conversation.state
+            return (
+                await gpts_memory.vis_final(conv_id),
+                await gpts_memory.user_answer(conv_id),
+                current_vis_render,
+                is_final,
+                gpts_conversation.state,
+            )
         finally:
             await gpts_memory.clear(conv_id)
 
     async def dynamic_resource_adapter(
-            self, gpt_app: GptsApp,
-            ext_info: Optional[dict] = None
+        self, gpt_app: GptsApp, ext_info: Optional[dict] = None
     ) -> None:
-        """Dynamic resource adapter.
-        """
+        """Dynamic resource adapter."""
         pass
 
 

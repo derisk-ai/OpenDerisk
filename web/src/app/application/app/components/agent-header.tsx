@@ -51,7 +51,10 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
   );
 
   const handlePublishOk = async () => {
-    await fetchPublishApp(appInfo);
+    await fetchPublishApp({
+      app_code: appInfo?.app_code,
+      config_code: appInfo?.config_code,
+    });
     setPublishModalOpen(false);
   };
 

@@ -35,13 +35,16 @@ TOOL_SNAPSHOTS_KEY = "tool_snapshots"
 SNAPSHOT_MODE_DISPLAY = "快照模式"
 KWARGS_FILTERED = ["message_id"]
 
+
 class MCPResultError(Exception):
     def __init__(self, message=""):
         self.message = message
         super().__init__(self.message)
 
+
 class ToolInput(BaseModel):
     """Plugin input model."""
+
     tool_name: str = Field(
         ...,
         description="The name of a tool that can be used to answer the current question or solve the current task.",
@@ -59,11 +62,13 @@ class ToolInput(BaseModel):
 
 class ToolAction(Action[ToolInput]):
     """Tool action class."""
+
     name = "Tool"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.action_view_tag: str = SystemVisTag.VisTool.value
+
     @property
     def out_model_type(self):
         return ToolInput
@@ -94,7 +99,9 @@ class ToolAction(Action[ToolInput]):
         for item in tool_result.content:
             if isinstance(item, ImageContent) and item.mimeType == "oss_file":
                 processed_content.append(
-                    TextContent(type="text", text=f"输出文件，文件信息如下: \n {item.data}")
+                    TextContent(
+                        type="text", text=f"输出文件，文件信息如下: \n {item.data}"
+                    )
                 )
             else:
                 processed_content.append(item)
@@ -150,11 +157,11 @@ class ToolAction(Action[ToolInput]):
                 is_exe_success=False,
                 content="The requested correctly structured answer could not be found.",
             )
-        memory: AgentMemory = kwargs.get('memory')
-        agent: ConversableAgent = kwargs.get('agent')
-        agent_context: AgentContext = kwargs.get('agent_context')
-        message_id: str = kwargs.get('message_id')
-        current_message: AgentMessage = kwargs.get('current_message')
+        memory: AgentMemory = kwargs.get("memory")
+        agent: ConversableAgent = kwargs.get("agent")
+        agent_context: AgentContext = kwargs.get("agent_context")
+        message_id: str = kwargs.get("message_id")
+        current_message: AgentMessage = kwargs.get("current_message")
         require_approval = kwargs.get("require_approval", False)
         action_id = kwargs.get("action_id", None)
         self._render = kwargs.get("render_protocol") or self._render
@@ -175,8 +182,8 @@ class ToolAction(Action[ToolInput]):
         elif param.tool_name in system_tool_dict:
             tool_info = system_tool_dict[param.tool_name]
             # 系统工具需要 agent_file_system 参数
-            if kwargs.get('agent_file_system'):
-                self.init_params["agent_file_system"] = kwargs.get('agent_file_system')
+            if kwargs.get("agent_file_system"):
+                self.init_params["agent_file_system"] = kwargs.get("agent_file_system")
         else:
             tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
         if not tool_info:
@@ -192,21 +199,29 @@ class ToolAction(Action[ToolInput]):
             )
 
         ### Parse arguments if raw input provided
-        args = self._parse_tool_arguments(tool_info, kwargs.get("raw_tool_input"), param.args)
+        args = self._parse_tool_arguments(
+            tool_info, kwargs.get("raw_tool_input"), param.args
+        )
         tool_args = {}
         tool_args.update(args)
         # 使用确定的环境变量覆盖生成变量
         tool_args.update(self.init_params)
-        
+
         # 传入 agent_file_system 供 read_file 等工具使用
-        if kwargs.get('agent_file_system'):
-            tool_args['agent_file_system'] = kwargs.get('agent_file_system')
-        
+        if kwargs.get("agent_file_system"):
+            tool_args["agent_file_system"] = kwargs.get("agent_file_system")
+
         ## 推送工具执行初始化消息
-        await self.push_action_init_msg(gpts_memory=memory.gpts_memory, agent=agent, agent_context=agent_context,
-                                        message=current_message, tool_pack=tool_pack, tool_info=tool_info,
-                                        tool_args=param.args,
-                                        start_time=start_time)
+        await self.push_action_init_msg(
+            gpts_memory=memory.gpts_memory,
+            agent=agent,
+            agent_context=agent_context,
+            message=current_message,
+            tool_pack=tool_pack,
+            tool_info=tool_info,
+            tool_args=param.args,
+            start_time=start_time,
+        )
         ## 检查工具审批
         env_context = agent_context.env_context or {}
         eval_mode = env_context.get(EVAL_MODE_KEY, False)
@@ -214,18 +229,23 @@ class ToolAction(Action[ToolInput]):
         # Handle user approval requirement
         if require_approval and self.requires_user_approval(tool_info, tool_pack):
             logger.info(
-                f"工具[{tool_info.name}]需要进行工具执行确认审核！{require_approval},{tool_info.ask_user},{tool_pack.ask_user if tool_pack else ''}")
-            return await self._create_user_approval_output(tool_info, message_id, args=param.args, tool_pack=tool_pack,
-                                                           metrics=metrics, start_time=start_time)
+                f"工具[{tool_info.name}]需要进行工具执行确认审核！{require_approval},{tool_info.ask_user},{tool_pack.ask_user if tool_pack else ''}"
+            )
+            return await self._create_user_approval_output(
+                tool_info,
+                message_id,
+                args=param.args,
+                tool_pack=tool_pack,
+                metrics=metrics,
+                start_time=start_time,
+            )
 
         ## 工具执行
         tool_result = None
         if tool_info.is_stream:
-            task = asyncio.create_task(self._execute_tool(
-                tool_info=tool_info,
-                args=tool_args,
-                **kwargs
-            ))
+            task = asyncio.create_task(
+                self._execute_tool(tool_info=tool_info, args=tool_args, **kwargs)
+            )
             queue = tool_info.stream_queue
             last_queue_data_time = time.time()
             try:
@@ -233,17 +253,26 @@ class ToolAction(Action[ToolInput]):
                     try:
                         chunk = await asyncio.wait_for(queue.get(), timeout=0.5)
                         last_queue_data_time = time.time()  # 重置计时器
-                        await self.push_tool_action_stream_msg(content=chunk, gpts_memory=memory.gpts_memory,
-                                                               agent=agent,
-                                                               agent_context=agent_context, message_id=message_id,
-                                                               tool_pack=tool_pack,
-                                                               tool_info=tool_info, tool_args=param.args,
-                                                               start_time=start_time)
+                        await self.push_tool_action_stream_msg(
+                            content=chunk,
+                            gpts_memory=memory.gpts_memory,
+                            agent=agent,
+                            agent_context=agent_context,
+                            message_id=message_id,
+                            tool_pack=tool_pack,
+                            tool_info=tool_info,
+                            tool_args=param.args,
+                            start_time=start_time,
+                        )
                     except asyncio.TimeoutError:
                         if time.time() - last_queue_data_time > 90:
-                            logger.error("Queue chunk data timeout: no data received for 90 seconds")
+                            logger.error(
+                                "Queue chunk data timeout: no data received for 90 seconds"
+                            )
                             task.cancel()
-                            tool_result = {"error": "Tool execution timeout: no chunk data for 90 seconds"}
+                            tool_result = {
+                                "error": "Tool execution timeout: no chunk data for 90 seconds"
+                            }
                             break
                 if tool_result is None:
                     tool_result = await task
@@ -254,48 +283,50 @@ class ToolAction(Action[ToolInput]):
                 tool_result = {"error": f"Tool Stream processing failed: {str(e)}"}
         else:
             tool_result = await self._execute_tool(
-                tool_info=tool_info,
-                args=tool_args,
-                **kwargs
+                tool_info=tool_info, args=tool_args, **kwargs
             )
 
         ## Process tool result if needed
         result_content = tool_result["content"]
-        status = Status.COMPLETE.value if tool_result["success"] else Status.FAILED.value
+        status = (
+            Status.COMPLETE.value if tool_result["success"] else Status.FAILED.value
+        )
 
         metrics.end_time_ms = time.time_ns() // 1_000_000
         metrics.result_tokens = len(str(result_content))
         cost_ms = metrics.end_time_ms - metrics.start_time_ms
         metrics.cost_seconds = round(cost_ms / 1000, 2)
-        
+
         ## 大结果归档处理 - 使用 Truncator
         # 注意：read_file 工具用于读取已归档文件，不应再次截断归档，否则会形成死循环
         attach_view = None
         archive_file_key = None
-        agent_file_system = kwargs.get('agent_file_system')
-        max_output_bytes = kwargs.get('max_output_bytes', 5 * 1024)  # 默认 50KB
-        max_output_lines = kwargs.get('max_output_lines', 50)
+        agent_file_system = kwargs.get("agent_file_system")
+        max_output_bytes = kwargs.get("max_output_bytes", 5 * 1024)  # 默认 50KB
+        max_output_lines = kwargs.get("max_output_lines", 50)
         truncation_result = None
-        
-        # 跳过 read_file 工具的截断，避免循环归档
+
+        # 跳过 read_file 和 view 工具的截断，避免循环归档
         should_truncate = (
-            result_content 
-            and agent_file_system 
+            result_content
+            and agent_file_system
             and isinstance(result_content, str)
-            and tool_info.name != "read_file"  # 跳过 read_file
+            and tool_info.name not in ("read_file", "view")  # 跳过 read_file 和 view
         )
-        
+
         if should_truncate:
             from derisk.agent.expand.react_master_agent.truncation import Truncator
-            
+
             truncator = Truncator(
                 max_lines=max_output_lines,
                 max_bytes=max_output_bytes,
                 agent_file_system=agent_file_system,
             )
             # 使用异步方法避免事件循环问题
-            truncation_result = await truncator.truncate_async(result_content, tool_info.name)
-            
+            truncation_result = await truncator.truncate_async(
+                result_content, tool_info.name
+            )
+
             if truncation_result.is_truncated:
                 logger.info(
                     f"[ToolAction] Output truncated for {tool_info.name}: "
@@ -305,39 +336,58 @@ class ToolAction(Action[ToolInput]):
                 )
                 archive_file_key = truncation_result.file_key
                 result_content = truncation_result.content
-                
+
                 # 生成 d-attach 组件展示归档文件
                 if truncation_result.file_key:
                     try:
-                        file_metadata = await agent_file_system.get_file_info(truncation_result.file_key)
+                        file_metadata = await agent_file_system.get_file_info(
+                            truncation_result.file_key
+                        )
                         if file_metadata:
                             from derisk.vis import Vis
-                            attach_view = Vis.of("d-attach").sync_display(content={
-                                "file_id": file_metadata.file_id,
-                                "file_name": file_metadata.file_name or truncation_result.file_key,
-                                "file_type": file_metadata.file_type or "txt",
-                                "file_size": file_metadata.file_size or 0,
-                                "oss_url": file_metadata.oss_url,
-                                "preview_url": file_metadata.preview_url,
-                                "download_url": file_metadata.download_url,
-                                "mime_type": file_metadata.mime_type,
-                            })
-                            logger.info(f"[ToolAction] Generated d-attach for truncated file: {file_metadata.file_name}")
+
+                            attach_view = Vis.of("d-attach").sync_display(
+                                content={
+                                    "file_id": file_metadata.file_id,
+                                    "file_name": file_metadata.file_name
+                                    or truncation_result.file_key,
+                                    "file_type": file_metadata.file_type or "txt",
+                                    "file_size": file_metadata.file_size or 0,
+                                    "oss_url": file_metadata.oss_url,
+                                    "preview_url": file_metadata.preview_url,
+                                    "download_url": file_metadata.download_url,
+                                    "mime_type": file_metadata.mime_type,
+                                }
+                            )
+                            logger.info(
+                                f"[ToolAction] Generated d-attach for truncated file: {file_metadata.file_name}"
+                            )
                     except Exception as e:
                         logger.warning(f"Failed to generate d-attach: {e}")
-        
+
         ## 可视化数据生成
         view = None
         if need_vis_render:
             if not self.render_protocol:
                 raise NotImplementedError("Render protocol required for visualization")
             ## 构造工具展示效果
-            kwargs_filtered = {k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED}
-            view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
-                                       tool_info=tool_info, tool_result=result_content, tool_cost=metrics.cost_seconds,
-                                       status=status, args=param.args,
-                                       start_time=start_time, eval_view=tool_result.get("eval_view"), **kwargs_filtered)
-            
+            kwargs_filtered = {
+                k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED
+            }
+            view = await self.gen_view(
+                message_id=message_id,
+                tool_call_id=self.action_uid,
+                tool_pack=tool_pack,
+                tool_info=tool_info,
+                tool_result=result_content,
+                tool_cost=metrics.cost_seconds,
+                status=status,
+                args=param.args,
+                start_time=start_time,
+                eval_view=tool_result.get("eval_view"),
+                **kwargs_filtered,
+            )
+
             # 如果有归档文件，追加 d-attach 组件到 view
             if attach_view:
                 view = view + "\n" + attach_view
@@ -369,75 +419,105 @@ class ToolAction(Action[ToolInput]):
             extra={"archive_file_key": archive_file_key} if archive_file_key else None,
         )
 
-    async def push_action_init_msg(self, gpts_memory, agent, agent_context, message: AgentMessage,
-                                   tool_info: BaseTool,
-                                   tool_pack: Optional[ToolPack] = None,
-                                   tool_args: Optional[Any] = None,
-                                   start_time: Optional[Any] = None,
-                                   metrics: Optional[ActionInferenceMetrics] = None,
-                                   ):
-
-        view = await self.gen_view(message_id=message.message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
-                                   tool_info=tool_info,
-                                   status=Status.RUNNING.value, args=tool_args, start_time=start_time)
+    async def push_action_init_msg(
+        self,
+        gpts_memory,
+        agent,
+        agent_context,
+        message: AgentMessage,
+        tool_info: BaseTool,
+        tool_pack: Optional[ToolPack] = None,
+        tool_args: Optional[Any] = None,
+        start_time: Optional[Any] = None,
+        metrics: Optional[ActionInferenceMetrics] = None,
+    ):
+        view = await self.gen_view(
+            message_id=message.message_id,
+            tool_call_id=self.action_uid,
+            tool_pack=tool_pack,
+            tool_info=tool_info,
+            status=Status.RUNNING.value,
+            args=tool_args,
+            start_time=start_time,
+        )
         init_action_report = await self.init_out(view=view, args=tool_args)
 
         ## 展示工具任务基础信息
-        await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
-            "uid": message.message_id,
-            "type": "all",
-            "sender": agent.name or agent.role,
-            "sender_role": agent.role,
-            "message_id": message.message_id,
-            "avatar": agent.avatar,
-            "goal_id": message.goal_id,
-            "conv_id": agent_context.conv_id,
-            "conv_session_uid": agent_context.conv_session_id,
-            "app_code": agent_context.gpts_app_code,
-            "start_time": start_time,
-            "action_report": [init_action_report]
-        }, )
+        await gpts_memory.push_message(
+            conv_id=agent.agent_context.conv_id,
+            stream_msg={
+                "uid": message.message_id,
+                "type": "all",
+                "sender": agent.name or agent.role,
+                "sender_role": agent.role,
+                "message_id": message.message_id,
+                "avatar": agent.avatar,
+                "goal_id": message.goal_id,
+                "conv_id": agent_context.conv_id,
+                "conv_session_uid": agent_context.conv_session_id,
+                "app_code": agent_context.gpts_app_code,
+                "start_time": start_time,
+                "action_report": [init_action_report],
+            },
+        )
 
-    async def push_tool_action_stream_msg(self, content, gpts_memory, agent, agent_context, message_id,
-                                          tool_info: BaseTool,
-                                          tool_pack: Optional[ToolPack] = None,
-                                          tool_args: Optional[Any] = None,
-                                          start_time: Optional[Any] = None,
-                                          metrics: Optional[ActionInferenceMetrics] = None):
-
+    async def push_tool_action_stream_msg(
+        self,
+        content,
+        gpts_memory,
+        agent,
+        agent_context,
+        message_id,
+        tool_info: BaseTool,
+        tool_pack: Optional[ToolPack] = None,
+        tool_args: Optional[Any] = None,
+        start_time: Optional[Any] = None,
+        metrics: Optional[ActionInferenceMetrics] = None,
+    ):
         running_action_report = ActionOutput(
             name=self.name,
-            content='执行中',
-            view=await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
-                                     tool_info=tool_info, status=Status.RUNNING.value, args=tool_args,
-                                     markdown=content, start_time=start_time, view_type='incr'),
+            content="执行中",
+            view=await self.gen_view(
+                message_id=message_id,
+                tool_call_id=self.action_uid,
+                tool_pack=tool_pack,
+                tool_info=tool_info,
+                status=Status.RUNNING.value,
+                args=tool_args,
+                markdown=content,
+                start_time=start_time,
+                view_type="incr",
+            ),
             action_id=self.action_uid,
             action=tool_info.name,
             metrics=metrics,
             action_name=tool_info.description,
             action_input=tool_args,
             state=Status.RUNNING.value,
-            stream=True
+            stream=True,
         )
 
-        await gpts_memory.push_message(conv_id=agent.agent_context.conv_id, stream_msg={
-            "uid": message_id,
-            "type": "incr",
-            "sender": agent.name or agent.role,
-            "sender_role": agent.role,
-            "message_id": message_id,
-            "avatar": agent.avatar,
-            "conv_id": agent_context.conv_id,
-            "conv_session_uid": agent_context.conv_session_id,
-            "app_code": agent_context.gpts_app_code,
-            "start_time": start_time,
-            "action_report": [running_action_report]
-        })
+        await gpts_memory.push_message(
+            conv_id=agent.agent_context.conv_id,
+            stream_msg={
+                "uid": message_id,
+                "type": "incr",
+                "sender": agent.name or agent.role,
+                "sender_role": agent.role,
+                "message_id": message_id,
+                "avatar": agent.avatar,
+                "conv_id": agent_context.conv_id,
+                "conv_session_uid": agent_context.conv_session_id,
+                "app_code": agent_context.gpts_app_code,
+                "start_time": start_time,
+                "action_report": [running_action_report],
+            },
+        )
 
     async def init_out(self, view: str = None, args: Optional[Any] = None):
         return ActionOutput(
             name=self.name,
-            content='执行中..',
+            content="执行中..",
             view=view,
             action_id=self.action_uid,
             action=self.action_input.tool_name if self.action_input else None,
@@ -447,7 +527,9 @@ class ToolAction(Action[ToolInput]):
             state=Status.RUNNING.value,
         )
 
-    def requires_user_approval(self, tool_info: BaseTool, tool_pack: Optional[ToolPack] = None) -> bool:
+    def requires_user_approval(
+        self, tool_info: BaseTool, tool_pack: Optional[ToolPack] = None
+    ) -> bool:
         """Check if tool requires user approval."""
         if tool_info:
             if tool_info.ask_user:
@@ -457,48 +539,46 @@ class ToolAction(Action[ToolInput]):
         else:
             return False
 
-    async def _execute_tool(
-        self,
-        tool_info: BaseTool,
-        args: Any,
-        **kwargs
-    ) -> Any:
+    async def _execute_tool(self, tool_info: BaseTool, args: Any, **kwargs) -> Any:
         """Execute tool with proper mode handling."""
-        agent = kwargs.get('agent')
+        agent = kwargs.get("agent")
 
         # Get environment context
-        env_context = agent.agent_context.env_context if agent and agent.agent_context else {}
+        env_context = (
+            agent.agent_context.env_context if agent and agent.agent_context else {}
+        )
         eval_mode = env_context.get(EVAL_MODE_KEY, False)
 
         # Execute tool based on mode
-        result = {
-            "success": False,
-            "content": "",
-            "error": None,
-            "eval_view": {}
-        }
+        result = {"success": False, "content": "", "error": None, "eval_view": {}}
 
         try:
-            if eval_mode and await self._get_curr_tool_run_mode(env_context, tool_info) == RunModel.SNAPSHOT:
+            if (
+                eval_mode
+                and await self._get_curr_tool_run_mode(env_context, tool_info)
+                == RunModel.SNAPSHOT
+            ):
                 snapshot_data = self._get_tool_snapshots(env_context, tool_info.name)
                 if agent and agent.llm_config.llm_client:
                     eval_tool = LLMSnapshotTool(
                         tool_info=tool_info,
                         tool_snapshots=snapshot_data,
                         llm_client=agent.llm_config.llm_client,
-                        model_name="aistudio/DeepSeek-V3"
+                        model_name="aistudio/DeepSeek-V3",
                     )
                     eval_output = await eval_tool.run_tool(args=args)
-                    result.update({
-                        "success": eval_output.is_exe_success,
-                        "content": eval_output.content,
-                        "error": eval_output.error_msg,
-                        "eval_view": {
-                            "tool_run_mode": SNAPSHOT_MODE_DISPLAY,
-                            **eval_output.debug_view(),
-                            "all_tool_snapshots": snapshot_data
+                    result.update(
+                        {
+                            "success": eval_output.is_exe_success,
+                            "content": eval_output.content,
+                            "error": eval_output.error_msg,
+                            "eval_view": {
+                                "tool_run_mode": SNAPSHOT_MODE_DISPLAY,
+                                **eval_output.debug_view(),
+                                "all_tool_snapshots": snapshot_data,
+                            },
                         }
-                    })
+                    )
                 else:
                     raise ValueError("LLM client not configured for snapshot mode")
             else:
@@ -507,27 +587,30 @@ class ToolAction(Action[ToolInput]):
                     content = await tool_info.async_execute(**arguments)
                 else:
                     content = tool_info.execute(**arguments)
-                result.update({
-                    "success": True,
-                    "content": content
-                })
+                result.update({"success": True, "content": content})
         except MCPResultError as e:
-            result.update({
-                "success": False,
-                "content": e.message,
-                "mcp_error": True,
-            })
+            result.update(
+                {
+                    "success": False,
+                    "content": e.message,
+                    "mcp_error": True,
+                }
+            )
             logger.exception(f"Tool {tool_info.name} execution error: {str(e)}")
         except Exception as e:
-            result.update({
-                "success": False,
-                "content": str(e),
-            })
+            result.update(
+                {
+                    "success": False,
+                    "content": str(e),
+                }
+            )
             logger.exception(f"Tool {tool_info.name} execution error: {str(e)}")
 
         return result
 
-    async def _get_curr_tool_run_mode(self, env_context: dict, tool_info: BaseTool) -> str:
+    async def _get_curr_tool_run_mode(
+        self, env_context: dict, tool_info: BaseTool
+    ) -> str:
         """获取当前工具的执行模式。
 
         Args:
@@ -553,11 +636,14 @@ class ToolAction(Action[ToolInput]):
             # 使用默认模式
             return tool_run_model.default_mode
         except Exception as e:
-            logger.exception(f"Failed to parse tool run mode, Tool: {tool_info.name}, tool_run_mode_raw: {tool_run_mode_raw}, error: {str(e)}")
+            logger.exception(
+                f"Failed to parse tool run mode, Tool: {tool_info.name}, tool_run_mode_raw: {tool_run_mode_raw}, error: {str(e)}"
+            )
             return RunModel.NORMAL
 
-
-    async def _get_tool_info(self, resource: Resource, tool_name: str) -> Tuple[Optional[Resource], Optional[BaseTool]]:
+    async def _get_tool_info(
+        self, resource: Resource, tool_name: str
+    ) -> Tuple[Optional[Resource], Optional[BaseTool]]:
         """查找指定名称的工具及其父资源，找到后立即返回"""
         if resource is None:
             return None, None
@@ -577,17 +663,14 @@ class ToolAction(Action[ToolInput]):
                 # 直接遍历查找匹配的工具，避免不必要的类型转换
                 for tool in tools:
                     # 检查名称匹配，避免提前类型转换
-                    if hasattr(tool, 'name') and tool.name == tool_name:
+                    if hasattr(tool, "name") and tool.name == tool_name:
                         # 找到匹配工具时才进行类型转换
                         typed_tool = cast(BaseTool, tool)
                         return parent_resource, typed_tool
         return None, None
 
     def _parse_tool_arguments(
-        self,
-        tool_info: BaseTool,
-        raw_input: Optional[str],
-        default_args: dict
+        self, tool_info: BaseTool, raw_input: Optional[str], default_args: dict
     ) -> dict:
         """Parse tool arguments from raw input if available."""
         if not raw_input:
@@ -609,8 +692,14 @@ class ToolAction(Action[ToolInput]):
     ) -> ActionOutput:
         """Create output when user approval is required."""
 
-        view = await self.gen_view(message_id=message_id, tool_call_id=self.action_uid, tool_pack=tool_pack,
-                                   tool_info=tool_info, status=Status.WAITING.value, args=args)
+        view = await self.gen_view(
+            message_id=message_id,
+            tool_call_id=self.action_uid,
+            tool_pack=tool_pack,
+            tool_info=tool_info,
+            status=Status.WAITING.value,
+            args=args,
+        )
         return ActionOutput(
             action_id=self.action_uid,
             name=self.name,
@@ -630,30 +719,33 @@ class ToolAction(Action[ToolInput]):
         )
 
     def _get_tool_snapshots(
-        self,
-        env_context: dict,
-        tool_name: str
+        self, env_context: dict, tool_name: str
     ) -> list[ToolSnapshot]:
         """Retrieve relevant tool snapshots from environment context."""
         snapshots = env_context.get(TOOL_SNAPSHOTS_KEY, [])
-        return [
-            ToolSnapshot(**s)
-            for s in snapshots
-            if s.get("toolName") == tool_name
-        ]
+        return [ToolSnapshot(**s) for s in snapshots if s.get("toolName") == tool_name]
 
-    async def gen_view(self, message_id, tool_call_id, tool_info: BaseTool, status,
-                       tool_pack: Optional[ToolPack] = None,
-                       args: Optional[Any] = None,
-                       out_type: Optional[str] = "json",
-                       tool_result: Optional[Any] = None, err_msg: Optional[str] = None, tool_cost: float = 0,
-                       start_time: Optional[Any] = None, view_type: Optional[str] = 'all',
-                       markdown: Optional[Any] = None, eval_view: Optional[dict] = None, **kwargs):
+    async def gen_view(
+        self,
+        message_id,
+        tool_call_id,
+        tool_info: BaseTool,
+        status,
+        tool_pack: Optional[ToolPack] = None,
+        args: Optional[Any] = None,
+        out_type: Optional[str] = "json",
+        tool_result: Optional[Any] = None,
+        err_msg: Optional[str] = None,
+        tool_cost: float = 0,
+        start_time: Optional[Any] = None,
+        view_type: Optional[str] = "all",
+        markdown: Optional[Any] = None,
+        eval_view: Optional[dict] = None,
+        **kwargs,
+    ):
         logger.info(f"Tool Action gen view!{self.action_view_tag}")
         # 设置进度
-        progress = 100 if status == "completed" else (
-            50 if status == "running" else 0
-        )
+        progress = 100 if status == "completed" else (50 if status == "running" else 0)
         # Build visualization content
         drsk_content = VisStepContent(
             uid=tool_call_id,
@@ -674,12 +766,10 @@ class ToolAction(Action[ToolInput]):
             start_time=start_time,
             progress=progress,
             markdown=markdown,
-            eval_view=eval_view
+            eval_view=eval_view,
         )
         self.action_view_tag: str = SystemVisTag.VisTool.value
-        return self.render_protocol.sync_display(
-            content=drsk_content.to_dict()
-        )
+        return self.render_protocol.sync_display(content=drsk_content.to_dict())
 
     @classmethod
     def parse_action(
@@ -693,10 +783,15 @@ class ToolAction(Action[ToolInput]):
 
         If you want skip the action, return None.
         """
-        return cls(action_uid=tool_call.tool_call_id, action_input=ToolInput(tool_name=tool_call.name,
-                                                                             tool_call_id=tool_call.tool_call_id,
-                                                                             thought=tool_call.thought,
-                                                                             args=tool_call.args))
+        return cls(
+            action_uid=tool_call.tool_call_id,
+            action_input=ToolInput(
+                tool_name=tool_call.name,
+                tool_call_id=tool_call.tool_call_id,
+                thought=tool_call.thought,
+                args=tool_call.args,
+            ),
+        )
 
     async def gen_content(self, tool_result: Any) -> Any:
         return tool_result["content"]

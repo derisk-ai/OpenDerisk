@@ -50,14 +50,16 @@ export default function TabSkills() {
       key: item.skill_code,
       name: item.name,
       label: item.name,
+      skill_name: item.name,
       description: item.description || '',
-      toolType: 'tool',
+      skill_description: item.description || '',
+      toolType: 'skill(derisk)',
       groupName: 'skill',
       isBuiltIn: false,
       skillCode: item.skill_code,
-      author: item.author,
-      version: item.version,
-      repoUrl: item.repo_url,
+      skill_path: item.path || item.skill_code,
+      skill_author: item.author,
+      skill_branch: item.branch || 'main',
     }));
   }, [customSkillData]);
 

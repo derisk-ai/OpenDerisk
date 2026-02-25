@@ -64,6 +64,7 @@ from ..actions.agent_action import AgentStart
 from ..actions.knowledge_action import KnowledgeSearch
 from ..actions.terminate_action import Terminate
 from ..actions.tool_action import ToolAction
+
 # 导入 read_file 工具使其注册到 system_tool_dict
 from ...core.tools.read_file_tool import read_file  # noqa: F401
 
@@ -210,9 +211,10 @@ class ReActMasterAgent(ConversableAgent):
         await super().preload_resource()
         await self.system_tool_injection()
         await self.sandbox_tool_injection()
-        
+
         # 注入 read_file 工具
         from ...core.system_tool_registry import system_tool_dict
+
         if "read_file" in system_tool_dict:
             self.available_system_tools["read_file"] = system_tool_dict["read_file"]
             logger.info("read_file 工具已注入")
@@ -625,12 +627,20 @@ class ReActMasterAgent(ConversableAgent):
             filtered_kwargs = {
                 k: v for k, v in kwargs.items() if k not in explicit_keys
             }
-            
+
             # 传入 AgentFileSystem 和截断配置用于大结果归档
             afs = await self._ensure_agent_file_system()
-            filtered_kwargs['agent_file_system'] = afs
-            filtered_kwargs['max_output_bytes'] = self._truncator_max_bytes if hasattr(self, '_truncator_max_bytes') else 5 * 1024
-            filtered_kwargs['max_output_lines'] = self._truncator_max_lines if hasattr(self, '_truncator_max_lines') else 50
+            filtered_kwargs["agent_file_system"] = afs
+            filtered_kwargs["max_output_bytes"] = (
+                self._truncator_max_bytes
+                if hasattr(self, "_truncator_max_bytes")
+                else 5 * 1024
+            )
+            filtered_kwargs["max_output_lines"] = (
+                self._truncator_max_lines
+                if hasattr(self, "_truncator_max_lines")
+                else 50
+            )
 
             tasks = []
             for real_action in real_actions:
@@ -678,13 +688,17 @@ class ReActMasterAgent(ConversableAgent):
                         if hasattr(real_action, "execute_params"):
                             tool_args = getattr(real_action, "execute_params", {})
 
-                        logger.info(f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}")
+                        logger.info(
+                            f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}"
+                        )
 
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
 
                         # ========== 集成：记录到 WorkLog ==========
-                        logger.info(f"📝 Calling _record_action_to_work_log for {tool_name}...")
+                        logger.info(
+                            f"📝 Calling _record_action_to_work_log for {tool_name}..."
+                        )
                         await self._record_action_to_work_log(
                             tool_name, tool_args, result
                         )
@@ -697,27 +711,42 @@ class ReActMasterAgent(ConversableAgent):
                         ):
                             self.set_phase("reporting", "任务完成，生成报告")
 
-# 如果是terminate action，附加交付文件
+                        # 如果是terminate action，附加交付文件
                         if isinstance(result, ActionOutput) and result.terminate:
                             result = await self._attach_delivery_files(result)
 
                             # ========== 集成：自动生成报告 ==========
-                            try:
-                                report_content = await self.generate_report(
-                                    report_type=self.report_default_type,
-                                    report_format=self.report_default_format,
-                                    save_to_file=True,
-                                )
-                                logger.info(f"Auto-generated report saved")
-                            except Exception as e:
-                                logger.warning(f"Failed to auto-generate report: {e}")
+                            if self.report_auto_generate:
+                                try:
+                                    report_content = await self.generate_report(
+                                        report_type=self.report_default_type,
+                                        report_format=self.report_default_format,
+                                        save_to_file=True,
+                                    )
+                                    if report_content:
+                                        if result.extra is None:
+                                            result.extra = {}
+                                        result.extra["report"] = report_content
+                                        if result.view:
+                                            result.view += f"\n\n---\n## 📋 Task Report\n\n{report_content[:2000]}"
+                                        else:
+                                            result.view = f"## 📋 Task Report\n\n{report_content[:2000]}"
+                                        logger.info(
+                                            f"Auto-generated report attached to result"
+                                        )
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to auto-generate report: {e}"
+                                    )
 
                             # 切换到完成阶段
                             self.set_phase("complete", "任务全部完成")
 
                         act_outs.append(result)
                     else:
-                        logger.warning(f"⚠️ Tool execution returned None/empty result for action: {real_action.name}")
+                        logger.warning(
+                            f"⚠️ Tool execution returned None/empty result for action: {real_action.name}"
+                        )
 
                 await self.push_context_event(
                     EventType.AfterAction,
@@ -967,6 +996,7 @@ class ReActMasterAgent(ConversableAgent):
             logger.info("注入技能资源")
 
             prompts = ""
+            skill_count = 0
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
@@ -975,14 +1005,95 @@ class ReActMasterAgent(ConversableAgent):
                         debug_info = getattr(skill_item, "debug_info", None)
                         if debug_info and debug_info.get("is_debug"):
                             mode, branch = "debug", debug_info.get("branch")
+                        skill_meta = skill_item.skill_meta(mode)
+                        if not skill_meta:
+                            continue
+                        skill_path = (
+                            skill_item._skill.parent_folder
+                            if hasattr(skill_item, "_skill") and skill_item._skill
+                            else skill_meta.path
+                        )
                         prompts += (
                             f"- <skill>"
-                            f"<name>{skill_item.skill_meta(mode).name}</name>"
-                            f"<description>{skill_item.skill_meta(mode).description}</description>"
-                            f"<path>{skill_item.skill_meta(mode).path}</path>"
+                            f"<name>{skill_meta.name}</name>"
+                            f"<description>{skill_meta.description}</description>"
+                            f"<path>{skill_path}</path>"
                             f"<branch>{branch}</branch>"
                             f"\n</skill>\n"
                         )
+                        skill_count += 1
+
+            if skill_count > 0:
+                skill_usage_guide = """
+<skill_usage_guide priority="highest">
+**重要：Skill 是任务执行的最高优先级资源！**
+
+使用流程：
+1. 分析用户任务目标
+2. 根据 description 匹配最相关的 Skill
+3. 使用 view 工具读取 Skill 完整内容
+4. 按 Skill 指导执行任务
+
+查看 Skill 内容示例：
+{
+  "tool_name": "view",
+  "args": {
+    "path": "<skill_path>/skill.md"
+  }
+}
+</skill_usage_guide>
+"""
+                prompts = (
+                    skill_usage_guide
+                    + "\n<available_skills>\n"
+                    + prompts
+                    + "</available_skills>"
+                )
+
+            return prompts
+
+        @self._vm.register("other_resources", "其他资源")
+        async def var_other_resources(instance):
+            logger.info("注入其他资源")
+
+            excluded_types = (
+                BaseTool,
+                MCPToolPack,
+                AppResource,
+                AgentSkillResource,
+                RetrieverResource,
+            )
+
+            prompts = ""
+            for k, v in self.resource_map.items():
+                if not isinstance(v[0], excluded_types):
+                    for item in v:
+                        try:
+                            resource_type = item.type()
+                            if isinstance(resource_type, str):
+                                type_name = resource_type
+                            else:
+                                type_name = (
+                                    resource_type.value
+                                    if hasattr(resource_type, "value")
+                                    else str(resource_type)
+                                )
+
+                            resource_prompt, _ = await item.get_prompt(
+                                lang=instance.agent_context.language
+                                if instance.agent_context
+                                else "en"
+                            )
+                            if resource_prompt:
+                                resource_name = (
+                                    item.name if hasattr(item, "name") else k
+                                )
+                                prompts += f"- <{type_name}><name>{resource_name}</name><prompt>{resource_prompt}</prompt>\n</{type_name}>\n"
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to get prompt for resource {k}: {e}"
+                            )
+                            continue
             return prompts
 
         @self._vm.register("system_tools", "系统工具")
@@ -1086,7 +1197,9 @@ class ReActMasterAgent(ConversableAgent):
             context = await instance._work_log_manager.get_context_for_prompt(
                 max_entries=50
             )
-            logger.info(f"var_work_log: fetched work log, entries={len(instance._work_log_manager.work_log)}")
+            logger.info(
+                f"var_work_log: fetched work log, entries={len(instance._work_log_manager.work_log)}"
+            )
             return context
 
         logger.info(f"register_variables end {self.role}")
@@ -1098,13 +1211,15 @@ class ReActMasterAgent(ConversableAgent):
             return
 
         # 添加锁保护防止并发初始化
-        if not hasattr(self, '_work_log_initialization_lock'):
+        if not hasattr(self, "_work_log_initialization_lock"):
             self._work_log_initialization_lock = asyncio.Lock()
 
         async with self._work_log_initialization_lock:
             # 双重检查
             if self._work_log_manager and self._work_log_initialized:
-                logger.info("WorkLogManager already initialized, skipping re-initialization")
+                logger.info(
+                    "WorkLogManager already initialized, skipping re-initialization"
+                )
                 return
 
             logger.info("Initializing WorkLogManager...")
@@ -1116,11 +1231,15 @@ class ReActMasterAgent(ConversableAgent):
                 conv_id = self.not_null_agent_context.conv_id or "default"
                 session_id = self.not_null_agent_context.conv_session_id or conv_id
 
-            logger.info(f"WorkLogManager session info: conv_id={conv_id}, session_id={session_id}")
+            logger.info(
+                f"WorkLogManager session info: conv_id={conv_id}, session_id={session_id}"
+            )
 
             afs = await self._ensure_agent_file_system()
             if not afs:
-                logger.warning("AgentFileSystem not available, WorkLogManager will not initialize")
+                logger.warning(
+                    "AgentFileSystem not available, WorkLogManager will not initialize"
+                )
                 return
 
             self._work_log_manager = await create_work_log_manager(
@@ -1132,10 +1251,14 @@ class ReActMasterAgent(ConversableAgent):
             )
 
             self._work_log_initialized = True
-            logger.info(f"WorkLogManager initialized: agent_id={self.name}, session_id={session_id}")
+            logger.info(
+                f"WorkLogManager initialized: agent_id={self.name}, session_id={session_id}"
+            )
 
             await self._work_log_manager.initialize()
-            logger.info(f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries")
+            logger.info(
+                f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries"
+            )
 
     async def _record_action_to_work_log(
         self,
@@ -1144,8 +1267,10 @@ class ReActMasterAgent(ConversableAgent):
         action_output: ActionOutput,
     ):
         """记录操作到 WorkLog"""
-        logger.info(f"_record_action_to_work_log: start, tool={tool_name}, enable_work_log={self.enable_work_log}")
-        
+        logger.info(
+            f"_record_action_to_work_log: start, tool={tool_name}, enable_work_log={self.enable_work_log}"
+        )
+
         if not self.enable_work_log:
             logger.info("_record_action_to_work_log: work_log disabled, returning")
             return
@@ -1153,10 +1278,14 @@ class ReActMasterAgent(ConversableAgent):
         # 确保工作日志管理器已初始化
         logger.info("_record_action_to_work_log: calling _ensure_work_log_manager...")
         await self._ensure_work_log_manager()
-        logger.info(f"_record_action_to_work_log: _ensure_work_log_manager done, manager={self._work_log_manager is not None}, initialized={self._work_log_initialized}")
+        logger.info(
+            f"_record_action_to_work_log: _ensure_work_log_manager done, manager={self._work_log_manager is not None}, initialized={self._work_log_initialized}"
+        )
 
         if not self._work_log_manager:
-            logger.warning("Failed to initialize WorkLogManager, skipping work log recording")
+            logger.warning(
+                "Failed to initialize WorkLogManager, skipping work log recording"
+            )
             return
 
         tags = []
@@ -1166,15 +1295,19 @@ class ReActMasterAgent(ConversableAgent):
             tags.append("large_output")
 
         try:
-            logger.info(f"_record_action_to_work_log: calling record_action for {tool_name}...")
+            logger.info(
+                f"_record_action_to_work_log: calling record_action for {tool_name}..."
+            )
             entry = await self._work_log_manager.record_action(
                 tool_name=tool_name,
                 args=args if args is not None else {},
                 action_output=action_output,
                 tags=tags,
             )
-            logger.info(f"✅ Recorded work log: tool={tool_name}, success={action_output.is_exe_success}, "
-                       f"total_entries={len(self._work_log_manager.work_log)}")
+            logger.info(
+                f"✅ Recorded work log: tool={tool_name}, success={action_output.is_exe_success}, "
+                f"total_entries={len(self._work_log_manager.work_log)}"
+            )
         except Exception as e:
             logger.exception(f"Failed to record work log for {tool_name}: {e}")
 

@@ -15,25 +15,12 @@ Open RCA Agent Module
 - 诊断完成后委派 Reporter 生成报告
 """
 
-from derisk_ext.agent.agents.open_rca.open_rca_react_agent import (
-    OpenRcaReActMasterAgent,
-)
-from derisk_ext.agent.agents.open_rca.open_rca_skill_resource import (
-    OpenRcaSkillResource,
-    OpenRcaSkillMeta,
-    OpenRcaSkillResourceParameters,
-)
 from derisk_ext.agent.agents.open_rca.ipython_agent import IpythonAssistantAgent
 from derisk_ext.agent.agents.open_rca.diag_reporter_agent import DiagRportAssistantAgent
 from derisk_ext.agent.agents.open_rca.sre_planning_agent import SrePlanningAgent
 from derisk_ext.agent.agents.open_rca.sre_agent import SreManager
 
 __all__ = [
-    # 新版 ReAct 架构
-    "OpenRcaReActMasterAgent",
-    "OpenRcaSkillResource",
-    "OpenRcaSkillMeta",
-    "OpenRcaSkillResourceParameters",
     # 原有 Agent（兼容保留）
     "IpythonAssistantAgent",
     "DiagRportAssistantAgent",

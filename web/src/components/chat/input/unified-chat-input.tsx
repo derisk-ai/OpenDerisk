@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   ArrowUpOutlined, 
   PaperClipOutlined,
-  PlusOutlined,
   DownOutlined,
   PauseCircleOutlined,
   RedoOutlined,
@@ -15,10 +14,10 @@ import {
   SearchOutlined,
   CheckOutlined,
   LoadingOutlined,
-  ThunderboltOutlined,
   FileOutlined,
-  SettingFilled,
-  FileTextOutlined
+  FileTextOutlined,
+  FolderAddOutlined,
+  DatabaseOutlined
 } from '@ant-design/icons';
 import { 
   Button, 
@@ -31,19 +30,67 @@ import {
   Slider,
   Collapse,
   Spin,
+  Select,
+  message,
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
-import { apiInterceptors, getModelList, clearChatHistory, stopChat } from '@/client/api';
+import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2 } from '@/client/api';
 import { ChatContentContext } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
+import { IChatDialogueMessageSchema, UserChatContent } from '@/types/chat';
 import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layout-config';
 import { parseResourceValue, transformFileUrl } from '@/utils';
-import Image from 'next/image';
-import { ConnectorsModal } from '@/components/chat/connectors-modal';
+import { useSearchParams } from 'next/navigation';
 
 const { Panel } = Collapse;
+
+interface ChatInLayoutItem {
+  param_type: string;
+  sub_type?: string;
+  param_description?: string;
+  param_default_value?: string | number;
+  [key: string]: unknown;
+}
+
+interface ChatInParamItem {
+  param_type: string;
+  param_value: string;
+  sub_type: string;
+}
+
+interface ResourceOptionItem {
+  label: string;
+  value: string;
+  key?: string;
+  [key: string]: unknown;
+}
+
+interface ParsedResourceItem {
+  type: string;
+  image_url?: { url: string; file_name?: string };
+  file_url?: { url: string; file_name?: string };
+}
+
+const getAcceptTypes = (type: string) => {
+  switch (type) {
+    case 'excel_file':
+      return '.csv,.xlsx,.xls';
+    case 'text_file':
+      return '.txt,.doc,.docx,.pdf,.md';
+    case 'image_file':
+      return '.jpg,.jpeg,.png,.gif,.bmp,.webp';
+    case 'audio_file':
+      return '.mp3,.wav,.ogg,.aac';
+    case 'video_file':
+      return '.mp4,.wav,.mov';
+    case 'common_file':
+      return '';
+    default:
+      return '';
+  }
+};
 
 // 模型参数配置弹窗
 interface ModelParamsModalProps {
@@ -177,7 +224,6 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     setMaxNewTokensValue,
     refreshHistory,
     modelValue,
-    setModelValue,
   } = context;
 
   const [userInput, setUserInput] = useState<string>('');
@@ -187,65 +233,23 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   const submitCountRef = useRef(0);
   const [clsLoading, setClsLoading] = useState<boolean>(false);
 
-  const dragRef = useRef<HTMLDivElement | null>(null);
-  const dragStateRef = useRef<{ dragging: boolean; startX: number; startY: number; originX: number; originY: number }>({
-    dragging: false,
-    startX: 0,
-    startY: 0,
-    originX: 0,
-    originY: 0,
-  });
-  const [floatPosition, setFloatPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const handleMove = (event: MouseEvent) => {
-      if (!dragStateRef.current.dragging) return;
-      const dx = event.clientX - dragStateRef.current.startX;
-      const dy = event.clientY - dragStateRef.current.startY;
-      setFloatPosition({
-        x: dragStateRef.current.originX + dx,
-        y: dragStateRef.current.originY + dy,
-      });
-    };
-
-    const handleUp = () => {
-      dragStateRef.current.dragging = false;
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, []);
-
-  const startDrag = (event: React.MouseEvent<HTMLDivElement>) => {
-    dragStateRef.current = {
-      dragging: true,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: floatPosition.x,
-      originY: floatPosition.y,
-    };
-  };
-
   // 模型相关
   const [modelList, setModelList] = useState<IModelData[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [modelSearch, setModelSearch] = useState('');
   const [isModelOpen, setIsModelOpen] = useState(false);
   const [isParamsModalOpen, setIsParamsModalOpen] = useState(false);
-
-  // 资源/技能相关
-  const [isConnectorsModalOpen, setIsConnectorsModalOpen] = useState(false);
-  const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('local');
+  
+  // 动态资源选择相关
+  const [resourceOptions, setResourceOptions] = useState<{ label: string; value: string; [key: string]: unknown }[]>([]);
+  const searchParams = useSearchParams();
+  const scene = searchParams?.get('scene') ?? '';
+  const chatId = (searchParams?.get('conv_uid') || searchParams?.get('chatId')) ?? '';
 
   // 获取模型列表
   useRequest(
     async () => {
-      const [_, data] = await apiInterceptors(getModelList());
+      const [, data] = await apiInterceptors(getModelList());
       return data || [];
     },
     {
@@ -271,8 +275,125 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   );
 
   const paramKey: string[] = useMemo(() => {
-    return appInfo?.layout?.chat_in_layout?.map((i: any) => i.param_type) || [];
+    return appInfo?.layout?.chat_in_layout?.map((i: ChatInLayoutItem) => i.param_type) || [];
   }, [appInfo?.layout?.chat_in_layout]);
+
+  // 获取resource配置
+  const resourceConfig = useMemo(
+    () => appInfo?.layout?.chat_in_layout?.find((i: ChatInLayoutItem) => i.param_type === 'resource'),
+    [appInfo?.layout?.chat_in_layout]
+  );
+
+  // 判断是否需要显示资源选择器（非媒体类型资源需要选择）
+  const shouldShowResourceSelect = useMemo(() => {
+    return (
+      paramKey.includes('resource') &&
+      resourceConfig &&
+      !MEDIA_RESOURCE_TYPES.includes(resourceConfig?.sub_type ?? '')
+    );
+  }, [paramKey, resourceConfig]);
+
+  // 判断是否需要显示文件上传按钮（媒体类型资源需要上传）
+  const shouldShowFileUpload = useMemo(() => {
+    return (
+      paramKey.includes('resource') &&
+      resourceConfig &&
+      MEDIA_RESOURCE_TYPES.includes(resourceConfig?.sub_type ?? '')
+    );
+  }, [paramKey, resourceConfig]);
+
+  // 获取资源选项 - 使用 getResourceV2 直接获取资源列表
+  const { run: fetchResourceOptions, loading: fetchResourceLoading } = useRequest(
+    async (subType: string) => {
+      const res = await getResourceV2({ type: subType });
+      return res;
+    },
+    {
+      manual: true,
+      onSuccess: (response) => {
+        // getResourceV2 直接返回 axios 响应，结构是 response.data.data
+        const resourceData = response?.data?.data as unknown as { valid_values?: { key: string; label: string }[] }[];
+        if (!resourceData) return;
+        // 从 valid_values 中提取选项，并去重
+        const options = resourceData.flatMap((item) => 
+          item.valid_values?.map((opt) => ({
+            label: opt.label,
+            value: opt.key,
+            key: opt.key,
+          })) || []
+        );
+        // 根据 value 去重
+        const uniqueOptions = options.filter((item, index, self) => 
+          index === self.findIndex(t => t.value === item.value)
+        );
+        setResourceOptions(uniqueOptions);
+      },
+    }
+  );
+
+  // 当资源配置变化时获取资源选项
+  useEffect(() => {
+    if (resourceConfig?.sub_type && paramKey.includes('resource') && !MEDIA_RESOURCE_TYPES.includes(resourceConfig.sub_type)) {
+      fetchResourceOptions(resourceConfig.sub_type);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resourceConfig?.sub_type]);
+
+  // 过滤非resource类型的chatInParams
+  const extendedChatInParams = useMemo(() => {
+    return chatInParams?.filter((i: ChatInParamItem) => i.param_type !== 'resource') || [];
+  }, [chatInParams]);
+
+  // 处理资源选择变化
+  const handleResourceSelectChange = useCallback((val: string) => {
+    if (!val || !resourceConfig) return;
+    
+    const resourceItem = resourceOptions.find((item: ResourceOptionItem) => item.value === val);
+    setResourceValue(resourceItem as Record<string, unknown>);
+    
+    const newChatInParams = [
+      ...extendedChatInParams,
+      {
+        param_type: 'resource',
+        param_value: JSON.stringify(resourceItem),
+        sub_type: resourceConfig.sub_type,
+      },
+    ];
+    setChatInParams(newChatInParams);
+  }, [resourceConfig, resourceOptions, extendedChatInParams, setResourceValue, setChatInParams]);
+
+  // 处理文件上传
+  const handleFileUpload = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('doc_files', file);
+
+    const [, res] = await apiInterceptors(
+      postChatModeParamsFileLoad({
+        convUid: chatId || '',
+        chatMode: scene || 'chat_normal',
+        data: formData,
+        model: modelValue,
+        temperatureValue,
+        maxNewTokensValue,
+        config: {
+          timeout: 1000 * 60 * 60,
+        },
+      }),
+    );
+    
+    if (res && resourceConfig) {
+      const newChatInParams = [
+        ...extendedChatInParams,
+        {
+          param_type: 'resource',
+          param_value: JSON.stringify(res),
+          sub_type: resourceConfig.sub_type,
+        },
+      ];
+      setChatInParams(newChatInParams);
+      setResourceValue(res);
+    }
+  }, [chatId, scene, modelValue, temperatureValue, maxNewTokensValue, resourceConfig, extendedChatInParams, setChatInParams, setResourceValue]);
 
   const groupedModels = useMemo(() => {
     const groups: Record<string, string[]> = {};
@@ -340,12 +461,12 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
                     onClick={() => {
                       setSelectedModel(model);
                       setIsModelOpen(false);
-                      const extendedChatInParams = chatInParams?.filter((i: any) => i.param_type !== 'model') || [];
+                      const filteredParams = chatInParams?.filter((i: ChatInParamItem) => i.param_type !== 'model') || [];
                       const modelConfig = appInfo?.layout?.chat_in_layout?.find(
-                        (i: any) => i.param_type === 'model'
+                        (i: ChatInLayoutItem) => i.param_type === 'model'
                       );
                       setChatInParams([
-                        ...extendedChatInParams,
+                        ...filteredParams,
                         {
                           param_type: 'model',
                           param_value: model,
@@ -407,25 +528,16 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     const resources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
     if (resources.length === 0) return null;
 
-    const extendedChatInParams = useMemo(() => {
-      return chatInParams?.filter((i: any) => i.param_type !== 'resource') || [];
-    }, [chatInParams]);
-
-    const resource = useMemo(
-      () => appInfo?.layout?.chat_in_layout?.find((i: any) => i.param_type === 'resource'),
-      [appInfo?.layout?.chat_in_layout]
-    );
-
     const handleDelete = () => {
-      setResourceValue(null);
-      const chatInParamsResource = chatInParams.find((i: any) => i.param_type === 'resource');
+      setResourceValue({} as Record<string, unknown>);
+      const chatInParamsResource = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
       if (chatInParamsResource && chatInParamsResource?.param_value) {
         const chatInParam = [
           ...extendedChatInParams,
           {
             param_type: 'resource',
             param_value: '',
-            sub_type: resource?.sub_type,
+            sub_type: resourceConfig?.sub_type,
           },
         ];
         setChatInParams(chatInParam);
@@ -434,7 +546,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
 
     return (
       <div className="flex flex-wrap gap-2 mb-3">
-        {resources.map((item: any, index: number) => {
+        {resources.map((item: ParsedResourceItem, index: number) => {
           if (item.type === 'image_url' && item.image_url?.url) {
             const previewUrl = transformFileUrl(item.image_url.url);
             return (
@@ -546,6 +658,15 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   const onSubmit = async () => {
     if (!userInput.trim() && fileList.length === 0) return;
 
+    if (shouldShowResourceSelect) {
+      const resourceParam = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
+      const hasResourceValue = resourceParam?.param_value && resourceParam.param_value.trim() !== '';
+      if (!hasResourceValue) {
+        message.warning(t('please_select_resource', '请先选择资源'));
+        return;
+      }
+    }
+
     submitCountRef.current++;
     setTimeout(() => {
       scrollRef.current?.scrollTo({
@@ -554,12 +675,12 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       });
     }, 0);
 
-    let newUserInput: any;
-    const resourceConfig = chatInParams.find((i: any) => i.param_type === 'resource');
+    let newUserInput: UserChatContent;
+    const currentResourceConfig = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
     
-    if (MEDIA_RESOURCE_TYPES.includes(resourceConfig?.sub_type ?? '')) {
+    if (MEDIA_RESOURCE_TYPES.includes(currentResourceConfig?.sub_type ?? '')) {
       const resources = parseResourceValue(resourceValue);
-      const messages = [...resources];
+      const messages: (ParsedResourceItem | { type: string; text: string })[] = [...(resources || [])];
       if (userInput.trim()) {
         messages.push({ type: 'text', text: userInput });
       }
@@ -593,7 +714,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   };
 
   const handleRetry = () => {
-    const lastHuman = history.filter((i: any) => i.role === 'human')?.slice(-1)?.[0];
+    const lastHuman = history.filter((i: IChatDialogueMessageSchema) => i.role === 'human')?.slice(-1)?.[0];
     if (lastHuman) {
       handleChat(lastHuman.context || '', {
         app_code: appInfo.app_code,
@@ -633,14 +754,9 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
 
   return (
     <div className="w-full relative">
-      {/* 浮动操作按钮 - 可拖动 */}
+      {/* 浮动操作按钮 - 右上角 */}
       {showFloatingActions && history.length > 0 && (
-        <div
-          ref={dragRef}
-          onMouseDown={startDrag}
-          className="absolute -top-14 right-0 flex items-center gap-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-100 dark:border-gray-700 px-2 py-1 z-20 cursor-move select-none"
-          style={{ transform: `translate(${floatPosition.x}px, ${floatPosition.y}px)` }}
-        >
+        <div className="absolute -top-14 right-0 flex items-center gap-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-100 dark:border-gray-700 px-2 py-1 z-20">
           <Tooltip title={t('stop_replying', '暂停生成')} placement="top">
             <button
               onClick={handleStop}
@@ -745,24 +861,51 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
           />
         </div>
 
-        {/* 底部工具栏 - 首页样式：左侧模型选择，右侧文件上传和发送 */}
+        {/* 底部工具栏 - 首页样式：左侧资源选择/模型选择，右侧文件上传和发送 */}
         <div className="flex items-center justify-between px-3 pb-3">
           <div className="flex items-center gap-2">
-            {/* 资源选择按钮 - 始终显示 */}
-            <Tooltip title={t('select_resource', '选择资源')}>
-              <button
-                onClick={() => {
-                  setConnectorsModalTab('local');
-                  setIsConnectorsModalOpen(true);
+            {/* 动态资源选择器 - 根据chat_in_layout配置渲染 */}
+            {shouldShowResourceSelect && (
+              <Select
+                className="w-[160px] h-9 [&_.ant-select-selector]:!pr-8 [&_.ant-select-selection-item]:!max-w-[100px] [&_.ant-select-selection-item]:!truncate"
+                placeholder={resourceConfig?.param_description || t('select_resource', '选择资源')}
+                value={(resourceValue?.value || resourceValue?.key) as string | undefined}
+                onChange={handleResourceSelectChange}
+                loading={fetchResourceLoading}
+                options={resourceOptions}
+                suffixIcon={<DatabaseOutlined className="text-gray-400" />}
+                variant="borderless"
+                style={{ 
+                  backgroundColor: 'rgb(249 250 251 / 1)',
+                  borderRadius: '9999px',
                 }}
-                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all"
-              >
-                <PlusOutlined />
-              </button>
-            </Tooltip>
+                popupMatchSelectWidth={false}
+              />
+            )}
 
-            {/* 分隔线 */}
-            <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+            {/* 媒体类型文件上传按钮 */}
+            {shouldShowFileUpload && (
+              <Upload
+                name="file"
+                accept={getAcceptTypes(resourceConfig?.sub_type || '')}
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  handleFileUpload(file);
+                  return false;
+                }}
+              >
+                <Tooltip title={resourceConfig?.param_description || t('upload_file', '上传文件')}>
+                  <button className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">
+                    <FolderAddOutlined />
+                  </button>
+                </Tooltip>
+              </Upload>
+            )}
+
+            {/* 分隔线 - 仅当有资源配置时显示 */}
+            {(shouldShowResourceSelect || shouldShowFileUpload) && (
+              <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+            )}
 
             {/* 模型选择器 */}
             <Popover
@@ -834,15 +977,6 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         onTemperatureChange={setTemperatureValue}
         maxTokens={maxNewTokensValue}
         onMaxTokensChange={setMaxNewTokensValue}
-      />
-
-      {/* 资源选择弹窗 */}
-      <ConnectorsModal
-        open={isConnectorsModalOpen}
-        onCancel={() => setIsConnectorsModalOpen(false)}
-        defaultTab={connectorsModalTab}
-        selectedSkills={[]}
-        onSkillsChange={() => {}}
       />
     </div>
   );

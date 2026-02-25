@@ -23,7 +23,6 @@ def initialize_components(
     param: ApplicationConfig,
     system_app: SystemApp,
 ):
-    # Lazy import to avoid high time cost
     from derisk.model.cluster.controller.controller import controller
     from derisk_app.initialization.embedding_component import (
         _initialize_embedding_model,
@@ -38,7 +37,6 @@ def initialize_components(
     web_config = param.service.web
     default_embedding_name = param.models.default_embedding
     default_rerank_name = param.models.default_reranker
-    # Register global default executor factory first
     system_app.register(
         DefaultExecutorFactory, max_workers=web_config.default_thread_pool_size
     )
@@ -48,8 +46,10 @@ def initialize_components(
     system_app.register(StorageManager)
 
     system_app.register_instance(multi_agents)
-    _initialize_embedding_model(system_app, default_embedding_name)
-    _initialize_rerank_model(system_app, default_rerank_name)
+    if default_embedding_name:
+        _initialize_embedding_model(system_app, default_embedding_name)
+    if default_rerank_name:
+        _initialize_rerank_model(system_app, default_rerank_name)
     _initialize_model_cache(system_app, web_config)
     _initialize_awel(system_app, web_config.awel_dirs)
     # Initialize resource manager of agent
@@ -159,6 +159,13 @@ def _initialize_resource_manager(system_app: SystemApp):
 
     rm.register_resource(resource_instance=flamegraph_overview)
     rm.register_resource(resource_instance=flamegraph_drill_down)
+
+    # Register OpenRCA scene resource
+    from derisk_ext.agent.agents.open_rca.resource.open_rca_resource import (
+        OpenRcaSceneResource,
+    )
+
+    rm.register_resource(OpenRcaSceneResource)
 
     # Register mock tool 在页面上注册工具
     # from derisk_ext.agent.agents.smartTestUI.tool.image_find_static_bug_tools import find_image_bugs
