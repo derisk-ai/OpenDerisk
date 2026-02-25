@@ -472,6 +472,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 notice_view = await self.gen_one_final_notice_vis(gpt_msg)
                 if notice_view:
                     foot_vis = foot_vis + "\n" + notice_view
+
+                final_conclusion_vis = await self._render_final_conclusion(gpt_msg)
+                if final_conclusion_vis:
+                    foot_vis = foot_vis + "\n" + final_conclusion_vis
         ## 规划空间的footer信息
         if foot_vis:
             plans_vis.append(foot_vis)
@@ -1328,15 +1332,24 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             渲染后的 vis 字符串，如果没有结论则返回 None
         """
         from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
+        from derisk.agent.core.action.base import ActionOutput
 
         conclusion_content = None
+
+        def _get_action_out_value(action_out, key, default=None):
+            """helper to get value from ActionOutput or dict"""
+            if isinstance(action_out, dict):
+                return action_out.get(key, default)
+            return getattr(action_out, key, default)
 
         # 优先从 action_report 中获取 terminate 的结论 (ReActMaster 等使用 terminate 工具的场景)
         if output_message.action_report:
             for action_out in output_message.action_report:
-                if action_out.terminate:
+                if _get_action_out_value(action_out, "terminate"):
                     conclusion_content = (
-                        action_out.view or action_out.content or action_out.simple_view
+                        _get_action_out_value(action_out, "view")
+                        or _get_action_out_value(action_out, "content")
+                        or _get_action_out_value(action_out, "simple_view")
                     )
                     if conclusion_content:
                         break
@@ -1346,8 +1359,12 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             # 优先使用 action_report 的内容
             if output_message.action_report:
                 for action_out in output_message.action_report:
-                    if action_out.view or action_out.content:
-                        conclusion_content = action_out.view or action_out.content
+                    if _get_action_out_value(
+                        action_out, "view"
+                    ) or _get_action_out_value(action_out, "content"):
+                        conclusion_content = _get_action_out_value(
+                            action_out, "view"
+                        ) or _get_action_out_value(action_out, "content")
                         break
             # 否则使用消息 content
             if not conclusion_content:
