@@ -18,15 +18,12 @@ from derisk.agent import (
     AgentContext,
     UserProxyAgent,
     LLMStrategyType,
-    EnhancedShortTermMemory,
-    HybridMemory,
     GptsMemory,
     LLMConfig,
     ResourceType,
     ShortTermMemory,
 )
 from derisk.agent.core.base_team import ManagerAgent
-from derisk.agent.core.memory.extract_memory import ExtractMemory
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.sandbox_manager import SandboxManager
@@ -710,27 +707,8 @@ class AgentChat(BaseComponent, ABC):
                 file_handle.close()
 
     def get_or_build_agent_memory(self, conv_id: str, derisks_name: str) -> AgentMemory:
-        from derisk.rag.embedding.embedding_factory import EmbeddingFactory
-        from derisk_serve.rag.storage_manager import StorageManager
-
-        executor = self.system_app.get_component(
-            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-        ).create()
-
-        storage_manager = StorageManager.get_instance(self.system_app)
-        vector_store = storage_manager.create_vector_store(index_name="_agent_memory_")
-        embeddings = EmbeddingFactory.get_instance(self.system_app).create()
-        short_term_memory = EnhancedShortTermMemory(
-            embeddings, executor=executor, buffer_size=10
-        )
-        memory = HybridMemory.from_vstore(
-            vector_store,
-            embeddings=embeddings,
-            executor=executor,
-            short_term_memory=short_term_memory,
-        )
-        agent_memory = AgentMemory(memory, gpts_memory=self.memory)
-
+        session_memory = ShortTermMemory(buffer_size=10)
+        agent_memory = AgentMemory(session_memory, gpts_memory=self.memory)
         return agent_memory
 
     @trace("agent.get_or_build_memory", requires=["conv_id", "agent_id"])
@@ -747,73 +725,11 @@ class AgentChat(BaseComponent, ABC):
             conv_id:(str) conversation ID
             agent_id:(str) app_code
         """
-        from derisk_serve.rag.storage_manager import StorageManager
-        from derisk_ext.agent.memory.session import SessionMemory
-        from derisk_ext.agent.memory.session import (
-            _METADATA_SESSION_ID,
-            _METADATA_AGENT_ID,
-        )
-        from derisk_ext.agent.memory.preference import PreferenceMemory
-
-        executor = self.system_app.get_component(
-            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
-        ).create()
-
-        storage_manager = StorageManager.get_instance(self.system_app)
-        # session_id = f"session_{conv_id}"
-        index_name = f"session_{agent_id}"
-        vector_store = storage_manager.create_vector_store(
-            index_name=index_name,
-            extra_indexes=[_METADATA_SESSION_ID, _METADATA_AGENT_ID],
-        )
-        worker_manager = self.system_app.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        llm_client = DefaultLLMClient(worker_manager=worker_manager)
         session_memory = ShortTermMemory(buffer_size=20)
-
-        long_term_index_name = "agent_long_term_memory_fragments"
-        extract_vector_store = storage_manager.create_vector_store(
-            index_name=long_term_index_name
-        )
-        extract_memory = ExtractMemory(
-            agent_id=agent_id,
-            vector_store=extract_vector_store,
-            executor=executor,
-        )
-
         agent_memory = AgentMemory(
             memory=session_memory,
             gpts_memory=self.memory,
-            extract_memory=extract_memory,
         )
-
-        # 配置部分Agent有user preference
-        if team_context:
-            resources = team_context.resources
-            enable_user_memory = False
-            if resources:
-                for resource in resources:
-                    if resource.type == "memory":
-                        json_val = json.loads(resource.value)
-                        if (
-                            "enable_user_memory" in json_val
-                            and json_val["enable_user_memory"]
-                        ):
-                            enable_user_memory = True
-
-            if enable_user_memory:
-                logger.info(f"get_or_build_derisk_memory enable_user_memory:{user_id}")
-                index_name = f"user_{user_id}"
-                user_store = storage_manager.create_vector_store(index_name=index_name)
-                metadata: Dict[str, Any] = {"user_id": user_id}
-                preference_memory = PreferenceMemory(
-                    agent_id=agent_id,
-                    vector_store=user_store,
-                    executor=executor,
-                    metadata=metadata,
-                )
-                agent_memory.preference_memory = preference_memory
         return agent_memory
 
     async def build_agent_by_app_code(
