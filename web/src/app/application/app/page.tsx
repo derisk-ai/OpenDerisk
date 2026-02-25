@@ -1,373 +1,226 @@
-"use client"
-import { ChatContext } from '@/contexts';
-import {
-  apiInterceptors,
-  delApp,
-  getAppAdmins,
-  getAppList,
-  newDialogue,
-  publishAppNew,
-  unPublishApp,
-  updateAppAdmins,
-} from '@/client/api';
-import BlurredCard, { ChatButton, InnerDropdown } from '@/components/blurred-card';
+'use client';
+
+import { apiInterceptors, getAppInfo, newDialogue, updateApp, getAppVersion } from '@/client/api';
+import { AppContext } from '@/contexts';
 import { IApp } from '@/types/app';
-import { BulbOutlined, PlusOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
-import { useDebounceFn, useRequest } from 'ahooks';
-import { App as AntdApp, Button, Input, Pagination, Popover, Segmented, SegmentedProps, Spin, Tag, message } from 'antd';
-import moment from 'moment';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useRequest } from 'ahooks';
+import { Spin, App } from 'antd';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import CreateAppModal from '@/components/create-app-modal';
+import AgentList from './components/agent-list';
+import AgentHeader from './components/agent-header';
+import TabOverview from './components/tab-overview';
+import TabPrompts from './components/tab-prompts';
+import TabSkills from './components/tab-skills';
+import TabAgents from './components/tab-agents';
+import TabKnowledge from './components/tab-knowledge';
+import ChatContent from './components/chat-content';
+import { AppstoreOutlined } from '@ant-design/icons';
 
-type TabKey = 'all' | 'published' | 'unpublished';
-type ModalType = 'edit' | 'add';
-
-export default function App() {
-  const { modal, notification } = AntdApp.useApp();
-  const router = useRouter();
+export default function AgentBuilder() {
+  const { message, notification } = App.useApp();
   const { t } = useTranslation();
-  const [open, setOpen] = useState<boolean>(false);
-  const [spinning, setSpinning] = useState<boolean>(false);
-  const [activeKey, setActiveKey] = useState<TabKey>('all');
-  const [apps, setApps] = useState<IApp[]>([]);
-  const [modalType, setModalType] = useState<ModalType>('add');
-  const { model, setAgent: setAgentToChat, setCurrentDialogInfo } = useContext(ChatContext);
-  const searchParams = useSearchParams();
-  const openModal = searchParams?.get('openModal') ?? '';
-  const [filterValue, setFilterValue] = useState('');
-  const [curApp] = useState<IApp>();
-  const [adminOpen, setAdminOpen] = useState<boolean>(false);
-  const [admins, setAdmins] = useState<string[]>([]);
-  // 分页信息
-  const totalRef = useRef<{
-    current_page: number;
-    total_count: number;
-    total_page: number;
-    page_size:number;
-  } | null>(null);
 
-  const handleCreate = () => {
-    setModalType('add');
-    setOpen(true);
-    localStorage.removeItem('new_app_info');
-  };
+  // Agent selection
+  const [selectedAppCode, setSelectedAppCode] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('overview');
 
-  const handleEdit = (app: any) => {
-    localStorage.setItem('new_app_info', JSON.stringify({ ...app, isEdit: true }));
-    router.replace(`/application/structure/?app_code=${app.app_code}`);
-  };
+  // AppContext state (mirrors structure/page.tsx)
+  const [collapsed, setCollapsed] = useState(false);
+  const [appInfo, setAppInfo] = useState<any>({});
+  const [versionData, setVersionData] = useState<any>(null);
+  const [chatId, setChatId] = useState<string>('');
 
-  const getListFiltered = useCallback(() => {
-    let published = undefined;
-    if (activeKey === 'published') {
-      published = 'true';
-    }
-    if (activeKey === 'unpublished') {
-      published = 'false';
-    }
-    initData({ name_filter: filterValue, published });
-  }, [activeKey, filterValue]);
-
-  const handleTabChange = (activeKey: string) => {
-    setActiveKey(activeKey as TabKey);
-  };
-
-  // 发布或取消发布应用
-  const { run: operate } = useRequest(
-    async (app: IApp) => {
-      if (app.published === 'true') {
-
-        return await apiInterceptors(unPublishApp(app.app_code));
-      } else {
-        return await apiInterceptors(publishAppNew({ app_code: app.app_code }));
-      }
-    },
+  // Query agent info
+  const {
+    run: queryAppInfo,
+    refresh: refreshAppInfo,
+    loading: refreshAppInfoLoading,
+  } = useRequest(
+    async (app_code: string, config_code?: string) =>
+      await apiInterceptors(
+        getAppInfo({ app_code, config_code }),
+        notification,
+      ),
     {
       manual: true,
       onSuccess: data => {
-        if (data[2]?.success) {
-          message.success(t('app_operation_success'));
+        const [, res] = data;
+        setAppInfo(res || ({} as IApp));
+      },
+    },
+  );
+
+  // Update agent
+  const { run: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(
+    async (app: any) => await apiInterceptors(updateApp(app), notification),
+    {
+      manual: true,
+      onSuccess: data => {
+        const [, res] = data;
+        if (!res) {
+          message.error(t('application_update_failed'));
+          return;
         }
-        getListFiltered();
+        setAppInfo(res || ({} as IApp));
+      },
+      onError: err => {
+        message.error(t('application_update_failed'));
+        console.error('update app error', err);
       },
     },
   );
 
-  const initData = useDebounceFn(
-    async params => {
-      setSpinning(true);
-      const obj: any = {
-        page: 1,
-        page_size: 12,
-        ...params,
-      };
-      const [error, data] = await apiInterceptors(getAppList(obj), notification);
-      if (error) {
-        setSpinning(false);
-        return;
-      }
-      if (!data) return;
-      setApps(data?.app_list || []);
-      totalRef.current = {
-        current_page: data?.current_page || 1,
-        total_count: data?.total_count || 0,
-        total_page: data?.total_page || 0,
-        page_size: 12,
-      };
-      setSpinning(false);
-    },
+  // Version data
+  const { refreshAsync: refetchVersionData } = useRequest(
+    async () => await getAppVersion({ app_code: appInfo.app_code }),
     {
-      wait: 500,
-    },
-  ).run;
-
-  const showDeleteConfirm = (app: IApp) => {
-    modal.confirm({
-      title: t('Tips'),
-      icon: <WarningOutlined />,
-      content: t('app_delete_confirm'),
-      okText: t('app_delete_yes'),
-      okType: 'danger',
-      cancelText: t('app_delete_no'),
-      async onOk() {
-        await apiInterceptors(delApp({ app_code: app.app_code }));
-        getListFiltered();
-      },
-    });
-  };
-
-  useEffect(() => {
-    if (openModal) {
-      setModalType('add');
-      setOpen(true);
-    }
-  }, [openModal]);
-
-  const languageMap = {
-    en: t('English'),
-    zh: t('Chinese'),
-  };
-  const handleChat = async (app: IApp) => {
-    // 不区分 原生应用跳转 和 自定义应用
-    const [, res] = await apiInterceptors(newDialogue({ app_code: app.app_code }));
-    if (res) {
-      setAgentToChat?.(app.app_code);
-      router.push(`/chat/?app_code=${app.app_code}&conv_uid=${res.conv_uid}`);
-    }
-  };
-  const items: SegmentedProps['options'] = [
-    {
-      value: 'all',
-      label: t('apps'),
-    },
-    {
-      value: 'published',
-      label: t('published'),
-    },
-    {
-      value: 'unpublished',
-      label: t('unpublished'),
-    },
-  ];
-
-  const onSearch = async (e: any) => {
-    const v = e.target.value;
-    setFilterValue(v);
-  };
-
-  // 获取应用权限列表
-  const { run: getAdmins, loading } = useRequest(
-    async (appCode: string) => {
-      const [, res] = await apiInterceptors(getAppAdmins(appCode));
-
-      return res ?? [];
-    },
-    {
-      manual: true,
+      manual: !appInfo?.app_code,
+      ready: !!appInfo?.app_code,
+      refreshDeps: [appInfo?.app_code ?? ''],
       onSuccess: data => {
-        setAdmins(data);
+        setVersionData(data);
       },
     },
   );
 
-  // 更新应用权限
-  const { run: updateAdmins, loading: adminLoading } = useRequest(
-    async (params: { app_code: string; admins: string[] }) => await apiInterceptors(updateAppAdmins(params)),
-    {
-      manual: true,
-      onSuccess: () => {
-        message.success(t('app_update_success'));
-      },
+  // Create new chat session for preview
+  const initChatId = useCallback(
+    async (appCode: string) => {
+      const [, res] = await apiInterceptors(newDialogue({ app_code: appCode }), notification);
+      if (res) {
+        setChatId(res.conv_uid);
+      }
     },
+    [notification],
   );
 
-  useEffect(() => {
-    if (curApp) {
-      getAdmins(curApp.app_code);
+  // Handle agent selection from the left list
+  const handleSelectAgent = useCallback(
+    (app: IApp) => {
+      if (app.app_code === selectedAppCode) return;
+      setSelectedAppCode(app.app_code);
+      setActiveTab('overview');
+      setCollapsed(false);
+      queryAppInfo(app.app_code);
+      initChatId(app.app_code);
+    },
+    [selectedAppCode, queryAppInfo, initChatId],
+  );
+
+  // Auto-select first agent when list is initially loaded
+  const hasAutoSelected = useRef(false);
+  const handleListLoaded = useCallback(
+    (apps: IApp[]) => {
+      if (!hasAutoSelected.current && apps.length > 0 && !selectedAppCode) {
+        hasAutoSelected.current = true;
+        const first = apps[0];
+        setSelectedAppCode(first.app_code);
+        queryAppInfo(first.app_code);
+        initChatId(first.app_code);
+      }
+    },
+    [selectedAppCode, queryAppInfo, initChatId],
+  );
+
+  // Render the active tab content
+  const renderTabContent = () => {
+    if (!selectedAppCode || !appInfo?.app_code) return null;
+    switch (activeTab) {
+      case 'overview':
+        return <TabOverview />;
+      case 'prompts':
+        return <TabPrompts />;
+      case 'skills':
+        return <TabSkills />;
+      case 'sub-agents':
+        return <TabAgents />;
+      case 'knowledge':
+        return <TabKnowledge />;
+      default:
+        return <TabOverview />;
     }
-  }, [curApp, getAdmins]);
-
-  useEffect(() => {
-    getListFiltered();
-  }, [getListFiltered]);
+  };
 
   return (
-    <Spin spinning={spinning}>
-      <div className='h-screen w-full p-4 md:p-6 flex flex-col'>
-        <div className='flex justify-between items-center mb-4 sticky'>
-          <div className='flex items-center gap-4'>
-            <Segmented
-              className='backdrop-filter backdrop-blur-lg bg-white/30 border border-white rounded-lg shadow p-1 dark:border-[#6f7f95] dark:bg-[#6f7f95]/60 [&_.ant-segmented-item-selected]:bg-[#0c75fc]/80 [&_.ant-segmented-item-selected]:text-white'
-              options={items as any}
-              onChange={handleTabChange}
-              value={activeKey}
-            />
-            <Input
-              variant='filled'
-              value={filterValue}
-              prefix={<SearchOutlined />}
-              placeholder={t('please_enter_the_keywords')}
-              onChange={onSearch}
-              onPressEnter={onSearch}
-              allowClear
-              className='w-[230px] h-[40px] border-1 border-white backdrop-filter backdrop-blur-lg bg-white/30  dark:border-[#6f7f95] dark:bg-[#6f7f95]/60'
-            />
-          </div>
+    <AppContext.Provider
+      value={{
+        collapsed,
+        setCollapsed,
+        appInfo,
+        setAppInfo,
+        refreshAppInfo,
+        queryAppInfo,
+        refreshAppInfoLoading,
+        chatId,
+        setChatId,
+        fetchUpdateApp,
+        fetchUpdateAppLoading,
+        refetchVersionData,
+        versionData,
+      }}
+    >
+      <div className="flex h-screen w-full bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50/30 overflow-hidden">
+        {/* Column 1: Agent List */}
+        <div className="w-[280px] flex-shrink-0 p-3 pr-0">
+          <AgentList selectedAppCode={selectedAppCode} onSelect={handleSelectAgent} onListLoaded={handleListLoaded} />
+        </div>
 
-          <Button
-            className='border-none text-white bg-button-gradient flex items-center'
-            icon={<PlusOutlined className='text-base' />}
-            onClick={handleCreate}
-          >
-            {t('create_app')}
-          </Button>
+        {/* Column 2: Config Tabs — collapsible */}
+        <div
+          className={`flex-shrink-0 p-3 flex flex-col transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden ${
+            collapsed
+              ? 'w-0 min-w-0 opacity-0 p-0 pointer-events-none'
+              : 'flex-1 min-w-[320px] opacity-100'
+          }`}
+        >
+          {selectedAppCode && appInfo?.app_code ? (
+            <Spin spinning={refreshAppInfoLoading} wrapperClassName="flex-1 flex flex-col overflow-hidden">
+              <div className="flex flex-col h-full bg-white/80 backdrop-blur-xl rounded-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)] overflow-hidden">
+                <AgentHeader activeTab={activeTab} onTabChange={setActiveTab} />
+                <div className="flex-1 overflow-y-auto">
+                  {renderTabContent()}
+                </div>
+              </div>
+            </Spin>
+          ) : (
+            <div className="flex-1 flex items-center justify-center bg-white/80 backdrop-blur-xl rounded-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)]">
+              <div className="text-center">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+                  <AppstoreOutlined className="text-2xl text-gray-300" />
+                </div>
+                <p className="text-gray-400 text-sm font-medium">{t('builder_select_agent')}</p>
+                <p className="text-gray-300 text-xs mt-1">{t('builder_select_agent')}</p>
+              </div>
+            </div>
+          )}
         </div>
-        <div className='flex-1 flex-col w-full pb-12 mx-[-8px] overflow-y-auto'>
-          <div className='flex flex-wrap flex-1 overflow-y-auto'>
-            {apps.map(item => {
-              return (
-                <BlurredCard
-                  key={item.app_code}
-                  code={item.app_code}
-                  name={item.app_name}
-                  description={item.app_describe}
-                  logo={item.icon || '/icons/colorful-plugin.png'}
-                  RightTop={
-                    <div className='flex items-center gap-2'>
-                      <Popover
-                        content={
-                          <div className='flex flex-col gap-2'>
-                            <div className='flex items-center gap-2'>
-                              <BulbOutlined
-                                style={{
-                                  color: 'rgb(252,204,96)',
-                                  fontSize: 12,
-                                }}
-                              />
-                              <span className='text-sm text-gray-500'>{t('copy_url')}</span>
-                            </div>
-                            <div className='flex items-center gap-2'>
-                              <BulbOutlined
-                                style={{
-                                  color: 'rgb(252,204,96)',
-                                  fontSize: 12,
-                                }}
-                              />
-                              <span className='text-sm text-gray-500'>{t('double_click_open')}</span>
-                            </div>
-                          </div>
-                        }
-                      ></Popover>
-                      <InnerDropdown
-                        menu={{
-                          items: [
-                            {
-                              key: 'publish',
-                              label: (
-                                <span
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    operate(item);
-                                  }}
-                                >
-                                  {item.published === 'true' ? t('unpublish') : t('publish')}
-                                </span>
-                              ),
-                            },
-                            {
-                              key: 'del',
-                              label: (
-                                <span
-                                  className='text-red-400'
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    showDeleteConfirm(item);
-                                  }}
-                                >
-                                  {t('Delete')}
-                                </span>
-                              ),
-                            },
-                          ],
-                        }}
-                      />
-                    </div>
-                  }
-                  Tags={
-                    <div>
-                      <Tag>{languageMap[item.language]}</Tag>
-                      <Tag>{item.team_mode}</Tag>
-                      <Tag>{item.published ? t('published') : t('unpublished')}</Tag>
-                    </div>
-                  }
-                  rightTopHover={false}
-                  LeftBottom={
-                    <div className='flex gap-2'>
-                      <span>{item.owner_name}</span>
-                      <span>•</span>
-                      {item?.updated_at && <span>{moment(item?.updated_at).fromNow() + ' ' + t('update')}</span>}
-                    </div>
-                  }
-                  RightBottom={
-                    <ChatButton
-                      onClick={() => {
-                        handleChat(item);
-                      }}
-                    />
-                  }
-                  onClick={() => {
-                    handleEdit(item);
-                  }}
-                  scene={item?.team_context?.chat_scene || 'chat_agent'}
-                />
-              );
-            })}
-          </div>
-          <div className='w-full flex justify-end shrink-0 pb-12 pt-1'>
-            <Pagination
-              showSizeChanger={false}
-              total={totalRef.current?.total_count || 0}
-              pageSize={12}
-              current={totalRef.current?.current_page}
-              onChange={async (page, _page_size) => {
-                await initData({ page });
-              }}
-            />
+
+        {/* Column 3: Chat Preview */}
+        <div
+          className={`flex-shrink-0 p-3 pl-0 transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+            collapsed ? 'flex-1' : 'w-[480px]'
+          }`}
+        >
+          <div className="h-full bg-white/80 backdrop-blur-xl rounded-2xl border border-white/60 shadow-[0_8px_32px_rgba(0,0,0,0.06)] overflow-hidden">
+            {selectedAppCode && appInfo?.app_code ? (
+              <ChatContent />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-400 text-sm font-medium">{t('builder_chat_preview')}</p>
+                  <p className="text-gray-300 text-xs mt-1">{t('builder_chat_preview_desc')}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-        {open && (
-          <CreateAppModal
-            open={open}
-            onCancel={() => {
-              setOpen(false);
-            }}
-            refresh={initData}
-            type={modalType}
-          />
-        )}
       </div>
-    </Spin>
+    </AppContext.Provider>
   );
 }

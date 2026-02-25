@@ -38,7 +38,7 @@ import { apiInterceptors, getModelList, clearChatHistory, stopChat } from '@/cli
 import { ChatContentContext } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
-import { MEDIA_RESOURCE_TYPES } from '@/app/application/structure/components/base-config/chat-layout-config';
+import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layout-config';
 import { parseResourceValue, transformFileUrl } from '@/utils';
 import Image from 'next/image';
 import { ConnectorsModal } from '@/components/chat/connectors-modal';
@@ -186,6 +186,50 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   const [isZhInput, setIsZhInput] = useState<boolean>(false);
   const submitCountRef = useRef(0);
   const [clsLoading, setClsLoading] = useState<boolean>(false);
+
+  const dragRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{ dragging: boolean; startX: number; startY: number; originX: number; originY: number }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    originX: 0,
+    originY: 0,
+  });
+  const [floatPosition, setFloatPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMove = (event: MouseEvent) => {
+      if (!dragStateRef.current.dragging) return;
+      const dx = event.clientX - dragStateRef.current.startX;
+      const dy = event.clientY - dragStateRef.current.startY;
+      setFloatPosition({
+        x: dragStateRef.current.originX + dx,
+        y: dragStateRef.current.originY + dy,
+      });
+    };
+
+    const handleUp = () => {
+      dragStateRef.current.dragging = false;
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, []);
+
+  const startDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    dragStateRef.current = {
+      dragging: true,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: floatPosition.x,
+      originY: floatPosition.y,
+    };
+  };
 
   // 模型相关
   const [modelList, setModelList] = useState<IModelData[]>([]);
@@ -589,9 +633,14 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
 
   return (
     <div className="w-full relative">
-      {/* 浮动操作按钮 - 右上角 */}
+      {/* 浮动操作按钮 - 可拖动 */}
       {showFloatingActions && history.length > 0 && (
-        <div className="absolute -top-14 right-0 flex items-center gap-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-100 dark:border-gray-700 px-2 py-1 z-20">
+        <div
+          ref={dragRef}
+          onMouseDown={startDrag}
+          className="absolute -top-14 right-0 flex items-center gap-1 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-gray-100 dark:border-gray-700 px-2 py-1 z-20 cursor-move select-none"
+          style={{ transform: `translate(${floatPosition.x}px, ${floatPosition.y}px)` }}
+        >
           <Tooltip title={t('stop_replying', '暂停生成')} placement="top">
             <button
               onClick={handleStop}
