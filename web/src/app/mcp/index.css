@@ -705,6 +705,10 @@
   .mcp-detail-grid {
     grid-template-columns: 1fr;
   }
+  .mcp-right-column {
+    position: static !important;
+    height: auto !important;
+  }
 }
 
 /* Panel */
@@ -715,12 +719,40 @@
   overflow: hidden;
 }
 
+/* Right column - sticky, height synced to left panel, 1:1 split */
+.mcp-right-column {
+  position: sticky;
+  top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+
+.mcp-right-column .mcp-params-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mcp-right-column .mcp-result-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  margin-top: 0;
+}
+
 .mcp-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid var(--mcp-border);
+  flex-shrink: 0;
 }
 
 .mcp-panel-title {
@@ -743,7 +775,7 @@
 
 .mcp-panel-body {
   padding: 0;
-  max-height: 600px;
+  max-height: calc(100vh - 380px);
   overflow-y: auto;
 }
 
@@ -796,6 +828,9 @@
 /* Right panel - form */
 .mcp-form-section {
   padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .mcp-form-section .ant-form-item {
@@ -826,8 +861,9 @@
 
 .mcp-result-body {
   padding: 16px 20px;
-  max-height: 400px;
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .mcp-result-error {
