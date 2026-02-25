@@ -8,11 +8,13 @@ This is similar to APPResource or MCPResource in structure.
 
 import dataclasses
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple, Type, cast
 
 from derisk._private.config import Config
 from derisk.agent import ResourceType
 from derisk.agent.resource import PackResourceParameters, Resource, ResourceParameters
+from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.util import ParameterDescription
 from derisk.util.template_utils import render
 from derisk.util.i18n_utils import _
@@ -68,6 +70,7 @@ def _load_skills_from_db() -> List[Dict[str, Any]]:
                             skills.append(
                                 {
                                     "name": skill.name,
+                                    "skill_code": skill.skill_code,
                                     "description": skill.description,
                                     "path": skill.path or skill.skill_code,
                                     "owner": skill.author or "database",
@@ -123,7 +126,7 @@ class DeriskSkillResourceParameters(PackResourceParameters):
         return super().from_dict(copied_data, ignore_extra_fields=ignore_extra_fields)
 
 
-class DeriskSkillResource(Resource[ResourceParameters]):
+class DeriskSkillResource(AgentSkillResource):
     """DeriskSkill resource class.
 
     This resource manages AgentSkills loaded from the skill module database.
@@ -137,12 +140,47 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         """Initialize the DeriskSkill resource."""
         self._resource_name = name
         self._skill_name = kwargs.get("skill_name", name)
+        self._skill_code = kwargs.get(
+            "skill_code", kwargs.get("skillCode", self._skill_name)
+        )
         self._skill_description = kwargs.get(
             "skill_description", kwargs.get("description")
         )
         self._skill_path = kwargs.get("skill_path", kwargs.get("path"))
         self._skill_branch = kwargs.get("skill_branch", kwargs.get("branch", "main"))
         self._skill_author = kwargs.get("skill_author", kwargs.get("owner"))
+
+        sandbox_path = self._get_sandbox_path()
+
+        parent_kwargs = {
+            "description": self._skill_description,
+            "path": self._skill_path,
+            "owner": self._skill_author,
+            "parent_folder": sandbox_path,
+            **kwargs,
+        }
+        super().__init__(name, **parent_kwargs)
+
+    def _get_sandbox_path(self) -> Optional[str]:
+        """Get sandbox path for the skill using skill_code."""
+        try:
+            from derisk_serve.skill.service.service import (
+                Service,
+                SKILL_SERVICE_COMPONENT_NAME,
+            )
+            from derisk.agent.resource.manage import _SYSTEM_APP
+
+            if _SYSTEM_APP and self._skill_code:
+                service = _SYSTEM_APP.get_component(
+                    SKILL_SERVICE_COMPONENT_NAME, Service, default=None
+                )
+                if service:
+                    skill_dir = service.get_skill_directory(self._skill_code)
+                    if skill_dir and os.path.exists(skill_dir):
+                        return skill_dir
+        except Exception as e:
+            logger.warning(f"Error getting sandbox path: {e}")
+        return None
 
     @property
     def name(self) -> str:
@@ -153,6 +191,11 @@ class DeriskSkillResource(Resource[ResourceParameters]):
     def skill_name(self) -> Optional[str]:
         """Return the skill name."""
         return self._skill_name
+
+    @property
+    def skill_code(self) -> Optional[str]:
+        """Return the skill code."""
+        return self._skill_code
 
     @property
     def description(self) -> Optional[str]:
@@ -178,14 +221,14 @@ class DeriskSkillResource(Resource[ResourceParameters]):
     def type(cls) -> str:
         """Return the resource type.
 
-        Returns 'skill' which is the same type as AgentSkillResource.
+        Returns 'skill(derisk)' which is the same type as AgentSkillResource.
         """
-        return "tool(skill)"
+        return "skill(derisk)"
 
     @classmethod
     def type_alias(cls) -> str:
         """Return the resource type alias."""
-        return "tool(skill)"
+        return "skill(derisk)"
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[DeriskSkillResourceParameters]:
@@ -207,6 +250,7 @@ class DeriskSkillResource(Resource[ResourceParameters]):
                 {
                     "label": f"[{skill['name']}]{skill.get('description', '')}",
                     "key": skill["name"],
+                    "skill_code": skill.get("skill_code", skill["name"]),
                     "skill_name": skill["name"],
                     "description": skill.get("description", ""),
                     "skill_path": skill.get("path", skill["name"]),
@@ -240,6 +284,20 @@ class DeriskSkillResource(Resource[ResourceParameters]):
                 default=None,
                 metadata={
                     "help": _("Skill path"),
+                    "valid_values": valid_values,
+                },
+            )
+            skill_branch: Optional[str] = dataclasses.field(
+                default="main",
+                metadata={
+                    "help": _("Skill branch"),
+                    "valid_values": valid_values,
+                },
+            )
+            skill_author: Optional[str] = dataclasses.field(
+                default=None,
+                metadata={
+                    "help": _("Skill author"),
                     "valid_values": valid_values,
                 },
             )
@@ -294,7 +352,7 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         """
         # Get sandbox path for the skill if available
         sandbox_path = None
-        skill_code = self._skill_name if self._skill_name else self._resource_name
+        skill_code = self._skill_code if self._skill_code else self._skill_name
 
         try:
             from derisk_serve.skill.service.service import (
@@ -370,10 +428,6 @@ class DeriskSkillResource(Resource[ResourceParameters]):
         )
 
 
-# Singleton instance for registration
-_DeriskSkillResource_Instance: Optional[DeriskSkillResource] = None
-
-
 def register_derisk_skill_resource(system_app):
     """Register the DeriskSkill resource with the resource manager.
 
@@ -383,32 +437,14 @@ def register_derisk_skill_resource(system_app):
     Args:
         system_app: The SystemApp instance
     """
-    global _DeriskSkillResource_Instance
+    from derisk.agent.resource import get_resource_manager
 
-    if _DeriskSkillResource_Instance is None:
-        from derisk.agent.resource import get_resource_manager
+    rm = get_resource_manager(system_app)
+    rm.register_resource(
+        resource_cls=DeriskSkillResource,
+        resource_type=ResourceType.Tool,
+        resource_type_alias="skill(derisk)",
+        ignore_duplicate=True,
+    )
 
-        # Create the resource instance
-        _DeriskSkillResource_Instance = DeriskSkillResource()
-
-        # Register with the resource manager
-        rm = get_resource_manager(system_app)
-        rm.register_resource(
-            resource_instance=_DeriskSkillResource_Instance,
-            resource_type=ResourceType.Tool,
-            resource_type_alias="skill",
-            ignore_duplicate=True,
-        )
-
-        logger.info("DeriskSkill resource registered successfully")
-
-    return _DeriskSkillResource_Instance
-
-
-def get_derisk_skill_resource() -> Optional[DeriskSkillResource]:
-    """Get the DeriskSkill resource instance.
-
-    Returns:
-        The DeriskSkill resource instance, or None if not yet registered.
-    """
-    return _DeriskSkillResource_Instance
+    logger.info("DeriskSkill resource registered successfully")

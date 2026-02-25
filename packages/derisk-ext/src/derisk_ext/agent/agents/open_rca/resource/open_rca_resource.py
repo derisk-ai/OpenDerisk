@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import os
 from typing import Type, Optional, Any, List, cast, Union, Tuple, Dict
 
 from derisk._private.config import Config
@@ -12,6 +13,20 @@ from derisk.util.i18n_utils import _
 CFG = Config()
 
 logger = logging.getLogger(__name__)
+
+_ROOT_PATH = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                )
+            )
+        )
+    )
+)
+_PILOT_PATH = os.path.join(_ROOT_PATH, "pilot")
+OPEN_RCA_DEFAULT_DATA_DIR = os.path.join(_PILOT_PATH, "dataset/openrca")
 
 open_rca_scene_prompt_template = """<open-rca-scene>
 这里是Open RCA场景的基础信息，包含场景名称、场景介绍和文件存放路径。
@@ -71,7 +86,7 @@ class OpenRcaSceneParameters(PackResourceParameters):
         cls, data: dict, ignore_extra_fields: bool = True
     ) -> "OpenRcaSceneParameters":
         """Create a new instance from a dictionary."""
-        copied_data = data.copy()
+        copied_data = (data or {}).copy()
         if "scene" not in copied_data and "value" in copied_data:
             copied_data["scene"] = copied_data.pop("value")
         if "name" not in copied_data:
@@ -81,6 +96,7 @@ class OpenRcaSceneParameters(PackResourceParameters):
 
 def get_open_rca_scenes():
     from derisk_ext.agent.agents.open_rca.resource.open_rca_base import OpenRcaScene
+
     results = []
     for scene in OpenRcaScene:
         results.append(scene.value)
@@ -88,33 +104,20 @@ def get_open_rca_scenes():
 
 
 def _load_scene_info(scene_name: str) -> Dict[str, Any]:
-    """Load scene information including schema and data path."""
-    from derisk_ext.agent.agents.open_rca.resource.open_rca_base import (
-        OpenRcaScene,
-        get_open_rca_background,
-    )
+    """Load scene information including scene name, description and default data path."""
+    from derisk_ext.agent.agents.open_rca.resource.open_rca_base import OpenRcaScene
 
     try:
         scene = OpenRcaScene(scene_name)
         scene_description = SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景")
-        scene_schema = get_open_rca_background(scene_name)
-
-        scene_data_path = None
-        match scene:
-            case OpenRcaScene.BANK:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Bank import data_path
-                scene_data_path = data_path
-            case OpenRcaScene.TELECOM:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Telecom import data_path
-                scene_data_path = data_path
-            case OpenRcaScene.MARKET:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Market import data_path
-                scene_data_path = data_path
+        scene_data_path = os.path.join(
+            OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
+        )
 
         return {
             "name": scene_name,
             "description": scene_description,
-            "schema": scene_schema,
+            "schema": None,
             "data_path": scene_data_path,
         }
     except Exception as e:
@@ -123,12 +126,16 @@ def _load_scene_info(scene_name: str) -> Dict[str, Any]:
             "name": scene_name,
             "description": SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景"),
             "schema": None,
-            "data_path": None,
+            "data_path": os.path.join(
+                OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
+            ),
         }
 
 
 class OpenRcaSceneResource(Resource[ResourceParameters]):
-    def __init__(self, name: str = "OpenRcaScene Resource", scene: Optional[str] = None, **kwargs):
+    def __init__(
+        self, name: str = "OpenRcaScene Resource", scene: Optional[str] = None, **kwargs
+    ):
         self._resource_name = name
         self._scene = scene
         self._scene_description = kwargs.get("scene_description")
@@ -193,19 +200,22 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
             )
             scene: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("OpenRca scene name"), "valid_values": valid_values},
+                metadata={
+                    "help": _("OpenRca scene name"),
+                    "valid_values": valid_values,
+                },
             )
             scene_description: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene description"), "valid_values": valid_values},
+                metadata={"help": _("Scene description")},
             )
             scene_schema: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene schema/background"), "valid_values": valid_values},
+                metadata={"help": _("Scene schema/background")},
             )
             data_path: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene data path"), "valid_values": valid_values},
+                metadata={"help": _("Scene data path")},
             )
 
             @classmethod
@@ -232,7 +242,7 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
                 cls, data: dict, ignore_extra_fields: bool = True
             ) -> "OpenRcaSceneParameters":
                 """Create a new instance from a dictionary."""
-                copied_data = data.copy()
+                copied_data = (data or {}).copy()
                 return super().from_dict(
                     copied_data, ignore_extra_fields=ignore_extra_fields
                 )
@@ -289,4 +299,3 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
             resource_name=resource_name,
             **kwargs,
         )
-

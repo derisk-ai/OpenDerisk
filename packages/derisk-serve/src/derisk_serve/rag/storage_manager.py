@@ -42,7 +42,7 @@ class StorageManager(BaseComponent):
 
     def get_storage_connector(
         self, index_name: str, storage_type: str, llm_model: Optional[str] = None
-    ) -> IndexStoreBase:
+    ) -> Optional[IndexStoreBase]:
         """Get storage connector."""
         import threading
 
@@ -55,28 +55,29 @@ class StorageManager(BaseComponent):
         if storage_type.lower() in supported_vector_types:
             return self.create_vector_store(index_name)
         elif storage_type == "KnowledgeGraph":
-            if not storage_config.graph:
+            if not storage_config or not storage_config.graph:
                 raise ValueError(
                     "Graph storage is not configured.please check your config."
                     "reference configs/derisk-graphrag.toml"
                 )
-            return self.create_kg_store(index_name, llm_model)
+            raise NotImplementedError("KnowledgeGraph storage is not implemented")
         elif storage_type == "FullText":
-            if not storage_config.full_text:
+            if not storage_config or not storage_config.full_text:
                 raise ValueError(
                     "FullText storage is not configured.please check your config."
                     "reference configs/derisk-bm25-rag.toml"
                 )
-            return self.create_full_text_store(index_name)
+            raise NotImplementedError("FullText storage is not implemented")
         else:
             raise ValueError(f"Does not support storage type {storage_type}")
 
     def create_vector_store(
-            self,
-            index_name,
-            extra_indexes: Optional[List[str]] = None
-    ) -> VectorStoreBase:
-        """Create vector store."""
+        self, index_name, extra_indexes: Optional[List[str]] = None
+    ) -> Optional[VectorStoreBase]:
+        """Create vector store.
+
+        Returns None if embedding factory is not configured.
+        """
         collection_name = self.gen_collection_by_id(index_name)
         app_config = self.system_app.config.configs.get("app_config")
         storage_config = app_config.rag.storage
@@ -89,57 +90,53 @@ class StorageManager(BaseComponent):
             embedding_fn = embedding_factory.create()
         except ValueError as e:
             logger.warning(
-                f"embedding factory not found: {e}, try to use DefaultEmbeddingFactory"
+                f"Embedding factory not configured: {e}. Vector store will not be available. "
+                "To enable vector store, configure default_embedding in your config."
             )
-            # Check if default_embedding is configured, otherwise fallback to a safe default
-            default_model_name = getattr(app_config.models, "default_embedding", "text2vec")
-            if not default_model_name:
-                 default_model_name = "text2vec"
-                 
-            embedding_fn = DefaultEmbeddingFactory(
-                self.system_app, default_model_name=default_model_name
-            ).create()
+            return None
 
         # Try to get type from config object, handling both dict-like and object-like access
         vector_store_type = getattr(storage_config.vector, "type", None)
         if not vector_store_type:
             vector_store_type = getattr(storage_config.vector, "__type__", None)
-            
+
         if vector_store_type == "chroma":
-             from derisk_ext.storage.vector_store.chroma_store import ChromaStore, ChromaVectorConfig
-             
-             # Extract persist_path safely
-             persist_path = getattr(storage_config.vector, "persist_path", None)
-             
-             vector_store_config = ChromaVectorConfig(
-                 persist_path=persist_path
-             )
-             new_store = ChromaStore(
-                 vector_store_config=vector_store_config,
-                 name=index_name,
-                 embedding_fn=embedding_fn
-             )
-             self._store_cache[index_name] = new_store
-             return new_store
+            from derisk_ext.storage.vector_store.chroma_store import (
+                ChromaStore,
+                ChromaVectorConfig,
+            )
+
+            # Extract persist_path safely
+            persist_path = getattr(storage_config.vector, "persist_path", None)
+
+            vector_store_config = ChromaVectorConfig(persist_path=persist_path)
+            new_store = ChromaStore(
+                vector_store_config=vector_store_config,
+                name=index_name,
+                embedding_fn=embedding_fn,
+            )
+            self._store_cache[index_name] = new_store
+            return new_store
 
         account = storage_config.full_text.account
         secret = storage_config.full_text.secret
 
         from derisk_ext.storage.full_text.zsearch import ZSearchStoreConfig
+
         zsearch_config = ZSearchStoreConfig(
             index_name=index_name,
             account=account,
             secret=secret,
         )
         from derisk_ext.storage.full_text.zsearch import ZsearchStore
+
         new_store = ZsearchStore(
             name=index_name,
             embedding_fn=embedding_fn,
-            vector_store_config=zsearch_config
+            vector_store_config=zsearch_config,
         )
         self._store_cache[index_name] = new_store
         return new_store
-
 
     @property
     def get_vector_supported_types(self) -> List[str]:

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react"
 import { Collapse, Flex, Segmented } from 'antd';
 import { GPTVisLite } from "@antv/gpt-vis";
 import { codeComponents, markdownPlugins } from '../../config';
-import { safeJsonParse } from "@/utils";
+import { safeJsonParse } from "@/utils/json";
 
 
 interface ModelDetail {

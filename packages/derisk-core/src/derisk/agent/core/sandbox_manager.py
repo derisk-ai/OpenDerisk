@@ -165,12 +165,14 @@ class SandboxManager:
         # 1. 从 sandbox 获取工作目录
         self._work_dir = sandbox.work_dir
 
-        # 2. 确保工作目录存在
-        await self._ensure_directory(self.work_dir)
+        # 2. 确保工作目录存在 (local sandbox 不需要，runtime 会自动处理)
+        provider = getattr(sandbox, "provider", lambda: None)()
+        if provider != "local":
+            await self._ensure_directory(self.work_dir)
         logger.info(
             "工作目录已准备: sandbox_id=%s, work_dir=%s",
             sandbox.sandbox_id,
-            self,
+            self.work_dir,
         )
 
         # 3. 确保 sudo 免密配置，避免后续命令阻塞在密码提示

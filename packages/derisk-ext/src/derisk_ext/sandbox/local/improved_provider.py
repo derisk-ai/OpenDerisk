@@ -220,6 +220,9 @@ class ImprovedLocalSandbox(SandboxBase):
 
     async def _initialize(self) -> None:
         """Initialize the sandbox runtime and session."""
+        # Sync skills from git repos on startup
+        await self._sync_skills_from_git_repos()
+
         # Get or create shared runtime
         async with self.__class__._runtime_lock:
             if self.__class__._shared_runtime is None:
@@ -269,15 +272,22 @@ class ImprovedLocalSandbox(SandboxBase):
             raise RuntimeError("Session not initialized")
 
         work_dir = self._config.work_dir
+        skill_dir = self._config.skill_dir
 
         # File client
         self._file = LocalFileClient(
-            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
+            sandbox_id=self.sandbox_id,
+            work_dir=work_dir,
+            runtime=self._runtime,
+            skill_dir=skill_dir,
         )
 
         # Shell client
         self._shell = LocalShellClient(
-            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
+            sandbox_id=self.sandbox_id,
+            work_dir=work_dir,
+            runtime=self._runtime,
+            skill_dir=skill_dir,
         )
 
         # Browser client (if enabled)
@@ -299,6 +309,121 @@ class ImprovedLocalSandbox(SandboxBase):
             self._browser = LocalBrowserClient(
                 instance_id=self.sandbox_id, runtime=self._runtime
             )
+
+    async def _sync_skills_from_git_repos(self) -> None:
+        """Sync skills from git repositories on sandbox startup.
+
+        This method scans the skill_dir for git repositories and pulls updates
+        from their remote origins. It also tries to sync from database-tracked
+        repos if available.
+        """
+        skill_dir = self._config.skill_dir
+
+        if not skill_dir or not os.path.exists(skill_dir):
+            logger.info(
+                f"Skill directory does not exist, skipping git sync: {skill_dir}"
+            )
+            return
+
+        try:
+            from git import Repo, GitCommandError
+        except ImportError:
+            logger.warning("GitPython not installed, skipping git sync")
+            return
+
+        synced_count = 0
+        failed_count = 0
+
+        try:
+            synced_from_db = await self._sync_from_database_tracked_repos()
+            synced_count += synced_from_db
+        except Exception as e:
+            logger.warning(f"Failed to sync from database-tracked repos: {e}")
+
+        try:
+            for entry in os.scandir(skill_dir):
+                if entry.is_dir():
+                    git_dir = os.path.join(entry.path, ".git")
+                    if os.path.exists(git_dir):
+                        try:
+                            repo = Repo(entry.path)
+                            if repo.remotes.origin:
+                                logger.info(f"Pulling updates for skill: {entry.name}")
+                                repo.remotes.origin.pull()
+                                synced_count += 1
+                                logger.info(f"Successfully synced skill: {entry.name}")
+                        except GitCommandError as e:
+                            logger.warning(
+                                f"Failed to pull updates for {entry.name}: {e}"
+                            )
+                            failed_count += 1
+                        except Exception as e:
+                            logger.warning(
+                                f"Error processing git repo {entry.name}: {e}"
+                            )
+                            failed_count += 1
+        except Exception as e:
+            logger.warning(f"Error scanning skill directory for git repos: {e}")
+
+        if synced_count > 0 or failed_count > 0:
+            logger.info(
+                f"Skill sync completed: {synced_count} synced, {failed_count} failed"
+            )
+
+    async def _sync_from_database_tracked_repos(self) -> int:
+        """Sync skills from database-tracked git repositories.
+
+        This method queries the skill database for skills with repo_url
+        and syncs them using the skill service.
+
+        Returns:
+            Number of skills synced
+        """
+        try:
+            from derisk.agent.resource.manage import _SYSTEM_APP
+
+            if not _SYSTEM_APP:
+                return 0
+
+            from derisk_serve.skill.service.service import (
+                Service,
+                SKILL_SERVICE_COMPONENT_NAME,
+            )
+            from derisk_serve.skill.api.schemas import SkillQueryFilter
+
+            service: Service = _SYSTEM_APP.get_component(
+                SKILL_SERVICE_COMPONENT_NAME, Service, default=None
+            )
+
+            if not service:
+                return 0
+
+            filter_request = SkillQueryFilter(filter="")
+            query_result = service.filter_list_page(
+                filter_request, page=1, page_size=1000
+            )
+
+            repo_urls = set()
+            for skill in query_result.items:
+                if skill.repo_url:
+                    repo_urls.add((skill.repo_url, skill.branch or "main"))
+
+            synced_count = 0
+            for repo_url, branch in repo_urls:
+                try:
+                    await service.sync_from_git(repo_url, branch, force_update=False)
+                    synced_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to sync from {repo_url}: {e}")
+
+            return synced_count
+
+        except ImportError:
+            logger.debug("derisk_serve not available, skipping database-tracked sync")
+            return 0
+        except Exception as e:
+            logger.warning(f"Error syncing from database-tracked repos: {e}")
+            return 0
 
     async def _periodic_cleanup(self) -> None:
         """Periodically cleanup expired sessions."""
