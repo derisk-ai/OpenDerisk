@@ -161,7 +161,7 @@ create_wrappers() {
 # OpenDerisk Launcher
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
 cd "$INSTALL_DIR" || exit 1
-exec uv run python -m derisk "$@"
+exec uv run derisk "$@"
 EOF
     
     chmod +x "$BIN_DIR/openderisk"
@@ -172,7 +172,7 @@ EOF
 # OpenDerisk Server Launcher
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
 cd "$INSTALL_DIR" || exit 1
-exec uv run python -m derisk.serve "$@"
+exec uv run derisk start webserver "$@"
 EOF
     
     chmod +x "$BIN_DIR/openderisk-server"
