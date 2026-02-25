@@ -891,33 +891,31 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         target_actions = ["create_kanban", "submit_deliverable"]
         if action_out.action in target_actions or action_out.name in target_actions:
             return None
-        else:
-            title = action_out.action
-            if action_out.name in [AgentStart.name]:
-                title = action_out.name
-            return self.vis_inst(AgentPlan.vis_tag()).sync_display(
-                content=AgentPlanItem(
-                    uid=action_out.action_id,
-                    type=UpdateType.INCR.value,
-                    item_type="task",
-                    task_type=ACTION_TASK_MAP[action_out.name]
-                    if action_out.name in ACTION_TASK_MAP
-                    else "tool",
-                    title=title,
-                    description=str(action_out.action_input)
-                    if action_out.action_input
-                    else None,
-                    status=action_out.state,
-                    start_time=action_out.start_time,
-                    layer_count=layer_count,
-                    markdown=action_out.simple_view
-                    or action_out.view
-                    or action_out.content
-                    if action_out.terminate
-                    else None,
-                    cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
-                ).to_dict()
-            )
+
+        if action_out.terminate:
+            return None
+
+        title = action_out.action
+        if action_out.name in [AgentStart.name]:
+            title = action_out.name
+        return self.vis_inst(AgentPlan.vis_tag()).sync_display(
+            content=AgentPlanItem(
+                uid=action_out.action_id,
+                type=UpdateType.INCR.value,
+                item_type="task",
+                task_type=ACTION_TASK_MAP[action_out.name]
+                if action_out.name in ACTION_TASK_MAP
+                else "tool",
+                title=title,
+                description=str(action_out.action_input)
+                if action_out.action_input
+                else None,
+                status=action_out.state,
+                start_time=action_out.start_time,
+                layer_count=layer_count,
+                cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
+            ).to_dict()
+        )
 
     def _collect_kanban_for_agents(
         self,
@@ -1192,6 +1190,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         output_message: Optional[GptsMessage] = messages_map.get(output_message_id)
         if output_message:
             logger.info(f"output message is {output_message.content}")
+            final_conclusion_vis = await self._render_final_conclusion(output_message)
+            if final_conclusion_vis:
+                foot_vis = final_conclusion_vis
 
         return "\n".join(task_items_vis) + "\n" + foot_vis
 
@@ -1312,6 +1313,58 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             return f"{size_bytes / (1024 * 1024):.1f} MB"
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    async def _render_final_conclusion(
+        self, output_message: GptsMessage
+    ) -> Optional[str]:
+        """渲染最终结论.
+
+        从 output_message 中提取最终结论并渲染到规划空间。
+        最终结论可能存储在:
+        1. action_report 中 terminate=True 的内容 (ReActMaster 等)
+        2. 发送给 HUMAN_ROLE 的消息 content (CodeExpert 等)
+
+        Returns:
+            渲染后的 vis 字符串，如果没有结论则返回 None
+        """
+        from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
+
+        conclusion_content = None
+
+        # 优先从 action_report 中获取 terminate 的结论 (ReActMaster 等使用 terminate 工具的场景)
+        if output_message.action_report:
+            for action_out in output_message.action_report:
+                if action_out.terminate:
+                    conclusion_content = (
+                        action_out.view or action_out.content or action_out.simple_view
+                    )
+                    if conclusion_content:
+                        break
+
+        # 如果没有 terminate 结论，检查是否是发给用户的消息 (CodeExpert 等无 terminate 工具的场景)
+        if not conclusion_content and output_message.receiver == HUMAN_ROLE:
+            # 优先使用 action_report 的内容
+            if output_message.action_report:
+                for action_out in output_message.action_report:
+                    if action_out.view or action_out.content:
+                        conclusion_content = action_out.view or action_out.content
+                        break
+            # 否则使用消息 content
+            if not conclusion_content:
+                conclusion_content = output_message.content
+
+        if not conclusion_content:
+            return None
+
+        final_conclusion = DrskTextContent(
+            dynamic=False,
+            markdown=f"## 最终结论\n\n{conclusion_content}",
+            uid=f"{output_message.message_id}_final_conclusion",
+            type="all",
+        )
+        return DrskContent().sync_display(
+            content=final_conclusion.to_dict(exclude_none=True)
+        )
 
     async def final_view(
         self,

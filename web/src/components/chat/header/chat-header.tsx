@@ -10,7 +10,8 @@ import {
   ShareAltOutlined,
   ThunderboltOutlined,
   MessageOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  PlusOutlined
 } from '@ant-design/icons';
 import { Button, message, Dropdown, Badge, Tag, Tooltip } from 'antd';
 import copy from 'copy-to-clipboard';
@@ -19,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
 import AppDefaultIcon from '../../icons/app-default-icon';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface ChatHeaderProps {
   isScrollToTop?: boolean;
@@ -28,6 +30,8 @@ interface ChatHeaderProps {
 const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProcessing = false }) => {
   const { appInfo, refreshAppInfo, history } = useContext(ChatContentContext);
   const { t } = useTranslation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const appScene = useMemo(() => {
     return appInfo?.team_context?.chat_scene || 'chat_agent';
@@ -63,6 +67,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
     message[success ? 'success' : 'error'](
       success ? t('copy_success') : t('copy_failed')
     );
+  };
+
+  const handleNewChat = () => {
+    const appCode = appInfo?.app_code;
+    if (appCode) {
+      router.push(`/chat?app_code=${appCode}`);
+    }
   };
 
   const moreMenuItems = [
@@ -139,9 +150,18 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
             </div>
           </div>
 
-          {/* 操作按钮 */}
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <Tooltip title="更多" placement="bottom">
+{/* 操作按钮 */}
+           <div className="flex items-center gap-1 flex-shrink-0">
+             <Tooltip title="新会话" placement="bottom">
+               <Button
+                 type="text"
+                 size="small"
+                 icon={<PlusOutlined className="text-sm" />}
+                 onClick={handleNewChat}
+                 className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+               />
+             </Tooltip>
+             <Tooltip title="更多" placement="bottom">
               <Dropdown 
                 menu={{ items: moreMenuItems }} 
                 placement="bottomRight"

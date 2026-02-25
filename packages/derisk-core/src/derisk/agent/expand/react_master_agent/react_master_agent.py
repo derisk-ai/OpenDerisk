@@ -996,6 +996,7 @@ class ReActMasterAgent(ConversableAgent):
             logger.info("注入技能资源")
 
             prompts = ""
+            skill_count = 0
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
@@ -1004,14 +1005,51 @@ class ReActMasterAgent(ConversableAgent):
                         debug_info = getattr(skill_item, "debug_info", None)
                         if debug_info and debug_info.get("is_debug"):
                             mode, branch = "debug", debug_info.get("branch")
+                        skill_meta = skill_item.skill_meta(mode)
+                        if not skill_meta:
+                            continue
+                        skill_path = (
+                            skill_item._skill.parent_folder
+                            if hasattr(skill_item, "_skill") and skill_item._skill
+                            else skill_meta.path
+                        )
                         prompts += (
                             f"- <skill>"
-                            f"<name>{skill_item.skill_meta(mode).name}</name>"
-                            f"<description>{skill_item.skill_meta(mode).description}</description>"
-                            f"<path>{skill_item.skill_meta(mode).path}</path>"
+                            f"<name>{skill_meta.name}</name>"
+                            f"<description>{skill_meta.description}</description>"
+                            f"<path>{skill_path}</path>"
                             f"<branch>{branch}</branch>"
                             f"\n</skill>\n"
                         )
+                        skill_count += 1
+
+            if skill_count > 0:
+                skill_usage_guide = """
+<skill_usage_guide priority="highest">
+**重要：Skill 是任务执行的最高优先级资源！**
+
+使用流程：
+1. 分析用户任务目标
+2. 根据 description 匹配最相关的 Skill
+3. 使用 view 工具读取 Skill 完整内容
+4. 按 Skill 指导执行任务
+
+查看 Skill 内容示例：
+{
+  "tool_name": "view",
+  "args": {
+    "path": "<skill_path>/skill.md"
+  }
+}
+</skill_usage_guide>
+"""
+                prompts = (
+                    skill_usage_guide
+                    + "\n<available_skills>\n"
+                    + prompts
+                    + "</available_skills>"
+                )
+
             return prompts
 
         @self._vm.register("other_resources", "其他资源")

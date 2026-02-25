@@ -24,7 +24,9 @@ class LocalFileClient(FileClient):
     Operates directly on the local filesystem within the sandbox directory.
     """
 
-    def __init__(self, sandbox_id: str, work_dir: str, runtime, **kwargs):
+    def __init__(
+        self, sandbox_id: str, work_dir: str, runtime, skill_dir: str = None, **kwargs
+    ):
         # Pass None as connection_config since we don't use HTTP
         super().__init__(sandbox_id, work_dir, connection_config=None, **kwargs)
         self._runtime = runtime
@@ -32,15 +34,22 @@ class LocalFileClient(FileClient):
         # The work_dir passed here is likely the logical work_dir (e.g. /workspace)
         # We need the physical root from the runtime
         self._logical_work_dir = work_dir
+        # Whitelist paths that should be accessed directly on the host filesystem
+        self._skill_dir = skill_dir
+        self._whitelist_paths = {"/mnt"}
+        if skill_dir:
+            self._whitelist_paths.add(skill_dir)
 
     def _get_physical_path(self, path: str) -> str:
         """Resolve logical path to physical path in local sandbox."""
-        # Get the session from runtime to find the physical root
-        # If session doesn't exist yet, we might have issues, but usually it's created on demand or exists.
-        # For simplicity, we ask runtime for the session dir or we construct it.
-        # Note: This assumes runtime has a method to get session dir or we construct it.
-        # LocalSandboxRuntime uses: os.path.join(self.base_dir, session_id)
+        # Check if path is in whitelist (should be accessed directly on host)
+        if os.path.isabs(path):
+            for allowed in self._whitelist_paths:
+                if path == allowed or path.startswith(f"{allowed}/"):
+                    # Path is in whitelist, return it directly
+                    return path
 
+        # Get the session from runtime to find the physical root
         session_root = os.path.join(self._runtime.base_dir, self._sandbox_id)
 
         # Normalize path
@@ -53,25 +62,17 @@ class LocalFileClient(FileClient):
 
         full_path = os.path.abspath(os.path.join(session_root, path))
 
-        # Security check: ensure path is within session_root
-        if not full_path.startswith(os.path.abspath(session_root)):
-            # Allow if it is exactly the root
-            if full_path != os.path.abspath(session_root):
-                logger.warning(f"Access denied: {full_path} is outside {session_root}")
-                # In a real secure sandbox we should raise, but for local dev we might be lenient or strict.
-                # Let's be strict for now to mimic sandbox behavior.
-                # raise ValueError(f"Path {path} is outside sandbox workspace")
-                pass
-
         return full_path
 
     async def read(
         self,
         path: str,
         format: Literal["text", "bytes", "stream"] = "text",
-        user: Optional[Username] = None,
+        user=None,
         request_timeout: Optional[float] = None,
-    ) -> Union[str, bytes]:
+    ):
+        from derisk.sandbox.client.file.types import FileInfo
+
         physical_path = self._get_physical_path(path)
         logger.info(f"LocalFileClient read: {path} -> {physical_path}")
 
@@ -80,11 +81,16 @@ class LocalFileClient(FileClient):
 
         if format == "text":
             async with aiofiles.open(physical_path, mode="r", encoding="utf-8") as f:
-                return await f.read()
+                content = await f.read()
         else:
             async with aiofiles.open(physical_path, mode="rb") as f:
                 content = await f.read()
-                return content  # stream not supported yet, returning bytes for bytes format
+
+        return FileInfo(
+            path=path,
+            content=content if format == "text" else None,
+            name=os.path.basename(path),
+        )
 
     async def write(
         self,
