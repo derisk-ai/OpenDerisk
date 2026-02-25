@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import ToolsBar from './tools-bar';
 import { UserChatContent } from '@/types/chat';
 import { parseResourceValue } from '@/utils';
-import { MEDIA_RESOURCE_TYPES } from "@/app/application/structure/components/base-config/chat-layout-config";
+import { MEDIA_RESOURCE_TYPES } from "@/app/application/app/components/chat-layout-config";
 
 const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   const { t } = useTranslation();
