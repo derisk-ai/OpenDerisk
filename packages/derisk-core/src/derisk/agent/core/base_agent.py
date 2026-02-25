@@ -497,7 +497,7 @@ class ConversableAgent(Role, Agent):
         finally:
             root_tracer.set_current_agent_id(origin_current_agent_id)
 
-    def prepare_act_param(
+    async def prepare_act_param(
         self,
         received_message: Optional[AgentMessage],
         sender: Agent,
@@ -759,7 +759,7 @@ class ConversableAgent(Role, Agent):
                     )
 
                     # logger.info(f'after generate_think_message, reply_message:{reply_message}')
-                    act_extent_param = self.prepare_act_param(
+                    act_extent_param = await self.prepare_act_param(
                         received_message=received_message,
                         sender=sender,
                         rely_messages=rely_messages,
@@ -884,16 +884,16 @@ class ConversableAgent(Role, Agent):
                             logger.warning("No retry available!")
                             break
                         fail_reason = reason
-                        # await self.write_memories(
-                        #     question=question,
-                        #     ai_message=ai_message,
-                        #     action_output=act_outs,
-                        #     check_pass=check_pass,
-                        #     check_fail_reason=fail_reason,
-                        #     agent_id=self.not_null_agent_context.agent_app_code,
-                        #     reply_message=reply_message,
-                        #     terminate=any([act_out.terminate for act_out in act_outs]),
-                        # )
+                        await self.write_memories(
+                            question=question,
+                            ai_message=ai_message,
+                            action_output=act_outs,
+                            check_pass=check_pass,
+                            check_fail_reason=fail_reason,
+                            agent_id=self.not_null_agent_context.agent_app_code,
+                            reply_message=reply_message,
+                            terminate=any([act_out.terminate for act_out in act_outs]),
+                        )
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
                             break
@@ -906,17 +906,17 @@ class ConversableAgent(Role, Agent):
 
                         current_round = self.current_retry_counter + 1
                         # Successful reply
-                        # await self.write_memories(
-                        #     question=question,
-                        #     ai_message=ai_message,
-                        #     action_output=act_outs,
-                        #     check_pass=check_pass,
-                        #     agent_id=self.not_null_agent_context.agent_app_code
-                        #              or self.not_null_agent_context.gpts_app_code,
-                        #     reply_message=reply_message,
-                        #     terminate=any([act_out.terminate for act_out in act_outs]),
-                        #     current_retry_counter=current_round,
-                        # )
+                        await self.write_memories(
+                            question=question,
+                            ai_message=ai_message,
+                            action_output=act_outs,
+                            check_pass=check_pass,
+                            agent_id=self.not_null_agent_context.agent_app_code
+                                     or self.not_null_agent_context.gpts_app_code,
+                            reply_message=reply_message,
+                            terminate=any([act_out.terminate for act_out in act_outs]),
+                            current_retry_counter=current_round,
+                        )
 
                         ### 非LOOP模式以及非FunctionCall模式
                         if (

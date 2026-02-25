@@ -160,6 +160,13 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(resource_instance=flamegraph_overview)
     rm.register_resource(resource_instance=flamegraph_drill_down)
 
+    # Register OpenRCA scene resource
+    from derisk_ext.agent.agents.open_rca.resource.open_rca_resource import (
+        OpenRcaSceneResource,
+    )
+
+    rm.register_resource(OpenRcaSceneResource)
+
     # Register mock tool 在页面上注册工具
     # from derisk_ext.agent.agents.smartTestUI.tool.image_find_static_bug_tools import find_image_bugs
     # from derisk_ext.agent.agents.smartTestUI.tool.test_analysis_tools import generate_analysis_tool
