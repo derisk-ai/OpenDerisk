@@ -31,7 +31,7 @@ log("Starting OpenDerisk Server...");
 const uvPath = join(homedir(), ".local/bin/uv");
 const uv = existsSync(uvPath) ? uvPath : "uv";
 
-const proc = spawn(uv, ["run", "python", "-m", "derisk.serve", ...process.argv.slice(2)], {
+const proc = spawn(uv, ["run", "derisk", "start", "webserver", ...process.argv.slice(2)], {
   cwd: INSTALL_DIR,
   stdio: "inherit",
   env: process.env

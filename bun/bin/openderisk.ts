@@ -123,7 +123,7 @@ const runOpenDerisk = (args: string[]): void => {
   const uvPath = join(homedir(), ".local/bin/uv");
   const uv = existsSync(uvPath) ? uvPath : "uv";
   
-  const proc = spawn(uv, ["run", "python", "-m", "derisk", ...args], {
+  const proc = spawn(uv, ["run", "derisk", ...args], {
     cwd: INSTALL_DIR,
     stdio: "inherit",
     env: process.env
