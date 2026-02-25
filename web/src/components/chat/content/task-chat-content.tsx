@@ -80,7 +80,7 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
         
         {/* 消息列表 */}
         <div 
-          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8" 
+          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8"
           ref={scrollRef}
         >
           {hasMessages ? (

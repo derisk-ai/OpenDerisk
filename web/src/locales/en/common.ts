@@ -629,4 +629,10 @@ export const CommonEn = {
   builder_create_skill_desc: 'Create a custom agent skill',
   builder_create_mcp: 'New MCP Server',
   builder_create_mcp_desc: 'Add an MCP server integration',
+  builder_skill_all: 'All',
+  builder_skill_built_in: 'Built-IN',
+  builder_skill_custom: 'Custom',
+  builder_agent_source_all: 'All',
+  builder_agent_source_built_in: 'Built-IN',
+  builder_agent_source_custom: 'Custom',
 } as const;
