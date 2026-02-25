@@ -11,7 +11,8 @@ from fastapi import BackgroundTasks
 
 from derisk import BaseComponent
 from derisk._private.config import Config
-from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType
+from derisk.agent import AgentMemory, ConversableAgent, get_agent_manager, AgentContext, UserProxyAgent, \
+    LLMStrategyType, EnhancedShortTermMemory, HybridMemory, GptsMemory, LLMConfig, ResourceType, ShortTermMemory
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.extract_memory import ExtractMemory
 from derisk.agent.core.memory.gpts import GptsMessage
@@ -672,14 +673,7 @@ class AgentChat(BaseComponent, ABC):
             ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
         ).create()
         llm_client = DefaultLLMClient(worker_manager=worker_manager)
-        session_memory = SessionMemory(
-            session_id=conv_id,
-            agent_id=agent_id,
-            vector_store=vector_store,
-            executor=executor,
-            gpts_memory=self.memory,
-            llm_client=llm_client,
-        )
+        session_memory = ShortTermMemory(buffer_size=20)
 
         long_term_index_name = "agent_long_term_memory_fragments"
         extract_vector_store = storage_manager.create_vector_store(index_name=long_term_index_name)
