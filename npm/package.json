@@ -1,0 +1,55 @@
+{
+  "name": "openderisk",
+  "version": "0.2.0",
+  "description": "OpenDeRisk AI-Native Risk Intelligence Systems — Your application system risk intelligent manager",
+  "main": "index.js",
+  "bin": {
+    "openderisk": "bin/openderisk.js",
+    "openderisk-server": "bin/openderisk-server.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "start": "node bin/openderisk.js",
+    "server": "node bin/openderisk-server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "openderisk",
+    "ai",
+    "risk-management",
+    "root-cause-analysis",
+    "sre",
+    "devops",
+    "monitoring",
+    "observability",
+    "multi-agent"
+  ],
+  "author": "HongjunYang <yhjun1026@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/derisk-ai/OpenDerisk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derisk-ai/OpenDerisk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/derisk-ai/OpenDerisk/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "preferGlobal": true,
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ]
+}

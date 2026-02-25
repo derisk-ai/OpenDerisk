@@ -11,18 +11,19 @@ import { useEffect, useState } from 'react';
 interface Tprops {
   value?: RouteItem;
   isStow?: boolean; // is close menu
+  defaultOpen?: boolean; // default expanded state
 }
 const MenuList = (props: Tprops) => {
-  const { value, isStow = false } = props;
+  const { value, isStow = false, defaultOpen = false } = props;
   const { isActive = false } = value || {};
-  const [open, setOpen] = useState(isActive);
+  const [open, setOpen] = useState(isActive || defaultOpen);
   const handleClick = () => {
     setOpen(!open);
   };
 
   useEffect(() => {
-    setOpen(isActive);
-  }, [isActive]);
+    setOpen(isActive || defaultOpen);
+  }, [isActive, defaultOpen]);
 
   return (
     <div>
