@@ -134,7 +134,7 @@ function runOpenDerisk(args) {
   const uvPath = path.join(os.homedir(), '.local/bin/uv');
   const pythonCmd = fs.existsSync(uvPath) ? uvPath : 'uv';
   
-  const child = spawn(pythonCmd, ['run', 'python', '-m', 'derisk', ...args], {
+  const child = spawn(pythonCmd, ['run', 'derisk', ...args], {
     cwd: INSTALL_DIR,
     stdio: 'inherit',
     env: process.env

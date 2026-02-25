@@ -38,7 +38,7 @@ function main() {
   const uvPath = path.join(os.homedir(), '.local/bin/uv');
   const pythonCmd = fs.existsSync(uvPath) ? uvPath : 'uv';
 
-  const child = spawn(pythonCmd, ['run', 'python', '-m', 'derisk.serve', ...process.argv.slice(2)], {
+  const child = spawn(pythonCmd, ['run', 'derisk', 'start', 'webserver', ...process.argv.slice(2)], {
     cwd: INSTALL_DIR,
     stdio: 'inherit',
     env: process.env
