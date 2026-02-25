@@ -23,7 +23,7 @@ def get_sandbox_whitelist(skill_dir: Optional[str] = None) -> Set[str]:
     whitelist = {"/mnt"}
     if skill_dir:
         whitelist.add(skill_dir)
-    else:
+    elif DEFAULT_SKILL_DIR:
         whitelist.add(DEFAULT_SKILL_DIR)
     return whitelist
 

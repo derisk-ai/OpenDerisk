@@ -205,9 +205,12 @@ async def app_resources_parameter(
                             SKILL_SERVICE_COMPONENT_NAME,
                         )
 
-                        skill_code = resource_value.get(
-                            "skill_name"
-                        ) or resource_value.get("name")
+                        skill_code = (
+                            resource_value.get("skill_code")
+                            or resource_value.get("skillCode")
+                            or resource_value.get("skill_name")
+                            or resource_value.get("name")
+                        )
                         if skill_code:
                             skill_service = CFG.SYSTEM_APP.get_component(
                                 SKILL_SERVICE_COMPONENT_NAME, Service, default=None

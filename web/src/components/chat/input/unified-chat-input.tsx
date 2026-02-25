@@ -31,6 +31,7 @@ import {
   Collapse,
   Spin,
   Select,
+  message,
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
@@ -39,7 +40,7 @@ import { ChatContentContext } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
 import { IChatDialogueMessageSchema, UserChatContent } from '@/types/chat';
-import { MEDIA_RESOURCE_TYPES } from '@/app/application/structure/components/base-config/chat-layout-config';
+import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layout-config';
 import { parseResourceValue, transformFileUrl } from '@/utils';
 import { useSearchParams } from 'next/navigation';
 
@@ -656,6 +657,15 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
 
   const onSubmit = async () => {
     if (!userInput.trim() && fileList.length === 0) return;
+
+    if (shouldShowResourceSelect) {
+      const resourceParam = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
+      const hasResourceValue = resourceParam?.param_value && resourceParam.param_value.trim() !== '';
+      if (!hasResourceValue) {
+        message.warning(t('please_select_resource', '请先选择资源'));
+        return;
+      }
+    }
 
     submitCountRef.current++;
     setTimeout(() => {

@@ -269,15 +269,22 @@ class ImprovedLocalSandbox(SandboxBase):
             raise RuntimeError("Session not initialized")
 
         work_dir = self._config.work_dir
+        skill_dir = self._config.skill_dir
 
         # File client
         self._file = LocalFileClient(
-            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
+            sandbox_id=self.sandbox_id,
+            work_dir=work_dir,
+            runtime=self._runtime,
+            skill_dir=skill_dir,
         )
 
         # Shell client
         self._shell = LocalShellClient(
-            sandbox_id=self.sandbox_id, work_dir=work_dir, runtime=self._runtime
+            sandbox_id=self.sandbox_id,
+            work_dir=work_dir,
+            runtime=self._runtime,
+            skill_dir=skill_dir,
         )
 
         # Browser client (if enabled)
