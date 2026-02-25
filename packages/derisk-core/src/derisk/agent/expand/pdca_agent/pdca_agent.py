@@ -45,6 +45,10 @@ from derisk.agent.expand.pdca_agent.prompt_v7 import (
 )
 from derisk.agent.expand.react_agent.react_agent import ReActAgent
 from derisk.agent.expand.react_agent.react_parser import CONST_LLMOUT_TITLE
+from derisk.agent.resource import BaseTool, RetrieverResource
+from derisk.agent.resource.agent_skills import AgentSkillResource
+from derisk.agent.resource.app import AppResource
+from derisk_serve.agent.resource.tool.mcp import MCPToolPack
 from derisk.context.event import EventType, ChatPayload, StepPayload, ActionPayload
 from derisk.util.json_utils import serialize
 from derisk.util.tracer import root_tracer
@@ -109,10 +113,11 @@ class PDCAAgent(ReActAgent):
         try:
             from derisk.core.interface.file import FileStorageClient
             from derisk._private.config import Config
+
             CFG = Config()
             system_app = CFG.SYSTEM_APP
             if system_app:
-                file_storage_client = FileStorageClient.get_instance(  system_app)
+                file_storage_client = FileStorageClient.get_instance(system_app)
         except Exception as e:
             logger.debug(f"[PDCA] FileStorageClient not available: {e}")
 
@@ -747,3 +752,47 @@ class PDCAAgent(ReActAgent):
         @self._vm.register("exploration_count", "探索计数")
         async def exploration_count(instance, pm: AsyncKanbanManager):
             return pm.get_exploration_count()
+
+        @self._vm.register("other_resources", "其他资源")
+        async def var_other_resources(instance):
+            logger.info("注入其他资源")
+
+            excluded_types = (
+                BaseTool,
+                MCPToolPack,
+                AppResource,
+                AgentSkillResource,
+                RetrieverResource,
+            )
+
+            prompts = ""
+            for k, v in self.resource_map.items():
+                if not isinstance(v[0], excluded_types):
+                    for item in v:
+                        try:
+                            resource_type = item.type()
+                            if isinstance(resource_type, str):
+                                type_name = resource_type
+                            else:
+                                type_name = (
+                                    resource_type.value
+                                    if hasattr(resource_type, "value")
+                                    else str(resource_type)
+                                )
+
+                            resource_prompt, _ = await item.get_prompt(
+                                lang=instance.agent_context.language
+                                if instance.agent_context
+                                else "en"
+                            )
+                            if resource_prompt:
+                                resource_name = (
+                                    item.name if hasattr(item, "name") else k
+                                )
+                                prompts += f"- <{type_name}><name>{resource_name}</name><prompt>{resource_prompt}</prompt>\n</{type_name}>\n"
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to get prompt for resource {k}: {e}"
+                            )
+                            continue
+            return prompts

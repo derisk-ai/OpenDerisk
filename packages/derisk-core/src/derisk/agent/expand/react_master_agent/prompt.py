@@ -81,13 +81,18 @@ REACT_MASTER_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动) �
 {{ available_skills }}
 </available_skills>
 {% endif %}
+{% if available_skills %}
+<other_resources>
+{{ other_resources }}
+</other_resources>
+{% endif %}
 ```
 
 **资源消费规则**：
 - **Knowledge**：使用 `knowledge_search` 工具查询
 - **Agent**：使用 `agent_start` 工具委托
 - **Skill**：读取内容作为规划框架
-
+- **其他**: 补充信息，按需使用
 ---
 
 ## 工具列表

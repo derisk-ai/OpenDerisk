@@ -1,9 +1,10 @@
 """Role class for role-based conversation."""
+
 import json
 import logging
 from abc import ABC
 from enum import Enum
-from typing import Dict, List, Optional, Type, Union, Tuple
+from typing import Any, Dict, List, Optional, Type, Union, Tuple
 
 from jinja2.sandbox import SandboxedEnvironment
 
@@ -28,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class PromptType(Enum):
-    JINJIA2 = 'jinja2'
-    FSTRING = 'f-string'
+    JINJIA2 = "jinja2"
+    FSTRING = "f-string"
 
 
 class AgentRunMode(str, Enum):
@@ -104,7 +105,9 @@ class Role(ABC, BaseModel):
     def current_profile(self) -> Profile:
         """Return the current profile."""
         if not self._inited_profile:
-            self._inited_profile = self.profile.create_profile(prefer_prompt_language=self.language)
+            self._inited_profile = self.profile.create_profile(
+                prefer_prompt_language=self.language
+            )
         return self._inited_profile
 
     def prompt_template(
@@ -116,8 +119,10 @@ class Role(ABC, BaseModel):
         """Get agent prompt template."""
         self.language = language
         prompt = (
-            self.current_profile.get_user_prompt_template() if prompt_type == "user"
-            else self.current_profile.get_write_memory_template() if prompt_type == "write"
+            self.current_profile.get_user_prompt_template()
+            if prompt_type == "user"
+            else self.current_profile.get_write_memory_template()
+            if prompt_type == "write"
             else self.current_profile.get_system_prompt_template()
         )
 
@@ -256,6 +261,7 @@ class Role(ABC, BaseModel):
         """Read the memories from the memory."""
         with root_tracer.start_span("agent.read_memories"):
             from derisk.agent.resource.memory import MemoryParameters
+
             memory_params: MemoryParameters = self.get_memory_parameters()  # type: ignore
             memories = await self.memory.search(
                 observation=question,
@@ -269,7 +275,7 @@ class Role(ABC, BaseModel):
                 score_threshold=memory_params.score_threshold,
                 top_k=memory_params.top_k,
                 llm_token_limit=llm_token_limit,
-                sub_agent_ids=sub_agent_ids
+                sub_agent_ids=sub_agent_ids,
             )
             recent_messages = [m.raw_observation for m in memories]
             return "".join(recent_messages)
@@ -286,6 +292,7 @@ class Role(ABC, BaseModel):
         agent_id: Optional[str] = None,
         condense: bool = False,
         terminate: bool = False,
+        extra_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Union[AgentMemoryFragment, List[AgentMemoryFragment]]]:
         """Write the memories to the memory.
 
@@ -303,6 +310,8 @@ class Role(ABC, BaseModel):
             agent_id(str): The agent id.
             condense(bool): 是否是压缩后的内容,
             terminate(bool): 是否是终止
+            extra_context(Dict[str, Any]): 额外的上下文信息，会合并到 memory_map 中，
+                可用于传入 action、observation 等模板变量
 
         Returns:
             AgentMemoryFragment: The memory fragment created.
@@ -312,10 +321,10 @@ class Role(ABC, BaseModel):
             return None
 
         with root_tracer.start_span("agent.write_memories"):
-
             fragments: List[AgentMemoryFragment] = []
 
             from derisk.agent.resource.memory import MemoryParameters
+
             memory_parameter: MemoryParameters = self.get_memory_parameters()
 
             if action_output and action_output[0].thoughts:
@@ -325,7 +334,6 @@ class Role(ABC, BaseModel):
 
             actions: List[dict] = []
             for item in action_output:
-
                 mem_thoughts = item.thoughts or ai_message
                 action = item.action
                 action_input = item.action_input
@@ -344,10 +352,15 @@ class Role(ABC, BaseModel):
             memory_map = {
                 "question": question,
                 "thought": mem_thoughts,
-                "actions": actions
+                "actions": actions,
             }
             if current_retry_counter is not None and current_retry_counter == 0:
                 memory_map["question"] = question
+
+            # 合并调用方传入的额外上下文（如 action、observation 等）
+            if extra_context:
+                memory_map.update(extra_context)
+
             write_memory_template = self.write_memory_template
             memory_content = self._render_template(write_memory_template, **memory_map)
 
@@ -360,7 +373,9 @@ class Role(ABC, BaseModel):
                     agent_id=agent_id,
                     memory_id=reply_message.message_id,
                     role=self.name,
-                    rounds=current_retry_counter if current_retry_counter else reply_message.rounds,
+                    rounds=current_retry_counter
+                    if current_retry_counter
+                    else reply_message.rounds,
                     task_goal=question,
                     thought=mem_thoughts,
                     action=None,
@@ -373,8 +388,10 @@ class Role(ABC, BaseModel):
                     raw_action_outputs=json.dumps(
                         convert_datetime(
                             [output.to_dict() for output in action_output]
-                        ), ensure_ascii=False, default=serialize
-                    )
+                        ),
+                        ensure_ascii=False,
+                        default=serialize,
+                    ),
                 )
 
             await self.memory.write(
@@ -382,16 +399,19 @@ class Role(ABC, BaseModel):
                 enable_message_condense=memory_parameter.enable_message_condense,
                 message_condense_model=memory_parameter.message_condense_model,
                 message_condense_prompt=memory_parameter.message_condense_prompt,
-
             )
-            await self.push_context_event(EventType.AfterMemoryWrite, MemoryWritePayload(
-                fragment=fragment), reply_message.goal_id)
+            await self.push_context_event(
+                EventType.AfterMemoryWrite,
+                MemoryWritePayload(fragment=fragment),
+                reply_message.goal_id,
+            )
 
             return fragments
 
     def get_memory_parameters(self) -> BaseParameters | None:
-        """ Get memory parameters from the agent's resource if available."""
+        """Get memory parameters from the agent's resource if available."""
         from derisk.agent.resource.memory import MemoryResource
+
         resource = self.resource
         if resource and resource.is_pack and resource.sub_resources:
             for r in resource.sub_resources:

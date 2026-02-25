@@ -81,6 +81,7 @@ class OpenRcaSceneParameters(PackResourceParameters):
 
 def get_open_rca_scenes():
     from derisk_ext.agent.agents.open_rca.resource.open_rca_base import OpenRcaScene
+
     results = []
     for scene in OpenRcaScene:
         results.append(scene.value)
@@ -102,13 +103,22 @@ def _load_scene_info(scene_name: str) -> Dict[str, Any]:
         scene_data_path = None
         match scene:
             case OpenRcaScene.BANK:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Bank import data_path
+                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Bank import (
+                    data_path,
+                )
+
                 scene_data_path = data_path
             case OpenRcaScene.TELECOM:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Telecom import data_path
+                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Telecom import (
+                    data_path,
+                )
+
                 scene_data_path = data_path
             case OpenRcaScene.MARKET:
-                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Market import data_path
+                from derisk_ext.agent.agents.open_rca.resource.basic_prompt_Market import (
+                    data_path,
+                )
+
                 scene_data_path = data_path
 
         return {
@@ -128,7 +138,9 @@ def _load_scene_info(scene_name: str) -> Dict[str, Any]:
 
 
 class OpenRcaSceneResource(Resource[ResourceParameters]):
-    def __init__(self, name: str = "OpenRcaScene Resource", scene: Optional[str] = None, **kwargs):
+    def __init__(
+        self, name: str = "OpenRcaScene Resource", scene: Optional[str] = None, **kwargs
+    ):
         self._resource_name = name
         self._scene = scene
         self._scene_description = kwargs.get("scene_description")
@@ -193,19 +205,22 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
             )
             scene: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("OpenRca scene name"), "valid_values": valid_values},
+                metadata={
+                    "help": _("OpenRca scene name"),
+                    "valid_values": valid_values,
+                },
             )
             scene_description: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene description"), "valid_values": valid_values},
+                metadata={"help": _("Scene description")},
             )
             scene_schema: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene schema/background"), "valid_values": valid_values},
+                metadata={"help": _("Scene schema/background")},
             )
             data_path: Optional[str] = dataclasses.field(
                 default=None,
-                metadata={"help": _("Scene data path"), "valid_values": valid_values},
+                metadata={"help": _("Scene data path")},
             )
 
             @classmethod
@@ -289,4 +304,3 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
             resource_name=resource_name,
             **kwargs,
         )
-
