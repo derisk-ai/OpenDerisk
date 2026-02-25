@@ -382,66 +382,80 @@ function SideBar() {
       // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
       // ...appLists, // Remove appList from menu items since we have a new way to start chats
       {
-      key: 'application',
-      name: t('application'),
-      isActive: pathname.startsWith('/application'),
-      icon: (
-        <AppstoreOutlined className='w-5 h-5 text-gray-500' />
-      ),
-      path: '/application/app',
+        key: 'application',
+        name: t('application'),
+        icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/',
+        children: [
+          {
+            key: 'explore',
+            name: t('explore_agents'),
+            isActive: pathname.startsWith('/application/explore'),
+            icon: <SearchOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/application/explore',
+          },
+          {
+            key: 'agents',
+            name: t('Agents'),
+            isActive: pathname.startsWith('/application/app'),
+            icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/application/app',
+          },
+          {
+            key: 'agent_skills',
+            name: t('agent_skills'),
+            isActive: pathname.startsWith('/agent-skills'),
+            icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/agent-skills',
+          },
+          {
+            key: 'MCP',
+            name: 'MCP',
+            isActive: pathname.startsWith('/mcp'),
+            icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/mcp',
+          },
+        ],
+        isActive: pathname.startsWith('/application') || pathname.startsWith('/agent-skills') || pathname.startsWith('/mcp'),
       },
       {
-      key: 'configuration_management',
-      name: t('configuration_management'),
-      icon: <SettingOutlined />,
-      path: '/',
-      children: [
-        {
-          key: 'agent_skills',
-          name: t('agent_skills'),
-          isActive: pathname.startsWith('/agent-skills'),
-          icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
-          path: '/agent-skills',
-        },
-        {
-        key: 'models',
-        name: t('model_manage'),
-        isActive: pathname.startsWith('/models'),
-        icon: (
-          <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
-        ),
-        path: '/models',
-        },
-        {
-        key: 'knowledge',
-        name: t('Knowledge_Space'),
-        isActive: pathname.startsWith('/knowledge'),
-        icon: <PartitionOutlined className='w-5 h-5 text-gray-500'  />,
-        path: '/knowledge',
-        },
-        {
-          key: 'MCP',
-          name: 'MCP',
-          isActive: pathname.startsWith('/mcp'),
-          icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
-          path: '/mcp',
-        },
-        {
-          key: 'prompt',
-          name: t('Prompt'),
-          isActive: pathname.startsWith('/prompt'),
-          icon: <MessageOutlined  className='w-5 h-5 text-gray-500' />,
-          path: '/prompt',
-        },
-        {
-          key: 'vis_merge_test',
-          name: 'GUI',
-          isActive: pathname.startsWith('/vis-merge-test'),
-          icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
-          path: '/vis-merge-test'
-        },
-      ],
-      isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/mcp') || pathname.startsWith('/agent-skills') || pathname.startsWith('/vis-merge-test'),
+        key: 'configuration_management',
+        name: t('configuration_management'),
+        icon: <SettingOutlined />,
+        path: '/',
+        children: [
+          {
+            key: 'models',
+            name: t('model_manage'),
+            isActive: pathname.startsWith('/models'),
+            icon: (
+              <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
+            ),
+            path: '/models',
+          },
+          {
+            key: 'knowledge',
+            name: t('Knowledge_Space'),
+            isActive: pathname.startsWith('/knowledge'),
+            icon: <PartitionOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/knowledge',
+          },
+          {
+            key: 'prompt',
+            name: t('Prompt'),
+            isActive: pathname.startsWith('/prompt'),
+            icon: <MessageOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/prompt',
+          },
+          {
+            key: 'vis_merge_test',
+            name: 'GUI',
+            isActive: pathname.startsWith('/vis-merge-test'),
+            icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/vis-merge-test',
+          },
+        ],
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test'),
       },
     ];
     return items;
@@ -556,7 +570,7 @@ function SideBar() {
         <div className='flex flex-col w-full space-y-1 mb-6'>
           {functions.map(item => {
             if (item?.children) {
-              return <MenuList value={item} isStow={false} key={item.key + Date.now()} />;
+              return <MenuList value={item} isStow={false} key={item.key} defaultOpen={item.key === 'configuration_management'} />;
             }
 
             // 应用列表项单独处理点击事件
@@ -604,22 +618,6 @@ function SideBar() {
            <span>{t('chat_history')}</span>
            <SearchOutlined className="cursor-pointer hover:text-gray-600" />
         </div>
-        
-        {/* Search Input (Hidden by default, shown when needed or implement toggle) */}
-        {/* 
-        <div className='pb-2'>
-          <Input.Search
-            placeholder={t('search_session_placeholder')}
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            onSearch={handleSearch}
-            allowClear
-            loading={listLoading}
-            size="small"
-            className="text-xs"
-          />
-        </div>
-        */}
 
         <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar'>
           {listLoading ? (

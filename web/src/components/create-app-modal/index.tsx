@@ -140,7 +140,7 @@ const CreateAppModal: React.FC<{
           } else {
             if (data?.app_code) {
               message.success(t('Create_successfully'));
-              router.replace(`/application/structure/?app_code=${data?.app_code}`);
+              router.replace(`/application/app`);
             } else {
               message.error(t('Create_failure'));
             }

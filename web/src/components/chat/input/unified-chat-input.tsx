@@ -38,7 +38,7 @@ import { apiInterceptors, getModelList, clearChatHistory, stopChat } from '@/cli
 import { ChatContentContext } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
-import { MEDIA_RESOURCE_TYPES } from '@/app/application/structure/components/base-config/chat-layout-config';
+import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layout-config';
 import { parseResourceValue, transformFileUrl } from '@/utils';
 import Image from 'next/image';
 import { ConnectorsModal } from '@/components/chat/connectors-modal';
