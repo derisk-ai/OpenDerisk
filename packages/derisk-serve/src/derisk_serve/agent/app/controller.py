@@ -5,7 +5,7 @@ from typing import List, Optional
 
 import aiohttp
 import pymysql
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from derisk import SystemApp
 from derisk._private.config import Config
@@ -428,3 +428,90 @@ async def execute_tool(
         return Result.succ(result)
     except Exception as e:
         return Result.failed(code="E000X", msg=f"execute tool error: {e}")
+
+
+@router.get("/derisk/thinking/detail")
+async def get_thinking_detail(
+    message_id: str = Query(..., description="消息ID"),
+):
+    from derisk_serve.agent.db.gpts_messages_db import GptsMessagesDao
+
+    try:
+        gpts_messages_dao = GptsMessagesDao()
+        message = await blocking_func_to_async(
+            CFG.SYSTEM_APP,
+            gpts_messages_dao.get_by_message_id,
+            message_id,
+        )
+
+        if not message:
+            return Result.failed(code="E4004", msg=f"消息 {message_id} 不存在")
+
+        items = []
+
+        if message.system_prompt:
+            items.append(
+                {
+                    "title": "系统提示词",
+                    "outputType": "markdown",
+                    "content": message.system_prompt,
+                }
+            )
+
+        if message.user_prompt:
+            items.append(
+                {
+                    "title": "用户提示词",
+                    "outputType": "markdown",
+                    "content": message.user_prompt,
+                }
+            )
+
+        if message.content:
+            items.append(
+                {
+                    "title": "模型输出",
+                    "outputType": "markdown",
+                    "content": message.content
+                    if isinstance(message.content, str)
+                    else str(message.content),
+                }
+            )
+
+        model_params = {}
+        if message.model_name:
+            model_params["model_name"] = message.model_name
+        if message.metrics:
+            metrics_dict = (
+                message.metrics.to_dict()
+                if hasattr(message.metrics, "to_dict")
+                else message.metrics
+            )
+            if isinstance(metrics_dict, dict):
+                model_params.update(metrics_dict)
+        if message.tool_calls:
+            model_params["tool_calls"] = message.tool_calls
+
+        if model_params:
+            items.append(
+                {
+                    "title": "模型参数",
+                    "outputType": "json",
+                    "content": json.dumps(model_params, ensure_ascii=False, indent=2),
+                }
+            )
+
+        if message.thinking:
+            items.append(
+                {
+                    "title": "思考过程",
+                    "outputType": "markdown",
+                    "content": message.thinking,
+                }
+            )
+
+        return Result.succ(data={"items": items})
+
+    except Exception as e:
+        logger.exception(f"获取 thinking 详情失败: {e}")
+        return Result.failed(code="E000X", msg=f"获取 thinking 详情失败: {str(e)}")

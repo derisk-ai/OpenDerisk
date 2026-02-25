@@ -14,6 +14,7 @@ interface AppContextProps {
   setAssociationSkillModalOpen?: React.Dispatch<React.SetStateAction<boolean>>; // 设置关联技能模态框打开状态
   chatId?: string; // 会话ID
   setChatId?: React.Dispatch<React.SetStateAction<string>>; // 设置会话ID
+  initChatId?: (appCode: string) => Promise<void>; // 初始化新会话ID
   refetchVersionData?: () => void; // 刷新版本数据
   versionData?: any; // 版本数据
   queryAppInfo?: (appCode: string, configCode?: string) => void; // 查询应用信息
@@ -33,6 +34,7 @@ export const AppContext = createContext<AppContextProps>({
   setAssociationSkillModalOpen: () => {},
   chatId: '',
   setChatId: () => {},
+  initChatId: async () => {},
   refetchVersionData: () => {},
   versionData: {},
   queryAppInfo: () => {},

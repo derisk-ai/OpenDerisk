@@ -41,6 +41,10 @@ class ReActOutputParser(AgentParser):
 
     This parser extracts structured information from language model outputs
     that follow the ReAct pattern: Thought -> Action -> Action Input -> Observation.
+    
+    Supports two tool_call formats:
+    1. Named format: {"tool_name": "...", "args": {...}, "thought": "..."} 
+    2. Compact format: {"工具名": {参数对象}}
     """
 
     def __init__(
@@ -74,6 +78,47 @@ class ReActOutputParser(AgentParser):
         self.action_input_prefix_escaped = re.escape(action_input_prefix)
         self.observation_prefix_escaped = re.escape(observation_prefix)
         super().__init__()
+
+    def _parse_tool_call_item(self, item: dict) -> Optional[ToolCall]:
+        """
+        Parse a single tool call item, supporting two formats:
+
+        Format 1 (Named): {"tool_name": "...", "args": {...}, "thought": "..."}
+        Format 2 (Compact): {"工具名": {参数对象}} 或 {"工具名": {参数对象}, "thought": "..."}
+
+        Args:
+            item: A dictionary representing a tool call
+
+        Returns:
+            ToolCall object or None if parsing fails
+        """
+        if not isinstance(item, dict):
+            return None
+
+        # Format 1: Named format with tool_name/name/action key
+        name = item.get("tool_name") or item.get("name") or item.get("action")
+        if name:
+            args = item.get("args", {})
+            thought = item.get("thought")
+            if args is None:
+                args = {}
+            return ToolCall(name=name, args=args, thought=thought)
+
+        # Format 2: Compact format {"工具名": {参数}}
+        # In this format, the key is the tool name and the value is the args
+        # It might also have a "thought" key
+        thought = item.get("thought")
+        for key, value in item.items():
+            if key == "thought":
+                continue
+            # The key is the tool name, value should be the args dict
+            if isinstance(value, dict):
+                return ToolCall(name=key, args=value, thought=thought)
+            elif value is None:
+                # Tool with no args
+                return ToolCall(name=key, args={}, thought=thought)
+
+        return None
 
     @property
     def model_type(self) -> Optional[Type[ReActOut]]:
@@ -143,13 +188,9 @@ class ReActOutputParser(AgentParser):
             tool_calls_str = tool_calls_match.group(1).strip()
             tool_calls = extract_tool_calls(tool_calls_str)
             for item in tool_calls:
-                name = item.get("tool_name") or item.get("name") or item.get("action")
-                args = item.get("args", {})
-                thought = item.get("thought")
-                if name:
-                    if args is None:
-                        args = {}
-                    steps.append(ToolCall(name=name, args=args, thought=thought))
+                parsed = self._parse_tool_call_item(item)
+                if parsed:
+                    steps.append(parsed)
         else:
             logger.warning("未找到 <tool_calls> 标签内容")
 

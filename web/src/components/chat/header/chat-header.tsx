@@ -1,7 +1,7 @@
 'use client';
 
 import { apiInterceptors, collectApp, unCollectApp } from '@/client/api';
-import { ChatContentContext } from "@/contexts";
+import { AppContext, ChatContentContext } from "@/contexts";
 import { 
   ExportOutlined, 
   StarFilled, 
@@ -28,7 +28,8 @@ interface ChatHeaderProps {
 }
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProcessing = false }) => {
-  const { appInfo, refreshAppInfo, history } = useContext(ChatContentContext);
+  const { appInfo, refreshAppInfo, history, setHistory } = useContext(ChatContentContext);
+  const { initChatId } = useContext(AppContext);
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -69,10 +70,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
     );
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     const appCode = appInfo?.app_code;
-    if (appCode) {
-      router.push(`/chat?app_code=${appCode}`);
+    if (appCode && initChatId) {
+      setHistory?.([]);
+      await initChatId(appCode);
     }
   };
 
@@ -151,43 +153,43 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
           </div>
 
 {/* 操作按钮 */}
-           <div className="flex items-center gap-1 flex-shrink-0">
-             <Tooltip title="新会话" placement="bottom">
-               <Button
-                 type="text"
-                 size="small"
-                 icon={<PlusOutlined className="text-sm" />}
-                 onClick={handleNewChat}
-                 className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-               />
-             </Tooltip>
+           <div className="flex items-center gap-1.5 flex-shrink-0">
+             <Button
+               type="default"
+               size="small"
+               icon={<PlusOutlined className="text-xs" />}
+               onClick={handleNewChat}
+               className="rounded-lg h-7 text-xs border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400"
+             >
+               新会话
+             </Button>
              <Tooltip title="更多" placement="bottom">
-              <Dropdown 
-                menu={{ items: moreMenuItems }} 
-                placement="bottomRight"
-                trigger={['click']}
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<MoreOutlined className="text-sm" />}
-                  className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                />
-              </Dropdown>
-            </Tooltip>
-            
-            <Tooltip title="分享" placement="bottom">
-              <Button
-                type="primary"
-                size="small"
-                icon={<ExportOutlined className="text-xs" />}
-                onClick={shareApp}
-                className="rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 border-0 text-xs h-7"
-              >
-                分享
-              </Button>
-            </Tooltip>
-          </div>
+               <Dropdown 
+                 menu={{ items: moreMenuItems }} 
+                 placement="bottomRight"
+                 trigger={['click']}
+               >
+                 <Button
+                   type="text"
+                   size="small"
+                   icon={<MoreOutlined className="text-sm" />}
+                   className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                 />
+               </Dropdown>
+             </Tooltip>
+             
+             <Tooltip title="分享" placement="bottom">
+               <Button
+                 type="primary"
+                 size="small"
+                 icon={<ExportOutlined className="text-xs" />}
+                 onClick={shareApp}
+                 className="rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 border-0 text-xs h-7"
+               >
+                 分享
+               </Button>
+             </Tooltip>
+           </div>
         </div>
       </div>
     </div>

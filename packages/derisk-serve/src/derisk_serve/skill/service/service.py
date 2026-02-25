@@ -36,13 +36,14 @@ logger = logging.getLogger(__name__)
 # Store background tasks by task_id
 _background_tasks: Dict[str, threading.Thread] = {}
 
+
 class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
     """The service class for Skill"""
 
     name = SKILL_SERVICE_COMPONENT_NAME
 
     def __init__(
-            self, system_app: SystemApp, config: ServeConfig, dao: Optional[SkillDao] = None
+        self, system_app: SystemApp, config: ServeConfig, dao: Optional[SkillDao] = None
     ):
         self._system_app = None
         self._serve_config: ServeConfig = config
@@ -68,7 +69,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
     def config(self) -> ServeConfig:
         """Returns the internal ServeConfig."""
         return self._serve_config
-    
+
     def create(self, request: SkillRequest) -> SkillResponse:
         """Create a new Skill entity
 
@@ -80,8 +81,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         """
         if not request.skill_code:
             import uuid
+
             request.skill_code = str(uuid.uuid4())
-        
+
         return self.dao.create(request)
 
     def update(self, request: SkillRequest) -> SkillResponse:
@@ -94,17 +96,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             SkillResponse: The response
         """
         # Build the query request from the request
-        query_request = {
-            "skill_code": request.skill_code
-        }
-        request_dict = (
-            request.dict() if isinstance(request, SkillRequest) else request
-        )
-        
+        query_request = {"skill_code": request.skill_code}
+        request_dict = request.dict() if isinstance(request, SkillRequest) else request
+
         # Filter out read-only fields
-        request_dict.pop('skill_code', None)
-        request_dict.pop('gmt_created', None)
-        request_dict.pop('gmt_modified', None)
+        request_dict.pop("skill_code", None)
+        request_dict.pop("gmt_created", None)
+        request_dict.pop("gmt_modified", None)
 
         return self.dao.update(query_request, request_dict)
 
@@ -146,7 +144,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         return self.dao.get_list(query_request)
 
     def get_list_by_page(
-            self, request: SkillRequest, page: int, page_size: int
+        self, request: SkillRequest, page: int, page_size: int
     ) -> PaginationResult[SkillResponse]:
         """Get a list of Skill entities by page
 
@@ -162,11 +160,11 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         return self.dao.get_list_page(query_request, page, page_size)
 
     def filter_list_page(
-            self,
-            query_request: SkillQueryFilter,
-            page: int,
-            page_size: int,
-            desc_order_column: Optional[str] = None,
+        self,
+        query_request: SkillQueryFilter,
+        page: int,
+        page_size: int,
+        desc_order_column: Optional[str] = None,
     ) -> PaginationResult[SkillResponse]:
         """Get a page of entity objects.
 
@@ -178,9 +176,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             PaginationResult: The pagination result.
         """
-        return self.dao.filter_list_page(query_request, page, page_size, desc_order_column)
-    
-    async def sync_from_git(self, repo_url: str, branch: str = "main", force_update: bool = False) -> List[SkillResponse]:
+        return self.dao.filter_list_page(
+            query_request, page, page_size, desc_order_column
+        )
+
+    async def sync_from_git(
+        self, repo_url: str, branch: str = "main", force_update: bool = False
+    ) -> List[SkillResponse]:
         """Sync skills from a git repository
 
         Args:
@@ -191,7 +193,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             List[SkillResponse]: List of synced skills
         """
-        logger.info(f"Syncing skills from {repo_url} branch {branch}, force_update={force_update}")
+        logger.info(
+            f"Syncing skills from {repo_url} branch {branch}, force_update={force_update}"
+        )
 
         import git
 
@@ -212,7 +216,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             repo_path = os.path.join(temp_git_dir, repo_name)
 
             # Clone or pull the repository
-            if os.path.exists(repo_path) and os.path.exists(os.path.join(repo_path, '.git')):
+            if os.path.exists(repo_path) and os.path.exists(
+                os.path.join(repo_path, ".git")
+            ):
                 logger.info(f"Pulling updates from existing repo at {repo_path}")
                 repo = git.Repo(repo_path)
                 repo.git.checkout(branch)
@@ -240,11 +246,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         continue
 
                     skill_meta = self._parse_skill_md(skill_md_path)
-                    if not skill_meta or 'name' not in skill_meta:
-                        logger.warning(f"Failed to parse skill metadata from {skill_md_path}")
+                    if not skill_meta or "name" not in skill_meta:
+                        logger.warning(
+                            f"Failed to parse skill metadata from {skill_md_path}"
+                        )
                         continue
 
-                    skill_name = skill_meta['name']
+                    skill_name = skill_meta["name"]
 
                     # Generate skill code (use name as code, clean and lowercase)
                     skill_code = self._generate_skill_code(skill_meta, repo_url)
@@ -259,12 +267,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     )
 
                     if existing_skill and not should_update:
-                        logger.info(f"Skill {skill_name} already exists and up to date, skipping")
+                        logger.info(
+                            f"Skill {skill_name} already exists and up to date, skipping"
+                        )
                         synced_skills.append(existing_skill)
                         continue
 
                     # Read skill content
-                    with open(skill_md_path, 'r', encoding='utf-8') as f:
+                    with open(skill_md_path, "r", encoding="utf-8") as f:
                         content = f.read()
 
                     # Get relative path for storage
@@ -274,15 +284,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     skill_request = SkillRequest(
                         skill_code=skill_code,
                         name=skill_name,
-                        description=skill_meta.get('description', ''),
-                        type=skill_meta.get('type', 'python'),
-                        author=skill_meta.get('author'),
-                        email=skill_meta.get('email'),
-                        version=skill_meta.get('version'),
+                        description=skill_meta.get("description", ""),
+                        type=skill_meta.get("type", "python"),
+                        author=skill_meta.get("author"),
+                        email=skill_meta.get("email"),
+                        version=skill_meta.get("version"),
                         path=rel_path,
                         content=content,
-                        icon=skill_meta.get('icon'),
-                        category=skill_meta.get('category'),
+                        icon=skill_meta.get("icon"),
+                        category=skill_meta.get("category"),
                         installed=0,
                         available=True,
                         repo_url=repo_url,
@@ -315,10 +325,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         )
 
                 except Exception as e:
-                    logger.exception(f"Error processing skill directory {skill_path}: {e}")
+                    logger.exception(
+                        f"Error processing skill directory {skill_path}: {e}"
+                    )
                     continue
 
-            logger.info(f"Successfully synced {len(synced_skills)} skills from {repo_url}")
+            logger.info(
+                f"Successfully synced {len(synced_skills)} skills from {repo_url}"
+            )
             return synced_skills
 
         except Exception as e:
@@ -338,10 +352,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
         # Common skill directory patterns
         patterns = [
-            "skills",          # Common pattern: repo/skills/
-            "",                # Root directory: repo/
-            "skill",           # Singular: repo/skill/
-            "agent-skills",    # Another common pattern
+            "skills",  # Common pattern: repo/skills/
+            "",  # Root directory: repo/
+            "skill",  # Singular: repo/skill/
+            "agent-skills",  # Another common pattern
         ]
 
         for pattern in patterns:
@@ -370,13 +384,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             if not os.path.exists(file_path):
                 return None
 
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # Extract frontmatter between --- markers
             # Use strip() to handle any leading/trailing whitespace
             content_stripped = content.strip()
-            match = re.search(r'^---\s*\n(.*?)\n---\s*$', content_stripped, re.DOTALL | re.MULTILINE)
+            match = re.search(
+                r"^---\s*\n(.*?)\n---\s*$", content_stripped, re.DOTALL | re.MULTILINE
+            )
             if not match:
                 return None
 
@@ -384,7 +400,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             data = {}
 
             # Parse the frontmatter line by line to handle nested structures
-            lines = frontmatter.split('\n')
+            lines = frontmatter.split("\n")
             metadata_start_line = -1
             metadata_indent = 0
             in_metadata_section = False
@@ -393,15 +409,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 stripped = line.strip()
 
                 # Skip empty lines and comments
-                if not stripped or stripped.startswith('#'):
+                if not stripped or stripped.startswith("#"):
                     continue
 
                 # Check for metadata: section start (nested structure)
-                if stripped.startswith('metadata:') or stripped == 'metadata:':
+                if stripped.startswith("metadata:") or stripped == "metadata:":
                     in_metadata_section = True
                     metadata_start_line = i
                     # Calculate the indent level of the metadata: line
-                    indent_match = re.match(r'^(\s*)', line)
+                    indent_match = re.match(r"^(\s*)", line)
                     metadata_indent = len(indent_match.group(1)) if indent_match else 0
                     continue
 
@@ -421,7 +437,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 # Parse key-value pairs
                 # Pattern matches: key: value
                 # Value can be quoted or unquoted
-                key_match = re.match(r'^\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*:\s*(.*)$', line)
+                key_match = re.match(r"^\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*:\s*(.*)$", line)
                 if key_match:
                     key = key_match.group(1)
                     value = key_match.group(2).strip()
@@ -457,26 +473,28 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             str: Unique skill code
         """
         # Use name as base, convert to lowercase and replace special chars
-        name = skill_meta.get('name', 'unnamed').lower()
-        name = re.sub(r'[^a-z0-9-]', '-', name).strip('-')
+        name = skill_meta.get("name", "unnamed").lower()
+        name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
         # Add version/author info if available
-        version = skill_meta.get('version', '')
-        author = skill_meta.get('author', '')
+        version = skill_meta.get("version", "")
+        author = skill_meta.get("author", "")
 
         parts = [name]
         if version:
-            parts.append(version.replace('.', '-'))
+            parts.append(version.replace(".", "-"))
         if author:
-            parts.append(re.sub(r'[^a-z0-9-]', '-', author.lower()))
+            parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
 
         # Add repo hash for uniqueness
         repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
 
-        skill_code = '-'.join(parts) + '-' + repo_hash
+        skill_code = "-".join(parts) + "-" + repo_hash
         return skill_code
 
-    def _copy_skill_to_project(self, skill_path: str, skill_name: str, project_dir: str, skill_code: str) -> None:
+    def _copy_skill_to_project(
+        self, skill_path: str, skill_name: str, project_dir: str, skill_code: str
+    ) -> None:
         """Copy skill files to project skill directory.
 
         Args:
@@ -486,11 +504,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             skill_code (str): Unique skill code
         """
         try:
-            # Create target directory using skill_code for uniqueness
             target_dir = os.path.join(project_dir, skill_code)
+
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+                logger.info(f"Removed existing skill directory: {target_dir}")
+
             os.makedirs(target_dir, exist_ok=True)
 
-            # Copy all files from skill directory
             if os.path.exists(skill_path):
                 for item in os.listdir(skill_path):
                     src = os.path.join(skill_path, item)
@@ -505,7 +526,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         except Exception as e:
             logger.warning(f"Failed to copy skill to project directory: {e}")
 
-    def _copy_skill_to_sandbox(self, skill_path: str, skill_name: str, sandbox_dir: str) -> None:
+    def _copy_skill_to_sandbox(
+        self, skill_path: str, skill_name: str, sandbox_dir: str
+    ) -> None:
         """Copy skill files to sandbox skill directory.
 
         Args:
@@ -519,7 +542,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 return
 
             # Normalize skill name for directory name
-            skill_dir_name = re.sub(r'[^a-zA-Z0-9_-]', '-', skill_name)
+            skill_dir_name = re.sub(r"[^a-zA-Z0-9_-]", "-", skill_name)
             target_dir = os.path.join(sandbox_dir, skill_dir_name)
             os.makedirs(target_dir, exist_ok=True)
 
@@ -554,13 +577,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         with tempfile.TemporaryDirectory() as temp_dir:
             # Save uploaded file
             zip_path = os.path.join(temp_dir, f"{uuid.uuid4()}.zip")
-            with open(zip_path, 'wb') as f:
+            with open(zip_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
 
             # Extract zip file
             extract_dir = os.path.join(temp_dir, "extracted")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(extract_dir)
 
             # Find skill directory (look for SKILL.md)
@@ -571,10 +594,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             # Parse skill metadata
             skill_md_path = os.path.join(skill_path, "SKILL.md")
             skill_meta = self._parse_skill_md(skill_md_path)
-            if not skill_meta or 'name' not in skill_meta:
+            if not skill_meta or "name" not in skill_meta:
                 raise ValueError("Failed to parse skill metadata")
 
-            skill_name = skill_meta['name']
+            skill_name = skill_meta["name"]
 
             # Generate skill code for local upload (use name + UUID for uniqueness)
             skill_code = self._generate_upload_skill_code(skill_meta)
@@ -584,22 +607,22 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             existing_skill = self.get(existing_skill_request)
 
             # Read skill content
-            with open(skill_md_path, 'r', encoding='utf-8') as f:
+            with open(skill_md_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # Build skill request
             skill_request = SkillRequest(
                 skill_code=skill_code,
                 name=skill_name,
-                description=skill_meta.get('description', ''),
-                type=skill_meta.get('type', 'python'),
-                author=skill_meta.get('author'),
-                email=skill_meta.get('email'),
-                version=skill_meta.get('version'),
+                description=skill_meta.get("description", ""),
+                type=skill_meta.get("type", "python"),
+                author=skill_meta.get("author"),
+                email=skill_meta.get("email"),
+                version=skill_meta.get("version"),
                 path=skill_name,
                 content=content,
-                icon=skill_meta.get('icon'),
-                category=skill_meta.get('category'),
+                icon=skill_meta.get("icon"),
+                category=skill_meta.get("category"),
                 installed=0,
                 available=True,
                 repo_url=None,  # Local upload has no repo
@@ -622,13 +645,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             # Copy skill files to sandbox if available
             if sandbox_skill_dir:
-                self._copy_skill_to_sandbox(
-                    skill_path, skill_name, sandbox_skill_dir
-                )
+                self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
 
             return skill_response
 
-    async def upload_from_folder(self, skill_name: str, skill_path: str) -> SkillResponse:
+    async def upload_from_folder(
+        self, skill_name: str, skill_path: str
+    ) -> SkillResponse:
         """Upload a skill from a local folder.
 
         Args:
@@ -654,9 +677,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_meta = self._parse_skill_md(skill_md_path)
         if not skill_meta:
             # Use provided name if metadata parsing fails
-            skill_meta = {'name': skill_name}
+            skill_meta = {"name": skill_name}
 
-        skill_name = skill_meta['name']
+        skill_name = skill_meta["name"]
 
         # Generate skill code
         skill_code = self._generate_upload_skill_code(skill_meta)
@@ -666,22 +689,22 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         existing_skill = self.get(existing_skill_request)
 
         # Read skill content
-        with open(skill_md_path, 'r', encoding='utf-8') as f:
+        with open(skill_md_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Build skill request
         skill_request = SkillRequest(
             skill_code=skill_code,
             name=skill_name,
-            description=skill_meta.get('description', ''),
-            type=skill_meta.get('type', 'python'),
-            author=skill_meta.get('author'),
-            email=skill_meta.get('email'),
-            version=skill_meta.get('version'),
+            description=skill_meta.get("description", ""),
+            type=skill_meta.get("type", "python"),
+            author=skill_meta.get("author"),
+            email=skill_meta.get("email"),
+            version=skill_meta.get("version"),
             path=skill_name,
             content=content,
-            icon=skill_meta.get('icon'),
-            category=skill_meta.get('category'),
+            icon=skill_meta.get("icon"),
+            category=skill_meta.get("category"),
             installed=0,
             available=True,
             repo_url=None,
@@ -704,9 +727,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
         # Copy skill files to sandbox if available
         if sandbox_skill_dir:
-            self._copy_skill_to_sandbox(
-                skill_path, skill_name, sandbox_skill_dir
-            )
+            self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
 
         return skill_response
 
@@ -733,30 +754,27 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         return None
 
     def _generate_upload_skill_code(self, skill_meta: Dict[str, str]) -> str:
-        """Generate a unique skill code for uploaded skills.
+        """Generate a skill code for uploaded skills.
 
         Args:
             skill_meta (Dict[str, str]): Parsed skill metadata
 
         Returns:
-            str: Unique skill code
+            str: Skill code (same skill will have the same code)
         """
-        name = skill_meta.get('name', 'unnamed').lower()
-        name = re.sub(r'[^a-z0-9-]', '-', name).strip('-')
+        name = skill_meta.get("name", "unnamed").lower()
+        name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
-        version = skill_meta.get('version', '')
-        author = skill_meta.get('author', '')
+        version = skill_meta.get("version", "")
+        author = skill_meta.get("author", "")
 
         parts = [name]
         if version:
-            parts.append(version.replace('.', '-'))
+            parts.append(version.replace(".", "-"))
         if author:
-            parts.append(re.sub(r'[^a-z0-9-]', '-', author.lower()))
+            parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
 
-        # Add UUID for uniqueness (local uploads should be unique)
-        unique_suffix = hashlib.md5(str(uuid.uuid4()).encode()).hexdigest()[:8]
-
-        return '-'.join(parts) + '-' + unique_suffix
+        return "-".join(parts)
 
     def get_skill_directory(self, skill_code: str) -> str:
         """Get the physical directory path for a skill.
@@ -777,7 +795,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             skill = self.get(skill_request)
             if skill and skill.path:
                 # Try to use the stored path
-                skill_dir = os.path.join(project_skill_dir, skill.path.replace('/', os.sep))
+                skill_dir = os.path.join(
+                    project_skill_dir, skill.path.replace("/", os.sep)
+                )
                 if not os.path.exists(skill_dir):
                     # Try direct path from skill.path
                     skill_dir = skill.path
@@ -796,22 +816,24 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_dir = self.get_skill_directory(skill_code)
 
         if not os.path.exists(skill_dir):
-            logger.warning(f"Skill directory not found: {skill_dir}. Returning empty file list.")
-            return {
-                "skill_code": skill_code,
-                "skill_path": skill_dir,
-                "files": []
-            }
+            logger.warning(
+                f"Skill directory not found: {skill_dir}. Returning empty file list."
+            )
+            return {"skill_code": skill_code, "skill_path": skill_dir, "files": []}
 
         files = []
 
         for root, dirs, filenames in os.walk(skill_dir):
             # Skip hidden directories and common temp directories
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['__pycache__', 'node_modules']]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".") and d not in ["__pycache__", "node_modules"]
+            ]
 
             for filename in filenames:
                 # Skip hidden files
-                if filename.startswith('.'):
+                if filename.startswith("."):
                     continue
 
                 full_path = os.path.join(root, filename)
@@ -821,18 +843,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 file_stat = os.stat(full_path)
                 file_info = {
                     "name": filename,
-                    "path": rel_path.replace('\\', '/'),
+                    "path": rel_path.replace("\\", "/"),
                     "size": file_stat.st_size,
                     "is_directory": False,
                     "extension": os.path.splitext(filename)[1][1:].lower(),
                 }
                 files.append(file_info)
 
-        return {
-            "skill_code": skill_code,
-            "skill_path": skill_dir,
-            "files": files
-        }
+        return {"skill_code": skill_code, "skill_path": skill_dir, "files": files}
 
     def read_skill_file(self, skill_code: str, file_path: str) -> Dict[str, Any]:
         """Read a skill file's content.
@@ -847,8 +865,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_dir = self.get_skill_directory(skill_code)
 
         # Normalize file path
-        file_path = file_path.replace('\\', '/')
-        full_path = os.path.join(skill_dir, *file_path.split('/'))
+        file_path = file_path.replace("\\", "/")
+        full_path = os.path.join(skill_dir, *file_path.split("/"))
 
         if not os.path.exists(full_path):
             raise ValueError(f"File not found: {file_path}")
@@ -856,20 +874,22 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         if os.path.isdir(full_path):
             raise ValueError(f"Path is a directory, not a file: {file_path}")
 
-        with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         _, extension = os.path.splitext(file_path)
-        file_type = extension[1:].lower() if extension else 'text'
+        file_type = extension[1:].lower() if extension else "text"
 
         return {
             "skill_code": skill_code,
             "file_path": file_path,
             "content": content,
-            "file_type": file_type
+            "file_type": file_type,
         }
 
-    def write_skill_file(self, skill_code: str, file_path: str, content: str) -> Dict[str, Any]:
+    def write_skill_file(
+        self, skill_code: str, file_path: str, content: str
+    ) -> Dict[str, Any]:
         """Write content to a skill file.
 
         Args:
@@ -883,25 +903,27 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_dir = self.get_skill_directory(skill_code)
 
         # Normalize file path
-        file_path = file_path.replace('\\', '/')
-        full_path = os.path.join(skill_dir, *file_path.split('/'))
+        file_path = file_path.replace("\\", "/")
+        full_path = os.path.join(skill_dir, *file_path.split("/"))
 
         # Ensure directory exists
         dir_path = os.path.dirname(full_path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
 
-        with open(full_path, 'w', encoding='utf-8') as f:
+        with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         return {
             "skill_code": skill_code,
             "file_path": file_path,
             "success": True,
-            "message": "File saved successfully"
+            "message": "File saved successfully",
         }
 
-    def create_skill_file(self, skill_code: str, file_path: str, content: str = "") -> Dict[str, Any]:
+    def create_skill_file(
+        self, skill_code: str, file_path: str, content: str = ""
+    ) -> Dict[str, Any]:
         """Create a new file in the skill directory.
 
         Args:
@@ -915,8 +937,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_dir = self.get_skill_directory(skill_code)
 
         # Normalize file path
-        file_path = file_path.replace('\\', '/')
-        full_path = os.path.join(skill_dir, *file_path.split('/'))
+        file_path = file_path.replace("\\", "/")
+        full_path = os.path.join(skill_dir, *file_path.split("/"))
 
         if os.path.exists(full_path):
             raise ValueError(f"File already exists: {file_path}")
@@ -927,14 +949,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             os.makedirs(dir_path, exist_ok=True)
 
         # Create file with initial content
-        with open(full_path, 'w', encoding='utf-8') as f:
+        with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         return {
             "skill_code": skill_code,
             "file_path": file_path,
             "success": True,
-            "message": "File created successfully"
+            "message": "File created successfully",
         }
 
     def delete_skill_file(self, skill_code: str, file_path: str) -> Dict[str, Any]:
@@ -950,8 +972,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         skill_dir = self.get_skill_directory(skill_code)
 
         # Normalize file path
-        file_path = file_path.replace('\\', '/')
-        full_path = os.path.join(skill_dir, *file_path.split('/'))
+        file_path = file_path.replace("\\", "/")
+        full_path = os.path.join(skill_dir, *file_path.split("/"))
 
         if not os.path.exists(full_path):
             raise ValueError(f"File not found: {file_path}")
@@ -967,7 +989,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             "skill_code": skill_code,
             "file_path": file_path,
             "success": True,
-            "message": "Deleted successfully"
+            "message": "Deleted successfully",
         }
 
     # -------------------- Async Git Sync Methods --------------------
@@ -976,6 +998,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         """Get the sync task DAO"""
         from ..models.skill_sync_task_db import SkillSyncTaskDao
         from derisk.storage.metadata import db
+
         return SkillSyncTaskDao(db)
 
     def create_sync_task(
@@ -1051,15 +1074,21 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             os.makedirs(project_skill_dir, exist_ok=True)
             os.makedirs(temp_git_dir, exist_ok=True)
 
-            dao.update_task_status(task_id, status="running", current_step="Cloning repository...")
+            dao.update_task_status(
+                task_id, status="running", current_step="Cloning repository..."
+            )
 
             # Generate a unique repo name from URL
             repo_name = hashlib.md5(repo_url.encode()).hexdigest()[:16]
             repo_path = os.path.join(temp_git_dir, repo_name)
 
             # Clone or pull the repository
-            if os.path.exists(repo_path) and os.path.exists(os.path.join(repo_path, '.git')):
-                dao.update_task_status(task_id, status="running", current_step="Pulling updates...")
+            if os.path.exists(repo_path) and os.path.exists(
+                os.path.join(repo_path, ".git")
+            ):
+                dao.update_task_status(
+                    task_id, status="running", current_step="Pulling updates..."
+                )
                 repo = git.Repo(repo_path)
                 repo.git.checkout(branch)
                 repo.remotes.origin.pull(branch)
@@ -1071,7 +1100,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             # Get current commit ID
             commit_id = repo.head.commit.hexsha
 
-            dao.update_task_status(task_id, status="running", current_step="Scanning for skills...")
+            dao.update_task_status(
+                task_id, status="running", current_step="Scanning for skills..."
+            )
 
             # Scan for skill directories
             skill_dirs = self._find_skill_directories(repo_path)
@@ -1095,17 +1126,23 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     skill_md_path = os.path.join(skill_path, "SKILL.md")
                     if not os.path.exists(skill_md_path):
                         logger.warning(f"SKILL.md not found in {skill_path}, skipping")
-                        dao.increment_progress(task_id, f"SKILL.md not found: {skill_dir_name}")
+                        dao.increment_progress(
+                            task_id, f"SKILL.md not found: {skill_dir_name}"
+                        )
                         continue
 
                     skill_meta = self._parse_skill_md(skill_md_path)
-                    if not skill_meta or 'name' not in skill_meta:
-                        logger.warning(f"Failed to parse skill metadata from {skill_md_path}")
-                        dao.increment_progress(task_id, f"Parse failed: {skill_dir_name}")
+                    if not skill_meta or "name" not in skill_meta:
+                        logger.warning(
+                            f"Failed to parse skill metadata from {skill_md_path}"
+                        )
+                        dao.increment_progress(
+                            task_id, f"Parse failed: {skill_dir_name}"
+                        )
                         continue
 
                     # Use the actual skill name from metadata
-                    skill_name = skill_meta.get('name')
+                    skill_name = skill_meta.get("name")
 
                     dao.update_task_status(
                         task_id,
@@ -1131,7 +1168,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         continue
 
                     # Read skill content
-                    with open(skill_md_path, 'r', encoding='utf-8') as f:
+                    with open(skill_md_path, "r", encoding="utf-8") as f:
                         content = f.read()
 
                     # Get relative path for storage
@@ -1141,15 +1178,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     skill_request = SkillRequest(
                         skill_code=skill_code,
                         name=skill_name,
-                        description=skill_meta.get('description', ''),
-                        type=skill_meta.get('type', 'python'),
-                        author=skill_meta.get('author'),
-                        email=skill_meta.get('email'),
-                        version=skill_meta.get('version'),
+                        description=skill_meta.get("description", ""),
+                        type=skill_meta.get("type", "python"),
+                        author=skill_meta.get("author"),
+                        email=skill_meta.get("email"),
+                        version=skill_meta.get("version"),
                         path=rel_path,
                         content=content,
-                        icon=skill_meta.get('icon'),
-                        category=skill_meta.get('category'),
+                        icon=skill_meta.get("icon"),
+                        category=skill_meta.get("category"),
                         installed=0 if not existing_skill else existing_skill.installed,
                         available=True,
                         repo_url=repo_url,
@@ -1197,7 +1234,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             if task_id in _background_tasks:
                 del _background_tasks[task_id]
 
-            logger.info(f"Successfully synced {len(synced_skill_codes)} skills from {repo_url}")
+            logger.info(
+                f"Successfully synced {len(synced_skill_codes)} skills from {repo_url}"
+            )
 
         except Exception as e:
             logger.exception(f"Failed to sync skills from git: {e}")
