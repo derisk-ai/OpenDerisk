@@ -27,14 +27,14 @@ class Openderisk < Formula
       #!/bin/bash
       export PATH="#{bin}:${PATH}"
       cd "#{libexec}" || exit 1
-      exec uv run python -m derisk "$@"
+      exec uv run derisk "$@"
     EOS
 
     (bin/"openderisk-server").write <<~EOS
       #!/bin/bash
       export PATH="#{bin}:${PATH}"
       cd "#{libexec}" || exit 1
-      exec uv run python -m derisk.serve "$@"
+      exec uv run derisk start webserver "$@"
     EOS
 
     chmod 0755, bin/"openderisk"
