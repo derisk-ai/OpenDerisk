@@ -191,56 +191,55 @@ export default function TabOverview() {
   return (
     <div className="flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
       <Form form={form} layout="vertical" onValuesChange={onValuesChange}
-        className="max-w-[640px] [&_.ant-form-item-label>label]:text-gray-500 [&_.ant-form-item-label>label]:text-xs [&_.ant-form-item-label>label]:font-medium [&_.ant-form-item-label>label]:uppercase [&_.ant-form-item-label>label]:tracking-wider">
+        className="[&_.ant-form-item-label>label]:text-gray-500 [&_.ant-form-item-label>label]:text-xs [&_.ant-form-item-label>label]:font-medium [&_.ant-form-item-label>label]:uppercase [&_.ant-form-item-label>label]:tracking-wider">
 
-        {/* Basic Info Section */}
-        <div className="mb-6">
-          <h3 className="text-[13px] font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-indigo-500" />
-            {t('baseinfo_basic_info')}
-          </h3>
-          <div className="flex items-start gap-4">
-            <div className="flex flex-col items-center gap-2">
-              <div
-                className="relative group w-16 h-16 rounded-2xl border border-gray-200/60 overflow-hidden shadow-sm hover:shadow-lg hover:border-blue-200/60 transition-all duration-300 cursor-pointer ring-2 ring-white"
-                onClick={() => setIsIconModalOpen(true)}
-              >
-                <Image src={selectedIcon} width={64} height={64} alt="agent icon" className="object-cover w-full h-full" unoptimized />
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-[2px]" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }}>
-                  <EditOutlined className="text-white text-lg drop-shadow-sm" />
+        {/* Two-column grid: Basic Info (left) + Agent Config (right) */}
+        <div className="grid grid-cols-2 gap-6">
+          {/* Basic Info Section - Left Column */}
+          <div className="bg-gray-50/30 rounded-xl border border-gray-100/60 p-5">
+            <h3 className="text-[13px] font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-indigo-500" />
+              {t('baseinfo_basic_info')}
+            </h3>
+            <div className="flex items-start gap-4">
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  className="relative group w-16 h-16 rounded-2xl border border-gray-200/60 overflow-hidden shadow-sm hover:shadow-lg hover:border-blue-200/60 transition-all duration-300 cursor-pointer ring-2 ring-white"
+                  onClick={() => setIsIconModalOpen(true)}
+                >
+                  <Image src={selectedIcon} width={64} height={64} alt="agent icon" className="object-cover w-full h-full" unoptimized />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-[2px]" style={{ backgroundColor: 'rgba(0,0,0,0.35)' }}>
+                    <EditOutlined className="text-white text-lg drop-shadow-sm" />
+                  </div>
                 </div>
+                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">{t('App_icon')}</span>
               </div>
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">{t('App_icon')}</span>
-            </div>
-            <div className="flex-1 space-y-4">
-              <Form.Item name="app_name" label={t('input_app_name')} required rules={[{ required: true, message: t('input_app_name') }]} className="mb-0">
-                <Input placeholder={t('input_app_name')} autoComplete="off" className="h-9 rounded-lg" onBlur={() => onInputBlur('app_name')} />
-              </Form.Item>
-              <Form.Item name="app_describe" label={t('Please_input_the_description')} required rules={[{ required: true, message: t('Please_input_the_description') }]} className="mb-0">
-                <Input.TextArea autoComplete="off" placeholder={t('Please_input_the_description')} autoSize={{ minRows: 3, maxRows: 5 }} className="resize-none rounded-lg" onBlur={() => onInputBlur('app_describe')} />
-              </Form.Item>
+              <div className="flex-1 space-y-4">
+                <Form.Item name="app_name" label={t('input_app_name')} required rules={[{ required: true, message: t('input_app_name') }]} className="mb-0">
+                  <Input placeholder={t('input_app_name')} autoComplete="off" className="h-9 rounded-lg" onBlur={() => onInputBlur('app_name')} />
+                </Form.Item>
+                <Form.Item name="app_describe" label={t('Please_input_the_description')} required rules={[{ required: true, message: t('Please_input_the_description') }]} className="mb-0">
+                  <Input.TextArea autoComplete="off" placeholder={t('Please_input_the_description')} autoSize={{ minRows: 3, maxRows: 5 }} className="resize-none rounded-lg" onBlur={() => onInputBlur('app_describe')} />
+                </Form.Item>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="h-px bg-gradient-to-r from-transparent via-gray-200/60 to-transparent my-6" />
-
-        {/* Agent Config Section */}
-        <div className="mb-6">
-          <h3 className="text-[13px] font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <div className="w-1 h-4 rounded-full bg-gradient-to-b from-violet-500 to-purple-500" />
-            {t('baseinfo_agent_config')}
-          </h3>
-          <div className="space-y-4">
-            <Form.Item label={t('baseinfo_select_agent_type')} name="agent" rules={[{ required: true, message: t('baseinfo_select_agent_type') }]} className="mb-0">
-              <Select placeholder={t('baseinfo_select_agent_type')} options={targetOptions} allowClear className="w-full [&_.ant-select-selector]:!rounded-lg" />
-            </Form.Item>
-            {is_reasoning_engine_agent && (
-              <Form.Item name="reasoning_engine" label={t('baseinfo_reasoning_engine')} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]} className="mb-0">
-                <Select options={reasoningEngineOptions} placeholder={t('baseinfo_select_reasoning_engine')} className="w-full [&_.ant-select-selector]:!rounded-lg" />
+          {/* Agent Config Section - Right Column */}
+          <div className="bg-gray-50/30 rounded-xl border border-gray-100/60 p-5">
+            <h3 className="text-[13px] font-semibold text-gray-700 mb-4 flex items-center gap-2">
+              <div className="w-1 h-4 rounded-full bg-gradient-to-b from-violet-500 to-purple-500" />
+              {t('baseinfo_agent_config')}
+            </h3>
+            <div className="space-y-4">
+              <Form.Item label={t('baseinfo_select_agent_type')} name="agent" rules={[{ required: true, message: t('baseinfo_select_agent_type') }]} className="mb-0">
+                <Select placeholder={t('baseinfo_select_agent_type')} options={targetOptions} allowClear className="w-full [&_.ant-select-selector]:!rounded-lg" />
               </Form.Item>
-            )}
-            <div className="grid grid-cols-2 gap-3">
+              {is_reasoning_engine_agent && (
+                <Form.Item name="reasoning_engine" label={t('baseinfo_reasoning_engine')} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]} className="mb-0">
+                  <Select options={reasoningEngineOptions} placeholder={t('baseinfo_select_reasoning_engine')} className="w-full [&_.ant-select-selector]:!rounded-lg" />
+                </Form.Item>
+              )}
               <Form.Item label={t('baseinfo_llm_strategy')} name="llm_strategy" rules={[{ required: true, message: t('baseinfo_select_llm_strategy') }]} className="mb-0">
                 <Select options={strategyOptions} placeholder={t('baseinfo_select_llm_strategy')} className="w-full [&_.ant-select-selector]:!rounded-lg" />
               </Form.Item>
@@ -254,13 +253,13 @@ export default function TabOverview() {
 
         <div className="h-px bg-gradient-to-r from-transparent via-gray-200/60 to-transparent my-6" />
 
-        {/* Layout Section */}
-        <div className="mb-6">
+        {/* Layout Section — full width below */}
+        <div className="bg-gray-50/30 rounded-xl border border-gray-100/60 p-5">
           <h3 className="text-[13px] font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <div className="w-1 h-4 rounded-full bg-gradient-to-b from-emerald-500 to-green-500" />
             {t('baseinfo_layout')}
           </h3>
-          <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4">
             <Form.Item label={t('baseinfo_layout_type')} name="chat_layout" rules={[{ required: true, message: t('baseinfo_select_layout_type') }]} className="mb-0">
               <Select options={layoutDataOptions} placeholder={t('baseinfo_select_layout_type')} className="w-full [&_.ant-select-selector]:!rounded-lg" />
             </Form.Item>
@@ -268,7 +267,7 @@ export default function TabOverview() {
               <Checkbox.Group options={chatConfigOptions} className="flex flex-wrap gap-2" />
             </Form.Item>
             {selectedChatConfigs && selectedChatConfigs.length > 0 && (
-              <div className="bg-gray-50/40 p-3.5 rounded-xl border border-gray-100/60 mt-1">
+              <div className="col-span-2 bg-white/60 p-3.5 rounded-xl border border-gray-100/60 mt-1">
                 <ChatLayoutConfig form={form} selectedChatConfigs={selectedChatConfigs} chatConfigOptions={chatConfigOptions} onInputBlur={onInputBlur} resourceOptions={resourceOptions} modelOptions={modelOptions} />
               </div>
             )}

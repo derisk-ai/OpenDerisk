@@ -635,4 +635,10 @@ export const CommonZh: Resources['translation'] = {
   builder_create_skill_desc: '创建自定义智能体技能',
   builder_create_mcp: '新建 MCP 服务',
   builder_create_mcp_desc: '添加 MCP 服务集成',
+  builder_skill_all: '全部',
+  builder_skill_built_in: '内置',
+  builder_skill_custom: '自定义',
+  builder_agent_source_all: '全部',
+  builder_agent_source_built_in: '内置',
+  builder_agent_source_custom: '自定义',
 } as const;

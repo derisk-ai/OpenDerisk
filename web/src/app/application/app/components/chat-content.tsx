@@ -5,7 +5,6 @@ import { Layout } from 'antd';
 import ChatContentContainer from '@/components/chat/chat-content-container';
 import useChat from '@/hooks/use-chat';
 import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
-import { CaretLeftOutlined, CaretRightOutlined, MessageOutlined, SettingOutlined } from '@ant-design/icons';
 const { Content } = Layout;
 
 function ChatContent() {
@@ -234,34 +233,7 @@ function ChatContent() {
       }}
     >
       <div className="flex-1 flex flex-col h-full relative bg-transparent">
-        {/* Chat Preview Header — always visible */}
-        <div className='px-5 py-3 border-b border-gray-100/60 flex items-center justify-between z-10 flex-shrink-0'>
-          <div className='flex items-center gap-3'>
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-green-500/20">
-              <MessageOutlined className='text-white text-xs' />
-            </div>
-            <div>
-              <h2 className='font-semibold text-[14px] text-gray-800 tracking-[-0.01em] leading-tight'>Chat Preview</h2>
-              <p className='text-[11px] text-gray-400 mt-0.5'>Test your agent in real-time</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className='h-7 px-2.5 bg-white/80 backdrop-blur-sm border border-gray-200/60 rounded-lg shadow-sm flex items-center gap-1.5 text-gray-400 hover:text-blue-500 hover:border-blue-300/60 hover:bg-blue-50/50 hover:shadow-md transition-all duration-200 text-[11px] font-medium'
-            title={collapsed ? 'Show config panel' : 'Hide config panel'}
-          >
-            {collapsed ? (
-              <>
-                <SettingOutlined className="text-[10px]" />
-                <CaretLeftOutlined className="text-[9px]" />
-              </>
-            ) : (
-              <CaretRightOutlined className="text-[9px]" />
-            )}
-          </button>
-        </div>
-
-        <div className='flex-1 h-full bg-transparent overflow-hidden'>
+        <div className="flex-1 bg-transparent overflow-hidden">
           <Content className='flex flex-col flex-1 h-full'>
             <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
