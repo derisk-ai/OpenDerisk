@@ -17,8 +17,10 @@ import PendingIcon from './pending-icon';
 import StarsSvg from './stars-svg';
 import SunnySvg from './sunny-svg';
 import SyncIcon from './sync-icon';
+import ChatIcon from './chat-icon';
 
 export {
+  ChatIcon,
   ColorfulChat,
   ColorfulDB,
   ColorfulDashboard,
