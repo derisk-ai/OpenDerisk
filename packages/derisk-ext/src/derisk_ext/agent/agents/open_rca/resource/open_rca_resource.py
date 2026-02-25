@@ -6,6 +6,7 @@ from typing import Type, Optional, Any, List, cast, Union, Tuple, Dict
 from derisk._private.config import Config
 from derisk.agent import Resource, ResourceType
 from derisk.agent.resource import PackResourceParameters, ResourceParameters
+from derisk.configs.model_config import PILOT_PATH
 from derisk.util import ParameterDescription
 from derisk.util.template_utils import render
 from derisk.util.i18n_utils import _
@@ -14,19 +15,7 @@ CFG = Config()
 
 logger = logging.getLogger(__name__)
 
-_ROOT_PATH = os.path.dirname(
-    os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                )
-            )
-        )
-    )
-)
-_PILOT_PATH = os.path.join(_ROOT_PATH, "pilot")
-OPEN_RCA_DEFAULT_DATA_DIR = os.path.join(_PILOT_PATH, "dataset/openrca")
+OPEN_RCA_DEFAULT_DATA_DIR = os.path.join(PILOT_PATH, "dataset/openrca")
 
 open_rca_scene_prompt_template = """<open-rca-scene>
 这里是Open RCA场景的基础信息，包含场景名称、场景介绍和文件存放路径。
@@ -243,6 +232,24 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
             ) -> "OpenRcaSceneParameters":
                 """Create a new instance from a dictionary."""
                 copied_data = (data or {}).copy()
+
+                scene_key = copied_data.get("scene") or copied_data.get("value")
+                if scene_key:
+                    for valid_value in cls.valid_values:
+                        if (
+                            valid_value.get("scene") == scene_key
+                            or valid_value.get("value") == scene_key
+                        ):
+                            for key in [
+                                "data_path",
+                                "scene_description",
+                                "scene_schema",
+                            ]:
+                                if key not in copied_data or not copied_data.get(key):
+                                    if valid_value.get(key):
+                                        copied_data[key] = valid_value.get(key)
+                            break
+
                 return super().from_dict(
                     copied_data, ignore_extra_fields=ignore_extra_fields
                 )
