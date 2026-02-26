@@ -1,21 +1,41 @@
 .hover-underline-gradient {
   z-index: 1;
+  border-radius: 16px !important;
 }
+
 .hover-underline-gradient::after {
   content: '';
   display: block;
-  width: 0; /* 在 hover 之前宽度为 0 */
-  height: 80%;
-  background-image: linear-gradient(to right, #00DAEF, #105EFF); /* 渐变背景 */
-  border-radius: 10px; /* 设置为 full rounded corners */
-  transition: width 0.3s ease-in-out; /* 过渡效果 */
+  width: 0; /* In hover 之前宽度为 0 */
+  height: 4px;
+  background: linear-gradient(90deg, #0069fe, #105EFF, #00DAEF); /* Beautiful blue gradient */
+  border-radius: 2px; /* Subtle rounded effect */
+  transition: width 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); /* Smoother ease */
   position: absolute;
-  bottom: -10px;
+  bottom: 0;
+  left: 8px;
+  right: 8px;
   z-index: -1;
-  margin: 0 auto;
-  /* clip-path: inset(50% 0 0 0); */
+  box-shadow: 0 -4px 12px rgba(0, 105, 254, 0.25);
 }
 
 .hover-underline-gradient:hover::after {
-  width: 90%; /* hover 时宽度为元素的 100% */
+  width: calc(100% - 16px); /* Width expands to element's width excluding margins */
+}
+
+.hover-underline-gradient .ant-card-head {
+  border: none !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Additional gradient styles to complement the modern design */
+.card-gradient-bg {
+  background: linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(240,244,255,0.4) 100%);
+  border: 1px solid rgba(255,255,255, 0.4);
+}
+
+.dark .card-gradient-bg {
+  background: linear-gradient(135deg, rgba(30, 30, 46, 0.6) 0%, rgba(39, 39, 56, 0.4) 100%);
+  border: 1px solid rgba(87, 87, 100, 0.2);
 }

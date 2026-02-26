@@ -10,6 +10,52 @@ body {
   -webkit-appearance: none;
 }
 
+/* ============================================
+   MCP Design System Variables
+   ============================================ */
+:root {
+  --mcp-accent: #0069fe;
+  --mcp-accent-rgb: 0, 105, 254;
+  --mcp-accent-light: #e8f1ff;
+  --mcp-success: #10b981;
+  --mcp-success-rgb: 16, 185, 129;
+  --mcp-danger: #ef4444;
+  --mcp-warning: #f59e0b;
+
+  --mcp-bg: #f8f9fc;
+  --mcp-surface: #ffffff;
+  --mcp-surface-hover: #f0f4ff;
+  --mcp-border: #e5e7eb;
+  --mcp-border-subtle: #f0f0f5;
+  --mcp-text-primary: #0f172a;
+  --mcp-text-secondary: #64748b;
+  --mcp-text-tertiary: #94a3b8;
+  --mcp-shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --mcp-shadow-md: 0 4px 16px rgba(0,0,0,0.06);
+  --mcp-shadow-lg: 0 8px 32px rgba(0,0,0,0.08);
+  --mcp-shadow-glow: 0 0 24px rgba(var(--mcp-accent-rgb), 0.12);
+  --mcp-radius: 12px;
+  --mcp-radius-sm: 8px;
+  --mcp-radius-xs: 6px;
+  --mcp-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dark {
+  --mcp-bg: #0c0e14;
+  --mcp-surface: #161a26;
+  --mcp-surface-hover: #1e2333;
+  --mcp-border: #2a2f3e;
+  --mcp-border-subtle: #1e2230;
+  --mcp-text-primary: #f1f5f9;
+  --mcp-text-secondary: #8b95a8;
+  --mcp-text-tertiary: #5b6478;
+  --mcp-accent-light: #0d2254;
+  --mcp-shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --mcp-shadow-md: 0 4px 16px rgba(0,0,0,0.3);
+  --mcp-shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  --mcp-shadow-glow: 0 0 32px rgba(var(--mcp-accent-rgb), 0.2);
+}
+
 .light {
   color: #333;
   background-color: #f7f7f7;
@@ -135,4 +181,24 @@ table {
   height: 100% !important;
   display: flex !important;
   flex-direction: column !important;
+}
+
+/* Card grids for various pages that need responsive layouts */
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .skill-grid,
+  .explore-grid {
+    grid-template-columns: 1fr;
+  }
 }
