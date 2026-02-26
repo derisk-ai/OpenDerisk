@@ -40,9 +40,9 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             config: The service configuration.
             dao: Optional DAO instance for database operations.
         """
-        super().__init__(system_app)
         self._config = config
         self._dao = dao
+        super().__init__(system_app)
 
     def init_app(self, system_app: SystemApp) -> None:
         """Initialize the service.
@@ -67,7 +67,9 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
         """Create a new entity."""
         raise NotImplementedError("Use create_channel instead")
 
-    async def create_channel(self, request: Union[ChannelRequest, Dict]) -> ChannelResponse:
+    async def create_channel(
+        self, request: Union[ChannelRequest, Dict]
+    ) -> ChannelResponse:
         """Create a new channel.
 
         Args:
@@ -82,8 +84,7 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             session.add(entity)
             session.commit()
             session.refresh(entity)
-
-        return self.dao.to_response(entity)
+            return self.dao.to_response(entity)
 
     async def update_channel(
         self, channel_id: str, request: Union[ChannelRequest, Dict]
@@ -101,9 +102,11 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             ValueError: If the channel does not exist.
         """
         with self.dao.session() as session:
-            entity = session.query(ChannelEntity).filter(
-                ChannelEntity.id == channel_id
-            ).first()
+            entity = (
+                session.query(ChannelEntity)
+                .filter(ChannelEntity.id == channel_id)
+                .first()
+            )
             if not entity:
                 raise ValueError(f"Channel not found: {channel_id}")
 
@@ -123,9 +126,11 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             True if deleted, False if not found.
         """
         with self.dao.session() as session:
-            result = session.query(ChannelEntity).filter(
-                ChannelEntity.id == channel_id
-            ).delete()
+            result = (
+                session.query(ChannelEntity)
+                .filter(ChannelEntity.id == channel_id)
+                .delete()
+            )
             session.commit()
             return result > 0
 
@@ -139,14 +144,18 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             The channel response if found, None otherwise.
         """
         with self.dao.session() as session:
-            entity = session.query(ChannelEntity).filter(
-                ChannelEntity.id == channel_id
-            ).first()
+            entity = (
+                session.query(ChannelEntity)
+                .filter(ChannelEntity.id == channel_id)
+                .first()
+            )
             if entity:
                 return self.dao.to_response(entity)
             return None
 
-    async def list_channels(self, include_disabled: bool = False) -> List[ChannelResponse]:
+    async def list_channels(
+        self, include_disabled: bool = False
+    ) -> List[ChannelResponse]:
         """List all channels.
 
         Args:
@@ -203,9 +212,7 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
         Raises:
             ValueError: If the channel does not exist.
         """
-        return await self.update_channel(
-            channel_id, {"enabled": True}
-        )
+        return await self.update_channel(channel_id, {"enabled": True})
 
     async def disable_channel(self, channel_id: str) -> ChannelResponse:
         """Disable a channel.
@@ -219,9 +226,7 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
         Raises:
             ValueError: If the channel does not exist.
         """
-        return await self.update_channel(
-            channel_id, {"enabled": False}
-        )
+        return await self.update_channel(channel_id, {"enabled": False})
 
     async def update_channel_status(
         self,
@@ -237,9 +242,11 @@ class Service(BaseService[ChannelEntity, ChannelRequest, ChannelResponse]):
             error: Optional error message.
         """
         with self.dao.session() as session:
-            entity = session.query(ChannelEntity).filter(
-                ChannelEntity.id == channel_id
-            ).first()
+            entity = (
+                session.query(ChannelEntity)
+                .filter(ChannelEntity.id == channel_id)
+                .first()
+            )
             if entity:
                 entity.status = status
                 if status == "connected":
