@@ -1,27 +1,26 @@
 import styled from 'styled-components';
 
 export const VisAgentPlanCardWrap = styled.div`
-  height: 100%;
-  border-radius:16px;
-  min-width: 100px;
-  white-space: pre-wrap;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  align-items: start;
-  padding: 4px 0;
-  white-space: normal;
+  padding: 3px 0;
 
-
-  .selected {
-    background-color: #fff;
+  &.selected {
+    .header-plan {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
   }
 
   .header {
     width: 100%;
-    border-radius: 6px;
-    padding: 6px;
-    color: #4f5866 ;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #334155;
+    background: transparent;
+    transition: background 0.15s ease;
   }
 
   .header-row {
@@ -30,19 +29,21 @@ export const VisAgentPlanCardWrap = styled.div`
     align-items: center;
     width: 100%;
 
-    .content-header{
+    .content-header {
       display: flex;
       justify-content: flex-start;
       align-items: center;
       width: 100%;
+      gap: 6px;
 
-      .task-icon{
-        width:16px;
-        margin-right: 2px;
+      .task-icon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
       }
     }
 
-    .result{
+    .result {
       display: flex;
       flex-direction: column;
       width: 100%;
@@ -50,45 +51,54 @@ export const VisAgentPlanCardWrap = styled.div`
     }
   }
 
-  .title{
+  .title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: #1e293b;
+  }
+
+  .description {
+    font-size: 12px;
+    color: #64748b;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .description{
-    font-size:12px;
-    color: rgba(0, 0, 0, 0.65);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+
   .header-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex-shrink: 0;
   }
 
   .status {
-    align-self: center;
-    color:#000000cc;
-    margin-left: 12px;
-    border-radius: 6px;
-    padding: 0px 8px
+    color: #475569;
+    margin-left: 8px;
+    border-radius: 10px;
+    padding: 2px 8px;
+    background: #f1f5f9;
+    font-size: 11px;
+    font-weight: 500;
   }
 
   .expand-btn {
     padding: 0;
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.2s;
+    transition: all 0.15s ease;
     font-size: 12px;
+    color: #94a3b8;
+    border-radius: 4px;
 
     &:hover {
-      color: rgba(0, 0, 0, 0.65);
+      color: #475569;
+      background: #f1f5f9;
     }
 
     &.collapsed {
@@ -100,41 +110,43 @@ export const VisAgentPlanCardWrap = styled.div`
     }
   }
 
-  .divider{
-      margin: 0;
-      border-width: 1px;
-      border-color: rgba(0, 0, 0, 0.03);
+  .divider {
+    margin: 0;
+    border-color: #f1f5f9;
   }
 
   .markdown-content {
     width: 100%;
-    animation: fadeIn 0.3s ease-in-out;
+    animation: fadeIn 0.2s ease;
   }
 
   .markdown-content-wrap {
     width: 100%;
-    background-color: #fff;
+    background: transparent;
+    padding: 6px 0 0 0;
   }
 
   .markdown-content-wrap-stage {
-    border-left: 1px dashed #e5e7eb;
-    padding-left: 16px;
-    margin-left: 9px;
+    border-left: 2px solid #e2e8f0;
+    padding-left: 12px;
+    margin-left: 6px;
   }
 
   .stage-icon-wrapper {
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: #e6f4ff;
+    background: #eff6ff;
     border-radius: 50%;
-    height: 20px;
+    width: 18px;
+    height: 18px;
   }
 
   .title-text {
-    display:flex;
-    align-items:center;
+    display: flex;
+    align-items: center;
     justify-content: space-between;
+    width: 100%;
   }
 
   .result-title {
@@ -144,20 +156,20 @@ export const VisAgentPlanCardWrap = styled.div`
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
-    transition: background-color 0.2s ease;
+    transition: background 0.15s ease;
     cursor: pointer;
+    border-radius: 6px;
+    padding: 2px 4px;
 
     &:hover {
-      background-color: #f5f5f5;
-      border-radius: 6px;
+      background: #f8fafc;
     }
   }
 
   .result-icon {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     margin-right: 4px;
-    margin-top: 2px;
   }
 
   .result-content {
@@ -170,8 +182,9 @@ export const VisAgentPlanCardWrap = styled.div`
     display: flex;
     flex: 1;
     justify-content: flex-end;
-    color: #00000073;
-    font-size: 12px;
+    color: #94a3b8;
+    font-size: 11px;
+    gap: 8px;
   }
 
   .content-wrapper {
@@ -179,68 +192,84 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .time-cost {
-    margin-left: 12px;
+    font-weight: 500;
+    color: #64748b;
   }
 
   .task-description {
-    color: rgba(0, 0, 0, 0.45);
-    margin-bottom: 0px !important;
+    color: #64748b;
+    margin-top: 2px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
+    font-size: 12px;
   }
 
   .task-description-level-0 {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .task-description-level-other {
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .agent_name {
     display: flex;
     align-items: center;
-    max-width: 200px;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .agent_name-badge {
-    background-color: #0000001c;
-    padding: 0 6px;
-    margin:0 4px 0 2px;
-    border-radius: 6px;
-    font-size: 12px;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    margin: 0 4px 0 2px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #475569;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .header-plan {
-    border: 1px solid #f0f0f0;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+
+    &:hover {
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+    }
   }
 
   .header-task {
     width: fit-content;
-    max-width: 90%;
-    background-color: #f0f0f0;
-    border: none;
-    border-radius: 9999px;
-    padding: 4px 12px;
-    transition: background-color 0.2s ease;
+    max-width: 85%;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 5px 12px;
+    transition: all 0.15s ease;
     cursor: pointer;
 
     &:hover {
-      background-color: #e8e8e8;
+      background: #f1f5f9;
+    }
+
+    .task-icon {
+      width: 13px;
+      height: 13px;
+      margin-right: 4px;
     }
 
     .title-task-with-markdown {
       flex: 1;
       min-width: 0;
-      /* 修复宽度溢出问题的关键 */
       overflow: hidden;
 
       .title-text-ellipsis:first-child {
@@ -263,29 +292,34 @@ export const VisAgentPlanCardWrap = styled.div`
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 100%;
+      color: #64748b;
+      font-size: 11px;
     }
   }
 
   .header-agent {
-    background-color: #fff;
-    border-radius: 8px;
-    padding: 8px 12px;
-    transition: background-color 0.2s ease;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    transition: all 0.15s ease;
     cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 
     &:hover {
-      background-color: #fafafa;
+      background: #f8fafc;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
     }
 
     .task-icon {
-      margin-right: 6px;
+      margin-right: 4px;
     }
 
     .agent_name-leading {
       flex: 1;
       min-width: 0;
-      font-size: 15px;
-      font-weight: 500;
+      font-size: 14px;
+      font-weight: 600;
       max-width: none;
 
       .avatar-shrink {
@@ -293,22 +327,22 @@ export const VisAgentPlanCardWrap = styled.div`
       }
 
       .agent_name-badge {
-        font-size: 15px;
+        font-size: 13px;
         font-weight: 500;
-        padding: 0 8px;
+        padding: 2px 10px;
       }
     }
   }
 
   .header-stage {
-    background-color: transparent;
-    border-radius: 8px;
-    padding: 8px 12px 8px 0;
-    transition: background-color 0.2s ease;
+    background: transparent;
+    border-radius: 6px;
+    padding: 6px 8px 6px 0;
+    transition: background 0.15s ease;
     cursor: pointer;
 
     &:hover {
-      background-color: transparent;
+      background: transparent;
     }
 
     .content-header {
@@ -316,13 +350,14 @@ export const VisAgentPlanCardWrap = styled.div`
     }
 
     .task-icon {
-      width: 20px;
-      margin-right: 8px;
+      width: 16px;
+      margin-right: 6px;
       margin-left: 0;
     }
 
     .title-text {
-      font-size: 15px;
+      font-size: 13px;
+      font-weight: 500;
     }
   }
 
@@ -330,19 +365,22 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .title-container {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .title-level-0 {
     font-size: 14px;
+    font-weight: 600;
   }
 
   .title-level-1 {
     font-size: 13px;
+    font-weight: 500;
   }
 
   .title-level-2 {
     font-size: 12px;
+    font-weight: 500;
   }
 
   .title-text-ellipsis {
@@ -362,11 +400,11 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .result-title-container {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .result-title-outer {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .result-title-inner {
@@ -380,12 +418,11 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .result-icon-style {
-    margin-top: 2px;
     flex-shrink: 0;
   }
 
   .result-icon-outer {
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
   .avatar-shrink {
@@ -397,9 +434,12 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .status-badge {
-    background-color: #f0f0f0;
-    font-size: 12px;
+    background: #f1f5f9;
+    font-size: 11px;
     flex-shrink: 0;
+    font-weight: 500;
+    border-radius: 10px;
+    padding: 2px 8px;
   }
 
   .flex-container {
@@ -419,7 +459,7 @@ export const VisAgentPlanCardWrap = styled.div`
   @keyframes fadeIn {
     from {
       opacity: 0;
-      transform: translateY(-10px);
+      transform: translateY(-4px);
     }
     to {
       opacity: 1;

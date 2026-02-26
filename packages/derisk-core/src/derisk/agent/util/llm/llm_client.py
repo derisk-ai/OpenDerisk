@@ -36,7 +36,7 @@ class AgentLLMOut(BaseModel):
     def to_dict(self):
         dict_value = model_to_dict(self, exclude={"metrics"})
         if self.metrics:
-            dict_value['metrics'] = self.metrics.to_dict()
+            dict_value["metrics"] = self.metrics.to_dict()
         return dict_value
 
 
@@ -92,36 +92,40 @@ class AIWrapper:
 
         # If API key is not provided in config, try to get from env
         if not api_key:
-             if provider_name == "openai":
-                 api_key = os.getenv("OPENAI_API_KEY")
-             elif provider_name == "claude":
-                 api_key = os.getenv("ANTHROPIC_API_KEY")
+            if provider_name == "openai":
+                api_key = os.getenv("OPENAI_API_KEY")
+            elif provider_name == "claude":
+                api_key = os.getenv("ANTHROPIC_API_KEY")
 
         final_api_key: str = ""
         if api_key:
             final_api_key = api_key
         else:
-             # Fallback or error handling if key is missing?
-             # For now, we assume it might work without key (e.g. local models) or fail later
-             # But providers expect string, so we ensure it is at least an empty string or raise error if critical
-             # For OpenAI/Claude, key is usually required.
-             if provider_name in ["openai", "claude"]:
-                 raise ValueError(f"API Key is required for provider {provider_name}")
-             final_api_key = "" # Default to empty string for other providers/local
+            # Fallback or error handling if key is missing?
+            # For now, we assume it might work without key (e.g. local models) or fail later
+            # But providers expect string, so we ensure it is at least an empty string or raise error if critical
+            # For OpenAI/Claude, key is usually required.
+            if provider_name in ["openai", "claude"]:
+                raise ValueError(f"API Key is required for provider {provider_name}")
+            final_api_key = ""  # Default to empty string for other providers/local
 
         kwargs = self._llm_config.extra_kwargs.copy()
 
         if provider_name == "openai":
             self._provider = OpenAIProvider(
-                api_key=final_api_key, 
-                base_url=base_url, 
+                api_key=final_api_key,
+                base_url=base_url,
                 model=self._llm_config.model,
-                **kwargs
+                **kwargs,
             )
         elif provider_name == "claude":
-            self._provider = ClaudeProvider(api_key=final_api_key, base_url=base_url, **kwargs)
+            self._provider = ClaudeProvider(
+                api_key=final_api_key, base_url=base_url, **kwargs
+            )
         else:
-            logger.warning(f"Unknown provider: {provider_name}, falling back to legacy LLMClient if available")
+            logger.warning(
+                f"Unknown provider: {provider_name}, falling back to legacy LLMClient if available"
+            )
 
     def _construct_create_params(self, create_config: Dict, extra_kwargs: Dict) -> Dict:
         """Prime the create_config with additional_kwargs."""
@@ -154,7 +158,7 @@ class AIWrapper:
     async def create(self, **config):
         from derisk.agent.util.llm.model_config_cache import ModelConfigCache
         from derisk.agent.core.llm_config import AgentLLMConfig
-        
+
         # merge the input config with the i-th config in the config list
         full_config = {**config}
         # separate the config into create_config and extra_kwargs
@@ -164,7 +168,7 @@ class AIWrapper:
         # Use config from parameter or self._llm_config
         llm_model = extra_kwargs.get("llm_model")
         if self._llm_config:
-             llm_model = self._llm_config.model
+            llm_model = self._llm_config.model
 
         # Ensure llm_model is a string
         final_llm_model: str = str(llm_model) if llm_model else "default"
@@ -180,7 +184,7 @@ class AIWrapper:
                         provider_name = temp_llm_config.provider.lower()
                         api_key = temp_llm_config.api_key
                         base_url = temp_llm_config.base_url
-                        
+
                         if provider_name == "openai":
                             self._provider_cache[llm_model] = OpenAIProvider(
                                 api_key=api_key or "",
@@ -189,13 +193,17 @@ class AIWrapper:
                             )
                             logger.info(f"Created OpenAIProvider for model={llm_model}")
                     except Exception as e:
-                        logger.error(f"Failed to create provider for model {llm_model}: {e}")
-                
+                        logger.error(
+                            f"Failed to create provider for model {llm_model}: {e}"
+                        )
+
                 self._provider = self._provider_cache.get(llm_model)
 
         llm_context = extra_kwargs.get("llm_context")
         stream_out = extra_kwargs.get("stream_out", True)
-        function_calling_context: Optional[Dict] = params.get("function_calling_context", None)
+        function_calling_context: Optional[Dict] = params.get(
+            "function_calling_context", None
+        )
 
         # Prepare request payload/ModelRequest
         messages = params["messages"]
@@ -218,20 +226,19 @@ class AIWrapper:
 
         # Create ModelRequest
         request = ModelRequest.build_request(
-             model=final_llm_model,
-             messages=messages,
-             stream=stream_out,
-             echo=self.llm_echo,
-             temperature=temperature,
-             max_new_tokens=max_new_tokens,
-             # Add other parameters from config if needed
+            model=final_llm_model,
+            messages=messages,
+            stream=stream_out,
+            echo=self.llm_echo,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            # Add other parameters from config if needed
         )
         if self._llm_config and self._llm_config.stop:
             request.stop = self._llm_config.stop
 
         if self._llm_config and self._llm_config.top_p:
             request.top_p = self._llm_config.top_p
-
 
         payload = {
             "model": llm_model,
@@ -246,25 +253,43 @@ class AIWrapper:
         }
 
         logger.info(f"Model Request:{llm_model}")
-        
+
         # 详细输入日志，方便调试
         if request.messages:
             messages_summary = []
             for msg in request.messages:
-                content = msg.content if hasattr(msg, 'content') else str(msg)
+                content = msg.content if hasattr(msg, "content") else str(msg)
                 if isinstance(content, list):
-                    content_str = "[" + ", ".join([f"{c.get('type', 'unknown')}" for c in content]) + "]"
+                    content_str = (
+                        "["
+                        + ", ".join([f"{c.get('type', 'unknown')}" for c in content])
+                        + "]"
+                    )
                 else:
-                    content_str = str(content)
-                messages_summary.append({
-                    "role": msg.role if hasattr(msg, 'role') else "unknown",
-                    "content": content_str,
-                })
-            logger.info(f"Model Input Messages: {json.dumps(messages_summary, ensure_ascii=False, indent=2)}")
-        
+                    content_str = (
+                        str(content)[:500] + "..."
+                        if len(str(content)) > 500
+                        else str(content)
+                    )
+                messages_summary.append(
+                    {
+                        "role": msg.role if hasattr(msg, "role") else "unknown",
+                        "content": content_str,
+                    }
+                )
+            logger.info(
+                f"Model Input Messages: {json.dumps(messages_summary, ensure_ascii=False, indent=2)}"
+            )
+
         if request.tools:
-            tool_names = [t.get("function", {}).get("name", "unknown") for t in request.tools]
-            logger.info(f"Model Input Tools: {tool_names}")
+            tool_names = [
+                t.get("function", {}).get("name", "unknown") for t in request.tools
+            ]
+            logger.info(f"Model Input Tools ({len(request.tools)}): {tool_names}")
+            if request.tool_choice:
+                logger.info(f"Model Tool Choice: {request.tool_choice}")
+            if request.parallel_tool_calls:
+                logger.info(f"Model Parallel Tool Calls: {request.parallel_tool_calls}")
 
         span = root_tracer.start_span(
             "Agent.llm_client.no_streaming_call",
@@ -284,44 +309,58 @@ class AIWrapper:
         # 调用模型的用户信息
         user = params.get("staff_no")
         if user:
-            extra['user'] = user
+            extra["user"] = user
 
-        request.context = ModelRequestContext(extra=extra,
-                                             trace_id=params.get("trace_id", None),
-                                             rpc_id=params.get("rpc_id", None))
+        request.context = ModelRequestContext(
+            extra=extra,
+            trace_id=params.get("trace_id", None),
+            rpc_id=params.get("rpc_id", None),
+        )
 
+        # Apply function_calling_context to request
         if function_calling_context:
-            # This logic needs to be adapted for ModelRequest if specific params are needed
-            # For now, assuming tools are passed in messages or handled by caller adding to messages
-            pass
+            tools = function_calling_context.get("tools")
+            if tools:
+                request.tools = tools
+            tool_choice = function_calling_context.get("tool_choice")
+            if tool_choice:
+                request.tool_choice = tool_choice
+            parallel_tool_calls = function_calling_context.get("parallel_tool_calls")
+            if parallel_tool_calls is not None:
+                request.parallel_tool_calls = parallel_tool_calls
+            logger.info(
+                f"Applied function_calling_context: tools={len(tools) if tools else 0}"
+            )
 
         try:
-
             # Choose client: self._provider or self._llm_client (legacy)
             if self._provider:
-                 client = self._provider
+                client = self._provider
             elif self._llm_client:
-                 client = self._llm_client
+                client = self._llm_client
             else:
-                 raise ValueError("No LLM provider or client configured.")
+                raise ValueError("No LLM provider or client configured.")
 
             if stream_out:
                 accumulated_thinking = ""
                 accumulated_content = ""
                 # 根据 provider 返回的 incremental 属性判断是否需要累积
                 need_accumulate = None  # 延迟判断，根据第一个 chunk 确定
-                
+
                 async for output in client.generate_stream(request):  # type: ignore
                     model_output: ModelOutput = output
                     if model_output.error_code != 0:
-                        raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+                        raise LLMChatError(
+                            model_output.text,
+                            original_exception=model_output.error_code,
+                        )
 
                     thinking_text, content_text = model_output.gen_text_and_thinking()
-                    
+
                     # 根据第一个 chunk 的 incremental 属性确定累积策略
                     if need_accumulate is None:
                         need_accumulate = model_output.incremental
-                    
+
                     # 如果是增量模式，累积内容；否则直接使用
                     if need_accumulate:
                         if thinking_text:
@@ -336,19 +375,71 @@ class AIWrapper:
                     if think_blank and content_blank and not model_output.tool_calls:
                         continue
 
-                    yield AgentLLMOut(thinking_content=thinking_text, content=content_text,
-                                      metrics=model_output.metrics, llm_name=llm_model, llm_context=llm_context,
-                                      tool_calls=model_output.tool_calls, in_messages=params["messages"])
+                    # 详细输出日志：记录 tool_calls
+                    if model_output.tool_calls:
+                        tool_call_summary = []
+                        for tc in model_output.tool_calls:
+                            if tc and isinstance(tc, dict):
+                                func_info = tc.get("function", {})
+                                tool_call_summary.append(
+                                    {
+                                        "id": tc.get("id"),
+                                        "name": func_info.get("name")
+                                        if isinstance(func_info, dict)
+                                        else None,
+                                    }
+                                )
+                        if tool_call_summary:
+                            logger.info(
+                                f"Model Output Tool Calls: {json.dumps(tool_call_summary, ensure_ascii=False)}"
+                            )
+
+                    yield AgentLLMOut(
+                        thinking_content=thinking_text,
+                        content=content_text,
+                        metrics=model_output.metrics,
+                        llm_name=llm_model,
+                        llm_context=llm_context,
+                        tool_calls=model_output.tool_calls,
+                        in_messages=params["messages"],
+                    )
             else:
                 model_output = await client.generate(request)
                 # 恢复模型调用异常，触发后续的模型兜底策略
                 if model_output.error_code != 0:
-                    raise LLMChatError(model_output.text, original_exception=model_output.error_code)
+                    raise LLMChatError(
+                        model_output.text, original_exception=model_output.error_code
+                    )
                 thinking_text, content_text = model_output.gen_text_and_thinking()
 
-                yield AgentLLMOut(thinking_content=thinking_text, content=content_text, metrics=model_output.metrics,
-                                  llm_name=llm_model, llm_context=llm_context, tool_calls=model_output.tool_calls,
-                                  in_messages=params["messages"])
+                # 详细输出日志：记录 tool_calls
+                if model_output.tool_calls:
+                    tool_call_summary = []
+                    for tc in model_output.tool_calls:
+                        if tc and isinstance(tc, dict):
+                            func_info = tc.get("function", {})
+                            tool_call_summary.append(
+                                {
+                                    "id": tc.get("id"),
+                                    "name": func_info.get("name")
+                                    if isinstance(func_info, dict)
+                                    else None,
+                                }
+                            )
+                    if tool_call_summary:
+                        logger.info(
+                            f"Model Output Tool Calls: {json.dumps(tool_call_summary, ensure_ascii=False)}"
+                        )
+
+                yield AgentLLMOut(
+                    thinking_content=thinking_text,
+                    content=content_text,
+                    metrics=model_output.metrics,
+                    llm_name=llm_model,
+                    llm_context=llm_context,
+                    tool_calls=model_output.tool_calls,
+                    in_messages=params["messages"],
+                )
         except LLMChatError as e:
             logger.exception(f"LLM  Chat error, detail: {str(e)}")
             raise
@@ -369,7 +460,7 @@ class AIWrapper:
     async def get_model_metadata(self, model: str) -> "ModelMetadata":
         """Get model metadata from the provider or LLM client."""
         from derisk.core.interface.llm import ModelMetadata
-        
+
         if self._provider:
             models = await self._provider.models()
             for m in models:
@@ -378,8 +469,8 @@ class AIWrapper:
             if models:
                 return models[0]
             return ModelMetadata(model=model, context_length=128000)
-        
+
         if self._llm_client:
             return await self._llm_client.get_model_metadata(model)
-        
+
         return ModelMetadata(model=model, context_length=128000)

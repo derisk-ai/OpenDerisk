@@ -1,6 +1,5 @@
 import styled from 'styled-components';
 
-/* 树形目录（renderRoleTree） */
 export const FolderItemContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -13,18 +12,18 @@ export const RoleHeader = styled.div<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.375rem;
+  padding: 5px 8px;
   cursor: ${(props) => (props.$hasChildren ? 'pointer' : 'default')};
-  border-radius: 0.375rem;
-  transition: background-color 0.2s ease;
+  border-radius: 6px;
+  transition: background 0.15s ease;
 
   &:hover {
     background-color: ${(props) =>
-      props.$isSelected ? 'rgba(59, 130, 246, 0.1)' : 'rgba(0, 0, 0, 0.1)'};
+      props.$isSelected ? '#dbeafe' : '#e8ecf1'};
   }
 
   background-color: ${(props) =>
-    props.$isSelected ? 'rgba(59, 130, 246, 0.1)' : 'transparent'};
+    props.$isSelected ? '#eff6ff' : 'transparent'};
 `;
 
 export const HeaderContent = styled.div`
@@ -32,17 +31,23 @@ export const HeaderContent = styled.div`
   align-items: center;
   min-width: 0;
   flex: 1;
-  gap: 0.25rem;
+  gap: 6px;
 `;
 
 export const AvatarWrapper = styled.div`
   position: relative;
-  width: 1rem;
-  height: 1rem;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  font-size: 0.75rem;
-  text-align: center;
-  line-height: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
 `;
 
 export const AvatarImage = styled.img`
@@ -50,38 +55,39 @@ export const AvatarImage = styled.img`
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid #e2e8f0;
 `;
 
 export const TitleText = styled.h3`
-  font-size: 14px;
-  color: #4f5866;
+  font-size: 12px;
+  font-weight: 500;
+  color: #334155;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin: 0;
 `;
 
 export const ChildrenContainer = styled.div`
-  margin-top: 0.125rem;
+  margin-top: 1px;
+  margin-left: 10px;
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: 1px;
+  border-left: 2px solid #e2e8f0;
+  padding-left: 6px;
 `;
 
 export const IndentArea = styled.div`
-  margin-left: 0.125rem;
-  padding-left: 0.25rem;
+  padding-left: 2px;
 `;
 
-/* 兼容：扁平列表 / explorer 容器 */
 export const FolderContainer = styled.div`
-  max-width: 320px;
+  width: 100%;
+  height: 100%;
   padding: 8px;
-  border: 1px solid #e8e8e8;
-  border-radius: 8px;
-  background: #fafafa;
+  background: transparent;
   overflow-y: auto;
-  max-height: 400px;
 `;
 
 export const FolderList = styled.ul`
@@ -93,20 +99,40 @@ export const FolderList = styled.ul`
 export const FolderItemStyled = styled.li`
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  color: #1a1a1a;
-  transition: background 0.2s;
+  font-size: 12px;
+  color: #334155;
+  transition: background 0.15s ease;
 
   &:hover {
-    background: #f0f0f0;
+    background: #e8ecf1;
   }
 
   .title {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 500;
+  }
+`;
+
+export const TreeContainer = styled.div`
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  background: transparent;
+  overflow-y: auto;
+  
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
   }
 `;
