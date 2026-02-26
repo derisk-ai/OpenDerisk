@@ -85,6 +85,33 @@ PHASE_DISPLAY_MAP = {
 }
 
 
+PHASE_PATTERNS = [
+    (r"【阶段\s*[:：]\s*([^】]+)】", "zh"),
+    (r"\[Phase\s*[:：]\s*([^\]]+)\]", "en"),
+]
+
+PHASE_NORMALIZE_MAP = {
+    "分析": "analysis",
+    "规划": "planning",
+    "执行": "execution",
+    "验证": "verification",
+    "完成": "completion",
+    "analysis": "analysis",
+    "planning": "planning",
+    "execution": "execution",
+    "verification": "verification",
+    "completion": "completion",
+}
+
+PHASE_DISPLAY_MAP = {
+    "analysis": "分析阶段",
+    "planning": "规划阶段",
+    "execution": "执行阶段",
+    "verification": "验证阶段",
+    "completion": "完成阶段",
+}
+
+
 # ╔══════════════════════════════════════════════════════════════════════════════
 # ║ 🚨🚨🚨 重要逻辑提示：请勿随意修改以下代码！ 🚨🚨🚨
 # ╟──────────────────────────────────────────────────────────────────────────────
@@ -241,7 +268,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             logger.exception("vis_window2异常!")
             return None
 
-async def _gen_plan_items(
+    async def _gen_plan_items(
         self,
         gpt_msg: Optional[GptsMessage] = None,
         stream_msg: Optional[Union[Dict, str]] = None,
@@ -335,7 +362,9 @@ async def _gen_plan_items(
                     break
 
         if step_thought:
-            update_type = UpdateType.INCR.value if is_streaming else UpdateType.ALL.value
+            update_type = (
+                UpdateType.INCR.value if is_streaming else UpdateType.ALL.value
+            )
             report_content = DrskTextContent(
                 dynamic=False,
                 markdown=step_thought,
@@ -375,7 +404,7 @@ async def _gen_plan_items(
                         ),
                     )
                     break
-        
+
         if has_completed_actions:
             clear_desc = DrskTextContent(
                 dynamic=False,

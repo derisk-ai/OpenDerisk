@@ -393,9 +393,9 @@ export default function Chat() {
          chatInParams,
        }}
     >
-      <Flex flex={1}>
-        <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full'>
-          <Layout className='bg-transparent'>{contentRender()}</Layout>
+      <Flex flex={1} className='h-screen'>
+        <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
+          <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
         </Layout>
       </Flex>
     </ChatContentContext.Provider>
