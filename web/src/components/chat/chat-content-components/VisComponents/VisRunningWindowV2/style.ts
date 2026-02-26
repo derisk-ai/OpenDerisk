@@ -4,9 +4,7 @@ export const WorkSpaceContainer = styled.div`
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-height: 500px;
-  min-height: 300px;
-  height: 500px;
+  height: 100%;
   background: #ffffff;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
