@@ -49,9 +49,23 @@
 .model-page-content {
   position: relative;
   z-index: 1;
-  max-width: 1200px;
+  max-width: 1152px;
   margin: 0 auto;
-  padding: 32px 20px 48px;
+  padding: 16px 20px 48px;
+}
+
+/* xl screens (1280px+) */
+@media (min-width: 1280px) {
+  .model-page-content {
+    max-width: 1600px;
+  }
+}
+
+/* 2xl screens (1536px+) */
+@media (min-width: 1536px) {
+  .model-page-content {
+    max-width: 2000px;
+  }
 }
 
 /* === Header === */
@@ -59,7 +73,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .model-header-left {
@@ -285,7 +299,7 @@
 .model-list-view .model-card--list .model-card-header {
   margin-bottom: 0;
   flex-shrink: 0;
-  width: 280px;
+  width: 260px;
 }
 
 .model-list-view .model-card--list .model-card-desc {
@@ -300,7 +314,8 @@
   padding-top: 0;
   margin-top: 0;
   flex-shrink: 0;
-  width: 120px;
+  width: auto;
+  min-width: 140px;
   justify-content: flex-end;
 }
 
@@ -538,13 +553,17 @@
 }
 
 .model-chat-btn {
-  background: linear-gradient(135deg, var(--model-accent), #4d9fff) !important;
-  border: none !important;
+  background: transparent !important;
+  border: 1px solid var(--model-border) !important;
+  color: var(--model-text-secondary) !important;
   font-weight: 500 !important;
+  transition: all var(--model-transition) !important;
 }
 
 .model-chat-btn:hover {
-  background: linear-gradient(135deg, #0056d6, var(--model-accent)) !important;
+  background: var(--model-accent-light) !important;
+  border-color: var(--model-accent) !important;
+  color: var(--model-accent) !important;
 }
 
 /* === Dropdown Items === */
@@ -633,7 +652,7 @@
 /* === Responsive === */
 @media (max-width: 768px) {
   .model-page-content {
-    padding: 20px 16px 40px;
+    padding: 16px 20px 40px;
   }
   
   .model-header {

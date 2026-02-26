@@ -4,28 +4,16 @@ import {
   getAppList,
   newDialogue,
 } from '@/client/api';
-import BlurredCard, { ChatButton } from '@/components/blurred-card';
 import { IApp } from '@/types/app';
-import { SearchOutlined, FireFilled, GlobalOutlined, RocketFilled } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, GlobalOutlined, RocketFilled, FireFilled, AppstoreOutlined, UnorderedListOutlined, MessageOutlined } from '@ant-design/icons';
 import { useDebounceFn } from 'ahooks';
-import { App as AntdApp, Button, Flex, Input, Pagination, Segmented, SegmentedProps, Space, Spin, Tag, Typography } from 'antd';
+import { App as AntdApp, Spin } from 'antd';
 import moment from 'moment';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import './explore-page.css';
 
 type TabKey = 'all' | 'published' | 'unpublished';
-
-const { Title, Text } = Typography;
-
-// Define trending tags for additional navigation
-const TrendingTags = [
-  'AI Assistant',
-  'Data Analysis',
-  'Code Generator', 
-  'Research',
-  'Finance',
-  'Customer Support'
-];
 
 export default function ExplorePage() {
   const { notification } = AntdApp.useApp();
@@ -36,6 +24,7 @@ export default function ExplorePage() {
   const [activeKey, setActiveKey] = useState<TabKey>('all');
   const [apps, setApps] = useState<IApp[]>([]);
   const [filterValue, setFilterValue] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const totalRef = useRef<{
     current_page: number;
     total_count: number;
@@ -54,8 +43,8 @@ export default function ExplorePage() {
     if (node) observerRef.current.observe(node);
   }, [spinning, hasMore]);
 
-  const handleTabChange = (activeKey: string) => {
-    setActiveKey(activeKey as TabKey);
+  const handleTabChange = (key: TabKey) => {
+    setActiveKey(key);
   };
 
   const getListFiltered = useCallback(() => {
@@ -139,7 +128,6 @@ export default function ExplorePage() {
     zh: t('Chinese'),
   };
 
-  // Open chat in a new browser tab
   const handleChat = async (app: IApp) => {
     const [, res] = await apiInterceptors(newDialogue({ app_code: app.app_code }));
     if (res) {
@@ -147,157 +135,191 @@ export default function ExplorePage() {
     }
   };
 
-  const items: SegmentedProps['options'] = [
-    { value: 'all', label: 
-      <div className="flex items-center gap-2">
-        <RocketFilled className="text-blue-500" /> 
-        <span>{t('apps')}</span>
-      </div> 
-    },
-    { value: 'published', label: 
-      <div className="flex items-center gap-2">
-        <GlobalOutlined className="text-green-500" /> 
-        <span>{t('published')}</span>
-      </div> 
-    },
-    { value: 'unpublished', label: 
-      <div className="flex items-center gap-2">
-        <FireFilled className="text-orange-500" /> 
-        <span>{t('unpublished')}</span>
-      </div> 
-    },
-  ];
-
-  const onSearch = async (e: any) => {
-    setFilterValue(e.target.value);
-  };
-
   useEffect(() => {
     getListFiltered();
   }, [getListFiltered]);
 
+  const stats = {
+    total: apps?.length || 0,
+    published: apps?.filter(a => a.published)?.length || 0,
+    unpublished: apps?.length - apps?.filter(a => a.published)?.length || 0,
+  };
+
+  const tabs = [
+    { key: 'all' as TabKey, label: t('apps'), icon: <RocketFilled />, count: stats.total },
+    { key: 'published' as TabKey, label: t('published'), icon: <GlobalOutlined />, count: stats.published },
+    { key: 'unpublished' as TabKey, label: t('unpublished'), icon: <FireFilled />, count: stats.unpublished },
+  ];
+
   return (
     <Spin spinning={spinning} size="large" tip={t('loading')}>
-      <div className="min-h-screen max-w-[1200px] w-full mx-auto px-5 py-6 md:px-5 md:py-8 pb-20 bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900">
-        {/* Header Section */}
-        <div className="mb-10">
-          <Flex vertical gap={16}>
-            <div>
-              <Title level={2} className="font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent m-0">
-                {t('explore_agents')}
-              </Title>
-            </div>
-            
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              {/* Search and Filters */}
-              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="relative w-full sm:w-80">
-                  <Input
-                    variant="outlined"
-                    value={filterValue}
-                    prefix={
-                      <div className="pr-2 text-gray-400">
-                        <SearchOutlined className="text-gray-400" />
-                      </div>
-                    }
-                    placeholder={t('search_agents') || t('please_enter_the_keywords')}
-                    onChange={onSearch}
-                    onPressEnter={onSearch}
-                    allowClear
-                    className="py-3 pl-2 pr-4 w-full rounded-xl border-gray-200 shadow-sm hover:shadow-md focus:shadow-md focus-within:shadow-md dark:bg-gray-800/50 dark:border-gray-700 dark:text-white"
-                    size="large"
-                  />
-                </div>
-                
-                <Segmented
-                  className="backdrop-filter backdrop-blur-lg bg-white/70 dark:bg-gray-800/70 border border-gray-200 rounded-2xl shadow-sm dark:border-gray-700 [&_.ant-segmented-item-selected]:bg-gradient-to-r [&_.ant-segmented-item-selected]:from-blue-500 [&_.ant-segmented-item-selected]:to-indigo-500 [&_.ant-segmented-item-selected]:text-white [&_.ant-segmented-item-selected]:rounded-xl"
-                  options={items as any}
-                  onChange={handleTabChange}
-                  value={activeKey}
-                  size="large"
-                />
+      <div className='explore-page-root'>
+        <div className='explore-page-bg' />
+
+        <div className='explore-page-content'>
+          <div className='explore-header'>
+            <div className='explore-header-left'>
+              <div className='explore-header-icon'>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div>
+                <h1 className='explore-title'>{t('explore_agents')}</h1>
+                <p className='explore-subtitle'>
+                  {t('explore_page_subtitle') || 'Discover and explore available agents'}
+                </p>
               </div>
             </div>
-          </Flex>
-        </div>
-        
-        {/* Agents Grid */}
-        <div className="flex flex-col w-full overflow-y-auto max-h-[calc(100vh-380px)]">
+            <div className='explore-header-actions'>
+              <button
+                className='explore-btn-refresh'
+                onClick={() => getListFiltered()}
+              >
+                <ReloadOutlined />
+              </button>
+            </div>
+          </div>
+
+          <div className='explore-stats-bar'>
+            <div className='explore-stats-group'>
+              {tabs.map(tab => (
+                <button
+                  key={tab.key}
+                  className={`explore-stat ${activeKey === tab.key ? 'active' : ''}`}
+                  onClick={() => handleTabChange(tab.key)}
+                  style={{
+                    background: activeKey === tab.key ? 'var(--mcp-accent-light)' : 'transparent',
+                    border: activeKey === tab.key ? '1px solid var(--mcp-accent)' : '1px solid transparent',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <span className='explore-stat-value' style={{ color: activeKey === tab.key ? 'var(--mcp-accent)' : 'var(--mcp-text-primary)' }}>
+                    {tab.count}
+                  </span>
+                  <span className='explore-stat-label'>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className='explore-toolbar'>
+              <div className='explore-search-wrapper'>
+                <SearchOutlined className='explore-search-icon' />
+                <input
+                  className='explore-search-input'
+                  placeholder={t('search_agents') || t('please_enter_the_keywords')}
+                  value={filterValue}
+                  onChange={e => setFilterValue(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && getListFiltered()}
+                />
+              </div>
+              <div className='explore-view-toggle'>
+                <button
+                  className={`explore-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                >
+                  <AppstoreOutlined />
+                </button>
+                <button
+                  className={`explore-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                >
+                  <UnorderedListOutlined />
+                </button>
+              </div>
+            </div>
+          </div>
+
           {apps.length > 0 ? (
-            <div className="explore-grid">
+            <div className={viewMode === 'grid' ? 'explore-grid' : 'explore-list-view'}>
               {apps.map((item, index) => {
                 const isUpdatedRecently = item.updated_at && 
                   moment().diff(moment(item.updated_at), 'days') <= 7;
                 
                 return (
-                  <div 
+                  <div
                     key={item.app_code}
                     ref={index === apps.length - 1 ? lastElementRef : null}
-                    className="transition-all duration-300 hover:-translate-y-1"
+                    className={`explore-card ${item.published ? 'explore-card--published' : ''} ${viewMode === 'list' ? 'explore-card--list' : ''}`}
                   >
-                    <div className="relative">
-                      {isUpdatedRecently && (
-                        <div className="absolute -top-2 -right-2 z-10">
-                          <Tag color="gold" className="font-semibold rounded-full px-2 py-0.5 text-xs">
-                            <FireFilled /> New
-                          </Tag>
+                    {item.published && <div className='explore-card-glow' />}
+                    
+                    <div className='explore-card-header'>
+                      <div className='explore-card-identity' onClick={() => handleChat(item)}>
+                        <div className='explore-card-avatar'>
+                          {item.icon ? (
+                            <img src={item.icon} alt={item.app_name} />
+                          ) : (
+                            <span className='explore-card-avatar-text'>
+                              {(item.app_name || 'A').charAt(0).toUpperCase()}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      
-                      <BlurredCard
-                        code={item.app_code}
-                        name={item.app_name}
-                        description={item.app_describe}
-                        logo={item.icon || '/icons/colorful-plugin.png'}
-                        Tags={
-                          <div className="flex flex-wrap gap-1">
-                            <Tag 
-                              className="rounded-full px-2 py-0.5 text-xs font-medium flex items-center bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800"
-                              icon={item.language === 'en' ? <GlobalOutlined /> : null}
-                            >
-                              {languageMap[item.language]}
-                            </Tag>
-                            <Tag 
-                              className="rounded-full px-2 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-purple-200 dark:border-purple-800"
-                            >
-                              {item.team_mode}
-                            </Tag>
-                            <Tag 
-                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                                item.published 
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' 
-                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                              }`}
-                            >
-                              {item.published ? t('published') : t('unpublished')}
-                            </Tag>
-                          </div>
-                        }
-                        rightTopHover={false}
-                        LeftBottom={
-                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                            <span>{item.owner_name}</span>
-                            <span>•</span>
-                            {item?.updated_at && (
-                              <span>{moment(item?.updated_at).fromNow()}</span>
+                        <div className='explore-card-meta'>
+                          <h3 className='explore-card-name'>{item.app_name}</h3>
+                          <div className='explore-card-badges'>
+                            {item.language && (
+                              <span className='explore-badge explore-badge--type'>
+                                {languageMap[item.language]}
+                              </span>
                             )}
+                            <span className={`explore-badge ${item.published ? 'explore-badge--published' : 'explore-badge--unpublished'}`}>
+                              <span className={`explore-status-dot ${item.published ? 'explore-status-dot--published' : ''}`} />
+                              {item.published ? t('published') : t('unpublished')}
+                            </span>
                           </div>
-                        }
-                        RightBottom={
-                          <div className="transform transition-transform duration-200 group-hover:scale-105">
-                            <ChatButton
-                              onClick={() => {
-                                handleChat(item);
-                              }}
-                              Icon="/pictures/card_chat.png"
-                            />
-                          </div>
-                        }
-                        onClick={() => {
+                        </div>
+                      </div>
+                      {viewMode === 'grid' && isUpdatedRecently && (
+                        <span className='explore-card-new-badge'>
+                          <FireFilled style={{ marginRight: 4 }} />
+                          New
+                        </span>
+                      )}
+                      {viewMode === 'list' && isUpdatedRecently && (
+                        <span className='explore-card-new-badge'>
+                          <FireFilled style={{ marginRight: 4 }} />
+                          New
+                        </span>
+                      )}
+                    </div>
+
+                    <p className='explore-card-desc'>{item.app_describe}</p>
+
+                    <div className='explore-card-footer'>
+                      <div className='explore-card-footer-left'>
+                        <span className='explore-card-id'>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                            <line x1="9" y1="3" x2="9" y2="21" />
+                          </svg>
+                          {item.app_code}
+                        </span>
+                        {item.owner_name && (
+                          <span className='explore-card-author'>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                            {item.owner_name}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        className='explore-chat-btn'
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleChat(item);
                         }}
-                        scene={item?.team_context?.chat_scene || 'chat_agent'}
-                      />
+                      >
+                        <MessageOutlined style={{ marginRight: 6 }} />
+                        {t('start_chat') || 'Chat'}
+                      </button>
                     </div>
                   </div>
                 );
@@ -305,45 +327,28 @@ export default function ExplorePage() {
             </div>
           ) : (
             !spinning && (
-              <div className="w-full flex flex-col items-center justify-center py-20 px-4">
-                <div className="bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 rounded-2xl p-12 text-center max-w-md">
-                  <div className="w-24 h-24 mx-auto mb-6 flex items-center justify-center bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-full">
-                    <RocketFilled className="text-4xl text-blue-500" />
-                  </div>
-                  <Title level={4} className="text-gray-700 dark:text-gray-200">
-                    {t('no_agents_found') || 'No agents found'}
-                  </Title>
-                  <Text className="block text-gray-500 dark:text-gray-400 mb-6">
-                    {t('try_adjusting_filters') || 'Try adjusting your search or filters to find what you are looking for'}
-                  </Text>
-                  <Button 
-                    type="primary" 
-                    size="large"
-                    className="rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 border-none"
-                    onClick={() => setFilterValue('')}
-                  >
-                    {t('clear_filters') || 'Clear Filters'}
-                  </Button>
+              <div className='explore-empty'>
+                <div className='explore-empty-icon'>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" />
+                    <path d="M2 17L12 22L22 17" />
+                    <path d="M2 12L12 17L22 12" />
+                  </svg>
                 </div>
+                <h3 className='explore-empty-title'>{t('no_agents_found') || 'No agents found'}</h3>
+                <p className='explore-empty-desc'>
+                  {t('try_adjusting_filters') || 'Try adjusting your search or filters'}
+                </p>
               </div>
             )
           )}
-           
-           
-           {/* Loading More Indicator */}
-           {loadingMore && (
-             <div className="w-full flex justify-center mt-8 mb-6">
-               <Spin size="large" tip={t('loading')} />
-             </div>
-           )}
-           
-           {/* No More Data Indicator */}
-           {!hasMore && apps.length > 0 && (
-             <div className="w-full flex justify-center mt-8 mb-6">
-               <Text type="secondary">{t('no_more_data') || 'No more data'}</Text>
-             </div>
-           )}
-         </div>
+
+          {loadingMore && (
+            <div className='explore-pagination'>
+              <Spin size="large" tip={t('loading')} />
+            </div>
+          )}
+        </div>
       </div>
     </Spin>
   );
