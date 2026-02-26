@@ -26,12 +26,19 @@ except ImportError:
         user_id: str = "default"
         agent_name: str = "default"
         template_id: Optional[str] = None
-        work_dir: str = "/workspace"
+        work_dir: Optional[str] = None
         skill_dir: Optional[str] = None
         oss_ak: Optional[str] = None
         oss_sk: Optional[str] = None
         oss_endpoint: Optional[str] = None
         oss_bucket_name: Optional[str] = None
+
+        def __post_init__(self):
+            if self.work_dir is None:
+                if self.type == "local":
+                    self.work_dir = "/Users/tuyang.yhj/Code/python/derisk/pilot"
+                else:
+                    self.work_dir = "/home/ubuntu"
 
         @classmethod
         def from_dict(cls, data: Dict[str, Any]) -> "SandboxConfigParameters":

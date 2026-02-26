@@ -1,62 +1,149 @@
 import styled from 'styled-components';
 
-export const AgentContainer = styled.div`
+export const WorkSpaceContainer = styled.div`
   display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+`;
+
+export const WorkSpaceHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  flex-shrink: 0;
+`;
+
+export const WorkSpaceTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  
+  .title-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #334155;
+  }
+`;
+
+export const WorkSpaceControls = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 2px;
+`;
+
+export const WorkSpaceBody = styled.div`
+  display: flex;
   flex: 1;
   min-height: 0;
-  flex-direction: row;
-  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+`;
+
+export const ExplorerPanel = styled.div<{ $visible?: boolean }>`
+  width: 240px;
+  min-width: 240px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
-  border: solid #ddd 1px;
-  background-color: #ffffff;
-`;
-
-export const AgentContent = styled.div`
-  width: 100%;
-  height: 100%;
-  padding: 12px;
-  overflow-y: auto;
-  scrollbar-width: none;
-  ::-webkit-scrollbar {
-    display: none;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  display: ${(props) => (props.$visible ? 'block' : 'none')};
+  
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
   }
 `;
 
-export const FolderContainer = styled.div`
-  max-width: 250px;
-  width: 30%;
+export const ContentPanel = styled.div<{ $explorerVisible?: boolean }>`
+  flex: 1;
+  min-width: 0;
   height: 100%;
-  overflow-y: auto;
-  padding: 8px 4px;
-  border-right: solid #ddd 1px;
-  overflow-y: scroll;
-  scrollbar-width: none;
-  ::-webkit-scrollbar {
-    display: none;
-  }
-`;
-
-export const HeaderContainer = styled.div`
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 0 8px 0;
-  border-bottom: 1px solid #d9d9d9;
-  font-weight: 600;
-  color: #1a1a1a;
-  font-size: 14px;
-  .controls button {
-    padding: 4px 8px;
-    font-size: 12px;
-    cursor: pointer;
-    border-radius: 4px;
-    border: 1px solid #ccc;
-    background: #fff;
-    transition: all 0.2s;
-    &:hover {
-      background-color: #f5f5f5;
-    }
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+`;
+
+export const ContentHeader = styled.div`
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  
+  .time-text {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 500;
   }
 `;
+
+export const ContentBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+  background: #ffffff;
+  
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  /* 确保 GPTVis 内容正确滚动 */
+  & > div {
+    max-width: 100%;
+  }
+`;
+
+export const IconButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: #e2e8f0;
+    color: #334155;
+  }
+  
+  &:active {
+    background: #cbd5e1;
+  }
+`;
+
+export const AgentContainer = WorkSpaceContainer;
+export const AgentContent = ContentBody;
+export const FolderContainer = ExplorerPanel;
+export const HeaderContainer = WorkSpaceHeader;

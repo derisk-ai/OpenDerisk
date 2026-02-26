@@ -20,7 +20,12 @@ from derisk.core.awel import BaseOperator, CommonLLMHttpRequestBody
 from derisk.core.awel.dag.dag_manager import DAGManager
 from derisk.core.awel.util.chat_util import safe_chat_stream_with_dag_task
 from derisk.core.interface.file import FileStorageClient
-from derisk.core.schema.api import ChatCompletionResponseChoice, ChatMessage, UsageInfo, ChatCompletionResponse
+from derisk.core.schema.api import (
+    ChatCompletionResponseChoice,
+    ChatMessage,
+    UsageInfo,
+    ChatCompletionResponse,
+)
 from derisk.model.base import FlatSupportedModel
 from derisk.model.cluster import (
     BaseModelController,
@@ -277,7 +282,9 @@ async def get_hist_messages(conv_uid: str, user_name: str = None):
     from derisk_serve.conversation.service.service import Service as ConversationService
 
     instance: ConversationService = ConversationService.get_instance(CFG.SYSTEM_APP)
-    return await instance.get_history_messages({"conv_uid": conv_uid, "user_name": user_name})
+    return await instance.get_history_messages(
+        {"conv_uid": conv_uid, "user_name": user_name}
+    )
 
 
 @router.post("/v1/chat/stop")
@@ -287,7 +294,9 @@ async def chat_stop(
 ):
     logger.info(f"chat_stop:{conv_session_id}")
     try:
-        await multi_agents.stop_chat(conv_session_id, user_token.user_id if user_token else None)
+        await multi_agents.stop_chat(
+            conv_session_id, user_token.user_id if user_token else None
+        )
     except Exception as e:
         logger.exception("停止对话异常！")
         return Result.failed(msg=f"停止对话失败！{str(e)}")
@@ -307,22 +316,21 @@ async def chat_query(
     """
     logger.info(f"chat_query: {conv_id}")
     try:
-        result = await multi_agents.query_chat(
-            conv_id=conv_id,
-            vis_render=vis_render
-        )
+        result = await multi_agents.query_chat(conv_id=conv_id, vis_render=vis_render)
         if result is None:
             return Result.failed(code="E0103", msg=f"会话 {conv_id} 不存在")
 
         vis_final, user_answer, current_vis_render, is_final, state = result
-        return Result.succ({
-            "conv_id": conv_id,
-            "state": state,
-            "is_final": is_final,
-            "vis_final": vis_final,
-            "user_answer": user_answer,
-            "vis_render": current_vis_render,
-        })
+        return Result.succ(
+            {
+                "conv_id": conv_id,
+                "state": state,
+                "is_final": is_final,
+                "vis_final": vis_final,
+                "user_answer": user_answer,
+                "vis_render": current_vis_render,
+            }
+        )
     except Exception as e:
         logger.exception("查询会话异常!")
         return Result.failed(code="E0104", msg=f"查询会话失败: {str(e)}")
@@ -345,10 +353,19 @@ async def chat_completions(
     if not dialogue.user_input and dialogue.messages:
         try:
             # Extract the last user message content
-            last_message = next((msg for msg in reversed(dialogue.messages) if msg.get("role") == "user"), None)
+            last_message = next(
+                (
+                    msg
+                    for msg in reversed(dialogue.messages)
+                    if msg.get("role") == "user"
+                ),
+                None,
+            )
             if last_message:
                 dialogue.user_input = last_message.get("content", "")
-                logger.info(f"Extracted user_input from messages: {dialogue.user_input}")
+                logger.info(
+                    f"Extracted user_input from messages: {dialogue.user_input}"
+                )
         except Exception as e:
             logger.warning(f"Failed to extract user_input from messages: {e}")
 
@@ -374,11 +391,14 @@ async def chat_completions(
         dialogue.ext_info.update({"temperature": dialogue.temperature})
         dialogue.ext_info.update({"max_new_tokens": dialogue.max_new_tokens})
 
-        in_message = HumanMessage.parse_chat_completion_message(dialogue.user_input, ignore_unknown_media=True)
+        in_message = HumanMessage.parse_chat_completion_message(
+            dialogue.user_input, ignore_unknown_media=True
+        )
 
         work_mode = dialogue.work_mode or WorkMode.ASYNC
 
         if work_mode == WorkMode.QUICK:
+
             async def chat_wrapper():
                 async for chunk, agent_conv_id in multi_agents.quick_app_chat(
                     conv_session_id=dialogue.conv_uid,
@@ -390,12 +410,14 @@ async def chat_completions(
                     **dialogue.ext_info,
                 ):
                     yield chunk
+
             return StreamingResponse(
                 chat_wrapper(),
                 headers=headers,
                 media_type="text/event-stream",
             )
         elif work_mode == WorkMode.BACKGROUND:
+
             async def chat_wrapper():
                 async for chunk, agent_conv_id in multi_agents.app_chat_v2(
                     conv_uid=dialogue.conv_uid,
@@ -409,6 +431,7 @@ async def chat_completions(
                     **dialogue.ext_info,
                 ):
                     yield chunk
+
             return StreamingResponse(
                 chat_wrapper(),
                 headers=headers,
@@ -430,6 +453,7 @@ async def chat_completions(
             agent_conv_id = result[1] if result else None
             return Result.succ(data={"conv_id": agent_conv_id})
         else:
+
             async def chat_wrapper():
                 async for chunk, agent_conv_id in multi_agents.app_chat(
                     conv_uid=dialogue.conv_uid,
@@ -442,6 +466,7 @@ async def chat_completions(
                     **dialogue.ext_info,
                 ):
                     yield chunk
+
             return StreamingResponse(
                 chat_wrapper(),
                 headers=headers,
@@ -467,7 +492,6 @@ async def chat_completions(
                 sys_code=dialogue.sys_code,
                 app_code=dialogue.app_code,
             )
-
 
 
 @router.post("/v1/chat/topic/terminate")
@@ -514,7 +538,7 @@ async def test():
     "/v1/model/supports",
     deprecated=True,
     description="This endpoint is deprecated. Please use "
-                "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0.",
+    "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0.",
 )
 async def model_supports(worker_manager: WorkerManager = Depends(get_worker_manager)):
     logger.warning(
@@ -535,7 +559,7 @@ async def flow_stream_generator(func, incremental: bool, model_name: str):
         if chunk:
             msg = chunk.replace("\ufffd", "")
             if incremental:
-                incremental_output = msg[len(previous_response):]
+                incremental_output = msg[len(previous_response) :]
                 choice_data = ChatCompletionResponseStreamChoice(
                     index=0,
                     delta=DeltaMessage(role="assistant", content=incremental_output),
@@ -593,7 +617,7 @@ async def stream_generator(
         if incremental and not openai_format:
             raise ValueError("Incremental response must be openai-compatible format.")
         async for chunk in chat.stream_call(
-                text_output=text_output, incremental=incremental
+            text_output=text_output, incremental=incremental
         ):
             if not chunk:
                 await asyncio.sleep(0.02)

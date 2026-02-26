@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useRef, useState, useMemo } from 'react';
+import React, { FC, useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   CheckCircleOutlined,
   CloseOutlined,
@@ -8,23 +8,25 @@ import {
   MenuUnfoldOutlined,
   PauseCircleOutlined,
   SyncOutlined,
-  ArrowsAltOutlined,
-  ShrinkOutlined,
 } from '@ant-design/icons';
 import { GPTVis } from '@antv/gpt-vis';
-import { Space, Tooltip } from 'antd';
+import { Space } from 'antd';
 import dayjs from 'dayjs';
 import { keyBy } from 'lodash';
 import {
-  AgentContainer,
-  AgentContent,
-  FolderContainer,
-  HeaderContainer,
+  WorkSpaceContainer,
+  WorkSpaceHeader,
+  WorkSpaceTitle,
+  WorkSpaceControls,
+  WorkSpaceBody,
+  ExplorerPanel,
+  ContentPanel,
+  ContentHeader,
+  ContentBody,
+  IconButton,
 } from './style';
 import { codeComponents, type MarkdownComponent, markdownPlugins } from '../../config';
-import { useElementHeight } from '../hooks/useElementHeight';
-import { useElementWidth } from '../hooks/useElementWidth';
-import { ee, EVENTS } from '../../../../../utils/event-emitter';
+import { ee, EVENTS } from '@/utils/event-emitter';
 
 interface RunningItem {
   uid: string;
@@ -59,29 +61,20 @@ interface IProps {
   style?: React.CSSProperties;
 }
 
-const IconMap: Record<string, JSX.Element> = {
-  complete: <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />,
-  todo: <CheckCircleOutlined style={{ color: '#595959', fontSize: 12 }} />,
-  running: <LoadingOutlined style={{ color: '#1677ff', fontSize: 12 }} />,
-  waiting: <PauseCircleOutlined style={{ color: '#f5dc62', fontSize: 12 }} />,
-  retrying: <SyncOutlined style={{ color: '#1677ff', fontSize: 12 }} />,
-  failed: (
-    <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
-  ),
+const IconMap: Record<string, React.ReactNode> = {
+  complete: <CheckCircleOutlined style={{ color: '#10b981', fontSize: 14 }} />,
+  todo: <CheckCircleOutlined style={{ color: '#9ca3af', fontSize: 14 }} />,
+  running: <LoadingOutlined style={{ color: '#3b82f6', fontSize: 14 }} />,
+  waiting: <PauseCircleOutlined style={{ color: '#f59e0b', fontSize: 14 }} />,
+  retrying: <SyncOutlined style={{ color: '#3b82f6', fontSize: 14 }} />,
+  failed: <ExclamationCircleOutlined style={{ color: '#ef4444', fontSize: 14 }} />,
 };
 
 export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
   const [displayUid, setDisplayUid] = useState<string>('');
-  const [isFolderVisible, setIsFolderVisible] = useState<boolean>(true);
-  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  const chatListContainerRef = useRef<HTMLDivElement>(null);
+  const [isExplorerVisible, setIsExplorerVisible] = useState<boolean>(true);
+  const contentRef = useRef<HTMLDivElement>(null);
   const runningContent = useMemo(() => keyBy(data.items, 'uid'), [data.items]);
-
-  // const containerHeight = useElementHeight(
-  //   `#nex-chat-detail-panel${data.uid}`,
-  //   `#nex-chat-detail-panel`,
-  // );
-  // const containerWidth = useElementWidth('.chatContent', 'body');
 
   useEffect(() => {
     const onClickFolder = (payload: { uid: string }) => {
@@ -97,38 +90,38 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
     data.items.forEach((item) => {
       ee.emit(EVENTS.ADD_TASK, { folderItem: item });
     });
-  }, [data.items.length]);
+  }, [data.items]);
+
+  const lastItemMarkdown = data.items[data.items.length - 1]?.markdown;
 
   useEffect(() => {
-    chatListContainerRef.current?.scrollTo({
-      top: chatListContainerRef.current.scrollHeight,
+    contentRef.current?.scrollTo({
+      top: contentRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [
-    runningContent?.[displayUid]?.markdown,
-    data.items[data.items.length - 1]?.markdown,
-  ]);
+  }, [runningContent?.[displayUid]?.markdown, lastItemMarkdown]);
 
-  const toggleFolder = () => setIsFolderVisible((prev) => !prev);
+  const handleClose = useCallback(() => {
+    ee.emit(EVENTS.CLOSE_PANEL);
+  }, []);
+
+  const toggleExplorer = useCallback(() => {
+    setIsExplorerVisible((prev) => !prev);
+  }, []);
 
   const explorerContent = useMemo(
     () => (
-      <FolderContainer
-        style={{
-          width: '30%',
-          display: isFolderVisible ? 'block' : 'none',
-        }}
-      >
-        {/* @ts-ignore */}
+      <ExplorerPanel $visible={isExplorerVisible}>
+        {/* @ts-expect-error GPTVis components */}
         <GPTVis
           components={{ ...codeComponents, ...(otherComponents || {}) }}
           {...markdownPlugins}
         >
           {data.explorer || '-'}
         </GPTVis>
-      </FolderContainer>
+      </ExplorerPanel>
     ),
-    [isFolderVisible, data.explorer, otherComponents],
+    [isExplorerVisible, data.explorer, otherComponents],
   );
 
   const mainContentMarkdown =
@@ -138,114 +131,55 @@ export const VisRunningWindowV2: FC<IProps> = ({ otherComponents, data }) => {
 
   const mainContent = useMemo(
     () => (
-      <AgentContent ref={chatListContainerRef} className="AgentContent">
-        {/* @ts-ignore */}
+      <ContentBody ref={contentRef}>
+        {/* @ts-expect-error GPTVis components */}
         <GPTVis
-          className="whitespace-normal"
+          className="prose prose-sm max-w-none"
           components={{ ...codeComponents, ...(otherComponents || {}) }}
           {...markdownPlugins}
         >
           {mainContentMarkdown}
         </GPTVis>
-      </AgentContent>
+      </ContentBody>
     ),
     [mainContentMarkdown, otherComponents],
   );
 
-  return (
-    <AgentContainer
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        // width: `${isFullScreen ? containerWidth : 0.6 * containerWidth}px`,
-      }}
-    >
-      <HeaderContainer>
-        <div className="title">
-          <Tooltip title="收起/展开目录" placement="right">
-            <button
-              type="button"
-              onClick={toggleFolder}
-              style={{ marginRight: '8px' }}
-            >
-              {isFolderVisible ? (
-                <MenuFoldOutlined />
-              ) : (
-                <MenuUnfoldOutlined />
-              )}
-            </button>
-          </Tooltip>
-          智能体工作空间
-        </div>
-        <div className="controls">
-          <Tooltip
-            title={isFullScreen ? '收缩工作空间' : '展开工作空间'}
-          >
-            <button
-              type="button"
-              style={{
-                border: 'none',
-                padding: '4px 8px',
-                borderRadius: '4px',
-              }}
-              onClick={() => setIsFullScreen((prev) => !prev)}
-            >
-              {!isFullScreen ? (
-                <ArrowsAltOutlined />
-              ) : (
-                <ShrinkOutlined />
-              )}
-            </button>
-          </Tooltip>
-          <Tooltip title="关闭工作空间" placement="right">
-            <button
-              type="button"
-              style={{
-                border: 'none',
-                padding: '4px 8px',
-                borderRadius: '4px',
-              }}
-              onClick={() => ee.emit(EVENTS.CLOSE_PANEL)}
-            >
-              <CloseOutlined />
-            </button>
-          </Tooltip>
-        </div>
-      </HeaderContainer>
+  const currentItem = runningContent[displayUid];
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+  return (
+    <WorkSpaceContainer>
+      <WorkSpaceHeader>
+        <WorkSpaceTitle>
+          <IconButton onClick={toggleExplorer} title={isExplorerVisible ? '收起目录' : '展开目录'}>
+            {isExplorerVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+          </IconButton>
+          <span className="title-text">工作空间</span>
+        </WorkSpaceTitle>
+        <WorkSpaceControls>
+          <IconButton onClick={handleClose} title="关闭工作空间">
+            <CloseOutlined />
+          </IconButton>
+        </WorkSpaceControls>
+      </WorkSpaceHeader>
+
+      <WorkSpaceBody>
         {explorerContent}
-        <div
-          style={{
-            flex: 1,
-            height: '100%',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {runningContent[displayUid]?.start_time && (
-            <div
-              style={{
-                color: '#aaaaaa',
-                fontSize: '12px',
-                borderBottom: '1px solid #dddddd',
-                padding: '12px',
-              }}
-            >
-              <Space>
-                {IconMap[runningContent[displayUid]?.status]}
-                {dayjs(runningContent[displayUid]?.start_time).format(
-                  'YYYY-MM-DD HH:mm:ss',
-                )}
+        <ContentPanel $explorerVisible={isExplorerVisible}>
+          {currentItem?.start_time && (
+            <ContentHeader>
+              <Space size={8}>
+                {IconMap[currentItem.status] || IconMap.running}
+                <span className="time-text">
+                  {dayjs(currentItem.start_time).format('HH:mm:ss')}
+                </span>
               </Space>
-            </div>
+            </ContentHeader>
           )}
           {mainContent}
-        </div>
-      </div>
-    </AgentContainer>
+        </ContentPanel>
+      </WorkSpaceBody>
+    </WorkSpaceContainer>
   );
 };
 

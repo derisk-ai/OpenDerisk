@@ -78,7 +78,7 @@ generator = ReportGenerator(work_log, "agent_id", "task_id")
 ```
 """
 
-from .react_master_agent import ReActMasterAgent, ReActMasterParser
+from .react_master_agent import ReActMasterAgent
 from .work_log import (
     WorkLogManager,
     create_work_log_manager,

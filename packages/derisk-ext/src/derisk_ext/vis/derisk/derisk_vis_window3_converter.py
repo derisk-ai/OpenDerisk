@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from enum import Enum
 from typing import List, Optional, Dict, Union, Tuple
 
@@ -55,6 +56,60 @@ from ...agent.actions.derisk_tool_action import DeriskToolAction
 from ...agent.actions.monitor_action import MonitorAction
 
 logger = logging.getLogger(__name__)
+
+
+PHASE_PATTERNS = [
+    (r"【阶段\s*[:：]\s*([^】]+)】", "zh"),
+    (r"\[Phase\s*[:：]\s*([^\]]+)\]", "en"),
+]
+
+PHASE_NORMALIZE_MAP = {
+    "分析": "analysis",
+    "规划": "planning",
+    "执行": "execution",
+    "验证": "verification",
+    "完成": "completion",
+    "analysis": "analysis",
+    "planning": "planning",
+    "execution": "execution",
+    "verification": "verification",
+    "completion": "completion",
+}
+
+PHASE_DISPLAY_MAP = {
+    "analysis": "分析阶段",
+    "planning": "规划阶段",
+    "execution": "执行阶段",
+    "verification": "验证阶段",
+    "completion": "完成阶段",
+}
+
+
+PHASE_PATTERNS = [
+    (r"【阶段\s*[:：]\s*([^】]+)】", "zh"),
+    (r"\[Phase\s*[:：]\s*([^\]]+)\]", "en"),
+]
+
+PHASE_NORMALIZE_MAP = {
+    "分析": "analysis",
+    "规划": "planning",
+    "执行": "execution",
+    "验证": "verification",
+    "完成": "completion",
+    "analysis": "analysis",
+    "planning": "planning",
+    "execution": "execution",
+    "verification": "verification",
+    "completion": "completion",
+}
+
+PHASE_DISPLAY_MAP = {
+    "analysis": "分析阶段",
+    "planning": "规划阶段",
+    "execution": "执行阶段",
+    "verification": "验证阶段",
+    "completion": "完成阶段",
+}
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════
@@ -223,10 +278,20 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         plan_tasks_vis = []
         thought = None
         title = None
+        thinking = None
+        content = None
+        tool_calls_info = None
+        action_outs = None
+        message_id = None
+        is_streaming = False
+        phase = None
+
         if gpt_msg:
-            action_outs: Optional[List[ActionOutput]] = gpt_msg.action_report
+            action_outs = gpt_msg.action_report
             agent = senders_map.get(gpt_msg.sender_name) if senders_map else None
             message_id = gpt_msg.message_id
+            thinking = gpt_msg.thinking
+            content = gpt_msg.content
             if agent and agent.agent_parser:
                 thought = agent.agent_parser.parse_streaming_xml(
                     gpt_msg.content, CONST_LLMOUT_THOUGHT
@@ -236,10 +301,16 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 )
 
         elif stream_msg:
+            if isinstance(stream_msg, str):
+                return None
             prev_content = stream_msg.get("prev_content")
             sender_name = stream_msg.get("sender_name")
             message_id = stream_msg.get("message_id")
-            action_outs: Optional[List[ActionOutput]] = stream_msg.get("action_report")
+            action_outs = stream_msg.get("action_report")
+            thinking = stream_msg.get("thinking")
+            content = stream_msg.get("content")
+            tool_calls_info = stream_msg.get("tool_calls")
+            is_streaming = True
             agent = senders_map.get(sender_name) if senders_map else None
             if agent and agent.agent_parser and prev_content:
                 title = agent.agent_parser.parse_streaming_xml(
@@ -251,42 +322,127 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 tools = agent.agent_parser.parse_streaming_xml(
                     prev_content, CONST_LLMOUT_TOOLS
                 )
-                # 开始输出别的就不在获取title了
                 if tools or thought:
                     title = None
-            ## 流式输出过程，规划内容不展示工具输出过程(也可以考虑展示为Loading待实现)
-            # if not action_outs and tools:
-            #     return None
         else:
             return None
-        if title or thought:
-            step_thought = ""
-            if title:
-                step_thought += f"{title}"
-            # if thought:
-            #     step_thought += f"{thought}\n"
-            if step_thought:
-                report_content = DrskTextContent(
-                    dynamic=False,
-                    markdown=step_thought,
-                    uid=f"{message_id}_'step_thought'",
-                    type="all",
-                )
-                plan_tasks_vis.append(
-                    DrskContent().sync_display(
-                        content=report_content.to_dict(exclude_none=True)
-                    )
-                )
 
-        ## 行动区域，每个action out为一个单独文件
+        step_thought = ""
+        extracted_phase = None
+
+        if title:
+            step_thought = title
+        elif thinking:
+            extracted_phase, clean_thinking = self._extract_phase(thinking)
+            if extracted_phase:
+                phase = extracted_phase
+            if clean_thinking and clean_thinking.strip():
+                step_thought = clean_thinking.strip()
+        elif thought:
+            extracted_phase, clean_thought = self._extract_phase(thought)
+            if extracted_phase and not phase:
+                phase = extracted_phase
+            if clean_thought and clean_thought.strip():
+                step_thought = clean_thought.strip()
+            else:
+                step_thought = thought.strip()
+        elif content and content.strip() and not tool_calls_info:
+            if len(content.strip()) < 500:
+                step_thought = content.strip()
+
+        if step_thought and phase:
+            phase_display = PHASE_DISPLAY_MAP.get(phase, phase)
+            step_thought = f"**{phase_display}**\n\n{step_thought}"
+
+        has_completed_actions = False
         if action_outs:
             for action_out in action_outs:
-                ## 规划的Agent转发任务已经在任务中通过空间挂载，不需要Action展示
+                if action_out.state == Status.COMPLETE.value:
+                    has_completed_actions = True
+                    break
+
+        if step_thought:
+            update_type = (
+                UpdateType.INCR.value if is_streaming else UpdateType.ALL.value
+            )
+            report_content = DrskTextContent(
+                dynamic=False,
+                markdown=step_thought,
+                uid=f"{message_id}_'step_thought'",
+                type=update_type,
+            )
+            plan_tasks_vis.append(
+                DrskContent().sync_display(
+                    content=report_content.to_dict(exclude_none=True)
+                )
+            )
+
+        if action_outs:
+            for action_out in action_outs:
                 plan_item = self._act_out_2_plan(action_out, layer_count)
                 if plan_item:
                     plan_tasks_vis.append(plan_item)
 
+        if not step_thought and action_outs and not has_completed_actions:
+            for action_out in action_outs:
+                if action_out.terminate:
+                    continue
+                if action_out.state == Status.COMPLETE.value:
+                    continue
+                tool_desc = self._generate_tool_step_description(action_out)
+                if tool_desc:
+                    report_content = DrskTextContent(
+                        dynamic=False,
+                        markdown=tool_desc,
+                        uid=f"{message_id}_'step_desc'",
+                        type=UpdateType.INCR.value,
+                    )
+                    plan_tasks_vis.insert(
+                        0,
+                        DrskContent().sync_display(
+                            content=report_content.to_dict(exclude_none=True)
+                        ),
+                    )
+                    break
+
+        if has_completed_actions:
+            clear_desc = DrskTextContent(
+                dynamic=False,
+                markdown="",
+                uid=f"{message_id}_'step_desc'",
+                type=UpdateType.ALL.value,
+            )
+            plan_tasks_vis.insert(
+                0,
+                DrskContent().sync_display(
+                    content=clear_desc.to_dict(exclude_none=True)
+                ),
+            )
+
         return "\n".join(plan_tasks_vis)
+
+    def _extract_phase(self, text: str) -> Tuple[Optional[str], str]:
+        """从文本中提取阶段标记，返回 (阶段key, 清理后的文本)
+
+        支持格式：
+        - 中文：【阶段: 分析】或【阶段：分析】
+        - 英文：[Phase: Analysis] 或 [Phase：Analysis]
+        """
+        if not text:
+            return None, text
+
+        for pattern, _ in PHASE_PATTERNS:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                phase_raw = match.group(1).strip()
+                phase_key = PHASE_NORMALIZE_MAP.get(
+                    phase_raw.lower(), phase_raw.lower()
+                )
+                clean_text = text[: match.start()] + text[match.end() :]
+                clean_text = clean_text.strip()
+                return phase_key, clean_text
+
+        return None, text
 
     def _unpack_agent(self, parent_agent: ConversableAgent, parent: FolderNode):
         details: List[FolderNode] = []
@@ -920,6 +1076,96 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
             ).to_dict()
         )
+
+    TOOL_STEP_DESCRIPTIONS = {
+        "view": "正在查看文件内容...",
+        "write_file": "正在写入文件...",
+        "execute_code": "正在执行代码...",
+        "knowledge_search": "正在搜索知识库...",
+        "agent_start": "正在启动子代理...",
+        "send_message": "正在发送消息...",
+        "terminate": "任务已完成",
+        "web_search": "正在搜索网页...",
+        "browser_navigate": "正在浏览网页...",
+        "browser_click": "正在点击网页元素...",
+        "browser_scroll": "正在滚动网页...",
+        "browser_input": "正在输入文本...",
+        "read_file": "正在读取文件...",
+        "list_directory": "正在列出目录...",
+        "execute_command": "正在执行命令...",
+    }
+
+    PHASE_DESCRIPTIONS = {
+        "analysis": "分析阶段",
+        "planning": "规划阶段",
+        "execution": "执行阶段",
+        "verification": "验证阶段",
+        "completion": "完成阶段",
+    }
+
+    def _generate_tool_step_description(
+        self, action_out: ActionOutput
+    ) -> Optional[str]:
+        """根据工具调用生成步骤描述，用于原生 FunctionCall 模式"""
+        tool_name = action_out.action or action_out.name
+        if not tool_name:
+            return None
+
+        if action_out.name == AgentStart.name:
+            return "开始执行任务..."
+
+        if action_out.terminate:
+            return "任务执行完成"
+
+        if tool_name in self.TOOL_STEP_DESCRIPTIONS:
+            return self.TOOL_STEP_DESCRIPTIONS[tool_name]
+
+        if action_out.thoughts and action_out.thoughts.strip():
+            return action_out.thoughts.strip()[:200]
+
+        phase = self._infer_phase_from_tool(tool_name)
+        if phase:
+            return f"{phase}: 执行 {tool_name}"
+
+        return f"正在执行 {tool_name}..."
+
+    def _infer_phase_from_tool(self, tool_name: str) -> Optional[str]:
+        """根据工具名称推断执行阶段"""
+        analysis_tools = [
+            "view",
+            "read_file",
+            "list_directory",
+            "knowledge_search",
+            "web_search",
+        ]
+        planning_tools = []
+        execution_tools = [
+            "write_file",
+            "execute_code",
+            "execute_command",
+            "browser_navigate",
+            "browser_click",
+            "browser_input",
+            "browser_scroll",
+            "send_message",
+            "agent_start",
+        ]
+        verification_tools = []
+        completion_tools = ["terminate"]
+
+        tool_lower = tool_name.lower()
+
+        for t in analysis_tools:
+            if t in tool_lower:
+                return self.PHASE_DESCRIPTIONS["analysis"]
+        for t in execution_tools:
+            if t in tool_lower:
+                return self.PHASE_DESCRIPTIONS["execution"]
+        for t in completion_tools:
+            if t in tool_lower:
+                return self.PHASE_DESCRIPTIONS["completion"]
+
+        return None
 
     def _collect_kanban_for_agents(
         self,

@@ -157,6 +157,7 @@ export default function AgentBuilder() {
         refreshAppInfoLoading,
         chatId,
         setChatId,
+        initChatId,
         fetchUpdateApp,
         fetchUpdateAppLoading,
         refetchVersionData,

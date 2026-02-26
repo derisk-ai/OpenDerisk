@@ -305,11 +305,11 @@ class SandboxConfigParameters(BaseParameters):
         metadata={"help": _("The sandbox skill repo url.")},
     )
     work_dir: Optional[str] = field(
-        default="/home/ubuntu",
+        default=None,
         metadata={"help": _("The sandbox work dir.")},
     )
     skill_dir: Optional[str] = field(
-        default=None,  # Will be set dynamically based on sandbox type
+        default=None,
         metadata={
             "help": _(
                 "The sandbox skill dir. Defaults to DATA_DIR/skill for local sandbox."
@@ -318,13 +318,16 @@ class SandboxConfigParameters(BaseParameters):
     )
 
     def __post_init__(self):
-        """Set default skill_dir based on sandbox type if not provided."""
+        """Set default work_dir and skill_dir based on sandbox type if not provided."""
+        if self.work_dir is None:
+            if self.type == "local":
+                self.work_dir = "/Users/tuyang.yhj/Code/python/derisk/pilot"
+            else:
+                self.work_dir = "/home/ubuntu"
         if self.skill_dir is None:
             if self.type == "local":
-                # For local sandbox, use DATA_DIR/skill
                 self.skill_dir = os.path.join(DATA_DIR, "skill")
             else:
-                # For remote sandboxes (e.g., xic), use the traditional path
                 self.skill_dir = "/mnt/derisk/skills"
 
     oss_ak: Optional[str] = field(

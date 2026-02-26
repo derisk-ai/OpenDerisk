@@ -42,14 +42,22 @@ interface PlanItem {
 export const VisPlanningWindow: FC<PlanningWindow> = ({ data }) => {
 
   const renderIcon = (type: string) => {
-    switch (type) {
-      case "knowledge_pack":
-        return '/icons/package.png';
-      case "tool":
-        return '/icons/tool.png';
-      default:
-        return '/icons/tool_default.svg';
-    }
+    const iconMap: Record<string, string> = {
+      knowledge_pack: '/icons/package.png',
+      knowledge: '/icons/package.png',
+      tool: '/icons/tool.png',
+      code: '/icons/code.png',
+      report: '/icons/report.png',
+      monitor: '/icons/monitor.png',
+      agent: '/icons/agent.png',
+      plan: '/icons/plan.png',
+      llm: '/icons/llm.png',
+      stage: '/icons/stage.png',
+      task: '/icons/task.png',
+      default: '/icons/tool_default.svg',
+    };
+    const normalizedType = String(type).toLowerCase();
+    return iconMap[normalizedType] || iconMap.default;
   }
 
   const PlanItems = (plan: Plan) => {

@@ -31,7 +31,7 @@ from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
-from derisk.agent.expand.pdca_agent.prompt_v7 import (
+from derisk.agent.expand.pdca_agent.prompt_v8 import (
     PROMPT_CHECKLIST_EXECUTION,
     PROMPT_CHECKLIST_PLANNING,
     PROMPT_PHASE_EXECUTION,
@@ -680,22 +680,6 @@ class PDCAAgent(ReActAgent):
         """子类通过重写此方法注册变量"""
         logger.info(f"register_variables {self.role}")
         super().register_variables()
-
-        @self._vm.register("system_tools", "系统工具")
-        async def var_tools(instance):
-            result = ""
-            if self.available_system_tools:
-                logger.info("注入系统工具")
-                tool_prompts = ""
-                for k, v in self.available_system_tools.items():
-                    tool_prompts += f"<tool>\n{await v.get_prompt(lang=instance.agent_context.language)}\n</tool>\n"
-
-                result = f"""### 可用系统工具\n<tools>\n{tool_prompts}</tools>\n"""
-
-            if result:
-                return result
-
-            return None
 
         # 注册 Prompt 静态片段
         @self._vm.register("prompt_role", "角色Prompt")

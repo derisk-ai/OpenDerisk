@@ -24,6 +24,7 @@ import {
   FolderContainer,
   FolderList,
   FolderItemStyled,
+  TreeContainer,
 } from './style';
 
 const iconUrlMap: Record<string, string> = {
@@ -38,6 +39,15 @@ const iconUrlMap: Record<string, string> = {
   plan: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
   planningaction: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
   llm: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*b_vFSpByHFcAAAAAQBAAAAgAeprcAQ/original',
+  stage: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
+  task: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
+  hidden: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
+  default: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
+};
+
+const getTaskIcon = (taskType: string): string => {
+  const normalizedType = String(taskType).toLowerCase();
+  return iconUrlMap[normalizedType] || iconUrlMap.default;
 };
 
 export interface AgentFolderItem {
@@ -200,7 +210,7 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
               <AvatarWrapper>
                 {item.task_type ? (
                   <img
-                    src={iconUrlMap[(String(item.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool']}
+                    src={getTaskIcon(String(item.task_type))}
                     alt=""
                   />
                 ) : (
@@ -272,7 +282,7 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
     );
   }
 
-  return <div>{renderRoleTree(fullItems)}</div>;
+  return <TreeContainer>{renderRoleTree(fullItems)}</TreeContainer>;
 };
 
 export default VisAgentFolder;

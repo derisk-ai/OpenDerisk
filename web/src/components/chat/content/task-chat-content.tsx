@@ -11,27 +11,21 @@ import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
 import UnifiedChatInput from "../input/unified-chat-input";
 import { Button, Tooltip } from 'antd';
-import { 
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  RightOutlined
-} from '@ant-design/icons';
+import { RightOutlined } from '@ant-design/icons';
 import classNames from 'classnames';
+import { ee, EVENTS } from '@/utils/event-emitter';
 
 interface TaskChatContentProps {
   ctrl: AbortController;
 }
 
 const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
-  const scrollableRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { history, isDebug, replyLoading } = useContext(ChatContentContext);
+  const { history, replyLoading } = useContext(ChatContentContext);
 
   const { runningWindowData } = useDetailPanel(history);
-  const [jsonModalOpen, setJsonModalOpen] = useState(false);
-  const [jsonValue, setJsonValue] = useState<string>("");
   const [isRunningWindowVisible, setIsRunningWindowVisible] = useState(false);
-  const [isRunningWindowCollapsed, setIsRunningWindowCollapsed] = useState(false);
+  const [userClosedPanel, setUserClosedPanel] = useState(false);
 
   const showMessages = useMemo(() => {
     const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
@@ -43,22 +37,52 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
       }));
   }, [history]);
 
-  // 检查是否有 running window 数据
   const hasRunningWindowData = useMemo(() => {
     return !!(runningWindowData?.running_window || 
               (runningWindowData?.items && runningWindowData.items.length > 0));
   }, [runningWindowData]);
 
-  // 当有 running window 数据时自动显示
+  // 监听关闭事件
   useEffect(() => {
-    if (hasRunningWindowData && !isRunningWindowVisible) {
+    const handleClose = () => {
+      setUserClosedPanel(true);
+      setIsRunningWindowVisible(false);
+    };
+    const handleOpen = () => {
+      setUserClosedPanel(false);
+      setIsRunningWindowVisible(true);
+    };
+    ee.on(EVENTS.CLOSE_PANEL, handleClose);
+    ee.on(EVENTS.OPEN_PANEL, handleOpen);
+    return () => {
+      ee.off(EVENTS.CLOSE_PANEL, handleClose);
+      ee.off(EVENTS.OPEN_PANEL, handleOpen);
+    };
+  }, []);
+
+  // 当有新的 running window 数据时自动显示（仅当用户没有手动关闭时）
+  useEffect(() => {
+    if (hasRunningWindowData && !isRunningWindowVisible && !userClosedPanel) {
       setIsRunningWindowVisible(true);
     }
-  }, [hasRunningWindowData, isRunningWindowVisible]);
+  }, [hasRunningWindowData, isRunningWindowVisible, userClosedPanel]);
+
+  // 当数据变化时重置 userClosedPanel
+  const prevDataRef = useRef(runningWindowData);
+  useEffect(() => {
+    // 检查数据是否真正变化了
+    if (JSON.stringify(prevDataRef.current) !== JSON.stringify(runningWindowData)) {
+      prevDataRef.current = runningWindowData;
+      if (hasRunningWindowData) {
+        setUserClosedPanel(false);
+        setIsRunningWindowVisible(true);
+      }
+    }
+  }, [runningWindowData, hasRunningWindowData]);
 
   useEffect(() => {
     setTimeout(() => {
-      scrollableRef.current?.scrollTo(0, scrollableRef.current?.scrollHeight);
+      scrollRef.current?.scrollTo(0, scrollRef.current?.scrollHeight);
     }, 50);
   }, [history, history[history.length - 1]?.context]);
 
@@ -66,51 +90,36 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   const isProcessing = replyLoading || (history.length > 0 && history[history.length - 1]?.thinking);
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      {/* 主内容区域 */}
+    <div className="flex h-full w-full overflow-hidden bg-gradient-to-br from-slate-100 to-slate-50">
+      {/* Planning Window */}
       <div className={classNames(
-        "flex flex-col h-full transition-all duration-500 ease-in-out",
-        isDebug ? 'bg-transparent' : 'bg-[#FAFAFA] dark:bg-[#111]',
-        isRunningWindowVisible && !isRunningWindowCollapsed
-          ? "w-[45%] min-w-[45%]" 
-          : "flex-1"
+        "flex flex-col h-full transition-all duration-300 ease-out",
+        isRunningWindowVisible && hasRunningWindowData ? "w-[38%] min-w-[340px]" : "flex-1"
       )}>
-        {/* 头部 */}
         <ChatHeader isProcessing={isProcessing} />
         
-        {/* 消息列表 */}
-        <div 
-          className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8"
-          ref={scrollRef}
-        >
+        <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           {hasMessages ? (
-            <div className="w-full py-6 pb-4">
-              <div className="max-w-3xl mx-auto">
+            <div className="w-full px-4 py-3">
+              <div className="max-w-3xl mx-auto space-y-2">
                 {showMessages.map((content, index) => (
-                  <div key={index} className="mb-6">
-                    <ChatContent
-                      content={content}
-                      onLinkClick={() => {
-                        setJsonModalOpen(true);
-                        setJsonValue(JSON.stringify(content?.context, null, 2));
-                      }}
-                      messages={showMessages}
-                    />
+                  <div key={index}>
+                    <ChatContent content={content} messages={showMessages} />
                   </div>
                 ))}
-                <div className="h-20" />
+                <div className="h-8" />
               </div>
             </div>
           ) : (
             <div className="h-full flex items-center justify-center">
               <div className="text-center">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-xl shadow-indigo-500/20">
-                  <span className="text-4xl">✨</span>
+                <div className="w-14 h-14 mx-auto mb-3 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                  <span className="text-2xl">✨</span>
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                <h3 className="text-base font-medium text-slate-700 mb-1">
                   开始新的对话
                 </h3>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-slate-400 text-sm">
                   输入消息开始与应用对话
                 </p>
               </div>
@@ -118,54 +127,41 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
           )}
         </div>
 
-        {/* 输入框区域 - 居中且限制宽度 */}
-        <div className="flex-shrink-0 pb-6 pt-2 px-4 sm:px-6 lg:px-8">
+        <div className="flex-shrink-0 pb-3 pt-1 px-4">
           <div className="max-w-3xl mx-auto">
             <UnifiedChatInput ctrl={ctrl} showFloatingActions={hasMessages} />
           </div>
         </div>
       </div>
 
-      {/* Running Window 切换按钮 */}
-      {hasRunningWindowData && (
+      {/* 显示 Running Window 的按钮 */}
+      {hasRunningWindowData && !isRunningWindowVisible && (
         <div className="fixed right-4 top-1/2 -translate-y-1/2 z-40">
-          {!isRunningWindowVisible ? (
-            <Tooltip title="显示 Running Window" placement="left">
-              <Button
-                type="primary"
-                shape="circle"
-                icon={<RightOutlined />}
-                onClick={() => setIsRunningWindowVisible(true)}
-                className="shadow-lg bg-indigo-500 hover:bg-indigo-600 border-0"
-              />
-            </Tooltip>
-          ) : isRunningWindowCollapsed ? (
-            <Tooltip title="展开 Running Window" placement="left">
-              <Button
-                type="primary"
-                shape="circle"
-                icon={<MenuUnfoldOutlined />}
-                onClick={() => setIsRunningWindowCollapsed(false)}
-                className="shadow-lg bg-indigo-500 hover:bg-indigo-600 border-0"
-              />
-            </Tooltip>
-          ) : null}
+          <Tooltip title="显示工作区" placement="left">
+            <Button
+              type="default"
+              shape="circle"
+              size="large"
+              icon={<RightOutlined />}
+              onClick={() => {
+                setUserClosedPanel(false);
+                setIsRunningWindowVisible(true);
+              }}
+              className="shadow-lg border-slate-200 bg-white/95 hover:bg-slate-50"
+            />
+          </Tooltip>
         </div>
       )}
 
-      {/* Running Window 面板 - 无标题栏，无边框分割 */}
+      {/* Running Window 面板 */}
       {isRunningWindowVisible && hasRunningWindowData && (
         <div 
-          id="running-window"
           className={classNames(
-            "flex flex-col bg-[#FAFAFA] dark:bg-[#111] transition-all duration-500 ease-in-out z-30 overflow-auto",
-            isRunningWindowCollapsed 
-              ? "w-0 opacity-0 overflow-hidden" 
-              : "w-[55%] min-w-[55%]"
+            "flex flex-col bg-white border-l border-slate-200 transition-all duration-300 ease-out",
+            "w-[62%] min-w-[480px] h-full"
           )}
         >
-          {/* 内容区域 - 直接渲染，无标题栏 */}
-          <div className="flex-1 p-5">
+          <div className="h-full w-full overflow-hidden">
             <ChatDetailContent data={runningWindowData} />
           </div>
         </div>
