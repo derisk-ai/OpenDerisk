@@ -181,7 +181,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             entities = query.all()
             return [self._entity_to_cron_job(e) for e in entities]
 
-    def list_job_responses(self, include_disabled: bool = False) -> List["ServerResponse"]:
+    def list_job_responses(
+        self, include_disabled: bool = False
+    ) -> List["ServerResponse"]:
         """List all job responses from database.
 
         Args:
@@ -207,9 +209,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             The cron job if found, None otherwise.
         """
         with self.dao.session() as session:
-            entity = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).first()
+            entity = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).first()
+            )
             if entity:
                 return self._entity_to_cron_job(entity)
             return None
@@ -224,14 +226,16 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             The job response if found, None otherwise.
         """
         with self.dao.session() as session:
-            entity = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).first()
+            entity = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).first()
+            )
             if entity:
                 return self.dao.to_response(entity)
             return None
 
-    async def add_job(self, job: Union[CronJobCreate, ServeRequest]) -> "ServerResponse":
+    async def add_job(
+        self, job: Union[CronJobCreate, ServeRequest]
+    ) -> "ServerResponse":
         """Add a new cron job.
 
         Args:
@@ -263,7 +267,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
 
         return response
 
-    async def update_job(self, job_id: str, patch: Union[CronJobPatch, ServeRequest]) -> "ServerResponse":
+    async def update_job(
+        self, job_id: str, patch: Union[CronJobPatch, ServeRequest]
+    ) -> "ServerResponse":
         """Update an existing cron job.
 
         Args:
@@ -277,9 +283,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             ValueError: If the job does not exist.
         """
         with self.dao.session() as session:
-            entity = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).first()
+            entity = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).first()
+            )
             if not entity:
                 raise ValueError(f"Job not found: {job_id}")
 
@@ -319,9 +325,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
 
         # Remove from database
         with self.dao.session() as session:
-            result = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).delete()
+            result = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).delete()
+            )
             session.commit()
             return result > 0
 
@@ -350,13 +356,16 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
 
     async def _recover_jobs(self) -> None:
         """Recover jobs from database on scheduler start."""
-        entities = self.dao.get_enabled_jobs()
-        for entity in entities:
-            try:
-                self._schedule_job(entity)
-                logger.info(f"Recovered job: {entity.id} ({entity.name})")
-            except Exception as e:
-                logger.error(f"Failed to recover job {entity.id}: {e}")
+        with self.dao.session() as session:
+            entities = (
+                session.query(CronJobEntity).filter(CronJobEntity.enabled == 1).all()
+            )
+            for entity in entities:
+                try:
+                    self._schedule_job(entity)
+                    logger.info(f"Recovered job: {entity.id} ({entity.name})")
+                except Exception as e:
+                    logger.error(f"Failed to recover job {entity.id}: {e}")
 
     def _schedule_job(self, entity: CronJobEntity) -> None:
         """Schedule a job with APScheduler.
@@ -379,20 +388,27 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
 
         # Check if scheduler is running
         if not self._running:
-            logger.info(f"Scheduler not running yet, will schedule job {job_id} on recovery")
+            logger.info(
+                f"Scheduler not running yet, will schedule job {job_id} on recovery"
+            )
             # Even if not running, calculate and update next run time
             if trigger:
                 from datetime import timezone as tz
+
                 next_run = trigger.get_next_fire_time(None, datetime.now(tz.utc))
                 if next_run:
                     with self.dao.session() as session:
-                        db_entity = session.query(CronJobEntity).filter(
-                            CronJobEntity.id == job_id
-                        ).first()
+                        db_entity = (
+                            session.query(CronJobEntity)
+                            .filter(CronJobEntity.id == job_id)
+                            .first()
+                        )
                         if db_entity:
                             db_entity.next_run_at_ms = int(next_run.timestamp() * 1000)
                             session.commit()
-                            logger.info(f"Updated next_run_at_ms for job {job_id} to {db_entity.next_run_at_ms}")
+                            logger.info(
+                                f"Updated next_run_at_ms for job {job_id} to {db_entity.next_run_at_ms}"
+                            )
             return
 
         # Add job to scheduler
@@ -414,11 +430,13 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             job_id: The job ID to schedule.
         """
         with self.dao.session() as session:
-            entity = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).first()
+            entity = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).first()
+            )
             if entity:
-                logger.info(f"Scheduling job {job_id}: kind={entity.schedule_kind}, enabled={entity.enabled}")
+                logger.info(
+                    f"Scheduling job {job_id}: kind={entity.schedule_kind}, enabled={entity.enabled}"
+                )
                 self._schedule_job(entity)
             else:
                 logger.warning(f"Job {job_id} not found in database for scheduling")
@@ -497,28 +515,40 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             job_id: The job ID.
         """
         if not self._scheduler:
-            logger.warning(f"Scheduler not initialized, cannot update next run time for {job_id}")
+            logger.warning(
+                f"Scheduler not initialized, cannot update next run time for {job_id}"
+            )
             return
 
         if not self._running:
-            logger.warning(f"Scheduler not running, cannot update next run time for {job_id}")
+            logger.warning(
+                f"Scheduler not running, cannot update next run time for {job_id}"
+            )
             return
 
         try:
             job = self._scheduler.get_job(job_id)
-            logger.info(f"Getting job {job_id} from scheduler: found={job is not None}, next_run_time={job.next_run_time if job else None}")
+            logger.info(
+                f"Getting job {job_id} from scheduler: found={job is not None}, next_run_time={job.next_run_time if job else None}"
+            )
             if job and job.next_run_time:
                 next_run_ms = int(job.next_run_time.timestamp() * 1000)
                 with self.dao.session() as session:
-                    db_entity = session.query(CronJobEntity).filter(
-                        CronJobEntity.id == job_id
-                    ).first()
+                    db_entity = (
+                        session.query(CronJobEntity)
+                        .filter(CronJobEntity.id == job_id)
+                        .first()
+                    )
                     if db_entity:
                         db_entity.next_run_at_ms = next_run_ms
                         session.commit()
-                        logger.info(f"Updated next_run_at_ms for job {job_id} to {next_run_ms}")
+                        logger.info(
+                            f"Updated next_run_at_ms for job {job_id} to {next_run_ms}"
+                        )
             else:
-                logger.warning(f"Job {job_id} not found in scheduler or has no next_run_time")
+                logger.warning(
+                    f"Job {job_id} not found in scheduler or has no next_run_time"
+                )
         except Exception as e:
             logger.warning(f"Failed to update next run time: {e}")
 
@@ -609,7 +639,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
         import uuid
 
         payload = job.payload
-        logger.info(f"Executing Agent turn for job {job.id}: agent={payload.agent_id}, session_mode={payload.session_mode}")
+        logger.info(
+            f"Executing Agent turn for job {job.id}: agent={payload.agent_id}, session_mode={payload.session_mode}"
+        )
 
         try:
             # Import here to avoid circular dependencies
@@ -640,13 +672,17 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
                 conv_session_id = session_id_by_conv_id(agent_conv_id)
                 if conv_session_id != payload.conv_session_id:
                     with self.dao.session() as session:
-                        entity = session.query(CronJobEntity).filter(
-                            CronJobEntity.id == job.id
-                        ).first()
+                        entity = (
+                            session.query(CronJobEntity)
+                            .filter(CronJobEntity.id == job.id)
+                            .first()
+                        )
                         if entity:
                             entity.conv_session_id = conv_session_id
                             session.commit()
-                            logger.info(f"Updated conv_session_id for job {job.id} to {conv_session_id}")
+                            logger.info(
+                                f"Updated conv_session_id for job {job.id} to {conv_session_id}"
+                            )
 
             logger.info(f"Agent turn completed for job {job.id}, conv_uid={conv_uid}")
             return True
@@ -672,9 +708,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             error: The error message if any.
         """
         with self.dao.session() as session:
-            entity = session.query(CronJobEntity).filter(
-                CronJobEntity.id == job_id
-            ).first()
+            entity = (
+                session.query(CronJobEntity).filter(CronJobEntity.id == job_id).first()
+            )
             if not entity:
                 return
 
@@ -717,7 +753,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             name=entity.name,
             description=entity.description,
             enabled=bool(entity.enabled),
-            delete_after_run=bool(entity.delete_after_run) if entity.delete_after_run else None,
+            delete_after_run=bool(entity.delete_after_run)
+            if entity.delete_after_run
+            else None,
             schedule=CronSchedule(
                 kind=ScheduleKind(entity.schedule_kind),
                 at=entity.schedule_at,
@@ -728,10 +766,18 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             ),
             payload=CronPayload(
                 kind=PayloadKind(entity.payload_kind),
-                message=entity.payload_data.get("message") if entity.payload_data else None,
-                agent_id=entity.payload_data.get("agent_id") if entity.payload_data else None,
-                timeout_seconds=entity.payload_data.get("timeout_seconds") if entity.payload_data else None,
-                session_mode=SessionMode(entity.session_mode) if entity.session_mode else SessionMode.ISOLATED,
+                message=entity.payload_data.get("message")
+                if entity.payload_data
+                else None,
+                agent_id=entity.payload_data.get("agent_id")
+                if entity.payload_data
+                else None,
+                timeout_seconds=entity.payload_data.get("timeout_seconds")
+                if entity.payload_data
+                else None,
+                session_mode=SessionMode(entity.session_mode)
+                if entity.session_mode
+                else SessionMode.ISOLATED,
                 conv_session_id=entity.conv_session_id,
             ),
             state=CronJobState(
@@ -777,7 +823,9 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
                 message=job.payload.message,
                 agent_id=job.payload.agent_id,
                 timeout_seconds=job.payload.timeout_seconds,
-                session_mode=job.payload.session_mode.value if job.payload.session_mode else SessionMode.ISOLATED.value,
+                session_mode=job.payload.session_mode.value
+                if job.payload.session_mode
+                else SessionMode.ISOLATED.value,
                 conv_session_id=job.payload.conv_session_id,
             ),
         )
@@ -797,24 +845,56 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
         return ServeRequest(
             id=entity.id,
             name=patch.name if patch.name is not None else entity.name,
-            description=patch.description if patch.description is not None else entity.description,
-            enabled=patch.enabled if patch.enabled is not None else bool(entity.enabled),
-            delete_after_run=patch.delete_after_run if patch.delete_after_run is not None else bool(entity.delete_after_run),
+            description=patch.description
+            if patch.description is not None
+            else entity.description,
+            enabled=patch.enabled
+            if patch.enabled is not None
+            else bool(entity.enabled),
+            delete_after_run=patch.delete_after_run
+            if patch.delete_after_run is not None
+            else bool(entity.delete_after_run),
             schedule=CronScheduleSchema(
-                kind=patch.schedule.kind.value if patch.schedule and patch.schedule.kind else entity.schedule_kind,
+                kind=patch.schedule.kind.value
+                if patch.schedule and patch.schedule.kind
+                else entity.schedule_kind,
                 at=patch.schedule.at if patch.schedule else entity.schedule_at,
-                every_ms=patch.schedule.every_ms if patch.schedule else entity.schedule_every_ms,
-                anchor_ms=patch.schedule.anchor_ms if patch.schedule else entity.schedule_anchor_ms,
+                every_ms=patch.schedule.every_ms
+                if patch.schedule
+                else entity.schedule_every_ms,
+                anchor_ms=patch.schedule.anchor_ms
+                if patch.schedule
+                else entity.schedule_anchor_ms,
                 expr=patch.schedule.expr if patch.schedule else entity.schedule_expr,
                 tz=patch.schedule.tz if patch.schedule else entity.schedule_tz,
             ),
             payload=CronPayloadSchema(
-                kind=patch.payload.kind.value if patch.payload and patch.payload.kind else entity.payload_kind,
-                message=patch.payload.message if patch.payload else (entity.payload_data.get("message") if entity.payload_data else None),
-                agent_id=patch.payload.agent_id if patch.payload else (entity.payload_data.get("agent_id") if entity.payload_data else None),
-                timeout_seconds=patch.payload.timeout_seconds if patch.payload else (entity.payload_data.get("timeout_seconds") if entity.payload_data else None),
-                session_mode=patch.payload.session_mode.value if patch.payload and patch.payload.session_mode else entity.session_mode,
-                conv_session_id=patch.payload.conv_session_id if patch.payload else entity.conv_session_id,
+                kind=patch.payload.kind.value
+                if patch.payload and patch.payload.kind
+                else entity.payload_kind,
+                message=patch.payload.message
+                if patch.payload
+                else (
+                    entity.payload_data.get("message") if entity.payload_data else None
+                ),
+                agent_id=patch.payload.agent_id
+                if patch.payload
+                else (
+                    entity.payload_data.get("agent_id") if entity.payload_data else None
+                ),
+                timeout_seconds=patch.payload.timeout_seconds
+                if patch.payload
+                else (
+                    entity.payload_data.get("timeout_seconds")
+                    if entity.payload_data
+                    else None
+                ),
+                session_mode=patch.payload.session_mode.value
+                if patch.payload and patch.payload.session_mode
+                else entity.session_mode,
+                conv_session_id=patch.payload.conv_session_id
+                if patch.payload
+                else entity.conv_session_id,
             ),
         )
 
