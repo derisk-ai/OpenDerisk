@@ -22,6 +22,9 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
     <a href="https://codespaces.new/derisk-ai/OpenDerisk">
       <img alt="Open in GitHub Codespaces" src="https://github.com/codespaces/badge.svg" />
     </a>
+    <a href="https://discord.com/invite/bgWkskhe">
+      <img alt="Discord" src="https://img.shields.io/discord/1335244307281457152?color=7289DA&label=Discord&logo=discord&logoColor=white" />
+    </a>
   </p>
 
 [**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
