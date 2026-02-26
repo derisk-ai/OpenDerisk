@@ -1,25 +1,47 @@
 'use client';
 import { apiInterceptors, getModelList, newDialogue, startModel, stopModel } from '@/client/api';
-import BlurredCard, { ChatButton, InnerDropdown } from '@/components/blurred-card';
+import { InnerDropdown } from '@/components/blurred-card';
 import ModelForm from '@/components/model/model-form';
 import { ChatContext } from '@/contexts';
 import { IModelData } from '@/types/model';
-import { getModelIcon } from '@/utils/constants';
-import { PlusOutlined } from '@ant-design/icons';
-import { Button, Modal, Tag, message } from 'antd';
+import { ReloadOutlined, SearchOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined, DeleteOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { useRequest } from 'ahooks';
+import { Button, Modal, Tag, message, Pagination, PaginationProps } from 'antd';
 import moment from 'moment';
 import { useRouter } from 'next/navigation';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import './model-page.css';
+
+const { confirm: modalConfirm } = Modal;
 
 export default function ModelManage() {
   const { t } = useTranslation();
   const { setModel } = useContext(ChatContext);
+  const router = useRouter();
 
-  const [models, setModels] = useState<Array<IModelData>>([]);
+  const [models, setModels] = useState<IModelData[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const router = useRouter();
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchValue, setSearchValue] = useState('');
+  const [paginationParams, setPaginationParams] = useState({
+    page: 1,
+    page_size: 20,
+  });
+
+  const { loading: listLoading, run: runGetModels } = useRequest(
+    async () => {
+      const [, res] = await apiInterceptors(getModelList());
+      return res ?? [];
+    },
+    {
+      manual: false,
+      onSuccess: data => {
+        setModels(data);
+      },
+    },
+  );
 
   async function getModels() {
     const [, res] = await apiInterceptors(getModelList());
@@ -75,6 +97,19 @@ export default function ModelManage() {
     });
   }
 
+  const confirmDelete = (item: IModelData) => {
+    modalConfirm({
+      title: t('delete_model'),
+      content: t('delete_model_confirm') + item.model_name + '?',
+      okText: t('Yes'),
+      cancelText: t('No'),
+      okButtonProps: { danger: true },
+      onOk() {
+        message.info(t('delete_model_tip'));
+      },
+    });
+  };
+
   const showConfirm = (title: string, content: string, onOk: () => Promise<void>) => {
     Modal.confirm({
       title,
@@ -101,106 +136,248 @@ export default function ModelManage() {
     }
   };
 
-  useEffect(() => {
-    getModels();
-  }, []);
+  const filteredModels = useMemo(() => {
+    if (!searchValue.trim()) return models;
+    return models.filter(item => 
+      item.model_name?.toLowerCase().includes(searchValue.toLowerCase()) ||
+      item.host?.toLowerCase().includes(searchValue.toLowerCase())
+    );
+  }, [models, searchValue]);
 
-  const returnLogo = (name: string) => {
-    return getModelIcon(name);
+  const stats = useMemo(() => {
+    const total = models?.length || 0;
+    const online = models?.filter(i => i.healthy)?.length || 0;
+    const offline = total - online;
+    return { total, online, offline };
+  }, [models]);
+
+  const onShowSizeChange: PaginationProps['onShowSizeChange'] = (current: number, pageSize: number) => {
+    setPaginationParams(pre => ({ ...pre, page: current, page_size: pageSize }));
   };
 
   return (
-    <div className='h-screen w-full p-4 md:p-6 '>
-      <div className='flex justify-end items-center mb-6'>
-        <div className='flex items-center gap-4'>
-          <Button
-            className='border-none text-white bg-button-gradient'
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setIsModalOpen(true);
-            }}
-          >
-            {t('create_model')}
-          </Button>
+    <div className='model-page-root'>
+      <div className='model-page-bg' />
+
+      <div className='model-page-content'>
+        <div className='model-header'>
+          <div className='model-header-left'>
+            <div className='model-header-icon'>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M12 6v6l4 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <h1 className='model-title'>{t('model_management')}</h1>
+              <p className='model-subtitle'>
+                {t('model_page_subtitle')}
+              </p>
+            </div>
+          </div>
+          <div className='model-header-actions'>
+            <Button
+              className='model-btn-refresh'
+              icon={<ReloadOutlined />}
+              onClick={() => getModels()}
+            />
+            <Button
+              className='border-none text-white bg-button-gradient model-btn-primary'
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setIsModalOpen(true);
+              }}
+            >
+              {t('create_model')}
+            </Button>
+          </div>
         </div>
+
+        <div className='model-stats-bar'>
+          <div className='model-stats-group'>
+            <div className='model-stat'>
+              <span className='model-stat-value'>{stats.total}</span>
+              <span className='model-stat-label'>{t('model_stat_total')}</span>
+            </div>
+            <div className='model-stat-divider' />
+            <div className='model-stat'>
+              <span className='model-stat-value model-stat-online'>{stats.online}</span>
+              <span className='model-stat-label'>{t('model_stat_online')}</span>
+            </div>
+            <div className='model-stat-divider' />
+            <div className='model-stat'>
+              <span className='model-stat-value model-stat-offline'>{stats.offline}</span>
+              <span className='model-stat-label'>{t('model_stat_offline')}</span>
+            </div>
+          </div>
+
+          <div className='model-toolbar'>
+            <div className='model-search-wrapper'>
+              <SearchOutlined className='model-search-icon' />
+              <input
+                className='model-search-input'
+                placeholder={t('Search_models')}
+                value={searchValue}
+                onChange={e => setSearchValue(e.target.value)}
+              />
+            </div>
+            <div className='model-view-toggle'>
+              <button
+                className={`model-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => setViewMode('grid')}
+              >
+                <AppstoreOutlined />
+              </button>
+              <button
+                className={`model-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                onClick={() => setViewMode('list')}
+              >
+                <UnorderedListOutlined />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {filteredModels?.length ? (
+          <div className={viewMode === 'grid' ? 'model-grid' : 'model-list-view'}>
+            {filteredModels.map((item, index) => (
+              <div
+                key={item.model_name || index}
+                className={`model-card ${item.healthy ? 'model-card--online' : 'model-card--offline'} ${viewMode === 'list' ? 'model-card--list' : ''}`}
+              >
+                {item.healthy && <div className='model-card-glow' />}
+
+                <div className='model-card-header'>
+                  <div className='model-card-identity'>
+                    <div className={`model-card-avatar ${item.healthy ? 'model-card-avatar--online' : ''}`}>
+                      <span className='model-card-avatar-text'>
+                        {(item.model_name || 'M').charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div className='model-card-meta'>
+                      <h3 className='model-card-name'>{item.model_name}</h3>
+                      <div className='model-card-badges'>
+                        <span className='model-badge model-badge--type'>{item.worker_type}</span>
+                        <span className={`model-badge ${item.healthy ? 'model-badge--online' : 'model-badge--offline'}`}>
+                          <span className={`model-status-dot ${item.healthy ? 'model-status-dot--online' : ''}`} />
+                          {item.healthy ? t('model_healthy') : t('model_unhealthy')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='model-card-actions'>
+                    <InnerDropdown
+                      menu={{
+                        items: [
+                          {
+                            key: 'start_model',
+                            label: (
+                              <span className='model-dropdown-success' onClick={() => startTheModel(item)}>
+                                <PlayCircleOutlined /> {t('start_model')}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: 'stop_model',
+                            label: (
+                              <span className='model-dropdown-warning' onClick={() => stopTheModel(item)}>
+                                <StopOutlined /> {t('stop_model')}
+                              </span>
+                            ),
+                          },
+                          { type: 'divider' as const },
+                          {
+                            key: 'stop_and_delete',
+                            label: (
+                              <span className='model-dropdown-danger' onClick={() => stopTheModel(item, true)}>
+                                <StopOutlined /> {t('stop_and_delete_model')}
+                              </span>
+                            ),
+                          },
+                          {
+                            key: 'delete',
+                            label: (
+                              <span className='model-dropdown-danger'>
+                                <DeleteOutlined /> {t('Delete')}
+                              </span>
+                            ),
+                            onClick: () => confirmDelete(item),
+                          },
+                        ].filter(Boolean) as any,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className='model-card-desc'>
+                  <div className='model-info-list'>
+                    <div className='model-info-item'>
+                      <span className='model-info-label'>Host</span>
+                      <span className='model-info-value'>{item.host}:{item.port}</span>
+                    </div>
+                    <div className='model-info-item'>
+                      <span className='model-info-label'>Manager</span>
+                      <span className='model-info-value'>{item.manager_host}:{item.manager_port}</span>
+                    </div>
+                    <div className='model-info-item'>
+                      <span className='model-info-label'>Heartbeat</span>
+                      <span className='model-info-value'>{moment(item.last_heartbeat).format('MM-DD HH:mm')}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className='model-card-footer'>
+                  <div className='model-card-footer-left'>
+                    <span className='model-card-port'>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                      </svg>
+                      {item.host}:{item.port}
+                    </span>
+                  </div>
+                  <Button
+                    type="primary"
+                    size="small"
+                    className="model-chat-btn"
+                    onClick={() => handleChat(item)}
+                  >
+                    {t('start_chat')}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          !listLoading && (
+            <div className='model-empty'>
+              <div className='model-empty-icon'>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+              </div>
+              <h3 className='model-empty-title'>{t('No_models_found')}</h3>
+              <p className='model-empty-desc'>
+                {t('model_empty_desc')}
+              </p>
+            </div>
+          )
+        )}
+
+        {filteredModels?.length > 0 && (
+          <div className='model-pagination'>
+            <Pagination
+              current={paginationParams?.page}
+              pageSize={paginationParams?.page_size}
+              showSizeChanger
+              onChange={onShowSizeChange}
+              size="small"
+            />
+          </div>
+        )}
       </div>
 
-      <div className='mx-[-8px] overflow-y-auto h-full pb-12'>
-       <div className='flex flex-wrap'>
-        {models.map(item => (
-          <BlurredCard
-            logo={returnLogo(item.model_name)}
-            description={
-              <div className='flex flex-col gap-1 relative text-xs bottom-4'>
-                <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>{t('model_host')}</p>
-                  <p className='flex-1 text-ellipsis'>{item.host}</p>
-                </div>
-                <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>{t('model_manage_host')}</p>
-                  <p className='flex-1 text-ellipsis'>
-                    {item.manager_host}:{item.manager_port}
-                  </p>
-                </div>
-                <div className='flex overflow-hidden'>
-                  <p className='w-28 text-gray-500 mr-2'>{t('model_last_heartbeat')}</p>
-                  <p className='flex-1 text-ellipsis'>{moment(item.last_heartbeat).format('YYYY-MM-DD HH:mm:ss')}</p>
-                </div>
-              </div>
-            }
-            name={item.model_name}
-            key={item.model_name}
-            RightTop={
-              <InnerDropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'stop_model',
-                      label: (
-                        <span className='text-red-400' onClick={() => stopTheModel(item)}>
-                          {t('stop_model')}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: 'start_model',
-                      label: (
-                        <span className='text-green-400' onClick={() => startTheModel(item)}>
-                          {t('start_model')}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: 'stop_and_delete_model',
-                      label: (
-                        <span className='text-red-400' onClick={() => stopTheModel(item, true)}>
-                          {t('stop_and_delete_model')}
-                        </span>
-                      ),
-                    },
-                  ],
-                }}
-              />
-            }
-            rightTopHover={false}
-            Tags={
-              <div>
-                <Tag color={item.healthy ? 'green' : 'red'}>{item.healthy ? t('model_healthy') : t('model_unhealthy')}</Tag>
-                <Tag>{item.worker_type}</Tag>
-              </div>
-            }
-            RightBottom={
-              <ChatButton
-                text={t('start_chat')}
-                onClick={() => {
-                  handleChat(item);
-                }}
-              />
-            }
-          />
-        ))}
-        </div>
-      </div>
       <Modal
         width={800}
         open={isModalOpen}
@@ -209,6 +386,7 @@ export default function ModelManage() {
           setIsModalOpen(false);
         }}
         footer={null}
+        className='model-modal'
       >
         <ModelForm
           onCancel={() => {
