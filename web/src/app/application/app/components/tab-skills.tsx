@@ -1,14 +1,14 @@
 'use client';
-import { getResourceV2, apiInterceptors } from '@/client/api';
+import { apiInterceptors, getMCPList } from '@/client/api';
 import { getSkillList } from '@/client/api/skill';
 import { AppContext } from '@/contexts';
-import { CheckCircleFilled, SearchOutlined, ToolOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, ApiOutlined, CodeOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, SearchOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, ApiOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Input, Spin, Tag, Dropdown, Tooltip, Tabs } from 'antd';
+import { Input, Spin, Tag, Dropdown, Tooltip } from 'antd';
 import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-type SkillSource = 'all' | 'built-in' | 'custom';
+type SkillSource = 'all' | 'skills' | 'mcp';
 
 export default function TabSkills() {
   const { t } = useTranslation();
@@ -16,35 +16,19 @@ export default function TabSkills() {
   const [searchValue, setSearchValue] = useState('');
   const [activeSource, setActiveSource] = useState<SkillSource>('all');
 
-  // Fetch all available built-in skills (tool type)
-  const { data: toolData, loading: loadingTools, refresh: refreshTools } = useRequest(async () => await getResourceV2({ type: 'tool' }));
-  const { data: mcpData, loading: loadingMcp, refresh: refreshMcp } = useRequest(async () => await getResourceV2({ type: 'tool(mcp(sse))' }));
-  const { data: localData, loading: loadingLocal, refresh: refreshLocal } = useRequest(async () => await getResourceV2({ type: 'tool(local)' }));
-
-  // Fetch custom skills from Settings Skills list
-  const { data: customSkillData, loading: loadingCustom, refresh: refreshCustom } = useRequest(
+  // Fetch Skills from Agent Skills list
+  const { data: skillData, loading: loadingSkills, refresh: refreshSkills } = useRequest(
     async () => await apiInterceptors(getSkillList({ filter: '' }, { page: 1, page_size: 200 })),
   );
 
-  // Combine all available built-in tools
-  const builtInTools = useMemo(() => {
-    const tools: any[] = [];
-    const addItems = (data: any, type: string) => {
-      data?.data?.data?.forEach((group: any) => {
-        group.valid_values?.forEach((item: any) => {
-          tools.push({ ...item, toolType: type, groupName: group.param_name, isBuiltIn: true });
-        });
-      });
-    };
-    addItems(toolData, 'tool');
-    addItems(mcpData, 'tool(mcp(sse))');
-    addItems(localData, 'tool(local)');
-    return tools;
-  }, [toolData, mcpData, localData]);
+  // Fetch MCP from MCP list
+  const { data: mcpData, loading: loadingMcp, refresh: refreshMcp } = useRequest(
+    async () => await apiInterceptors(getMCPList({ filter: '' }, { page: 1, page_size: 200 })),
+  );
 
-  // Extract custom skills from Settings
-  const customSkills = useMemo(() => {
-    const [, res] = customSkillData || [];
+  // Extract Skills
+  const skills = useMemo(() => {
+    const [, res] = skillData || [];
     const items = res?.items || [];
     return items.map((item: any) => ({
       key: item.skill_code,
@@ -60,20 +44,42 @@ export default function TabSkills() {
       skill_path: item.path || item.skill_code,
       skill_author: item.author,
       skill_branch: item.branch || 'main',
+      type: 'skill',
     }));
-  }, [customSkillData]);
+  }, [skillData]);
+
+  // Extract MCP
+  const mcpServers = useMemo(() => {
+    const [, res] = mcpData || [];
+    const items = res?.items || [];
+    return items.map((item: any) => ({
+      key: item.mcp_code,
+      name: item.name,
+      label: item.name,
+      description: item.description || '',
+      toolType: 'mcp',
+      groupName: 'mcp',
+      isBuiltIn: false,
+      mcp_code: item.mcp_code,
+      available: item.available,
+      author: item.author,
+      version: item.version,
+      icon: item.icon,
+      type: 'mcp',
+    }));
+  }, [mcpData]);
 
   // Combine all tools based on active filter
   const allTools = useMemo(() => {
     switch (activeSource) {
-      case 'built-in':
-        return builtInTools;
-      case 'custom':
-        return customSkills;
+      case 'skills':
+        return skills;
+      case 'mcp':
+        return mcpServers;
       default:
-        return [...builtInTools, ...customSkills];
+        return [...skills, ...mcpServers];
     }
-  }, [builtInTools, customSkills, activeSource]);
+  }, [skills, mcpServers, activeSource]);
 
   // Get currently enabled tool keys
   const enabledToolKeys = useMemo(() => {
@@ -91,8 +97,8 @@ export default function TabSkills() {
   }, [allTools, searchValue]);
 
   // Count by source
-  const builtInCount = builtInTools.length;
-  const customCount = customSkills.length;
+  const skillsCount = skills.length;
+  const mcpCount = mcpServers.length;
 
   // Toggle a tool on/off
   const handleToggle = (tool: any) => {
@@ -120,10 +126,8 @@ export default function TabSkills() {
 
   // Refresh all data
   const handleRefresh = () => {
-    refreshTools();
+    refreshSkills();
     refreshMcp();
-    refreshLocal();
-    refreshCustom();
   };
 
   // Create new items — navigate to dedicated pages in new tab
@@ -161,16 +165,12 @@ export default function TabSkills() {
     }
   };
 
-  const loading = loadingTools || loadingMcp || loadingLocal || loadingCustom;
+  const loading = loadingSkills || loadingMcp;
 
   // Determine the type tag for a tool
   const getToolTypeTag = (tool: any) => {
-    if (tool.isBuiltIn) {
-      if (tool.toolType.includes('mcp')) return { label: 'MCP', color: 'purple' };
-      if (tool.toolType.includes('local')) return { label: 'Local', color: 'green' };
-      return { label: 'Built-IN', color: 'blue' };
-    }
-    return { label: 'Custom', color: 'orange' };
+    if (tool.type === 'mcp') return { label: 'MCP', color: 'purple' };
+    return { label: 'Skill', color: 'orange' };
   };
 
   return (
@@ -211,9 +211,9 @@ export default function TabSkills() {
       <div className="px-5 pt-2 pb-0 border-b border-gray-100/40">
         <div className="flex items-center gap-0">
           {([
-            { key: 'all', label: t('builder_skill_all'), count: builtInCount + customCount },
-            { key: 'built-in', label: t('builder_skill_built_in'), count: builtInCount },
-            { key: 'custom', label: t('builder_skill_custom'), count: customCount },
+            { key: 'all', label: t('builder_skill_all'), count: skillsCount + mcpCount },
+            { key: 'skills', label: 'Skills', count: skillsCount },
+            { key: 'mcp', label: 'MCP', count: mcpCount },
           ] as const).map(tab => (
             <button
               key={tab.key}
@@ -254,12 +254,12 @@ export default function TabSkills() {
                     }`}
                     onClick={() => handleToggle(tool)}
                   >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                         isEnabled ? 'bg-blue-100' : 'bg-gray-100'
                       }`}>
-                        {tool.isBuiltIn ? (
-                          <ToolOutlined className={`text-sm ${isEnabled ? 'text-blue-500' : 'text-gray-400'}`} />
+                        {tool.type === 'mcp' ? (
+                          <ApiOutlined className={`text-sm ${isEnabled ? 'text-purple-500' : 'text-gray-400'}`} />
                         ) : (
                           <AppstoreOutlined className={`text-sm ${isEnabled ? 'text-orange-500' : 'text-gray-400'}`} />
                         )}
@@ -270,7 +270,7 @@ export default function TabSkills() {
                         </div>
                         <div className="text-[11px] text-gray-400 truncate mt-0.5">
                           {tool.description || tool.toolType}
-                          {!tool.isBuiltIn && tool.author && ` · ${tool.author}`}
+                          {tool.author && ` · ${tool.author}`}
                         </div>
                       </div>
                       <Tag className="mr-0 text-[10px] rounded-md border-0 font-medium px-1.5" color={typeTag.color}>
