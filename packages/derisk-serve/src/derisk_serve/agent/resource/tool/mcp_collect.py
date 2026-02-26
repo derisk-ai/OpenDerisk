@@ -10,7 +10,11 @@ from derisk.agent import ResourceType
 from derisk.agent.resource.tool.pack import json_parse_execute_args_func
 from derisk_app.config import ApplicationConfig
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from derisk_serve.agent.resource.tool.mcp_utils import get_mcp_tool_list, switch_mcp_input_schema, call_mcp_tool
+from derisk_serve.agent.resource.tool.mcp_utils import (
+    get_mcp_tool_list,
+    switch_mcp_input_schema,
+    call_mcp_tool,
+)
 
 from tenacity import retry, stop_after_attempt, wait_fixed, after_log, before_sleep_log
 from mcp.types import Tool
@@ -18,7 +22,10 @@ from derisk.util.global_helper import truncate_text
 from derisk.agent.resource import PackResourceParameters, ToolPack, BaseTool
 from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
-from derisk_serve.mcp.api.schemas import ServerResponse as MCPResponse, ServeRequest as MCPRequest
+from derisk_serve.mcp.api.schemas import (
+    ServerResponse as MCPResponse,
+    ServeRequest as MCPRequest,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -33,8 +40,12 @@ def get_mcp_list(**kwargs) -> List[Dict]:
     mcp_list: List[MCPResponse] = mcp_service.get_list(MCPRequest())
 
     results = [
-        {"label": mcp.name + f"-[{mcp.description}]", "key": mcp.mcp_code, "value": mcp.mcp_code,
-         "description": mcp.description}
+        {
+            "label": mcp.name + f"-[{mcp.description}]",
+            "key": mcp.mcp_code,
+            "value": mcp.mcp_code,
+            "description": mcp.description,
+        }
         for mcp in mcp_list
     ]
     return results
@@ -68,9 +79,7 @@ class MCPResourceParameters(PackResourceParameters):
     allow_tools: Optional[List[str]] = dataclasses.field(
         default=None,
         metadata={
-            "help": _(
-                "Allow tools, use ':' to split multiple tools, default is all"
-            ),
+            "help": _("Allow tools, use ':' to split multiple tools, default is all"),
         },
     )
     source: Optional[str] = dataclasses.field(
@@ -97,8 +106,9 @@ class MCPResourceParameters(PackResourceParameters):
         default=None,
         metadata={
             "help": _("MCP Tool Name"),
-        }
+        },
     )
+
     @classmethod
     def _resource_version(cls) -> str:
         """Return the resource version."""
@@ -131,20 +141,49 @@ class MCPResourceParameters(PackResourceParameters):
         """Create a new instance from a dictionary."""
         copied_data = data.copy()
 
-        mcp_code = copied_data.pop("value")
+        if "value" in copied_data:
+            value = copied_data.pop("value")
+            if isinstance(value, str):
+                try:
+                    value_data = json.loads(value)
+                except json.JSONDecodeError:
+                    value_data = {"mcp_code": value}
+            else:
+                value_data = value
+        else:
+            value_data = copied_data
+
+        mcp_code = (
+            value_data.get("mcp_code") if isinstance(value_data, dict) else value_data
+        )
+        if not mcp_code:
+            raise ValueError(f"无法从数据中提取mcp_code: {data}")
+
         mcp_info: Optional[MCPResponse] = get_mcp_info(mcp_code)
         if not mcp_info:
             raise ValueError(f"无法找到当前mcp服务[{mcp_code}].")
 
         copied_data["mcp_servers"] = mcp_info.sse_url
         copied_data["headers"] = mcp_info.sse_headers
+        if (
+            "name" not in copied_data
+            and isinstance(value_data, dict)
+            and value_data.get("name")
+        ):
+            copied_data["name"] = value_data.get("name")
         return super().from_dict(copied_data, ignore_extra_fields=ignore_extra_fields)
 
 
 def is_tool_ask_user(tool: Tool, tool_pack: MCPToolPack) -> bool:
-    return ((tool.annotations and tool.annotations.model_config and tool.annotations.model_config.get(
-        "requires_approval", False))
-            or (tool_pack and tool_pack.requires_approval_tools and tool.name in tool_pack.requires_approval_tools))
+    return (
+        tool.annotations
+        and tool.annotations.model_config
+        and tool.annotations.model_config.get("requires_approval", False)
+    ) or (
+        tool_pack
+        and tool_pack.requires_approval_tools
+        and tool.name in tool_pack.requires_approval_tools
+    )
 
 
 class MCPCollectSSEToolPack(MCPToolPack):
@@ -153,15 +192,17 @@ class MCPCollectSSEToolPack(MCPToolPack):
 
     @classmethod
     def type(cls) -> Union[ResourceType, str]:
-        return "tool(mcp(sse))"
+        return "mcp(derisk)"
+
     @classmethod
     def type_alias(cls) -> str:
-        return "tool(mcp(sse))"
+        return "mcp(derisk)"
 
     @classmethod
     def resource_parameters_class(cls, **kwargs) -> Type[MCPResourceParameters]:
         logger.info(f"resource_parameters_class:{kwargs}")
         result = get_mcp_list(**kwargs)
+
         @dataclasses.dataclass
         class _DynMCPResourceParameters(MCPResourceParameters):
             mcp_server: str = dataclasses.field(

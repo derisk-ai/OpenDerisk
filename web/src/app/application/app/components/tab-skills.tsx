@@ -57,7 +57,7 @@ export default function TabSkills() {
       name: item.name,
       label: item.name,
       description: item.description || '',
-      toolType: 'mcp',
+      toolType: 'mcp(derisk)',
       groupName: 'mcp',
       isBuiltIn: false,
       mcp_code: item.mcp_code,
@@ -65,7 +65,7 @@ export default function TabSkills() {
       author: item.author,
       version: item.version,
       icon: item.icon,
-      type: 'mcp',
+      type: 'mcp(derisk)',
     }));
   }, [mcpData]);
 
@@ -103,23 +103,36 @@ export default function TabSkills() {
   // Toggle a tool on/off
   const handleToggle = (tool: any) => {
     const key = tool.key || tool.name;
+    const toolType = tool.toolType || tool.type;
+    const toolName = tool.label || tool.name;
     const isEnabled = enabledToolKeys.includes(key);
 
     if (isEnabled) {
-      // Remove
+      // Remove - by both key AND (type + name) to handle MCP re-creation scenario
       const updatedTools = (appInfo.resource_tool || []).filter((item: any) => {
         const parsed = JSON.parse(item.value || '{}');
-        return (parsed?.key || parsed?.name) !== key;
+        const itemKey = parsed?.key || parsed?.name;
+        const itemType = parsed?.toolType || parsed?.type || item.type;
+        const itemName = parsed?.name || item.name;
+        // Remove if matches key OR matches (type + name) for MCP re-creation case
+        const matchesKey = itemKey === key;
+        const matchesTypeAndName = itemType === toolType && itemName === toolName;
+        return !matchesKey && !matchesTypeAndName;
       });
       fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
     } else {
-      // Add
+      // Add - but first remove any existing tool with same type and name (to handle MCP re-creation with new mcp_code)
       const newTool = {
-        type: tool.toolType,
-        name: tool.label || tool.name,
-        value: JSON.stringify({ key: tool.key || tool.name, name: tool.label || tool.name, ...tool }),
+        type: toolType,
+        name: toolName,
+        value: JSON.stringify({ key: key, name: toolName, ...tool }),
       };
-      const existingTools = appInfo.resource_tool || [];
+      const existingTools = (appInfo.resource_tool || []).filter((item: any) => {
+        const parsed = JSON.parse(item.value || '{}');
+        // Remove if same type AND same name (handles MCP re-creation scenario)
+        const hasSameTypeAndName = (parsed?.toolType || parsed?.type || item.type) === toolType && (parsed?.name || item.name) === toolName;
+        return !hasSameTypeAndName;
+      });
       fetchUpdateApp({ ...appInfo, resource_tool: [...existingTools, newTool] });
     }
   };
@@ -169,7 +182,7 @@ export default function TabSkills() {
 
   // Determine the type tag for a tool
   const getToolTypeTag = (tool: any) => {
-    if (tool.type === 'mcp') return { label: 'MCP', color: 'purple' };
+    if (tool.type === 'mcp(derisk)' || tool.type === 'mcp') return { label: 'MCP', color: 'purple' };
     return { label: 'Skill', color: 'orange' };
   };
 
@@ -258,7 +271,7 @@ export default function TabSkills() {
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                         isEnabled ? 'bg-blue-100' : 'bg-gray-100'
                       }`}>
-                        {tool.type === 'mcp' ? (
+                        {tool.type === 'mcp(derisk)' || tool.type === 'mcp' ? (
                           <ApiOutlined className={`text-sm ${isEnabled ? 'text-purple-500' : 'text-gray-400'}`} />
                         ) : (
                           <AppstoreOutlined className={`text-sm ${isEnabled ? 'text-orange-500' : 'text-gray-400'}`} />
