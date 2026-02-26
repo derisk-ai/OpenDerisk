@@ -674,7 +674,29 @@ class ReActMasterAgent(ConversableAgent):
             )
 
             tasks = []
+            batch_init_action_reports = []
+
             for real_action in real_actions:
+                if hasattr(real_action, "prepare_init_msg"):
+                    init_report = await real_action.prepare_init_msg(
+                        ai_message=message.content if message.content else "",
+                        resource=self.resource,
+                        resource_map=self.resource_map,
+                        render_protocol=await self.memory.gpts_memory.async_vis_converter(
+                            self.not_null_agent_context.conv_id
+                        ),
+                        message_id=message.message_id,
+                        current_message=message,
+                        sender=sender,
+                        agent=self,
+                        received_message=received_message,
+                        agent_context=self.agent_context,
+                        memory=self.memory,
+                        **filtered_kwargs,
+                    )
+                    if init_report:
+                        batch_init_action_reports.append(init_report)
+
                 task = real_action.run(
                     ai_message=message.content if message.content else "",
                     resource=self.resource,
@@ -689,9 +711,29 @@ class ReActMasterAgent(ConversableAgent):
                     received_message=received_message,
                     agent_context=self.agent_context,
                     memory=self.memory,
+                    skip_init_push=True,
                     **filtered_kwargs,
                 )
                 tasks.append((real_action, task))
+
+            if batch_init_action_reports:
+                await self.memory.gpts_memory.push_message(
+                    conv_id=self.not_null_agent_context.conv_id,
+                    stream_msg={
+                        "uid": message.message_id,
+                        "type": "all",
+                        "sender": self.name or self.role,
+                        "sender_role": self.role,
+                        "message_id": message.message_id,
+                        "avatar": self.avatar,
+                        "goal_id": message.goal_id,
+                        "conv_id": self.not_null_agent_context.conv_id,
+                        "conv_session_uid": self.not_null_agent_context.conv_session_id,
+                        "app_code": self.not_null_agent_context.gpts_app_code,
+                        "start_time": None,
+                        "action_report": batch_init_action_reports,
+                    },
+                )
 
             # 并行执行所有任务
             results = await asyncio.gather(
@@ -1122,7 +1164,11 @@ class ReActMasterAgent(ConversableAgent):
                     "sandbox": {
                         "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
                         "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
-                        "agent_skill_system": render(AGENT_SKILL_SYSTEM_PROMPT, skill_param) if sandbox_client.enable_skill else "",
+                        "agent_skill_system": render(
+                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
+                        )
+                        if sandbox_client.enable_skill
+                        else "",
                         "use_agent_skill": sandbox_client.enable_skill,
                     }
                 }

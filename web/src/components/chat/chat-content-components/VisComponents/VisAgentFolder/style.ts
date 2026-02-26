@@ -74,7 +74,6 @@ export const ChildrenContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1px;
-  border-left: 2px solid #e2e8f0;
   padding-left: 6px;
 `;
 

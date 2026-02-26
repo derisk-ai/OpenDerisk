@@ -28,11 +28,15 @@ from ..models.models import ServeDao, ServeEntity
 from ..models.models_details import AppDetailServeDao, AppDetailServeEntity
 from ...config.service.service import Service as AppConfigService, TEMP_VERSION_SUFFIX
 from ...config.api.schemas import ServeRequest as AppConfigRequest, LLMResource, Layout
-from ...config.config import SERVE_SERVICE_COMPONENT_NAME as Config_SERVE_SERVICE_COMPONENT
+from ...config.config import (
+    SERVE_SERVICE_COMPONENT_NAME as Config_SERVE_SERVICE_COMPONENT,
+)
 from ...recommend_question.models.models import ServeEntity as RecommendQuestionEntity
 from ...recommend_question.models.models import ServeDao as RecommendQuestionDao
 from ...recommend_question.api.schemas import ServeRequest as RecommendQuestionRequest
-from ...recommend_question.api.schemas import ServerResponse as RecommendQuestionResponse
+from ...recommend_question.api.schemas import (
+    ServerResponse as RecommendQuestionResponse,
+)
 
 logger = logging.getLogger(__name__)
 CFG = Config()
@@ -42,7 +46,9 @@ global_system_app: Optional[SystemApp] = None
 
 def get_config_service() -> AppConfigService:
     """Get the service instance"""
-    return CFG.SYSTEM_APP.get_component(Config_SERVE_SERVICE_COMPONENT, AppConfigService)
+    return CFG.SYSTEM_APP.get_component(
+        Config_SERVE_SERVICE_COMPONENT, AppConfigService
+    )
 
 
 class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
@@ -57,7 +63,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         self._serve_config: ServeConfig = config
         self._dao: ServeDao = dao
         self._detail_dao: AppDetailServeDao = AppDetailServeDao()
-        self._recommend_question_dao: RecommendQuestionDao = RecommendQuestionDao(config)
+        self._recommend_question_dao: RecommendQuestionDao = RecommendQuestionDao(
+            config
+        )
         super().__init__(system_app)
 
     def init_app(self, system_app: SystemApp) -> None:
@@ -84,13 +92,18 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return self._dao
 
     @property
-    def detail_app_dao(self) -> BaseDao[AppDetailServeEntity, AppDetailServeRequest, AppDetailServerResponse]:
+    def detail_app_dao(
+        self,
+    ) -> BaseDao[AppDetailServeEntity, AppDetailServeRequest, AppDetailServerResponse]:
         """Returns the internal DAO."""
         return self._detail_dao
 
     @property
-    def recommend_question_dao(self) -> BaseDao[
-        RecommendQuestionEntity, RecommendQuestionRequest, RecommendQuestionResponse]:
+    def recommend_question_dao(
+        self,
+    ) -> BaseDao[
+        RecommendQuestionEntity, RecommendQuestionRequest, RecommendQuestionResponse
+    ]:
         """Returns the internal DAO."""
         return self._recommend_question_dao
 
@@ -104,7 +117,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         self.create(request)
 
         new_app = await self.edit(request)
-        await self.publish(request.app_code, new_app.config_code, carefully_chosen=request.published)
+        await self.publish(
+            request.app_code, new_app.config_code, carefully_chosen=request.published
+        )
 
     def create(self, request: ServeRequest) -> Optional[ServerResponse]:
         """应用构建."""
@@ -119,14 +134,22 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         # 初始化布局
         if not request.layout:
-            from derisk_ext.vis.derisk.derisk_vis_incr_converter import DeriskVisIncrConverter
+            from derisk_ext.vis.derisk.derisk_vis_incr_converter import (
+                DeriskVisIncrConverter,
+            )
+
             defualt_convert = DeriskVisIncrConverter()
             request.layout = Layout(
-                chat_layout=ChatLayout(name=defualt_convert.render_name, incremental=defualt_convert.incremental,
-                                       description=defualt_convert.description))
+                chat_layout=ChatLayout(
+                    name=defualt_convert.render_name,
+                    incremental=defualt_convert.incremental,
+                    description=defualt_convert.description,
+                )
+            )
         # 初始化模型策略
         if not request.llm_config:
             from derisk.agent import LLMStrategyType
+
             request.llm_config = LLMResource(llm_strategy=LLMStrategyType.Default.value)
 
         # 冲突检测
@@ -137,7 +160,6 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return res
 
     def app_info_to_config(self, request: ServeRequest) -> AppConfigRequest:
-
         ## TODO AWEL模式的自动判断 按需定制
         if not request.team_mode == TeamMode.NATIVE_APP.value:
             if request.agent:
@@ -155,13 +177,14 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     if not request.team_context:
                         team_context = SingleAgentContext(agent_name=request.agent)
                     else:
-                        team_context = SingleAgentContext(**request.team_context.to_dict())
+                        team_context = SingleAgentContext(
+                            **request.team_context.to_dict()
+                        )
                         team_context.agent_name = request.agent
             else:
                 request.team_mode = TeamMode.SINGLE_AGENT.value
                 team_context = SingleAgentContext(**request.team_context.to_dict())
         else:
-
             team_context = NativeTeamContext(**request.team_context.to_dict())
             if request.agent:
                 team_context.agent_name = request.agent
@@ -188,20 +211,18 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
     async def edit(self, request: ServeRequest) -> Optional[ServerResponse]:
         logger.info(f"app edit:{request}")
-        query_dict = {
-            "app_code": request.app_code
-        }
+        query_dict = {"app_code": request.app_code}
         app_resp = self.dao.get_one(query_dict)
         ## 编辑应用基础信息(如果有修改)
         update_dict = {}
         if request.app_name and request.app_name != app_resp.app_name:
-            update_dict['app_name'] = request.app_name
+            update_dict["app_name"] = request.app_name
         if request.app_describe and request.app_describe != app_resp.app_describe:
-            update_dict['app_describe'] = request.app_describe
+            update_dict["app_describe"] = request.app_describe
         if request.icon and request.icon != app_resp.icon:
-            update_dict['icon'] = request.icon
+            update_dict["icon"] = request.icon
         if request.language and request.language != app_resp.language:
-            update_dict['language'] = request.language
+            update_dict["language"] = request.language
 
         if len(update_dict) > 0:
             self.dao.update(query_dict, update_dict)
@@ -219,7 +240,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         valid=recommend_question.valid,
                     )
                 )
-            self.recommend_question_dao.replace_all(request.app_code, recommend_questions)  # type:ignore
+            self.recommend_question_dao.replace_all(
+                request.app_code, recommend_questions
+            )  # type:ignore
 
         ## 编辑应用配置
         ### 应用基础信息转配置信息
@@ -230,20 +253,29 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             request.config_code = temp_config.code
             request.config_version = temp_config.version_info
             config_code = temp_config.code
-        return await self.app_detail(app_code=request.app_code, specify_config_code=config_code)
+        return await self.app_detail(
+            app_code=request.app_code, specify_config_code=config_code
+        )
 
-    async def publish(self, app_code: str, new_config_code: str, operator: Optional[str] = None,
-                      carefully_chosen: bool = False,
-                      description: Optional[str] = None) -> Optional[ServerResponse]:
+    async def publish(
+        self,
+        app_code: str,
+        new_config_code: str,
+        operator: Optional[str] = None,
+        carefully_chosen: bool = False,
+        description: Optional[str] = None,
+    ) -> Optional[ServerResponse]:
         """应用构建配置发布."""
         logger.info(f"app publish:{app_code},{new_config_code},{operator}")
         with self.dao.session(commit=False) as session:
-
             ### 应用发布需要在同一个事务里做两件事情:
             ### 1.修改当前临时版本配置未正式配置代码，状态修改为发布
             ### 2.修改应用的配置代码未当前发布版本
             ### 3.提交事务
-            from derisk_serve.building.config.models.models import ServeEntity as AppConfigEntity
+            from derisk_serve.building.config.models.models import (
+                ServeEntity as AppConfigEntity,
+            )
+
             config_service = get_config_service()
 
             app_query_object = {"app_code": app_code}
@@ -251,14 +283,17 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_entry: ServeEntity = query.first()
             if app_entry:
                 app_config_query = session.query(AppConfigEntity)
-                app_config_query = app_config_query.filter(AppConfigEntity.app_code == app_entry.app_code).filter(
-                    AppConfigEntity.code == new_config_code)
+                app_config_query = app_config_query.filter(
+                    AppConfigEntity.app_code == app_entry.app_code
+                ).filter(AppConfigEntity.code == new_config_code)
                 app_config_entry: AppConfigEntity = app_config_query.first()
                 if not app_config_entry:
                     raise ValueError(f"配置[{app_config_entry.code}]已经不存在")
 
                 # 配置发布,状态和版本信息更新
-                release_config_version = config_service.temp_to_formal(app_config_entry.version_info)
+                release_config_version = config_service.temp_to_formal(
+                    app_config_entry.version_info
+                )
                 now = datetime.now()
                 app_config_entry.version_info = release_config_version
                 app_config_entry.is_published = 1
@@ -371,21 +406,25 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     async def app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
         return self.sync_app_list(query, parse_llm_strategy)
 
-    def app_to_details(self, main_app_code: str, main_app_name: str, app_codes: List[str]):
+    def app_to_details(
+        self, main_app_code: str, main_app_name: str, app_codes: List[str]
+    ):
         result: List = []
         detail_apps = self.get_apps_by_codes(app_codes)
         for item in detail_apps:
-            result.append(GptsAppDetail(
-                app_code=main_app_code,
-                app_name=main_app_name,
-                type="app",
-                agent_name=item.app_name,
-                agent_role=item.app_code,
-                agent_describe=item.app_describe,
-                agent_icon=item.icon,
-                created_at=item.created_at,
-                updated_at=item.updated_at,
-            ))
+            result.append(
+                GptsAppDetail(
+                    app_code=main_app_code,
+                    app_name=main_app_name,
+                    type="app",
+                    agent_name=item.app_name,
+                    agent_role=item.app_code,
+                    agent_describe=item.app_describe,
+                    agent_icon=item.icon,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                )
+            )
         return result
 
     def _pop_resource(self, resources: List[AgentResource], filter_types: List[str]):
@@ -399,28 +438,37 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         resources[:] = new_lst  # 原地修改原列表
         return result_resources
 
-    def app_detail_to_app_resource(self, app_info: ServerResponse, details: List[GptsAppDetail]):
+    def app_detail_to_app_resource(
+        self, app_info: ServerResponse, details: List[GptsAppDetail]
+    ):
         resource_agent: List[AgentResource] = []
         for detail in details:
-            resource_agent.append(AgentResource(
-                type=ResourceType.App.value,
-                value=json.dumps({
-                    "label": f"[{detail.agent_role}]{detail.agent_name}",
-                    "key": detail.agent_role,
-                    "app_code": detail.agent_role,
-                    "app_name": detail.agent_name,
-                    "value": detail.agent_role
-                }, ensure_ascii=False),
-                name=detail.agent_name,
-            ))
+            resource_agent.append(
+                AgentResource(
+                    type=ResourceType.App.value,
+                    value=json.dumps(
+                        {
+                            "label": f"[{detail.agent_role}]{detail.agent_name}",
+                            "key": detail.agent_role,
+                            "app_code": detail.agent_role,
+                            "app_name": detail.agent_name,
+                            "value": detail.agent_role,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    name=detail.agent_name,
+                )
+            )
         app_info.resource_agent = resource_agent
         return app_info
 
-    def _resource_to_app_detail(self, app_info: ServerResponse, agent_resources: List[AgentResource]):
+    def _resource_to_app_detail(
+        self, app_info: ServerResponse, agent_resources: List[AgentResource]
+    ):
         details = []
         for item in agent_resources:
             # {\"name\":\"My Agent Resource\",\"app_code\":\"1bc6d188-735e-11f0-b924-00163e0ea545\"}
-            app_code = None,
+            app_code = (None,)
             if isinstance(item.value, str):
                 value_dict = json.loads(item.value)
                 app_code = value_dict.get("app_code")
@@ -432,33 +480,39 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 logger.warning(f"AgentAppResource{item.value}没有找到AppCode！")
                 continue
             item_info = self.get(ServeRequest(app_code=app_code))
-            details.append(GptsAppDetail(
-                app_code=app_info.app_code,
-                app_name=app_info.app_name,
-                type=item.type,
-                agent_name=item_info.app_name,
-                agent_role=item_info.app_code,
-                agent_icon=item_info.icon,
-                agent_describe=item_info.app_describe,
-                node_id=uuid.uuid4().hex,
-                resources=None,
-                prompt_template=None,
-                llm_strategy=None,
-                llm_strategy_value=None,
-                created_at=item_info.created_at,
-                updated_at=item_info.updated_at,
-            ))
+            details.append(
+                GptsAppDetail(
+                    app_code=app_info.app_code,
+                    app_name=app_info.app_name,
+                    type=item.type,
+                    agent_name=item_info.app_name,
+                    agent_role=item_info.app_code,
+                    agent_icon=item_info.icon,
+                    agent_describe=item_info.app_describe,
+                    node_id=uuid.uuid4().hex,
+                    resources=None,
+                    prompt_template=None,
+                    llm_strategy=None,
+                    llm_strategy_value=None,
+                    created_at=item_info.created_at,
+                    updated_at=item_info.updated_at,
+                )
+            )
 
         app_info.details = details
         app_info.resource_agent = agent_resources
         return app_info
 
-    def sync_app_detail(self, app_code: str, specify_config_code: Optional[str] = None, building_mode: bool = True) -> \
-        Optional[ServerResponse]:
+    def sync_app_detail(
+        self,
+        app_code: str,
+        specify_config_code: Optional[str] = None,
+        building_mode: bool = True,
+    ) -> Optional[ServerResponse]:
         logger.info(f"get_app_detail:{app_code},{specify_config_code},{building_mode}")
         app_resp = self.dao.get_one({"app_code": app_code})
         if not app_resp:
-            raise ValueError(f'应用不存在[{app_code}]')
+            raise ValueError(f"应用不存在[{app_code}]")
         ## 如果是构建模式，默认加载当前临时配置，如果没有临时配置才加载应用的发布配置
         config_service = get_config_service()
         app_config = None
@@ -482,7 +536,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         if app_config:
             all_resources = []
-            logger.info(f"当前应用有配置代码，需要加载指定版本配置[{app_config.code}][{app_config.version_info}]！")
+            logger.info(
+                f"当前应用有配置代码，需要加载指定版本配置[{app_config.code}][{app_config.version_info}]！"
+            )
 
             if app_config.resource_agent:
                 app_resp.resource_agent = app_config.resource_agent
@@ -492,7 +548,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_resp.team_context = app_config.team_context
             app_resp.team_mode = app_config.team_mode
             # app_resp.language =
-            app_resp.param_need = app_config.layout.chat_in_layout if app_config.layout else None
+            app_resp.param_need = (
+                app_config.layout.chat_in_layout if app_config.layout else None
+            )
             app_resp.recommend_questions = app_config.recommend_questions
 
             app_resp.config_version = app_config.version_info
@@ -550,15 +608,28 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 if reasoning_engine_resource:
                     reasoning_engine_value = {}
                     if isinstance(reasoning_engine_resource.value, str):
-                        reasoning_engine_value = json.loads(reasoning_engine_resource.value)
+                        reasoning_engine_value = json.loads(
+                            reasoning_engine_resource.value
+                        )
                     elif isinstance(reasoning_engine_resource.value, dict):
                         reasoning_engine_value = reasoning_engine_resource.value
-                    reasoning_engine_name = reasoning_engine_value.get("name") if reasoning_engine_value else None
+                    reasoning_engine_name = (
+                        reasoning_engine_value.get("name")
+                        if reasoning_engine_value
+                        else None
+                    )
                     if reasoning_engine_name:
-                        from derisk.agent.core.reasoning.reasoning_engine import ReasoningEngine
-                        reasoning_engine = ReasoningEngine.get_reasoning_engine(reasoning_engine_name)
+                        from derisk.agent.core.reasoning.reasoning_engine import (
+                            ReasoningEngine,
+                        )
+
+                        reasoning_engine = ReasoningEngine.get_reasoning_engine(
+                            reasoning_engine_name
+                        )
                         r_engine_user_prompt_t = reasoning_engine.user_prompt_template
-                        r_engine_system_prompt_t = reasoning_engine.system_prompt_template
+                        r_engine_system_prompt_t = (
+                            reasoning_engine.system_prompt_template
+                        )
 
             ## 处理prompt
             ### 如果配置里没有可用的prompt模版，进行初始化(ReasongAgent还需要继续根据配置的推理引擎进行初始化)
@@ -569,7 +640,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         app_resp.system_prompt_template = r_engine_system_prompt_t
                 else:
                     if not app_resp.team_mode == TeamMode.NATIVE_APP.value:
-                        prompt_template, template_format = ag.prompt_template("system", app_resp.language)
+                        prompt_template, template_format = ag.prompt_template(
+                            "system", app_resp.language
+                        )
                         app_resp.system_prompt_template = prompt_template
             else:
                 app_resp.system_prompt_template = app_config.system_prompt_template
@@ -582,7 +655,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 else:
                     if not app_resp.team_mode == TeamMode.NATIVE_APP.value:
                         logger.info(f"初始化[{app_resp.agent}]user_prompt模版！")
-                        prompt_template, template_format = ag.prompt_template("user", app_resp.language)
+                        prompt_template, template_format = ag.prompt_template(
+                            "user", app_resp.language
+                        )
                         app_resp.user_prompt_template = prompt_template
             else:
                 app_resp.user_prompt_template = app_config.user_prompt_template
@@ -592,7 +667,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     logger.info(f"构建模式初始化[{app_resp.agent}]的默认参数！")
                     app_resp.custom_variables = ag.init_variables()
             ## 处理关联的推荐问题
-            app_recommend_questions = self.recommend_question_dao.get_list({"app_code": app_resp.app_code})
+            app_recommend_questions = self.recommend_question_dao.get_list(
+                {"app_code": app_resp.app_code}
+            )
             if app_recommend_questions:
                 app_resp.recommend_questions = app_recommend_questions
             return app_resp
@@ -615,34 +692,41 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     if not item_info:
                         logger.warning(f"绑定应用[{item.agent_role}]已经不存在！")
                         continue
-                    agent_resources.append(AgentResource(
-                        type=ResourceType.App.value,
-                        value=json.dumps({
-                            "name": f"{item_info.app_name}({item_info.app_code})",
-                            "app_code": item_info.app_code,
-                            "app_name": item_info.app_name,
-                            "app_describe": item_info.app_describe,
-                            "icon": item_info.icon,
-                        }, ensure_ascii=False),
-                        name=f"{item_info.app_name}({item_info.app_code})",
-                        unique_id=uuid.uuid4().hex
-                    ))
-                    details.append(GptsAppDetail(
-                        app_code=app_info.app_code,
-                        app_name=app_info.app_name,
-                        type=item.type,
-                        agent_name=item_info.app_name,
-                        agent_role=item.agent_role,
-                        agent_icon=item_info.icon,
-                        agent_describe=item_info.app_describe,
-                        node_id=item.node_id,
-                        resources=None,
-                        prompt_template=None,
-                        llm_strategy=None,
-                        llm_strategy_value=None,
-                        created_at=item.created_at,
-                        updated_at=item.updated_at,
-                    ))
+                    agent_resources.append(
+                        AgentResource(
+                            type=ResourceType.App.value,
+                            value=json.dumps(
+                                {
+                                    "name": f"{item_info.app_name}({item_info.app_code})",
+                                    "app_code": item_info.app_code,
+                                    "app_name": item_info.app_name,
+                                    "app_describe": item_info.app_describe,
+                                    "icon": item_info.icon,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            name=f"{item_info.app_name}({item_info.app_code})",
+                            unique_id=uuid.uuid4().hex,
+                        )
+                    )
+                    details.append(
+                        GptsAppDetail(
+                            app_code=app_info.app_code,
+                            app_name=app_info.app_name,
+                            type=item.type,
+                            agent_name=item_info.app_name,
+                            agent_role=item.agent_role,
+                            agent_icon=item_info.icon,
+                            agent_describe=item_info.app_describe,
+                            node_id=item.node_id,
+                            resources=None,
+                            prompt_template=None,
+                            llm_strategy=None,
+                            llm_strategy_value=None,
+                            created_at=item.created_at,
+                            updated_at=item.updated_at,
+                        )
+                    )
                 else:
                     details.append(GptsAppDetail.from_dict(item.to_dict()))
 
@@ -650,14 +734,23 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         app_info.resource_agent = agent_resources
         return app_info
 
-    async def app_detail(self, app_code: str, specify_config_code: Optional[str] = None, building_mode: bool = True) -> \
-        Optional[ServerResponse]:
+    async def app_detail(
+        self,
+        app_code: str,
+        specify_config_code: Optional[str] = None,
+        building_mode: bool = True,
+    ) -> Optional[ServerResponse]:
         return self.sync_app_detail(app_code, specify_config_code, building_mode)
 
-    def old_app_switch_new_app(self, gpts_app: ServeRequest, building_mode: bool = True) -> ServerResponse:
+    def old_app_switch_new_app(
+        self, gpts_app: ServeRequest, building_mode: bool = True
+    ) -> ServerResponse:
         all_resources = []
         if gpts_app.team_context:
-            if hasattr(gpts_app.team_context, "resources") and gpts_app.team_context.resources:
+            if (
+                hasattr(gpts_app.team_context, "resources")
+                and gpts_app.team_context.resources
+            ):
                 all_resources = deepcopy(gpts_app.team_context.resources)
                 if building_mode:
                     gpts_app.team_context.resources = None
@@ -665,7 +758,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if gpts_app.team_context.llm_strategy:
                 gpts_app.llm_config = LLMResource(
                     llm_strategy=gpts_app.team_context.llm_strategy,
-                    llm_strategy_value=gpts_app.team_context.llm_strategy_value
+                    llm_strategy_value=gpts_app.team_context.llm_strategy_value,
                 )
                 if building_mode:
                     gpts_app.team_context.llm_strategy = None
@@ -682,12 +775,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         gpts_app.context_config = build_by_agent_config(gpts_app.context_config)
 
         from derisk.agent import ResourceType
+
         # if not building_mode:
         gpts_app.all_resources = deepcopy(all_resources)
 
         ## 兼容旧版ReasoningAgent的资源配置
-        engine_resources = self._pop_resource(all_resources,
-                                              [ResourceType.ReasoningEngine.value]) if all_resources else None
+        engine_resources = (
+            self._pop_resource(all_resources, [ResourceType.ReasoningEngine.value])
+            if all_resources
+            else None
+        )
         try:
             ag_mg = get_agent_manager()
             ag = ag_mg.get(gpts_app.agent)
@@ -699,7 +796,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 reasoning_engine: AgentResource = engine_resources[0]
                 reasoning_engine_value = json.loads(reasoning_engine.value)
 
-                re_system_prompt_tempalte = reasoning_engine_value.get("system_prompt_template")
+                re_system_prompt_tempalte = reasoning_engine_value.get(
+                    "system_prompt_template"
+                )
                 if re_system_prompt_tempalte is not None:
                     gpts_app.system_prompt_template = re_system_prompt_tempalte
                 else:
@@ -713,25 +812,42 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else:
                 if gpts_app.team_context:
                     if gpts_app.team_context.prompt_template:
-                        gpts_app.system_prompt_template = gpts_app.team_context.prompt_template
+                        gpts_app.system_prompt_template = (
+                            gpts_app.team_context.prompt_template
+                        )
                     else:
-                        prompt_template, template_format = ag.prompt_template("system", gpts_app.language)
+                        prompt_template, template_format = ag.prompt_template(
+                            "system", gpts_app.language
+                        )
                         gpts_app.system_prompt_template = prompt_template
 
                     if gpts_app.team_context.user_prompt_template:
-                        gpts_app.user_prompt_template = gpts_app.team_context.user_prompt_template
+                        gpts_app.user_prompt_template = (
+                            gpts_app.team_context.user_prompt_template
+                        )
                     else:
-                        prompt_template, template_format = ag.prompt_template("user", gpts_app.language)
+                        prompt_template, template_format = ag.prompt_template(
+                            "user", gpts_app.language
+                        )
                         gpts_app.user_prompt_template = prompt_template
 
                     # if building_mode:
                     #     gpts_app.team_context.prompt_template = None
                     #     gpts_app.team_context.user_prompt_template = None
 
-            gpts_app.resource_tool = self._pop_resource(all_resources,
-                                                        [ResourceType.Tool.value, "tool(mcp(sse))", "tool(local)"])
-            gpts_app.resource_knowledge = self._pop_resource(all_resources, [ResourceType.Knowledge.value,
-                                                                             ResourceType.KnowledgePack.value])
+            gpts_app.resource_tool = self._pop_resource(
+                all_resources,
+                [
+                    ResourceType.Tool.value,
+                    "mcp(derisk)",
+                    "tool(mcp(sse))",
+                    "tool(local)",
+                ],
+            )
+            gpts_app.resource_knowledge = self._pop_resource(
+                all_resources,
+                [ResourceType.Knowledge.value, ResourceType.KnowledgePack.value],
+            )
             ## 处理旧版Agent App关联为App资源
             if gpts_app.details:
                 gpts_app = self.app_detail_to_app_resource(gpts_app, gpts_app.details)
@@ -749,7 +865,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             logger.warning(str(e), e)
             raise ValueError(f"应用编辑数据转换异常！{str(e)}")
         gpts_app.config_code = None
-        gpts_app.config_version = f"{datetime.now().strftime('%Y%m%d%H%M%S')}{TEMP_VERSION_SUFFIX}"
+        gpts_app.config_version = (
+            f"{datetime.now().strftime('%Y%m%d%H%M%S')}{TEMP_VERSION_SUFFIX}"
+        )
         ## 处理关联APP
         if gpts_app.app_code:
             gpts_app = self.app_detail_to_resource(gpts_app)
@@ -762,7 +880,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         ## 获取旧版数据的应用明细信息
         app_resp.details = self.detail_app_dao.get_list({"app_code": app_code})
         ## 处理关联的推荐问题
-        app_recommend_questions = self.recommend_question_dao.get_list({"app_code": app_code})
+        app_recommend_questions = self.recommend_question_dao.get_list(
+            {"app_code": app_code}
+        )
         if app_recommend_questions:
             app_resp.recommend_questions = app_recommend_questions
 
@@ -772,6 +892,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         logger.info("加载本地定义的应用数据")
         # 1. 获取当前脚本所在目录
         import os
+
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 2. 构建目标文件夹路径（假设文件夹名为"json_data"）
@@ -782,14 +903,17 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             raise FileNotFoundError(f"应用定义目录不存在: {target_folder}")
 
         # 4. 获取所有JSON文件
-        json_files = [f for f in os.listdir(target_folder)
-                      if f.endswith('.json') and os.path.isfile(os.path.join(target_folder, f))]
+        json_files = [
+            f
+            for f in os.listdir(target_folder)
+            if f.endswith(".json") and os.path.isfile(os.path.join(target_folder, f))
+        ]
 
         # 5. 加载并解析所有JSON文件
         for file in json_files:
             file_path = os.path.join(target_folder, file)
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     json_data = json.load(f)
                     for item in json_data:
                         app_code = item.get("app_code")
@@ -797,11 +921,17 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         if app_code:
                             logger.info(f"更新应用[{app_name}:{app_code}]")
                             # 冲突检测
-                            chek_app = self.get(ServeRequest(app_code=app_code, app_name=app_name))
+                            chek_app = self.get(
+                                ServeRequest(app_code=app_code, app_name=app_name)
+                            )
                             if chek_app:
-                                logger.info(f"应用[{app_code}-{app_name}]已经存在，无需再初始化！")
+                                logger.info(
+                                    f"应用[{app_code}-{app_name}]已经存在，无需再初始化！"
+                                )
                                 continue
-                            await self.new_define_app(request=ServeRequest.from_dict(item))
+                            await self.new_define_app(
+                                request=ServeRequest.from_dict(item)
+                            )
                 logger.info(f"应用成功加载: {file}")
             except Exception as e:
                 logger.warning(f"应用加载失败 {file}: {str(e)}", exc_info=True)
@@ -849,9 +979,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             session.close()
 
     async def delete_app(self, app_code: str):
-        query_request = {
-            "app_code": app_code
-        }
+        query_request = {"app_code": app_code}
         self.dao.delete(query_request)
 
     def delete(self, request: ServeRequest) -> None:

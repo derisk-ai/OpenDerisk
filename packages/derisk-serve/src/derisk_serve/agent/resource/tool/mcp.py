@@ -8,7 +8,11 @@ from typing import Any, List, Optional, Type, Union, cast, Dict
 from derisk._private.config import Config
 from derisk.agent.resource.tool.pack import json_parse_execute_args_func
 from derisk_app.config import ApplicationConfig
-from derisk_serve.agent.resource.tool.mcp_utils import get_mcp_tool_list, switch_mcp_input_schema, call_mcp_tool
+from derisk_serve.agent.resource.tool.mcp_utils import (
+    get_mcp_tool_list,
+    switch_mcp_input_schema,
+    call_mcp_tool,
+)
 
 from tenacity import retry, stop_after_attempt, wait_fixed, after_log, before_sleep_log
 from mcp.types import Tool
@@ -18,7 +22,10 @@ from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
 
 from derisk_serve.agent.db.gpts_tool import GptsToolDao
-from derisk_serve.agent.db.gpts_tool_messages import GptsToolMessagesDao, GptsToolMessages
+from derisk_serve.agent.db.gpts_tool_messages import (
+    GptsToolMessagesDao,
+    GptsToolMessages,
+)
 
 logger = logging.getLogger(__name__)
 CFG = Config()
@@ -124,15 +131,15 @@ class MCPToolPack(ToolPack):
     """
 
     def __init__(
-            self,
-            mcp_servers: Union[str, List[str]],
-            headers: Optional[Dict[str, Dict[str, Any]]] = None,
-            default_headers: Optional[Dict[str, Any]] = None,
-            ssl_verify: Optional[Dict[str, Union[ssl.SSLContext, str, bool]]] = None,
-            default_ssl_verify: Union[ssl.SSLContext, str, bool] = True,
-            default_ssl_cafile: Optional[str] = None,
-            overwrite_same_tool: bool = True,
-            **kwargs,
+        self,
+        mcp_servers: Union[str, List[str]],
+        headers: Optional[Dict[str, Dict[str, Any]]] = None,
+        default_headers: Optional[Dict[str, Any]] = None,
+        ssl_verify: Optional[Dict[str, Union[ssl.SSLContext, str, bool]]] = None,
+        default_ssl_verify: Union[ssl.SSLContext, str, bool] = True,
+        default_ssl_cafile: Optional[str] = None,
+        overwrite_same_tool: bool = True,
+        **kwargs,
     ):
         """Create an Auto-GPT plugin tool pack."""
         from derisk.util.log_util import MCP_LOGGER as LOGGER
@@ -160,7 +167,11 @@ class MCPToolPack(ToolPack):
         self.server_ssl_verify_map = {}
         self._overwrite_same_tool = overwrite_same_tool
         self._allow_tools = kwargs["allow_tools"] if "allow_tools" in kwargs else None
-        self._requires_approval_tools = kwargs["requires_approval_tools"] if "requires_approval_tools" in kwargs else None
+        self._requires_approval_tools = (
+            kwargs["requires_approval_tools"]
+            if "requires_approval_tools" in kwargs
+            else None
+        )
         self._source = (
             kwargs["source"] if "source" in kwargs and kwargs["source"] else "faas"
         )
@@ -171,7 +182,6 @@ class MCPToolPack(ToolPack):
             kwargs["tool_id"] if "tool_id" in kwargs and kwargs["tool_id"] else None
         )
         self._mcp_name = self.name
-
 
     def _get_call_args(self, arguments: Dict[str, Any], tl: BaseTool) -> Dict[str, Any]:
         """Get the call arguments."""
@@ -224,62 +234,74 @@ class MCPToolPack(ToolPack):
         mode = "origin"
         if isinstance(app_config, ApplicationConfig):
             mode = app_config.mcp.mode
-        is_special_code = root_tracer.get_context_entrance() == 'async' and (self._mcp_name == 'mcp-code' or self._mcp_name == 'mcp-code-full')
+        is_special_code = root_tracer.get_context_entrance() == "async" and (
+            self._mcp_name == "mcp-code" or self._mcp_name == "mcp-code-full"
+        )
 
         if self._tool_id:
             gpts_tool = gpts_tool_dao.get_tool_by_tool_id(self._tool_id)
         else:
             gpts_tool = gpts_tool_dao.get_tool_by_name(self._mcp_name)
-                    
-        if gpts_tool and gpts_tool.type == 'MCP':
-            
+
+        if gpts_tool and gpts_tool.type == "MCP":
             # Set default tool_id
             if not gpts_tool.tool_id:
                 gpts_tool.tool_id = str(uuid.uuid4())
-                
+
             self._tool_id = gpts_tool.tool_id
             self._mcp_name = gpts_tool.tool_name
             config = json.loads(gpts_tool.config)
-            self._source = config.get('source', self._source)
-            self._timeout = config.get('timeout', self._timeout)
-            if config.get('headers', None):
-                if isinstance(config.get('headers'), str):
-                    self._headers = json.loads(config.get('headers'))
+            self._source = config.get("source", self._source)
+            self._timeout = config.get("timeout", self._timeout)
+            if config.get("headers", None):
+                if isinstance(config.get("headers"), str):
+                    self._headers = json.loads(config.get("headers"))
                 else:
-                    self._headers = config.get('headers')
-            server_list = [config.get('url', None)]
+                    self._headers = config.get("headers")
+            server_list = [config.get("url", None)]
 
         else:
             self._tool_id = str(uuid.uuid4())
             # TODO Get MCP Tool name, Temp solve
             self._mcp_name = str(uuid.uuid4())
-            
+
         for server in server_list:
             try:
-                def log_final_retry(retry_state):
-                    raise Exception(f"{self._mcp_name} tool/list final retry failed: {retry_state.outcome.exception()}")
 
-                @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True,
-                       after=after_log(LOGGER, logging.WARN), retry_error_callback=log_final_retry)
+                def log_final_retry(retry_state):
+                    raise Exception(
+                        f"{self._mcp_name} tool/list final retry failed: {retry_state.outcome.exception()}"
+                    )
+
+                @retry(
+                    stop=stop_after_attempt(3),
+                    wait=wait_fixed(1),
+                    reraise=True,
+                    after=after_log(LOGGER, logging.WARN),
+                    retry_error_callback=log_final_retry,
+                )
                 async def _get_tool_list():
                     return await get_mcp_tool_list(
                         self._mcp_name,
                         server,
                         headers=self._headers,
                         allow_tools=self._allow_tools,
-                        tool_id=self._tool_id
+                        tool_id=self._tool_id,
                     )
+
                 gpts_tool_messages = GptsToolMessages(
                     tool_id=self._tool_id,
                     name=self._mcp_name,
-                    type='MCP',
-                    input='tool/list',
+                    type="MCP",
+                    input="tool/list",
                     trace_id=trace_id,
-                    success=1
+                    success=1,
                 )
                 try:
                     result = await _get_tool_list()
-                    gpts_tool_messages.output = truncate_text(json.dumps(result.model_dump(), ensure_ascii=False), 65535)
+                    gpts_tool_messages.output = truncate_text(
+                        json.dumps(result.model_dump(), ensure_ascii=False), 65535
+                    )
                 except Exception as e:
                     gpts_tool_messages.success = 0
                     gpts_tool_messages.error = str(e)
@@ -300,7 +322,7 @@ class MCPToolPack(ToolPack):
                         trace_id=trace_id,
                         headers=self._headers,
                         timeout=self._timeout,
-                        tool_id=self._tool_id
+                        tool_id=self._tool_id,
                     )
                     self.add_command(
                         tool.description,
@@ -309,7 +331,7 @@ class MCPToolPack(ToolPack):
                         bound_call,
                         parse_execute_args_func=json_parse_execute_args_func,
                         overwrite=self._overwrite_same_tool,
-                        ask_user=is_tool_ask_user(tool, self)
+                        ask_user=is_tool_ask_user(tool, self),
                     )
 
             except Exception as e:
@@ -324,8 +346,15 @@ class MCPToolPack(ToolPack):
 
 
 def is_tool_ask_user(tool: Tool, tool_pack: MCPToolPack) -> bool:
-    return ((tool.annotations and tool.annotations.model_config and tool.annotations.model_config.get("requires_approval", False))
-            or (tool_pack and tool_pack.requires_approval_tools and tool.name in tool_pack.requires_approval_tools))
+    return (
+        tool.annotations
+        and tool.annotations.model_config
+        and tool.annotations.model_config.get("requires_approval", False)
+    ) or (
+        tool_pack
+        and tool_pack.requires_approval_tools
+        and tool.name in tool_pack.requires_approval_tools
+    )
 
 
 class MCPSSEToolPack(MCPToolPack):
@@ -388,7 +417,7 @@ class MCPSSEToolPack(MCPToolPack):
                 default=None,
                 metadata={
                     "help": _("MCP Tool Name"),
-                }
+                },
             )
 
         return _DynMCPSSEPackResourceParameters

@@ -61,21 +61,37 @@ export default function TabTools() {
 
   const handleToggle = (tool: any) => {
     const key = tool.key || tool.name;
+    const toolType = tool.toolType;
+    const toolName = tool.label || tool.name;
     const isEnabled = enabledToolKeys.includes(key);
 
     if (isEnabled) {
+      // Remove - by both key AND (type + name) to handle any re-creation scenario
       const updatedTools = (appInfo.resource_tool || []).filter((item: any) => {
         const parsed = JSON.parse(item.value || '{}');
-        return (parsed?.key || parsed?.name) !== key;
+        const itemKey = parsed?.key || parsed?.name;
+        const itemType = parsed?.toolType || item.type;
+        const itemName = parsed?.name || item.name;
+        // Remove if matches key OR matches (type + name)
+        const matchesKey = itemKey === key;
+        const matchesTypeAndName = itemType === toolType && itemName === toolName;
+        return !matchesKey && !matchesTypeAndName;
       });
       fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
     } else {
       const newTool = {
-        type: tool.toolType,
-        name: tool.label || tool.name,
-        value: JSON.stringify({ key: tool.key || tool.name, name: tool.label || tool.name, ...tool }),
+        type: toolType,
+        name: toolName,
+        value: JSON.stringify({ key: key, name: toolName, ...tool }),
       };
-      const existingTools = appInfo.resource_tool || [];
+      const existingTools = (appInfo.resource_tool || []).filter((item: any) => {
+        const parsed = JSON.parse(item.value || '{}');
+        const itemType = parsed?.toolType || item.type;
+        const itemName = parsed?.name || item.name;
+        // Remove if same type AND same name
+        const hasSameTypeAndName = itemType === toolType && itemName === toolName;
+        return !hasSameTypeAndName;
+      });
       fetchUpdateApp({ ...appInfo, resource_tool: [...existingTools, newTool] });
     }
   };

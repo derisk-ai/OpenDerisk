@@ -1,7 +1,17 @@
 import logging
 import sys
 from contextlib import contextmanager, asynccontextmanager
-from typing import Any, Dict, Generic, Iterator, List, Optional, TypeVar, Union, AsyncIterator
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    Iterator,
+    List,
+    Optional,
+    TypeVar,
+    Union,
+    AsyncIterator,
+)
 
 from sqlalchemy import desc, and_
 from sqlalchemy import select
@@ -99,14 +109,18 @@ class BaseDao(Generic[T, REQ, RES]):
             except Exception as e:
                 dao_frame = sys._getframe(2)
                 invoke_frame = sys._getframe(3)
-                logger.error(f"db_session exception,"
-                             f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
-                             f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
-                             f"{repr(e)}")
+                logger.error(
+                    f"db_session exception,"
+                    f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
+                    f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
+                    f"{repr(e)}"
+                )
                 raise
 
     @asynccontextmanager
-    async def a_session(self, commit: Optional[bool] = True) -> AsyncIterator[AsyncSession]:
+    async def a_session(
+        self, commit: Optional[bool] = True
+    ) -> AsyncIterator[AsyncSession]:
         """Provide a transactional scope around a series of operations.
 
         If raise an exception, the session will be roll back automatically, otherwise
@@ -134,10 +148,12 @@ class BaseDao(Generic[T, REQ, RES]):
             except Exception as e:
                 dao_frame = sys._getframe(2)
                 invoke_frame = sys._getframe(3)
-                logger.exception(f"db_a_session exception,"
-                                 f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
-                                 f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
-                                 f"{repr(e)}")
+                logger.exception(
+                    f"db_a_session exception,"
+                    f"{self.__class__.__module__}.{self.__class__.__name__}.{dao_frame.f_code.co_name},"  # dao信息
+                    f"{invoke_frame.f_code.co_filename}:{invoke_frame.f_lineno},{invoke_frame.f_code.co_name},"  # 调用信息
+                    f"{repr(e)}"
+                )
                 raise
 
     def from_request(self, request: QUERY_SPEC) -> T:
@@ -195,16 +211,27 @@ class BaseDao(Generic[T, REQ, RES]):
             RES: The response schema object.
         """
         entry = self.from_request(request)
-        with self.session(commit=False) as session:
+        session = self.get_raw_session()
+        try:
             session.add(entry)
-            req = self.to_request(entry)
             session.commit()
             if not query:
                 return None
+            req = self.to_request(entry)
             res = self.get_one(req)
             return res  # type: ignore
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
-    def update(self, query_request: QUERY_SPEC, update_request: Union[REQ, Dict], force_update: bool = False) -> RES:
+    def update(
+        self,
+        query_request: QUERY_SPEC,
+        update_request: Union[REQ, Dict],
+        force_update: bool = False,
+    ) -> RES:
         """Update an entity object.
 
         Args:
@@ -250,7 +277,9 @@ class BaseDao(Generic[T, REQ, RES]):
                 )
             session.delete(result_list[0])
 
-    def get_one(self, query_request: QUERY_SPEC, session: Session = None) -> Optional[RES]:
+    def get_one(
+        self, query_request: QUERY_SPEC, session: Session = None
+    ) -> Optional[RES]:
         """Get an entity object.
 
         Args:
@@ -272,7 +301,9 @@ class BaseDao(Generic[T, REQ, RES]):
         with self.session(commit=False) as session:
             return _query(session)
 
-    async def a_get_one(self, query_request: QUERY_SPEC, session: AsyncSession = None) -> Optional[RES]:
+    async def a_get_one(
+        self, query_request: QUERY_SPEC, session: AsyncSession = None
+    ) -> Optional[RES]:
         """Get an entity object.
 
         Args:
@@ -314,7 +345,9 @@ class BaseDao(Generic[T, REQ, RES]):
         with self.session(commit=False) as session:
             return _query(session)
 
-    async def a_get_list(self, query_request: QUERY_SPEC, session: AsyncSession = None) -> List[RES]:
+    async def a_get_list(
+        self, query_request: QUERY_SPEC, session: AsyncSession = None
+    ) -> List[RES]:
         """Get a list of entity objects.
 
         Args:
@@ -345,7 +378,9 @@ class BaseDao(Generic[T, REQ, RES]):
         result_list = query.all()
         return result_list
 
-    async def _a_get_entity_list(self, session: AsyncSession, query_request: QUERY_SPEC) -> List[T]:
+    async def _a_get_entity_list(
+        self, session: AsyncSession, query_request: QUERY_SPEC
+    ) -> List[T]:
         """Get a list of entity objects.
 
         Args:
@@ -364,7 +399,7 @@ class BaseDao(Generic[T, REQ, RES]):
         page: int,
         page_size: int,
         desc_order_column: Optional[str] = None,
-        session: Session = None
+        session: Session = None,
     ) -> PaginationResult[RES]:
         """Get a page of entity objects.
 
@@ -378,7 +413,9 @@ class BaseDao(Generic[T, REQ, RES]):
         """
 
         def _query(_session: Session):
-            query = self._create_query_object(_session, query_request, desc_order_column)
+            query = self._create_query_object(
+                _session, query_request, desc_order_column
+            )
             total_count = query.count()
             items = query.offset((page - 1) * page_size).limit(page_size)
             res_items = [self.to_response(item) for item in items]
@@ -463,7 +500,8 @@ class BaseDao(Generic[T, REQ, RES]):
         model_cls = model_cls or type(self.from_request(query_request))
 
         query_dict = (
-            query_request if isinstance(query_request, dict)
+            query_request
+            if isinstance(query_request, dict)
             else model_to_dict(query_request)
         )
 
@@ -476,7 +514,7 @@ class BaseDao(Generic[T, REQ, RES]):
                 elif isinstance(value, bool):
                     conditions.append(column.is_(value))  # 关键：使用 is_() 而不是 ==
                 elif isinstance(value, str) and value.strip():
-                    if '%' in value:
+                    if "%" in value:
                         conditions.append(column.like(value))
                     else:
                         conditions.append(column == value)
