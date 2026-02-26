@@ -4,6 +4,7 @@ import { ChatContext } from '@/contexts';
 import { IApp } from '@/types/app';
 import { STORAGE_LANG_KEY, STORAGE_THEME_KEY } from '@/utils/constants/index';
 import Icon, {
+  ApiOutlined,
   ClockCircleOutlined,
   ConsoleSqlOutlined,
   DeleteOutlined,
@@ -452,6 +453,20 @@ function SideBar() {
             path: '/prompt',
           },
           {
+            key: 'cron',
+            name: t('cron_page_title'),
+            isActive: pathname.startsWith('/cron'),
+            icon: <ClockCircleOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/cron',
+          },
+          {
+            key: 'channel',
+            name: t('channel_page_title'),
+            isActive: pathname.startsWith('/channel'),
+            icon: <ApiOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/channel',
+          },
+          {
             key: 'vis_merge_test',
             name: 'GUI',
             isActive: pathname.startsWith('/vis-merge-test'),
@@ -459,7 +474,7 @@ function SideBar() {
             path: '/vis-merge-test',
           },
         ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test'),
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel'),
       },
     ];
     return items;

@@ -542,6 +542,11 @@ class ToolAction(Action[ToolInput]):
     async def _execute_tool(self, tool_info: BaseTool, args: Any, **kwargs) -> Any:
         """Execute tool with proper mode handling."""
         agent = kwargs.get("agent")
+        system_args = {
+            "agent_id": agent.agent_context.agent_app_code,
+            "conv_id": agent.agent_context.conv_id,
+            "conv_session_id": agent.agent_context.conv_session_id,
+        }
 
         # Get environment context
         env_context = (
@@ -583,6 +588,9 @@ class ToolAction(Action[ToolInput]):
                     raise ValueError("LLM client not configured for snapshot mode")
             else:
                 arguments = {k: v for k, v in args.items() if k in tool_info.args}
+                for k, v in system_args.items():
+                    if k in tool_info.args and k not in arguments:
+                        arguments[k] = v
                 if tool_info.is_async:
                     content = await tool_info.async_execute(**arguments)
                 else:
