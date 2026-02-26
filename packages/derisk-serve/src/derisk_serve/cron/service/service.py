@@ -7,15 +7,14 @@ integrating APScheduler for job execution.
 import asyncio
 import logging
 import time
-import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional, Union
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.date import DateTrigger
-from apscheduler.jobstores.base import JobLookupError
+from apscheduler.triggers.interval import IntervalTrigger
 
 from derisk.component import SystemApp
 from derisk.cron import (
@@ -30,7 +29,7 @@ from derisk.cron import (
 )
 from derisk.storage.metadata._base_dao import REQ, RES
 from derisk_serve.core import BaseService
-
+from .lock import MemoryLock
 from ..api.schemas import (
     CronPayloadSchema,
     CronScheduleSchema,
@@ -39,7 +38,6 @@ from ..api.schemas import (
 )
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..models.models import CronJobEntity, ServeDao
-from .lock import MemoryLock
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +190,6 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
         Returns:
             List of job responses.
         """
-        from ..api.schemas import ServerResponse
         with self.dao.session() as session:
             query = session.query(CronJobEntity)
             if not include_disabled:
@@ -609,7 +606,6 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             True if execution succeeded.
         """
         from derisk.cron import SessionMode
-        from derisk.component import SystemApp
         import uuid
 
         payload = job.payload
@@ -641,15 +637,16 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
             # If using shared session and got a new session ID, update the job
             if payload.session_mode == SessionMode.SHARED and agent_conv_id:
                 # Update the conv_session_id if it's different
-                if agent_conv_id != payload.conv_session_id:
+                conv_session_id = session_id_by_conv_id(agent_conv_id)
+                if conv_session_id != payload.conv_session_id:
                     with self.dao.session() as session:
                         entity = session.query(CronJobEntity).filter(
                             CronJobEntity.id == job.id
                         ).first()
                         if entity:
-                            entity.conv_session_id = agent_conv_id
+                            entity.conv_session_id = conv_session_id
                             session.commit()
-                            logger.info(f"Updated conv_session_id for job {job.id} to {agent_conv_id}")
+                            logger.info(f"Updated conv_session_id for job {job.id} to {conv_session_id}")
 
             logger.info(f"Agent turn completed for job {job.id}, conv_uid={conv_uid}")
             return True
@@ -820,3 +817,13 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
                 conv_session_id=patch.payload.conv_session_id if patch.payload else entity.conv_session_id,
             ),
         )
+
+
+def session_id_by_conv_id(conv_id: str) -> str:
+    idx = conv_id.rfind("_")  # 找到最后一个下划线的位置
+    if idx != -1:
+        result = conv_id[:idx]  # 截取到该位置之前
+    else:
+        result = conv_id  # 没有下划线就原样返回
+
+    return result  # 输出
