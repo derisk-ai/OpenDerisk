@@ -31,13 +31,6 @@ class WorkLogStatus(str, Enum):
     ARCHIVED = "archived"  # 已归档
 
 
-# WorkEntry 显示配置
-WORK_ENTRY_SKILL_MAX_LINES = 200  # skill 文件最多显示的行数
-WORK_ENTRY_SKILL_MAX_LENGTH = 15000  # skill 文件最多显示的字符数
-WORK_ENTRY_NORMAL_MAX_LINES = 10  # 普通条目最多显示的行数
-WORK_ENTRY_NORMAL_MAX_LENGTH = 500  # 普通条目最多显示的字符数
-
-
 @dataclass
 class WorkEntry:
     """
@@ -95,39 +88,20 @@ class WorkEntry:
         return "skill" in path_str and path_str.endswith(".md")
 
     def format_for_prompt(self, max_length: Optional[int] = None) -> str:
-        """格式化为 prompt 中的文本（通用方法，不包含特定工具逻辑）"""
+        """格式化为 prompt 中的文本"""
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
 
         # 检查是否是重复读取 skill
         is_duplicate = "duplicate_skill_read" in self.tags
 
-        # 检查是否是 skill 文件读取（需要显示更多内容）
-        is_skill = self._is_skill_read()
-
-        # 根据 type 决定显示限制
-        if is_duplicate:
-            effective_max_lines = 0
-            effective_max_length = 0
-        elif is_skill:
-            effective_max_lines = WORK_ENTRY_SKILL_MAX_LINES
-            effective_max_length = WORK_ENTRY_SKILL_MAX_LENGTH
-        else:
-            effective_max_lines = WORK_ENTRY_NORMAL_MAX_LINES
-            effective_max_length = (
-                WORK_ENTRY_NORMAL_MAX_LENGTH if max_length is None else max_length
-            )
-
         lines = [f"[{time_str}] {self.tool}"]
 
-        # 显示参数（如果有重要参数）
+        # 完整显示所有参数
         if self.args:
-            important_args = {
-                k: v
-                for k, v in self.args.items()
-                if k in ["file_key", "path", "query", "pattern", "offset", "limit"]
-            }
-            if important_args:
-                lines.append(f"  参数: {important_args}")
+            args_str = str(self.args)
+            if len(args_str) > 200:
+                args_str = args_str[:200] + "..."
+            lines.append(f"  参数: {args_str}")
 
         # 处理重复读取情况
         if is_duplicate:
@@ -136,23 +110,13 @@ class WorkEntry:
 
         # 显示结果
         if self.result:
-            all_result_lines = self.result.split("\n")
-            total_lines = len(all_result_lines)
+            # 显示截断后的结果（ToolAction 已处理截断）
+            lines.append(self.result)
 
-            # 根据类型决定显示行数
-            result_lines = all_result_lines[:effective_max_lines]
-            preview = "\n".join(result_lines)
-
-            if len(preview) > effective_max_length:
-                preview = preview[:effective_max_length] + "... (已截断)"
-
-            lines.append(preview)
-            if total_lines > effective_max_lines:
-                lines.append(f"  ... (共 {total_lines} 行)")
-        elif self.full_result_archive:
-            lines.append(f"  完整结果已归档: {self.full_result_archive}")
+        # 如果有归档文件，提示完整内容位置
+        if self.full_result_archive:
             lines.append(
-                f'  💡 使用 read_file(file_key="{self.full_result_archive}") 读取完整内容'
+                f'  📎 完整内容已归档: read_file(file_key="{self.full_result_archive}")'
             )
 
         return "\n".join(lines)
@@ -361,13 +325,34 @@ class WorkLogManager:
         path_str = str(path).lower()
         return "skill" in path_str and path_str.endswith(".md")
 
-    def _has_read_skill_before(self, skill_path: str) -> bool:
-        """检查是否已经读取过指定的 skill 文件"""
+    def _has_read_skill_before(
+        self, skill_path: str, current_args: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """
+        检查是否已经读取过指定的 skill 文件（相同参数）
+
+        只有当路径相同且参数相同时才算重复读取。
+        分段读取（view_range 不同）不算重复。
+
+        Args:
+            skill_path: skill 文件路径
+            current_args: 当前读取的参数（包含可能的 view_range）
+
+        Returns:
+            bool: 是否已重复读取
+        """
+        current_view_range = None
+        if current_args:
+            current_view_range = current_args.get("view_range")
+
         for entry in self.work_log:
             if entry.tool in ("view", "read_file") and entry.args:
                 entry_path = entry.args.get("path", "")
                 if entry_path == skill_path:
-                    return True
+                    entry_view_range = entry.args.get("view_range")
+                    # 只有参数完全相同时才算重复
+                    if current_view_range == entry_view_range:
+                        return True
         return False
 
     async def record_action(
@@ -412,10 +397,11 @@ class WorkLogManager:
         if tool_name in ("view", "read_file") and args:
             skill_path = args.get("path", "")
             is_reading_skill = self._is_skill_file_path(skill_path)
-            if is_reading_skill and self._has_read_skill_before(skill_path):
+            # 根据完整参数判断是否重复（分段读取不算重复）
+            if is_reading_skill and self._has_read_skill_before(skill_path, args):
                 is_duplicate_skill_read = True
                 logger.warning(
-                    f"检测到重复读取 skill 文件: {skill_path}，将跳过保存完整内容"
+                    f"检测到重复读取 skill 文件（相同参数）: {skill_path}, args={args}"
                 )
 
         # 创建摘要，保持简短
@@ -426,74 +412,33 @@ class WorkLogManager:
         )
 
         # 决定是否保存完整结果：
-        # 分五种情况处理：
-        # 0. 重复读取 skill 文件：不保存内容，只记录操作
-        # 1. 第一次读取 skill 文件：保存完整内容（skill 是工作流程指导，agent 需要它才知道下一步怎么做）
-        # 2. read_file 工具：保存较长预览（让 LLM 知道读了什么），但不保存完整内容
-        # 3. grep/search/find 等工具：只保存摘要（结果通常是列表，太大）
-        # 4. 普通工具：正常处理（有归档用归档，无归档存结果，大结果自动归档）
+        # ToolAction 已对非 view/read_file 工具做截断并归档（archive_file_key）
+        # work_log 只负责：
+        # 1. skill/view 保存完整内容（已由工具处理截断）
+        # 2. 其他工具：有 archive 则保存摘要+归档位置，无 archive 直接保存
 
         result_to_save = None
-        archive_file_key_from_action = (
-            archive_file_key  # 保存 action_output 中的归档 key
-        )
 
         if is_duplicate_skill_read:
             # 重复读取 skill，不保存内容
             result_to_save = None
             summary = f"(已跳过重复内容) Skill 文件 {skill_path} 已在之前读取过"
             tags = (tags or []) + ["duplicate_skill_read"]
-        elif is_reading_skill:
-            # 第一次读取 skill 文件：保存完整内容，这是工作流程指导
-            # skill 内容对 agent 至关重要，需要完整保留让它知道下一步怎么做
+        elif is_reading_skill or tool_name == "view":
+            # skill 文件或 view 工具：直接保存 result_content
             result_to_save = result_content
-            logger.info(f"Skill 文件 {skill_path} 内容已完整保存到 work_log")
-        elif tool_name == "read_file":
-            # read_file 特殊处理：保存较长预览，完整内容归档
-            if len(result_content) > self.read_file_preview_length:
-                result_to_save = (
-                    result_content[: self.read_file_preview_length]
-                    + "\n... (内容已截断，如需更多请再次调用 read_file)"
-                )
-                # 如果结果很大，也归档一份
-                if len(result_content) > self.large_result_threshold_bytes:
-                    saved_archive_key = await self._save_large_result(
-                        tool_name, result_content
-                    )
-                    if saved_archive_key:
-                        archive_file_key = saved_archive_key
-            else:
-                result_to_save = result_content
-
-        elif tool_name in self.summary_only_tools:
-            # grep/search/find 等：只保存摘要，大结果自动归档
-            if len(result_content) > self.large_result_threshold_bytes:
-                saved_archive_key = await self._save_large_result(
-                    tool_name, result_content
-                )
-                if saved_archive_key:
-                    archive_file_key = saved_archive_key
-            result_to_save = None  # 不保存结果，只用 summary
-
-        elif archive_file_key_from_action:
-            # 已有归档文件，不保存完整结果
-            result_to_save = None
+            logger.info(f"工具 {tool_name} 结果已保存到 work_log")
+        elif archive_file_key:
+            # ToolAction 已截断并归档
+            # result_content 是截断后的内容，应保存
+            # archive_file_key 记录归档位置，方便后续读取完整内容
+            result_to_save = result_content
+            logger.info(
+                f"工具 {tool_name} 截断内容已保存，完整内容归档: {archive_file_key}"
+            )
         else:
-            # 普通工具，没有归档文件
-            if len(result_content) > self.large_result_threshold_bytes:
-                # 结果太大且没有归档，尝试创建归档
-                saved_archive_key = await self._save_large_result(
-                    tool_name, result_content
-                )
-                if saved_archive_key:
-                    archive_file_key = saved_archive_key
-                    result_to_save = None
-                else:
-                    # 归档失败，保存截断的结果
-                    result_to_save = result_content[: self.large_result_threshold_bytes]
-            else:
-                # 结果不大，直接保存
-                result_to_save = result_content
+            # 其他情况：直接保存（ToolAction 已处理截断）
+            result_to_save = result_content
 
         # 创建工作日志条目
         entry = WorkEntry(
@@ -501,8 +446,8 @@ class WorkLogManager:
             tool=tool_name,
             args=args,
             summary=summary[:500] if summary else None,
-            result=result_to_save,  # 根据情况保存完整结果或 None
-            full_result_archive=archive_file_key,  # 记录归档文件 key
+            result=result_to_save,
+            full_result_archive=archive_file_key,
             success=action_output.is_exe_success,
             tags=tags or [],
             tokens=tokens,
