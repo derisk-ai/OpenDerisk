@@ -254,7 +254,8 @@ class ResourceManager(BaseComponent):
             try:
                 parameter_cls = single_item.get_parameter_class()
                 param = parameter_cls.from_dict(
-                    resource_value if v2_resource else agent_resource.to_dict(), ignore_extra_fields=True
+                    resource_value if v2_resource else agent_resource.to_dict(),
+                    ignore_extra_fields=True,
                 )
                 param_dict = param.to_dict()
                 if not return_resource:
@@ -286,7 +287,12 @@ class ResourceManager(BaseComponent):
         """
         if not agent_resources:
             return None
-        dependencies: List[Resource] = execute_to_thread(*[t(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
+        dependencies: List[Resource] = execute_to_thread(
+            *[
+                t(self.build_resource_by_type, resource.type, resource)
+                for resource in agent_resources
+            ]
+        )
         # dependencies: List[Resource] = execute_parallel_sync([(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
         # dependencies: List[Resource] = []
         # for resource in agent_resources:
@@ -317,9 +323,18 @@ class ResourceManager(BaseComponent):
         """
         if not agent_resources:
             return None
-        dependencies: List[Resource] = execute_to_thread(*[t(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
+        dependencies: List[Resource] = execute_to_thread(
+            *[
+                t(self.build_resource_by_type, resource.type, resource)
+                for resource in agent_resources
+            ]
+        )
         # Summary Agent不放入resource中
-        dependencies = [dependency for dependency in dependencies if not await is_summary_agent_resource(dependency)]
+        dependencies = [
+            dependency
+            for dependency in dependencies
+            if not await is_summary_agent_resource(dependency)
+        ]
 
         if len(dependencies) == 1:
             return dependencies[0]
@@ -350,11 +365,13 @@ def get_resource_manager(system_app: Optional[SystemApp] = None) -> ResourceMana
 
 async def is_summary_agent_resource(resource: Resource) -> bool:
     from derisk_serve.agent.resource.app import GptAppResource
+
     if not resource or not isinstance(resource, GptAppResource):
         return False
 
     from derisk_serve.building.app.service.service import Service as AppService
     from derisk._private.config import Config
+
     app_service: AppService = AppService.get_instance(Config().SYSTEM_APP)
     app_detail = await app_service.app_detail(resource.app_code)
     if not app_detail.all_resources:
@@ -367,7 +384,11 @@ async def is_summary_agent_resource(resource: Resource) -> bool:
 
 
 async def is_summary_engine_resource(resource: AgentResource) -> bool:
-    if not resource or resource.type != ResourceType.ReasoningEngine.value or not resource.value:
+    if (
+        not resource
+        or resource.type != ResourceType.ReasoningEngine.value
+        or not resource.value
+    ):
         return False
     if isinstance(resource.value, str):
         value = orjson.loads(resource.value)
@@ -376,5 +397,8 @@ async def is_summary_engine_resource(resource: AgentResource) -> bool:
     if not value:
         return False
 
-    from derisk_ext.reasoning_engine.summary_reasoning_engine import SUMMARY_REPORT_ENGINE_NAME
+    from derisk_ext.reasoning_engine.summary_reasoning_engine import (
+        SUMMARY_REPORT_ENGINE_NAME,
+    )
+
     return value.get("name", "") == SUMMARY_REPORT_ENGINE_NAME
