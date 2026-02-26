@@ -140,6 +140,8 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     model_start_listener = _create_model_start_listener(system_app)
 
     # Migration db storage, so you db models must be imported before this
+    # Import cron module to register CronJobEntity before create_all
+    from derisk_serve.cron.models.models import CronJobEntity  # noqa: F401
     _migration_db_storage(
         param.service.web.database, web_config.disable_alembic_upgrade
     )
