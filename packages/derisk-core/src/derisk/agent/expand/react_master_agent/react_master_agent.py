@@ -27,7 +27,10 @@ from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
 
-from ..react_agent.react_parser import ReActOutputParser, ReActOut
+from derisk.agent.expand.tool_agent.function_call_parser import (
+    FunctionCallOutputParser,
+    ReActOut,
+)
 
 # 导入核心组件
 from .doom_loop_detector import (
@@ -57,7 +60,7 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 from .work_log import WorkLogManager, create_work_log_manager
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
-from ...resource import BaseTool, RetrieverResource, FunctionTool
+from ...resource import BaseTool, RetrieverResource, FunctionTool, ToolPack
 from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
 from ..actions.agent_action import AgentStart
@@ -69,35 +72,6 @@ from ..actions.tool_action import ToolAction
 from ...core.tools.read_file_tool import read_file  # noqa: F401
 
 logger = logging.getLogger(__name__)
-
-
-class ReActMasterParser(ReActOutputParser):
-    """
-    ReActMaster 专用的输出解析器
-
-    在基础 ReAct 解析器之上，增加了对特殊标签和格式的支持。
-    """
-
-    DEFAULT_SCHEMA_TYPE: SchemaType = SchemaType.XML
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def parse(self, llm_out: Any) -> ReActOut:
-        """
-        解析 LLM 输出，包含增强的错误处理
-        """
-        try:
-            return super().parse(llm_out)
-        except Exception as e:
-            logger.error(f"Failed to parse ReAct output: {e}")
-            # 返回一个包含错误信息的 ReActOut
-            return ReActOut(
-                thought=f"Error parsing output: {str(e)}",
-                scratch_pad="",
-                steps=[],
-                is_terminal=False,
-            )
 
 
 class ReActMasterAgent(ConversableAgent):
@@ -142,7 +116,9 @@ class ReActMasterAgent(ConversableAgent):
         )
     )
 
-    agent_parser: ReActMasterParser = Field(default_factory=ReActMasterParser)
+    agent_parser: FunctionCallOutputParser = Field(
+        default_factory=FunctionCallOutputParser
+    )
     function_calling: bool = True
 
     # 组件配置
@@ -197,8 +173,7 @@ class ReActMasterAgent(ConversableAgent):
     available_system_tools: Dict[str, FunctionTool] = Field(
         default_factory=dict, description="available system tools"
     )
-    # FunctionCall函数和action的绑定
-    enable_function_call: bool = False
+    enable_function_call: bool = True
 
     def __init__(self, **kwargs):
         """Initialize ReActMaster Agent."""
@@ -218,6 +193,56 @@ class ReActMasterAgent(ConversableAgent):
         if "read_file" in system_tool_dict:
             self.available_system_tools["read_file"] = system_tool_dict["read_file"]
             logger.info("read_file 工具已注入")
+
+    async def load_resource(self, question: str, is_retry_chat: bool = False):
+        """Load agent bind resource."""
+        self.function_calling_context = await self.function_calling_params()
+        return None, None
+
+    async def function_calling_params(self):
+        from derisk.agent.resource import ToolPack
+
+        def _tool_to_function(tool: BaseTool) -> Dict:
+            properties = {}
+            required_list = []
+            for key, value in tool.args.items():
+                properties[key] = {
+                    "type": value.type,
+                    "description": value.description,
+                }
+                if value.required:
+                    required_list.append(key)
+            parameters_dict = {
+                "type": "object",
+                "properties": properties,
+                "required": required_list,
+            }
+
+            function = {}
+            function["name"] = tool.name
+            function["description"] = tool.description
+            function["parameters"] = parameters_dict
+            return {"type": "function", "function": function}
+
+        functions = []
+        for k, v in self.available_system_tools.items():
+            functions.append(_tool_to_function(v))
+
+        tool_packs = ToolPack.from_resource(self.resource)
+        if tool_packs:
+            tool_pack = tool_packs[0]
+            for tool in tool_pack.sub_resources:
+                tool_item: BaseTool = tool
+                functions.append(_tool_to_function(tool_item))
+
+        if functions:
+            return {
+                "tool_choice": "auto",
+                "tools": functions,
+                "parallel_tool_calls": True,
+            }
+        else:
+            return None
 
     def _initialize_components(self):
         """初始化核心组件"""
@@ -1447,7 +1472,6 @@ from derisk.context.event import ActionPayload, EventType
 # 导出
 __all__ = [
     "ReActMasterAgent",
-    "ReActMasterParser",
     "DoomLoopDetector",
     "SessionCompaction",
     "HistoryPruner",
