@@ -18,6 +18,7 @@ def scan_serve_configs():
     modules = [
         "derisk_serve.agent.chat",
         "derisk_serve.conversation",
+        "derisk_serve.cron",
         "derisk_serve.datasource",
         "derisk_serve.derisks.hub",
         "derisk_serve.derisks.my",
@@ -410,3 +411,17 @@ def register_serve_apps(
     )
     # ################################ Version Serve Register End ######################
 
+    # ################################ Cron Serve Register Begin ################
+    from derisk_serve.cron.serve import Serve as CronServe
+
+    system_app.register(
+        CronServe,
+        config=get_config(
+            serve_configs,
+            CronServe.name,
+            derisk_serve.cron.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Cron Serve Register End   ################
