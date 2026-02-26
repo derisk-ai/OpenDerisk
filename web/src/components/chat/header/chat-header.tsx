@@ -152,17 +152,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
             </div>
           </div>
 
-{/* 操作按钮 */}
-           <div className="flex items-center gap-1.5 flex-shrink-0">
-             <Button
-               type="default"
-               size="small"
-               icon={<PlusOutlined className="text-xs" />}
-               onClick={handleNewChat}
-               className="rounded-lg h-7 text-xs border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400"
-             >
-               新会话
-             </Button>
+ {/* 操作按钮 */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <Tooltip title="新会话" placement="bottom">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PlusOutlined className="text-sm" />}
+                  onClick={handleNewChat}
+                  className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                />
+              </Tooltip>
              <Tooltip title="更多" placement="bottom">
                <Dropdown 
                  menu={{ items: moreMenuItems }} 
