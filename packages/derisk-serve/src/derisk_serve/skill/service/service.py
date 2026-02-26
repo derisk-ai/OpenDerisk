@@ -348,7 +348,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             List[str]: List of skill directory paths containing SKILL.md
         """
-        skill_dirs = []
+        skill_dirs = set()
 
         # Common skill directory patterns
         patterns = [
@@ -363,13 +363,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             if not os.path.isdir(search_path):
                 continue
 
-            for entry in os.scandir(search_path):
-                if entry.is_dir():
-                    skill_md_path = os.path.join(entry.path, "SKILL.md")
-                    if os.path.exists(skill_md_path):
-                        skill_dirs.append(entry.path)
+            # Recursively search for SKILL.md in all subdirectories
+            for root, dirs, files in os.walk(search_path):
+                if "SKILL.md" in files:
+                    skill_dirs.add(root)
+                    # Don't go deeper into subdirectories of a skill directory
+                    dirs[:] = []
 
-        return skill_dirs
+        return list(skill_dirs)
 
     def _parse_skill_md(self, file_path: str) -> Optional[Dict[str, str]]:
         """Parse SKILL.md file to extract metadata.
