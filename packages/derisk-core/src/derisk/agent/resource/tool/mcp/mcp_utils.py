@@ -17,7 +17,10 @@ from derisk.util.global_helper import truncate_text
 from derisk.util.log_util import MCP_LOGGER as LOGGER
 from derisk.util.tracer import root_tracer
 
-from derisk_serve.agent.db.gpts_tool_messages import GptsToolMessagesDao, GptsToolMessages
+from derisk_serve.agent.db.gpts_tool_messages import (
+    GptsToolMessagesDao,
+    GptsToolMessages,
+)
 
 logger = logging.getLogger(__name__)
 tool_cache = TTLCache(maxsize=200, ttl=300)
@@ -58,21 +61,23 @@ def switch_mcp_input_schema(input_schema: dict):
 
 
 async def get_mcp_tool_list(
-        mcp_name: str,
-        server: str,
-        headers: Optional[dict] = None,
-        allow_tools: Optional[List[str]] = None,
-        server_ssl_verify: Optional[Any] = None,
-        use_cache: bool = True,
-        tool_id: Optional[str] = None,
-        timeout: Optional[int] = None
+    mcp_name: str,
+    server: str,
+    headers: Optional[dict] = None,
+    allow_tools: Optional[List[str]] = None,
+    server_ssl_verify: Optional[Any] = None,
+    use_cache: bool = True,
+    tool_id: Optional[str] = None,
+    timeout: Optional[int] = None,
 ):
     trace_id = (
         root_tracer.get_current_span().trace_id
         if root_tracer.get_current_span().trace_id is not None
         else str(uuid.uuid4())
     )
-    rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
+    rpc_id = (
+        root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
+    )
     cookie = root_tracer.get_context_cookie()
 
     if headers is None:
@@ -92,7 +97,7 @@ async def get_mcp_tool_list(
                     headers["SOFA-TraceId"],
                     headers["SOFA-RpcId"],
                     headers["x-mcp-hash-key"],
-                    headers["cookie"]
+                    headers["cookie"],
                 ) = trace_id, rpc_id, str(uuid.uuid4()), cookie
                 async with sse_client(url=server, headers=headers) as (read, write):
                     async with ClientSession(read, write) as session:
@@ -133,14 +138,14 @@ async def get_mcp_tool_list(
 
 
 async def call_mcp_tool(
-        mcp_name: str,
-        tool_name: str,
-        server: str,
-        headers: Optional[dict[str, str]] = None,
-        server_ssl_verify: Optional[Any] = None,
-        timeout: Optional[int] = None,
-        tool_id: Optional[str] = None,
-        **kwargs,
+    mcp_name: str,
+    tool_name: str,
+    server: str,
+    headers: Optional[dict[str, str]] = None,
+    server_ssl_verify: Optional[Any] = None,
+    timeout: Optional[int] = None,
+    tool_id: Optional[str] = None,
+    **kwargs,
 ):
     logger.info(f"call_mcp_tool:{mcp_name},{tool_name},{server},{timeout}")
     trace_id = (
@@ -148,7 +153,9 @@ async def call_mcp_tool(
         if root_tracer.get_current_span().trace_id is not None
         else str(uuid.uuid4())
     )
-    rpc_id = root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
+    rpc_id = (
+        root_tracer.get_context_rpc_id() + "." + shortuuid.ShortUUID().random(length=8)
+    )
     agent_id = root_tracer.get_context_agent_id()
     user_id = root_tracer.get_context_user_id()
     cookie = root_tracer.get_context_cookie()
@@ -156,23 +163,42 @@ async def call_mcp_tool(
     if headers is None:
         headers = {}
 
-    # 适配code mcp
-    if mcp_name == 'mcp-code' or mcp_name == 'mcp-code-full':
-        kwargs['atit'] = headers.get('atie', 'ATITc148f4b9e2d64cf6a947078eca65554b')
+    arguments = kwargs.get("arguments", kwargs)
+    if isinstance(arguments, dict):
+        arguments = {
+            k: v
+            for k, v in arguments.items()
+            if k
+            not in (
+                "time_out",
+                "timeout",
+                "tool_id",
+                "server_ssl_verify",
+                "headers",
+                "server",
+                "tool_name",
+                "mcp_name",
+            )
+        }
 
-    # Set default tool_id
+    if mcp_name == "mcp-code" or mcp_name == "mcp-code-full":
+        if "atit" not in arguments:
+            arguments["atit"] = headers.get(
+                "atie", "ATITc148f4b9e2d64cf6a947078eca65554b"
+            )
+
     if not tool_id:
         tool_id = str(uuid.uuid4())
-        
-    async def call_tool(server: str, **kwargs):
+
+    async def call_tool(server: str, arguments: dict):
         gpts_tool_messages = GptsToolMessages(
             tool_id=tool_id,
             name=mcp_name,
             sub_name=tool_name,
-            type='MCP',
-            input=json.dumps(kwargs, ensure_ascii=False),
+            type="MCP",
+            input=json.dumps(arguments, ensure_ascii=False),
             success=1,
-            trace_id=trace_id
+            trace_id=trace_id,
         )
         mcp_check_param = {
             "platformId": "DeRisk",
@@ -184,31 +210,34 @@ async def call_mcp_tool(
                 "toolCallType": "request",
                 "functionName": tool_name,
                 "apiType": "MCP",
-                "queryParams": json.dumps(kwargs, ensure_ascii=False),
+                "queryParams": json.dumps(arguments, ensure_ascii=False),
                 "mcpContext": {
-                    "mcpServerHostPlatform": 'external',
+                    "mcpServerHostPlatform": "external",
                     "mcpServerName": mcp_name,
                     "runMode": "REMOTE",
                     "endpoints": json.dumps({"url": server}),
-                    "mcpJsonRPC": json.dumps({
-                        'jsonrpc': '2.0',
-                        'method': tool_name,
-                        'params': kwargs
-                    })
-                }
-            }
+                    "mcpJsonRPC": json.dumps(
+                        {"jsonrpc": "2.0", "method": tool_name, "params": arguments}
+                    ),
+                },
+            },
         }
         try:
-
             start_time = int(datetime.now().timestamp() * 1000)
-            headers['SOFA-TraceId'], headers['SOFA-RpcId'], headers['x-mcp-hash-key'], headers['cookie'] = trace_id, rpc_id, str(uuid.uuid4()), cookie
-            arguments = kwargs.get('arguments')
+            (
+                headers["SOFA-TraceId"],
+                headers["SOFA-RpcId"],
+                headers["x-mcp-hash-key"],
+                headers["cookie"],
+            ) = trace_id, rpc_id, str(uuid.uuid4()), cookie
             if CFG.debug_mode:
                 logger.info("MCP Enter DebugMode, Use local mcp gateways!")
                 mcp_server = f"http://localhost:{CFG.DERISK_WEBSERVER_PORT}/mcp/sse"
             else:
                 mcp_server = server
-            async with sse_client(url=mcp_server, headers=headers, sse_read_timeout=timeout) as (read, write):
+            async with sse_client(
+                url=mcp_server, headers=headers, sse_read_timeout=timeout
+            ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     result = await session.call_tool(tool_name, arguments=arguments)
@@ -216,8 +245,12 @@ async def call_mcp_tool(
                     LOGGER.info(
                         f"[DIGEST][tools/call]mcp_server=[{mcp_name}],sse=[{mcp_server}],success=[Y],err_msg=[],tool=[{tool_name}],costMs=[{end_time - start_time}],result_length=[{len(str(result.json()))}],headers=[{headers}],result:[{result.json()}]"
                     )
-                    gpts_tool_messages.output = truncate_text(json.dumps(result.model_dump(), ensure_ascii=False), 65535)
-                    mcp_check_param['toolCallProperties']['responseValue'] = gpts_tool_messages.output
+                    gpts_tool_messages.output = truncate_text(
+                        json.dumps(result.model_dump(), ensure_ascii=False), 65535
+                    )
+                    mcp_check_param["toolCallProperties"]["responseValue"] = (
+                        gpts_tool_messages.output
+                    )
                     return result
         except Exception as e:
             gpts_tool_messages.error = str(e)
@@ -229,42 +262,44 @@ async def call_mcp_tool(
         finally:
             try:
                 LOGGER.info(
-                        f"[DIGEST][tools/message]gpts_tool_messages=[{gpts_tool_messages}]"
-                    )
+                    f"[DIGEST][tools/message]gpts_tool_messages=[{gpts_tool_messages}]"
+                )
                 gpts_tool_messages_dao.create(gpts_tool_messages)
             except Exception as m:
-                logger.info(f"call_mcp_tool: save message error: {m}, trace_id:{trace_id}")
+                logger.info(
+                    f"call_mcp_tool: save message error: {m}, trace_id:{trace_id}"
+                )
 
     try:
-
-        return await safe_call_tool(
-            call_tool,
-            server,
-            **kwargs,
-            time_out=timeout,
-        )
+        return await call_tool(server, arguments)
     except asyncio.TimeoutError as e:
         raise ValueError(f"MCP服务{mcp_name}工具调用超时!")
     except Exception as e:
         raise ValueError(f"MCP服务{mcp_name}:{tool_name}工具调用异常!", e)
 
-async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] = None, timeout: Optional[int] = None):
+
+async def connect_mcp(
+    mcp_name: str,
+    server: str = None,
+    headers: Optional[dict] = None,
+    timeout: Optional[int] = None,
+):
     """
     测试连接MCP服务, 并确认是否可以调用工具。
     :param mcp_name: MCP服务名称
     :param headers: 连接头
     :param timeout: 连接超时时间(秒)
     :return: True or False
-    """ 
-    try: 
+    """
+    try:
         logger.info(f"connect_mcp:{mcp_name},{headers}")
-    
+
         tool_list = await get_mcp_tool_list(
             mcp_name=mcp_name,
             server=server,
             headers=headers,
             use_cache=False,
-            timeout=timeout
+            timeout=timeout,
         )
         if tool_list and tool_list.tools:
             return True
@@ -274,21 +309,22 @@ async def connect_mcp(mcp_name: str, server: str=None, headers: Optional[dict] =
         logger.error(f"connect_mcp error: {e}")
         return False
 
+
 def get_im_token(cookie: str):
     if not cookie or cookie == "":
         return None
 
     # 按分号分割所有键值对
-    pairs = cookie.split(';')
+    pairs = cookie.split(";")
 
     # 用于保存最后出现的 im_token
     im_token = None
 
     for pair in pairs:
         pair = pair.strip()
-        if '=' in pair:
-            key, value = pair.split('=', 1)
-            if key == 'IAM_TOKEN':
+        if "=" in pair:
+            key, value = pair.split("=", 1)
+            if key == "IAM_TOKEN":
                 im_token = value
 
     return im_token
