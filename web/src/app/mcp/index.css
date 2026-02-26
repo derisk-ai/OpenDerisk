@@ -75,9 +75,23 @@
 .mcp-page-content {
   position: relative;
   z-index: 1;
-  max-width: 1200px;
+  max-width: 1152px;
   margin: 0 auto;
-  padding: 32px 28px 48px;
+  padding: 16px 20px 48px;
+}
+
+/* xl screens (1280px+) */
+@media (min-width: 1280px) {
+  .mcp-page-content {
+    max-width: 1600px;
+  }
+}
+
+/* 2xl screens (1536px+) */
+@media (min-width: 1536px) {
+  .mcp-page-content {
+    max-width: 2000px;
+  }
 }
 
 /* === Header === */
@@ -85,7 +99,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .mcp-header-left {
@@ -284,7 +298,7 @@
 /* === Grid === */
 .mcp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
 }
 
@@ -305,7 +319,7 @@
 .mcp-list-view .mcp-card--list .mcp-card-header {
   margin-bottom: 0;
   flex-shrink: 0;
-  width: 280px;
+  width: 260px;
 }
 
 .mcp-list-view .mcp-card--list .mcp-card-desc {
@@ -320,7 +334,8 @@
   padding-top: 0;
   margin-top: 0;
   flex-shrink: 0;
-  width: 120px;
+  width: auto;
+  min-width: 140px;
   justify-content: flex-end;
 }
 
@@ -923,7 +938,7 @@
 /* === Responsive === */
 @media (max-width: 768px) {
   .mcp-page-content {
-    padding: 20px 16px 40px;
+    padding: 16px 20px 40px;
   }
   
   .mcp-header {
