@@ -157,11 +157,11 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
       {isRunningWindowVisible && hasRunningWindowData && (
         <div 
           className={classNames(
-            "flex flex-col h-full bg-white border-l border-slate-200 transition-all duration-300 ease-out",
-            "w-[62%] min-w-[480px]"
+            "flex flex-col bg-white border-l border-slate-200 transition-all duration-300 ease-out",
+            "w-[62%] min-w-[480px] h-full"
           )}
         >
-          <div className="flex-1 min-h-0 h-full overflow-hidden">
+          <div className="h-full w-full overflow-hidden">
             <ChatDetailContent data={runningWindowData} />
           </div>
         </div>

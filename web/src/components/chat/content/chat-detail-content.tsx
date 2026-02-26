@@ -112,7 +112,7 @@ const ChatDetailContent: React.FC<{
           items: data.items || workData.items,
         };
         return (
-          <div className="h-full w-full">
+          <div className="h-full w-full [&_.gpt-vis]:h-full">
             {/* @ts-ignore */}
             <GPTVis
               components={{
@@ -132,7 +132,7 @@ const ChatDetailContent: React.FC<{
 
   // 回退到原来的渲染方式
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full [&_.gpt-vis]:h-full">
       {/* @ts-ignore */}
       <GPTVis
         components={{

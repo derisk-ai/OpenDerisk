@@ -94,7 +94,7 @@ class WorkEntry:
         path_str = str(path).lower()
         return "skill" in path_str and path_str.endswith(".md")
 
-    def format_for_prompt(self, max_length: int = None) -> str:
+    def format_for_prompt(self, max_length: Optional[int] = None) -> str:
         """格式化为 prompt 中的文本（通用方法，不包含特定工具逻辑）"""
         time_str = time.strftime("%H:%M:%S", time.localtime(self.timestamp))
 
