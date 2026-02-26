@@ -251,8 +251,8 @@ const SkillPage: React.FC = () => {
 
   return (
     <Spin spinning={loading}>
-      <div className='page-body p-4 md:p-6 h-[90vh] overflow-auto bg-[#FAFAFA] dark:bg-[#111]'>
-        <div className='max-w-6xl mx-auto'>
+      <div className='page-body px-5 py-4 md:px-5 md:py-6 h-[90vh] overflow-auto bg-[#FAFAFA] dark:bg-[#111]'>
+        <div className='max-w-6xl xl:max-w-[1600px] 2xl:max-w-[2000px] mx-auto'>
           <div className='flex justify-between items-center mb-6'>
             <div>
               <h1 className='text-2xl font-bold tracking-tight'>{t('Agent_Skills')}</h1>
@@ -289,7 +289,7 @@ const SkillPage: React.FC = () => {
           </div>
 
           {skillList?.length ? (
-            <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
+            <div className='skill-grid'>
               {skillList.map((item: any, index: number) => (
                 <div
                   key={index}
