@@ -122,12 +122,82 @@ class ToolAction(Action[ToolInput]):
                     files.append(tool_result[key])
         return files
 
+    async def prepare_init_msg(
+        self,
+        ai_message: str = None,
+        resource: Optional[Resource] = None,
+        render_protocol=None,
+        message_id: str = None,
+        current_message: AgentMessage = None,
+        sender=None,
+        agent=None,
+        agent_context=None,
+        memory=None,
+        **kwargs,
+    ) -> Optional[ActionOutput]:
+        """Prepare initial action report for batch push (before parallel execution).
+
+        This method is called before parallel tool execution to prepare
+        initialization messages in batch, avoiding duplicate pushes.
+
+        Args:
+            Same as run() method
+
+        Returns:
+            ActionOutput: Initial action report, or None if preparation fails
+        """
+        try:
+            param = self.action_input or self._input_convert(ai_message, ToolInput)
+            self.action_input = self.action_input or param
+        except Exception as e:
+            logger.exception(f"Input conversion failed: {str(e)}")
+            return None
+
+        tool_info = None
+        tool_pack = None
+
+        if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
+            tool_info = sandbox_tool_dict[param.tool_name]
+        elif param.tool_name in system_tool_dict:
+            tool_info = system_tool_dict[param.tool_name]
+        else:
+            tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
+
+        if not tool_info:
+            return None
+
+        self._render = render_protocol or self._render
+
+        start_time = datetime.datetime.now()
+
+        view = await self.gen_view(
+            message_id=message_id,
+            tool_call_id=self.action_uid,
+            tool_pack=tool_pack,
+            tool_info=tool_info,
+            status=Status.RUNNING.value,
+            args=param.args,
+            start_time=start_time,
+        )
+
+        return ActionOutput(
+            name=self.name,
+            content="执行中..",
+            view=view,
+            action_id=self.action_uid,
+            action=param.tool_name,
+            action_name=tool_info.description,
+            action_input=param.args,
+            state=Status.RUNNING.value,
+        )
+
     async def run(
         self,
         ai_message: str = None,
         resource: Optional[Resource] = None,
         rely_action_out: Optional[ActionOutput] = None,
         need_vis_render: bool = True,
+        skip_init_push: bool = False,
         **kwargs,
     ) -> ActionOutput:
         """Perform the plugin action.
@@ -140,6 +210,8 @@ class ToolAction(Action[ToolInput]):
                 Defaults to None.
             need_vis_render (bool, optional): Whether need visualization rendering.
                 Defaults to True.
+            skip_init_push (bool, optional): Skip initial push when batch pushed.
+                Defaults to False.
         """
         metrics = ActionInferenceMetrics()
         start_time = datetime.datetime.now()
@@ -211,17 +283,18 @@ class ToolAction(Action[ToolInput]):
         if kwargs.get("agent_file_system"):
             tool_args["agent_file_system"] = kwargs.get("agent_file_system")
 
-        ## 推送工具执行初始化消息
-        await self.push_action_init_msg(
-            gpts_memory=memory.gpts_memory,
-            agent=agent,
-            agent_context=agent_context,
-            message=current_message,
-            tool_pack=tool_pack,
-            tool_info=tool_info,
-            tool_args=param.args,
-            start_time=start_time,
-        )
+        ## 推送工具执行初始化消息（如果不跳过）
+        if not skip_init_push:
+            await self.push_action_init_msg(
+                gpts_memory=memory.gpts_memory,
+                agent=agent,
+                agent_context=agent_context,
+                message=current_message,
+                tool_pack=tool_pack,
+                tool_info=tool_info,
+                tool_args=param.args,
+                start_time=start_time,
+            )
         ## 检查工具审批
         env_context = agent_context.env_context or {}
         eval_mode = env_context.get(EVAL_MODE_KEY, False)
@@ -539,6 +612,73 @@ class ToolAction(Action[ToolInput]):
         else:
             return False
 
+    def _normalize_content(self, content: Any) -> Tuple[str, bool, Optional[str]]:
+        """Normalize tool execution content to string.
+
+        Handles various content types returned by different tool implementations:
+        - CallToolResult (MCP tools)
+        - str (common string output)
+        - dict (structured output)
+        - list (list output)
+        - other types (fallback to str)
+
+        Args:
+            content: Raw content from tool execution
+
+        Returns:
+            Tuple of (normalized_content, is_success, error_message)
+        """
+        if content is None:
+            return "", True, None
+
+        if isinstance(content, str):
+            return content, True, None
+
+        if isinstance(content, CallToolResult):
+            self.process_files(content)
+
+            if content.isError:
+                error_texts = []
+                for item in content.content or []:
+                    if isinstance(item, TextContent):
+                        error_texts.append(item.text)
+                    elif isinstance(item, ImageContent):
+                        error_texts.append(f"[Image: {item.mimeType}]")
+                error_msg = (
+                    "\n".join(error_texts)
+                    if error_texts
+                    else "MCP tool returned an error"
+                )
+                return error_msg, False, error_msg
+            else:
+                text_contents = []
+                for item in content.content or []:
+                    if isinstance(item, TextContent):
+                        text_contents.append(item.text)
+                    elif isinstance(item, ImageContent):
+                        if item.mimeType and item.mimeType.startswith("image/"):
+                            text_contents.append(f"[Image: {item.mimeType}]")
+                        else:
+                            text_contents.append(f"[File: {item.mimeType}]")
+                return "\n".join(text_contents) if text_contents else "", True, None
+
+        if isinstance(content, dict):
+            try:
+                if "error" in content and content["error"]:
+                    error_msg = str(content.get("error", "Unknown error"))
+                    return json.dumps(content, ensure_ascii=False), False, error_msg
+                return json.dumps(content, ensure_ascii=False), True, None
+            except (TypeError, ValueError):
+                return str(content), True, None
+
+        if isinstance(content, (list, tuple)):
+            try:
+                return json.dumps(content, ensure_ascii=False), True, None
+            except (TypeError, ValueError):
+                return str(content), True, None
+
+        return str(content), True, None
+
     async def _execute_tool(self, tool_info: BaseTool, args: Any, **kwargs) -> Any:
         """Execute tool with proper mode handling."""
         agent = kwargs.get("agent")
@@ -592,10 +732,20 @@ class ToolAction(Action[ToolInput]):
                     if k in tool_info.args and k not in arguments:
                         arguments[k] = v
                 if tool_info.is_async:
-                    content = await tool_info.async_execute(**arguments)
+                    raw_content = await tool_info.async_execute(**arguments)
                 else:
-                    content = tool_info.execute(**arguments)
-                result.update({"success": True, "content": content})
+                    raw_content = tool_info.execute(**arguments)
+
+                normalized_content, is_success, error_msg = self._normalize_content(
+                    raw_content
+                )
+                result.update(
+                    {
+                        "success": is_success,
+                        "content": normalized_content,
+                        "error": error_msg,
+                    }
+                )
         except MCPResultError as e:
             result.update(
                 {
