@@ -89,9 +89,10 @@ const WorkModeSelect: React.FC<WorkModeSelectProps> = ({ disable = false, option
 const CreateAppModal: React.FC<{
   open: boolean;
   onCancel: () => void;
-  refresh?: any;
+  refresh?: (newApp?: any) => void;
   type?: 'add' | 'edit';
-}> = ({ open, onCancel, type = 'add', refresh }) => {
+  skipRedirect?: boolean;
+}> = ({ open, onCancel, type = 'add', refresh, skipRedirect = false }) => {
   const { notification } = App.useApp();
   const [selectedIcon, setSelectedIcon] = useState<string>('/icons/colorful-plugin.png');
   const { t, i18n } = useTranslation();
@@ -137,18 +138,24 @@ const CreateAppModal: React.FC<{
             const curApp = res?.app_list?.find(item => item.app_code === appInfo?.app_code);
             localStorage.setItem('new_app_info', JSON.stringify({ ...curApp, isEdit: true }));
             message.success(t('Update_successfully'));
+            await refresh?.(curApp);
           } else {
             if (data?.app_code) {
               message.success(t('Create_successfully'));
-              router.replace(`/application/app`);
+              if (!skipRedirect) {
+                router.replace(`/application/app`);
+              } else {
+                await refresh?.(data);
+              }
             } else {
               message.error(t('Create_failure'));
+              await refresh?.();
             }
           }
         } else {
           message.error(type === 'edit' ? t('Update_failure') : t('Create_failure'));
+          await refresh?.();
         }
-        await refresh?.();
         onCancel();
       },
     },
@@ -194,15 +201,15 @@ const CreateAppModal: React.FC<{
       >
         <Spin spinning={createLoading}>
           <div className="flex flex-1">
-            <Form
-              layout="vertical"
-              className="w-full"
-              form={form}
-              initialValues={{
-                team_mode: mode || data?.[0],
-                app_name: appInfo?.app_name,
-                app_describe: appInfo?.app_describe,
-              }}
+             <Form
+               layout="vertical"
+               className="w-full"
+               form={form}
+               initialValues={type === 'edit' ? {
+                 team_mode: mode || data?.[0],
+                 app_name: appInfo?.app_name,
+                 app_describe: appInfo?.app_describe,
+               } : {}}
             >
               <Form.Item
                 label={`${t("app_name")}：`}
@@ -265,7 +272,7 @@ const CreateAppModal: React.FC<{
                           }`}
                           onClick={() => {
                             setSelectedIcon(icon.value);
-                            form.setFieldValue("app_icon", icon.value);
+                            form.setFieldValue("icon", icon.value);
                           }}
                         >
                           <Image

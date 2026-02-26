@@ -15,7 +15,7 @@ export const ChatEn = {
   copy_failed: 'Copy failed',
   file_tip: 'File cannot be changed after upload',
   file_upload_tip: 'Upload file to chat(Your model must support multimodal input)',
-  assistant: 'Platform Assistant', // DataFun Assistant
+  assistant: 'Platform Assistant',
   model_tip: 'Model selection is not supported for the current application',
   temperature_tip: 'The current application does not support temperature configuration',
   max_new_tokens_tip: 'The current application does not support max_new_tokens configuration',
@@ -30,4 +30,11 @@ export const ChatEn = {
   code_preview_download: 'Download',
   code_preview_run: 'Run',
   code_preview_close: 'Close',
+  chat_history: 'Chat History',
+  no_matching_session: 'No matching session',
+  no_history_session: 'No history session',
+  this_week: 'This Week',
+  last_week: 'Last Week',
+  weeks_ago: 'weeks ago',
+  unknown: 'Unknown',
 };

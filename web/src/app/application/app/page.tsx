@@ -12,6 +12,7 @@ import AgentHeader from './components/agent-header';
 import TabOverview from './components/tab-overview';
 import TabPrompts from './components/tab-prompts';
 import TabSkills from './components/tab-skills';
+import TabTools from './components/tab-tools';
 import TabAgents from './components/tab-agents';
 import TabKnowledge from './components/tab-knowledge';
 import ChatContent from './components/chat-content';
@@ -131,6 +132,8 @@ export default function AgentBuilder() {
         return <TabOverview />;
       case 'prompts':
         return <TabPrompts />;
+      case 'tools':
+        return <TabTools />;
       case 'skills':
         return <TabSkills />;
       case 'sub-agents':

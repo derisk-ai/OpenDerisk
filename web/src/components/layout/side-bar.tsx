@@ -27,9 +27,10 @@ import 'moment/locale/zh-cn';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ModelSvg from '../icons/model-svg';
+import ChatIcon from '../icons/chat-icon';
 import MenuList from './menlist';
 import UserBar from './user-bar';
 import copy from 'copy-to-clipboard';
@@ -62,8 +63,10 @@ interface Dialogue {
   conv_uid: string;
   user_input?: string;
   select_param?: string;
-  app_code?: string; // Added property to fix type error
-  // Add other properties if needed
+  app_code?: string;
+  user_name?: string;
+  gmt_created?: string;
+  gmt_modified?: string;
 }
 
 interface DialogueListItem {
@@ -71,6 +74,10 @@ interface DialogueListItem {
   name: string | undefined;
   path: string;
   dialogue: Dialogue;
+}
+
+interface GroupedDialogues {
+  [key: string]: DialogueListItem[];
 }
 
 function smallMenuItemStyle(active?: boolean) {
@@ -94,7 +101,6 @@ const MenuItem: React.FC<{
   const { modal, message } = App.useApp();
   const { refreshDialogList } = useContext(ChatContext);
 
-  // 删除会话
   const handleDelChat = () => {
     modal.confirm({
       title: t('delete_chat'),
@@ -128,7 +134,7 @@ const MenuItem: React.FC<{
   return (
     <Flex
       align='center'
-      className={cls(`group/item w-full cursor-pointer relative max-w-full my-0.5`, )}
+      className={cls(`group/item w-full cursor-pointer relative max-w-full my-0.5`)}
       onClick={() => {
         if (historyLoading) {
           return;
@@ -139,20 +145,18 @@ const MenuItem: React.FC<{
       <div className={cls('flex-1 flex flex-row min-w-0 overflow-hidden hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg px-3 py-2 transition-colors duration-200', {
         'bg-gray-100 dark:bg-gray-800': isActive,
       })}>
+        <div className='mr-3 flex-shrink-0'>
+          <ChatIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+        </div>
         <div className='flex-1 min-w-0 overflow-hidden'>
           <Typography.Text
             ellipsis={{
               tooltip: true,
             }}
-            className={cls('block text-sm font-medium', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
+            className={cls('block text-sm font-normal', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
           >
             {item.label}
           </Typography.Text>
-          {/* 第二行：用户名和创建时间 */}
-          <div className='flex text-xs text-gray-400 whitespace-nowrap overflow-hidden text-ellipsis mt-0.5'>
-            <span className='mr-2'>{item.user_name}</span>
-            <span>{item.gmt_created ? moment(item.gmt_created).format('YYYY-MM-DD HH:mm') : item.gmt_modified}</span>
-          </div>
         </div>
         <div className='flex gap-1 ml-1 flex-shrink-0 items-center'>
           <div
@@ -476,7 +480,6 @@ function SideBar() {
     if (value.trim()) {
       fetchDialogueList(value);
     } else {
-      // 如果搜索框为空，显示原始列表
       if (dialogueList && dialogueList[1]) {
         const di = (dialogueList[1] as unknown as Dialogue[]).map(
           (dialogue: Dialogue): DialogueListItem => ({
@@ -489,6 +492,74 @@ function SideBar() {
         setDialogueLists(di);
       }
     }
+  };
+
+  const getWeekRange = (date: string) => {
+    const m = moment(date);
+    const startOfWeek = m.clone().startOf('week');
+    const endOfWeek = m.clone().endOf('week');
+    const now = moment();
+    
+    if (now.isSame(startOfWeek, 'week')) {
+      return t('this_week');
+    }
+    if (now.clone().subtract(1, 'week').isSame(startOfWeek, 'week')) {
+      return t('last_week');
+    }
+    
+    const weeksAgo = Math.floor(now.diff(startOfWeek, 'weeks'));
+    return `${weeksAgo} ${t('weeks_ago')}`;
+  };
+
+  const groupDialoguesByWeek = (dialogues: DialogueListItem[]): GroupedDialogues => {
+    return dialogues.reduce((groups, item) => {
+      const date = item.dialogue.gmt_created || item.dialogue.gmt_modified;
+      if (date) {
+        const weekRange = getWeekRange(date);
+        if (!groups[weekRange]) {
+          groups[weekRange] = [];
+        }
+        groups[weekRange].push(item);
+      } else {
+        if (!groups[t('unknown')]) {
+          groups[t('unknown')] = [];
+        }
+        groups[t('unknown')].push(item);
+      }
+      return groups;
+    }, {} as GroupedDialogues);
+  };
+
+  const renderGroupedDialogues = (dialogues: DialogueListItem[]) => {
+    const grouped = groupDialoguesByWeek(dialogues);
+    const sortedGroups = Object.entries(grouped).sort((a, b) => {
+      const order = [t('this_week'), t('last_week'), t('weeks_ago'), t('unknown')];
+      const aIndex = order.findIndex(k => a[0].startsWith(k));
+      const bIndex = order.findIndex(k => b[0].startsWith(k));
+      return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    });
+
+    return sortedGroups.map(([week, items], index) => (
+      <div key={`group-${index}`} className="mb-4">
+        <div className="flex items-center px-3 mb-2">
+          <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+            {week}
+          </span>
+        </div>
+        {items.map((item) => (
+          <MenuItem
+            key={item.key}
+            item={{
+              label: item.name || 'Untitled',
+              app_code: item.dialogue.app_code || '',
+              ...item.dialogue,
+              default: false,
+            }}
+            order={{ current: 0 }}
+          />
+        ))}
+      </div>
+    ));
   };
 
   // if (pathname === '/') return null;
@@ -619,36 +690,24 @@ function SideBar() {
            <SearchOutlined className="cursor-pointer hover:text-gray-600" />
         </div>
 
-        <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar'>
-          {listLoading ? (
-            // 显示加载状态
-            Array.from({ length: 3 }).map((_, index) => (
-              <MenuItem
-                key={`loading-${index}`}
-                item={{}}
-                order={{ current: 0 }}
-                loading={true}
-              />
-            ))
-          ) : dialogueLists.length > 0 ? (
-            dialogueLists.map(item => (
-              <MenuItem
-                key={item.key}
-                item={{
-                  label: item.name || 'Untitled',
-                  app_code: item.dialogue.app_code || '',
-                  ...item.dialogue,
-                  default: false,
-                }}
-                order={{ current: 0 }}
-              />
-            ))
-          ) : (
-            <div className='px-4 text-gray-400 text-xs py-4 text-center'>
-              {searchValue ? t('no_matching_session') : t('no_history_session')}
-            </div>
-          )}
-        </div>
+        <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar pr-1' style={{ maxHeight: 'calc(100vh - 380px)' }}>
+        {listLoading ? (
+          Array.from({ length: 3 }).map((_, index) => (
+            <MenuItem
+              key={`loading-${index}`}
+              item={{}}
+              order={{ current: 0 }}
+              loading={true}
+            />
+          ))
+        ) : dialogueLists.length > 0 ? (
+          renderGroupedDialogues(dialogueLists)
+        ) : (
+          <div className='px-4 text-gray-400 text-xs py-4 text-center'>
+            {searchValue ? t('no_matching_session') : t('no_history_session')}
+          </div>
+        )}
+      </div>
       </div>
 
       {/* User & Settings */}
