@@ -258,6 +258,13 @@ class OpenAILLMClient(ProxyLLMClient):
             payload["stop"] = request.stop
         if request.top_p:
             payload["top_p"] = request.top_p
+        # Function calling support
+        if request.tools:
+            payload["tools"] = request.tools
+        if request.tool_choice:
+            payload["tool_choice"] = request.tool_choice
+        if request.parallel_tool_calls is not None:
+            payload["parallel_tool_calls"] = request.parallel_tool_calls
         return payload
 
     async def generate(
@@ -305,7 +312,26 @@ class OpenAILLMClient(ProxyLLMClient):
             reasoning_content = message_obj.reasoning_content
         text = chat_completion.choices[0].message.content
         usage = chat_completion.usage.dict()
-        return ModelOutput.build(text, reasoning_content, usage=usage)
+
+        # Extract tool_calls if present
+        tool_calls = None
+        if hasattr(message_obj, "tool_calls") and message_obj.tool_calls:
+            tool_calls = []
+            for tc in message_obj.tool_calls:
+                tool_calls.append(
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                )
+
+        return ModelOutput.build(
+            text, reasoning_content, usage=usage, tool_calls=tool_calls
+        )
 
     async def generate_stream_v1(
         self, messages: List[Dict[str, Any]], payload: Dict[str, Any]

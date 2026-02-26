@@ -27,10 +27,10 @@ from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier impor
     MemoryHistoryArgSupplier,
 )
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from .prompt_v3 import (
-    REACT_SYSTEM_TEMPLATE,
-    REACT_USER_TEMPLATE,
-    REACT_WRITE_MEMORY_TEMPLATE,
+from .prompt_v4 import (
+    REACT_FC_SYSTEM_TEMPLATE,
+    REACT_FC_USER_TEMPLATE,
+    REACT_FC_WRITE_MEMORY_TEMPLATE,
 )
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
@@ -49,12 +49,12 @@ class ReActAgent(ManagerAgent):
         name="derisk",
         role="ReActMaster",
         goal=_REACT_DEFAULT_GOAL,
-        system_prompt_template=REACT_SYSTEM_TEMPLATE,
-        user_prompt_template=REACT_USER_TEMPLATE,
-        write_memory_template=REACT_WRITE_MEMORY_TEMPLATE,
+        system_prompt_template=REACT_FC_SYSTEM_TEMPLATE,
+        user_prompt_template=REACT_FC_USER_TEMPLATE,
+        write_memory_template=REACT_FC_WRITE_MEMORY_TEMPLATE,
     )
     agent_parser: FunctionCallOutputParser = Field(
-        default_factory=FunctionCallOutputParser
+        default_factory=lambda: FunctionCallOutputParser(extract_scratch_pad=False)
     )
     function_calling: bool = True
 
@@ -118,15 +118,24 @@ class ReActAgent(ManagerAgent):
             return {"type": "function", "function": function}
 
         functions = []
+
+        # Log available_system_tools
+        logger.info(
+            f"function_calling_params: available_system_tools count={len(self.available_system_tools)}"
+        )
         for k, v in self.available_system_tools.items():
             functions.append(_tool_to_function(v))
 
+        # Log tool_packs
         tool_packs = ToolPack.from_resource(self.resource)
+        logger.info(f"function_calling_params: tool_packs={tool_packs}")
         if tool_packs:
             tool_pack = tool_packs[0]
             for tool in tool_pack.sub_resources:
                 tool_item: BaseTool = tool
                 functions.append(_tool_to_function(tool_item))
+
+        logger.info(f"function_calling_params: total functions count={len(functions)}")
 
         if functions:
             return {
@@ -135,6 +144,7 @@ class ReActAgent(ManagerAgent):
                 "parallel_tool_calls": True,
             }
         else:
+            logger.warning("function_calling_params: No functions available!")
             return None
 
     def prepare_act_param(
@@ -295,43 +305,6 @@ class ReActAgent(ManagerAgent):
                         )
             return prompts
 
-        @self._vm.register("system_tools", "系统工具")
-        async def var_system_tools(instance):
-            result = ""
-            if self.available_system_tools:
-                logger.info("注入系统工具")
-                tool_prompts = ""
-                for k, v in self.available_system_tools.items():
-                    t_prompt, _ = await v.get_prompt(
-                        lang=instance.agent_context.language
-                    )
-                    tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                return tool_prompts
-
-            return None
-
-        @self._vm.register("custom_tools", "自定义工具")
-        async def var_custom_tools(instance):
-            logger.info("注入自定义工具")
-            tool_prompts = ""
-            for k, v in self.resource_map.items():
-                if isinstance(v[0], BaseTool):
-                    for item in v:
-                        t_prompt, _ = await item.get_prompt(
-                            lang=instance.agent_context.language
-                        )
-                        tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                ## 临时兼容MCP 因为异步加载
-                elif isinstance(v[0], MCPToolPack):
-                    for mcp in v:
-                        if mcp and mcp.sub_resources:
-                            for item in mcp.sub_resources:
-                                t_prompt, _ = await item.get_prompt(
-                                    lang=instance.agent_context.language
-                                )
-                                tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-            return tool_prompts
-
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
@@ -342,32 +315,30 @@ class ReActAgent(ManagerAgent):
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
-                from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                    sandbox_tool_dict,
+                from derisk.agent.core.sandbox.prompt import (
+                    AGENT_SKILL_SYSTEM_PROMPT,
+                    SANDBOX_ENV_PROMPT,
+                    SANDBOX_TOOL_BOUNDARIES,
+                    sandbox_prompt,
                 )
-                from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 
-                sandbox_tool_prompts = []
-                browser_tool_prompts = []
-                for k, v in sandbox_tool_dict.items():
-                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
-                    if k in BROWSER_TOOLS:
-                        browser_tool_prompts.append(f"- <tool>{prompt}</tool>")
-                    else:
-                        sandbox_tool_prompts.append(f"- <tool>{prompt}</tool>")
+                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
 
                 param = {
                     "sandbox": {
-                        "work_dir": sandbox_client.work_dir,
+                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
+                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
+                        "agent_skill_system": render(
+                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
+                        )
+                        if sandbox_client.enable_skill
+                        else "",
                         "use_agent_skill": sandbox_client.enable_skill,
-                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
                 return {
-                    "tools": "\n".join([item for item in sandbox_tool_prompts]),
-                    "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
                     "prompt": render(sandbox_prompt, param),
                 }

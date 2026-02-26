@@ -52,12 +52,38 @@ const iconUrlMap: Record<string, string> = {
   stage:
     'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*ibaHSahFSCoAAAAAQBAAAAgAeprcAQ/original',
   llm: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*b_vFSpByHFcAAAAAQBAAAAgAeprcAQ/original',
+  task: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
+  hidden: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
+  default: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original',
 };
 
-interface IProps {
-  otherComponents?: MarkdownComponent;
-  data: Record<string, unknown>;
-}
+const taskTypeLabels: Record<string, string> = {
+  tool: '工具调用',
+  code: '代码执行',
+  report: '报告生成',
+  knowledge: '知识检索',
+  monitor: '监控检查',
+  agent: '智能体',
+  plan: '计划规划',
+  stage: '阶段任务',
+  llm: 'LLM推理',
+  task: '任务执行',
+  blankaction: '空白操作',
+  deriskcodeaction: '代码执行',
+  planningaction: '规划动作',
+  hidden: '隐藏任务',
+  default: '任务',
+};
+
+const getTaskIcon = (taskType: string): string => {
+  const normalizedType = String(taskType).toLowerCase();
+  return iconUrlMap[normalizedType] || iconUrlMap.default;
+};
+
+const getTaskLabel = (taskType: string): string => {
+  const normalizedType = String(taskType).toLowerCase();
+  return taskTypeLabels[normalizedType] || taskType;
+};
 
 const IconMap = {
   complete: <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />,
@@ -70,12 +96,21 @@ const IconMap = {
   ),
 };
 
+interface IProps {
+  otherComponents?: MarkdownComponent;
+  data: Record<string, unknown>;
+}
+
 const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
   const [expanded, setExpanded] = useState((data.expand as boolean) ?? true);
   const [isSelected, setIsSelected] = useState(false);
   const [dynamicCost, setDynamicCost] = useState(
     (data?.cost as number) ?? 0,
   );
+
+  const taskUid = useMemo(() => {
+    return (data?.uid as string) || (data?.task_id as string) || '';
+  }, [data?.uid, data?.task_id]);
 
   const toggleExpand = () => {
     setExpanded((prev) => !prev);
@@ -121,8 +156,8 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
 
   useEffect(() => {
     const handler = (payload: { uid?: string }) => {
-      const matched = payload?.uid === (data?.uid as string);
-      console.log('[VisAgentPlanCard] clickFolder received', { payloadUid: payload?.uid, myUid: data?.uid, matched });
+      const matched = payload?.uid === taskUid;
+      console.log('[VisAgentPlanCard] clickFolder received', { payloadUid: payload?.uid, myUid: taskUid, matched });
       if (matched) setIsSelected(true);
       else setIsSelected(false);
     };
@@ -130,7 +165,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     return () => {
       ee.off(EVENTS.CLICK_FOLDER, handler);
     };
-  }, [data?.uid]);
+  }, [taskUid]);
 
   const hasChildren =
     data?.markdown ||
@@ -163,16 +198,12 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
     <VisAgentPlanCardWrap
       onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
-        ee.emit(EVENTS.CLICK_FOLDER, {
-          uid: data.uid as string,
-        });
-        // const callback = () =>
-        //   setTimeout(() => {
-        //     ee.emit(EVENTS.CLICK_FOLDER, {
-        //       uid: data.uid as string,
-        //     });
-        //   }, 500);
-        // ee.emit(EVENTS.OPEN_PANEL, { callback });
+        if (taskUid) {
+          ee.emit(EVENTS.CLICK_FOLDER, {
+            uid: taskUid,
+          });
+          ee.emit(EVENTS.OPEN_PANEL);
+        }
       }}
       className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && isPlan ? 'selected' : ''}`}
     >
@@ -205,17 +236,13 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                      <FlagFilled style={{ color: '#1677ff', fontSize: 14 }} />
                   </div>
                 ) : (
-                  <img
-                    className="task-icon"
-                    src={
-                      isTask
-                        ? iconUrlMap[
-                            (String(data?.task_type).toLowerCase() as keyof typeof iconUrlMap) || 'tool'
-                          ]
-                        : iconUrlMap['stage']
-                    }
-                    alt=""
-                  />
+                  <Tooltip title={getTaskLabel(String(data?.task_type))}>
+                    <img
+                      className="task-icon"
+                      src={getTaskIcon(String(data?.task_type))}
+                      alt={getTaskLabel(String(data?.task_type))}
+                    />
+                  </Tooltip>
                 )
               )}
               {!isAgent && (

@@ -3,6 +3,7 @@ import { Collapse, Flex, Segmented } from 'antd';
 import { GPTVisLite } from "@antv/gpt-vis";
 import { codeComponents, markdownPlugins } from '../../config';
 import { safeJsonParse } from "@/utils/json";
+import { GET } from '@/client/api';
 
 
 interface ModelDetail {
@@ -21,17 +22,11 @@ export default function ({ url = '' }: { url: string }) {
 
 
   useEffect(() => {
-    const target = /http[s]?:\/\//.test(url) ? url : `${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}${url}`;
-    fetch(target, {
-      method: 'GET',
-      credentials: "include",
-    }).then(e => {
-      return e.json()
-    }).then(res => {
-      if (!res.success) {
+    GET(url).then(res => {
+      const data = res.data?.data?.items ? [...res.data.data.items] : [];
+      if (!res.data?.success || !data.length) {
         return
       }
-      const data = [...res?.data?.items]
       let max = data.length;
       const result: ModelDetail[] = []
       for (let i = 0; i < max; i++) {
@@ -47,7 +42,7 @@ export default function ({ url = '' }: { url: string }) {
           content: cur.content,
         })
       }
-      setShowType(result?.[0].title || '');
+      setShowType(result?.[0]?.title || '');
       setDetails(result);
     })
   }, [url])

@@ -41,18 +41,14 @@ from .doom_loop_detector import (
 from .session_compaction import SessionCompaction, CompactionResult
 from .prune import HistoryPruner
 from .truncation import Truncator, TruncationConfig
-from .prompt import (
-    REACT_MASTER_SYSTEM_TEMPLATE,
-    REACT_MASTER_USER_TEMPLATE,
-    REACT_MASTER_WRITE_MEMORY_TEMPLATE,
-    REACT_MASTER_SYSTEM_TEMPLATE_CN,
-    REACT_MASTER_USER_TEMPLATE_CN,
-    REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
-    DOOM_LOOP_WARNING_PROMPT_CN,
-    TOOL_TRUNCATION_REMINDER_CN,
-    COMPACTION_NOTIFICATION_CN,
-    PRUNE_NOTIFICATION_CN,
-    REACT_PARSE_ERROR_PROMPT_CN,
+
+from .prompt_fc import (
+    REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+    REACT_MASTER_FC_USER_TEMPLATE_CN,
+    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
+    REACT_MASTER_FC_SYSTEM_TEMPLATE,
+    REACT_MASTER_FC_USER_TEMPLATE,
+    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE,
 )
 from ...core.file_system.agent_file_system import AgentFileSystem
 
@@ -110,14 +106,14 @@ class ReActMasterAgent(ConversableAgent):
             name="ReActMasterV2",
             role="ReActMasterV2",
             goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
-            system_prompt_template=REACT_MASTER_SYSTEM_TEMPLATE_CN,
-            user_prompt_template=REACT_MASTER_USER_TEMPLATE_CN,
-            write_memory_template=REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
+            system_prompt_template=REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+            user_prompt_template=REACT_MASTER_FC_USER_TEMPLATE_CN,
+            write_memory_template=REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
         )
     )
 
     agent_parser: FunctionCallOutputParser = Field(
-        default_factory=FunctionCallOutputParser
+        default_factory=lambda: FunctionCallOutputParser(extract_scratch_pad=False)
     )
     function_calling: bool = True
 
@@ -225,15 +221,24 @@ class ReActMasterAgent(ConversableAgent):
             return {"type": "function", "function": function}
 
         functions = []
+
+        # Log available_system_tools
+        logger.info(
+            f"function_calling_params: available_system_tools count={len(self.available_system_tools)}"
+        )
         for k, v in self.available_system_tools.items():
             functions.append(_tool_to_function(v))
 
+        # Log tool_packs
         tool_packs = ToolPack.from_resource(self.resource)
+        logger.info(f"function_calling_params: tool_packs={tool_packs}")
         if tool_packs:
             tool_pack = tool_packs[0]
             for tool in tool_pack.sub_resources:
                 tool_item: BaseTool = tool
                 functions.append(_tool_to_function(tool_item))
+
+        logger.info(f"function_calling_params: total functions count={len(functions)}")
 
         if functions:
             return {
@@ -242,6 +247,7 @@ class ReActMasterAgent(ConversableAgent):
                 "parallel_tool_calls": True,
             }
         else:
+            logger.warning("function_calling_params: No functions available!")
             return None
 
     def _initialize_components(self):
@@ -1021,7 +1027,6 @@ class ReActMasterAgent(ConversableAgent):
             logger.info("注入技能资源")
 
             prompts = ""
-            skill_count = 0
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
@@ -1046,34 +1051,6 @@ class ReActMasterAgent(ConversableAgent):
                             f"<branch>{branch}</branch>"
                             f"\n</skill>\n"
                         )
-                        skill_count += 1
-
-            if skill_count > 0:
-                skill_usage_guide = """
-<skill_usage_guide priority="highest">
-**重要：Skill 是任务执行的最高优先级资源！**
-
-使用流程：
-1. 分析用户任务目标
-2. 根据 description 匹配最相关的 Skill
-3. 使用 view 工具读取 Skill 完整内容
-4. 按 Skill 指导执行任务
-
-查看 Skill 内容示例：
-{
-  "tool_name": "view",
-  "args": {
-    "path": "<skill_path>/skill.md"
-  }
-}
-</skill_usage_guide>
-"""
-                prompts = (
-                    skill_usage_guide
-                    + "\n<available_skills>\n"
-                    + prompts
-                    + "</available_skills>"
-                )
 
             return prompts
 
@@ -1121,43 +1098,6 @@ class ReActMasterAgent(ConversableAgent):
                             continue
             return prompts
 
-        @self._vm.register("system_tools", "系统工具")
-        async def var_system_tools(instance):
-            result = ""
-            if self.available_system_tools:
-                logger.info("注入系统工具")
-                tool_prompts = ""
-                for k, v in self.available_system_tools.items():
-                    t_prompt, _ = await v.get_prompt(
-                        lang=instance.agent_context.language
-                    )
-                    tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                return tool_prompts
-
-            return None
-
-        @self._vm.register("custom_tools", "自定义工具")
-        async def var_custom_tools(instance):
-            logger.info("注入自定义工具")
-            tool_prompts = ""
-            for k, v in self.resource_map.items():
-                if isinstance(v[0], BaseTool):
-                    for item in v:
-                        t_prompt, _ = await item.get_prompt(
-                            lang=instance.agent_context.language
-                        )
-                        tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                ## 临时兼容MCP 因为异步加载
-                elif isinstance(v[0], MCPToolPack):
-                    for mcp in v:
-                        if mcp and mcp.sub_resources:
-                            for item in mcp.sub_resources:
-                                t_prompt, _ = await item.get_prompt(
-                                    lang=instance.agent_context.language
-                                )
-                                tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-            return tool_prompts
-
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
@@ -1168,32 +1108,26 @@ class ReActMasterAgent(ConversableAgent):
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
-                from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                    sandbox_tool_dict,
+                from derisk.agent.core.sandbox.prompt import (
+                    AGENT_SKILL_SYSTEM_PROMPT,
+                    SANDBOX_ENV_PROMPT,
+                    SANDBOX_TOOL_BOUNDARIES,
+                    sandbox_prompt,
                 )
-                from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 
-                sandbox_tool_prompts = []
-                browser_tool_prompts = []
-                for k, v in sandbox_tool_dict.items():
-                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
-                    if k in BROWSER_TOOLS:
-                        browser_tool_prompts.append(f"- <tool>{prompt}</tool>")
-                    else:
-                        sandbox_tool_prompts.append(f"- <tool>{prompt}</tool>")
+                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
 
                 param = {
                     "sandbox": {
-                        "work_dir": sandbox_client.work_dir,
+                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
+                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
+                        "agent_skill_system": render(AGENT_SKILL_SYSTEM_PROMPT, skill_param) if sandbox_client.enable_skill else "",
                         "use_agent_skill": sandbox_client.enable_skill,
-                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
                 return {
-                    "tools": "\n".join([item for item in sandbox_tool_prompts]),
-                    # "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
                     "prompt": render(sandbox_prompt, param),
                 }
