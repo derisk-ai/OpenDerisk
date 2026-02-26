@@ -34,29 +34,53 @@ class CronJobEntity(Model):
     name = Column(String(255), nullable=False, comment="Job name")
     description = Column(Text, nullable=True, comment="Job description")
     enabled = Column(Integer, default=1, comment="Whether job is enabled (1=yes, 0=no)")
-    delete_after_run = Column(Integer, default=0, comment="Delete after run (1=yes, 0=no)")
+    delete_after_run = Column(
+        Integer, default=0, comment="Delete after run (1=yes, 0=no)"
+    )
 
     # Schedule configuration
-    schedule_kind = Column(String(32), nullable=False, comment="Schedule kind (at/every/cron)")
-    schedule_at = Column(String(64), nullable=True, comment="ISO datetime for 'at' schedule")
-    schedule_every_ms = Column(Integer, nullable=True, comment="Interval in ms for 'every' schedule")
-    schedule_anchor_ms = Column(Integer, nullable=True, comment="Anchor time for 'every' schedule")
-    schedule_expr = Column(String(128), nullable=True, comment="Cron expression for 'cron' schedule")
+    schedule_kind = Column(
+        String(32), nullable=False, comment="Schedule kind (at/every/cron)"
+    )
+    schedule_at = Column(
+        String(64), nullable=True, comment="ISO datetime for 'at' schedule"
+    )
+    schedule_every_ms = Column(
+        Integer, nullable=True, comment="Interval in ms for 'every' schedule"
+    )
+    schedule_anchor_ms = Column(
+        Integer, nullable=True, comment="Anchor time for 'every' schedule"
+    )
+    schedule_expr = Column(
+        String(128), nullable=True, comment="Cron expression for 'cron' schedule"
+    )
     schedule_tz = Column(String(64), nullable=True, comment="Timezone")
 
     # Payload configuration
-    payload_kind = Column(String(32), nullable=False, comment="Payload kind (agentTurn/toolCall/systemEvent)")
+    payload_kind = Column(
+        String(32),
+        nullable=False,
+        comment="Payload kind (agentTurn/toolCall/systemEvent)",
+    )
     payload_data = Column(JSON, nullable=True, comment="Payload data as JSON")
 
     # Session configuration for agent execution
-    session_mode = Column(String(16), default="isolated", comment="Session mode (isolated/shared)")
-    conv_session_id = Column(String(64), nullable=True, comment="Conversation session ID for shared sessions")
+    session_mode = Column(
+        String(16), default="isolated", comment="Session mode (isolated/shared)"
+    )
+    conv_session_id = Column(
+        String(64), nullable=True, comment="Conversation session ID for shared sessions"
+    )
 
     # Runtime state
     next_run_at_ms = Column(Integer, nullable=True, comment="Next run time in ms")
-    running_at_ms = Column(Integer, nullable=True, comment="Current run start time in ms")
+    running_at_ms = Column(
+        Integer, nullable=True, comment="Current run start time in ms"
+    )
     last_run_at_ms = Column(Integer, nullable=True, comment="Last run time in ms")
-    last_status = Column(String(32), nullable=True, comment="Last run status (ok/error/skipped)")
+    last_status = Column(
+        String(32), nullable=True, comment="Last run status (ok/error/skipped)"
+    )
     last_error = Column(Text, nullable=True, comment="Last error message")
     last_duration_ms = Column(Integer, nullable=True, comment="Last run duration in ms")
     consecutive_errors = Column(Integer, default=0, comment="Consecutive error count")
@@ -92,7 +116,9 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
         super().__init__()
         self._serve_config = serve_config
 
-    def from_request(self, request: Union[ServeRequest, Dict[str, Any]]) -> CronJobEntity:
+    def from_request(
+        self, request: Union[ServeRequest, Dict[str, Any]]
+    ) -> CronJobEntity:
         """Convert a request to an entity.
 
         Args:
@@ -160,7 +186,9 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
             name=entity.name,
             description=entity.description,
             enabled=bool(entity.enabled),
-            delete_after_run=bool(entity.delete_after_run) if entity.delete_after_run else None,
+            delete_after_run=bool(entity.delete_after_run)
+            if entity.delete_after_run
+            else None,
             schedule=CronScheduleSchema(
                 kind=entity.schedule_kind,
                 at=entity.schedule_at,
@@ -171,9 +199,15 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
             ),
             payload=CronPayloadSchema(
                 kind=entity.payload_kind,
-                message=entity.payload_data.get("message") if entity.payload_data else None,
-                agent_id=entity.payload_data.get("agent_id") if entity.payload_data else None,
-                timeout_seconds=entity.payload_data.get("timeout_seconds") if entity.payload_data else None,
+                message=entity.payload_data.get("message")
+                if entity.payload_data
+                else None,
+                agent_id=entity.payload_data.get("agent_id")
+                if entity.payload_data
+                else None,
+                timeout_seconds=entity.payload_data.get("timeout_seconds")
+                if entity.payload_data
+                else None,
                 session_mode=entity.session_mode,
                 conv_session_id=entity.conv_session_id,
             ),
@@ -204,7 +238,9 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
             name=entity.name,
             description=entity.description,
             enabled=bool(entity.enabled),
-            delete_after_run=bool(entity.delete_after_run) if entity.delete_after_run else None,
+            delete_after_run=bool(entity.delete_after_run)
+            if entity.delete_after_run
+            else None,
             schedule=CronScheduleSchema(
                 kind=entity.schedule_kind,
                 at=entity.schedule_at,
@@ -215,9 +251,15 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
             ),
             payload=CronPayloadSchema(
                 kind=entity.payload_kind,
-                message=entity.payload_data.get("message") if entity.payload_data else None,
-                agent_id=entity.payload_data.get("agent_id") if entity.payload_data else None,
-                timeout_seconds=entity.payload_data.get("timeout_seconds") if entity.payload_data else None,
+                message=entity.payload_data.get("message")
+                if entity.payload_data
+                else None,
+                agent_id=entity.payload_data.get("agent_id")
+                if entity.payload_data
+                else None,
+                timeout_seconds=entity.payload_data.get("timeout_seconds")
+                if entity.payload_data
+                else None,
                 session_mode=entity.session_mode,
                 conv_session_id=entity.conv_session_id,
             ),
@@ -301,5 +343,8 @@ class ServeDao(BaseDao[CronJobEntity, ServeRequest, ServerResponse]):
         Returns:
             List of enabled job entities.
         """
-        with self.session() as session:
-            return session.query(CronJobEntity).filter(CronJobEntity.enabled == 1).all()
+        with self.session(commit=False) as session:
+            jobs = session.query(CronJobEntity).filter(CronJobEntity.enabled == 1).all()
+            for job in jobs:
+                session.expunge(job)
+            return jobs
