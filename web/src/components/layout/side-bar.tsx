@@ -27,7 +27,7 @@ import 'moment/locale/zh-cn';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import ModelSvg from '../icons/model-svg';
 import ChatIcon from '../icons/chat-icon';
@@ -153,7 +153,7 @@ const MenuItem: React.FC<{
             ellipsis={{
               tooltip: true,
             }}
-            className={cls('block text-sm font-medium', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
+            className={cls('block text-sm font-normal', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
           >
             {item.label}
           </Typography.Text>
@@ -690,7 +690,7 @@ function SideBar() {
            <SearchOutlined className="cursor-pointer hover:text-gray-600" />
         </div>
 
-        <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar'>
+        <div className='flex-1 overflow-y-auto -mx-2 px-2 custom-scrollbar pr-1' style={{ maxHeight: 'calc(100vh - 380px)' }}>
         {listLoading ? (
           Array.from({ length: 3 }).map((_, index) => (
             <MenuItem
