@@ -546,8 +546,12 @@ class ConversableAgent(Role, Agent):
             logger.info("注入知识工具！")
             knowledge_tool = KnowledgeSearch()
             self.available_system_tools[knowledge_tool.name] = knowledge_tool
-        from ..expand.actions.terminate_action import Terminate
 
+        from derisk.agent.core.system_tool_registry import system_tool_dict
+        if "create_cron_job" in system_tool_dict:
+            self.available_system_tools["create_cron_job"] = system_tool_dict.get("create_cron_job")
+
+        from ..expand.actions.terminate_action import Terminate
         terminate_tool = Terminate()
         self.available_system_tools[terminate_tool.name] = terminate_tool
 
