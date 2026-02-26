@@ -48,7 +48,7 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
         ref={scrollableRef}
         className="flex-1 overflow-y-auto"
       >
-        {hasMessages ? (
+        {hasMessages && (
           <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
             <div className="max-w-3xl mx-auto">
               {showMessages.map((content, index) => (
@@ -65,20 +65,6 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
               ))}
               {/* 底部留白 */}
               <div className="h-20" />
-            </div>
-          </div>
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-xl shadow-indigo-500/20">
-                <span className="text-4xl">✨</span>
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                开始新的对话
-              </h3>
-              <p className="text-gray-500 dark:text-gray-400">
-                输入消息开始与应用对话
-              </p>
             </div>
           </div>
         )}
