@@ -23,7 +23,7 @@ export const ChatZh: Resources['translation'] = {
   file_tip: '文件上传后无法更改',
   file_upload_tip: '上传文件到对话（您的模型必须支持多模态输入）',
   chat_online: '新建对话',
-  assistant: '平台小助手', // 灵数平台小助手
+  assistant: '平台小助手',
   model_tip: '当前应用暂不支持模型选择',
   temperature_tip: '当前应用暂不支持温度配置',
   max_new_tokens_tip: '当前应用暂不支持max_new_tokens配置',
@@ -38,4 +38,11 @@ export const ChatZh: Resources['translation'] = {
   code_preview_download: '下载',
   code_preview_run: '运行',
   code_preview_close: '关闭',
+  chat_history: '对话历史',
+  no_matching_session: '没有匹配的会话',
+  no_history_session: '没有历史会话',
+  this_week: '本周',
+  last_week: '上周',
+  weeks_ago: '周前',
+  unknown: '未知',
 } as const;

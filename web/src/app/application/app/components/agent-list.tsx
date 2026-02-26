@@ -1,12 +1,13 @@
 'use client';
-import { apiInterceptors, addApp, getAppList, delApp } from '@/client/api';
+import { apiInterceptors, getAppList, delApp } from '@/client/api';
 import { IApp } from '@/types/app';
 import { PlusOutlined, ReloadOutlined, WarningOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useDebounceFn, useRequest } from 'ahooks';
 import { App, Button, Input, Spin, Tooltip } from 'antd';
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import CreateAppModal from '@/components/create-app-modal';
 
 interface AgentListProps {
   selectedAppCode: string | null;
@@ -16,10 +17,10 @@ interface AgentListProps {
 
 export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: AgentListProps) {
   const { t } = useTranslation();
-  const { message, modal, notification } = App.useApp();
+  const { modal, notification } = App.useApp();
   const [apps, setApps] = useState<IApp[]>([]);
   const [filterValue, setFilterValue] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const onListLoadedRef = useRef(onListLoaded);
   onListLoadedRef.current = onListLoaded;
@@ -58,28 +59,14 @@ export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: A
     fetchList();
   }, []);
 
-  const handleCreate = async () => {
-    setCreating(true);
-    try {
-      const [error, data] = await apiInterceptors(
-        addApp({
-          app_name: '',
-          app_describe: '',
-          language: 'zh',
-          icon: '/icons/colorful-plugin.png',
-        }),
-        notification,
-      );
-      if (!error && data?.app_code) {
-        message.success(t('Create_successfully'));
-        await fetchList();
-        // Auto-select the new agent
-        onSelect(data as IApp);
-      } else {
-        message.error(t('Create_failure'));
-      }
-    } finally {
-      setCreating(false);
+  const handleCreate = () => {
+    setCreateModalOpen(true);
+  };
+
+  const handleCreateSuccess = async (newApp?: IApp) => {
+    await fetchList();
+    if (newApp) {
+      onSelect(newApp);
     }
   };
 
@@ -136,7 +123,6 @@ export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: A
                 icon={<PlusOutlined />}
                 className="text-blue-500 hover:bg-blue-50/80 rounded-lg h-7 w-7"
                 onClick={handleCreate}
-                loading={creating}
               />
             </Tooltip>
           </div>
@@ -209,6 +195,13 @@ export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: A
           )}
         </Spin>
       </div>
+      <CreateAppModal
+        open={createModalOpen}
+        onCancel={() => setCreateModalOpen(false)}
+        refresh={handleCreateSuccess}
+        type="add"
+        skipRedirect={true}
+      />
     </div>
   );
 }

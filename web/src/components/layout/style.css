@@ -1,19 +1,74 @@
-/* 在全局 CSS 文件中 */
-/* 选择 Ant Design Tabs 组件的 tab 栏 */
+/* Updated global CSS to support modern aesthetic */ 
+
+/* Modern scroll bars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(200, 200, 200, 0.6);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.8);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 100, 100, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 120, 0.8);
+}
+
+/* Ant Design Tabs with modern aesthetic */
 .ant-tabs-nav {
-  @apply bg-[#edf8fb] backdrop-filter backdrop-blur-lg dark:border-[#6f7f95] dark:bg-[#6f7f95] dark:bg-opacity-60 h-14 px-6;
+  background: linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(240,244,255,0.4) 100%) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255,255,255, 0.4) !important;
+  border-radius: 12px !important;
+  padding: 6px !important;
+  height: auto !important;
+  transition: all 0.3s ease !important;
 }
+
 .ant-tabs-nav::before {
-  @apply dark:border-[#6f7f95];
+  border: none !important;
 }
+
+.dark .ant-tabs-nav {
+  background: linear-gradient(135deg, rgba(30, 30, 46, 0.7) 0%, rgba(39, 39, 56, 0.5) 100%) !important;
+  border: 1px solid rgba(87, 87, 100, 0.2) !important;
+}
+
 .ant-tabs-tab {
-  @apply dark:text-slate-400;
+  padding: 8px 16px !important;
+  border-radius: 8px !important;
+  transition: all 0.3s ease !important;
+  font-weight: 500 !important;
 }
-/* 选择被激活的 Ant Design Tabs 组件的 tab */
-.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
-  @apply dark:text-white;
+
+.ant-tabs-tab-active {
+  background: linear-gradient(90deg, theme('colors.theme.primary'), #105eff) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(0, 105, 254, 0.15) !important;
 }
+
+.dark .ant-tabs-tab {
+  color: #c5c8ce !important;
+}
+
+.dark .ant-tabs-tab-active {
+  color: white !important;
+}
+
 .ant-tabs-ink-bar {
-  @apply dark:bg-white;
+  display: none !important;
 }
-/* 你可能需要添加更多的自定义样式，取决于你的需求 */
