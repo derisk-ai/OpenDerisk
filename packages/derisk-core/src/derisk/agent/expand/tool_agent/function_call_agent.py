@@ -21,9 +21,15 @@ from derisk.context.event import ActionPayload, EventType
 from derisk.sandbox.base import SandboxBase
 from derisk.util.configure import DynConfig
 from derisk.util.template_utils import render
-from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import MemoryHistoryArgSupplier
+from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import (
+    MemoryHistoryArgSupplier,
+)
 from .function_call_parser import FunctionCallOutputParser
-from .prompt_v0 import REACT_SYSTEM_TEMPLATE, REACT_USER_TEMPLATE, REACT_WRITE_MEMORY_TEMPLATE
+from .prompt_fc import (
+    REACT_FC_SYSTEM_TEMPLATE,
+    REACT_FC_USER_TEMPLATE,
+    REACT_FC_WRITE_MEMORY_TEMPLATE,
+)
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
 from ...core.schema import Status, MessageMetrics, DynamicParam, DynamicParamType
@@ -53,35 +59,50 @@ class ToolAssistantAgent(ManagerAgent):
             category="agent",
             key="dbgpt_agent_expand_plugin_assistant_agent_goal",
         ),
-        system_prompt_template=REACT_SYSTEM_TEMPLATE,
-        user_prompt_template=REACT_USER_TEMPLATE,
-        write_memory_template=REACT_WRITE_MEMORY_TEMPLATE,
+        system_prompt_template=REACT_FC_SYSTEM_TEMPLATE,
+        user_prompt_template=REACT_FC_USER_TEMPLATE,
+        write_memory_template=REACT_FC_WRITE_MEMORY_TEMPLATE,
     )
-    agent_parser: FunctionCallOutputParser = Field(default_factory=FunctionCallOutputParser)
+    agent_parser: FunctionCallOutputParser = Field(
+        default_factory=lambda: FunctionCallOutputParser(extract_scratch_pad=False)
+    )
     function_calling: bool = True
 
     _ctx: ContextHelper[dict] = PrivateAttr(default_factory=lambda: ContextHelper(dict))
 
-    available_system_tools: Dict[str, FunctionTool] = Field(default_factory=dict, description="available system tools")
+    available_system_tools: Dict[str, FunctionTool] = Field(
+        default_factory=dict, description="available system tools"
+    )
     # FunctionCall函数和action的绑定
     max_retry_count: int = 15
     enable_function_call: bool = True
 
     dynamic_variables: List[DynamicParam] = [
-        DynamicParam(key=MemoryHistoryArgSupplier().arg_key, name=MemoryHistoryArgSupplier().name,
-                     type=DynamicParamType.CUSTOM.value),
+        DynamicParam(
+            key=MemoryHistoryArgSupplier().arg_key,
+            name=MemoryHistoryArgSupplier().name,
+            type=DynamicParamType.CUSTOM.value,
+        ),
     ]
 
     def __init__(self, **kwargs):
         """Init indicator AssistantAgent."""
         super().__init__(**kwargs)
         ## 注意顺序，如果AgentStart，KnowledgeSearch， Terminate 需要在ToolAction之前 TODO待方案优化
-        self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction, ])
+        self._init_actions(
+            [
+                AgentStart,
+                KnowledgeSearch,
+                Terminate,
+                ToolAction,
+            ]
+        )
 
     async def preload_resource(self) -> None:
         await super().preload_resource()
         await self.sandbox_tool_injection()
         await self.system_tool_injection()
+
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""
         self.function_calling_context = await self.function_calling_params()
@@ -92,7 +113,7 @@ class ToolAssistantAgent(ManagerAgent):
         logger.info(f"register_variables {self.role}")
         super().register_variables()
 
-        @self._vm.register('available_agents', '可用Agents资源')
+        @self._vm.register("available_agents", "可用Agents资源")
         async def var_available_agents(instance):
             logger.info("注入agent资源")
             prompts = ""
@@ -100,13 +121,12 @@ class ToolAssistantAgent(ManagerAgent):
                 if isinstance(v[0], AppResource):
                     for item in v:
                         app_item: AppResource = item  # type:ignore
-                        prompts += (
-                            f"<agent>\n<code>{app_item.app_code}</code>\n<name>{app_item.app_name}</name>\n<description>{app_item.app_desc}</description>\n</agent>\n")
+                        prompts += f"<agent>\n<code>{app_item.app_code}</code>\n<name>{app_item.app_name}</name>\n<description>{app_item.app_desc}</description>\n</agent>\n"
             if prompts:
                 return f"""<available_agents>\n{prompts}</available_agents>\n"""
             return None
 
-        @self._vm.register('available_knowledges', '可用知识库')
+        @self._vm.register("available_knowledges", "可用知识库")
         async def var_available_knowledges(instance):
             logger.info("注入knowledges资源")
 
@@ -116,8 +136,7 @@ class ToolAssistantAgent(ManagerAgent):
                     for item in v:
                         if hasattr(item, "knowledge_spaces") and item.knowledge_spaces:
                             for i, knowledge_space in enumerate(item.knowledge_spaces):
-                                prompts += (
-                                    f"<knowledge>\n<id>{knowledge_space.knowledge_id}</id>\n<name>{knowledge_space.name}</name>\n<description>{knowledge_space.desc}</description>\n</knowledge>\n")
+                                prompts += f"<knowledge>\n<id>{knowledge_space.knowledge_id}</id>\n<name>{knowledge_space.name}</name>\n<description>{knowledge_space.desc}</description>\n</knowledge>\n"
 
                         else:
                             logger.error(f"当前知识资源无法使用!{k}")
@@ -125,7 +144,7 @@ class ToolAssistantAgent(ManagerAgent):
                 return f"""<available_knowledges>\n{prompts}</available_knowledges>\n"""
             return None
 
-        @self._vm.register('available_skills', '可用技能')
+        @self._vm.register("available_skills", "可用技能")
         async def var_skills(instance):
             logger.info("注入技能资源")
 
@@ -135,49 +154,58 @@ class ToolAssistantAgent(ManagerAgent):
                     for item in v:
                         skill_item: AgentSkillResource = item  # type:ignore
                         mode, branch = "release", "master"
-                        debug_info = getattr(skill_item, 'debug_info', None)
-                        if debug_info and debug_info.get('is_debug'):
-                            mode, branch = "debug", debug_info.get('branch')
+                        debug_info = getattr(skill_item, "debug_info", None)
+                        if debug_info and debug_info.get("is_debug"):
+                            mode, branch = "debug", debug_info.get("branch")
                         prompts += (
                             f"<skill>\n"
                             f"<name>{skill_item.skill_meta(mode).name}</name>\n"
                             f"<description>{skill_item.skill_meta(mode).description}</description>\n"
                             f"<path>{skill_item.skill_meta(mode).path}</path>\n"
                             f"<branch>{branch}</branch>\n"
-                            f"</skill>\n")
-            if prompts:
-                return f"""<available_skills>\n{prompts}</available_skills>\n"""
-            return None
+                            f"</skill>\n"
+                        )
+            return prompts if prompts else None
 
-        @self._vm.register('sandbox', '沙箱配置')
+        @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
             if instance and instance.sandbox_manager:
                 if instance.sandbox_manager.initialized == False:
                     logger.warning(
-                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})")
+                        f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
+                    )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
+                from derisk.agent.core.sandbox.prompt import (
+                    AGENT_SKILL_SYSTEM_PROMPT,
+                    SANDBOX_ENV_PROMPT,
+                    SANDBOX_TOOL_BOUNDARIES,
+                    sandbox_prompt,
+                )
+
+                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
 
                 param = {
                     "sandbox": {
-                        # "tools": "\n- ".join([item for item in sandbox_tool_prompts]),
-                        "work_dir": sandbox_client.work_dir,
+                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
+                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
+                        "agent_skill_system": render(
+                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
+                        )
+                        if sandbox_client.enable_skill
+                        else "",
                         "use_agent_skill": sandbox_client.enable_skill,
-                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
                 return {
                     "enable": True if sandbox_client else False,
-                    "prompt": render(sandbox_prompt, param)
+                    "prompt": render(sandbox_prompt, param),
                 }
             else:
-                return {
-                    "enable": False,
-                    "prompt": ""
-                }
+                return {"enable": False, "prompt": ""}
 
         logger.info(f"register_variables end {self.role}")
 
@@ -199,13 +227,10 @@ class ToolAssistantAgent(ManagerAgent):
             }
 
             function = {}
-            function['name'] = tool.name
-            function['description'] = tool.description
-            function['parameters'] = parameters_dict
-            return {
-                "type": "function",
-                "function": function
-            }
+            function["name"] = tool.name
+            function["description"] = tool.description
+            function["parameters"] = parameters_dict
+            return {"type": "function", "function": function}
 
         functions = []
         for k, v in self.available_system_tools.items():
@@ -232,7 +257,6 @@ class ToolAssistantAgent(ManagerAgent):
                 #         "name": "my_function"
                 #     }
                 # }
-
                 "tool_choice": "auto",
                 # 参数不传时，模型默认不使用任何工具
                 "tools": functions,
@@ -241,7 +265,6 @@ class ToolAssistantAgent(ManagerAgent):
             }
         else:
             return None
-
 
     async def act(
         self,
@@ -266,11 +289,23 @@ class ToolAssistantAgent(ManagerAgent):
 
         # 第二阶段：并行执行所有解析出的action
         if real_actions:
-            explicit_keys = ['ai_message', 'resource', 'rely_action_out', 'render_protocol', 'message_id', 'sender',
-                             'agent', 'received_message', 'agent_context', "memory"]
+            explicit_keys = [
+                "ai_message",
+                "resource",
+                "rely_action_out",
+                "render_protocol",
+                "message_id",
+                "sender",
+                "agent",
+                "received_message",
+                "agent_context",
+                "memory",
+            ]
 
             # 创建一个新的kwargs，它不包含explicit_keys中出现的键
-            filtered_kwargs = {k: v for k, v in kwargs.items() if k not in explicit_keys}
+            filtered_kwargs = {
+                k: v for k, v in kwargs.items() if k not in explicit_keys
+            }
 
             # 创建所有action的执行任务
             tasks = []
@@ -280,7 +315,8 @@ class ToolAssistantAgent(ManagerAgent):
                     resource=self.resource,
                     resource_map=self.resource_map,
                     render_protocol=await self.memory.gpts_memory.async_vis_converter(
-                        self.not_null_agent_context.conv_id),
+                        self.not_null_agent_context.conv_id
+                    ),
                     message_id=message.message_id,
                     current_message=message,
                     sender=sender,
@@ -293,7 +329,9 @@ class ToolAssistantAgent(ManagerAgent):
                 tasks.append((real_action, task))
 
             # 并行执行所有任务
-            results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+            results = await asyncio.gather(
+                *[task for _, task in tasks], return_exceptions=True
+            )
 
             # 处理执行结果
             for (real_action, _), result in zip(tasks, results):
@@ -301,14 +339,20 @@ class ToolAssistantAgent(ManagerAgent):
                     # 处理执行异常
                     logger.exception(f"Action execution failed: {result}")
                     # 可以选择创建一个表示失败的ActionOutput，或者跳过
-                    act_outs.append(ActionOutput(content=str(result),  name=real_action.name, is_exe_success=False))
+                    act_outs.append(
+                        ActionOutput(
+                            content=str(result),
+                            name=real_action.name,
+                            is_exe_success=False,
+                        )
+                    )
                 else:
                     if result:
                         act_outs.append(result)
                 await self.push_context_event(
                     EventType.AfterAction,
                     ActionPayload(action_output=result),
-                    await self.task_id_by_received_message(received_message)
+                    await self.task_id_by_received_message(received_message),
                 )
 
         return act_outs

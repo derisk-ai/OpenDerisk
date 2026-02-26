@@ -112,15 +112,17 @@ const ChatDetailContent: React.FC<{
           items: data.items || workData.items,
         };
         return (
-          // @ts-ignore
-          <GPTVis
-            components={{
-              ...markdownComponents,
-            }}
-            {...markdownPlugins}
-          >
-            {`\`\`\`d-work\n${JSON.stringify(mergedData)}\n\`\`\``}
-          </GPTVis>
+          <div className="h-full w-full [&_.gpt-vis]:h-full">
+            {/* @ts-ignore */}
+            <GPTVis
+              components={{
+                ...markdownComponents,
+              }}
+              {...markdownPlugins}
+            >
+              {`\`\`\`d-work\n${JSON.stringify(mergedData)}\n\`\`\``}
+            </GPTVis>
+          </div>
         );
       } catch (e) {
         console.error('Failed to parse running window data:', e);
@@ -130,15 +132,17 @@ const ChatDetailContent: React.FC<{
 
   // 回退到原来的渲染方式
   return (
-    // @ts-ignore
-    <GPTVis
-      components={{
-        ...markdownComponents,
-      }}
-      {...markdownPlugins}
-    >
-      {content || data?.running_window || ''}
-    </GPTVis>
+    <div className="h-full w-full [&_.gpt-vis]:h-full">
+      {/* @ts-ignore */}
+      <GPTVis
+        components={{
+          ...markdownComponents,
+        }}
+        {...markdownPlugins}
+      >
+        {content || data?.running_window || ''}
+      </GPTVis>
+    </div>
   );
 };
 

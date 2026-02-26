@@ -1888,21 +1888,26 @@ class ConversableAgent(Role, Agent):
                         f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
-                from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                    sandbox_tool_dict,
+                from derisk.agent.core.sandbox.prompt import (
+                    AGENT_SKILL_SYSTEM_PROMPT,
+                    SANDBOX_ENV_PROMPT,
+                    SANDBOX_TOOL_BOUNDARIES,
+                    sandbox_prompt,
                 )
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
 
-                sandbox_tool_prompts = []
-                for k, v in sandbox_tool_dict.items():
-                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
-                    sandbox_tool_prompts.append(prompt)
+                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
+
                 param = {
                     "sandbox": {
-                        "tools": "\n- ".join([item for item in sandbox_tool_prompts]),
-                        "work_dir": sandbox_client.work_dir,
+                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
+                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
+                        "agent_skill_system": render(
+                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
+                        )
+                        if sandbox_client.enable_skill
+                        else "",
                         "use_agent_skill": sandbox_client.enable_skill,
-                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
