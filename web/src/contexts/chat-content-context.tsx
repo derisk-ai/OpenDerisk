@@ -2,19 +2,30 @@ import { ChartData, ChatHistoryResponse, IChatDialogueSchema, UserChatContent } 
 import { IApp } from '@/types/app';
 import { createContext } from 'react';
 
+export interface SelectedSkill {
+  skill_code: string;
+  name: string;
+  description?: string;
+  type?: string;
+  icon?: string;
+  author?: string;
+  version?: string;
+}
+
 interface ChatContentProps {
-  history: ChatHistoryResponse; // 会话记录列表
-  replyLoading: boolean; // 对话回复loading
-  scrollRef: React.RefObject<HTMLDivElement | null>; // 会话内容可滚动dom
-  canAbort: boolean; // 是否能中断回复
+  history: ChatHistoryResponse;
+  replyLoading: boolean;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  canAbort: boolean;
   chartsData: ChartData[];
   agent: string;
-  currentDialogue: IChatDialogueSchema; // 当前选择的会话
+  currentDialogue: IChatDialogueSchema;
   appInfo: IApp;
   temperatureValue: number;
   maxNewTokensValue: number;
   resourceValue: Record<string, unknown>;
   modelValue: string;
+  selectedSkills: SelectedSkill[];
   chatInParams: Array<{
     param_type: string;
     param_value: string;
@@ -24,16 +35,17 @@ interface ChatContentProps {
   setTemperatureValue: React.Dispatch<React.SetStateAction<number>>;
   setMaxNewTokensValue: React.Dispatch<React.SetStateAction<number>>;
   setResourceValue: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
+  setSelectedSkills: React.Dispatch<React.SetStateAction<SelectedSkill[]>>;
   setChatInParams: (params: Array<{
     param_type: string;
     param_value: string;
     sub_type: string;
-  }>) => void; // 设置聊天输入参数值
+  }>) => void;
   setAppInfo: React.Dispatch<React.SetStateAction<IApp>>;
   setAgent: React.Dispatch<React.SetStateAction<string>>;
   setCanAbort: React.Dispatch<React.SetStateAction<boolean>>;
   setReplyLoading: React.Dispatch<React.SetStateAction<boolean>>;
-  handleChat: (content: UserChatContent, data?: Record<string, unknown>) => Promise<void>; // 处理会话请求逻辑函数
+  handleChat: (content: UserChatContent, data?: Record<string, unknown>) => Promise<void>;
   refreshDialogList: () => void;
   refreshHistory: () => void;
   refreshAppInfo: () => void;
@@ -56,10 +68,12 @@ export const ChatContentContext = createContext<ChatContentProps>({
   maxNewTokensValue: 1024,
   resourceValue: {},
   chatInParams: [],
-  setChatInParams: () => {},
+  selectedSkills: [],
   modelValue: '',
+  setChatInParams: () => {},
   setModelValue: () => {},
   setResourceValue: () => {},
+  setSelectedSkills: () => {},
   setTemperatureValue: () => {},
   setMaxNewTokensValue: () => {},
   setAppInfo: () => {},
