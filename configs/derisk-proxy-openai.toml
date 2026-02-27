@@ -1,0 +1,142 @@
+[system]
+# Load language from environment variable(It is set by the hook)
+language = "${env:DERISK_LANG:-zh}"
+log_level = "INFO"
+api_keys = []
+encrypt_key = "${ENCRYPT_KEY:-your_secret_key}"
+
+# Server Configurations
+[service.web]
+host = "0.0.0.0"
+port = 7777
+model_storage = "database"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-7777}"
+
+[service.web.database]
+type = "sqlite"
+path = "pilot/meta_data/derisk.db"
+
+[service.web.trace]
+file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag]
+chunk_size=1000
+chunk_overlap=0
+similarity_top_k=5
+similarity_score_threshold=0.0
+max_chunks_once_load=10
+max_threads=1
+rerank_top_k=3
+graph_community_summary_enabled="True"
+
+[rag.storage]
+[rag.storage.vector]
+type = "chroma"
+persist_path = "pilot/data"
+
+
+# Model Configurations
+[models]
+
+[[models.llms]]
+name = "deepseek-r1"
+provider = "proxy/openai"
+api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
+backend = "deepseek-r1"
+
+[[models.llms]]
+name = "deepseek-v3"
+provider = "proxy/openai"
+api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
+backend = "deepseek-v3"
+
+[[models.llms]]
+name = "wanx2.1-t2v-plus"
+provider = "proxy/openai"
+api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
+backend = "wanx2.1-t2v-plus"
+
+[[models.embeddings]]
+name = "text-embedding-v3"
+provider = "proxy/openai"
+api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
+
+
+[[models.rerankers]]
+type = "reranker"
+name = "gte-rerank-v2"
+provider = "proxy/siliconflow"
+api_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
+backend= "gte-rerank-v2"
+text_limit = 4096
+batch_limit = 32
+
+[agent.llm]
+# (可选) 全局配置
+temperature = 0.5
+
+[[agent.llm.provider]]
+provider = "openai"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
+
+[[agent.llm.provider.model]]
+name = "deepseek-r1"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "deepseek-v3"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "Kimi-k2"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen-plus"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen-vl-max"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[agent.llm.provider.model]]
+name = "glm-5"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[serves]]
+type = "file"
+# Default backend for file server
+default_backend = "oss"
+
+[[serves.backends]]
+type = "oss"
+endpoint = "https://oss-cn-beijing.aliyuncs.com"
+region = "oss-cn-beijing"
+access_key_id = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
+fixed_bucket = "dbgpt-test"
+
+
+[sandbox]
+type="local"
+template_id=""
+user_id="derisk"
+agent_name="derisk"
+repo_url=""
+work_dir="/home/ubuntu"
+skill_dir="/mnt/derisk/skills"
+oss_ak="${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
+oss_sk="${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
+oss_endpoint="https://oss-cn-beijing.aliyuncs.com"
+oss_bucket_name="dbgpt-test"

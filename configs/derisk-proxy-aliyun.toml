@@ -3,7 +3,7 @@
 language = "${env:DERISK_LANG:-zh}"
 log_level = "INFO"
 api_keys = []
-encrypt_key = "your_secret_key"
+encrypt_key = "${ENCRYPT_KEY:-your_secret_key}"
 
 # Server Configurations
 [service.web]
@@ -45,28 +45,28 @@ persist_path = "pilot/data"
 name = "deepseek-r1"
 provider = "proxy/openai"
 api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "sk-sp-948e72ec1a6543ee8a1017213cb42573"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
 backend = "deepseek-r1"
 
 [[models.llms]]
 name = "deepseek-v3"
 provider = "proxy/openai"
 api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "sk-sp-948e72ec1a6543ee8a1017213cb42573"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
 backend = "deepseek-v3"
 
 [[models.llms]]
 name = "wanx2.1-t2v-plus"
 provider = "proxy/openai"
 api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "sk-sp-948e72ec1a6543ee8a1017213cb42573"
+api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
 backend = "wanx2.1-t2v-plus"
 
 [[models.embeddings]]
 name = "text-embedding-v3"
 provider = "proxy/openai"
 api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
-api_key = "sk-f482294177324066aa9d37957ef065e1"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
 
 
 [[models.rerankers]]
@@ -74,7 +74,7 @@ type = "reranker"
 name = "gte-rerank-v2"
 provider = "proxy/siliconflow"
 api_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
-api_key = "sk-f482294177324066aa9d37957ef065e1"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
 backend= "gte-rerank-v2"
 text_limit = 4096
 batch_limit = 32
@@ -86,7 +86,7 @@ temperature = 0.5
 [[agent.llm.provider]]
 provider = "openai"
 api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-f482294177324066aa9d37957ef065e1"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
 
 [[agent.llm.provider.model]]
 name = "deepseek-r1"
