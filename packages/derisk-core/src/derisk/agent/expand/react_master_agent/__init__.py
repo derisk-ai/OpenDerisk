@@ -148,6 +148,15 @@ from .prompt import (
     PRUNE_NOTIFICATION_CN,
     REACT_PARSE_ERROR_PROMPT_CN,
 )
+from .todo_tools import (
+    todowrite,
+    todoread,
+    get_todo_tools,
+    TodoAnalytics,
+    get_todo_analytics,
+    generate_todo_report,
+    get_todo_report_for_reportgenerator,
+)
 
 # 阶段管理
 from .phase_manager import (
@@ -236,4 +245,12 @@ __all__ = [
     "COMPACTION_NOTIFICATION_CN",
     "PRUNE_NOTIFICATION_CN",
     "REACT_PARSE_ERROR_PROMPT_CN",
+    # Todo 工具
+    "todowrite",
+    "todoread",
+    "get_todo_tools",
+    "TodoAnalytics",
+    "get_todo_analytics",
+    "generate_todo_report",
+    "get_todo_report_for_reportgenerator",
 ]

@@ -220,10 +220,21 @@ class PDCAAgent(ReActAgent):
                 goal_id=received_message.message_id,
             )
 
+            # 创建 KanbanManager，优先使用 gpts_memory 作为 KanbanStorage
+            kanban_storage = None
+            if (
+                self.memory
+                and hasattr(self.memory, "gpts_memory")
+                and self.memory.gpts_memory
+            ):
+                kanban_storage = self.memory.gpts_memory
+                logger.info("Using gpts_memory as KanbanStorage (recommended)")
+
             pm: AsyncKanbanManager = AsyncKanbanManager(
                 agent_id=self.name,
                 session_id=received_message.message_id,
-                file_system=fs,
+                file_system=fs if not kanban_storage else None,
+                kanban_storage=kanban_storage,
             )
 
             is_success = True

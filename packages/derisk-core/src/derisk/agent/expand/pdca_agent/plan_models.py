@@ -4,6 +4,7 @@
 1. 单层Stage架构，取消Task和TaskStep层
 2. 消除generate_overview和generate_current_stage_detail之间的重复代码
 3. 提取通用的格式化辅助方法
+4. 使用统一的 WorkEntry 模型（来自 memory.gpts.file_base）
 """
 
 import time
@@ -11,39 +12,45 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
+# 使用统一的 WorkEntry 模型
+from derisk.agent.core.memory.gpts.file_base import WorkEntry as BaseWorkEntry
+
 
 class StageStatus(str, Enum):
     """阶段状态：只有3种"""
+
     WORKING = "working"  # 工作中
     COMPLETED = "completed"  # 已完成
     FAILED = "failed"  # 失败
 
 
-@dataclass
-class WorkEntry:
+class WorkEntry(BaseWorkEntry):
     """
-    简化的工作日志条目
-    用于记录阶段内的工具调用，便于调试和进度追踪
+    工作日志条目（向后兼容层）
+
+    继承自统一的 BaseWorkEntry，添加向后兼容的便捷方法。
     """
-    timestamp: float
-    tool: str  # 工具名称
-    result: Optional[str] = None
-    summary: Optional[str] = None  # 简短摘要（如"搜索了3个来源"）
-    archives: Optional[List[str]] = None  # 附件地址
 
     def to_dict(self) -> Dict:
+        """序列化为字典（向后兼容格式）"""
         return {
             "timestamp": self.timestamp,
             "tool": self.tool,
             "result": self.result,
             "summary": self.summary,
-            "archives": self.archives
+            "archives": self.archives,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'WorkEntry':
-        """从字典反序列化"""
-        return cls(**data)
+    def from_dict(cls, data: Dict) -> "WorkEntry":
+        """从字典反序列化（向后兼容）"""
+        return cls(
+            timestamp=data.get("timestamp", time.time()),
+            tool=data.get("tool", ""),
+            summary=data.get("summary"),
+            result=data.get("result"),
+            archives=data.get("archives"),
+        )
 
 
 @dataclass
@@ -52,6 +59,7 @@ class Stage:
     阶段：看板的核心单元
     每个阶段有明确的交付物定义，以结论为导向
     """
+
     stage_id: str  # 阶段唯一标识（如 "s1_research"）
     description: str  # 阶段描述（如 "收集市场数据"）
     status: str = StageStatus.WORKING.value  # 阶段状态
@@ -85,23 +93,19 @@ class Stage:
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "depends_on": self.depends_on,
-            "reflection": self.reflection
+            "reflection": self.reflection,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'Stage':
+    def from_dict(cls, data: Dict) -> "Stage":
         """从字典反序列化"""
-        work_log_data = data.pop('work_log', [])
+        work_log_data = data.pop("work_log", [])
         work_log = [WorkEntry(**entry) for entry in work_log_data]
         return cls(work_log=work_log, **data)
 
     def add_work_entry(self, tool: str, summary: str):
         """添加工作日志条目"""
-        entry = WorkEntry(
-            timestamp=time.time(),
-            tool=tool,
-            summary=summary
-        )
+        entry = WorkEntry(timestamp=time.time(), tool=tool, summary=summary)
         self.work_log.append(entry)
 
     def is_completed(self) -> bool:
@@ -119,6 +123,7 @@ class Kanban:
     看板：线性Stage序列
     代表整个任务的执行计划
     """
+
     kanban_id: str  # 看板唯一标识
     mission: str  # 用户的原始任务描述
     stages: List[Stage] = field(default_factory=list)  # 阶段列表
@@ -132,13 +137,13 @@ class Kanban:
             "mission": self.mission,
             "stages": [stage.to_dict() for stage in self.stages],
             "current_stage_index": self.current_stage_index,
-            "created_at": self.created_at
+            "created_at": self.created_at,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'Kanban':
+    def from_dict(cls, data: Dict) -> "Kanban":
         """从字典反序列化"""
-        stages_data = data.pop('stages', [])
+        stages_data = data.pop("stages", [])
         stages = [Stage.from_dict(s) for s in stages_data]
         return cls(stages=stages, **data)
 
@@ -168,7 +173,7 @@ class Kanban:
 
     def get_pending_stages(self) -> List[Stage]:
         """获取所有待执行的阶段"""
-        return [s for s in self.stages[self.current_stage_index + 1:]]
+        return [s for s in self.stages[self.current_stage_index + 1 :]]
 
     def is_all_completed(self) -> bool:
         """判断是否所有阶段都已完成"""
@@ -200,9 +205,9 @@ class Kanban:
             格式化后的时间字符串
         """
         if format_type == "time":
-            return time.strftime('%H:%M:%S', time.localtime(timestamp))
+            return time.strftime("%H:%M:%S", time.localtime(timestamp))
         else:  # full
-            return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
 
     def _format_progress_bar(self) -> str:
         """
@@ -238,7 +243,9 @@ class Kanban:
         for stage in completed:
             lines.append(f"- **stage_id='{stage.stage_id}'**: {stage.description}")
             lines.append(f"  - Deliverable: `{stage.deliverable_file}`")
-            lines.append(f"  - Completed at: {self._format_timestamp(stage.completed_at)}")
+            lines.append(
+                f"  - Completed at: {self._format_timestamp(stage.completed_at)}"
+            )
             if stage.reflection:
                 lines.append(f"  - Reflection: {stage.reflection}")
         lines.append("")
@@ -260,7 +267,7 @@ class Kanban:
             "## Current Stage",
             f"**{current.stage_id}**: {current.description}",
             f"Status: {current.status}",
-            ""
+            "",
         ]
 
         return lines
@@ -287,7 +294,7 @@ class Kanban:
             "```json",
             self._format_json(current.deliverable_schema),
             "```",
-            ""
+            "",
         ]
 
         # 依赖关系
@@ -342,6 +349,7 @@ class Kanban:
     def _format_json(obj: Any, indent: int = 2) -> str:
         """格式化JSON对象"""
         import json
+
         return json.dumps(obj, indent=indent, ensure_ascii=False)
 
     # ==================== 公共生成方法 (使用辅助方法重构) ====================
@@ -351,12 +359,7 @@ class Kanban:
         生成看板概览（Markdown格式）
         用于注入到Prompt中
         """
-        lines = [
-            f"# Kanban Overview",
-            f"Mission: {self.mission}",
-            f"",
-            "## Progress"
-        ]
+        lines = [f"# Kanban Overview", f"Mission: {self.mission}", f"", "## Progress"]
 
         # 使用辅助方法生成各部分内容
         lines.append(self._format_progress_bar())
@@ -398,7 +401,7 @@ class Kanban:
             "# Available Deliverables",
             "",
             "You can read the following deliverables using `read_deliverable` tool:",
-            ""
+            "",
         ]
 
         for stage in completed:
@@ -412,18 +415,21 @@ class Kanban:
 
 # ==================== 辅助函数 ====================
 
+
 def create_stage_from_spec(spec: Dict) -> Stage:
     """
     从规格字典创建Stage对象
     用于create_kanban工具
     """
     return Stage(
-        stage_id=spec.get('stage_id', ''),
-        description=spec.get('description', ''),
-        deliverable_type=spec.get('deliverable_type', ''),
-        deliverable_schema=spec.get('deliverable_schema', {}),
-        depends_on=spec.get('depends_on', []),
-        status=StageStatus.WORKING.value if spec.get('is_first', False) else StageStatus.WORKING.value
+        stage_id=spec.get("stage_id", ""),
+        description=spec.get("description", ""),
+        deliverable_type=spec.get("deliverable_type", ""),
+        deliverable_schema=spec.get("deliverable_schema", {}),
+        depends_on=spec.get("depends_on", []),
+        status=StageStatus.WORKING.value
+        if spec.get("is_first", False)
+        else StageStatus.WORKING.value,
     )
 
 
@@ -434,14 +440,15 @@ def validate_deliverable_schema(deliverable: Dict, schema: Dict) -> tuple[bool, 
     """
     try:
         from jsonschema import validate, ValidationError
+
         validate(instance=deliverable, schema=schema)
         return True, "Valid"
     except ValidationError as e:
         return False, str(e)
     except ImportError:
         # 如果没有安装jsonschema，进行简单的类型检查
-        required_fields = schema.get('required', [])
-        properties = schema.get('properties', {})
+        required_fields = schema.get("required", [])
+        properties = schema.get("properties", {})
 
         # 检查必填字段
         for field in required_fields:
@@ -451,23 +458,29 @@ def validate_deliverable_schema(deliverable: Dict, schema: Dict) -> tuple[bool, 
         # 检查字段类型
         for field, value in deliverable.items():
             if field in properties:
-                expected_type = properties[field].get('type')
+                expected_type = properties[field].get("type")
                 actual_type = type(value).__name__
 
                 type_mapping = {
-                    'string': 'str',
-                    'number': ('int', 'float'),
-                    'integer': 'int',
-                    'boolean': 'bool',
-                    'array': 'list',
-                    'object': 'dict'
+                    "string": "str",
+                    "number": ("int", "float"),
+                    "integer": "int",
+                    "boolean": "bool",
+                    "array": "list",
+                    "object": "dict",
                 }
 
                 expected_python_type = type_mapping.get(expected_type, expected_type)
                 if isinstance(expected_python_type, tuple):
                     if actual_type not in expected_python_type:
-                        return False, f"Field '{field}' type mismatch: expected {expected_type}, got {actual_type}"
+                        return (
+                            False,
+                            f"Field '{field}' type mismatch: expected {expected_type}, got {actual_type}",
+                        )
                 elif actual_type != expected_python_type:
-                    return False, f"Field '{field}' type mismatch: expected {expected_type}, got {actual_type}"
+                    return (
+                        False,
+                        f"Field '{field}' type mismatch: expected {expected_type}, got {actual_type}",
+                    )
 
         return True, "Valid (basic validation)"

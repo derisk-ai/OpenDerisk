@@ -128,8 +128,8 @@ class PrometheusSpanStorage(SpanStorage):
         system_app: Optional[SystemApp] = None,
         tracer_parameters=None,
     ):
-        super().__init__(system_app)
         self._enabled = PROMETHEUS_AVAILABLE and self._is_metrics_enabled()
+        super().__init__(system_app)
         self._active_conversations: Set[str] = set()
         self._lock = threading.Lock()
         self._initialized = False
