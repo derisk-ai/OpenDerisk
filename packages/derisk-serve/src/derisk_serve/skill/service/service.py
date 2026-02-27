@@ -321,7 +321,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     # Copy skill files to sandbox if available
                     if sandbox_skill_dir:
                         self._copy_skill_to_sandbox(
-                            skill_path, skill_name, sandbox_skill_dir
+                            skill_path, skill_name, sandbox_skill_dir, skill_code
                         )
 
                 except Exception as e:
@@ -527,7 +527,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             logger.warning(f"Failed to copy skill to project directory: {e}")
 
     def _copy_skill_to_sandbox(
-        self, skill_path: str, skill_name: str, sandbox_dir: str
+        self, skill_path: str, skill_name: str, sandbox_dir: str, skill_code: str = None
     ) -> None:
         """Copy skill files to sandbox skill directory.
 
@@ -535,15 +535,26 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             skill_path (str): Source skill directory path
             skill_name (str): Name of the skill
             sandbox_dir (str): Sandbox skill directory
+            skill_code (str): Unique skill code (preferred for directory name)
         """
         try:
             if not os.path.exists(sandbox_dir):
                 logger.warning(f"Sandbox skill directory does not exist: {sandbox_dir}")
                 return
 
-            # Normalize skill name for directory name
-            skill_dir_name = re.sub(r"[^a-zA-Z0-9_-]", "-", skill_name)
+            # Use skill_code as directory name for consistency and uniqueness
+            if skill_code:
+                skill_dir_name = skill_code
+            else:
+                # Fallback to normalized skill name for backward compatibility
+                skill_dir_name = re.sub(r"[^a-zA-Z0-9_-]", "-", skill_name)
             target_dir = os.path.join(sandbox_dir, skill_dir_name)
+
+            # Remove existing directory to ensure clean update
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+                logger.info(f"Removed existing skill directory: {target_dir}")
+
             os.makedirs(target_dir, exist_ok=True)
 
             # Copy all files from skill directory
@@ -645,7 +656,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             # Copy skill files to sandbox if available
             if sandbox_skill_dir:
-                self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
+                self._copy_skill_to_sandbox(
+                    skill_path, skill_name, sandbox_skill_dir, skill_code
+                )
 
             return skill_response
 
@@ -727,7 +740,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
         # Copy skill files to sandbox if available
         if sandbox_skill_dir:
-            self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
+            self._copy_skill_to_sandbox(
+                skill_path, skill_name, sandbox_skill_dir, skill_code
+            )
 
         return skill_response
 
@@ -1211,7 +1226,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     # Copy skill files to sandbox if available
                     if sandbox_skill_dir:
                         self._copy_skill_to_sandbox(
-                            skill_path, skill_name, sandbox_skill_dir
+                            skill_path, skill_name, sandbox_skill_dir, skill_code
                         )
 
                     dao.increment_progress(task_id, f"Synced {skill_name}")
