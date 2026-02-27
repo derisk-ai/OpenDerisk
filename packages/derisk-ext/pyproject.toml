@@ -84,6 +84,10 @@ ext_base=[
 #    "playwright==1.52.0",
 ]
 
+prometheus = [
+    "prometheus_client>=0.20.0",
+]
+
 mcp_gateway=[
     "flask>=3.1.0",
     "flask-cors>=5.0.1",
