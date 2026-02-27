@@ -425,3 +425,18 @@ def register_serve_apps(
     )
 
     # ################################ Cron Serve Register End   ################
+
+    # ################################ Cron Serve Register Begin ################
+    from derisk_serve.channel.serve import Serve as ChannelServe
+
+    system_app.register(
+        ChannelServe,
+        config=get_config(
+            serve_configs,
+            ChannelServe.name,
+            derisk_serve.channel.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Cron Serve Register End   ################

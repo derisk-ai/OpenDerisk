@@ -112,7 +112,7 @@ const ChatDetailContent: React.FC<{
           items: data.items || workData.items,
         };
         return (
-          <div className="h-full w-full [&_.gpt-vis]:h-full">
+          <div className="h-full w-full flex flex-col [&_.gpt-vis]:h-full [&_.gpt-vis]:flex-grow [&_.gpt-vis_pre]:flex-grow [&_.gpt-vis_pre]:h-full [&_.gpt-vis_pre]:m-0 [&_.gpt-vis_pre]:p-0 [&_.gpt-vis_pre]:bg-transparent [&_.gpt-vis_pre]:border-0 [&_.gpt-vis_pre]:flex [&_.gpt-vis_pre]:flex-col">
             {/* @ts-ignore */}
             <GPTVis
               components={{
@@ -132,7 +132,7 @@ const ChatDetailContent: React.FC<{
 
   // 回退到原来的渲染方式
   return (
-    <div className="h-full w-full [&_.gpt-vis]:h-full">
+    <div className="h-full w-full flex flex-col [&_.gpt-vis]:h-full [&_.gpt-vis]:flex-grow [&_.gpt-vis_pre]:flex-grow [&_.gpt-vis_pre]:h-full [&_.gpt-vis_pre]:m-0 [&_.gpt-vis_pre]:p-0 [&_.gpt-vis_pre]:bg-transparent [&_.gpt-vis_pre]:border-0 [&_.gpt-vis_pre]:flex [&_.gpt-vis_pre]:flex-col">
       {/* @ts-ignore */}
       <GPTVis
         components={{

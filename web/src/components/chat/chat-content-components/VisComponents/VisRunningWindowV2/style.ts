@@ -5,9 +5,7 @@ export const WorkSpaceContainer = styled.div`
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  background: transparent;
   overflow: hidden;
 `;
 
@@ -17,7 +15,7 @@ export const WorkSpaceHeader = styled.div`
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid #e2e8f0;
-  background: #f1f5f9;
+  background: #f8fafc;
   flex-shrink: 0;
 `;
 
@@ -44,7 +42,7 @@ export const WorkSpaceBody = styled.div`
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: transparent;
 `;
 
 export const ExplorerPanel = styled.div<{ $visible?: boolean }>`
@@ -54,8 +52,8 @@ export const ExplorerPanel = styled.div<{ $visible?: boolean }>`
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px;
-  background: #ffffff;
-  border-right: 1px solid #e2e8f0;
+  background: transparent;
+  border-right: 1px solid #f1f5f9;
   flex-shrink: 0;
   display: ${(props) => (props.$visible ? 'block' : 'none')};
   
@@ -78,14 +76,14 @@ export const ContentPanel = styled.div<{ $explorerVisible?: boolean }>`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
+  background: transparent;
 `;
 
 export const ContentHeader = styled.div`
   flex-shrink: 0;
   padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
   
   .time-text {
     font-size: 11px;
@@ -100,7 +98,7 @@ export const ContentBody = styled.div`
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px;
-  background: #ffffff;
+  background: transparent;
   
   &::-webkit-scrollbar {
     width: 6px;
