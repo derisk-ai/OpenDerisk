@@ -471,23 +471,17 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             repo_url (str): Git repository URL
 
         Returns:
-            str: Unique skill code
+            str: Unique skill code (without version, only update metadata on version change)
         """
-        # Use name as base, convert to lowercase and replace special chars
         name = skill_meta.get("name", "unnamed").lower()
         name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
-        # Add version/author info if available
-        version = skill_meta.get("version", "")
         author = skill_meta.get("author", "")
 
         parts = [name]
-        if version:
-            parts.append(version.replace(".", "-"))
         if author:
             parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
 
-        # Add repo hash for uniqueness
         repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
 
         skill_code = "-".join(parts) + "-" + repo_hash
