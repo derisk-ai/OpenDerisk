@@ -86,9 +86,9 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
   return (
     <div className="bg-white/80 backdrop-blur-xl rounded-t-2xl border-b border-gray-100/60">
       {/* Top bar: agent info + actions */}
-      <div className="flex items-center justify-between px-5 py-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl overflow-hidden ring-2 ring-white shadow-lg shadow-gray-200/50">
+      <div className="flex items-center justify-between px-5 py-3 gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-xl overflow-hidden ring-2 ring-white shadow-lg shadow-gray-200/50 flex-shrink-0">
             <Image
               src={appInfo?.icon || '/agents/agent1.jpg'}
               alt="Agent Icon"
@@ -97,19 +97,19 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
               className="object-cover"
             />
           </div>
-          <div className="flex flex-col">
-            <div className="font-semibold text-gray-800 text-[15px] leading-tight tracking-[-0.01em]">
+          <div className="flex flex-col min-w-0">
+            <div className="font-semibold text-gray-800 text-[15px] leading-tight tracking-[-0.01em] truncate">
               {appInfo?.app_name || 'Untitled Agent'}
             </div>
             {appInfo?.app_describe && (
-              <div className="text-[12px] text-gray-400 mt-0.5 truncate max-w-[300px]">
+              <div className="text-[12px] text-gray-400 mt-0.5 truncate">
                 {appInfo.app_describe}
               </div>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-shrink-0">
           {appInfo?.config_version && (
             <Dropdown menu={{ items: versionItems, onClick: handleMenuClick }} trigger={['click']}>
               <Tag className="cursor-pointer m-0 border-0 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-gray-100 hover:to-gray-150 text-gray-600 rounded-lg px-3 py-1 text-[12px] font-medium flex items-center gap-1.5 transition-all shadow-sm hover:shadow-md">
@@ -132,12 +132,12 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
       </div>
 
       {/* Tab bar + status */}
-      <div className="flex items-center justify-between px-5 border-t border-gray-50/80">
-        <div className="flex items-center gap-0">
+      <div className="flex items-center justify-between px-5 border-t border-gray-50/80 gap-3">
+        <div className="flex items-center gap-0 overflow-x-auto flex-1 min-w-0">
           {tabs.map(tab => (
             <button
               key={tab.key}
-              className={`px-4 py-2.5 text-[13px] font-medium transition-all duration-200 border-b-2 relative ${
+              className={`px-4 py-2.5 text-[13px] font-medium transition-all duration-200 border-b-2 relative whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab.key
                   ? 'text-blue-600 border-blue-500'
                   : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-200'
@@ -148,7 +148,7 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2.5 text-[11px] py-2">
+        <div className="flex items-center gap-2.5 text-[11px] py-2 flex-shrink-0">
           {fetchUpdateAppLoading ? (
             <span className="flex items-center gap-1.5 text-blue-500 font-medium">
               <ClockCircleOutlined spin className="text-[10px]" /> Saving...
