@@ -41,6 +41,8 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 
 在思考过程中，需要在开头标注当前执行阶段，格式：`【阶段: 阶段名称】`
 
+**阶段描述要求**：每个阶段只需1-2句话，简洁说明当前状态和下一步动作。
+
 可选阶段：
 - `【阶段: 分析】` - 分析任务、收集信息、理解需求
 - `【阶段: 规划】` - 制定计划、设计方案
@@ -51,7 +53,10 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 示例：
 ```
 【阶段: 分析】
-用户需要查询数据库中的用户信息，我需要先了解数据库结构...
+已确认数据库结构，用户表在 `users` 库。下一步：查询用户信息。
+
+【阶段: 执行】
+正在调用 `query_db` 工具执行查询。
 ```
 
 ## 环境信息
@@ -163,6 +168,8 @@ Memory Mnemonic: State tools are lone wolves, task tools can team up.
 
 During thinking, mark the current phase at the beginning with: `[Phase: PhaseName]`
 
+**Phase description requirement**: Each phase needs only 1-2 sentences, briefly stating current status and next action.
+
 Available phases:
 - `[Phase: Analysis]` - Analyze task, gather information, understand requirements
 - `[Phase: Planning]` - Create plan, design solution
@@ -173,7 +180,10 @@ Available phases:
 Example:
 ```
 [Phase: Analysis]
-The user needs to query user information from the database. I need to understand the database structure first...
+Database structure confirmed, user table in `users` db. Next: query user info.
+
+[Phase: Execution]
+Calling `query_db` tool to execute query.
 ```
 
 ## Environment Info
