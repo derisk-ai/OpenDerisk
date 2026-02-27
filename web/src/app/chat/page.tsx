@@ -10,7 +10,7 @@ import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { Flex, Layout, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
-import { ChatContentContext } from '@/contexts';
+import { ChatContentContext, SelectedSkill } from '@/contexts';
 import HomeChat from '@/components/chat/content/home-chat';
 import { useTranslation } from 'react-i18next';
 
@@ -38,6 +38,7 @@ export default function Chat() {
   const [modelValue, setModelValue] = useState<string>('');
   const [isShowDetail, setIsShowDetail] = useState<boolean>(true);
   const [chatInParams, setChatInParams] = useState<{ param_type: string; param_value: string; sub_type: string; }[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const chatInputRef = useRef<any>(null);
   const { chat, ctrl } = useChat({
     app_code: app_code || '',
@@ -299,7 +300,7 @@ export default function Chat() {
     const initMessage = getInitMessage();
     if (initMessage && initMessage.id === chatId && appInfo) {
         
-        let finalChatInParams = chatInParams;
+        let finalChatInParams = [...chatInParams];
 
         // Handle multiple file resources
         const fileResources = initMessage.resources || (initMessage.resource ? [initMessage.resource] : []);
@@ -329,9 +330,24 @@ export default function Chat() {
             setResourceValue(fileResources);
         }
         
+        // Handle skills - convert to chat_in_params format
+        if (initMessage.skills && initMessage.skills.length > 0) {
+          setSelectedSkills(initMessage.skills);
+          
+          // Add skills as chat_in_params
+          const skillParams = initMessage.skills.map((skill: SelectedSkill) => ({
+            param_type: 'resource',
+            param_value: JSON.stringify(skill),
+            sub_type: 'agent_skill',
+          }));
+          finalChatInParams = [...finalChatInParams, ...skillParams];
+        }
+        
         if (initMessage.model) {
            setModelValue(initMessage.model);
         }
+
+        setChatInParams(finalChatInParams);
 
         debouncedChat.run(initMessage.message, {
           app_code: appInfo?.app_code,
@@ -374,8 +390,10 @@ export default function Chat() {
         maxNewTokensValue,
         resourceValue,
         modelValue,
+        selectedSkills,
         setModelValue,
         setResourceValue,
+        setSelectedSkills,
         setTemperatureValue,
         setMaxNewTokensValue,
         setAppInfo,
