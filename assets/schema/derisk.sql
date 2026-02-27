@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-02-27 15:35:38
+-- Generated: 2026-02-27 16:00:43
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -104,6 +104,45 @@ CREATE TABLE IF NOT EXISTS `gpts_conversations` (
   UNIQUE KEY `uk_gpts_conversations` (`conv_id`, `uk_gpts_conversations`),
   KEY `idx_gpts_name` (`gpts_name`),
   KEY `idx_gpts_name` (`gpts_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: gpts_file_metadata
+-- Source Model: GptsFileMetadataEntity
+CREATE TABLE IF NOT EXISTS `gpts_file_metadata` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `file_name` VARCHAR(512) NOT NULL COMMENT 'The name of the file',
+  `file_type` VARCHAR(64) NOT NULL COMMENT 'The type of the file',
+  `file_size` INT NOT NULL DEFAULT 0 COMMENT 'The size of file in bytes',
+  `local_path` VARCHAR(1024) NOT NULL COMMENT 'The local path of the file',
+  `oss_url` VARCHAR(1024) NULL COMMENT 'The OSS URL of the file',
+  `preview_url` VARCHAR(1024) NULL COMMENT 'The preview URL of the file',
+  `download_url` VARCHAR(1024) NULL COMMENT 'The download URL of the file',
+  `content_hash` VARCHAR(128) NULL COMMENT 'The content hash for deduplication',
+  `mime_type` VARCHAR(128) NULL COMMENT 'The MIME type of the file',
+  `is_public` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Whether the file is public',
+  `created_by` VARCHAR(255) NULL COMMENT 'The agent name that created this file',
+  `task_id` VARCHAR(255) NULL COMMENT 'The related task id',
+  `message_id` VARCHAR(255) NULL COMMENT 'The related message id',
+  `tool_name` VARCHAR(255) NULL COMMENT 'The related tool name',
+  `metadata` TEXT NULL COMMENT 'Additional metadata (JSON)',
+  `expires_at` DATETIME NULL COMMENT 'The expiration time',
+  PRIMARY KEY (`id`),
+  KEY `idx_file_meta_conv_session` (`conv_id`, `conv_session_id`),
+  KEY `idx_file_meta_file_key` (`conv_id`, `file_key`),
+  KEY `idx_file_meta_file_type` (`conv_id`, `file_type`),
+  KEY `idx_file_meta_conv_session` (`conv_id`, `conv_session_id`),
+  KEY `idx_file_meta_file_key` (`conv_id`, `file_key`),
+  KEY `idx_file_meta_file_type` (`conv_id`, `file_type`),
+  KEY `idx_file_catalog_conv` (`conv_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: gpts_file_catalog
+-- Source Model: GptsFileCatalogEntity
+CREATE TABLE IF NOT EXISTS `gpts_file_catalog` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  PRIMARY KEY (`id`),
+  KEY `idx_file_catalog_conv` (`conv_id`),
+  KEY `idx_file_catalog_conv` (`conv_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_kanban
