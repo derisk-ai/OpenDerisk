@@ -1,15 +1,12 @@
 # """Auto reasoning_engine chat manager agent."""
 #
-# import logging
-# import uuid
-# from typing import List, Optional, Tuple
-# from derisk._private.pydantic import (
-#     Field,
-#     model_to_dict,
-# )
-# from derisk.agent.util.llm.llm_client import AgentLLMOut
-#
-# from ..base import TeamContext
+
+from typing import  Optional
+from derisk._private.pydantic import (
+    Field,
+    model_to_dict,
+)
+from ..base import TeamContext
 # from ..planning_action import Plan, PlanningOutput
 # from ...base_agent import (
 #     Agent,
@@ -28,20 +25,20 @@
 # logger = logging.getLogger(__name__)
 #
 #
-# class AutoTeamContext(TeamContext):
-#     teamleader: Optional[str] = Field(
-#         None,
-#         description="The multi agents teamleader",
-#         examples=[
-#             "advance_planning",
-#             "dynamic_planning",
-#         ],
-#     )
-#
-#     def to_dict(self):
-#         return model_to_dict(self)
-#
-#
+class AutoTeamContext(TeamContext):
+    teamleader: Optional[str] = Field(
+        None,
+        description="The multi agents teamleader",
+        examples=[
+            "advance_planning",
+            "dynamic_planning",
+        ],
+    )
+
+    def to_dict(self):
+        return model_to_dict(self)
+
+
 # class ReActPlanChatManager(ManagerAgent):
 #     """A chat manager agent that can manage a team chat of multiple agents."""
 #
