@@ -41,7 +41,7 @@ from .memory.gpts.agent_system_message import SystemMessageType, AgentPhase
 from .memory.gpts.base import GptsMessage
 from .memory.gpts.gpts_memory import GptsMemory, AgentTaskContent, AgentTaskType
 from .profile.base import ProfileConfig
-from .reasoning.reasoning_arg_supplier import ReasoningArgSupplier
+
 from .role import AgentRunMode, Role
 from .sandbox_manager import SandboxManager
 from .schema import (
@@ -1975,26 +1975,7 @@ class ConversableAgent(Role, Agent):
         return results
 
     async def get_all_custom_variables(self) -> List[DynamicParam]:
-        from derisk.agent.core.reasoning.reasoning_arg_supplier import (
-            ReasoningArgSupplier,
-        )
-
-        arg_suppliers: Dict[str, ReasoningArgSupplier] = (
-            ReasoningArgSupplier.get_all_suppliers()
-        )
-        results: List[DynamicParam] = []
-        for k, v in arg_suppliers.items():
-            results.append(
-                DynamicParam(
-                    key=k,
-                    name=v.arg_key,
-                    type=DynamicParamType.CUSTOM.value,
-                    value=None,
-                    description=v.description,
-                    config=v.params,
-                )
-            )
-        return results
+        return []
 
     async def variables_view(
         self, params: List[DynamicParam], **kwargs
@@ -2017,25 +1998,6 @@ class ConversableAgent(Role, Agent):
                         f"Agent[{self.role}]内置变量[{param.name}]无法可视化！{str(e)}"
                     )
                     view.can_render = False
-
-                param_view[param.key] = view
-
-            else:
-                arg_supplier: ReasoningArgSupplier = ReasoningArgSupplier.get_supplier(
-                    param.key
-                )
-                view = DynamicParamView(**param.to_dict())
-                try:
-                    prompt_param: dict[str, str] = {}
-                    await arg_supplier.supply(prompt_param, self, self.agent_context)
-                    view.render_content = prompt_param[param.key]
-                except Exception as e:
-                    logger.warning(
-                        f"Agent[{self.role}]自定义变量[{param.name}]无法可视化！{str(e)}"
-                    )
-                    view.can_render = False
-
-                view.render_mode = DynamicParamRenderType.VIS.value
 
                 param_view[param.key] = view
 
@@ -2078,24 +2040,197 @@ class ConversableAgent(Role, Agent):
                 continue
             elif param.type == DynamicParamType.AGENT.value:
                 continue
-            else:
-                arg_supplier: ReasoningArgSupplier = ReasoningArgSupplier.get_supplier(
-                    param.name
+            elif param.name == "history":
+                await self._supply_history_variable(
+                    variable_values,
+                    received_message=received_message,
+                    **kwargs,
                 )
-                if arg_supplier:
-                    await arg_supplier.supply(
-                        variable_values,
-                        agent=self,
-                        agent_context=self.not_null_agent_context,
-                        received_message=received_message,
-                        **kwargs,
-                    )
-                else:
-                    logger.warning(
-                        f"No supplier found for dynamic variable: {param.name}"
-                    )
 
         return variable_values
+
+    async def _supply_history_variable(
+        self,
+        prompt_param: dict,
+        received_message: Optional[AgentMessage] = None,
+        **kwargs,
+    ) -> None:
+        from .. import BlankAction
+        from .action.report_action import ReportAction
+        from derisk_serve.agent.db import GptsConversationsDao
+
+        _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
+
+        histories: list[str] = []
+        history_files: list[str] = []
+        prompt_param["resources"] = []
+        conversations = GptsConversationsDao().get_like_conv_id_asc(
+            self._session_id_from_conv_id(self.not_null_agent_context.conv_id)
+        )
+        for idx, conversation in enumerate(conversations):
+            messages: List[GptsMessage] = await self.memory.gpts_memory.get_messages(
+                conv_id=conversation.conv_id
+            )
+            messages = self._kick_message(messages, received_message)
+            if not messages:
+                return
+            is_current_conv = idx >= len(conversations) - 1
+            if len(conversations) > 1:
+                histories.append(
+                    "#### 当前轮次会话"
+                    if is_current_conv
+                    else f"#### 第{idx + 1}轮会话\n\n"
+                )
+            for message in messages:
+                if (
+                    message.sender_name == "User"
+                    and not is_current_conv
+                    and len(conversations) > 1
+                ):
+                    histories.append(
+                        f"sender: User\nreceiver: {message.receiver_name}\ncontent: {message.content}"
+                    )
+
+                action_reports = message.action_report or []
+
+                for action_report in action_reports:
+                    if not action_report.content:
+                        continue
+
+                    if action_report.name not in [BlankAction.name, ReportAction.name]:
+                        continue
+
+                    if self._custom_history_filter(
+                        received_message=received_message,
+                        message=message,
+                        action_report=action_report,
+                        sender_agent_name=message.sender_name,
+                        receiver_agent_name=message.receiver_name,
+                    ):
+                        continue
+                    if action_report.output_files:
+                        history_files.extend(action_report.output_files)
+
+                    action_report_prompt = self._format_action_report_prompt(
+                        message=message, action_report=action_report
+                    )
+                    if action_report.resource_value:
+                        resource_value = action_report.resource_value
+                        prompt_param["resources"].append(resource_value)
+                    if action_report_prompt:
+                        histories.append(action_report_prompt)
+
+        history: str = self._join_history(histories, history_files)
+        if history:
+            prompt_param["history"] = history
+        else:
+            prompt_param["history"] = ""
+
+    def _kick_message(
+        self,
+        messages: List[GptsMessage],
+        received_message: AgentMessage,
+    ) -> List[GptsMessage]:
+        return messages
+
+    def _kick_actions_prompts(
+        self, histories: list[str]
+    ) -> tuple[int, list[str]]:
+        if not histories:
+            return 0, histories
+
+        length = self._get_agent_llm_context_length() - 8000
+        idx = len(histories) - 1
+        history_size = 0
+        for index in range(len(histories) - 1, -1, -1):
+            new_size = history_size + len(histories[index])
+            if new_size > length:
+                break
+            idx = index
+            history_size = new_size
+        return idx, histories[idx:]
+
+    def _custom_history_filter(
+        self,
+        received_message: AgentMessage,
+        message: GptsMessage,
+        action_report: ActionOutput,
+        sender_agent_name: str,
+        receiver_agent_name: str,
+    ) -> bool:
+        return False
+
+    def _format_action_report_prompt(
+        self, message: GptsMessage, action_report: ActionOutput
+    ) -> Optional[str]:
+        return "\n".join(
+            [
+                item
+                for item in [
+                f"<!-- action|start -->\n",
+                f"#### action_id: {action_report.action_id}"
+                if action_report.action_id
+                else None,
+                f"message_id: {message.message_id}" if message.message_id else None,
+                f"action_handler: {message.sender_name}"
+                if message.sender_name
+                else None,
+                f"action_name: {action_report.action_name}"
+                if action_report.action_name
+                else None,
+                f"action: {action_report.action}" if action_report.action else None,
+                f"action_input: {action_report.action_input}"
+                if action_report.action_input
+                else None,
+                f"action_output: {action_report.content}",
+                f"<!-- action|end -->"
+            ]
+                if item
+            ]
+        )
+
+    def _join_history(self, histories: list, history_files: list[str]) -> Optional[str]:
+        size, kicked_histories = self._kick_actions_prompts(histories)
+        if size:
+            kicked_histories = [
+                               f"由于长度限制, {size}条最早的历史数据被剔除"
+                           ] + kicked_histories
+
+        history_prompt = (
+            ("> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n" if kicked_histories and (
+                kicked_histories[0].startswith("<!-- action")) else "")
+            + ("\n\n".join(kicked_histories)))
+
+        _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
+        if history_files:
+            history_prompt += _FILE_DESC + ("\n".join(history_files))
+
+        return history_prompt
+
+    def _get_agent_llm_context_length(self) -> int:
+        default_length = 32000
+        if not hasattr(self, 'llm_config') or not self.llm_config:
+            return default_length
+
+        model_list = self.llm_config.strategy_context
+        if not model_list:
+            return default_length
+        if isinstance(model_list, str):
+            try:
+                model_list = json.loads(model_list)
+            except Exception:
+                return default_length
+
+        MODEL_CONTEXT_LENGTH = {
+            "aistudio/DeepSeek-V3": 64000,
+            "aistudio/DeepSeek-R1": 64000,
+            "aistudio/QwQ-32B": 64000,
+        }
+        return MODEL_CONTEXT_LENGTH.get(model_list[0], default_length)
+
+    def _session_id_from_conv_id(self, conv_id: str) -> str:
+        idx = conv_id.rfind("_")
+        return conv_id[:idx] if idx else conv_id
 
     def _excluded_models(
         self,

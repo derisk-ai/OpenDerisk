@@ -54,6 +54,10 @@ from derisk_serve.agent.agents.derisks_memory import (
     MetaDerisksPlansMemory,
     MetaDerisksMessageMemory,
     MetaAgentSystemMessageMemory,
+    MetaDerisksWorkLogStorage,
+    MetaDerisksKanbanStorage,
+    MetaDerisksTodoStorage,
+    MetaDerisksFileMetadataStorage,
 )
 from derisk_serve.agent.db import (
     GptsConversationsEntity,
@@ -185,10 +189,20 @@ class AgentChat(BaseComponent, ABC):
         self.gpts_conversations = GptsConversationsDao()
         self.gpts_messages_dao = GptsMessagesDao()
 
+        # 初始化数据库存储后端
+        file_metadata_db_storage = MetaDerisksFileMetadataStorage()
+        work_log_db_storage = MetaDerisksWorkLogStorage()
+        kanban_db_storage = MetaDerisksKanbanStorage()
+        todo_db_storage = MetaDerisksTodoStorage()
+
         self.memory = gpts_memory or GptsMemory(
             plans_memory=MetaDerisksPlansMemory(),
             message_memory=MetaDerisksMessageMemory(),
             message_system_memory=MetaAgentSystemMessageMemory(),
+            file_metadata_db_storage=file_metadata_db_storage,
+            work_log_db_storage=work_log_db_storage,
+            kanban_db_storage=kanban_db_storage,
+            todo_db_storage=todo_db_storage,
         )
         self.llm_provider = llm_provider
         self.agent_memory_map = {}
