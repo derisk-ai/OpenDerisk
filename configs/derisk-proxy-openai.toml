@@ -28,8 +28,8 @@ temperature = 0.5
 
 [[agent.llm.provider]]
 provider = "openai"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
+api_base = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY:-sk-...}"
 
 [[agent.llm.provider.model]]
 name = "deepseek-r1"
