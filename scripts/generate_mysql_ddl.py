@@ -3,12 +3,27 @@
 Generate MySQL DDL scripts from SQLAlchemy ORM model files.
 
 This script parses the ORM model files and generates MySQL-compatible CREATE TABLE statements.
+Supports both full DDL and incremental DDL generation.
 """
 
 import os
 import re
+import sys
 from pathlib import Path
 from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple, Any
+from datetime import datetime
+
+
+def get_project_version(project_root: Path) -> str:
+    """Get the current project version from packages/__init__.py."""
+    version_file = project_root / "packages" / "__init__.py"
+    if version_file.exists():
+        content = version_file.read_text(encoding='utf-8')
+        match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+        if match:
+            return match.group(1)
+    return "0.0.0"
 
 
 def parse_column_from_text(text, class_start, class_end):
@@ -441,8 +456,7 @@ def generate_table_ddl(table_info):
     
     lines.append(f'-- Table: {table_name}')
     lines.append(f'-- Source Model: {table_info["class_name"]}')
-    lines.append(f'DROP TABLE IF EXISTS `{table_name}`;')
-    lines.append(f'CREATE TABLE `{table_name}` (')
+    lines.append(f'CREATE TABLE IF NOT EXISTS `{table_name}` (')
     
     column_defs = []
     
@@ -533,6 +547,213 @@ def find_model_files(root_dir):
     return model_files
 
 
+def parse_ddl_file(ddl_path: Path) -> Dict[str, Dict[str, Any]]:
+    """Parse a DDL file and extract table structures."""
+    tables = {}
+    
+    if not ddl_path.exists():
+        return tables
+    
+    content = ddl_path.read_text(encoding='utf-8')
+    
+    table_pattern = r'CREATE TABLE\s+`(\w+)`\s*\((.*?)\)\s*ENGINE=InnoDB'
+    
+    for match in re.finditer(table_pattern, content, re.DOTALL | re.IGNORECASE):
+        table_name = match.group(1)
+        table_body = match.group(2)
+        
+        columns = {}
+        indexes = {}
+        unique_keys = {}
+        primary_key = None
+        
+        lines = table_body.split('\n')
+        
+        for line in lines:
+            line = line.strip().rstrip(',')
+            if not line or line.startswith('--'):
+                continue
+            
+            col_match = re.match(r'`(\w+)`\s+(\w+(?:\([^)]*\))?)\s*(.*)', line)
+            if col_match:
+                col_name = col_match.group(1)
+                col_type = col_match.group(2)
+                col_attrs = col_match.group(3)
+                
+                columns[col_name] = {
+                    'type': col_type,
+                    'attrs': col_attrs,
+                    'full_def': line
+                }
+                
+                if 'PRIMARY KEY' in col_attrs.upper():
+                    primary_key = col_name
+            
+            pk_match = re.match(r'PRIMARY KEY\s*\(([^)]+)\)', line, re.IGNORECASE)
+            if pk_match:
+                primary_key = pk_match.group(1)
+            
+            idx_match = re.match(r'(?:KEY|INDEX)\s+`(\w+)`\s*\(([^)]+)\)', line, re.IGNORECASE)
+            if idx_match:
+                idx_name = idx_match.group(1)
+                idx_cols = idx_match.group(2)
+                indexes[idx_name] = idx_cols
+            
+            uk_match = re.match(r'UNIQUE(?:\s+KEY)?\s+`(\w+)`\s*\(([^)]+)\)', line, re.IGNORECASE)
+            if uk_match:
+                uk_name = uk_match.group(1)
+                uk_cols = uk_match.group(2)
+                unique_keys[uk_name] = uk_cols
+        
+        tables[table_name] = {
+            'columns': columns,
+            'indexes': indexes,
+            'unique_keys': unique_keys,
+            'primary_key': primary_key
+        }
+    
+    return tables
+
+
+def generate_incremental_ddl(old_tables: Dict, new_tables: Dict, from_version: str, to_version: str) -> List[str]:
+    """Generate incremental DDL statements from old to new schema."""
+    statements = []
+    
+    statements.append("-- ============================================================")
+    statements.append(f"-- Incremental DDL Script for Derisk")
+    statements.append(f"-- Upgrade from version {from_version} to {to_version}")
+    statements.append(f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    statements.append("-- ============================================================")
+    statements.append("")
+    statements.append("SET NAMES utf8mb4;")
+    statements.append("SET FOREIGN_KEY_CHECKS = 0;")
+    statements.append("")
+    
+    old_table_names = set(old_tables.keys())
+    new_table_names = set(new_tables.keys())
+    
+    added_tables = new_table_names - old_table_names
+    removed_tables = old_table_names - new_table_names
+    common_tables = old_table_names & new_table_names
+    
+    if added_tables:
+        statements.append("-- ============================================================")
+        statements.append("-- New Tables")
+        statements.append("-- ============================================================")
+        statements.append("")
+        
+        for table_name in sorted(added_tables):
+            statements.append(f"-- Table: {table_name} (NEW)")
+            table_info = new_tables[table_name]
+            
+            col_defs = []
+            for col_name, col_info in table_info['columns'].items():
+                col_defs.append(f"  {col_info['full_def']}")
+            
+            if table_info['primary_key'] and not any('PRIMARY KEY' in c.get('attrs', '').upper() for c in table_info['columns'].values()):
+                col_defs.append(f"  PRIMARY KEY ({table_info['primary_key']})")
+            
+            for uk_name, uk_cols in table_info['unique_keys'].items():
+                col_defs.append(f"  UNIQUE KEY `{uk_name}` ({uk_cols})")
+            
+            for idx_name, idx_cols in table_info['indexes'].items():
+                col_defs.append(f"  KEY `{idx_name}` ({idx_cols})")
+            
+            statements.append(f"CREATE TABLE IF NOT EXISTS `{table_name}` (")
+            statements.append(',\n'.join(col_defs))
+            statements.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;")
+            statements.append("")
+    
+    if common_tables:
+        statements.append("-- ============================================================")
+        statements.append("-- Modified Tables")
+        statements.append("-- ============================================================")
+        statements.append("")
+        
+        for table_name in sorted(common_tables):
+            old_table = old_tables[table_name]
+            new_table = new_tables[table_name]
+            
+            old_cols = set(old_table['columns'].keys())
+            new_cols = set(new_table['columns'].keys())
+            
+            added_cols = new_cols - old_cols
+            removed_cols = old_cols - new_cols
+            modified_cols = set()
+            
+            for col_name in old_cols & new_cols:
+                old_col = old_table['columns'][col_name]
+                new_col = new_table['columns'][col_name]
+                if old_col['full_def'] != new_col['full_def']:
+                    modified_cols.add(col_name)
+            
+            old_idxs = set(old_table['indexes'].keys())
+            new_idxs = set(new_table['indexes'].keys())
+            added_idxs = new_idxs - old_idxs
+            removed_idxs = old_idxs - new_idxs
+            
+            old_uks = set(old_table['unique_keys'].keys())
+            new_uks = set(new_table['unique_keys'].keys())
+            added_uks = new_uks - old_uks
+            removed_uks = old_uks - new_uks
+            
+            if added_cols or modified_cols or added_idxs or added_uks:
+                statements.append(f"-- Table: {table_name}")
+                
+                if added_cols:
+                    for col_name in sorted(added_cols):
+                        col_info = new_table['columns'][col_name]
+                        statements.append(f"ALTER TABLE `{table_name}` ADD COLUMN {col_info['full_def']};")
+                
+                if modified_cols:
+                    for col_name in sorted(modified_cols):
+                        col_info = new_table['columns'][col_name]
+                        statements.append(f"ALTER TABLE `{table_name}` MODIFY COLUMN {col_info['full_def']};")
+                
+                if removed_cols:
+                    for col_name in sorted(removed_cols):
+                        statements.append(f"-- ALTER TABLE `{table_name}` DROP COLUMN `{col_name}`;")
+                
+                if removed_uks:
+                    for uk_name in sorted(removed_uks):
+                        statements.append(f"ALTER TABLE `{table_name}` DROP INDEX `{uk_name}`;")
+                
+                if added_uks:
+                    for uk_name in sorted(added_uks):
+                        uk_cols = new_table['unique_keys'][uk_name]
+                        statements.append(f"ALTER TABLE `{table_name}` ADD UNIQUE KEY `{uk_name}` ({uk_cols});")
+                
+                if removed_idxs:
+                    for idx_name in sorted(removed_idxs):
+                        statements.append(f"ALTER TABLE `{table_name}` DROP INDEX `{idx_name}`;")
+                
+                if added_idxs:
+                    for idx_name in sorted(added_idxs):
+                        idx_cols = new_table['indexes'][idx_name]
+                        statements.append(f"ALTER TABLE `{table_name}` ADD INDEX `{idx_name}` ({idx_cols});")
+                
+                statements.append("")
+    
+    if removed_tables:
+        statements.append("-- ============================================================")
+        statements.append("-- Removed Tables (commented out for safety)")
+        statements.append("-- ============================================================")
+        statements.append("")
+        
+        for table_name in sorted(removed_tables):
+            statements.append(f"-- DROP TABLE IF EXISTS `{table_name}`;")
+        statements.append("")
+    
+    statements.append("")
+    statements.append("SET FOREIGN_KEY_CHECKS = 1;")
+    statements.append("")
+    statements.append("-- ============================================================")
+    statements.append("-- End of Incremental DDL Script")
+    statements.append("-- ============================================================")
+    
+    return statements
+
+
 def main():
     """Main function."""
     project_root = Path(__file__).parent.parent
@@ -542,13 +763,15 @@ def main():
     print("=" * 80)
     print()
     
-    # Find all model files
+    current_version = get_project_version(project_root)
+    print(f"Current version: {current_version}")
+    print()
+    
     print("Scanning for ORM model files...")
     model_files = find_model_files(project_root)
     print(f"Found {len(model_files)} model files to parse")
     print()
     
-    # Parse all model files
     all_tables = []
     processed_tables = set()
     
@@ -566,11 +789,39 @@ def main():
     
     print()
     
-    # Generate DDL
+    schema_dir = project_root / "assets" / "schema"
+    schema_dir.mkdir(parents=True, exist_ok=True)
+    
+    full_ddl_file = schema_dir / "derisk.sql"
+    
+    old_tables = {}
+    old_version = None
+    
+    if full_ddl_file.exists():
+        print("Parsing existing DDL file for incremental comparison...")
+        old_tables = parse_ddl_file(full_ddl_file)
+        
+        old_content = full_ddl_file.read_text(encoding='utf-8')
+        version_match = re.search(r'-- Version:\s*(\S+)', old_content)
+        if version_match:
+            old_version = version_match.group(1)
+        
+        print(f"Found {len(old_tables)} existing tables in old DDL (version: {old_version})")
+        print()
+    
     ddl_statements = []
+    ddl_statements.append("-- You can change `derisk` to your actual metadata database name in your `.env` file")
+    ddl_statements.append("-- eg. `LOCAL_DB_NAME=derisk`")
+    ddl_statements.append("")
+    ddl_statements.append("CREATE")
+    ddl_statements.append("DATABASE IF NOT EXISTS derisk;")
+    ddl_statements.append("use derisk;")
+    ddl_statements.append("")
     ddl_statements.append("-- ============================================================")
     ddl_statements.append("-- MySQL DDL Script for Derisk")
+    ddl_statements.append(f"-- Version: {current_version}")
     ddl_statements.append("-- Generated from SQLAlchemy ORM Models")
+    ddl_statements.append(f"-- Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     ddl_statements.append("-- ============================================================")
     ddl_statements.append("")
     ddl_statements.append("SET NAMES utf8mb4;")
@@ -581,23 +832,37 @@ def main():
         ddl = generate_table_ddl(table)
         ddl_statements.append(ddl)
     
-    ddl_statements.append("")
     ddl_statements.append("SET FOREIGN_KEY_CHECKS = 1;")
     ddl_statements.append("")
     ddl_statements.append("-- ============================================================")
     ddl_statements.append("-- End of DDL Script")
     ddl_statements.append("-- ============================================================")
     
-    # Write to file
-    output_file = project_root / "scripts" / "mysql_ddl.sql"
-    with open(output_file, 'w', encoding='utf-8') as f:
+    with open(full_ddl_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(ddl_statements))
+    print(f"Full DDL written to: {full_ddl_file}")
     
-    print(f"DDL script written to: {output_file}")
+    if old_tables and old_version and old_version != current_version:
+        new_tables = parse_ddl_file(full_ddl_file)
+        
+        if old_tables != new_tables:
+            incremental_statements = generate_incremental_ddl(old_tables, new_tables, old_version, current_version)
+            
+            upgrade_file = schema_dir / f"upgrade_{old_version}_to_{current_version}.sql"
+            with open(upgrade_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(incremental_statements))
+            print(f"Incremental DDL written to: {upgrade_file}")
+        else:
+            print("No schema changes detected, skipping incremental DDL generation")
+    elif old_version == current_version:
+        print("Same version, skipping incremental DDL generation")
+    
     print()
     print(f"Total tables: {len(all_tables)}")
     print("Done!")
+    
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
