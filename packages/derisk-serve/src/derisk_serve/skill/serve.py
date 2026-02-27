@@ -111,3 +111,44 @@ class Serve(BaseServe):
             init_db.create_all()
         except Exception as e:
             logger.warning(f"Failed to create Skill tables: {e}")
+
+    async def async_after_start(self):
+        """Called after the application has started.
+        
+        Load default skills from the configured git repository.
+        """
+        await self._load_default_skills()
+
+    async def _load_default_skills(self):
+        """Load default skills from git repository on startup."""
+        from .service.service import Service
+        
+        logger.info("Loading default skills from git repository...")
+        
+        try:
+            service: Service = self._system_app.get_component(
+                Service.name, Service
+            )
+            if not service:
+                logger.warning("Skill service not available, skipping default skill loading")
+                return
+            
+            default_repo_url = self._config.get_default_skill_repo_url()
+            default_branch = self._config.get_default_skill_repo_branch()
+            
+            if not default_repo_url:
+                logger.info("No default skill repository URL configured, skipping")
+                return
+            
+            logger.info(f"Syncing skills from default repository: {default_repo_url} (branch: {default_branch})")
+            
+            synced_skills = await service.sync_from_git(
+                repo_url=default_repo_url,
+                branch=default_branch,
+                force_update=False
+            )
+            
+            logger.info(f"Successfully loaded {len(synced_skills)} default skills")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load default skills: {e}", exc_info=True)

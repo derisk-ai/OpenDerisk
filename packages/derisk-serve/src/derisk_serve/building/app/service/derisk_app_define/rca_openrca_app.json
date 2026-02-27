@@ -1,0 +1,102 @@
+[
+  {
+    "app_code": "rca-openrca",
+    "app_name": "RCA(OpenRCA)",
+    "app_describe": "基于OpenRca数据集的RCA，AI驱动的微服务故障根因分析智能体，提供分析指导和场景化工具脚本",
+    "app_hub_code": null,
+    "team_mode": "single_agent",
+    "config_code": null,
+    "config_version": null,
+    "language": "zh",
+    "team_context": {
+      "can_ask_user": true,
+      "use_sandbox": true,
+      "agent_name": "ReActMasterV2",
+      "agent_role": null
+    },
+    "user_code": "derisk",
+    "sys_code": null,
+    "is_collected": "false",
+    "icon": "/agents/agent4.jpg",
+    "details": [],
+    "published": true,
+    "user_name": "derisk",
+    "owner_name": "derisk",
+    "hot_value": 0,
+    "param_need": [
+      {
+        "param_type": "resource",
+        "sub_type": "open_rca_scene",
+        "param_description": "资源选项",
+        "param_render_type": "select",
+        "param_type_options": null,
+        "param_default_value": null
+      }
+    ],
+    "owner_avatar_url": null,
+    "recommend_questions": null,
+    "admins": [],
+    "ext_config": null,
+    "all_resources": [
+    ],
+    "resources": null,
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": [
+        "DeepSeek-V3"
+      ],
+      "llm_param": null,
+      "mist_keys": null,
+      "agent_llm_config": null
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "vis_window3",
+        "incremental": true,
+        "description": "文件系统可视化布局",
+        "reuse_name": "derisk_vis_window"
+      },
+      "chat_in_layout": [
+        {
+          "param_type": "resource",
+          "sub_type": "open_rca_scene",
+          "param_description": "资源选项",
+          "param_render_type": "select",
+          "param_type_options": null,
+          "param_default_value": null
+        }
+      ]
+    },
+    "resource_knowledge": null,
+    "resource_tool": [
+      {
+        "type": "skill(derisk)",
+        "value": "{\"key\":\"open-rca-diagnosis\",\"name\":\"open_rca_diagnosis\",\"label\":\"open_rca_diagnosis\",\"skill_name\":\"open_rca_diagnosis\",\"description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"skill_description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"toolType\":\"skill(derisk)\",\"groupName\":\"skill\",\"isBuiltIn\":false,\"skillCode\":\"open-rca-diagnosis\",\"skill_path\":\"skills/open_rca_diagnosis\",\"skill_author\":\"derisk\",\"skill_branch\":\"main\",\"type\":\"skill\"}",
+        "name": "open_rca_diagnosis",
+        "is_dynamic": false,
+        "context": null,
+        "version": "v2",
+        "unique_id": null
+      }
+    ],
+    "resource_agent": null,
+    "custom_variables": [
+
+    ],
+    "agent": "ReActMasterV2",
+    "is_reasoning_engine_agent": false,
+    "context_config": {
+      "type": "group",
+      "name": "context_config",
+      "label": "上下文配置",
+      "description": "上下文处理相关配置",
+      "title_field": null,
+      "fields": [],
+      "dynamic": null
+    },
+    "creator": null,
+    "editor": null,
+    "keep_start_rounds": 1,
+    "keep_end_rounds": 2
+  }
+]
