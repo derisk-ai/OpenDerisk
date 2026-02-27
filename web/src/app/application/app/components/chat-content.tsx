@@ -1,4 +1,4 @@
-import { AppContext, ChatContentContext } from '@/contexts';
+import { AppContext, ChatContentContext, SelectedSkill } from '@/contexts';
 import { ChartData, ChatHistoryResponse, UserChatContent} from '@/types/chat';
 import { useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { Layout } from 'antd';
@@ -23,6 +23,7 @@ function ChatContent() {
     sub_type: string;
   }>>([]);
   const [modelValue, setModelValue] = useState<string>('');
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [currentDialogue] = useState<any>(null);
 
@@ -213,8 +214,10 @@ function ChatContent() {
         maxNewTokensValue,
         resourceValue,
         modelValue,
+        selectedSkills,
         setModelValue,
         setResourceValue,
+        setSelectedSkills,
         setTemperatureValue,
         setMaxNewTokensValue,
         setChatInParams,

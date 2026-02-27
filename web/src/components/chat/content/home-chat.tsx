@@ -32,7 +32,6 @@ import {
 import { useRequest } from 'ahooks';
 import {
   Badge,
-  Button,
   Dropdown,
   Input,
   MenuProps,
@@ -43,7 +42,6 @@ import {
   List,
   Space,
   Collapse,
-  Tag,
   theme
 } from 'antd';
 import ModelIcon from '@/components/icons/model-icon';
@@ -158,81 +156,113 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
   const [recommendedTools, setRecommendedTools] = useState<any[]>([]);
 
   const MAX_TEXT_LENGTH = 1000;
-  const MAX_DISPLAY_SKILLS = 3;
 
-  // Inner component for skill icon preview
-  const SkillIconPreview = ({ skill, onRemove }: { skill: any; onRemove: () => void }) => {
-    const [isHovered, setIsHovered] = useState(false);
+  // Compact skill chip - same size as + button
+  const SkillChip = ({ skill, onRemove }: { skill: any; onRemove: () => void }) => {
     const [showDelete, setShowDelete] = useState(false);
-
+    
     return (
       <Popover
         content={
-          <div className="w-[280px] p-3">
-            <div className="font-medium text-sm mb-2 break-words">{skill.name}</div>
-            <div className="text-xs text-gray-500 mb-3 break-words leading-5">{skill.description}</div>
-            <div className="flex items-center justify-between">
-              {skill.author && (
-                <div className="text-[10px] text-gray-400 mr-2">
-                  {skill.author}
-                </div>
-              )}
-              {skill.version && (
-                <div className="text-[10px] text-gray-400">
-                  v{skill.version}
-                </div>
-              )}
-            </div>
-            {skill.type && (
-              <div className="mt-2">
-                <Tag color="blue" className="text-xs">{skill.type}</Tag>
-              </div>
+          <div className="w-[200px] p-2">
+            <div className="font-medium text-sm mb-1 truncate">{skill.name}</div>
+            {skill.description && (
+              <div className="text-xs text-gray-500 mb-2 line-clamp-2">{skill.description}</div>
             )}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                {skill.author && <span>{skill.author}</span>}
+                {skill.version && <span>v{skill.version}</span>}
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                className="text-xs text-red-400 hover:text-red-500"
+              >
+                移除
+              </button>
+            </div>
           </div>
         }
         placement="top"
         trigger="hover"
-        onOpenChange={(open) => {
-          if (!open) setShowDelete(false);
-        }}
+        mouseEnterDelay={0.2}
       >
         <div
           className={cls(
-            "relative w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200",
-            "border-2 shadow-sm",
+            "h-7 w-7 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200",
+            "border shadow-sm flex-shrink-0",
             showDelete
-              ? "bg-red-500 border-red-600 hover:bg-red-600"
-              : "bg-white dark:bg-[#1f1f1f] border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500"
+              ? "bg-red-500 border-red-600 shadow-red-200"
+              : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-blue-100"
           )}
-          onMouseEnter={() => {
-            setIsHovered(true);
-            setShowDelete(true);
-          }}
-          onMouseLeave={(e) => {
-            e.stopPropagation();
-            setIsHovered(false);
-            setTimeout(() => {
-              if (!isHovered) setShowDelete(false);
-            }, 100);
-          }}
+          onMouseEnter={() => setShowDelete(true)}
+          onMouseLeave={() => setShowDelete(false)}
           onClick={(e) => {
             e.stopPropagation();
-            if (showDelete) {
-              onRemove();
-            }
+            if (showDelete) onRemove();
           }}
         >
           {showDelete ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+            <svg className="w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           ) : skill.icon ? (
-            <img src={skill.icon} alt={skill.name} className="w-6 h-6 object-contain" />
+            <img src={skill.icon} alt={skill.name} className="w-4 h-4 rounded-full object-cover" />
           ) : (
-            <span className="text-blue-500 text-lg font-semibold">{skill.name ? skill.name.charAt(0).toUpperCase() : 'S'}</span>
+            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center">
+              <span className="text-white text-[9px] font-bold">
+                {skill.name?.charAt(0)?.toUpperCase() || 'S'}
+              </span>
+            </div>
           )}
         </div>
       </Popover>
+    );
+  };
+
+  // Selected skills container - horizontal chips
+  const SelectedSkillsBar = () => {
+    if (selectedSkills.length === 0) return null;
+    
+    return (
+      <div className="flex items-center gap-1.5">
+        {selectedSkills.slice(0, 3).map((skill) => (
+          <SkillChip
+            key={skill.skill_code}
+            skill={skill}
+            onRemove={() => handleSkillRemove(skill.skill_code)}
+          />
+        ))}
+        {selectedSkills.length > 3 && (
+          <Popover
+            content={
+              <div className="w-[200px] max-h-[200px] overflow-y-auto">
+                <div className="text-xs text-gray-500 mb-2">已选择 {selectedSkills.length} 个技能</div>
+                {selectedSkills.slice(3).map((skill) => (
+                  <div key={skill.skill_code} className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-700 dark:text-gray-200 truncate">{skill.name}</span>
+                    <button
+                      onClick={() => handleSkillRemove(skill.skill_code)}
+                      className="text-xs text-red-400 hover:text-red-500"
+                    >
+                      移除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            }
+            placement="top"
+            trigger="hover"
+          >
+            <div className="h-7 w-7 rounded-full bg-gray-100 dark:bg-gray-700 border border-dashed border-gray-300 dark:border-gray-500 flex items-center justify-center cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">+{selectedSkills.length - 3}</span>
+            </div>
+          </Popover>
+        )}
+      </div>
     );
   };
 
@@ -282,18 +312,12 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
           value={modelSearch}
           onChange={e => setModelSearch(e.target.value)}
         />
-        <Button 
-          type="text" 
-          icon={<PlusOutlined />} 
-          size="small"
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        />
-        <Button 
-          type="text" 
-          icon={<SettingOutlined />} 
-          size="small"
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        />
+        <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+          <PlusOutlined className="text-sm" />
+        </button>
+        <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+          <SettingOutlined className="text-sm" />
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto py-2 px-2">
         {Object.entries(groupedModels.groups).length > 0 && (
@@ -572,6 +596,8 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
           message: userInput,
           resources: uploadedResources.length > 0 ? uploadedResources : undefined,
           model: selectedModel, 
+          skills: selectedSkills.length > 0 ? selectedSkills : undefined,
+          mcps: selectedMcps.length > 0 ? selectedMcps : undefined,
         }),
       );
       router.push(`/chat/?app_code=${appCode}&conv_uid=${res.conv_uid}`);
@@ -637,35 +663,6 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
   const handleSkillRemove = (skillCode: string) => {
     const newSkills = selectedSkills.filter(s => s.skill_code !== skillCode);
     setSelectedSkills(newSkills);
-  };
-
-  const renderSelectedSkills = () => {
-    const displaySkills = selectedSkills.slice(0, MAX_DISPLAY_SKILLS);
-    const remainingCount = selectedSkills.length - MAX_DISPLAY_SKILLS;
-
-    return (
-      <div className="flex items-center mr-2" style={{ width: '160px', minWidth: '160px' }}>
-        <div className="flex items-center" style={{ marginLeft: 0 }}>
-          {displaySkills.map((skill, index) => (
-            <div key={skill.skill_code} style={{ marginLeft: index === 0 ? 0 : -8, zIndex: displaySkills.length - index }}>
-              <SkillIconPreview
-                key={skill.skill_code}
-                skill={skill}
-                onRemove={() => handleSkillRemove(skill.skill_code)}
-              />
-            </div>
-          ))}
-          {remainingCount > 0 && (
-            <div
-              className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center"
-              style={{ marginLeft: -8, zIndex: 0 }}
-            >
-              <Text className="text-xs text-gray-500 font-medium">+{remainingCount}</Text>
-            </div>
-          )}
-        </div>
-      </div>
-    );
   };
 
   const appMenuProps: MenuProps = {
@@ -876,15 +873,13 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
                     placement="topLeft"
                     overlayClassName="!p-0"
                   >
-                    <Button
-                      shape="circle"
-                      icon={<PlusOutlined />}
-                      className="!border-gray-200 dark:!border-gray-700 !text-gray-500 hover:!text-gray-700 dark:hover:!text-gray-300"
-                    />
+                    <button className="h-7 w-7 rounded-full flex items-center justify-center border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-600 transition-all hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                      <PlusOutlined className="text-sm" />
+                    </button>
                   </Popover>
 
                   {/* Selected Skills Display */}
-                  {selectedSkills.length > 0 && renderSelectedSkills()}
+                  <SelectedSkillsBar />
 
                   {/* Agent Selector */}
                   <Dropdown menu={appMenuProps} trigger={['click']} placement="bottomLeft">
@@ -928,28 +923,25 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
               </div>
 
               <div className="flex items-center gap-3">
-                {/* File Upload Icon Button (New Position) */}
+                {/* File Upload Icon Button */}
                 <Upload {...uploadProps} showUploadList={false}>
-                  <Button
-                    shape="circle"
-                    icon={<PaperClipOutlined />}
-                    className="!border-gray-200 dark:!border-gray-700 !text-gray-500 hover:!text-gray-700 dark:hover:!text-gray-300"
-                  />
+                  <button className="h-7 w-7 rounded-full flex items-center justify-center border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all hover:bg-gray-100 dark:hover:bg-gray-800">
+                    <PaperClipOutlined className="text-sm" />
+                  </button>
                 </Upload>
 
-                <Button
-                  shape="circle"
-                  type={userInput.trim() || fileList.length > 0 ? 'primary' : 'default'}
-                  icon={<ArrowUpOutlined />}
+                <button
                   className={cls(
-                    'transition-all !w-9 !h-9 flex items-center justify-center',
+                    'h-8 w-8 rounded-full flex items-center justify-center transition-all',
                     userInput.trim() || fileList.length > 0
-                      ? 'bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200'
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md hover:shadow-lg'
                       : 'bg-gray-100 text-gray-400 border-none dark:bg-gray-800 dark:text-gray-600',
                   )}
                   onClick={onSubmit}
                   disabled={!userInput.trim() && fileList.length === 0}
-                />
+                >
+                  <ArrowUpOutlined className="text-sm" />
+                </button>
               </div>
             </div>
 
