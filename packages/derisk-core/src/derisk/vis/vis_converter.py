@@ -109,7 +109,7 @@ class VisProtocolConverter(ABC):
 
     @property
     def web_use(self) -> bool:
-        return True
+        return False
 
     @property
     def incremental(self) -> bool:

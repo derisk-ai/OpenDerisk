@@ -72,7 +72,7 @@ class GptsFileMetadataEntity(Model):
     message_id = Column(String(255), nullable=True, comment="The related message id")
     tool_name = Column(String(255), nullable=True, comment="The related tool name")
 
-    metadata = Column(Text, nullable=True, comment="Additional metadata (JSON)")
+    file_metadata = Column(Text, name="metadata", nullable=True, comment="Additional metadata (JSON)")
 
     expires_at = Column(DateTime, nullable=True, comment="The expiration time")
     created_at = Column(
@@ -112,7 +112,7 @@ class GptsFileMetadataDao(BaseDao):
             task_id=metadata.get("task_id"),
             message_id=metadata.get("message_id"),
             tool_name=metadata.get("tool_name"),
-            metadata=json.dumps(metadata.get("metadata"), ensure_ascii=False)
+            file_metadata=json.dumps(metadata.get("metadata"), ensure_ascii=False)
             if metadata.get("metadata")
             else None,
             expires_at=datetime.fromisoformat(metadata["expires_at"])
@@ -149,7 +149,7 @@ class GptsFileMetadataDao(BaseDao):
             "task_id": entity.task_id,
             "message_id": entity.message_id,
             "tool_name": entity.tool_name,
-            "metadata": json.loads(entity.metadata) if entity.metadata else {},
+            "metadata": json.loads(entity.file_metadata) if entity.file_metadata else {},
             "expires_at": entity.expires_at.isoformat() if entity.expires_at else None,
             "created_at": entity.created_at.isoformat() if entity.created_at else None,
             "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
@@ -215,7 +215,7 @@ class GptsFileMetadataDao(BaseDao):
         entity.message_id = metadata.get("message_id", entity.message_id)
         entity.tool_name = metadata.get("tool_name", entity.tool_name)
         if metadata.get("metadata"):
-            entity.metadata = json.dumps(metadata.get("metadata"), ensure_ascii=False)
+            entity.file_metadata = json.dumps(metadata.get("metadata"), ensure_ascii=False)
         if metadata.get("expires_at"):
             entity.expires_at = datetime.fromisoformat(metadata["expires_at"])
 
@@ -251,7 +251,7 @@ class GptsFileMetadataDao(BaseDao):
             entity.message_id = metadata.get("message_id", entity.message_id)
             entity.tool_name = metadata.get("tool_name", entity.tool_name)
             if metadata.get("metadata"):
-                entity.metadata = json.dumps(metadata.get("metadata"), ensure_ascii=False)
+                entity.file_metadata = json.dumps(metadata.get("metadata"), ensure_ascii=False)
             if metadata.get("expires_at"):
                 entity.expires_at = datetime.fromisoformat(metadata["expires_at"])
 

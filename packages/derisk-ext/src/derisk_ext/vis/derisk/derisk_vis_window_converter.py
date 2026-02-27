@@ -51,7 +51,7 @@ class DeriskIncrVisWindowConverter(DeriskVisIncrConverter):
 
     @property
     def web_use(self) -> bool:
-        return True
+        return False
 
     @property
     def render_name(self):
