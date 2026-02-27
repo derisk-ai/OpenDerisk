@@ -84,6 +84,11 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             request.skill_code = str(uuid.uuid4())
 
+        existing_skill = self.dao.get_one({"skill_code": request.skill_code})
+        if existing_skill:
+            logger.info(f"Skill {request.skill_code} already exists, updating instead")
+            return self.update(request)
+
         return self.dao.create(request)
 
     def update(self, request: SkillRequest) -> SkillResponse:

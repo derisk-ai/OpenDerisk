@@ -6,6 +6,7 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
 2. 上下文压缩 (SessionCompaction)
 3. 工具输出截断 (Truncate.output)
 4. 历史记录修剪 (prune)
+5. Kanban 任务规划（可选，通过 enable_kanban=True 启用）
 """
 
 import asyncio
@@ -22,7 +23,7 @@ from derisk.agent import (
 from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
 from derisk.agent.core.base_parser import SchemaType
 from derisk.agent.core.role import AgentRunMode
-from derisk.agent.core.schema import Status, DynamicParam, DynamicParamType
+from derisk.agent.core.schema import Status
 from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
@@ -41,18 +42,14 @@ from .doom_loop_detector import (
 from .session_compaction import SessionCompaction, CompactionResult
 from .prune import HistoryPruner
 from .truncation import Truncator, TruncationConfig
-from .prompt import (
-    REACT_MASTER_SYSTEM_TEMPLATE,
-    REACT_MASTER_USER_TEMPLATE,
-    REACT_MASTER_WRITE_MEMORY_TEMPLATE,
-    REACT_MASTER_SYSTEM_TEMPLATE_CN,
-    REACT_MASTER_USER_TEMPLATE_CN,
-    REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
-    DOOM_LOOP_WARNING_PROMPT_CN,
-    TOOL_TRUNCATION_REMINDER_CN,
-    COMPACTION_NOTIFICATION_CN,
-    PRUNE_NOTIFICATION_CN,
-    REACT_PARSE_ERROR_PROMPT_CN,
+
+from .prompt_fc import (
+    REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+    REACT_MASTER_FC_USER_TEMPLATE_CN,
+    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
+    REACT_MASTER_FC_SYSTEM_TEMPLATE,
+    REACT_MASTER_FC_USER_TEMPLATE,
+    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE,
 )
 from ...core.file_system.agent_file_system import AgentFileSystem
 
@@ -60,6 +57,7 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 from .work_log import WorkLogManager, create_work_log_manager
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
+from .kanban_manager import KanbanManager, create_kanban_manager, validate_deliverable_schema
 from ...resource import BaseTool, RetrieverResource, FunctionTool, ToolPack
 from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
@@ -110,14 +108,14 @@ class ReActMasterAgent(ConversableAgent):
             name="ReActMasterV2",
             role="ReActMasterV2",
             goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
-            system_prompt_template=REACT_MASTER_SYSTEM_TEMPLATE_CN,
-            user_prompt_template=REACT_MASTER_USER_TEMPLATE_CN,
-            write_memory_template=REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN,
+            system_prompt_template=REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+            user_prompt_template=REACT_MASTER_FC_USER_TEMPLATE_CN,
+            write_memory_template=REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
         )
     )
 
     agent_parser: FunctionCallOutputParser = Field(
-        default_factory=FunctionCallOutputParser
+        default_factory=lambda: FunctionCallOutputParser(extract_scratch_pad=False)
     )
     function_calling: bool = True
 
@@ -150,14 +148,10 @@ class ReActMasterAgent(ConversableAgent):
     report_default_type: str = "detailed"
     report_default_format: str = "markdown"
 
-    # 动态变量
-    dynamic_variables: List[DynamicParam] = [
-        DynamicParam(
-            key="memory_history",
-            name="MEMORY_HISTORY_ARG_SUPPLIER",
-            type=DynamicParamType.CUSTOM.value,
-        ),
-    ]
+    # Kanban 配置 (从 PDCAAgent 合并)
+    enable_kanban: bool = False  # 启用 Kanban 任务规划模式
+    kanban_exploration_limit: int = 2  # 探索阶段最大轮次
+    kanban_auto_stage_transition: bool = True  # 自动阶段转换
 
     # 内部状态
     _ctx: ContextHelper[dict] = PrivateAttr(default_factory=lambda: ContextHelper(dict))
@@ -169,6 +163,10 @@ class ReActMasterAgent(ConversableAgent):
     _tool_call_count: int = PrivateAttr(default=0)
     _compaction_count: int = PrivateAttr(default=0)
     _prune_count: int = PrivateAttr(default=0)
+
+    # Kanban 内部状态
+    _kanban_manager: Optional[KanbanManager] = PrivateAttr(default=None)
+    _kanban_initialized: bool = PrivateAttr(default=False)
 
     available_system_tools: Dict[str, FunctionTool] = Field(
         default_factory=dict, description="available system tools"
@@ -233,15 +231,24 @@ class ReActMasterAgent(ConversableAgent):
             return {"type": "function", "function": function}
 
         functions = []
+
+        # Log available_system_tools
+        logger.info(
+            f"function_calling_params: available_system_tools count={len(self.available_system_tools)}"
+        )
         for k, v in self.available_system_tools.items():
             functions.append(_tool_to_function(v))
 
+        # Log tool_packs
         tool_packs = ToolPack.from_resource(self.resource)
+        logger.info(f"function_calling_params: tool_packs={tool_packs}")
         if tool_packs:
             tool_pack = tool_packs[0]
             for tool in tool_pack.sub_resources:
                 tool_item: BaseTool = tool
                 functions.append(_tool_to_function(tool_item))
+
+        logger.info(f"function_calling_params: total functions count={len(functions)}")
 
         if functions:
             return {
@@ -250,6 +257,7 @@ class ReActMasterAgent(ConversableAgent):
                 "parallel_tool_calls": True,
             }
         else:
+            logger.warning("function_calling_params: No functions available!")
             return None
 
     def _initialize_components(self):
@@ -326,6 +334,17 @@ class ReActMasterAgent(ConversableAgent):
             logger.info("ReportGenerator enabled (will initialize on demand)")
         else:
             self._report_generator = None
+
+        # 8. 初始化 Kanban 管理器（延迟初始化）
+        if self.enable_kanban:
+            self._kanban_manager = None
+            self._kanban_initialized = False
+            logger.info(
+                f"Kanban enabled (exploration_limit={self.kanban_exploration_limit})"
+            )
+        else:
+            self._kanban_manager = None
+            self._kanban_initialized = False
 
     async def _ask_user_permission(self, message: str, context: Dict = None) -> bool:
         """
@@ -676,7 +695,29 @@ class ReActMasterAgent(ConversableAgent):
             )
 
             tasks = []
+            batch_init_action_reports = []
+
             for real_action in real_actions:
+                if hasattr(real_action, "prepare_init_msg"):
+                    init_report = await real_action.prepare_init_msg(
+                        ai_message=message.content if message.content else "",
+                        resource=self.resource,
+                        resource_map=self.resource_map,
+                        render_protocol=await self.memory.gpts_memory.async_vis_converter(
+                            self.not_null_agent_context.conv_id
+                        ),
+                        message_id=message.message_id,
+                        current_message=message,
+                        sender=sender,
+                        agent=self,
+                        received_message=received_message,
+                        agent_context=self.agent_context,
+                        memory=self.memory,
+                        **filtered_kwargs,
+                    )
+                    if init_report:
+                        batch_init_action_reports.append(init_report)
+
                 task = real_action.run(
                     ai_message=message.content if message.content else "",
                     resource=self.resource,
@@ -691,9 +732,29 @@ class ReActMasterAgent(ConversableAgent):
                     received_message=received_message,
                     agent_context=self.agent_context,
                     memory=self.memory,
+                    skip_init_push=True,
                     **filtered_kwargs,
                 )
                 tasks.append((real_action, task))
+
+            if batch_init_action_reports:
+                await self.memory.gpts_memory.push_message(
+                    conv_id=self.not_null_agent_context.conv_id,
+                    stream_msg={
+                        "uid": message.message_id,
+                        "type": "all",
+                        "sender": self.name or self.role,
+                        "sender_role": self.role,
+                        "message_id": message.message_id,
+                        "avatar": self.avatar,
+                        "goal_id": message.goal_id,
+                        "conv_id": self.not_null_agent_context.conv_id,
+                        "conv_session_uid": self.not_null_agent_context.conv_session_id,
+                        "app_code": self.not_null_agent_context.gpts_app_code,
+                        "start_time": None,
+                        "action_report": batch_init_action_reports,
+                    },
+                )
 
             # 并行执行所有任务
             results = await asyncio.gather(
@@ -1029,7 +1090,6 @@ class ReActMasterAgent(ConversableAgent):
             logger.info("注入技能资源")
 
             prompts = ""
-            skill_count = 0
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
@@ -1054,34 +1114,6 @@ class ReActMasterAgent(ConversableAgent):
                             f"<branch>{branch}</branch>"
                             f"\n</skill>\n"
                         )
-                        skill_count += 1
-
-            if skill_count > 0:
-                skill_usage_guide = """
-<skill_usage_guide priority="highest">
-**重要：Skill 是任务执行的最高优先级资源！**
-
-使用流程：
-1. 分析用户任务目标
-2. 根据 description 匹配最相关的 Skill
-3. 使用 view 工具读取 Skill 完整内容
-4. 按 Skill 指导执行任务
-
-查看 Skill 内容示例：
-{
-  "tool_name": "view",
-  "args": {
-    "path": "<skill_path>/skill.md"
-  }
-}
-</skill_usage_guide>
-"""
-                prompts = (
-                    skill_usage_guide
-                    + "\n<available_skills>\n"
-                    + prompts
-                    + "</available_skills>"
-                )
 
             return prompts
 
@@ -1129,43 +1161,6 @@ class ReActMasterAgent(ConversableAgent):
                             continue
             return prompts
 
-        @self._vm.register("system_tools", "系统工具")
-        async def var_system_tools(instance):
-            result = ""
-            if self.available_system_tools:
-                logger.info("注入系统工具")
-                tool_prompts = ""
-                for k, v in self.available_system_tools.items():
-                    t_prompt, _ = await v.get_prompt(
-                        lang=instance.agent_context.language
-                    )
-                    tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                return tool_prompts
-
-            return None
-
-        @self._vm.register("custom_tools", "自定义工具")
-        async def var_custom_tools(instance):
-            logger.info("注入自定义工具")
-            tool_prompts = ""
-            for k, v in self.resource_map.items():
-                if isinstance(v[0], BaseTool):
-                    for item in v:
-                        t_prompt, _ = await item.get_prompt(
-                            lang=instance.agent_context.language
-                        )
-                        tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-                ## 临时兼容MCP 因为异步加载
-                elif isinstance(v[0], MCPToolPack):
-                    for mcp in v:
-                        if mcp and mcp.sub_resources:
-                            for item in mcp.sub_resources:
-                                t_prompt, _ = await item.get_prompt(
-                                    lang=instance.agent_context.language
-                                )
-                                tool_prompts += f"- <tool>{t_prompt}</tool>\n"
-            return tool_prompts
-
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
@@ -1176,32 +1171,30 @@ class ReActMasterAgent(ConversableAgent):
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
-                from derisk.agent.core.sandbox.prompt import sandbox_prompt
-                from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                    sandbox_tool_dict,
+                from derisk.agent.core.sandbox.prompt import (
+                    AGENT_SKILL_SYSTEM_PROMPT,
+                    SANDBOX_ENV_PROMPT,
+                    SANDBOX_TOOL_BOUNDARIES,
+                    sandbox_prompt,
                 )
-                from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 
-                sandbox_tool_prompts = []
-                browser_tool_prompts = []
-                for k, v in sandbox_tool_dict.items():
-                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
-                    if k in BROWSER_TOOLS:
-                        browser_tool_prompts.append(f"- <tool>{prompt}</tool>")
-                    else:
-                        sandbox_tool_prompts.append(f"- <tool>{prompt}</tool>")
+                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
 
                 param = {
                     "sandbox": {
-                        "work_dir": sandbox_client.work_dir,
+                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
+                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
+                        "agent_skill_system": render(
+                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
+                        )
+                        if sandbox_client.enable_skill
+                        else "",
                         "use_agent_skill": sandbox_client.enable_skill,
-                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
                 return {
-                    "tools": "\n".join([item for item in sandbox_tool_prompts]),
-                    # "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
                     "prompt": render(sandbox_prompt, param),
                 }
@@ -1213,6 +1206,22 @@ class ReActMasterAgent(ConversableAgent):
             if received_message:
                 return received_message.content
             return ""
+
+        @self._vm.register("memory", "工作日志")
+        async def var_memory(instance):
+            """获取工具执行记录(work_log)作为 memory 变量
+            
+            注意：不再从 gpts_memory 获取对话历史，因为：
+            1. gpts_memory.messages 已包含工具执行结果
+            2. WorkLogManager 也记录了工具执行结果
+            3. 两者会导致重复
+            
+            WorkLogManager 的优势：
+            - 结构化更好，有压缩机制
+            - 专门为 prompt 设计
+            """
+            logger.info("var_memory: fetching work_log...")
+            return await instance._get_work_log_context_for_memory()
 
         @self._vm.register("work_log", "工作日志")
         async def var_work_log(instance):
@@ -1236,6 +1245,28 @@ class ReActMasterAgent(ConversableAgent):
             return context
 
         logger.info(f"register_variables end {self.role}")
+
+    async def _get_work_log_context_for_memory(self) -> str:
+        """获取工具执行记录(WorkLog)上下文，用于整合到 memory 变量"""
+        if not self.enable_work_log:
+            return ""
+
+        try:
+            await self._ensure_work_log_manager()
+            if not self._work_log_manager or not self._work_log_initialized:
+                return ""
+
+            await self._work_log_manager.initialize()
+            context = await self._work_log_manager.get_context_for_prompt(
+                max_entries=50
+            )
+            logger.info(
+                f"_get_work_log_context_for_memory: entries={len(self._work_log_manager.work_log)}"
+            )
+            return context
+        except Exception as e:
+            logger.warning(f"Failed to get work log context: {e}")
+            return ""
 
     async def _ensure_work_log_manager(self):
         """确保 WorkLog 管理器已初始化
@@ -1491,6 +1522,178 @@ class ReActMasterAgent(ConversableAgent):
 
         logger.info(f"Report saved: {report_key}")
 
+    async def _ensure_kanban_manager(self) -> Optional[KanbanManager]:
+        """
+        确保 Kanban 管理器已初始化（懒加载）
+
+        Returns:
+            KanbanManager 实例或 None
+        """
+        if not self.enable_kanban:
+            return None
+
+        if self._kanban_manager is not None and self._kanban_initialized:
+            return self._kanban_manager
+
+        if not self.not_null_agent_context:
+            return None
+
+        try:
+            conv_id = self.not_null_agent_context.conv_id or "default"
+            session_id = self.not_null_agent_context.conv_session_id or conv_id
+
+            afs = await self._ensure_agent_file_system()
+
+            kanban_storage = None
+            if self.memory and hasattr(self.memory, "gpts_memory") and self.memory.gpts_memory:
+                kanban_storage = self.memory.gpts_memory
+
+            self._kanban_manager = await create_kanban_manager(
+                agent_id=self.name,
+                session_id=session_id,
+                agent_file_system=afs,
+                kanban_storage=kanban_storage,
+                exploration_limit=self.kanban_exploration_limit,
+            )
+
+            self._kanban_initialized = True
+            logger.info(
+                f"KanbanManager initialized: agent_id={self.name}, session_id={session_id}, "
+                f"storage_mode={self._kanban_manager.storage_mode}"
+            )
+            return self._kanban_manager
+
+        except Exception as e:
+            logger.warning(f"Failed to initialize KanbanManager: {e}")
+            return None
+
+    async def create_kanban(self, mission: str, stages: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        创建看板
+
+        Args:
+            mission: 任务描述
+            stages: 阶段列表，每个阶段包含:
+                - stage_id: 阶段ID
+                - description: 阶段描述
+                - deliverable_type: 交付物类型
+                - deliverable_schema: 交付物 Schema（可选）
+                - depends_on: 依赖的阶段ID列表（可选）
+
+        Returns:
+            操作结果
+        """
+        if not self.enable_kanban:
+            return {
+                "status": "error",
+                "message": "Kanban is not enabled. Set enable_kanban=True",
+            }
+
+        await self._ensure_kanban_manager()
+
+        if not self._kanban_manager:
+            return {"status": "error", "message": "Failed to initialize KanbanManager"}
+
+        result = await self._kanban_manager.create_kanban(mission, stages)
+
+        if result.get("status") == "success":
+            self.set_phase("planning", "Kanban created, starting planning phase")
+
+        return result
+
+    async def submit_deliverable(
+        self,
+        stage_id: str,
+        deliverable: Dict[str, Any],
+        reflection: str = "",
+    ) -> Dict[str, Any]:
+        """
+        提交当前阶段的交付物
+
+        Args:
+            stage_id: 阶段ID
+            deliverable: 交付物数据
+            reflection: 自我评估
+
+        Returns:
+            操作结果
+        """
+        if not self.enable_kanban or not self._kanban_manager:
+            return {"status": "error", "message": "Kanban is not available"}
+
+        result = await self._kanban_manager.submit_deliverable(
+            stage_id, deliverable, reflection
+        )
+
+        if result.get("status") == "success":
+            if result.get("all_completed"):
+                self.set_phase("complete", "All stages completed")
+            elif result.get("next_stage"):
+                self.set_phase("execution", f"Moving to stage: {result['next_stage']['stage_id']}")
+
+        return result
+
+    async def read_deliverable(self, stage_id: str) -> Dict[str, Any]:
+        """
+        读取指定阶段的交付物
+
+        Args:
+            stage_id: 阶段ID
+
+        Returns:
+            交付物内容
+        """
+        if not self.enable_kanban or not self._kanban_manager:
+            return {"status": "error", "message": "Kanban is not available"}
+
+        return await self._kanban_manager.read_deliverable(stage_id)
+
+    async def get_kanban_status(self) -> str:
+        """
+        获取看板状态（用于 Prompt 注入）
+
+        Returns:
+            看板状态的 Markdown 文本
+        """
+        if not self.enable_kanban:
+            return ""
+
+        await self._ensure_kanban_manager()
+
+        if not self._kanban_manager:
+            return ""
+
+        return await self._kanban_manager.get_kanban_status()
+
+    async def get_current_stage_detail(self) -> str:
+        """
+        获取当前阶段详情（用于 Prompt 注入）
+
+        Returns:
+            当前阶段详情的 Markdown 文本
+        """
+        if not self.enable_kanban:
+            return ""
+
+        await self._ensure_kanban_manager()
+
+        if not self._kanban_manager:
+            return ""
+
+        return await self._kanban_manager.get_current_stage_detail()
+
+    def is_exploration_limit_reached(self) -> bool:
+        """
+        检查是否达到探索限制
+
+        Returns:
+            True 如果达到限制
+        """
+        if not self.enable_kanban or not self._kanban_manager:
+            return False
+
+        return self._kanban_manager.is_exploration_limit_reached()
+
 
 # 导入需要的东西
 from derisk.context.event import ActionPayload, EventType
@@ -1501,5 +1704,6 @@ __all__ = [
     "DoomLoopDetector",
     "SessionCompaction",
     "HistoryPruner",
-    "Truncator",
+    "KanbanManager",
+    "validate_deliverable_schema",
 ]

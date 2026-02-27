@@ -13,6 +13,8 @@ interface ConnectorsModalProps {
   defaultTab?: string;
   selectedSkills?: Skill[];
   onSkillsChange?: (skills: Skill[]) => void;
+  selectedMcps?: MCP[];
+  onMcpsChange?: (mcps: MCP[]) => void;
 }
 
 interface Skill {
@@ -49,7 +51,9 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   onCancel,
   defaultTab = 'skill',
   selectedSkills = [],
-  onSkillsChange
+  onSkillsChange,
+  selectedMcps = [],
+  onMcpsChange
 }: ConnectorsModalProps) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(defaultTab);
@@ -71,6 +75,12 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
   useEffect(() => {
     setSelectedSkillCodes(selectedSkills.map(s => s.skill_code));
   }, [selectedSkills]);
+
+  // Initialize selected MCPs from props
+  useEffect(() => {
+    const mcpCodes = selectedMcps.map(m => m.id || m.uuid || m.name || '');
+    setSelectedMcpCodes(mcpCodes.filter(code => code !== ''));
+  }, [selectedMcps]);
 
   // --- MCP Data Fetching ---
   const { data: mcpList = [], loading: mcpLoading } = useRequest(async () => {
@@ -144,6 +154,14 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
       ? selectedMcpCodes.filter(code => code !== mcpCode)
       : [...selectedMcpCodes, mcpCode || ''];
     setSelectedMcpCodes(newSelected);
+    
+    if (onMcpsChange) {
+      const selectedMcpsData = mcpList.filter((m: MCP) => {
+        const code = m.id || m.uuid || m.name || '';
+        return newSelected.includes(code);
+      });
+      onMcpsChange(selectedMcpsData);
+    }
   };
 
   const handleLocalToolToggle = (tool: any) => {
@@ -426,6 +444,13 @@ avatar={
               if (onSkillsChange) {
                 const selectedSkillsData = skillListData.filter((s: Skill) => selectedSkillCodes.includes(s.skill_code));
                 onSkillsChange(selectedSkillsData);
+              }
+              if (onMcpsChange) {
+                const selectedMcpsData = mcpList.filter((m: MCP) => {
+                  const code = m.id || m.uuid || m.name || '';
+                  return selectedMcpCodes.includes(code);
+                });
+                onMcpsChange(selectedMcpsData);
               }
               onCancel();
             }} className="bg-black hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200">
