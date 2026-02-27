@@ -1,10 +1,3 @@
--- You can change `derisk` to your actual metadata database name in your `.env` file
--- eg. `LOCAL_DB_NAME=derisk`
-
-CREATE
-DATABASE IF NOT EXISTS derisk;
-use derisk;
-
 -- ============================================================
 -- MySQL DDL Script for Derisk
 -- Generated from SQLAlchemy ORM Models
@@ -18,8 +11,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ============================================================
 
 -- Table: derisk_cluster_registry_instance
-DROP TABLE IF EXISTS `derisk_cluster_registry_instance`;
-CREATE TABLE `derisk_cluster_registry_instance` (
+CREATE TABLE IF NOT EXISTS `derisk_cluster_registry_instance` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `model_name` VARCHAR(128) NOT NULL COMMENT 'Model name',
   `host` VARCHAR(128) NOT NULL COMMENT 'Host of the model',
@@ -33,8 +25,7 @@ CREATE TABLE `derisk_cluster_registry_instance` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_history
-DROP TABLE IF EXISTS `chat_history`;
-CREATE TABLE `chat_history` (
+CREATE TABLE IF NOT EXISTS `chat_history` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_uid` VARCHAR(255) NOT NULL COMMENT 'Conversation record unique id',
   `chat_mode` VARCHAR(255) NOT NULL COMMENT 'Conversation scene mode',
@@ -55,8 +46,7 @@ CREATE TABLE `chat_history` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_history_message
-DROP TABLE IF EXISTS `chat_history_message`;
-CREATE TABLE `chat_history_message` (
+CREATE TABLE IF NOT EXISTS `chat_history_message` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_uid` VARCHAR(255) NOT NULL COMMENT 'Conversation record unique id',
   `index` INT NOT NULL COMMENT 'Message index',
@@ -73,8 +63,7 @@ CREATE TABLE `chat_history_message` (
 -- ============================================================
 
 -- Table: gpts_app
-DROP TABLE IF EXISTS `gpts_app`;
-CREATE TABLE `gpts_app` (
+CREATE TABLE IF NOT EXISTS `gpts_app` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `app_code` VARCHAR(255) NOT NULL COMMENT 'Current AI assistant code',
   `app_name` VARCHAR(255) NOT NULL COMMENT 'Current AI assistant name',
@@ -98,8 +87,7 @@ CREATE TABLE `gpts_app` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_app_detail
-DROP TABLE IF EXISTS `gpts_app_detail`;
-CREATE TABLE `gpts_app_detail` (
+CREATE TABLE IF NOT EXISTS `gpts_app_detail` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `app_code` VARCHAR(255) NOT NULL COMMENT 'Current AI assistant code',
   `app_name` VARCHAR(255) NOT NULL COMMENT 'Current AI assistant name',
@@ -119,8 +107,7 @@ CREATE TABLE `gpts_app_detail` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_app_config
-DROP TABLE IF EXISTS `gpts_app_config`;
-CREATE TABLE `gpts_app_config` (
+CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `code` VARCHAR(100) NOT NULL COMMENT '当前配置代码',
   `app_code` VARCHAR(100) NOT NULL COMMENT '应用代码',
@@ -153,8 +140,7 @@ CREATE TABLE `gpts_app_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: user_recent_apps
-DROP TABLE IF EXISTS `user_recent_apps`;
-CREATE TABLE `user_recent_apps` (
+CREATE TABLE IF NOT EXISTS `user_recent_apps` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `app_code` VARCHAR(255) NOT NULL COMMENT 'Current AI assistant code',
   `user_code` VARCHAR(255) NULL COMMENT 'user code',
@@ -169,8 +155,7 @@ CREATE TABLE `user_recent_apps` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_conversations
-DROP TABLE IF EXISTS `gpts_conversations`;
-CREATE TABLE `gpts_conversations` (
+CREATE TABLE IF NOT EXISTS `gpts_conversations` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
   `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
@@ -192,8 +177,7 @@ CREATE TABLE `gpts_conversations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_messages
-DROP TABLE IF EXISTS `gpts_messages`;
-CREATE TABLE `gpts_messages` (
+CREATE TABLE IF NOT EXISTS `gpts_messages` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
   `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
@@ -232,8 +216,7 @@ CREATE TABLE `gpts_messages` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_messages_system
-DROP TABLE IF EXISTS `gpts_messages_system`;
-CREATE TABLE `gpts_messages_system` (
+CREATE TABLE IF NOT EXISTS `gpts_messages_system` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
@@ -257,8 +240,7 @@ CREATE TABLE `gpts_messages_system` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_plans
-DROP TABLE IF EXISTS `gpts_plans`;
-CREATE TABLE `gpts_plans` (
+CREATE TABLE IF NOT EXISTS `gpts_plans` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
   `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation session',
@@ -288,8 +270,7 @@ CREATE TABLE `gpts_plans` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_tool
-DROP TABLE IF EXISTS `gpts_tool`;
-CREATE TABLE `gpts_tool` (
+CREATE TABLE IF NOT EXISTS `gpts_tool` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `tool_name` VARCHAR(255) NOT NULL COMMENT 'tool name',
   `tool_id` VARCHAR(255) NOT NULL COMMENT 'tool id',
@@ -303,8 +284,7 @@ CREATE TABLE `gpts_tool` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_tool_detail
-DROP TABLE IF EXISTS `gpts_tool_detail`;
-CREATE TABLE `gpts_tool_detail` (
+CREATE TABLE IF NOT EXISTS `gpts_tool_detail` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
@@ -323,8 +303,7 @@ CREATE TABLE `gpts_tool_detail` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_tool_messages
-DROP TABLE IF EXISTS `gpts_tool_messages`;
-CREATE TABLE `gpts_tool_messages` (
+CREATE TABLE IF NOT EXISTS `gpts_tool_messages` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `tool_id` VARCHAR(255) NOT NULL COMMENT 'tool id',
   `name` VARCHAR(255) NOT NULL COMMENT 'tool name',
@@ -350,8 +329,7 @@ CREATE TABLE `gpts_tool_messages` (
 -- ============================================================
 
 -- Table: recommend_question
-DROP TABLE IF EXISTS `recommend_question`;
-CREATE TABLE `recommend_question` (
+CREATE TABLE IF NOT EXISTS `recommend_question` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `app_code` VARCHAR(255) NOT NULL COMMENT 'App code',
   `question` TEXT NOT NULL COMMENT 'Question content',
@@ -370,8 +348,7 @@ CREATE TABLE `recommend_question` (
 -- ============================================================
 
 -- Table: derisk_serve_config
-DROP TABLE IF EXISTS `derisk_serve_config`;
-CREATE TABLE `derisk_serve_config` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_config` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `name` VARCHAR(255) NOT NULL COMMENT 'config key',
   `value` VARCHAR(4096) NULL COMMENT 'config value',
@@ -396,8 +373,7 @@ CREATE TABLE `derisk_serve_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_channel_config
-DROP TABLE IF EXISTS `derisk_serve_channel_config`;
-CREATE TABLE `derisk_serve_channel_config` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_channel_config` (
   `id` VARCHAR(64) NOT NULL COMMENT 'Channel unique identifier',
   `name` VARCHAR(255) NOT NULL COMMENT 'Channel display name',
   `channel_type` VARCHAR(32) NOT NULL COMMENT 'Channel type (dingtalk/feishu)',
@@ -412,8 +388,7 @@ CREATE TABLE `derisk_serve_channel_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_cron_job
-DROP TABLE IF EXISTS `derisk_serve_cron_job`;
-CREATE TABLE `derisk_serve_cron_job` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_cron_job` (
   `id` VARCHAR(64) NOT NULL COMMENT 'Job unique identifier',
   `name` VARCHAR(255) NOT NULL COMMENT 'Job name',
   `description` TEXT NULL COMMENT 'Job description',
@@ -442,8 +417,7 @@ CREATE TABLE `derisk_serve_cron_job` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: server_app_skill
-DROP TABLE IF EXISTS `server_app_skill`;
-CREATE TABLE `server_app_skill` (
+CREATE TABLE IF NOT EXISTS `server_app_skill` (
   `skill_code` VARCHAR(255) NOT NULL COMMENT 'skill code',
   `name` VARCHAR(255) NOT NULL COMMENT 'skill name',
   `description` TEXT NOT NULL COMMENT 'skill description',
@@ -466,8 +440,7 @@ CREATE TABLE `server_app_skill` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_mcp
-DROP TABLE IF EXISTS `derisk_serve_mcp`;
-CREATE TABLE `derisk_serve_mcp` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_mcp` (
   `mcp_code` VARCHAR(255) NOT NULL COMMENT 'mcp code',
   `name` VARCHAR(255) NOT NULL COMMENT 'mcp name',
   `description` TEXT NOT NULL COMMENT 'mcp description',
@@ -490,8 +463,7 @@ CREATE TABLE `derisk_serve_mcp` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_model
-DROP TABLE IF EXISTS `derisk_serve_model`;
-CREATE TABLE `derisk_serve_model` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_model` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `host` VARCHAR(255) NOT NULL COMMENT 'The model worker host',
   `port` INT NOT NULL COMMENT 'The model worker port',
@@ -511,8 +483,7 @@ CREATE TABLE `derisk_serve_model` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_file
-DROP TABLE IF EXISTS `derisk_serve_file`;
-CREATE TABLE `derisk_serve_file` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_file` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `bucket` VARCHAR(255) NOT NULL COMMENT 'Bucket name',
   `file_id` VARCHAR(255) NOT NULL COMMENT 'File id',
@@ -532,8 +503,7 @@ CREATE TABLE `derisk_serve_file` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_flow
-DROP TABLE IF EXISTS `derisk_serve_flow`;
-CREATE TABLE `derisk_serve_flow` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_flow` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `uid` VARCHAR(128) NOT NULL COMMENT 'Unique id',
   `dag_id` VARCHAR(128) NULL COMMENT 'DAG id',
@@ -559,8 +529,7 @@ CREATE TABLE `derisk_serve_flow` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: derisk_serve_variables
-DROP TABLE IF EXISTS `derisk_serve_variables`;
-CREATE TABLE `derisk_serve_variables` (
+CREATE TABLE IF NOT EXISTS `derisk_serve_variables` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `key_info` VARCHAR(128) NOT NULL COMMENT 'Variable key',
   `name` VARCHAR(128) NULL COMMENT 'Variable name',
@@ -588,8 +557,7 @@ CREATE TABLE `derisk_serve_variables` (
 -- ============================================================
 
 -- Table: knowledge_space
-DROP TABLE IF EXISTS `knowledge_space`;
-CREATE TABLE `knowledge_space` (
+CREATE TABLE IF NOT EXISTS `knowledge_space` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `knowledge_id` VARCHAR(100) NULL,
   `name` VARCHAR(100) NULL,
@@ -609,8 +577,7 @@ CREATE TABLE `knowledge_space` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: knowledge_document
-DROP TABLE IF EXISTS `knowledge_document`;
-CREATE TABLE `knowledge_document` (
+CREATE TABLE IF NOT EXISTS `knowledge_document` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `doc_id` VARCHAR(100) NULL,
   `doc_name` VARCHAR(100) NULL,
@@ -634,8 +601,7 @@ CREATE TABLE `knowledge_document` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: document_chunk
-DROP TABLE IF EXISTS `document_chunk`;
-CREATE TABLE `document_chunk` (
+CREATE TABLE IF NOT EXISTS `document_chunk` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `chunk_id` VARCHAR(100) NULL,
   `document_id` INT NULL,
@@ -658,8 +624,7 @@ CREATE TABLE `document_chunk` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: knowledge_task
-DROP TABLE IF EXISTS `knowledge_task`;
-CREATE TABLE `knowledge_task` (
+CREATE TABLE IF NOT EXISTS `knowledge_task` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `task_id` VARCHAR(100) NULL,
   `knowledge_id` VARCHAR(100) NULL,
@@ -686,8 +651,7 @@ CREATE TABLE `knowledge_task` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: knowledge_yuque
-DROP TABLE IF EXISTS `knowledge_yuque`;
-CREATE TABLE `knowledge_yuque` (
+CREATE TABLE IF NOT EXISTS `knowledge_yuque` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `yuque_id` VARCHAR(100) NULL,
   `doc_id` VARCHAR(100) NULL,
@@ -720,8 +684,7 @@ CREATE TABLE `knowledge_yuque` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: settings
-DROP TABLE IF EXISTS `settings`;
-CREATE TABLE `settings` (
+CREATE TABLE IF NOT EXISTS `settings` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `setting_key` VARCHAR(100) NULL,
   `value` VARCHAR(1000) NULL,
@@ -733,8 +696,7 @@ CREATE TABLE `settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: knowledge_refresh_record
-DROP TABLE IF EXISTS `knowledge_refresh_record`;
-CREATE TABLE `knowledge_refresh_record` (
+CREATE TABLE IF NOT EXISTS `knowledge_refresh_record` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `refresh_id` VARCHAR(100) NULL,
   `knowledge_id` VARCHAR(100) NULL,
@@ -750,8 +712,7 @@ CREATE TABLE `knowledge_refresh_record` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: knowledge_space_graph_relation
-DROP TABLE IF EXISTS `knowledge_space_graph_relation`;
-CREATE TABLE `knowledge_space_graph_relation` (
+CREATE TABLE IF NOT EXISTS `knowledge_space_graph_relation` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `knowledge_id` VARCHAR(100) NULL,
   `storage_type` VARCHAR(100) NULL,
@@ -765,8 +726,7 @@ CREATE TABLE `knowledge_space_graph_relation` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: graph_node
-DROP TABLE IF EXISTS `graph_node`;
-CREATE TABLE `graph_node` (
+CREATE TABLE IF NOT EXISTS `graph_node` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `project_id` INT NULL,
   `node_id` VARCHAR(100) NULL,
@@ -781,8 +741,7 @@ CREATE TABLE `graph_node` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: rag_flow_span
-DROP TABLE IF EXISTS `rag_flow_span`;
-CREATE TABLE `rag_flow_span` (
+CREATE TABLE IF NOT EXISTS `rag_flow_span` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `span_id` VARCHAR(100) NULL,
   `span_type` VARCHAR(100) NULL,
@@ -806,8 +765,7 @@ CREATE TABLE `rag_flow_span` (
 -- ============================================================
 
 -- Table: connect_config
-DROP TABLE IF EXISTS `connect_config`;
-CREATE TABLE `connect_config` (
+CREATE TABLE IF NOT EXISTS `connect_config` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `db_type` VARCHAR(255) NOT NULL COMMENT 'db type',
   `db_name` VARCHAR(255) NOT NULL COMMENT 'db name',
@@ -829,8 +787,7 @@ CREATE TABLE `connect_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: prompt_manage
-DROP TABLE IF EXISTS `prompt_manage`;
-CREATE TABLE `prompt_manage` (
+CREATE TABLE IF NOT EXISTS `prompt_manage` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `chat_scene` VARCHAR(100) NULL COMMENT 'Chat scene',
   `sub_chat_scene` VARCHAR(100) NULL COMMENT 'Sub chat scene',
@@ -854,8 +811,7 @@ CREATE TABLE `prompt_manage` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_feed_back
-DROP TABLE IF EXISTS `chat_feed_back`;
-CREATE TABLE `chat_feed_back` (
+CREATE TABLE IF NOT EXISTS `chat_feed_back` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `conv_uid` VARCHAR(128) NULL,
   `conv_index` INT NULL,
@@ -878,8 +834,7 @@ CREATE TABLE `chat_feed_back` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: evaluate_manage
-DROP TABLE IF EXISTS `evaluate_manage`;
-CREATE TABLE `evaluate_manage` (
+CREATE TABLE IF NOT EXISTS `evaluate_manage` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto increment id',
   `evaluate_code` VARCHAR(256) NULL COMMENT 'evaluate Code',
   `scene_key` VARCHAR(100) NULL COMMENT 'evaluate scene key',
@@ -904,8 +859,7 @@ CREATE TABLE `evaluate_manage` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: skill_sync_task
-DROP TABLE IF EXISTS `skill_sync_task`;
-CREATE TABLE `skill_sync_task` (
+CREATE TABLE IF NOT EXISTS `skill_sync_task` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `task_id` VARCHAR(100) NOT NULL COMMENT 'unique task identifier',
   `repo_url` VARCHAR(500) NOT NULL COMMENT 'git repository url',
