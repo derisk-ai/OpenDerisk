@@ -30,6 +30,17 @@ from .file_base import (
     AgentFileMemory,
     FileMetadataStorage,
     FileType,
+    WorkLogStorage,
+    WorkEntry,
+    WorkLogSummary,
+    WorkLogStatus,
+    KanbanStorage,
+    Kanban,
+    KanbanStage,
+    StageStatus,
+    TodoStorage,
+    TodoItem,
+    TodoStatus,
 )
 from .default_file_memory import DefaultAgentFileMemory
 from ...action.base import ActionOutput
@@ -204,6 +215,18 @@ class ConversationCache:
         self.files: Dict[str, AgentFileMetadata] = {}  # file_id -> AgentFileMetadata
         self.file_key_index: Dict[str, str] = {}  # file_key -> file_id (catalog)
 
+        ## 工作日志缓存
+        self.work_logs: List[WorkEntry] = []  # 工作日志条目列表
+        self.work_log_summaries: List[WorkLogSummary] = []  # 压缩摘要列表
+
+        ## 看板缓存
+        self.kanban: Optional[Kanban] = None  # 当前看板
+        self.pre_kanban_logs: List[WorkEntry] = []  # 看板创建前的预研日志
+        self.deliverables: Dict[str, Dict[str, Any]] = {}  # stage_id -> deliverable
+
+        ## Todo 缓存
+        self.todos: List[TodoItem] = []  # 任务列表
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -227,6 +250,18 @@ class ConversationCache:
         # 清理文件缓存
         self.files.clear()
         self.file_key_index.clear()
+
+        # 清理工作日志
+        self.work_logs.clear()
+        self.work_log_summaries.clear()
+
+        # 清理看板相关
+        self.kanban = None
+        self.pre_kanban_logs.clear()
+        self.deliverables.clear()
+
+        # 清理 Todo
+        self.todos.clear()
 
         # 通知队列消费者退出
         try:
@@ -312,10 +347,11 @@ class DynamicThreadPoolExecutor(ThreadPoolExecutor):
 # --------------------------
 # 全局内存管理（单例）
 # --------------------------
-class GptsMemory(FileMetadataStorage):
-    """会话全局消息记忆管理（包含文件元数据管理）.
+class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage):
+    """会话全局消息记忆管理（包含文件元数据管理、工作日志、看板和任务列表管理）.
 
-    同时实现了FileMetadataStorage接口，可作为AgentFileSystem的存储后端。
+    同时实现了 FileMetadataStorage、WorkLogStorage、KanbanStorage 和 TodoStorage 接口，
+    可作为 AgentFileSystem、WorkLogManager、KanbanManager 和 Todo 工具的统一存储后端。
     """
 
     def __init__(
@@ -329,6 +365,10 @@ class GptsMemory(FileMetadataStorage):
         cache_maxsize: int = 200,  # 最大会话数
         message_system_memory: Optional[AgentSystemMessageMemory] = None,
         file_memory: AgentFileMemory = None,
+        file_metadata_db_storage: Optional[Any] = None,  # 数据库文件元数据存储后端
+        work_log_db_storage: Optional[Any] = None,  # 数据库 WorkLog 存储后端
+        kanban_db_storage: Optional[Any] = None,   # 数据库 Kanban 存储后端
+        todo_db_storage: Optional[Any] = None,     # 数据库 Todo 存储后端
     ):
         if hasattr(self, "_initialized"):
             return
@@ -347,6 +387,12 @@ class GptsMemory(FileMetadataStorage):
         self._global_lock = asyncio.Lock()
         self._cleanup_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
+
+        # 数据库存储后端（用于持久化）
+        self._file_metadata_db_storage = file_metadata_db_storage
+        self._work_log_db_storage = work_log_db_storage
+        self._kanban_db_storage = kanban_db_storage
+        self._todo_db_storage = todo_db_storage
 
     @property
     def file_memory(self) -> AgentFileMemory:
@@ -1001,7 +1047,9 @@ class GptsMemory(FileMetadataStorage):
     # --------------------------
     # 文件管理方法区
     # --------------------------
-    async def append_file(self, conv_id: str, file_metadata: AgentFileMetadata, save_db: bool = True):
+    async def append_file(
+        self, conv_id: str, file_metadata: AgentFileMetadata, save_db: bool = True
+    ):
         """添加文件元数据到缓存和存储.
 
         Args:
@@ -1018,13 +1066,20 @@ class GptsMemory(FileMetadataStorage):
             cache.file_key_index[file_metadata.file_key] = file_metadata.file_id
 
         if save_db:
-            try:
-                await blocking_func_to_async(
-                    self._executor, self._file_memory.append, file_metadata
-                )
-                logger.debug(f"Saved file metadata to DB: {file_metadata.file_id}")
-            except Exception as e:
-                logger.error(f"Failed to save file metadata to DB: {e}")
+            if self._file_metadata_db_storage:
+                try:
+                    await self._file_metadata_db_storage.save_file_metadata(file_metadata)
+                    logger.debug(f"Saved file metadata to DB storage: {file_metadata.file_id}")
+                except Exception as e:
+                    logger.error(f"Failed to save file metadata to DB storage: {e}")
+            else:
+                try:
+                    await blocking_func_to_async(
+                        self._executor, self._file_memory.append, file_metadata
+                    )
+                    logger.debug(f"Saved file metadata to file memory: {file_metadata.file_id}")
+                except Exception as e:
+                    logger.error(f"Failed to save file metadata to file memory: {e}")
 
     async def update_file(self, conv_id: str, file_metadata: AgentFileMetadata):
         """更新文件元数据.
@@ -1040,12 +1095,19 @@ class GptsMemory(FileMetadataStorage):
         async with await self._get_conv_lock(conv_id):
             cache.files[file_metadata.file_id] = file_metadata
 
-        try:
-            await blocking_func_to_async(
-                self._executor, self._file_memory.update, file_metadata
-            )
-        except Exception as e:
-            logger.error(f"Failed to update file metadata: {e}")
+        if self._file_metadata_db_storage:
+            try:
+                await self._file_metadata_db_storage.update_file_metadata(file_metadata)
+                logger.debug(f"Updated file metadata in DB storage: {file_metadata.file_id}")
+            except Exception as e:
+                logger.error(f"Failed to update file metadata in DB storage: {e}")
+        else:
+            try:
+                await blocking_func_to_async(
+                    self._executor, self._file_memory.update, file_metadata
+                )
+            except Exception as e:
+                logger.error(f"Failed to update file metadata: {e}")
 
     async def get_files(self, conv_id: str) -> List[AgentFileMetadata]:
         """获取会话的所有文件.
@@ -1058,18 +1120,30 @@ class GptsMemory(FileMetadataStorage):
         """
         cache = await self._get_or_create_cache(conv_id)
         if not cache.files:
-            # 从持久化存储加载
-            files = await blocking_func_to_async(
-                self._executor, self._file_memory.get_by_conv_id, conv_id
-            )
-            async with await self._get_conv_lock(conv_id):
-                for f in files:
-                    cache.files[f.file_id] = f
-                    cache.file_key_index[f.file_key] = f.file_id
-            return files
+            if self._file_metadata_db_storage:
+                try:
+                    files = await self._file_metadata_db_storage.list_files(conv_id)
+                    async with await self._get_conv_lock(conv_id):
+                        for f in files:
+                            cache.files[f.file_id] = f
+                            cache.file_key_index[f.file_key] = f.file_id
+                    return files
+                except Exception as e:
+                    logger.error(f"Failed to load files from DB storage: {e}")
+            else:
+                files = await blocking_func_to_async(
+                    self._executor, self._file_memory.get_by_conv_id, conv_id
+                )
+                async with await self._get_conv_lock(conv_id):
+                    for f in files:
+                        cache.files[f.file_id] = f
+                        cache.file_key_index[f.file_key] = f.file_id
+                return files
         return list(cache.files.values())
 
-    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_id(
+        self, conv_id: str, file_id: str
+    ) -> Optional[AgentFileMetadata]:
         """通过ID获取文件元数据.
 
         Args:
@@ -1084,7 +1158,9 @@ class GptsMemory(FileMetadataStorage):
             return cache.files[file_id]
         return None
 
-    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_key(
+        self, conv_id: str, file_key: str
+    ) -> Optional[AgentFileMetadata]:
         """通过key获取文件元数据.
 
         Args:
@@ -1098,9 +1174,21 @@ class GptsMemory(FileMetadataStorage):
         if cache and file_key in cache.file_key_index:
             file_id = cache.file_key_index[file_key]
             return cache.files.get(file_id)
+        if self._file_metadata_db_storage:
+            try:
+                file_metadata = await self._file_metadata_db_storage.get_file_by_key(conv_id, file_key)
+                if file_metadata and cache:
+                    async with await self._get_conv_lock(conv_id):
+                        cache.files[file_metadata.file_id] = file_metadata
+                        cache.file_key_index[file_metadata.file_key] = file_metadata.file_id
+                return file_metadata
+            except Exception as e:
+                logger.error(f"Failed to get file by key from DB storage: {e}")
         return None
 
-    async def get_files_by_type(self, conv_id: str, file_type: Union[str, FileType]) -> List[AgentFileMetadata]:
+    async def get_files_by_type(
+        self, conv_id: str, file_type: Union[str, FileType]
+    ) -> List[AgentFileMetadata]:
         """获取指定类型的文件.
 
         Args:
@@ -1114,10 +1202,7 @@ class GptsMemory(FileMetadataStorage):
         target_type = file_type.value if isinstance(file_type, FileType) else file_type
 
         async with await self._get_conv_lock(conv_id):
-            return [
-                f for f in cache.files.values()
-                if f.file_type == target_type
-            ]
+            return [f for f in cache.files.values() if f.file_type == target_type]
 
     async def get_conclusion_files(self, conv_id: str) -> List[AgentFileMetadata]:
         """获取所有结论文件（用于推送给用户）.
@@ -1140,15 +1225,26 @@ class GptsMemory(FileMetadataStorage):
         if not cache:
             return
 
-        # 将catalog映射保存到file_memory
-        try:
-            for file_key, file_id in cache.file_key_index.items():
-                await blocking_func_to_async(
-                    self._executor, self._file_memory.save_catalog, conv_id, file_key, file_id
-                )
-            logger.debug(f"Saved file catalog for {conv_id}")
-        except Exception as e:
-            logger.error(f"Failed to save file catalog: {e}")
+        if self._file_metadata_db_storage:
+            try:
+                for file_key, file_id in cache.file_key_index.items():
+                    await self._file_metadata_db_storage.save_catalog(conv_id, file_key, file_id)
+                logger.debug(f"Saved file catalog to DB storage for {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to save file catalog to DB storage: {e}")
+        else:
+            try:
+                for file_key, file_id in cache.file_key_index.items():
+                    await blocking_func_to_async(
+                        self._executor,
+                        self._file_memory.save_catalog,
+                        conv_id,
+                        file_key,
+                        file_id,
+                    )
+                logger.debug(f"Saved file catalog for {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to save file catalog: {e}")
 
     async def load_file_catalog(self, conv_id: str) -> Optional[Dict[str, str]]:
         """加载文件目录.
@@ -1160,9 +1256,12 @@ class GptsMemory(FileMetadataStorage):
             文件目录字典 {file_key -> file_id}
         """
         try:
-            catalog = await blocking_func_to_async(
-                self._executor, self._file_memory.get_catalog, conv_id
-            )
+            if self._file_metadata_db_storage:
+                catalog = await self._file_metadata_db_storage.get_catalog(conv_id)
+            else:
+                catalog = await blocking_func_to_async(
+                    self._executor, self._file_memory.get_catalog, conv_id
+                )
             if catalog:
                 cache = await self._get_or_create_cache(conv_id)
                 async with await self._get_conv_lock(conv_id):
@@ -1184,10 +1283,9 @@ class GptsMemory(FileMetadataStorage):
     async def update_file_metadata(self, file_metadata: "AgentFileMetadata") -> None:
         """FileMetadataStorage接口: 更新文件元数据."""
         await self.update_file(file_metadata.conv_id, file_metadata)
+
     async def list_files(
-        self,
-        conv_id: str,
-        file_type: Optional[Union[str, "FileType"]] = None
+        self, conv_id: str, file_type: Optional[Union[str, "FileType"]] = None
     ) -> List["AgentFileMetadata"]:
         """FileMetadataStorage接口: 列出会话的所有文件."""
         if file_type:
@@ -1212,14 +1310,22 @@ class GptsMemory(FileMetadataStorage):
                 del cache.file_key_index[file_key]
 
         # 从持久化存储删除
-        try:
-            await blocking_func_to_async(
-                self._executor, self._file_memory.delete_by_file_key, conv_id, file_key
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete file metadata from storage: {e}")
-            return False
+        if self._file_metadata_db_storage:
+            try:
+                await self._file_metadata_db_storage.delete_file(conv_id, file_key)
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete file metadata from DB storage: {e}")
+                return False
+        else:
+            try:
+                await blocking_func_to_async(
+                    self._executor, self._file_memory.delete_by_file_key, conv_id, file_key
+                )
+                return True
+            except Exception as e:
+                logger.error(f"Failed to delete file metadata from storage: {e}")
+                return False
 
     async def clear_conv_files(self, conv_id: str) -> None:
         """FileMetadataStorage接口: 清空会话的所有文件元数据."""
@@ -1228,6 +1334,623 @@ class GptsMemory(FileMetadataStorage):
             async with await self._get_conv_lock(conv_id):
                 cache.files.clear()
                 cache.file_key_index.clear()
-        await blocking_func_to_async(
-            self._executor, self._file_memory.delete_by_conv_id, conv_id
+        if self._file_metadata_db_storage:
+            await self._file_metadata_db_storage.clear_conv_files(conv_id)
+        else:
+            await blocking_func_to_async(
+                self._executor, self._file_memory.delete_by_conv_id, conv_id
+            )
+
+    # =========================================================================
+    # WorkLogStorage Interface Implementation
+    # =========================================================================
+    # GptsMemory 实现了 WorkLogStorage 接口，提供工作日志的统一存储能力
+
+    async def append_work_entry(
+        self,
+        conv_id: str,
+        entry: "WorkEntry",
+        save_db: bool = True,
+    ) -> None:
+        """WorkLogStorage接口: 添加工作日志条目.
+
+        Args:
+            conv_id: 会话ID
+            entry: 工作日志条目
+            save_db: 是否持久化到数据库
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.work_logs.append(entry)
+
+        if save_db:
+            # 优先保存到数据库存储后端
+            if self._work_log_db_storage:
+                try:
+                    await self._work_log_db_storage.append_async(
+                        conv_id, conv_id, conv_id, entry
+                    )
+                    logger.debug(f"Persisted work entry to db storage: {conv_id}")
+                except Exception as e:
+                    logger.error(f"Failed to persist work log to db: {e}")
+            else:
+                # 回退到文件系统存储
+                try:
+                    work_log_data = [e.to_dict() for e in cache.work_logs]
+                    await blocking_func_to_async(
+                        self._executor,
+                        self._file_memory.append,
+                        AgentFileMetadata(
+                            file_id=f"work_log_{conv_id}",
+                            conv_id=conv_id,
+                            conv_session_id=conv_id,
+                            file_key=f"{conv_id}_work_log",
+                            file_name="work_log.json",
+                            file_type=FileType.WORK_LOG.value,
+                            local_path="",
+                        ),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to persist work log: {e}")
+
+        logger.debug(f"Appended work entry to {conv_id}: {entry.tool}")
+
+    async def get_work_log(self, conv_id: str) -> List["WorkEntry"]:
+        """WorkLogStorage接口: 获取会话的工作日志.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            工作日志条目列表
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        return list(cache.work_logs)
+
+    async def get_work_log_summaries(self, conv_id: str) -> List["WorkLogSummary"]:
+        """WorkLogStorage接口: 获取工作日志摘要列表.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            工作日志摘要列表
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return []
+        return list(cache.work_log_summaries)
+
+    async def append_work_log_summary(
+        self,
+        conv_id: str,
+        summary: "WorkLogSummary",
+        save_db: bool = True,
+    ) -> None:
+        """WorkLogStorage接口: 添加工作日志摘要.
+
+        Args:
+            conv_id: 会话ID
+            summary: 工作日志摘要
+            save_db: 是否持久化
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.work_log_summaries.append(summary)
+
+        logger.debug(
+            f"Appended work log summary to {conv_id}: "
+            f"{summary.compressed_entries_count} entries compressed"
         )
+
+    async def get_work_log_context(
+        self,
+        conv_id: str,
+        max_entries: int = 50,
+        max_tokens: int = 8000,
+    ) -> str:
+        """WorkLogStorage接口: 获取用于 prompt 的工作日志上下文.
+
+        Args:
+            conv_id: 会话ID
+            max_entries: 最大条目数
+            max_tokens: 最大 token 数
+
+        Returns:
+            格式化的上下文文本
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache or (not cache.work_logs and not cache.work_log_summaries):
+            return "\n暂无工作日志记录。"
+
+        lines = ["## 工作日志", ""]
+        total_tokens = 0
+        chars_per_token = 4
+
+        # 添加历史摘要
+        if cache.work_log_summaries:
+            lines.append("### 历史摘要")
+            for i, summary in enumerate(cache.work_log_summaries, 1):
+                summary_text = f"#### 摘要 {i}\n{summary.summary_content}\n"
+                lines.append(summary_text)
+                total_tokens += len(summary_text) // chars_per_token
+            lines.append("")
+
+        # 添加活跃日志
+        if cache.work_logs:
+            lines.append("### 最近的工作")
+            import time as time_module
+
+            for entry in cache.work_logs[-max_entries:]:
+                if entry.status == WorkLogStatus.ACTIVE.value:
+                    time_str = time_module.strftime(
+                        "%H:%M:%S", time_module.localtime(entry.timestamp)
+                    )
+                    entry_lines = [f"[{time_str}] {entry.tool}"]
+
+                    if entry.args:
+                        important_args = {
+                            k: v
+                            for k, v in entry.args.items()
+                            if k
+                            in [
+                                "file_key",
+                                "path",
+                                "query",
+                                "pattern",
+                                "offset",
+                                "limit",
+                            ]
+                        }
+                        if important_args:
+                            entry_lines.append(f"  参数: {important_args}")
+
+                    if entry.result:
+                        if entry.tool == "read_file":
+                            entry_lines.append("  读取内容预览:")
+                        result_lines = entry.result.split("\n")[:10]
+                        preview = "\n".join(result_lines)
+                        if len(preview) > 500:
+                            preview = preview[:500] + "... (已截断)"
+                        entry_lines.append(f"  {preview}")
+                    elif entry.full_result_archive:
+                        entry_lines.append(
+                            f"  完整结果已归档: {entry.full_result_archive}"
+                        )
+                        entry_lines.append(
+                            f'  💡 使用 read_file(file_key="{entry.full_result_archive}") 读取完整内容'
+                        )
+
+                    entry_text = "\n".join(entry_lines)
+                    lines.append(entry_text)
+                    total_tokens += len(entry_text) // chars_per_token
+
+                    if total_tokens > max_tokens:
+                        break
+
+            lines.append("")
+
+        return "\n".join(lines)
+
+    async def clear_work_log(self, conv_id: str) -> None:
+        """WorkLogStorage接口: 清空会话的工作日志.
+
+        Args:
+            conv_id: 会话ID
+        """
+        cache = await self._get_cache(conv_id)
+        if cache:
+            async with await self._get_conv_lock(conv_id):
+                cache.work_logs.clear()
+                cache.work_log_summaries.clear()
+        logger.info(f"Cleared work log for {conv_id}")
+
+    async def get_work_log_stats(self, conv_id: str) -> Dict[str, Any]:
+        """WorkLogStorage接口: 获取工作日志统计信息.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            统计信息字典
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return {
+                "total_entries": 0,
+                "active_entries": 0,
+                "compressed_summaries": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "current_tokens": 0,
+            }
+
+        entries = cache.work_logs
+        summaries = cache.work_log_summaries
+
+        total_tokens = sum(e.tokens for e in entries)
+
+        return {
+            "total_entries": len(entries)
+            + sum(s.compressed_entries_count for s in summaries),
+            "active_entries": len(entries),
+            "compressed_summaries": len(summaries),
+            "success_count": sum(1 for e in entries if e.success),
+            "fail_count": sum(1 for e in entries if not e.success),
+            "current_tokens": total_tokens,
+        }
+
+    # =========================================================================
+    # KanbanStorage Interface Implementation
+    # =========================================================================
+    # GptsMemory 实现了 KanbanStorage 接口，提供看板的统一存储能力
+
+    async def save_kanban(self, conv_id: str, kanban: "Kanban") -> None:
+        """KanbanStorage接口: 保存看板.
+
+        Args:
+            conv_id: 会话ID
+            kanban: 看板对象
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.kanban = kanban
+
+        # 持久化到数据库
+        if self._kanban_db_storage:
+            try:
+                kanban_data = {
+                    "kanban_id": kanban.kanban_id,
+                    "mission": kanban.mission,
+                    "current_stage_index": kanban.current_stage_index,
+                    "stages": [self._stage_to_dict(s) for s in kanban.stages],
+                    "deliverables": dict(cache.deliverables),
+                    "created_at": kanban.created_at,
+                }
+                await self._kanban_db_storage.save_kanban_async(
+                    conv_id, conv_id, conv_id, kanban_data
+                )
+                logger.debug(f"Persisted kanban to db storage: {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to persist kanban to db: {e}")
+
+        logger.debug(f"Saved kanban for {conv_id}: {kanban.kanban_id}")
+
+    def _stage_to_dict(self, stage: "KanbanStage") -> Dict[str, Any]:
+        """将 KanbanStage 转换为字典."""
+        return {
+            "stage_id": stage.stage_id,
+            "description": stage.description,
+            "status": stage.status,
+            "deliverable_type": stage.deliverable_type,
+            "deliverable_schema": stage.deliverable_schema,
+            "deliverable_file": stage.deliverable_file,
+            "work_log": [e.to_dict() for e in stage.work_log],
+            "started_at": stage.started_at,
+            "completed_at": stage.completed_at,
+            "depends_on": stage.depends_on,
+            "reflection": stage.reflection,
+        }
+
+    async def get_kanban(self, conv_id: str) -> Optional["Kanban"]:
+        """KanbanStorage接口: 获取看板.
+
+        优先从内存缓存获取，如果缓存不存在则从数据库加载。
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            看板对象，不存在返回 None
+        """
+        cache = await self._get_cache(conv_id)
+        if cache and cache.kanban:
+            return cache.kanban
+
+        # 从数据库加载
+        if self._kanban_db_storage:
+            try:
+                kanban_data = await self._kanban_db_storage.get_kanban_async(
+                    conv_id, conv_id
+                )
+                if kanban_data:
+                    kanban = self._dict_to_kanban(kanban_data)
+                    cache = await self._get_or_create_cache(conv_id)
+                    if cache:
+                        cache.kanban = kanban
+                        # 加载交付物
+                        cache.deliverables = kanban_data.get("deliverables", {})
+                    return kanban
+            except Exception as e:
+                logger.error(f"Failed to load kanban from db: {e}")
+
+        return None
+
+    def _dict_to_kanban(self, data: Dict[str, Any]) -> "Kanban":
+        """从字典转换为 Kanban 对象."""
+        stages = [self._dict_to_stage(s) for s in data.get("stages", [])]
+        return Kanban(
+            kanban_id=data.get("kanban_id", ""),
+            mission=data.get("mission", ""),
+            stages=stages,
+            current_stage_index=data.get("current_stage_index", 0),
+            created_at=data.get("created_at") or 0.0,
+        )
+
+    def _dict_to_stage(self, data: Dict[str, Any]) -> "KanbanStage":
+        """从字典转换为 KanbanStage 对象."""
+        work_log = [WorkEntry.from_dict(e) for e in data.get("work_log", [])]
+        return KanbanStage(
+            stage_id=data.get("stage_id", ""),
+            description=data.get("description", ""),
+            status=data.get("status", "working"),
+            deliverable_type=data.get("deliverable_type", ""),
+            deliverable_schema=data.get("deliverable_schema", {}),
+            deliverable_file=data.get("deliverable_file", ""),
+            work_log=work_log,
+            started_at=data.get("started_at", 0.0),
+            completed_at=data.get("completed_at", 0.0),
+            depends_on=data.get("depends_on", []),
+            reflection=data.get("reflection", ""),
+        )
+
+    async def delete_kanban(self, conv_id: str) -> bool:
+        """KanbanStorage接口: 删除看板.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            是否成功删除
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return False
+
+        async with await self._get_conv_lock(conv_id):
+            if cache.kanban:
+                cache.kanban = None
+                cache.pre_kanban_logs.clear()
+                cache.deliverables.clear()
+
+        # 从数据库删除
+        if self._kanban_db_storage:
+            try:
+                await self._kanban_db_storage.delete_kanban_async(conv_id, conv_id)
+                logger.debug(f"Deleted kanban from db storage: {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete kanban from db: {e}")
+
+        return True
+
+    async def save_deliverable(
+        self,
+        conv_id: str,
+        stage_id: str,
+        deliverable: Dict[str, Any],
+        deliverable_type: str = "",
+    ) -> str:
+        """KanbanStorage接口: 保存交付物.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+            deliverable: 交付物数据
+            deliverable_type: 交付物类型
+
+        Returns:
+            交付物文件 key
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return ""
+
+        key = f"{conv_id}_{stage_id}_deliverable"
+        async with await self._get_conv_lock(conv_id):
+            cache.deliverables[stage_id] = deliverable
+
+            # 同时更新看板中阶段的交付物文件
+            if cache.kanban:
+                stage = cache.kanban.get_stage_by_id(stage_id)
+                if stage:
+                    stage.deliverable_file = key
+                    stage.deliverable_type = deliverable_type
+
+        logger.debug(f"Saved deliverable for {conv_id}/{stage_id}")
+        return key
+
+    async def get_deliverable(
+        self, conv_id: str, stage_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """KanbanStorage接口: 获取交付物.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+
+        Returns:
+            交付物数据，不存在返回 None
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return None
+        return cache.deliverables.get(stage_id)
+
+    async def get_all_deliverables(self, conv_id: str) -> Dict[str, Dict[str, Any]]:
+        """KanbanStorage接口: 获取所有交付物.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            {stage_id: deliverable} 字典
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return {}
+        return dict(cache.deliverables)
+
+    async def add_work_entry_to_stage(
+        self,
+        conv_id: str,
+        stage_id: str,
+        entry: "WorkEntry",
+    ) -> bool:
+        """KanbanStorage接口: 向指定阶段添加工作日志条目.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+            entry: 工作日志条目
+
+        Returns:
+            是否成功添加
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache or not cache.kanban:
+            return False
+
+        async with await self._get_conv_lock(conv_id):
+            stage = cache.kanban.get_stage_by_id(stage_id)
+            if not stage:
+                return False
+            stage.work_log.append(entry)
+
+        logger.debug(f"Added work entry to {conv_id}/{stage_id}")
+        return True
+
+    async def get_pre_kanban_logs(self, conv_id: str) -> List["WorkEntry"]:
+        """KanbanStorage接口: 获取看板创建前的预研日志.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            预研日志列表
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return []
+        return list(cache.pre_kanban_logs)
+
+    async def add_pre_kanban_log(
+        self,
+        conv_id: str,
+        entry: "WorkEntry",
+    ) -> None:
+        """KanbanStorage接口: 添加预研日志条目.
+
+        Args:
+            conv_id: 会话ID
+            entry: 工作日志条目
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.pre_kanban_logs.append(entry)
+
+        logger.debug(f"Added pre-kanban log entry for {conv_id}")
+
+    async def clear_pre_kanban_logs(self, conv_id: str) -> None:
+        """KanbanStorage接口: 清空预研日志.
+
+        Args:
+            conv_id: 会话ID
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.pre_kanban_logs.clear()
+
+        logger.debug(f"Cleared pre-kanban logs for {conv_id}")
+
+    # =========================================================================
+    # TodoStorage Interface Implementation
+    # =========================================================================
+    # GptsMemory 实现了 TodoStorage 接口，提供任务列表的统一存储能力
+    # 参考 opencode 的 todowrite/todoread 设计，保持简洁
+
+    async def write_todos(self, conv_id: str, todos: List["TodoItem"]) -> None:
+        """TodoStorage接口: 写入任务列表.
+
+        Args:
+            conv_id: 会话ID
+            todos: 任务列表
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache:
+            return
+
+        async with await self._get_conv_lock(conv_id):
+            cache.todos = todos
+
+        # 持久化到数据库存储后端
+        if self._todo_db_storage:
+            try:
+                await self._todo_db_storage.write_todos(conv_id, todos)
+                logger.debug(f"Persisted todos to db storage: {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to persist todos to db: {e}")
+
+        logger.debug(f"Wrote {len(todos)} todos for {conv_id}")
+
+    async def read_todos(self, conv_id: str) -> List["TodoItem"]:
+        """TodoStorage接口: 读取任务列表.
+
+        优先从内存缓存获取，如果缓存不存在则从数据库加载。
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            任务列表
+        """
+        cache = await self._get_cache(conv_id)
+        if cache and cache.todos:
+            return cache.todos
+
+        # 从数据库加载
+        if self._todo_db_storage:
+            try:
+                todos = await self._todo_db_storage.read_todos(conv_id)
+                if todos:
+                    cache = await self._get_or_create_cache(conv_id)
+                    if cache:
+                        cache.todos = todos
+                    return todos
+            except Exception as e:
+                logger.error(f"Failed to load todos from db: {e}")
+
+        return []
+
+    async def clear_todos(self, conv_id: str) -> None:
+        """TodoStorage接口: 清空任务列表.
+
+        Args:
+            conv_id: 会话ID
+        """
+        cache = await self._get_cache(conv_id)
+        if cache:
+            async with await self._get_conv_lock(conv_id):
+                cache.todos.clear()
+
+        # 从数据库删除
+        if self._todo_db_storage:
+            try:
+                await self._todo_db_storage.clear_todos(conv_id)
+                logger.debug(f"Cleared todos from db storage: {conv_id}")
+            except Exception as e:
+                logger.error(f"Failed to clear todos from db: {e}")

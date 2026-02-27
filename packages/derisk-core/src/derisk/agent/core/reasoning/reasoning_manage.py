@@ -1,5 +1,4 @@
 from derisk import BaseComponent, SystemApp
-from derisk.agent.core.reasoning.reasoning_arg_supplier import ReasoningArgSupplier
 from derisk.agent.core.reasoning.reasoning_engine import ReasoningEngine
 from derisk.component import ComponentType
 from derisk.core.awel import BaseOperator
@@ -32,7 +31,6 @@ def _register():
 
     for baseclass, path in [
         (ReasoningEngine, "derisk_ext.reasoning_engine"),
-        (ReasoningArgSupplier, "derisk_ext.reasoning_arg_supplier"),
         (BaseOperator, "derisk_ext.agent.agents.awel"),
     ]:
         scanner = ModelScanner[baseclass]()

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import warnings
 from typing import Any, Dict, List, Optional
 from derisk._private.pydantic import Field, PrivateAttr
 from derisk.agent import (
@@ -23,14 +24,11 @@ from derisk.agent.resource.app import AppResource
 from derisk.context.event import ActionPayload, EventType
 from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
-from derisk_ext.reasoning_arg_supplier.default.memory_history_arg_supplier import (
-    MemoryHistoryArgSupplier,
-)
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-from .prompt_v4 import (
-    REACT_FC_SYSTEM_TEMPLATE,
-    REACT_FC_USER_TEMPLATE,
-    REACT_FC_WRITE_MEMORY_TEMPLATE,
+from .prompt_v3 import (
+    REACT_SYSTEM_TEMPLATE,
+    REACT_USER_TEMPLATE,
+    REACT_WRITE_MEMORY_TEMPLATE,
 )
 from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
@@ -39,6 +37,23 @@ from ...core.schema import DynamicParam, DynamicParamType
 logger = logging.getLogger(__name__)
 
 _REACT_DEFAULT_GOAL = """通用SRE问题解决专家."""
+
+_DEPRECATION_MESSAGE = """
+ReActAgent is deprecated and will be removed in a future version.
+Please use ReActMasterAgent instead:
+
+    from derisk.agent.expand.react_master_agent import ReActMasterAgent
+    
+    agent = ReActMasterAgent(
+        enable_doom_loop_detection=True,
+        enable_session_compaction=True,
+        enable_history_pruning=True,
+        enable_output_truncation=True,
+    )
+
+For PDCA-style task planning:
+    agent = ReActMasterAgent(enable_kanban=True)
+"""
 
 
 class ReActAgent(ManagerAgent):
@@ -49,12 +64,12 @@ class ReActAgent(ManagerAgent):
         name="derisk",
         role="ReActMaster",
         goal=_REACT_DEFAULT_GOAL,
-        system_prompt_template=REACT_FC_SYSTEM_TEMPLATE,
-        user_prompt_template=REACT_FC_USER_TEMPLATE,
-        write_memory_template=REACT_FC_WRITE_MEMORY_TEMPLATE,
+        system_prompt_template=REACT_SYSTEM_TEMPLATE,
+        user_prompt_template=REACT_USER_TEMPLATE,
+        write_memory_template=REACT_WRITE_MEMORY_TEMPLATE,
     )
     agent_parser: FunctionCallOutputParser = Field(
-        default_factory=lambda: FunctionCallOutputParser(extract_scratch_pad=False)
+        default_factory=FunctionCallOutputParser
     )
     function_calling: bool = True
 
@@ -64,16 +79,11 @@ class ReActAgent(ManagerAgent):
         default_factory=dict, description="available system tools"
     )
     enable_function_call: bool = True
-    dynamic_variables: List[DynamicParam] = [
-        DynamicParam(
-            key=MemoryHistoryArgSupplier().arg_key,
-            name=MemoryHistoryArgSupplier().name,
-            type=DynamicParamType.CUSTOM.value,
-        ),
-    ]
+    dynamic_variables: List[DynamicParam] = []
 
     def __init__(self, **kwargs):
         """Init indicator AssistantAgent."""
+        warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
         super().__init__(**kwargs)
         ## 注意顺序，如果AgentStart，KnowledgeSearch， Terminate 需要在ToolAction之前 TODO待方案优化
         self._init_actions(
@@ -118,24 +128,15 @@ class ReActAgent(ManagerAgent):
             return {"type": "function", "function": function}
 
         functions = []
-
-        # Log available_system_tools
-        logger.info(
-            f"function_calling_params: available_system_tools count={len(self.available_system_tools)}"
-        )
         for k, v in self.available_system_tools.items():
             functions.append(_tool_to_function(v))
 
-        # Log tool_packs
         tool_packs = ToolPack.from_resource(self.resource)
-        logger.info(f"function_calling_params: tool_packs={tool_packs}")
         if tool_packs:
             tool_pack = tool_packs[0]
             for tool in tool_pack.sub_resources:
                 tool_item: BaseTool = tool
                 functions.append(_tool_to_function(tool_item))
-
-        logger.info(f"function_calling_params: total functions count={len(functions)}")
 
         if functions:
             return {
@@ -144,7 +145,6 @@ class ReActAgent(ManagerAgent):
                 "parallel_tool_calls": True,
             }
         else:
-            logger.warning("function_calling_params: No functions available!")
             return None
 
     def prepare_act_param(
@@ -305,6 +305,43 @@ class ReActAgent(ManagerAgent):
                         )
             return prompts
 
+        @self._vm.register("system_tools", "系统工具")
+        async def var_system_tools(instance):
+            result = ""
+            if self.available_system_tools:
+                logger.info("注入系统工具")
+                tool_prompts = ""
+                for k, v in self.available_system_tools.items():
+                    t_prompt, _ = await v.get_prompt(
+                        lang=instance.agent_context.language
+                    )
+                    tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+                return tool_prompts
+
+            return None
+
+        @self._vm.register("custom_tools", "自定义工具")
+        async def var_custom_tools(instance):
+            logger.info("注入自定义工具")
+            tool_prompts = ""
+            for k, v in self.resource_map.items():
+                if isinstance(v[0], BaseTool):
+                    for item in v:
+                        t_prompt, _ = await item.get_prompt(
+                            lang=instance.agent_context.language
+                        )
+                        tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+                ## 临时兼容MCP 因为异步加载
+                elif isinstance(v[0], MCPToolPack):
+                    for mcp in v:
+                        if mcp and mcp.sub_resources:
+                            for item in mcp.sub_resources:
+                                t_prompt, _ = await item.get_prompt(
+                                    lang=instance.agent_context.language
+                                )
+                                tool_prompts += f"- <tool>{t_prompt}</tool>\n"
+            return tool_prompts
+
         @self._vm.register("sandbox", "沙箱配置")
         async def var_sandbox(instance):
             logger.info("注入沙箱配置信息，如果存在沙箱客户端即默认使用沙箱")
@@ -315,34 +352,124 @@ class ReActAgent(ManagerAgent):
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
 
-                from derisk.agent.core.sandbox.prompt import (
-                    AGENT_SKILL_SYSTEM_PROMPT,
-                    SANDBOX_ENV_PROMPT,
-                    SANDBOX_TOOL_BOUNDARIES,
-                    sandbox_prompt,
+                from derisk.agent.core.sandbox.prompt import sandbox_prompt
+                from derisk.agent.core.sandbox.sandbox_tool_registry import (
+                    sandbox_tool_dict,
                 )
+                from derisk.agent.core.sandbox.tools.browser_tool import BROWSER_TOOLS
 
-                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
-                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
+                sandbox_tool_prompts = []
+                browser_tool_prompts = []
+                for k, v in sandbox_tool_dict.items():
+                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
+                    if k in BROWSER_TOOLS:
+                        browser_tool_prompts.append(f"- <tool>{prompt}</tool>")
+                    else:
+                        sandbox_tool_prompts.append(f"- <tool>{prompt}</tool>")
 
                 param = {
                     "sandbox": {
-                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
-                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
-                        "agent_skill_system": render(
-                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
-                        )
-                        if sandbox_client.enable_skill
-                        else "",
+                        "work_dir": sandbox_client.work_dir,
                         "use_agent_skill": sandbox_client.enable_skill,
+                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
                 return {
+                    "tools": "\n".join([item for item in sandbox_tool_prompts]),
+                    "browser_tools": "\n".join([item for item in browser_tool_prompts]),
                     "enable": True if sandbox_client else False,
                     "prompt": render(sandbox_prompt, param),
                 }
             else:
                 return {"enable": False, "prompt": ""}
+
+        @self._vm.register("memory", "记忆上下文")
+        async def var_memory(instance, received_message=None, agent_context=None):
+            import json
+            from datetime import datetime, timedelta
+            from derisk.agent.resource.memory import MemoryParameters
+            from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters, FilterOperator
+
+            if not instance.memory:
+                return ""
+
+            preference_memory_read: bool = False
+            if agent_context and agent_context.extra and "preference_memory_read" in agent_context.extra:
+                preference_memory_read = agent_context.extra.get("preference_memory_read")
+
+            MODEL_CONTEXT_LENGTH = {
+                "deepseek-v3": 64000,
+                "deepSeek-r1": 64000,
+                "QwQ-32B": 64000,
+            }
+
+            def get_agent_llm_context_length() -> int:
+                default_length = 32000
+                if not hasattr(instance, 'llm_config') or not instance.llm_config:
+                    return default_length
+                model_list = instance.llm_config.strategy_context
+                if not model_list:
+                    return default_length
+                if isinstance(model_list, str):
+                    try:
+                        model_list = json.loads(model_list)
+                    except Exception:
+                        return default_length
+                return MODEL_CONTEXT_LENGTH.get(model_list[0], default_length)
+
+            def session_id_from_conv_id(conv_id: str) -> str:
+                idx = conv_id.rfind("_")
+                return conv_id[:idx] if idx else conv_id
+
+            def get_time_24h_ago() -> str:
+                now = datetime.now()
+                twenty_four_hours_ago = now - timedelta(hours=24)
+                return twenty_four_hours_ago.strftime("%Y-%m-%d %H:%M:%S")
+
+            llm_token_limit = get_agent_llm_context_length() - 8000
+            memory_params = instance.get_memory_parameters() if hasattr(instance, 'get_memory_parameters') else None
+            if not memory_params:
+                return ""
+
+            if preference_memory_read:
+                date = get_time_24h_ago()
+                metadata_filter = MetadataFilter(key="create_time", operator=FilterOperator.GT, value=date)
+                metadata_filters = MetadataFilters(filters=[metadata_filter])
+                memory_fragments = await instance.memory.preference_memory.search(
+                    observation=received_message.current_goal if received_message else "",
+                    session_id=session_id_from_conv_id(agent_context.conv_id) if agent_context else "",
+                    enable_global_session=memory_params.enable_global_session,
+                    retrieve_strategy="exact",
+                    discard_strategy="fifo",
+                    condense_prompt=memory_params.message_condense_prompt,
+                    condense_model=memory_params.message_condense_model,
+                    score_threshold=memory_params.score_threshold,
+                    top_k=memory_params.top_k,
+                    llm_token_limit=llm_token_limit,
+                    user_id=agent_context.user_id if agent_context else None,
+                    metadata_filters=metadata_filters,
+                )
+            else:
+                memory_fragments = await instance.memory.search(
+                    observation=received_message.current_goal if received_message else "",
+                    session_id=session_id_from_conv_id(agent_context.conv_id) if agent_context else "",
+                    agent_id=agent_context.agent_app_code if agent_context else None,
+                    enable_global_session=memory_params.enable_global_session,
+                    retrieve_strategy=memory_params.retrieve_strategy,
+                    discard_strategy=memory_params.discard_strategy,
+                    condense_prompt=memory_params.message_condense_prompt,
+                    condense_model=memory_params.message_condense_model,
+                    score_threshold=memory_params.score_threshold,
+                    top_k=memory_params.top_k,
+                    llm_token_limit=llm_token_limit,
+                )
+
+            recent_messages = [
+                f"\nRound:{m.rounds if m.rounds else m.metadata.get('rounds')}\n"
+                f"Role:{m.role if m.role else m.metadata.get('role')}\n"
+                f"{m.raw_observation}" for m in memory_fragments
+            ]
+            return "\n".join(recent_messages)
 
         logger.info(f"register_variables end {self.role}")

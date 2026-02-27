@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+import warnings
 from typing import Optional, List, Dict, Any
 from derisk.agent import (
     ProfileConfig,
@@ -55,6 +56,30 @@ from derisk.util.tracer import root_tracer
 
 _REACT_DEFAULT_GOAL = """通过标准化的 PDCA 循环，在确保数据强一致性与执行可靠性的前提下，独立完成复杂的跨阶段任务。"""
 
+_DEPRECATION_MESSAGE = """
+PDCAAgent is deprecated and will be removed in a future version.
+Please use ReActMasterAgent with enable_kanban=True instead:
+
+    from derisk.agent.expand.react_master_agent import ReActMasterAgent
+    
+    agent = ReActMasterAgent(
+        enable_kanban=True,
+        kanban_exploration_limit=2,
+        # Plus all other ReActMasterAgent features:
+        enable_doom_loop_detection=True,
+        enable_session_compaction=True,
+        enable_history_pruning=True,
+        enable_output_truncation=True,
+    )
+    
+    # Compatible API:
+    await agent.create_kanban(mission, stages)
+    await agent.submit_deliverable(stage_id, deliverable, reflection)
+    await agent.read_deliverable(stage_id)
+    status = await agent.get_kanban_status()
+"""
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,6 +97,7 @@ class PDCAAgent(ReActAgent):
 
     def __init__(self, **kwargs):
         """Init indicator AssistantAgent."""
+        warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
         super().__init__(**kwargs)
         ## 注意顺序，解析有优先级，工具如果前面没匹配都会兜底到ToolAction，没有工具会兜底到BlankAction
         self._init_actions(
@@ -220,10 +246,21 @@ class PDCAAgent(ReActAgent):
                 goal_id=received_message.message_id,
             )
 
+            # 创建 KanbanManager，优先使用 gpts_memory 作为 KanbanStorage
+            kanban_storage = None
+            if (
+                self.memory
+                and hasattr(self.memory, "gpts_memory")
+                and self.memory.gpts_memory
+            ):
+                kanban_storage = self.memory.gpts_memory
+                logger.info("Using gpts_memory as KanbanStorage (recommended)")
+
             pm: AsyncKanbanManager = AsyncKanbanManager(
                 agent_id=self.name,
                 session_id=received_message.message_id,
-                file_system=fs,
+                file_system=fs if not kanban_storage else None,
+                kanban_storage=kanban_storage,
             )
 
             is_success = True

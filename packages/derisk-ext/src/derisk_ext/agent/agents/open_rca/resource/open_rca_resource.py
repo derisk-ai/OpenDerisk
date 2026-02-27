@@ -18,42 +18,24 @@ logger = logging.getLogger(__name__)
 OPEN_RCA_DEFAULT_DATA_DIR = os.path.join(PILOT_PATH, "dataset/openrca")
 
 open_rca_scene_prompt_template = """<open-rca-scene>
-<scene>{{scene_name}}</scene>
+这里是Open RCA场景的基础信息，包含场景名称、场景介绍和文件存放路径。
+
+<scene-info>
+<name>{{scene_name}}</name>
+<description>{{scene_description}}</description>
 <data_path>{{data_path}}</data_path>
+</scene-info>
+
+<scene-background>
+{{scene_schema}}
+</scene-background>
 </open-rca-scene>"""
 
 SCENE_DESCRIPTIONS = {
-    "bank": "银行微服务系统场景",
-    "telecom": "电信运营商微服务场景",
-    "market": "市场营销系统场景",
+    "bank": "银行微服务系统场景，包含Tomcat、MySQL、Redis等组件的监控数据",
+    "telecom": "电信运营商微服务场景，包含网络和服务监控数据",
+    "market": "市场营销系统场景，包含业务和性能监控数据",
 }
-
-
-def _load_scene_info(scene_name: str) -> Dict[str, Any]:
-    """Load scene information including scene name and data path."""
-    from derisk_ext.agent.agents.open_rca.resource.open_rca_base import OpenRcaScene
-
-    try:
-        scene = OpenRcaScene(scene_name)
-        scene_description = SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景")
-        scene_data_path = os.path.join(
-            OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
-        )
-
-        return {
-            "name": scene_name,
-            "description": scene_description,
-            "data_path": scene_data_path,
-        }
-    except Exception as e:
-        logger.warning(f"Error loading scene info for {scene_name}: {e}")
-        return {
-            "name": scene_name,
-            "description": SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景"),
-            "data_path": os.path.join(
-                OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
-            ),
-        }
 
 
 @dataclasses.dataclass
@@ -110,12 +92,43 @@ def get_open_rca_scenes():
     return results
 
 
+def _load_scene_info(scene_name: str) -> Dict[str, Any]:
+    """Load scene information including scene name, description and default data path."""
+    from derisk_ext.agent.agents.open_rca.resource.open_rca_base import OpenRcaScene
+
+    try:
+        scene = OpenRcaScene(scene_name)
+        scene_description = SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景")
+        scene_data_path = os.path.join(
+            OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
+        )
+
+        return {
+            "name": scene_name,
+            "description": scene_description,
+            "schema": None,
+            "data_path": scene_data_path,
+        }
+    except Exception as e:
+        logger.warning(f"Error loading scene info for {scene_name}: {e}")
+        return {
+            "name": scene_name,
+            "description": SCENE_DESCRIPTIONS.get(scene_name, f"{scene_name} 场景"),
+            "schema": None,
+            "data_path": os.path.join(
+                OPEN_RCA_DEFAULT_DATA_DIR, scene_name.capitalize()
+            ),
+        }
+
+
 class OpenRcaSceneResource(Resource[ResourceParameters]):
     def __init__(
         self, name: str = "OpenRcaScene Resource", scene: Optional[str] = None, **kwargs
     ):
         self._resource_name = name
         self._scene = scene
+        self._scene_description = kwargs.get("scene_description")
+        self._scene_schema = kwargs.get("scene_schema")
         self._data_path = kwargs.get("data_path")
 
     @property
@@ -127,6 +140,16 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
     def scene(self) -> Optional[str]:
         """Return the scene name."""
         return self._scene
+
+    @property
+    def scene_description(self) -> Optional[str]:
+        """Return the scene description."""
+        return self._scene_description
+
+    @property
+    def scene_schema(self) -> Optional[str]:
+        """Return the scene schema/background."""
+        return self._scene_schema
 
     @property
     def data_path(self) -> Optional[str]:
@@ -153,6 +176,8 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
                     "name": scene_name,
                     "value": scene_name,
                     "scene": scene_name,
+                    "scene_description": _load_scene_info(scene_name)["description"],
+                    "scene_schema": _load_scene_info(scene_name).get("schema"),
                     "data_path": _load_scene_info(scene_name).get("data_path"),
                 }
                 for scene_name in get_open_rca_scenes()
@@ -168,6 +193,14 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
                     "help": _("OpenRca scene name"),
                     "valid_values": valid_values,
                 },
+            )
+            scene_description: Optional[str] = dataclasses.field(
+                default=None,
+                metadata={"help": _("Scene description")},
+            )
+            scene_schema: Optional[str] = dataclasses.field(
+                default=None,
+                metadata={"help": _("Scene schema/background")},
             )
             data_path: Optional[str] = dataclasses.field(
                 default=None,
@@ -207,7 +240,11 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
                             valid_value.get("scene") == scene_key
                             or valid_value.get("value") == scene_key
                         ):
-                            for key in ["data_path"]:
+                            for key in [
+                                "data_path",
+                                "scene_description",
+                                "scene_schema",
+                            ]:
                                 if key not in copied_data or not copied_data.get(key):
                                     if valid_value.get(key):
                                         copied_data[key] = valid_value.get(key)
@@ -231,6 +268,8 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
         """Get the prompt with scene information."""
         params = {
             "scene_name": self._scene,
+            "scene_description": self._scene_description or "",
+            "scene_schema": self._scene_schema or "",
             "data_path": self._data_path or "",
         }
 
@@ -238,6 +277,8 @@ class OpenRcaSceneResource(Resource[ResourceParameters]):
 
         scene_meta = {
             "name": self._scene,
+            "description": self._scene_description,
+            "schema": self._scene_schema,
             "data_path": self._data_path,
         }
         return prompt, scene_meta
