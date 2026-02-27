@@ -143,6 +143,7 @@ export default function HomeChat() {
   const [isConnectorsModalOpen, setIsConnectorsModalOpen] = useState(false);
   const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('skill');
   const [selectedSkills, setSelectedSkills] = useState<any[]>([]);
+  const [selectedMcps, setSelectedMcps] = useState<any[]>([]);
   const [selectedApp, setSelectedApp] = useState<IApp | null>(null);
   const [appList, setAppList] = useState<IApp[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');

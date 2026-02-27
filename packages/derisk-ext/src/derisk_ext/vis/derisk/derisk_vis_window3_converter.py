@@ -1075,7 +1075,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 layer_count=layer_count,
                 cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
             ).to_dict()
-        )
+)
 
     TOOL_STEP_DESCRIPTIONS = {
         "view": "正在查看文件内容...",

@@ -360,7 +360,7 @@ class GptsToolDetailEntity(Model):
     tag = Column(String(255), nullable=True, comment="tool tag")
     owner = Column(String(255), nullable=True, comment="tool owner")
 
-    __table_args__ = (Index("idx_tool_id", "tool_id")),
+    __table_args__ = (Index("idx_tool_detail_id", "tool_id")),
 
 
 class GptsToolDetailDao(BaseDao):

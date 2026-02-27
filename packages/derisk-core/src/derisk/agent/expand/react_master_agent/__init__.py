@@ -39,6 +39,12 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
    - 支持 4 种输出格式（Markdown/HTML/JSON/纯文本）
    - AI 增强摘要分析
 
+8. **Kanban 任务规划**（从 PDCAAgent 合并）
+   - 结构化的任务规划
+   - 阶段状态管理
+   - 交付物 Schema 验证
+   - 探索限制机制
+
 ## 使用示例
 
 ```python
@@ -54,27 +60,34 @@ agent = ReActMasterAgent(
     enable_history_pruning=True,
 )
 
+# 启用 Kanban 模式（从 PDCAAgent 迁移）
+agent = ReActMasterAgent(
+    enable_kanban=True,
+    kanban_exploration_limit=2,
+)
+
 # 使用
 await agent.act(message, sender)
 ```
 
-## 独立使用增强功能
+## PDCAAgent 迁移指南
+
+如果你之前使用 PDCAAgent，现在可以通过以下方式迁移：
 
 ```python
-# WorkLog 管理
-from derisk.agent.expand.react_master_agent import WorkLogManager
+# 旧代码 (PDCAAgent)
+from derisk.agent.expand.pdca_agent import PDCAAgent
+agent = PDCAAgent()
 
-work_log = WorkLogManager("agent_id", "session_id")
+# 新代码 (ReActMasterAgent with Kanban)
+from derisk.agent.expand.react_master_agent import ReActMasterAgent
+agent = ReActMasterAgent(enable_kanban=True)
 
-# 阶段管理
-from derisk.agent.expand.react_master_agent import PhaseManager, TaskPhase
-
-phase_manager = PhaseManager(auto_phase_detection=True)
-
-# 报告生成
-from derisk.agent.expand.react_master_agent.report_generator import ReportGenerator
-
-generator = ReportGenerator(work_log, "agent_id", "task_id")
+# API 兼容
+await agent.create_kanban(mission, stages)
+await agent.submit_deliverable(stage_id, deliverable, reflection)
+await agent.read_deliverable(stage_id)
+status = await agent.get_kanban_status()
 ```
 """
 
@@ -132,6 +145,15 @@ from .truncation import (
     truncate_output,
     create_truncator_with_fs,
 )
+from .kanban_manager import (
+    KanbanManager,
+    Kanban,
+    Stage,
+    StageStatus,
+    WorkEntry as KanbanWorkEntry,
+    validate_deliverable_schema,
+    create_kanban_manager,
+)
 from .prompt import (
     REACT_MASTER_SYSTEM_TEMPLATE,
     REACT_MASTER_USER_TEMPLATE,
@@ -148,46 +170,29 @@ from .prompt import (
     PRUNE_NOTIFICATION_CN,
     REACT_PARSE_ERROR_PROMPT_CN,
 )
-
-# 阶段管理
-from .phase_manager import (
-    PhaseManager,
-    TaskPhase,
-    PhaseContext,
-    create_phase_manager,
+from .todo_tools import (
+    todowrite,
+    todoread,
+    get_todo_tools,
+    TodoAnalytics,
+    get_todo_analytics,
+    generate_todo_report,
+    get_todo_report_for_reportgenerator,
 )
 
-# 报告生成
-from .report_generator import (
-    ReportGenerator,
-    ReportAgent,
-    Report,
-    ReportSection,
-    ReportMetadata,
-    ReportFormat,
-    ReportType,
-    create_report_generator,
-    generate_simple_report,
-)
-
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 __all__ = [
-    # 主要类
     "ReActMasterAgent",
-    "ReActMasterParser",
-    # WorkLog 管理
     "WorkLogManager",
     "create_work_log_manager",
     "WorkEntry",
     "WorkLogSummary",
     "WorkLogStatus",
-    # 阶段管理
     "PhaseManager",
     "TaskPhase",
     "PhaseContext",
     "create_phase_manager",
-    # 报告生成
     "ReportGenerator",
     "ReportAgent",
     "Report",
@@ -197,37 +202,38 @@ __all__ = [
     "ReportType",
     "create_report_generator",
     "generate_simple_report",
-    # DoomLoop 检测
     "DoomLoopDetector",
     "IntelligentDoomLoopDetector",
     "DoomLoopCheckResult",
     "DoomLoopAction",
-    # 会话压缩
     "SessionCompaction",
     "CompactionResult",
     "CompactionConfig",
     "TokenEstimator",
-    # 历史修剪
     "HistoryPruner",
     "PruneResult",
     "PruneConfig",
     "MessageClassifier",
     "prune_messages",
-    # 输出截断
     "Truncator",
     "TruncationResult",
     "TruncationConfig",
     "ToolOutputWrapper",
     "truncate_output",
     "create_truncator_with_fs",
-    # 提示模板
+    "KanbanManager",
+    "Kanban",
+    "Stage",
+    "StageStatus",
+    "KanbanWorkEntry",
+    "validate_deliverable_schema",
+    "create_kanban_manager",
     "REACT_MASTER_SYSTEM_TEMPLATE",
     "REACT_MASTER_USER_TEMPLATE",
     "REACT_MASTER_WRITE_MEMORY_TEMPLATE",
     "REACT_MASTER_USER_TEMPLATE_ENHANCED",
     "REACT_MASTER_WORKLOG_TEMPLATE",
     "REACT_MASTER_WORKLOG_COMPRESSED_NOTIFICATION",
-    # 中文提示模板
     "REACT_MASTER_SYSTEM_TEMPLATE_CN",
     "REACT_MASTER_USER_TEMPLATE_CN",
     "REACT_MASTER_WRITE_MEMORY_TEMPLATE_CN",
@@ -236,4 +242,11 @@ __all__ = [
     "COMPACTION_NOTIFICATION_CN",
     "PRUNE_NOTIFICATION_CN",
     "REACT_PARSE_ERROR_PROMPT_CN",
+    "todowrite",
+    "todoread",
+    "get_todo_tools",
+    "TodoAnalytics",
+    "get_todo_analytics",
+    "generate_todo_report",
+    "get_todo_report_for_reportgenerator",
 ]

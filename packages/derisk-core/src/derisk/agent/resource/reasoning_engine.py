@@ -16,9 +16,6 @@ class ReasoningEngineResourceParameters(ResourceParameters):
     system_prompt_template: Optional[str] = dataclasses.field(
         default=None, metadata={"help": _("Resource name")}
     )
-    reasoning_arg_suppliers: Optional[list[str]] = dataclasses.field(
-        default=None, metadata={"help": _("Resource name")}
-    )
 
 
 class ReasoningEngineResource(Resource[ResourceParameters]):
@@ -27,13 +24,11 @@ class ReasoningEngineResource(Resource[ResourceParameters]):
         name: str,
         prompt_template: str = None,
         system_prompt_template: str = None,
-        reasoning_arg_suppliers: list[str] = None,
         **kwargs,
     ):
         self._name = name
         self._prompt_template = prompt_template
         self._system_prompt_template = system_prompt_template
-        self._reasoning_arg_suppliers = reasoning_arg_suppliers or []
 
     @classmethod
     def type(cls) -> ResourceType:
@@ -67,10 +62,6 @@ class ReasoningEngineResource(Resource[ResourceParameters]):
     @system_prompt_template.setter
     def system_prompt_template(self,template:str):
         self._system_prompt_template = template
-
-    @property
-    def reasoning_arg_suppliers(self) -> Optional[list[str]]:
-        return self._reasoning_arg_suppliers
 
     @classmethod
     def get_reasoning_engines(cls) -> List[Dict]:
@@ -107,22 +98,6 @@ class ReasoningEngineResource(Resource[ResourceParameters]):
                 metadata={
                     "help": _("Reasoning Engine name"),
                     "valid_values": valid_values,
-                },
-            )
-
-            reasoning_arg_suppliers: Optional[list[str]] = dataclasses.field(
-                default=None,
-                metadata={
-                    "help": _("Reasoning Engine arg suppliers"),
-                    "valid_values": [],
-                },
-            )
-
-            reasoning_arg_suppliers: Optional[list[str]] = dataclasses.field(
-                default=None,
-                metadata={
-                    "help": _("Reasoning Engine arg suppliers"),
-                    "valid_values": [],
                 },
             )
 

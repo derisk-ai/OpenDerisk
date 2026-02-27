@@ -271,6 +271,8 @@ class ReportGenerator:
         agent_id: str,
         task_id: str,
         llm_client: Optional[Any] = None,
+        todo_storage: Optional[Any] = None,
+        conv_id: Optional[str] = None,
     ):
         """
         初始化报告生成器
@@ -280,11 +282,15 @@ class ReportGenerator:
             agent_id: Agent ID
             task_id: 任务 ID
             llm_client: LLM 客户端（可选，用于 AI 生成报告）
+            todo_storage: Todo 存储实例（可选，用于 Todo 报告）
+            conv_id: 会话 ID（可选，用于 Todo 报告）
         """
         self.work_log_manager = work_log_manager
         self.agent_id = agent_id
         self.task_id = task_id
         self.llm_client = llm_client
+        self.todo_storage = todo_storage
+        self.conv_id = conv_id
 
     async def generate_report(
         self,
@@ -373,6 +379,14 @@ class ReportGenerator:
             sections = self._generate_progress_sections(work_entries, stats)
         elif report_type == ReportType.FINAL:
             sections = self._generate_final_sections(work_entries, summaries, stats)
+
+        if self.todo_storage and self.conv_id:
+            todo_section = self._generate_todo_section()
+            if todo_section:
+                if report_type in [ReportType.PROGRESS, ReportType.FINAL]:
+                    sections.insert(1, todo_section)
+                else:
+                    sections.append(todo_section)
 
         return sections
 
@@ -770,6 +784,43 @@ The system performed reliably throughout the execution, with successful completi
 See raw data for complete details.
 """
 
+    def _generate_todo_section(self) -> Optional[ReportSection]:
+        """生成 Todo 任务章节"""
+        import asyncio
+        try:
+            if not self.conv_id or not self.todo_storage:
+                return None
+                
+            from derisk.agent.expand.react_master_agent.todo_tools import (
+                get_todo_report_for_reportgenerator,
+            )
+            
+            loop = asyncio.get_event_loop()
+            todo_data = loop.run_until_complete(
+                get_todo_report_for_reportgenerator(self.conv_id, self.todo_storage)
+            )
+            
+            if not todo_data or todo_data["stats"]["total"] == 0:
+                return None
+            
+            content = f"""
+**Total Tasks**: {todo_data['stats']['total']}
+- ✅ Completed: {todo_data['stats']['completed']}
+- 🔄 In Progress: {todo_data['stats']['in_progress']}
+- ⏳ Pending: {todo_data['stats']['pending']}
+
+{todo_data['content']}
+"""
+            return ReportSection(
+                title="Task Progress (Todo List)",
+                content=content,
+                level=2,
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to generate todo section: {e}")
+            return None
+
 
 class ReportAgent:
     """
@@ -784,6 +835,8 @@ class ReportAgent:
         agent_id: str,
         task_id: str,
         llm_client: Optional[Any] = None,
+        todo_storage: Optional[Any] = None,
+        conv_id: Optional[str] = None,
     ):
         """
         初始化报告 Agent
@@ -793,13 +846,15 @@ class ReportAgent:
             agent_id: Agent ID
             task_id: 任务 ID
             llm_client: LLM 客户端
+            todo_storage: Todo 存储实例
+            conv_id: 会话 ID
         """
         self.work_log_manager = work_log_manager
         self.agent_id = agent_id
         self.task_id = task_id
         self.llm_client = llm_client
         self.report_generator = ReportGenerator(
-            work_log_manager, agent_id, task_id, llm_client
+            work_log_manager, agent_id, task_id, llm_client, todo_storage, conv_id
         )
 
     async def generate_ai_summary(
@@ -900,9 +955,11 @@ async def create_report_generator(
     agent_id: str,
     task_id: str,
     llm_client: Optional[Any] = None,
+    todo_storage: Optional[Any] = None,
+    conv_id: Optional[str] = None,
 ) -> ReportGenerator:
     """创建报告生成器"""
-    return ReportGenerator(work_log_manager, agent_id, task_id, llm_client)
+    return ReportGenerator(work_log_manager, agent_id, task_id, llm_client, todo_storage, conv_id)
 
 
 async def generate_simple_report(
@@ -910,6 +967,8 @@ async def generate_simple_report(
     agent_id: str,
     task_id: str,
     report_format: ReportFormat = ReportFormat.MARKDOWN,
+    todo_storage: Optional[Any] = None,
+    conv_id: Optional[str] = None,
 ) -> str:
     """
     快速生成简单报告的便捷函数
@@ -919,11 +978,15 @@ async def generate_simple_report(
         agent_id: Agent ID
         task_id: 任务 ID
         report_format: 报告格式
+        todo_storage: Todo 存储实例
+        conv_id: 会话 ID
 
     Returns:
         报告内容
     """
-    generator = await create_report_generator(work_log_manager, agent_id, task_id)
+    generator = await create_report_generator(
+        work_log_manager, agent_id, task_id, None, todo_storage, conv_id
+    )
     report = await generator.generate_report(
         report_type=ReportType.SUMMARY,
         report_format=report_format,
