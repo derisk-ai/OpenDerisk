@@ -1,0 +1,73 @@
+[
+  {
+    "app_code": "main-orchestrator",
+    "app_name": "主调度Agent",
+    "app_describe": "基于ReAct范式的智能调度Agent，负责协调代码专家和信息检索专家协同完成复杂任务。具备任务分解、智能调度、结果整合的能力。",
+    "app_hub_code": null,
+    "team_mode": "auto_plan",
+    "config_code": null,
+    "config_version": null,
+    "language": "zh",
+    "team_context": {
+      "can_ask_user": true,
+     "use_sandbox": true,
+      "teamleader": "ReActMasterV2"
+    },
+    "user_code": "derisk",
+    "sys_code": null,
+    "is_collected": "false",
+    "icon": "/agents/agent5.jpg",
+    "details": [],
+    "published": true,
+    "user_name": "derisk",
+    "owner_name": "derisk",
+    "hot_value": 0,
+    "param_need": null,
+    "owner_avatar_url": null,
+    "recommend_questions": null,
+    "admins": [],
+    "ext_config": null,
+    "all_resources": null,
+    "resources": null,
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": [
+        "deepseek-v3",
+        "deepseek-r1"
+      ],
+      "llm_param": null,
+      "mist_keys": null,
+      "agent_llm_config": null
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "vis_window3",
+        "incremental": true,
+        "description": "文件系统可视化布局",
+        "reuse_name": "derisk_vis_window"
+      },
+      "chat_in_layout": null
+    },
+    "resource_knowledge": null,
+    "resource_tool": null,
+    "resource_agent": [
+    ],
+    "custom_variables": [
+    ],
+    "agent": "ReActMasterV2",
+    "is_reasoning_engine_agent": false,
+    "context_config": {
+      "type": "group",
+      "name": "context_config",
+      "label": "上下文配置",
+      "description": "上下文处理相关配置",
+      "title_field": null,
+      "fields": [],
+      "dynamic": null
+    },
+    "creator": null,
+    "editor": null,
+    "keep_start_rounds": 1,
+    "keep_end_rounds": 2
+  }
+]
