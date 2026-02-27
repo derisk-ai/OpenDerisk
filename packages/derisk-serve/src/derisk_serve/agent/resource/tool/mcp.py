@@ -319,7 +319,6 @@ class MCPToolPack(ToolPack):
                         mcp_name=self._mcp_name,
                         tool_name=tool_name,
                         server=server,
-                        trace_id=trace_id,
                         headers=self._headers,
                         timeout=self._timeout,
                         tool_id=self._tool_id,
