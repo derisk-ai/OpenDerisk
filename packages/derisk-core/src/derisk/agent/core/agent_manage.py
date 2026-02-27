@@ -79,16 +79,7 @@ class AgentManager(BaseComponent):
 
         """Register Manager Agent"""
 
-        from derisk.agent.core.plan.report_agent import ReportAssistantAgent
-        self.register_agent(ReportAssistantAgent)
-        from derisk.agent.core.plan.planning_agent import PlanningAgent
-        self.register_agent(PlanningAgent)
 
-        from .plan.react.team_react_plan import ReActPlanChatManager
-        from .plan.auto.team_auto_plan import AutoPlanChatManager
-
-        self.register_agent(ReActPlanChatManager)
-        self.register_agent(AutoPlanChatManager)
 
     def register_agent(
         self, cls: Type[ConversableAgent], ignore_duplicate: bool = False

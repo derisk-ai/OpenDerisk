@@ -29,10 +29,6 @@ from derisk.vis.schema import VisAttachListContent, VisAttachContent
 from derisk.vis.vis_converter import SystemVisTag
 from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
 from derisk_ext.vis.common.tags.derisk_plan import AgentPlan, AgentPlanItem
-from derisk_ext.vis.common.tags.derisk_planning_space import (
-    PlanningSpaceContent,
-    PlanningSpace,
-)
 from derisk_ext.vis.common.tags.derisk_todo_list import TodoList
 from derisk_ext.vis.common.tags.derisk_thinking import (
     DeriskThinking,
@@ -56,33 +52,6 @@ from ...agent.actions.derisk_tool_action import DeriskToolAction
 from ...agent.actions.monitor_action import MonitorAction
 
 logger = logging.getLogger(__name__)
-
-
-PHASE_PATTERNS = [
-    (r"【阶段\s*[:：]\s*([^】]+)】", "zh"),
-    (r"\[Phase\s*[:：]\s*([^\]]+)\]", "en"),
-]
-
-PHASE_NORMALIZE_MAP = {
-    "分析": "analysis",
-    "规划": "planning",
-    "执行": "execution",
-    "验证": "verification",
-    "完成": "completion",
-    "analysis": "analysis",
-    "planning": "planning",
-    "execution": "execution",
-    "verification": "verification",
-    "completion": "completion",
-}
-
-PHASE_DISPLAY_MAP = {
-    "analysis": "分析阶段",
-    "planning": "规划阶段",
-    "execution": "执行阶段",
-    "verification": "验证阶段",
-    "completion": "完成阶段",
-}
 
 
 PHASE_PATTERNS = [
