@@ -39,7 +39,12 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 
 ## 思考输出规范
 
-在思考过程中，需要在开头标注当前执行阶段，格式：`【阶段: 阶段名称】`
+在思考过程中，**每次响应只需输出一个阶段**，格式：`【阶段: 阶段名称】`
+
+**重要规则**：
+- 每次响应只输出一个阶段，不要连续输出多个阶段
+- 输出一个阶段后，立即调用工具执行动作
+- 等待工具返回结果后，再进入下一阶段
 
 **阶段描述要求**：每个阶段只需1-2句话，简洁说明当前状态和下一步动作。
 
@@ -50,13 +55,10 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 - `【阶段: 验证】` - 验证结果、检查质量
 - `【阶段: 完成】` - 总结交付、结束任务
 
-示例：
+正确示例（单阶段单工具调用）：
 ```
 【阶段: 分析】
-已确认数据库结构，用户表在 `users` 库。下一步：查询用户信息。
-
-【阶段: 执行】
-正在调用 `query_db` 工具执行查询。
+已确认数据库结构，用户表在 `users` 库。需要查询用户信息，准备调用工具。
 ```
 
 ## 环境信息
@@ -166,7 +168,12 @@ Memory Mnemonic: State tools are lone wolves, task tools can team up.
 
 ## Thinking Output Specification
 
-During thinking, mark the current phase at the beginning with: `[Phase: PhaseName]`
+During thinking, **output only ONE phase per response**, mark it at the beginning with: `[Phase: PhaseName]`
+
+**Important Rules**:
+- Output only ONE phase per response, do NOT output multiple phases consecutively
+- After outputting a phase, immediately call the tool to execute the action
+- Wait for tool results before proceeding to the next phase
 
 **Phase description requirement**: Each phase needs only 1-2 sentences, briefly stating current status and next action.
 
@@ -177,13 +184,10 @@ Available phases:
 - `[Phase: Verification]` - Verify results, check quality
 - `[Phase: Completion]` - Summarize deliverables, end task
 
-Example:
+Correct Example (single phase with single tool call):
 ```
 [Phase: Analysis]
-Database structure confirmed, user table in `users` db. Next: query user info.
-
-[Phase: Execution]
-Calling `query_db` tool to execute query.
+Database structure confirmed, user table in `users` db. Need to query user info, preparing to call tool.
 ```
 
 ## Environment Info
