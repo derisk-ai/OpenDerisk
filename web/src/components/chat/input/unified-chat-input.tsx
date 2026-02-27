@@ -36,7 +36,7 @@ import {
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
 import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2 } from '@/client/api';
-import { ChatContentContext } from '@/contexts';
+import { ChatContentContext, SelectedSkill } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
 import { IChatDialogueMessageSchema, UserChatContent } from '@/types/chat';
@@ -224,6 +224,8 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     setMaxNewTokensValue,
     refreshHistory,
     modelValue,
+    selectedSkills,
+    setSelectedSkills,
   } = context;
 
   const [userInput, setUserInput] = useState<string>('');
@@ -590,6 +592,58 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     );
   };
 
+  // Selected Skills Display
+  const SelectedSkillsDisplay = () => {
+    if (!selectedSkills || selectedSkills.length === 0) return null;
+
+    const handleRemoveSkill = (skillCode: string) => {
+      const newSkills = selectedSkills.filter(s => s.skill_code !== skillCode);
+      setSelectedSkills(newSkills);
+      
+      // Update chatInParams to remove the skill
+      const newChatInParams = chatInParams.filter(
+        (p: ChatInParamItem) => !(p.param_type === 'resource' && p.sub_type === 'agent_skill' && 
+          (() => {
+            try {
+              const skillData = JSON.parse(p.param_value);
+              return skillData.skill_code === skillCode;
+            } catch {
+              return false;
+            }
+          })())
+      );
+      setChatInParams(newChatInParams);
+    };
+
+    return (
+      <div className="flex flex-wrap gap-2 mb-3 px-4 pt-3">
+        {selectedSkills.map((skill) => (
+          <div
+            key={skill.skill_code}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 text-sm"
+          >
+            {skill.icon ? (
+              <img src={skill.icon} className="w-4 h-4 rounded" alt={skill.name} />
+            ) : (
+              <div className="w-4 h-4 rounded bg-blue-500 flex items-center justify-center text-white text-xs font-medium">
+                {skill.name?.charAt(0)?.toUpperCase() || 'S'}
+              </div>
+            )}
+            <span className="text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
+              {skill.name}
+            </span>
+            <button
+              onClick={() => handleRemoveSkill(skill.skill_code)}
+              className="ml-1 text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <CloseOutlined className="text-xs" />
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   // 文件预览组件
   const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) => {
     const [preview, setPreview] = useState<string>('');
@@ -817,6 +871,9 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
             : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
         )}
       >
+        {/* 已选技能预览 */}
+        <SelectedSkillsDisplay />
+        
         {/* 已选资源预览 */}
         <ResourceItemsDisplay />
         
