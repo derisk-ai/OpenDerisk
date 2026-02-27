@@ -22,63 +22,6 @@ file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
 [service.model.worker]
 host = "127.0.0.1"
 
-[rag]
-chunk_size=1000
-chunk_overlap=0
-similarity_top_k=5
-similarity_score_threshold=0.0
-max_chunks_once_load=10
-max_threads=1
-rerank_top_k=3
-graph_community_summary_enabled="True"
-
-[rag.storage]
-[rag.storage.vector]
-type = "chroma"
-persist_path = "pilot/data"
-
-
-# Model Configurations
-[models]
-
-[[models.llms]]
-name = "deepseek-r1"
-provider = "proxy/openai"
-api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
-backend = "deepseek-r1"
-
-[[models.llms]]
-name = "deepseek-v3"
-provider = "proxy/openai"
-api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
-backend = "deepseek-v3"
-
-[[models.llms]]
-name = "wanx2.1-t2v-plus"
-provider = "proxy/openai"
-api_base = "https://coding.dashscope.aliyuncs.com/apps/anthropic/v1"
-api_key = "${DASHSCOPE_API_KEY_1:-sk-...}"
-backend = "wanx2.1-t2v-plus"
-
-[[models.embeddings]]
-name = "text-embedding-v3"
-provider = "proxy/openai"
-api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
-api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
-
-
-[[models.rerankers]]
-type = "reranker"
-name = "gte-rerank-v2"
-provider = "proxy/siliconflow"
-api_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
-api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
-backend= "gte-rerank-v2"
-text_limit = 4096
-batch_limit = 32
-
 [agent.llm]
 # (可选) 全局配置
 temperature = 0.5
@@ -123,9 +66,9 @@ default_backend = "oss"
 type = "oss"
 endpoint = "https://oss-cn-beijing.aliyuncs.com"
 region = "oss-cn-beijing"
-access_key_id = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
-access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
-fixed_bucket = "dbgpt-test"
+access_key_id = "${env:OSS_ACCESS_KEY_ID:-xxx}"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xxx}"
+fixed_bucket = "openderisk"
 
 
 [sandbox]
@@ -139,4 +82,4 @@ skill_dir="/mnt/derisk/skills"
 oss_ak="${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
 oss_sk="${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
 oss_endpoint="https://oss-cn-beijing.aliyuncs.com"
-oss_bucket_name="dbgpt-test"
+oss_bucket_name="openderisk"
