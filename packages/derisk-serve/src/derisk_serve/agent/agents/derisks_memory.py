@@ -7,6 +7,7 @@
 - MetaDerisksWorkLogStorage: 工作日志存储
 - MetaDerisksKanbanStorage: 看板存储
 - MetaDerisksTodoStorage: 任务列表存储
+- MetaDerisksFileMetadataStorage: 文件元数据存储
 """
 
 from typing import List, Optional, Dict, Any
@@ -23,6 +24,7 @@ from derisk.agent.core.memory.gpts.file_base import (
     WorkEntry,
     Kanban,
     TodoItem,
+    AgentFileMetadata,
 )
 
 from ..db.gpts_messages_db import GptsMessagesDao
@@ -30,6 +32,7 @@ from ..db.gpts_messages_system_db import GptsMessagesSystemDao
 from ..db.gpts_plans_db import GptsPlansDao, GptsPlansEntity
 from ..db.gpts_worklog_db import GptsWorkLogDao
 from ..db.gpts_kanban_db import GptsKanbanDao, GptsPreKanbanLogDao
+from ..db.gpts_file_metadata_db import GptsFileMetadataDao, GptsFileCatalogDao
 
 
 class MetaDerisksPlansMemory(GptsPlansMemory):
@@ -407,3 +410,152 @@ class MetaDerisksTodoStorage:
     async def clear_todos(self, conv_id: str) -> None:
         """清空任务列表."""
         await self._dao.delete_kanban_async(conv_id, conv_id)
+
+
+class MetaDerisksFileMetadataStorage:
+    """基于数据库的文件元数据存储实现（用于 GptsMemory 集成）.
+
+    与 MetaDerisksWorkLogStorage/MetaDerisksKanbanStorage/MetaDerisksTodoStorage 保持一致的架构，
+    提供文件元数据和文件目录的数据库持久化存储。
+    """
+
+    def __init__(self):
+        self._metadata_dao = GptsFileMetadataDao()
+        self._catalog_dao = GptsFileCatalogDao()
+
+    async def save_file_metadata(self, file_metadata: AgentFileMetadata) -> None:
+        """保存文件元数据.
+
+        Args:
+            file_metadata: 文件元数据对象
+        """
+        await self._metadata_dao.save_async(file_metadata.to_dict())
+        await self._catalog_dao.save_async(
+            file_metadata.conv_id, file_metadata.file_key, file_metadata.file_id
+        )
+
+    async def update_file_metadata(self, file_metadata: AgentFileMetadata) -> None:
+        """更新文件元数据.
+
+        Args:
+            file_metadata: 文件元数据对象
+        """
+        await self._metadata_dao.update_async(file_metadata.to_dict())
+
+    async def get_file_by_key(
+        self, conv_id: str, file_key: str
+    ) -> Optional[AgentFileMetadata]:
+        """通过 file_key 获取文件元数据.
+
+        Args:
+            conv_id: 会话 ID
+            file_key: 文件 key
+
+        Returns:
+            文件元数据对象，不存在返回 None
+        """
+        data = await self._metadata_dao.get_by_file_key_async(conv_id, file_key)
+        return AgentFileMetadata.from_dict(data) if data else None
+
+    async def get_file_by_id(
+        self, conv_id: str, file_id: str
+    ) -> Optional[AgentFileMetadata]:
+        """通过 file_id 获取文件元数据.
+
+        Args:
+            conv_id: 会话 ID
+            file_id: 文件 ID
+
+        Returns:
+            文件元数据对象，不存在返回 None
+        """
+        data = await self._metadata_dao.get_by_file_id_async(file_id)
+        if data and data.get("conv_id") == conv_id:
+            return AgentFileMetadata.from_dict(data)
+        return None
+
+    async def list_files(
+        self, conv_id: str, file_type: Optional[str] = None
+    ) -> List[AgentFileMetadata]:
+        """列出会话的所有文件.
+
+        Args:
+            conv_id: 会话 ID
+            file_type: 可选的文件类型过滤
+
+        Returns:
+            文件元数据列表
+        """
+        if file_type:
+            data_list = await self._metadata_dao.get_by_file_type_async(conv_id, file_type)
+        else:
+            data_list = await self._metadata_dao.get_by_conv_id_async(conv_id)
+        return [AgentFileMetadata.from_dict(d) for d in data_list]
+
+    async def delete_file(self, conv_id: str, file_key: str) -> bool:
+        """删除文件元数据.
+
+        Args:
+            conv_id: 会话 ID
+            file_key: 文件 key
+
+        Returns:
+            是否成功删除
+        """
+        await self._metadata_dao.delete_by_file_key_async(conv_id, file_key)
+        await self._catalog_dao.delete_by_file_key_async(conv_id, file_key)
+        return True
+
+    async def get_conclusion_files(self, conv_id: str) -> List[AgentFileMetadata]:
+        """获取所有结论文件.
+
+        Args:
+            conv_id: 会话 ID
+
+        Returns:
+            结论文件元数据列表
+        """
+        return await self.list_files(conv_id, file_type="conclusion")
+
+    async def clear_conv_files(self, conv_id: str) -> None:
+        """清空会话的所有文件元数据.
+
+        Args:
+            conv_id: 会话 ID
+        """
+        await self._metadata_dao.delete_by_conv_id_async(conv_id)
+        await self._catalog_dao.delete_by_conv_id_async(conv_id)
+
+    async def get_catalog(self, conv_id: str) -> Dict[str, str]:
+        """获取文件目录（file_key -> file_id 映射）.
+
+        Args:
+            conv_id: 会话 ID
+
+        Returns:
+            文件目录字典
+        """
+        return await self._catalog_dao.get_catalog_async(conv_id)
+
+    async def save_catalog(self, conv_id: str, file_key: str, file_id: str) -> None:
+        """保存文件目录映射.
+
+        Args:
+            conv_id: 会话 ID
+            file_key: 文件 key
+            file_id: 文件 ID
+        """
+        await self._catalog_dao.save_async(conv_id, file_key, file_id)
+
+    async def get_file_id_by_key(self, conv_id: str, file_key: str) -> Optional[str]:
+        """通过 file_key 获取 file_id.
+
+        Args:
+            conv_id: 会话 ID
+            file_key: 文件 key
+
+        Returns:
+            文件 ID，不存在返回 None
+        """
+        catalog = await self.get_catalog(conv_id)
+        return catalog.get(file_key)
