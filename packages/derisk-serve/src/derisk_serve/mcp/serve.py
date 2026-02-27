@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 from sqlalchemy import URL
 
 from derisk.component import SystemApp
-from derisk.storage.metadata import DatabaseManager, Model, UnifiedDBManagerFactory, db
+from derisk.storage.metadata import DatabaseManager
 from derisk_serve.core import BaseServe
 
 from .api.endpoints import init_endpoints, router
@@ -62,39 +62,19 @@ class Serve(BaseServe):
         """
         # import models to ensure they are registered with SQLAlchemy
         from .models.models import ServeEntity  # noqa: F401
-        _ = list(map(lambda x: None, [
-            ServeEntity.__tablename__,
-        ]))
 
-    def before_start(self):
-        """Called before the start of the application.
-
-        You can do some initialization here.
-        """
-        # Import models to ensure they are registered
-        from .models.models import ServeEntity  # noqa: F401
-
-        self._db_manager = self.create_or_get_db_manager()
-
-        # Force create tables for SQLite mode
-        db_manager_factory: UnifiedDBManagerFactory = self._system_app.get_component(
-            "unified_metadata_db_manager_factory",
-            UnifiedDBManagerFactory,
-            default_component=None,
+        _ = list(
+            map(
+                lambda x: None,
+                [
+                    ServeEntity.__tablename__,
+                ],
+            )
         )
-        if db_manager_factory is not None and db_manager_factory.create():
-            init_db = db_manager_factory.create()
-        else:
-            init_db = self._db_url_or_db or db
-            init_db = DatabaseManager.build_from(init_db, base=Model)
 
-        try:
-            init_db.create_all()
-        except Exception as e:
-            logger.warning(f"Failed to create MCP tables: {e}")
-
-        # Sync default MCP server configurations from derisk-mcps config files
-        self._sync_default_mcp_configs()
+    def after_init(self):
+        """Called after init the application."""
+        self._db_manager = self.create_or_get_db_manager()
 
     def _sync_default_mcp_configs(self):
         """Clone MCP config repo from GitHub and sync default configs to DB.
@@ -116,40 +96,20 @@ class Serve(BaseServe):
 
             dao = ServeDao(self._config)
 
-            repo_url = (
-                self._config.default_mcp_repo_url if self._config else None
-            )
+            repo_url = self._config.default_mcp_repo_url if self._config else None
             if not repo_url:
-                logger.info(
-                    "Default MCP repo URL is not configured, skipping sync"
-                )
+                logger.info("Default MCP repo URL is not configured, skipping sync")
                 return
 
-            branch = (
-                self._config.default_mcp_repo_branch
-                if self._config
-                else "main"
-            )
-            mcp_dir = (
-                self._config.get_mcp_dir()
-                if self._config
-                else None
-            )
+            branch = self._config.default_mcp_repo_branch if self._config else "main"
+            mcp_dir = self._config.get_mcp_dir() if self._config else None
             git_cache_dir = (
-                self._config.get_mcp_git_cache_dir()
-                if self._config
-                else None
+                self._config.get_mcp_git_cache_dir() if self._config else None
             )
             servers_subdir = (
-                self._config.default_mcp_servers_subdir
-                if self._config
-                else "servers"
+                self._config.default_mcp_servers_subdir if self._config else "servers"
             )
-            overwrite = (
-                self._config.default_mcp_overwrite
-                if self._config
-                else False
-            )
+            overwrite = self._config.default_mcp_overwrite if self._config else False
 
             synced = sync_default_mcps_from_repo(
                 dao=dao,
@@ -167,6 +127,4 @@ class Serve(BaseServe):
                     repo_url,
                 )
         except Exception as e:
-            logger.warning(
-                "Failed to sync default MCP configs: %s", e, exc_info=True
-            )
+            logger.warning("Failed to sync default MCP configs: %s", e, exc_info=True)
