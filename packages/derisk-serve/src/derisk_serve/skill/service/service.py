@@ -84,6 +84,11 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             request.skill_code = str(uuid.uuid4())
 
+        existing_skill = self.dao.get_one({"skill_code": request.skill_code})
+        if existing_skill:
+            logger.info(f"Skill {request.skill_code} already exists, updating instead")
+            return self.update(request)
+
         return self.dao.create(request)
 
     def update(self, request: SkillRequest) -> SkillResponse:
@@ -321,7 +326,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     # Copy skill files to sandbox if available
                     if sandbox_skill_dir:
                         self._copy_skill_to_sandbox(
-                            skill_path, skill_name, sandbox_skill_dir
+                            skill_path, skill_name, sandbox_skill_dir, skill_code
                         )
 
                 except Exception as e:
@@ -348,7 +353,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             List[str]: List of skill directory paths containing SKILL.md
         """
-        skill_dirs = set()
+        skill_dirs = []
 
         # Common skill directory patterns
         patterns = [
@@ -363,14 +368,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             if not os.path.isdir(search_path):
                 continue
 
-            # Recursively search for SKILL.md in all subdirectories
-            for root, dirs, files in os.walk(search_path):
-                if "SKILL.md" in files:
-                    skill_dirs.add(root)
-                    # Don't go deeper into subdirectories of a skill directory
-                    dirs[:] = []
+            for entry in os.scandir(search_path):
+                if entry.is_dir():
+                    skill_md_path = os.path.join(entry.path, "SKILL.md")
+                    if os.path.exists(skill_md_path):
+                        skill_dirs.append(entry.path)
 
-        return list(skill_dirs)
+        return skill_dirs
 
     def _parse_skill_md(self, file_path: str) -> Optional[Dict[str, str]]:
         """Parse SKILL.md file to extract metadata.
@@ -471,17 +475,23 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             repo_url (str): Git repository URL
 
         Returns:
-            str: Unique skill code (without version, only update metadata on version change)
+            str: Unique skill code
         """
+        # Use name as base, convert to lowercase and replace special chars
         name = skill_meta.get("name", "unnamed").lower()
         name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
+        # Add version/author info if available
+        version = skill_meta.get("version", "")
         author = skill_meta.get("author", "")
 
         parts = [name]
+        if version:
+            parts.append(version.replace(".", "-"))
         if author:
             parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
 
+        # Add repo hash for uniqueness
         repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
 
         skill_code = "-".join(parts) + "-" + repo_hash
@@ -522,7 +532,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             logger.warning(f"Failed to copy skill to project directory: {e}")
 
     def _copy_skill_to_sandbox(
-        self, skill_path: str, skill_name: str, sandbox_dir: str
+        self, skill_path: str, skill_name: str, sandbox_dir: str, skill_code: str = None
     ) -> None:
         """Copy skill files to sandbox skill directory.
 
@@ -530,15 +540,26 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             skill_path (str): Source skill directory path
             skill_name (str): Name of the skill
             sandbox_dir (str): Sandbox skill directory
+            skill_code (str): Unique skill code (preferred for directory name)
         """
         try:
             if not os.path.exists(sandbox_dir):
                 logger.warning(f"Sandbox skill directory does not exist: {sandbox_dir}")
                 return
 
-            # Normalize skill name for directory name
-            skill_dir_name = re.sub(r"[^a-zA-Z0-9_-]", "-", skill_name)
+            # Use skill_code as directory name for consistency and uniqueness
+            if skill_code:
+                skill_dir_name = skill_code
+            else:
+                # Fallback to normalized skill name for backward compatibility
+                skill_dir_name = re.sub(r"[^a-zA-Z0-9_-]", "-", skill_name)
             target_dir = os.path.join(sandbox_dir, skill_dir_name)
+
+            # Remove existing directory to ensure clean update
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+                logger.info(f"Removed existing skill directory: {target_dir}")
+
             os.makedirs(target_dir, exist_ok=True)
 
             # Copy all files from skill directory
@@ -640,7 +661,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             # Copy skill files to sandbox if available
             if sandbox_skill_dir:
-                self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
+                self._copy_skill_to_sandbox(
+                    skill_path, skill_name, sandbox_skill_dir, skill_code
+                )
 
             return skill_response
 
@@ -722,7 +745,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
         # Copy skill files to sandbox if available
         if sandbox_skill_dir:
-            self._copy_skill_to_sandbox(skill_path, skill_name, sandbox_skill_dir)
+            self._copy_skill_to_sandbox(
+                skill_path, skill_name, sandbox_skill_dir, skill_code
+            )
 
         return skill_response
 
@@ -1206,7 +1231,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     # Copy skill files to sandbox if available
                     if sandbox_skill_dir:
                         self._copy_skill_to_sandbox(
-                            skill_path, skill_name, sandbox_skill_dir
+                            skill_path, skill_name, sandbox_skill_dir, skill_code
                         )
 
                     dao.increment_progress(task_id, f"Synced {skill_name}")
