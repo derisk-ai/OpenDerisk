@@ -194,6 +194,14 @@ class ReActMasterAgent(ConversableAgent):
             self.available_system_tools["read_file"] = system_tool_dict["read_file"]
             logger.info("read_file 工具已注入")
 
+        # 注入 Todo 工具 (todowrite, todoread)
+        from .todo_tools import get_todo_tools
+        todo_tools = get_todo_tools()
+        for tool_name, tool in todo_tools.items():
+            if tool_name not in self.available_system_tools:
+                self.available_system_tools[tool_name] = tool
+                logger.info(f"{tool_name} 工具已注入")
+
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""
         self.function_calling_context = await self.function_calling_params()
@@ -1230,7 +1238,12 @@ class ReActMasterAgent(ConversableAgent):
         logger.info(f"register_variables end {self.role}")
 
     async def _ensure_work_log_manager(self):
-        """确保 WorkLog 管理器已初始化"""
+        """确保 WorkLog 管理器已初始化
+
+        存储策略：
+        1. 优先使用 self.memory.gpts_memory 作为 WorkLogStorage（推荐）
+        2. 回退使用 AgentFileSystem（向后兼容）
+        """
         if not self.enable_work_log:
             logger.debug("_ensure_work_log_manager: work_log is disabled")
             return
@@ -1260,24 +1273,37 @@ class ReActMasterAgent(ConversableAgent):
                 f"WorkLogManager session info: conv_id={conv_id}, session_id={session_id}"
             )
 
-            afs = await self._ensure_agent_file_system()
-            if not afs:
-                logger.warning(
-                    "AgentFileSystem not available, WorkLogManager will not initialize"
-                )
-                return
+            # 优先使用 gpts_memory 作为 WorkLogStorage
+            work_log_storage = None
+            afs = None
+            if (
+                self.memory
+                and hasattr(self.memory, "gpts_memory")
+                and self.memory.gpts_memory
+            ):
+                # GptsMemory 实现了 WorkLogStorage 接口
+                work_log_storage = self.memory.gpts_memory  # type: ignore[assignment]
+                logger.info("Using gpts_memory as WorkLogStorage (recommended)")
+
+            # 回退到 AgentFileSystem
+            if not work_log_storage:
+                afs = await self._ensure_agent_file_system()
+                if afs:
+                    logger.info("Using AgentFileSystem for WorkLog (fallback mode)")
 
             self._work_log_manager = await create_work_log_manager(
                 agent_id=self.name,
                 session_id=session_id,
                 agent_file_system=afs,
+                work_log_storage=work_log_storage,
                 context_window_tokens=self.work_log_context_window,
                 compression_threshold_ratio=self.work_log_compression_ratio,
             )
 
             self._work_log_initialized = True
             logger.info(
-                f"WorkLogManager initialized: agent_id={self.name}, session_id={session_id}"
+                f"WorkLogManager initialized: agent_id={self.name}, session_id={session_id}, "
+                f"storage_mode={self._work_log_manager.storage_mode}"
             )
 
             await self._work_log_manager.initialize()

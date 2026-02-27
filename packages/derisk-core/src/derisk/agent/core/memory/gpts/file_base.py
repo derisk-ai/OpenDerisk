@@ -9,32 +9,35 @@ import dataclasses
 import enum
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 
 class FileType(enum.Enum):
     """Agent文件类型分类."""
 
-    TOOL_OUTPUT = "tool_output"           # 工具结果临时文件
-    WRITE_FILE = "write_file"             # write工具写入的文件
-    SANDBOX_FILE = "sandbox_file"         # 沙箱环境文件
-    CONCLUSION = "conclusion"             # 结论文件（需要推送给用户）
-    KANBAN = "kanban"                     # 看板相关文件
-    DELIVERABLE = "deliverable"           # 交付物文件
-    TRUNCATED_OUTPUT = "truncated_output" # 截断输出文件
-    WORKFLOW = "workflow"                 # 工作流文件
-    KNOWLEDGE = "knowledge"               # 知识库文件
-    TEMP = "temp"                         # 临时文件
+    TOOL_OUTPUT = "tool_output"  # 工具结果临时文件
+    WRITE_FILE = "write_file"  # write工具写入的文件
+    SANDBOX_FILE = "sandbox_file"  # 沙箱环境文件
+    CONCLUSION = "conclusion"  # 结论文件（需要推送给用户）
+    KANBAN = "kanban"  # 看板相关文件
+    DELIVERABLE = "deliverable"  # 交付物文件
+    TRUNCATED_OUTPUT = "truncated_output"  # 截断输出文件
+    WORKFLOW = "workflow"  # 工作流文件
+    KNOWLEDGE = "knowledge"  # 知识库文件
+    TEMP = "temp"  # 临时文件
+    WORK_LOG = "work_log"  # 工作日志文件
+    WORK_LOG_SUMMARY = "work_log_summary"  # 工作日志摘要文件
+    TODO = "todo"  # 任务列表文件
 
 
 class FileStatus(enum.Enum):
     """文件状态."""
 
-    PENDING = "pending"       # 待处理
-    UPLOADING = "uploading"   # 上传中
-    COMPLETED = "completed"   # 已完成
-    FAILED = "failed"         # 失败
-    EXPIRED = "expired"       # 已过期
+    PENDING = "pending"  # 待处理
+    UPLOADING = "uploading"  # 上传中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"  # 失败
+    EXPIRED = "expired"  # 已过期
 
 
 @dataclasses.dataclass
@@ -97,7 +100,7 @@ class AgentFileMetadata:
         """转换为字典."""
         result = dataclasses.asdict(self)
         # 处理datetime序列化
-        for key in ['created_at', 'updated_at', 'expires_at']:
+        for key in ["created_at", "updated_at", "expires_at"]:
             if result.get(key) and isinstance(result[key], datetime):
                 result[key] = result[key].isoformat()
         return result
@@ -106,7 +109,7 @@ class AgentFileMetadata:
     def from_dict(d: Dict[str, Any]) -> "AgentFileMetadata":
         """从字典创建."""
         # 处理datetime反序列化
-        for key in ['created_at', 'updated_at', 'expires_at']:
+        for key in ["created_at", "updated_at", "expires_at"]:
             if d.get(key) and isinstance(d[key], str):
                 d[key] = datetime.fromisoformat(d[key])
         return AgentFileMetadata(**d)
@@ -122,7 +125,9 @@ class AgentFileMetadata:
             "preview_url": self.preview_url,
             "download_url": self.download_url,
             "mime_type": self.mime_type,
-            "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            "created_at": self.created_at.isoformat()
+            if isinstance(self.created_at, datetime)
+            else self.created_at,
         }
 
 
@@ -134,7 +139,9 @@ class AgentFileCatalog:
     """
 
     conv_id: str
-    files: Dict[str, str] = dataclasses.field(default_factory=dict)  # file_key -> file_id
+    files: Dict[str, str] = dataclasses.field(
+        default_factory=dict
+    )  # file_key -> file_id
     created_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
     updated_at: datetime = dataclasses.field(default_factory=datetime.utcnow)
 
@@ -201,7 +208,9 @@ class AgentFileMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_file_key(self, conv_id: str, file_key: str) -> Optional[AgentFileMetadata]:
+    def get_by_file_key(
+        self, conv_id: str, file_key: str
+    ) -> Optional[AgentFileMetadata]:
         """通过file_key获取文件元数据.
 
         Args:
@@ -292,6 +301,7 @@ class AgentFileMemory(ABC):
 # FileMetadataStorage Interface - 用于AgentFileSystem的存储抽象
 # ============================================================================
 
+
 class FileMetadataStorage(ABC):
     """文件元数据存储接口 - 为AgentFileSystem提供存储抽象.
 
@@ -329,7 +339,9 @@ class FileMetadataStorage(ABC):
         """
 
     @abstractmethod
-    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_key(
+        self, conv_id: str, file_key: str
+    ) -> Optional[AgentFileMetadata]:
         """通过file_key获取文件元数据.
 
         Args:
@@ -341,7 +353,9 @@ class FileMetadataStorage(ABC):
         """
 
     @abstractmethod
-    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_id(
+        self, conv_id: str, file_id: str
+    ) -> Optional[AgentFileMetadata]:
         """通过file_id获取文件元数据.
 
         Args:
@@ -354,9 +368,7 @@ class FileMetadataStorage(ABC):
 
     @abstractmethod
     async def list_files(
-        self,
-        conv_id: str,
-        file_type: Optional[Union[str, FileType]] = None
+        self, conv_id: str, file_type: Optional[Union[str, FileType]] = None
     ) -> List[AgentFileMetadata]:
         """列出会话的所有文件.
 
@@ -432,13 +444,17 @@ class SimpleFileMetadataStorage(FileMetadataStorage):
         """更新文件元数据."""
         await self.save_file_metadata(file_metadata)
 
-    async def get_file_by_key(self, conv_id: str, file_key: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_key(
+        self, conv_id: str, file_key: str
+    ) -> Optional[AgentFileMetadata]:
         """通过file_key获取文件元数据."""
         if conv_id not in self._storage:
             return None
         return self._storage[conv_id].get(file_key)
 
-    async def get_file_by_id(self, conv_id: str, file_id: str) -> Optional[AgentFileMetadata]:
+    async def get_file_by_id(
+        self, conv_id: str, file_id: str
+    ) -> Optional[AgentFileMetadata]:
         """通过file_id获取文件元数据."""
         if conv_id not in self._storage:
             return None
@@ -448,9 +464,7 @@ class SimpleFileMetadataStorage(FileMetadataStorage):
         return None
 
     async def list_files(
-        self,
-        conv_id: str,
-        file_type: Optional[Union[str, FileType]] = None
+        self, conv_id: str, file_type: Optional[Union[str, FileType]] = None
     ) -> List[AgentFileMetadata]:
         """列出会话的所有文件."""
         if conv_id not in self._storage:
@@ -459,7 +473,9 @@ class SimpleFileMetadataStorage(FileMetadataStorage):
         files = list(self._storage[conv_id].values())
 
         if file_type:
-            target_type = file_type.value if isinstance(file_type, FileType) else file_type
+            target_type = (
+                file_type.value if isinstance(file_type, FileType) else file_type
+            )
             files = [f for f in files if f.file_type == target_type]
 
         return files
@@ -479,5 +495,878 @@ class SimpleFileMetadataStorage(FileMetadataStorage):
 
     async def clear_conv_files(self, conv_id: str) -> None:
         """清空会话的所有文件元数据."""
+        if conv_id in self._storage:
+            del self._storage[conv_id]
+
+
+# ============================================================================
+# WorkLog Data Models - 工作日志数据模型
+# ============================================================================
+
+
+class WorkLogStatus(str, enum.Enum):
+    """工作日志状态."""
+
+    ACTIVE = "active"
+    COMPRESSED = "compressed"
+    ARCHIVED = "archived"
+
+
+@dataclasses.dataclass
+class WorkEntry:
+    """
+    工作日志条目.
+
+    记录一个工具调用的完整信息，包括输入、输出、时间戳等。
+    对于大型输出，使用 full_result_archive 或 archives 引用文件系统中的文件。
+
+    统一了 ReActAgent WorkLog 和 PDCA Agent Kanban 的 WorkEntry 定义。
+    """
+
+    timestamp: float
+    tool: str
+    args: Optional[Dict[str, Any]] = None
+    summary: Optional[str] = None
+    result: Optional[str] = None
+    full_result_archive: Optional[str] = None
+    archives: Optional[List[str]] = None  # 归档文件列表 (PDCA 兼容)
+    success: bool = True
+    tags: List[str] = dataclasses.field(default_factory=list)
+    tokens: int = 0
+    status: str = WorkLogStatus.ACTIVE.value
+    step_index: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典."""
+        return {
+            "timestamp": self.timestamp,
+            "tool": self.tool,
+            "args": self.args,
+            "summary": self.summary,
+            "result": self.result,
+            "full_result_archive": self.full_result_archive,
+            "archives": self.archives,
+            "success": self.success,
+            "tags": self.tags,
+            "tokens": self.tokens,
+            "status": self.status,
+            "step_index": self.step_index,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "WorkEntry":
+        """从字典反序列化."""
+        status_data = data.pop("status", WorkLogStatus.ACTIVE.value)
+        if isinstance(status_data, str):
+            pass
+        return cls(status=status_data, **data)
+
+    @classmethod
+    def from_pdca_entry(cls, data: Dict) -> "WorkEntry":
+        """从 PDCA 格式转换 (向后兼容).
+
+        PDCA WorkEntry 格式:
+        - timestamp: float
+        - tool: str
+        - result: Optional[str]
+        - summary: Optional[str]
+        - archives: Optional[List[str]]
+        """
+        return cls(
+            timestamp=data.get("timestamp", 0.0),
+            tool=data.get("tool", ""),
+            summary=data.get("summary"),
+            result=data.get("result"),
+            archives=data.get("archives"),
+            success=True,
+        )
+
+
+@dataclasses.dataclass
+class WorkLogSummary:
+    """
+    工作日志摘要.
+
+    当工作日志被压缩时生成摘要，保留关键信息。
+    """
+
+    compressed_entries_count: int
+    time_range: Tuple[float, float]
+    summary_content: str
+    key_tools: List[str]
+    archive_file: Optional[str] = None
+    created_at: float = dataclasses.field(
+        default_factory=lambda: datetime.utcnow().timestamp()
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典."""
+        return {
+            "compressed_entries_count": self.compressed_entries_count,
+            "time_range": self.time_range,
+            "summary_content": self.summary_content,
+            "key_tools": self.key_tools,
+            "archive_file": self.archive_file,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "WorkLogSummary":
+        """从字典反序列化."""
+        return cls(**data)
+
+
+# ============================================================================
+# WorkLogStorage Interface - 工作日志存储接口
+# ============================================================================
+
+
+class WorkLogStorage(ABC):
+    """工作日志存储接口.
+
+    设计目的:
+    1. 将 WorkLog 存储能力统一到 Memory 体系
+    2. 支持不同场景下的灵活存储选择:
+       - 完整场景: 使用 GptsMemory (带缓存+持久化)
+       - 轻量场景: 使用 SimpleWorkLogStorage (仅内存)
+
+    使用示例:
+        # 方式1: 使用 GptsMemory (推荐)
+        gpts_memory = GptsMemory()
+        gpts_memory.append_work_entry(conv_id, entry)
+
+        # 方式2: 直接通过 AgentMemory 访问
+        await agent.memory.gpts_memory.append_work_entry(conv_id, entry)
+    """
+
+    @abstractmethod
+    async def append_work_entry(
+        self,
+        conv_id: str,
+        entry: WorkEntry,
+        save_db: bool = True,
+    ) -> None:
+        """添加工作日志条目.
+
+        Args:
+            conv_id: 会话ID
+            entry: 工作日志条目
+            save_db: 是否持久化到数据库
+        """
+
+    @abstractmethod
+    async def get_work_log(self, conv_id: str) -> List[WorkEntry]:
+        """获取会话的工作日志.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            工作日志条目列表
+        """
+
+    @abstractmethod
+    async def get_work_log_summaries(self, conv_id: str) -> List[WorkLogSummary]:
+        """获取会话的工作日志摘要.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            工作日志摘要列表
+        """
+
+    @abstractmethod
+    async def append_work_log_summary(
+        self,
+        conv_id: str,
+        summary: WorkLogSummary,
+        save_db: bool = True,
+    ) -> None:
+        """添加工作日志摘要.
+
+        Args:
+            conv_id: 会话ID
+            summary: 工作日志摘要
+            save_db: 是否持久化到数据库
+        """
+
+    @abstractmethod
+    async def get_work_log_context(
+        self,
+        conv_id: str,
+        max_entries: int = 50,
+        max_tokens: int = 8000,
+    ) -> str:
+        """获取用于 prompt 的工作日志上下文.
+
+        Args:
+            conv_id: 会话ID
+            max_entries: 最大条目数
+            max_tokens: 最大 token 数
+
+        Returns:
+            格式化的上下文文本
+        """
+
+    @abstractmethod
+    async def clear_work_log(self, conv_id: str) -> None:
+        """清空会话的工作日志.
+
+        Args:
+            conv_id: 会话ID
+        """
+
+    @abstractmethod
+    async def get_work_log_stats(self, conv_id: str) -> Dict[str, Any]:
+        """获取工作日志统计信息.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            统计信息字典
+        """
+
+
+class SimpleWorkLogStorage(WorkLogStorage):
+    """简单的内存工作日志存储.
+
+    适用于:
+    - 测试环境
+    - 不需要持久化的临时场景
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, Dict[str, Any]] = {}
+
+    async def append_work_entry(
+        self,
+        conv_id: str,
+        entry: WorkEntry,
+        save_db: bool = True,
+    ) -> None:
+        if conv_id not in self._storage:
+            self._storage[conv_id] = {
+                "entries": [],
+                "summaries": [],
+            }
+        self._storage[conv_id]["entries"].append(entry)
+
+    async def get_work_log(self, conv_id: str) -> List[WorkEntry]:
+        if conv_id not in self._storage:
+            return []
+        return self._storage[conv_id]["entries"]
+
+    async def get_work_log_summaries(self, conv_id: str) -> List[WorkLogSummary]:
+        if conv_id not in self._storage:
+            return []
+        return self._storage[conv_id]["summaries"]
+
+    async def append_work_log_summary(
+        self,
+        conv_id: str,
+        summary: WorkLogSummary,
+        save_db: bool = True,
+    ) -> None:
+        if conv_id not in self._storage:
+            self._storage[conv_id] = {
+                "entries": [],
+                "summaries": [],
+            }
+        self._storage[conv_id]["summaries"].append(summary)
+
+    async def get_work_log_context(
+        self,
+        conv_id: str,
+        max_entries: int = 50,
+        max_tokens: int = 8000,
+    ) -> str:
+        entries = await self.get_work_log(conv_id)
+        if not entries:
+            return "\n暂无工作日志记录。"
+
+        import time
+
+        lines = ["## 工作日志", ""]
+        total_tokens = 0
+        chars_per_token = 4
+
+        for entry in entries[-max_entries:]:
+            time_str = time.strftime("%H:%M:%S", time.localtime(entry.timestamp))
+            entry_text = f"[{time_str}] {entry.tool}"
+            if entry.args:
+                important_args = {
+                    k: v
+                    for k, v in entry.args.items()
+                    if k in ["file_key", "path", "query", "pattern"]
+                }
+                if important_args:
+                    entry_text += f" 参数: {important_args}"
+            if entry.result:
+                preview = entry.result[:200]
+                entry_text += f"\n  {preview}"
+            elif entry.full_result_archive:
+                entry_text += f"\n  💡 完整结果已归档: {entry.full_result_archive}"
+
+            lines.append(entry_text)
+            total_tokens += len(entry_text) // chars_per_token
+            if total_tokens > max_tokens:
+                break
+
+        return "\n".join(lines)
+
+    async def clear_work_log(self, conv_id: str) -> None:
+        if conv_id in self._storage:
+            del self._storage[conv_id]
+
+    async def get_work_log_stats(self, conv_id: str) -> Dict[str, Any]:
+        entries = await self.get_work_log(conv_id)
+        summaries = await self.get_work_log_summaries(conv_id)
+        return {
+            "total_entries": len(entries),
+            "compressed_summaries": len(summaries),
+            "success_count": sum(1 for e in entries if e.success),
+            "fail_count": sum(1 for e in entries if not e.success),
+        }
+
+
+# ============================================================================
+# Kanban Data Models - 看板数据模型
+# ============================================================================
+
+
+class StageStatus(str, enum.Enum):
+    """阶段状态."""
+
+    WORKING = "working"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PENDING = "pending"
+
+
+@dataclasses.dataclass
+class KanbanStage:
+    """
+    看板阶段.
+
+    每个阶段有明确的交付物定义，以结论为导向。
+    """
+
+    stage_id: str
+    description: str
+    status: str = StageStatus.WORKING.value
+    deliverable_type: str = ""
+    deliverable_schema: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    deliverable_file: str = ""
+    work_log: List[WorkEntry] = dataclasses.field(default_factory=list)
+    started_at: float = 0.0
+    completed_at: float = 0.0
+    depends_on: List[str] = dataclasses.field(default_factory=list)
+    reflection: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典."""
+        return {
+            "stage_id": self.stage_id,
+            "description": self.description,
+            "status": self.status,
+            "deliverable_type": self.deliverable_type,
+            "deliverable_schema": self.deliverable_schema,
+            "deliverable_file": self.deliverable_file,
+            "work_log": [e.to_dict() for e in self.work_log],
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "depends_on": self.depends_on,
+            "reflection": self.reflection,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "KanbanStage":
+        """从字典反序列化."""
+        work_log_data = data.pop("work_log", [])
+        work_log = [WorkEntry.from_dict(e) for e in work_log_data]
+        return cls(work_log=work_log, **data)
+
+    def is_completed(self) -> bool:
+        """判断是否已完成."""
+        return self.status == StageStatus.COMPLETED.value
+
+    def is_working(self) -> bool:
+        """判断是否工作中."""
+        return self.status == StageStatus.WORKING.value
+
+
+@dataclasses.dataclass
+class Kanban:
+    """
+    看板：线性阶段序列.
+
+    代表整个任务的执行计划。
+    """
+
+    kanban_id: str
+    mission: str
+    stages: List[KanbanStage] = dataclasses.field(default_factory=list)
+    current_stage_index: int = 0
+    created_at: float = dataclasses.field(
+        default_factory=lambda: datetime.utcnow().timestamp()
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典."""
+        return {
+            "kanban_id": self.kanban_id,
+            "mission": self.mission,
+            "stages": [s.to_dict() for s in self.stages],
+            "current_stage_index": self.current_stage_index,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Kanban":
+        """从字典反序列化."""
+        stages_data = data.pop("stages", [])
+        stages = [KanbanStage.from_dict(s) for s in stages_data]
+        return cls(stages=stages, **data)
+
+    def get_current_stage(self) -> Optional[KanbanStage]:
+        """获取当前正在执行的阶段."""
+        if 0 <= self.current_stage_index < len(self.stages):
+            return self.stages[self.current_stage_index]
+        return None
+
+    def get_stage_by_id(self, stage_id: str) -> Optional[KanbanStage]:
+        """根据ID查找阶段."""
+        for stage in self.stages:
+            if stage.stage_id == stage_id:
+                return stage
+        return None
+
+    def get_completed_stages(self) -> List[KanbanStage]:
+        """获取所有已完成的阶段."""
+        return [s for s in self.stages if s.is_completed()]
+
+    def get_pending_stages(self) -> List[KanbanStage]:
+        """获取所有待执行的阶段."""
+        return [s for s in self.stages[self.current_stage_index + 1 :]]
+
+    def is_all_completed(self) -> bool:
+        """判断是否所有阶段都已完成."""
+        return all(stage.is_completed() for stage in self.stages)
+
+    def advance_to_next_stage(self) -> bool:
+        """推进到下一阶段."""
+        if self.current_stage_index < len(self.stages) - 1:
+            self.current_stage_index += 1
+            next_stage = self.get_current_stage()
+            if next_stage:
+                next_stage.status = StageStatus.WORKING.value
+                next_stage.started_at = datetime.utcnow().timestamp()
+            return True
+        return False
+
+    def generate_overview(self) -> str:
+        """生成看板概览（Markdown格式）."""
+        lines = [
+            f"# Kanban Overview",
+            f"Mission: {self.mission}",
+            "",
+            "## Progress",
+        ]
+
+        progress_icons = []
+        for i, stage in enumerate(self.stages):
+            if stage.is_completed():
+                icon = "✅"
+            elif i == self.current_stage_index:
+                icon = "🔄"
+            else:
+                icon = "⏳"
+            progress_icons.append(f"[{icon} {stage.stage_id}]")
+
+        lines.append(" -> ".join(progress_icons))
+        lines.append("")
+
+        completed = self.get_completed_stages()
+        if completed:
+            lines.append("## Completed Stages")
+            for stage in completed:
+                lines.append(f"- **{stage.stage_id}**: {stage.description}")
+                if stage.deliverable_file:
+                    lines.append(f"  - Deliverable: `{stage.deliverable_file}`")
+            lines.append("")
+
+        current = self.get_current_stage()
+        if current and not current.is_completed():
+            lines.append("## Current Stage")
+            lines.append(f"**{current.stage_id}**: {current.description}")
+            lines.append("")
+
+        pending = self.get_pending_stages()
+        if pending:
+            lines.append("## Pending Stages")
+            for stage in pending:
+                lines.append(f"- **{stage.stage_id}**: {stage.description}")
+
+        return "\n".join(lines)
+
+
+# ============================================================================
+# KanbanStorage Interface - 看板存储接口
+# ============================================================================
+
+
+class KanbanStorage(ABC):
+    """看板存储接口.
+
+    设计目的:
+    1. 将 Kanban 存储能力统一到 Memory 体系
+    2. 支持不同场景下的灵活存储选择:
+       - 完整场景: 使用 GptsMemory (带缓存+持久化)
+       - 轻量场景: 使用 SimpleKanbanStorage (仅内存)
+
+    使用示例:
+        # 方式1: 使用 GptsMemory (推荐)
+        gpts_memory = GptsMemory()
+        kanban = await gpts_memory.get_kanban(conv_id)
+        await gpts_memory.save_kanban(conv_id, kanban)
+    """
+
+    @abstractmethod
+    async def save_kanban(self, conv_id: str, kanban: Kanban) -> None:
+        """保存看板.
+
+        Args:
+            conv_id: 会话ID
+            kanban: 看板对象
+        """
+
+    @abstractmethod
+    async def get_kanban(self, conv_id: str) -> Optional[Kanban]:
+        """获取看板.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            看板对象，不存在返回 None
+        """
+
+    @abstractmethod
+    async def delete_kanban(self, conv_id: str) -> bool:
+        """删除看板.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            是否成功删除
+        """
+
+    @abstractmethod
+    async def save_deliverable(
+        self,
+        conv_id: str,
+        stage_id: str,
+        deliverable: Dict[str, Any],
+        deliverable_type: str = "",
+    ) -> str:
+        """保存交付物.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+            deliverable: 交付物数据
+            deliverable_type: 交付物类型
+
+        Returns:
+            交付物文件 key
+        """
+
+    @abstractmethod
+    async def get_deliverable(
+        self, conv_id: str, stage_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """获取交付物.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+
+        Returns:
+            交付物数据，不存在返回 None
+        """
+
+    @abstractmethod
+    async def get_all_deliverables(self, conv_id: str) -> Dict[str, Dict[str, Any]]:
+        """获取所有交付物.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            {stage_id: deliverable} 字典
+        """
+
+    @abstractmethod
+    async def add_work_entry_to_stage(
+        self,
+        conv_id: str,
+        stage_id: str,
+        entry: WorkEntry,
+    ) -> bool:
+        """向指定阶段添加工作日志条目.
+
+        Args:
+            conv_id: 会话ID
+            stage_id: 阶段ID
+            entry: 工作日志条目
+
+        Returns:
+            是否成功添加
+        """
+
+    @abstractmethod
+    async def get_pre_kanban_logs(self, conv_id: str) -> List[WorkEntry]:
+        """获取看板创建前的预研日志.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            预研日志列表
+        """
+
+    @abstractmethod
+    async def add_pre_kanban_log(
+        self,
+        conv_id: str,
+        entry: WorkEntry,
+    ) -> None:
+        """添加预研日志条目.
+
+        Args:
+            conv_id: 会话ID
+            entry: 工作日志条目
+        """
+
+    @abstractmethod
+    async def clear_pre_kanban_logs(self, conv_id: str) -> None:
+        """清空预研日志.
+
+        Args:
+            conv_id: 会话ID
+        """
+
+
+class SimpleKanbanStorage(KanbanStorage):
+    """简单的内存看板存储.
+
+    适用于测试环境或不需要持久化的临时场景。
+    """
+
+    def __init__(self):
+        self._kanbans: Dict[str, Kanban] = {}
+        self._deliverables: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._pre_kanban_logs: Dict[str, List[WorkEntry]] = {}
+
+    async def save_kanban(self, conv_id: str, kanban: Kanban) -> None:
+        self._kanbans[conv_id] = kanban
+
+    async def get_kanban(self, conv_id: str) -> Optional[Kanban]:
+        return self._kanbans.get(conv_id)
+
+    async def delete_kanban(self, conv_id: str) -> bool:
+        if conv_id in self._kanbans:
+            del self._kanbans[conv_id]
+            return True
+        return False
+
+    async def save_deliverable(
+        self,
+        conv_id: str,
+        stage_id: str,
+        deliverable: Dict[str, Any],
+        deliverable_type: str = "",
+    ) -> str:
+        if conv_id not in self._deliverables:
+            self._deliverables[conv_id] = {}
+        key = f"{conv_id}_{stage_id}_deliverable"
+        self._deliverables[conv_id][stage_id] = deliverable
+        return key
+
+    async def get_deliverable(
+        self, conv_id: str, stage_id: str
+    ) -> Optional[Dict[str, Any]]:
+        if conv_id not in self._deliverables:
+            return None
+        return self._deliverables[conv_id].get(stage_id)
+
+    async def get_all_deliverables(self, conv_id: str) -> Dict[str, Dict[str, Any]]:
+        return self._deliverables.get(conv_id, {})
+
+    async def add_work_entry_to_stage(
+        self,
+        conv_id: str,
+        stage_id: str,
+        entry: WorkEntry,
+    ) -> bool:
+        kanban = await self.get_kanban(conv_id)
+        if not kanban:
+            return False
+        stage = kanban.get_stage_by_id(stage_id)
+        if not stage:
+            return False
+        stage.work_log.append(entry)
+        return True
+
+    async def get_pre_kanban_logs(self, conv_id: str) -> List[WorkEntry]:
+        return self._pre_kanban_logs.get(conv_id, [])
+
+    async def add_pre_kanban_log(
+        self,
+        conv_id: str,
+        entry: WorkEntry,
+    ) -> None:
+        if conv_id not in self._pre_kanban_logs:
+            self._pre_kanban_logs[conv_id] = []
+        self._pre_kanban_logs[conv_id].append(entry)
+
+    async def clear_pre_kanban_logs(self, conv_id: str) -> None:
+        self._pre_kanban_logs[conv_id] = []
+
+
+# ============================================================================
+# Todo Data Models - 任务列表数据模型（参考 opencode）
+# ============================================================================
+
+
+class TodoStatus(str, enum.Enum):
+    """任务状态."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class TodoPriority(str, enum.Enum):
+    """任务优先级."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+@dataclasses.dataclass
+class TodoItem:
+    """
+    任务项.
+
+    参考 opencode 的设计，保持简洁。
+    """
+
+    id: str
+    content: str
+    status: str = TodoStatus.PENDING.value
+    priority: str = TodoPriority.MEDIUM.value
+    created_at: float = dataclasses.field(default_factory=lambda: datetime.utcnow().timestamp())
+    updated_at: float = dataclasses.field(default_factory=lambda: datetime.utcnow().timestamp())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典."""
+        return {
+            "id": self.id,
+            "content": self.content,
+            "status": self.status,
+            "priority": self.priority,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TodoItem":
+        """从字典反序列化."""
+        return cls(
+            id=data.get("id", ""),
+            content=data.get("content", ""),
+            status=data.get("status", TodoStatus.PENDING.value),
+            priority=data.get("priority", TodoPriority.MEDIUM.value),
+            created_at=data.get("created_at", datetime.utcnow().timestamp()),
+            updated_at=data.get("updated_at", datetime.utcnow().timestamp()),
+        )
+
+    def update_status(self, new_status: str) -> "TodoItem":
+        """更新状态并返回新实例."""
+        return TodoItem(
+            id=self.id,
+            content=self.content,
+            status=new_status,
+            priority=self.priority,
+            created_at=self.created_at,
+            updated_at=datetime.utcnow().timestamp(),
+        )
+
+
+# ============================================================================
+# TodoStorage Interface - 任务列表存储接口
+# ============================================================================
+
+
+class TodoStorage(ABC):
+    """任务列表存储接口.
+
+    参考 opencode 的 todowrite/todoread 工具设计，保持简洁。
+
+    设计目的:
+    1. 简单的任务列表管理
+    2. LLM 自主决策何时使用
+    3. 状态仅包含 pending/in_progress/completed/cancelled
+    4. 无需定义交付物 Schema
+    """
+
+    @abstractmethod
+    async def write_todos(self, conv_id: str, todos: List[TodoItem]) -> None:
+        """写入任务列表.
+
+        Args:
+            conv_id: 会话ID
+            todos: 任务列表
+        """
+
+    @abstractmethod
+    async def read_todos(self, conv_id: str) -> List[TodoItem]:
+        """读取任务列表.
+
+        Args:
+            conv_id: 会话ID
+
+        Returns:
+            任务列表
+        """
+
+    @abstractmethod
+    async def clear_todos(self, conv_id: str) -> None:
+        """清空任务列表.
+
+        Args:
+            conv_id: 会话ID
+        """
+
+
+class SimpleTodoStorage(TodoStorage):
+    """简单的内存任务列表存储."""
+
+    def __init__(self):
+        self._storage: Dict[str, List[TodoItem]] = {}
+
+    async def write_todos(self, conv_id: str, todos: List[TodoItem]) -> None:
+        self._storage[conv_id] = todos
+
+    async def read_todos(self, conv_id: str) -> List[TodoItem]:
+        return self._storage.get(conv_id, [])
+
+    async def clear_todos(self, conv_id: str) -> None:
         if conv_id in self._storage:
             del self._storage[conv_id]

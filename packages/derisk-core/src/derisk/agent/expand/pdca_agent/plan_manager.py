@@ -1,8 +1,8 @@
 """
-优化后的KanbanManager - 集成 AgentFileSystem
+优化后的KanbanManager - 集成 Memory 体系
 核心改进：
-1. 集成 AgentFileSystem 替代直接文件操作
-2. 支持沙箱环境和 OSS 存储
+1. 支持通过 KanbanStorage 接口统一集成到 Memory 体系
+2. 兼容旧版 FileSystem 直接存储模式
 3. 保留简化的状态管理和交付物机制
 """
 
@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from .plan_models import (
     Kanban,
@@ -21,33 +21,49 @@ from .plan_models import (
 )
 from ...core.file_system.file_system import FileSystem
 
+if TYPE_CHECKING:
+    from ...core.memory.gpts.file_base import KanbanStorage
+
 logger = logging.getLogger(__name__)
 
 
 class AsyncKanbanManager:
     """
-    异步看板管理器 (集成 AgentFileSystem)
+    异步看板管理器 (集成 Memory 体系)
+
     职责：
     1. 创建和管理看板
     2. 提交和验证交付物
     3. 读取前置交付物
     4. 生成Prompt上下文
+
+    存储策略：
+    - 优先使用 kanban_storage（推荐，集成到 Memory 体系）
+    - 回退使用 file_system（向后兼容）
     """
 
-    def __init__(self, agent_id: str, session_id: str, file_system: FileSystem):
+    def __init__(
+        self,
+        agent_id: str,
+        session_id: str,
+        file_system: Optional[FileSystem] = None,
+        kanban_storage: Optional["KanbanStorage"] = None,
+    ):
         """
         初始化看板管理器
 
         Args:
             agent_id: Agent ID
             session_id: Session ID
-            file_system: AgentFileSystem 实例
+            file_system: FileSystem 实例（向后兼容）
+            kanban_storage: KanbanStorage 实例（推荐，集成到 Memory）
         """
         self.agent_id = agent_id
         self.session_id = session_id
-        self.fs = file_system  # 注入文件系统实例
+        self.fs = file_system
+        self._kanban_storage = kanban_storage
 
-        # 定义在文件系统中的 Key (而非路径)
+        # 定义在文件系统中的 Key (兼容模式使用)
         self.kanban_file = f"{agent_id}_{session_id}_kanban"
         self.kanban_view_file = f"{agent_id}_{session_id}_kanban_view"
         self.pre_kanban_logs_file = f"{agent_id}_{session_id}_pre_kanban_logs"
@@ -58,44 +74,103 @@ class AsyncKanbanManager:
         # 内存状态
         self.kanban: Optional[Kanban] = None
         self.pre_kanban_logs: List[WorkEntry] = []  # 记录 Kanban 创建前的预研日志
+        self._deliverables: Dict[str, Dict[str, Any]] = {}  # stage_id -> deliverable
         self._lock = asyncio.Lock()
         self._loaded = False
 
-    # ==================== 加载与保存 ====================
+        # 记录存储模式
+        if kanban_storage:
+            logger.info(f"KanbanManager 初始化: 使用 KanbanStorage 模式")
+        elif file_system:
+            logger.info(f"KanbanManager 初始化: 使用 FileSystem 模式（兼容）")
+        else:
+            logger.info(f"KanbanManager 初始化: 仅内存模式")
+
+    @property
+    def storage_mode(self) -> str:
+        """获取当前存储模式"""
+        if self._kanban_storage:
+            return "kanban_storage"
+        elif self.fs:
+            return "file_system"
+        else:
+            return "memory_only"
 
     async def _load_unlocked(self):
         """内部方法：不获取锁的加载逻辑"""
         if self._loaded:
             return
 
-        # 通过 FileSystem 读取看板状态
-        content = await self.fs.read_file(self.kanban_file)
-        if content:
-            try:
-                data = json.loads(content)
-                self.kanban = Kanban.from_dict(data)
-                logger.info(f"📚 已从 AFS 加载 Kanban: {self.kanban_file}")
-            except Exception as e:
-                logger.error(f"加载 Kanban JSON 失败: {e}")
-                self.kanban = None
+        # 优先从 KanbanStorage 加载
+        if self._kanban_storage:
+            await self._load_from_storage()
         else:
-            logger.info("👻 无历史 Kanban，初始化为空")
-            self.kanban = None
-
-        # 加载 pre_kanban_logs (看板创建前的预研日志)
-        logs_content = await self.fs.read_file(self.pre_kanban_logs_file)
-        if logs_content:
-            try:
-                logs_data = json.loads(logs_content)
-                self.pre_kanban_logs = [WorkEntry.from_dict(entry) for entry in logs_data]
-                logger.info(f"📚 已从 AFS 加载 pre_kanban_logs，共 {len(self.pre_kanban_logs)} 条记录")
-            except Exception as e:
-                logger.error(f"加载 pre_kanban_logs 失败: {e}")
-                self.pre_kanban_logs = []
-        else:
-            self.pre_kanban_logs = []
+            await self._load_from_filesystem()
 
         self._loaded = True
+
+    async def _load_from_storage(self):
+        """从 KanbanStorage 加载看板"""
+        if self._kanban_storage is None:
+            return
+
+        try:
+            # 获取看板数据并转换为本地 Kanban 类型
+            kanban_data = await self._kanban_storage.get_kanban(self.session_id)
+            if kanban_data:
+                # 如果是字典，需要转换
+                if isinstance(kanban_data, dict):
+                    self.kanban = Kanban.from_dict(kanban_data)
+                else:
+                    # 尝试使用 to_dict 转换
+                    self.kanban = Kanban.from_dict(kanban_data.to_dict())
+
+            # 获取预研日志
+            pre_logs = await self._kanban_storage.get_pre_kanban_logs(self.session_id)
+            self.pre_kanban_logs = []
+            for log in pre_logs:
+                # 转换为本地 WorkEntry 类型
+                if isinstance(log, dict):
+                    self.pre_kanban_logs.append(WorkEntry.from_dict(log))
+                else:
+                    self.pre_kanban_logs.append(WorkEntry.from_dict(log.to_dict()))
+
+            # 获取交付物
+            self._deliverables = await self._kanban_storage.get_all_deliverables(
+                self.session_id
+            )
+
+            logger.info(
+                f"📚 从 KanbanStorage 加载: kanban={self.kanban is not None}, "
+                f"pre_logs={len(self.pre_kanban_logs)}, deliverables={len(self._deliverables)}"
+            )
+        except Exception as e:
+            logger.error(f"从 KanbanStorage 加载失败: {e}")
+
+    async def _load_from_filesystem(self):
+        """从文件系统加载历史日志"""
+        if self.fs is None:
+            return
+
+        try:
+            # 加载看板
+            content = await self.fs.read_file(self.kanban_file)
+            if content:
+                data = json.loads(content)
+                self.kanban = Kanban.from_dict(data)
+                logger.info(f"📚 加载了看板: {self.kanban_file}")
+
+            # 加载预研日志
+            logs_content = await self.fs.read_file(self.pre_kanban_logs_file)
+            if logs_content:
+                logs_data = json.loads(logs_content)
+                self.pre_kanban_logs = [
+                    WorkEntry.from_dict(entry) for entry in logs_data
+                ]
+                logger.info(f"📚 加载了 {len(self.pre_kanban_logs)} 条预研日志")
+
+        except Exception as e:
+            logger.error(f"加载历史日志失败: {e}")
 
     async def load(self):
         """加载看板状态"""
@@ -103,26 +178,41 @@ class AsyncKanbanManager:
             await self._load_unlocked()
 
     async def save(self):
-        """
-        保存看板状态
-        1. 序列化 Kanban -> JSON
-        2. 生成 Markdown 看板视图
-        3. 通过 FileSystem 原子写入
-        """
+        """保存看板状态"""
         if not self.kanban:
             return
 
-        # 准备数据
-        kanban_data = self.kanban.to_dict()
-        kanban_view = self._generate_kanban_markdown()
+        # 优先保存到 KanbanStorage
+        if self._kanban_storage:
+            # 将本地 Kanban 转换为字典存储
+            from ...core.memory.gpts.file_base import Kanban as StorageKanban
 
-        # 通过 FileSystem 并发保存 JSON 和 Markdown
-        await asyncio.gather(
-            self.fs.save_file(self.kanban_file, kanban_data, "json"),
-            self.fs.save_file(self.kanban_view_file, kanban_view, "md"),
-        )
+            storage_kanban = StorageKanban.from_dict(self.kanban.to_dict())
+            await self._kanban_storage.save_kanban(self.session_id, storage_kanban)
+            logger.debug(f"💾 保存看板到 KanbanStorage")
+        else:
+            await self._save_to_filesystem()
 
-        logger.info(f"💾 已保存 Kanban 到 AFS: {self.kanban_file}")
+    async def _save_to_filesystem(self):
+        """保存到文件系统（兼容模式）"""
+        if self.fs is None:
+            return
+
+        try:
+            # 准备数据
+            kanban_data = self.kanban.to_dict()
+            kanban_view = self._generate_kanban_markdown()
+
+            # 通过 FileSystem 并发保存 JSON 和 Markdown
+            await asyncio.gather(
+                self.fs.save_file(self.kanban_file, kanban_data, "json"),
+                self.fs.save_file(self.kanban_view_file, kanban_view, "md"),
+            )
+
+            logger.info(f"💾 已保存 Kanban 到 FileSystem: {self.kanban_file}")
+
+        except Exception as e:
+            logger.error(f"保存看板失败: {e}")
 
     def _generate_kanban_markdown(self) -> str:
         """生成Markdown格式的看板视图"""
@@ -554,7 +644,9 @@ class AsyncKanbanManager:
                 # 保存 pre_kanban_logs 到文件系统
                 logs_data = [entry.to_dict() for entry in self.pre_kanban_logs]
                 await self.fs.save_file(self.pre_kanban_logs_file, logs_data, "json")
-                logger.info(f"💾 已保存 pre_kanban_logs 到 AFS，共 {len(self.pre_kanban_logs)} 条记录")
+                logger.info(
+                    f"💾 已保存 pre_kanban_logs 到 AFS，共 {len(self.pre_kanban_logs)} 条记录"
+                )
 
                 return {
                     "status": "success",
@@ -816,7 +908,10 @@ class AsyncKanbanManager:
 
 
 async def create_kanban_manager(
-    agent_id: str, session_id: str, file_system: FileSystem
+    agent_id: str,
+    session_id: str,
+    file_system: Optional[FileSystem] = None,
+    kanban_storage: Optional["KanbanStorage"] = None,
 ) -> AsyncKanbanManager:
     """
     创建并初始化 KanbanManager
@@ -824,11 +919,17 @@ async def create_kanban_manager(
     Args:
         agent_id: Agent ID
         session_id: Session ID
-        file_system: FileSystem 实例
+        file_system: FileSystem 实例（向后兼容）
+        kanban_storage: KanbanStorage 实例（推荐，集成到 Memory）
 
     Returns:
         已初始化的 AsyncKanbanManager 实例
     """
-    manager = AsyncKanbanManager(agent_id, session_id, file_system)
+    manager = AsyncKanbanManager(
+        agent_id=agent_id,
+        session_id=session_id,
+        file_system=file_system,
+        kanban_storage=kanban_storage,
+    )
     await manager.load()
     return manager
