@@ -108,9 +108,6 @@ def mount_static_files(app: FastAPI, param: ApplicationConfig):
         StaticFiles(directory=STATIC_MESSAGE_IMG_PATH, html=True),
         name="static2",
     )
-    # app.mount(
-    #     "/_next/static", StaticFiles(directory=static_file_path + "/_next/static")
-    # )
     app.mount("/", StaticFiles(directory=static_file_path, html=True), name="static")
 
     app.mount(
