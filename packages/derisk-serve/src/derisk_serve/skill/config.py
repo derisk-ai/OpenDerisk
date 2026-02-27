@@ -46,6 +46,17 @@ class ServeConfig(BaseServeConfig):
         default=None, metadata={"help": "Sandbox skill directory path"}
     )
 
+    # Default skill repository to load on startup
+    default_skill_repo_url: Optional[str] = field(
+        default="https://github.com/derisk-ai/derisk-skills.git",
+        metadata={"help": "Default git repository URL for skills to load on startup"},
+    )
+
+    default_skill_repo_branch: Optional[str] = field(
+        default="main",
+        metadata={"help": "Default git branch for skill repository"},
+    )
+
     def get_type_value(self):
         return self.__type__
 
@@ -67,6 +78,12 @@ class ServeConfig(BaseServeConfig):
         """Get sandbox skill directory"""
         if self.sandbox_skill_dir:
             return self.sandbox_skill_dir
-        # For local mode, use DATA_DIR/skill as the default sandbox skill directory
-        # This ensures local sandbox uses the same directory as project skill storage
-        return DEFAULT_PROJECT_SKILL_DIR
+        return None
+
+    def get_default_skill_repo_url(self) -> Optional[str]:
+        """Get default skill repository URL"""
+        return self.default_skill_repo_url
+
+    def get_default_skill_repo_branch(self) -> str:
+        """Get default skill repository branch"""
+        return self.default_skill_repo_branch or "main"
