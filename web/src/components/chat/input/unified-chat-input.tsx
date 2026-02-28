@@ -602,7 +602,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       
       // Update chatInParams to remove the skill
       const newChatInParams = chatInParams.filter(
-        (p: ChatInParamItem) => !(p.param_type === 'resource' && p.sub_type === 'agent_skill' && 
+        (p: ChatInParamItem) => !(p.param_type === 'resource' && p.sub_type === 'skill(derisk)' && 
           (() => {
             try {
               const skillData = JSON.parse(p.param_value);

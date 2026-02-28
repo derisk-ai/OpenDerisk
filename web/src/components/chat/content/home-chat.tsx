@@ -47,7 +47,7 @@ import {
 import ModelIcon from '@/components/icons/model-icon';
 import cls from 'classnames';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConnectorsModal } from '@/components/chat/connectors-modal';
 import { IApp } from '@/types/app';
@@ -301,7 +301,12 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
     return { groups, otherModels };
   }, [modelList, modelSearch]);
 
-  const modelContent = (
+  const collapseDefaultActiveKey = useMemo(() => 
+    ['AgentLLM', ...Object.keys(groupedModels.groups)],
+    [groupedModels.groups]
+  );
+
+  const modelContent = useMemo(() => (
     <div className="w-80 flex flex-col h-[400px]">
       <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2 flex-shrink-0">
         <Input 
@@ -323,7 +328,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         {Object.entries(groupedModels.groups).length > 0 && (
           <Collapse
             ghost
-            defaultActiveKey={['AgentLLM', ...Object.keys(groupedModels.groups)]}
+            defaultActiveKey={collapseDefaultActiveKey}
             expandIcon={({ isActive }) => <RightOutlined rotate={isActive ? 90 : 0} className="text-xs text-gray-400" />}
             className="[&_.ant-collapse-header]:!p-2 [&_.ant-collapse-content-box]:!p-0"
           >
@@ -385,7 +390,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         )}
       </div>
     </div>
-  );
+  ), [groupedModels, selectedModel, modelSearch, t]);
 
   // 从 URL 参数中获取 app_code
   // Use useEffect to access URL search params safely on client side
@@ -656,16 +661,15 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
     setIsConnectorsModalOpen(true);
   };
 
-  const handleSkillsChange = (skills: any[]) => {
+  const handleSkillsChange = useCallback((skills: any[]) => {
     setSelectedSkills(skills);
-  };
+  }, []);
 
-  const handleSkillRemove = (skillCode: string) => {
-    const newSkills = selectedSkills.filter(s => s.skill_code !== skillCode);
-    setSelectedSkills(newSkills);
-  };
+  const handleSkillRemove = useCallback((skillCode: string) => {
+    setSelectedSkills(prev => prev.filter(s => s.skill_code !== skillCode));
+  }, []);
 
-  const appMenuProps: MenuProps = {
+  const appMenuProps: MenuProps = useMemo(() => ({
     items: appList.map((app) => ({
       key: app.app_code,
       label: (
@@ -677,9 +681,9 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         </div>
       ),
     })),
-  };
+  }), [appList]);
 
-  const plusMenuContent = (
+  const plusMenuContent = useMemo(() => (
     <div className="flex flex-col gap-1 w-52 p-1">
       {recommendedSkills.length > 0 && (
         <>
@@ -746,7 +750,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         <span className="text-sm">更多</span>
       </div>
     </div>
-  );
+  ), [recommendedSkills, recommendedTools, selectedSkills, handleSkillsChange]);
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;

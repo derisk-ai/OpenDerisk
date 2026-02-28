@@ -1115,17 +1115,21 @@ class AgentChat(BaseComponent, ABC):
                             }
                         )
                     )
-                    if chat_in_param.sub_type == ResourceType.AgentSkill.value:
+                    if chat_in_param.sub_type == DeriskSkillResource.type():
                         skill_param_value = chat_in_param.param_value
                         if isinstance(skill_param_value, str):
                             skill_config = json.loads(skill_param_value)
                         else:
                             skill_config = skill_param_value
-                        metadata = (
-                            json.loads(skill_config.get("config"))
-                            .get("release", {})
-                            .get("metadata", {})
-                        )
+                        config_str = skill_config.get("config")
+                        if config_str:
+                            metadata = (
+                                json.loads(config_str)
+                                .get("release", {})
+                                .get("metadata", {})
+                            )
+                        else:
+                            metadata = {}
                         allow_tools = metadata.get("allowed-tools")
                         allow_tools_resources = (
                             await self._get_skill_allow_tools_resources(allow_tools)
