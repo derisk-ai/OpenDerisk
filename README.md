@@ -1,6 +1,6 @@
 ### OpenDeRisk
 
-OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system risk intelligent manager provides 7 * 24-hour comprehensive and in-depth protection.
+OpenDeRisk is an AI-Native Risk Intelligence System designed as your application system's intelligent manager, providing 7×24 hour comprehensive and in-depth protection.
 
 <div align="center">
   <p>
@@ -27,149 +27,116 @@ OpenDeRisk AI-Native Risk Intelligence Systems —— Your application system ri
     </a>
   </p>
 
-[**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**视频教程**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
+[**English**](README.md) | [**简体中文**](README.zh.md) | [**日本語**](README.ja.md) | [**Video Tutorial**](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
 </div>
 
-
-### News
-- [2025/10] 🔥 We released OpenDerisk v0.2. [OpenDerisk V0.2 ReleaseNote](./docs/docs/OpenDerisk_v0.2.md) 
-
-
 ### Features
-1. **DeepResearch RCA:** Quickly locate the root cause of issues through in-depth analysis of logs, traces, and code.
-2. **Visualized Evidence Chain:** Fully visualize the diagnostic process and evidence chain, making the diagnosis clear and enabling quick judgment of accuracy.
-3. **Multi-Agent Collaboration:** Collaboration among SRE-Agent, Code-Agent, ReportAgent, Vis-Agent, and Data-Agent.
-4. **Open and Open-Source Architecture:** OpenDeRisk is built with a completely open and open-source architecture, allowing related frameworks and code to be used out of the box in open-source projects.
+1. **DeepResearch RCA:** Quickly locate root causes through in-depth analysis of logs, traces, and code.
+2. **Visualized Evidence Chain:** Fully visualize diagnostic processes and evidence chains for clear, accurate judgment.
+3. **Multi-Agent Collaboration:** SRE-Agent, Code-Agent, ReportAgent, Vis-Agent, and Data-Agent working in coordination.
+4. **Open-Source Architecture:** Built with a completely open architecture, enabling framework and code reuse in open-source projects.
 
 <p align="left">
   <img src="./assets/features.jpg" width="100%" />
 </p>
 
-### Architure
+### Architecture
 <p align="left">
   <img src="./assets/arch_en.jpg" width="100%" />
 </p>
 
 #### Introduction
-
-- [OpenDerisk Documents](https://deepwiki.com/derisk-ai/OpenDerisk)
-
-- [OpenDerisk DeepWiki](https://deepwiki.com/derisk-ai/OpenDerisk)
-
-
-The system adopts a multi-agent architecture. Currently, the code mainly implements the green-highlighted parts. Alert awareness is based on Microsoft's open-source [OpenRCA dataset](https://github.com/microsoft/OpenRCA). The dataset size is approximately 26GB after decompression. On this dataset, we achieve root cause analysis and diagnosis through multi-agent collaboration, where the Code-Agent dynamically writes code for final analysis.
+The system employs a multi-agent architecture. Currently, the code primarily implements the highlighted components. Alert awareness is based on Microsoft's open-source [OpenRCA dataset](https://github.com/microsoft/OpenRCA). The decompressed dataset is approximately 26GB. On this dataset, we achieve root cause analysis through multi-agent collaboration, with Code-Agent dynamically writing code for final analysis.
 
 #### Technical Implementation
-**Data Layer:** Pull the large-scale OpenRCA dataset (20GB) from GitHub, decompress it locally, and process it for analysis.
+**Data Layer:** Pull the large-scale OpenRCA dataset (20GB) from GitHub, decompress locally, and process for analysis.
 
-**Logic Layer:** Multi-agent architecture, with collaboration among SRE-Agent, Code-Agent, ReportAgent, Vis-Agent, and Data-Agent to perform in-depth DeepResearch RCA (Root Cause Analysis).
+**Logic Layer:** Multi-agent architecture with SRE-Agent, Code-Agent, ReportAgent, Vis-Agent, and Data-Agent collaborating for deep DeepResearch RCA (Root Cause Analysis).
 
-**Visualization Layer:** Use the Vis protocol to dynamically render the entire processing flow and evidence chain, as well as the process of multi-role collaboration and switching.
+**Visualization Layer:** Use the Vis protocol to dynamically render the entire processing flow and evidence chain, as well as the multi-role collaboration and switching process.
 
 Digital Employees (Agents) in OpenDeRisk
 <p align="left">
   <img src="./assets/ai-agent.png" width="100%" />
 </p>
 
-### Quick Start
+### Install (recommended)
 
-Install uv
+#### Install via curl
 
 ```shell
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Download and install latest version
+curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
+```
+#### Configuration File
+After installation, you need to configure the system. Create a configuration file:
+Edit `~/.openderisk/derisk-proxy-aliyun.toml` and set your API keys.
+
+#### Start 
+```
+openderisk-server  
 ```
 
-####  Install Packages
+### From source(development)
 
+Install uv (required):
+```shell
+
+git clone https://github.com/derisk-ai/OpenDerisk.git
+
+cd OpenDerisk
+
+# Install Dependencies 
+sh scripts/prepare_release.sh
 ```
-uv sync --all-packages --frozen \
---extra "base" \
---extra "proxy_openai" \
---extra "rag" \
---extra "storage_chromadb" \
---extra "derisks" \
---extra "storage_oss2" \
---extra "client"  \
---extra "ext_base"
-```
 
-#### Start
+#### Start Server
 
-Configure the API_KEY in the `derisk-proxy-aliyun.toml` file, then run the following command to start.
+Configure the API_KEY in `derisk-proxy-aliyun.toml`, then run:
 
+> Note: By default, we use the Telecom dataset from OpenRCA. Download via:
+> `gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe`
 
-> Note: By default, we use the Telecom dataset from the OpenRCA dataset. You can download it via the link or the following command:
-
-> gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
-
-After downloading, move the datasets to the path `pilot/datasets/`
+After downloading, move datasets to `pilot/datasets/`
 
 Run the startup command:
-```
+```bash
 uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
 ```
 
-#### Visit Website
+#### Access Web UI
 
 Open your browser and visit [`http://localhost:7777`](http://localhost:7777)
 <p align="left">
   <img src="./assets/index.jpg" width="100%" />
 </p>
 
-### How to Use?
-* AI-SRE(OpenRCA)
-  -  !Notice, We Use the OpenRCA Datasets[Bank Dataset](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e),
-  -  You can download the dataset using next link:
-    ```
-      gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R
-    ```
-  - Put the datasets to the path ${derisk}/pilot/datasets。
-* Flame Graph Assistant
-  - Upload the flame graph (Java/Python) of your local application service process to the assistant for analysis and inquiries.
-* DataExpert
-  - Upload your metrics, logs, traces, or various Excel data sheets for conversational analysis.
+### Usage Modes
+* **AI-SRE (OpenRCA)**
+  - Notice: We use the OpenRCA Dataset [Bank Dataset](https://drive.usercontent.google.com/download?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R&export=download&confirm=t&uuid=42621058-41af-45bf-88a6-64c00bfd2f2e)
+  - Download: `gdown https://drive.google.com/uc?id=1enBrdPT3wLG94ITGbSOwUFg9fkLR-16R`
+  - Place datasets in `${derisk}/pilot/datasets`
+* **Flame Graph Assistant**
+  - Upload flame graphs (Java/Python) from your local application for analysis
+* **DataExpert**
+  - Upload metrics, logs, traces, or Excel data for conversational analysis
 
-
-### Rapid Development
-* Agent Development
-    Refer to the implementation logic under `derisk-ext.agent.agents`.
-* Tool Development
-    * Local tool
-    * MCP
-* Other Development
-    Documentation is under preparation...
-
-* DeRisk-Skills Development
+### Development
+* **Agent Development**
+  - Refer to implementations under `derisk-ext.agent.agents`
+* **Tool Development**
+  - Skills
+  - MCP (Model Context Protocol)
+* **DeRisk-Skills**
   - [derisk-skills](https://github.com/derisk-ai/derisk_skills)
 
 #### Execution Results
-As shown in the figure below, this demonstrates a scenario where multiple agents collaborate to handle a complex operational diagnostic task.
-
 <p align="left">
   <img src="./assets/scene_demo.png" width="100%" />
 </p>
 
-### RoadMap
-- [x] 0530 V0.1 Version: Based on domain knowledge and MCP services, achieving anomaly awareness -> autonomous decision-making -> adaptive execution and issue resolution.
-  - [x] Domain knowledge engine for technical risks
-  - [x] Reasoning engine driven by large models for anomaly awareness -> decision-making -> execution
-  - [x] Automated troubleshooting and fixes
-
-- [x] 0830 V0.2 Version
-  - [x] MCP services and management for technical risks
-  - [x] Support for custom binding of knowledge and MCP tools
-  - [x] Support for 3+ DevOps domain MCP services
-
-- [ ] 0930 V0.3 Version
-  - [ ] Support for integration with production environments
-  - [ ] Provide a complete production environment deployment solution, supporting production issue diagnosis.
-
-- [ ] 1230 V0.4 Version
-  - [ ] End-to-end AIOps online Agentic RL
-  - [ ] End-to-end evaluation capabilities
-
 ### Citation
-The code (training, serving, and evaluation) in this repository is mostly developed for or derived from the paper below. Please cite it if you find the repository helpful.
+If you find this repository helpful, please cite:
 ```
 @misc{di2025openderiskindustrialframeworkaidriven,
       title={OpenDerisk: An Industrial Framework for AI-Driven SRE, with Design, Implementation, and Case Studies}, 
@@ -190,14 +157,13 @@ The code (training, serving, and evaluation) in this repository is mostly develo
 
 The OpenDeRisk-AI community is dedicated to building AI-native risk intelligence systems. 🛡️ We hope our community can provide you with better services, and we also hope that you can join us to create a better future together. 🤝
 
-
 [![Star History Chart](https://api.star-history.com/svg?repos=derisk-ai/OpenDerisk&type=Date)](https://star-history.com/#derisk-ai/OpenDerisk)
 
 
 ### Community Group
 
-Join our networking group on Dingding and share your experience with other developers!
+Join our DingTalk group and share your experience with other developers!
 
 <div align="center" style="display: flex; gap: 20px;">
-    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI 交流群" width="300" />
+    <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI Community" width="300" />
 </div>
