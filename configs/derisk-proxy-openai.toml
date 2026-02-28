@@ -1,35 +1,85 @@
 [system]
 # Load language from environment variable(It is set by the hook)
-language = "${env:DERISK_LANG:-en}"
+language = "${env:DERISK_LANG:-zh}"
+log_level = "INFO"
 api_keys = []
-encrypt_key = "your_secret_key"
+encrypt_key = "${ENCRYPT_KEY:-your_secret_key}"
 
 # Server Configurations
 [service.web]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 7777
-enable_mcp_gateway="True"
-main_app_code = "ai_sre"
+model_storage = "database"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-7777}"
 
 [service.web.database]
 type = "sqlite"
 path = "pilot/meta_data/derisk.db"
 
-[rag.storage]
-[rag.storage.vector]
-type = "chroma"
-persist_path = "pilot/data"
+[service.web.trace]
+file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
 
-# Model Configurations
-[models]
-[[models.llms]]
-name = "${env:LLM_MODEL_NAME:-gpt-4o}"
-provider = "${env:LLM_MODEL_PROVIDER:-proxy/openai}"
-api_base = "${env:OPENAI_API_BASE:-https://api.openai.com/v1}"
-api_key = "${env:OPENAI_API_KEY}"
+[service.model.worker]
+host = "127.0.0.1"
 
-[[models.embeddings]]
-name = "${env:EMBEDDING_MODEL_NAME:-text-embedding-3-small}"
-provider = "${env:EMBEDDING_MODEL_PROVIDER:-proxy/openai}"
-api_url = "${env:EMBEDDING_MODEL_API_URL:-https://api.openai.com/v1/embeddings}"
-api_key = "${env:OPENAI_API_KEY}"
+[agent.llm]
+# (可选) 全局配置
+temperature = 0.5
+
+[[agent.llm.provider]]
+provider = "openai"
+api_base = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY:-sk-...}"
+
+[[agent.llm.provider.model]]
+name = "deepseek-r1"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "deepseek-v3"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "Kimi-k2"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen-plus"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen-vl-max"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[agent.llm.provider.model]]
+name = "glm-5"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[serves]]
+type = "file"
+# Default backend for file server
+default_backend = "oss"
+
+[[serves.backends]]
+type = "oss"
+endpoint = "https://oss-cn-beijing.aliyuncs.com"
+region = "oss-cn-beijing"
+access_key_id = "${env:OSS_ACCESS_KEY_ID:-xxx}"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xxx}"
+fixed_bucket = "openderisk"
+
+
+[sandbox]
+type="local"
+template_id=""
+user_id="derisk"
+agent_name="derisk"
+repo_url=""
+work_dir="/home/ubuntu"
+skill_dir="/mnt/derisk/skills"
+oss_ak="${env:OSS_ACCESS_KEY_ID:-xxx}"
+oss_sk="${env:OSS_ACCESS_KEY_SECRET:-xxx}"
+oss_endpoint="https://oss-cn-beijing.aliyuncs.com"
+oss_bucket_name="openderisk"
