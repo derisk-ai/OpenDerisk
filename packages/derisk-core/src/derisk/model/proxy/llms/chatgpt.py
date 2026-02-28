@@ -1,4 +1,6 @@
 import logging
+import re
+import uuid
 from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, Optional, Type, Union
@@ -21,6 +23,7 @@ from derisk.model.proxy.base import (
 from derisk.model.proxy.llms.proxy_model import ProxyModel, parse_model_request
 from derisk.model.utils.chatgpt_utils import OpenAIParameters
 from derisk.util.i18n_utils import _
+from derisk.util.json_utils import extract_tool_calls
 
 if TYPE_CHECKING:
     from httpx._types import ProxiesTypes
@@ -261,8 +264,11 @@ class OpenAILLMClient(ProxyLLMClient):
         # Function calling support
         if request.tools:
             payload["tools"] = request.tools
+            tool_names = [t.get("function", {}).get("name") for t in request.tools]
+            logger.info(f"chatgpt_generate: tools count={len(request.tools)}, names={tool_names}")
         if request.tool_choice:
             payload["tool_choice"] = request.tool_choice
+            logger.info(f"chatgpt_generate: tool_choice={request.tool_choice}")
         if request.parallel_tool_calls is not None:
             payload["parallel_tool_calls"] = request.parallel_tool_calls
         return payload
@@ -328,6 +334,12 @@ class OpenAILLMClient(ProxyLLMClient):
                         },
                     }
                 )
+            logger.info(
+                f"chatgpt_generate_v1: tool_calls received, count={len(tool_calls)}, "
+                f"names={[tc.get('function', {}).get('name') for tc in tool_calls]}"
+            )
+        else:
+            logger.info(f"chatgpt_generate_v1: no tool_calls in response, finish_reason={chat_completion.choices[0].finish_reason}")
 
         return ModelOutput.build(
             text, reasoning_content, usage=usage, tool_calls=tool_calls

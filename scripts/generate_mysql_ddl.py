@@ -82,25 +82,31 @@ def parse_column_definition(col_name, col_text):
     """Parse a single column definition."""
     col_text = col_text.strip()
     
-    # Remove the column name and = Column( part
     match = re.search(r'Column\s*\((.*)\)\s*$', col_text, re.DOTALL)
     if not match:
         return None
     
     args_text = match.group(1)
     
-    # Extract type
-    type_match = re.match(r'(\w+)\s*\(([^)]*)\)', args_text)
-    if type_match:
-        col_type = type_match.group(1)
-        type_args = type_match.group(2).strip()
-    else:
-        type_match = re.match(r'(\w+)', args_text)
+    col_type = None
+    type_args = ''
+    
+    type_patterns = [
+        (r'^\s*(\w+)\s*\(\s*length\s*=\s*([^)]+)\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*\(\s*(\d+)\s*\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*\(\s*([^)]+)\s*\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*,', lambda m: (m.group(1), '')),
+        (r'^\s*(\w+)\s*$', lambda m: (m.group(1), '')),
+    ]
+    
+    for pattern, extractor in type_patterns:
+        type_match = re.match(pattern, args_text)
         if type_match:
-            col_type = type_match.group(1)
-            type_args = ''
-        else:
-            return None
+            col_type, type_args = extractor(type_match)
+            break
+    
+    if not col_type:
+        return None
     
     # Check for primary_key
     is_primary = 'primary_key=True' in args_text or 'primary_key = True' in args_text
@@ -169,6 +175,9 @@ def map_type_to_mysql(col_info):
     }
     
     mysql_type = type_map.get(col_type, col_type.upper())
+    
+    if col_type == 'Integer' and col_info.get('primary_key') and col_info.get('autoincrement'):
+        return 'BIGINT'
     
     if col_type == 'String':
         if type_args:
@@ -386,26 +395,32 @@ def parse_columns_from_class_body(class_body):
 
 
 def parse_single_column(col_name, full_def):
-    """Parse a single column definition from full text."""
-    # Extract the Column(...) part
+    """Parse a single column definition from full def."""
     match = re.search(r'Column\s*\((.*)\)\s*$', full_def, re.DOTALL)
     if not match:
         return None
     
     args_text = match.group(1)
     
-    # Extract type
-    type_match = re.match(r'(\w+)\s*\(([^)]*)\)', args_text)
-    if type_match:
-        col_type = type_match.group(1)
-        type_args = type_match.group(2).strip()
-    else:
-        type_match = re.match(r'(\w+)', args_text)
+    col_type = None
+    type_args = ''
+    
+    type_patterns = [
+        (r'^\s*(\w+)\s*\(\s*length\s*=\s*([^)]+)\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*\(\s*(\d+)\s*\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*\(\s*([^)]+)\s*\)', lambda m: (m.group(1), m.group(2))),
+        (r'^\s*(\w+)\s*,', lambda m: (m.group(1), '')),
+        (r'^\s*(\w+)\s*$', lambda m: (m.group(1), '')),
+    ]
+    
+    for pattern, extractor in type_patterns:
+        type_match = re.match(pattern, args_text)
         if type_match:
-            col_type = type_match.group(1)
-            type_args = ''
-        else:
-            return None
+            col_type, type_args = extractor(type_match)
+            break
+    
+    if not col_type:
+        return None
     
     # Check for primary_key
     is_primary = 'primary_key=True' in args_text or 'primary_key = True' in args_text
@@ -459,18 +474,16 @@ def generate_table_ddl(table_info):
     lines.append(f'CREATE TABLE IF NOT EXISTS `{table_name}` (')
     
     column_defs = []
+    column_names = set()
     
     for col in table_info['columns']:
         col_parts = []
         
-        # Column name
         col_parts.append(f'  `{col["db_name"]}`')
         
-        # Column type
         mysql_type = map_type_to_mysql(col)
         col_parts.append(mysql_type)
         
-        # NULL/NOT NULL
         if col['primary_key']:
             col_parts.append('NOT NULL')
         elif not col['nullable']:
@@ -478,11 +491,9 @@ def generate_table_ddl(table_info):
         else:
             col_parts.append('NULL')
         
-        # AUTO_INCREMENT for primary keys
         if col['primary_key'] and (col['autoincrement'] or col['type'] == 'Integer'):
             col_parts.append('AUTO_INCREMENT')
         
-        # DEFAULT
         if col['default']:
             default_val = col['default']
             if default_val in ('datetime.now', 'datetime.utcnow', 'datetime.now()', 'datetime.utcnow()'):
@@ -492,26 +503,43 @@ def generate_table_ddl(table_info):
             elif 'True' in default_val or 'False' in default_val:
                 col_parts.append(f'DEFAULT {1 if "True" in default_val else 0}')
         
-        # COMMENT
         if col['comment']:
             comment = col['comment'].replace("'", "''")
             col_parts.append(f"COMMENT '{comment}'")
         
         column_defs.append(' '.join(col_parts))
+        column_names.add(col['db_name'])
     
-    # PRIMARY KEY
+    has_gmt_create = any(col['db_name'] in ('gmt_create', 'created_at') for col in table_info['columns'])
+    has_gmt_modify = any(col['db_name'] in ('gmt_modify', 'updated_at') for col in table_info['columns'])
+    
+    if not has_gmt_create:
+        column_defs.append("  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'")
+        column_names.add('gmt_create')
+    if not has_gmt_modify:
+        column_defs.append("  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'")
+        column_names.add('gmt_modify')
+    
     if table_info['primary_keys']:
         pk_cols = ', '.join([f'`{pk}`' for pk in table_info['primary_keys']])
         column_defs.append(f'  PRIMARY KEY ({pk_cols})')
     
-    # Unique constraints
     for uc in table_info['unique_constraints']:
-        uc_cols = ', '.join([f'`{c}`' for c in uc['columns']])
-        column_defs.append(f'  UNIQUE KEY `{uc["name"]}` ({uc_cols})')
+        valid_cols = [c for c in uc['columns'] if c in column_names]
+        if valid_cols:
+            uc_cols = ', '.join([f'`{c}`' for c in valid_cols])
+            column_defs.append(f'  UNIQUE KEY `{uc["name"]}` ({uc_cols})')
     
-    # Indexes
+    seen_indexes = set()
     for idx in table_info['indexes']:
-        idx_cols = ', '.join([f'`{c}`' for c in idx['columns']])
+        valid_cols = [c for c in idx['columns'] if c in column_names]
+        if not valid_cols:
+            continue
+        idx_key = (idx['name'], tuple(valid_cols))
+        if idx_key in seen_indexes:
+            continue
+        seen_indexes.add(idx_key)
+        idx_cols = ', '.join([f'`{c}`' for c in valid_cols])
         column_defs.append(f'  KEY `{idx["name"]}` ({idx_cols})')
     
     lines.append(',\n'.join(column_defs))
