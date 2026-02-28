@@ -179,6 +179,9 @@ class ReActMasterAgent(ConversableAgent):
         super().__init__(**kwargs)
         self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction])
         self._initialize_components()
+        
+        # 初始化交互能力
+        self._interaction_extension = None
 
     async def preload_resource(self) -> None:
         """Preload resources and inject system tools."""
@@ -346,36 +349,118 @@ class ReActMasterAgent(ConversableAgent):
         else:
             self._kanban_manager = None
             self._kanban_initialized = False
+        
+        # 9. 初始化交互能力
+        self._interaction_extension = None
+        logger.info("Interaction extension enabled (will initialize on demand)")
+
+    def _get_interaction_extension(self):
+        """获取交互扩展（懒加载）"""
+        if self._interaction_extension is None:
+            from .interaction_extension import create_interaction_extension
+            self._interaction_extension = create_interaction_extension(self)
+        return self._interaction_extension
+    
+    @property
+    def interaction(self):
+        """交互能力访问入口"""
+        return self._get_interaction_extension()
 
     async def _ask_user_permission(self, message: str, context: Dict = None) -> bool:
         """
         请求用户权限回调
 
         Args:
-            message: 提示消息
+            message: 确认消息
             context: 上下文信息
 
         Returns:
             bool: 是否允许继续
         """
-        # 这里可以集成 PermissionNext.ask 或其他权限系统
-        # 简化实现：通过输出消息请求用户确认
-
-        if self.memory and self.memory.gpts_memory and self.not_null_agent_context:
-            await self.memory.gpts_memory.push_message(
-                conv_id=self.not_null_agent_context.conv_id,
-                stream_msg={
-                    "type": "permission_request",
-                    "message": message,
-                    "context": context or {},
-                },
+        try:
+            extension = self._get_interaction_extension()
+            
+            tool_name = context.get("tool_name", "unknown") if context else "unknown"
+            tool_args = context.get("tool_args", {}) if context else {}
+            
+            authorized = await extension.request_tool_authorization(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                reason=message,
             )
-
-        # 默认返回 False（阻止），实际应用中应该等待用户输入
-        logger.warning(
-            f"Permission requested but auto-denied (no actual permission system): {message[:100]}..."
+            
+            if authorized:
+                logger.info(f"User authorized: {tool_name}")
+            else:
+                logger.warning(f"User denied: {tool_name}")
+            
+            return authorized
+            
+        except Exception as e:
+            logger.warning(f"Interaction failed, falling back to default: {e}")
+            
+            if self.memory and self.memory.gpts_memory and self.not_null_agent_context:
+                await self.memory.gpts_memory.push_message(
+                    conv_id=self.not_null_agent_context.conv_id,
+                    stream_msg={
+                        "type": "permission_request",
+                        "message": message,
+                        "context": context or {},
+                    },
+                )
+            
+            return False
+    
+    async def ask_user(self, question: str, title: str = "需要您的输入", 
+                       default: str = None, options: List[str] = None) -> str:
+        """
+        主动向用户提问
+        
+        Args:
+            question: 问题内容
+            title: 标题
+            default: 默认值
+            options: 选项列表
+            
+        Returns:
+            str: 用户回答
+        """
+        extension = self._get_interaction_extension()
+        return await extension.ask_user(
+            question=question,
+            title=title,
+            default=default,
+            options=options,
         )
-        return False
+    
+    async def choose_plan(self, plans: List[Dict[str, Any]], 
+                          title: str = "请选择执行方案") -> str:
+        """
+        让用户选择执行方案
+        
+        Args:
+            plans: 方案列表
+            title: 标题
+            
+        Returns:
+            str: 选择的方案ID
+        """
+        extension = self._get_interaction_extension()
+        return await extension.choose_plan(plans=plans, title=title)
+    
+    async def confirm_action(self, message: str, title: str = "确认操作") -> bool:
+        """
+        请求用户确认
+        
+        Args:
+            message: 确认消息
+            title: 标题
+            
+        Returns:
+            bool: 是否确认
+        """
+        extension = self._get_interaction_extension()
+        return await extension.confirm_action(message=message, title=title)
 
     async def _ensure_agent_file_system(self) -> Optional[Any]:
         """

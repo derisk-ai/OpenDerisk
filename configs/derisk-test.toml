@@ -1,0 +1,87 @@
+[system]
+language = "${env:DERISK_LANG:-zh}"
+log_level = "INFO"
+api_keys = []
+encrypt_key = "your_secret_key"
+
+[service.web]
+host = "0.0.0.0"
+port = 8888
+model_storage = "database"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-8888}"
+
+[service.web.database]
+type = "sqlite"
+path = "pilot/meta_data/derisk.db"
+
+[service.web.trace]
+file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
+
+[service.model.worker]
+host = "127.0.0.1"
+
+[rag]
+chunk_size = 1000
+chunk_overlap = 0
+similarity_top_k = 5
+similarity_score_threshold = 0.0
+max_chunks_once_load = 10
+max_threads = 1
+rerank_top_k = 3
+graph_community_summary_enabled = "True"
+
+[agent.llm]
+temperature = 0.5
+
+[[agent.llm.provider]]
+provider = "openai"
+api_base = "https://antchat.alipay.com/v1"
+api_key = "fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS"
+
+[[agent.llm.provider.model]]
+name = "deepseek-r1"
+temperature = 0.7
+max_new_tokens = 40960
+
+[[agent.llm.provider.model]]
+name = "DeepSeek-V3"
+temperature = 0.7
+max_new_tokens = 40960
+
+[[agent.llm.provider.model]]
+name = "Kimi-k2"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[agent.llm.provider.model]]
+name = "qwen-plus"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[agent.llm.provider.model]]
+name = "qwen-vl-max"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[serves]]
+type = "file"
+default_backend = "oss"
+
+[[serves.backends]]
+type = "oss"
+endpoint = "https://oss-cn-beijing.aliyuncs.com"
+region = "oss-cn-beijing"
+access_key_id = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
+fixed_bucket = "dbgpt-test"
+
+[sandbox]
+type = "local"
+template_id = ""
+user_id = "derisk"
+agent_name = "derisk"
+repo_url = ""
+oss_ak = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
+oss_sk = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
+oss_endpoint = "https://oss-cn-beijing.aliyuncs.com"
+oss_bucket_name = "dbgpt-test"

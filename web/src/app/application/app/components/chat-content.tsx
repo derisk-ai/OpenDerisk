@@ -29,6 +29,7 @@ function ChatContent() {
 
   const { chat, ctrl } = useChat({
     app_code: appInfo.app_code || '',
+    agent_version: appInfo.agent_version || 'v1',
   });
     const order = useRef<number>(1);
 

@@ -1,0 +1,108 @@
+# 软件工程黄金规则 - 精简版
+# 此文件用于注入到 Agent 系统提示，保持精简高效
+
+version: "1.0.0"
+name: 软件工程黄金法则精简版
+
+# ==================== 核心原则摘要 (用于系统提示注入) ====================
+core_summary:
+  max_chars: 800  # 核心摘要最大字符数
+  
+  # 设计原则摘要 (约200字符)
+  design_principles: |
+    ## 设计原则
+    - SRP: 单一职责，一个类只做一件事
+    - OCP: 开闭原则，扩展开放，修改关闭
+    - DIP: 依赖倒置，依赖抽象不依赖具体
+    - KISS: 保持简单，避免过度设计
+    - DRY: 不重复，提取公共代码
+    - YAGNI: 不要过度设计，只实现当前需要
+
+  # 架构规则摘要 (约150字符)
+  architecture: |
+    ## 架构约束
+    - 函数≤50行，参数≤4个，嵌套≤3层
+    - 类≤300行，职责单一
+    - 使用有意义的命名
+
+  # 安全规则摘要 (约100字符)
+  security: |
+    ## 安全约束
+    - 禁止硬编码密钥密码
+    - 参数化查询，防止注入
+    - 验证清理用户输入
+
+  # 质量检查清单 (约150字符)
+  checklist: |
+    ## 质量检查
+    - [ ] 遵循设计原则
+    - [ ] 命名清晰
+    - [ ] 无重复代码
+    - [ ] 错误处理完善
+    - [ ] 类型注解和文档
+
+# ==================== 场景化规则 ====================
+scene_rules:
+  # 新功能开发场景
+  new_feature:
+    enabled_rules:
+      - solid_check
+      - architecture_check
+      - test_coverage
+    prompt_suffix: "优先考虑可扩展性和可测试性"
+    
+  # Bug修复场景
+  bug_fix:
+    enabled_rules:
+      - security_check
+      - minimal_change
+    prompt_suffix: "最小化修改，添加测试防止回归"
+    
+  # 重构场景
+  refactoring:
+    enabled_rules:
+      - design_pattern_check
+      - backward_compatible
+    prompt_suffix: "保持行为不变，改善代码结构"
+
+  # 代码审查场景
+  code_review:
+    enabled_rules:
+      - all_checks
+    prompt_suffix: "全面检查代码质量和安全"
+
+# ==================== 按需加载配置 ====================
+lazy_load:
+  # 详细配置文件路径 (不到需要时不加载)
+  full_config_path: "configs/engineering/software_engineering_principles.yaml"
+  constraints_path: "configs/engineering/research_development_constraints.yaml"
+  
+  # 加载触发条件
+  triggers:
+    - action: "write"
+      file_pattern: "*.py,*.ts,*.js,*.java,*.go"
+    - action: "edit"
+      file_pattern: "*.py,*.ts,*.js,*.java,*.go"
+    - action: "code_review"
+
+# ==================== 注入策略 ====================
+injection_strategy:
+  # 轻量级注入 - 始终启用
+  light:
+    mode: "always"
+    content: "core_summary"
+    max_tokens: 500
+    
+  # 标准注入 - 编码场景启用
+  standard:
+    mode: "scene_based"
+    scenes: ["coding", "python_expert"]
+    content: "core_summary + scene_rules"
+    max_tokens: 1000
+    
+  # 完整注入 - 代码审查场景
+  full:
+    mode: "on_demand"
+    trigger: "explicit_request"
+    content: "full_config"
+    max_tokens: 3000

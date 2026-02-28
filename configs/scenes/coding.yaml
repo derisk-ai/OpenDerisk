@@ -1,0 +1,274 @@
+scene: coding
+name: 编码模式
+description: |
+  专门针对代码编写和开发任务优化：
+  - 代码感知截断，保护代码块完整性
+  - 重要性压缩策略，保留关键代码上下文
+  - 代码风格注入和项目结构感知
+  - 文件路径保护，方便代码导航
+  - 更低的温度参数，提高代码质量
+  - 内置软件工程黄金法则和最佳实践
+  - 自动架构设计和代码质量检查
+icon: 💻
+tags:
+  - coding
+  - development
+  - programming
+  - code-generation
+  - software-engineering
+
+version: "1.0.0"
+author: DeRisk Team
+
+# 上下文策略配置 - 编码专用
+context:
+  # 截断策略 - 代码感知
+  truncation:
+    strategy: code_aware                 # 代码感知截断
+    max_context_ratio: 0.7
+    preserve_recent_ratio: 0.25          # 保留更多最近消息
+    preserve_system_messages: true
+    preserve_first_user_message: true
+    code_block_protection: true          # 【关键】保护代码块
+    code_block_max_lines: 500            # 单个代码块最大行数
+    thinking_chain_protection: true      # 保护思考链
+    file_path_protection: true           # 【关键】保护文件路径
+    custom_protect_patterns:
+      - 'def\\s+\\w+\\s*\\('              # 函数定义
+      - 'class\\s+\\w+.*:'               # 类定义
+      - 'import\\s+\\w+'                 # 导入语句
+      - '@\\w+'                          # 装饰器
+  
+  # 压缩策略 - 基于重要性
+  compaction:
+    strategy: importance_based           # 【关键】基于重要性压缩
+    trigger_threshold: 50                # 更高的触发阈值
+    target_message_count: 25             # 更多的目标消息
+    keep_recent_count: 10                # 保留更多最近消息
+    importance_threshold: 0.65           # 稍低的重要性阈值
+    preserve_tool_results: true
+    preserve_error_messages: true
+    preserve_user_questions: true
+    summary_style: detailed              # 详细摘要
+    max_summary_length: 800              # 更长的摘要
+  
+  # 去重策略
+  dedup:
+    enabled: true
+    strategy: smart
+    similarity_threshold: 0.85           # 更宽松的相似度阈值
+    window_size: 10
+    preserve_first_occurrence: true
+    dedup_tool_results: false            # 不去重工具结果（可能包含代码）
+  
+  # Token预算分配 - 更大的历史预算
+  token_budget:
+    total_budget: 128000
+    system_prompt_budget: 2500           # 更大的系统提示预算
+    tools_budget: 3000
+    history_budget: 12000                # 【关键】更大的历史预算
+    working_budget: 4000
+  
+  validation_level: normal
+  enable_auto_compaction: true
+  enable_context_caching: true
+
+# Prompt策略配置 - 编码专用
+prompt:
+  system_prompt_type: default
+  
+  # 示例配置
+  include_examples: true
+  examples_count: 3                      # 更多示例
+  
+  # 【关键】上下文注入
+  inject_file_context: true              # 注入文件上下文
+  inject_workspace_info: true            # 注入工作区信息
+  inject_git_info: true                  # 注入Git信息（分支、状态等）
+  
+  # 【关键】代码相关注入
+  inject_code_style_guide: true          # 注入代码风格指南
+  code_style_rules:
+    - "Use consistent indentation"
+    - "Follow PEP 8 for Python"
+    - "Use meaningful variable names"
+    - "Add docstrings for public functions"
+  inject_lint_rules: true                # 注入Lint规则
+  lint_config_path: .pylintrc
+  
+  # 【关键】项目结构注入
+  inject_project_structure: true         # 注入项目结构
+  project_structure_depth: 3             # 项目结构深度
+  
+  # 输出配置 - 代码优化
+  output_format: code                    # 【关键】代码格式输出
+  response_style: concise                # 【关键】简洁响应
+  
+  # 【关键】模型参数 - 代码生成优化
+  temperature: 0.3                       # 更低的温度，更确定性的输出
+  top_p: 0.95                            # 略低的top-p
+  max_tokens: 8192                       # 【关键】更大的输出Token
+
+# 工具策略配置 - 编码专用
+tools:
+  preferred_tools:                       # 【关键】首选代码相关工具
+    - read
+    - write
+    - edit
+    - grep
+    - glob
+    - bash
+  excluded_tools: []                     # 不排除任何工具
+  require_confirmation:                  # 需要确认的工具
+    - bash                               # Bash命令需要确认
+  auto_execute_safe_tools: true
+  max_tool_calls_per_step: 8             # 更多的工具调用
+  tool_timeout: 120                      # 更长的超时时间
+
+# 推理策略配置
+reasoning:
+  strategy: react
+  max_steps: 30
+
+# ==================== 软件工程黄金法则配置 ====================
+# 采用分层加载策略，避免上下文空间浪费
+software_engineering:
+  enabled: true
+  
+  # 加载策略：
+  # - light: 核心摘要(~500字符)，始终注入系统提示
+  # - standard: 场景规则(~1000字符)，编码场景注入
+  # - full: 完整配置，仅代码检查时按需加载(不占上下文)
+  
+  injection_level: light  # 默认使用轻量级注入
+  
+  # 配置文件
+  config_files:
+    summary: configs/engineering/se_golden_rules_summary.yaml
+    full: configs/engineering/software_engineering_principles.yaml
+    constraints: configs/engineering/research_development_constraints.yaml
+  
+  # 核心原则 (轻量级，始终注入)
+  core_principles:
+    design:
+      - "SRP: 单一职责，一个类只做一件事"
+      - "OCP: 开闭原则，扩展开放，修改关闭"
+      - "DIP: 依赖倒置，依赖抽象不依赖具体"
+      - "KISS: 保持简单"
+      - "DRY: 不重复"
+      - "YAGNI: 不要过度设计"
+    architecture:
+      - "函数≤50行，参数≤4个，嵌套≤3层"
+      - "类≤300行，职责单一"
+      - "使用有意义的命名"
+    security:
+      - "禁止硬编码密钥密码"
+      - "参数化查询，防止注入"
+      - "验证清理用户输入"
+  
+  # 场景规则 (标准级，按需注入)
+  scene_rules:
+    new_feature:
+      suffix: "优先考虑可扩展性和可测试性"
+      checks: ["solid", "architecture"]
+    bug_fix:
+      suffix: "最小化修改，添加测试防止回归"
+      checks: ["security"]
+    refactoring:
+      suffix: "保持行为不变，改善代码结构"
+      checks: ["design_pattern"]
+  
+  # 完整配置使用说明:
+  # - 仅在代码检查时按需加载
+  # - 不注入到系统提示
+  # - 通过 LightweightCodeChecker.full_check() 使用
+
+# ==================== 系统提示增强 ====================
+# 将软件工程原则注入到系统提示中
+prompt_enhancement:
+  enabled: true
+  
+  # 设计原则注入
+  inject_design_principles: true
+  design_principles_section: |
+    ## 核心设计原则
+    在编写代码时，必须遵循以下原则：
+    
+    ### SOLID原则
+    - **单一职责 (SRP)**: 每个类/模块只负责一件事
+    - **开闭原则 (OCP)**: 对扩展开放，对修改关闭
+    - **里氏替换 (LSP)**: 子类可以替换父类
+    - **接口隔离 (ISP)**: 接口要小而专注
+    - **依赖倒置 (DIP)**: 依赖抽象，不依赖具体
+    
+    ### 简洁性原则
+    - **KISS**: 保持简单，避免不必要的复杂性
+    - **DRY**: 不重复，提取公共代码
+    - **YAGNI**: 不要过度设计，只实现当前需要的功能
+
+  # 架构规则注入
+  inject_architecture_rules: true
+  architecture_section: |
+    ## 架构规范
+    - 函数不超过50行，参数不超过4个
+    - 类不超过300行，职责单一
+    - 最大嵌套层级不超过3层
+    - 使用有意义的命名，避免缩写
+    - 优先组合而非继承
+
+  # 安全规范注入
+  inject_security_rules: true
+  security_section: |
+    ## 安全约束
+    - 禁止在代码中硬编码密钥、密码
+    - 所有用户输入必须验证和清理
+    - 使用参数化查询，禁止SQL拼接
+    - 敏感数据加密存储和传输
+    - 正确处理错误，不泄露敏感信息
+
+  # 代码质量检查提示
+  inject_quality_checks: true
+  quality_section: |
+    ## 代码质量检查清单
+    编写代码后，请自查：
+    - [ ] 代码是否遵循设计原则？
+    - [ ] 命名是否清晰准确？
+    - [ ] 是否有重复代码？
+    - [ ] 是否有足够的错误处理？
+    - [ ] 是否需要添加类型注解？
+    - [ ] 是否需要添加文档说明？
+    - [ ] 是否需要添加单元测试？
+
+# ==================== 输出约束 ====================
+output_constraints:
+  # 代码输出要求
+  code_output:
+    require_explanation: true            # 需要解释代码意图
+    require_type_hints: true             # 需要类型注解
+    require_docstrings: true             # 需要文档字符串
+    require_error_handling: true         # 需要错误处理
+    require_input_validation: true       # 需要输入验证
+
+  # 建议输出
+  suggestions:
+    auto_suggest_refactoring: true       # 自动建议重构
+    auto_suggest_tests: true             # 自动建议测试
+    auto_suggest_optimization: false     # 自动建议优化（谨慎）
+    warn_on_anti_patterns: true          # 警告反模式
+
+# 元数据
+metadata:
+  priority: 2
+  category: development
+  documentation: https://docs.derisk.ai/scenes/coding
+  features:
+    - code_aware_truncation
+    - code_block_protection
+    - file_path_protection
+    - project_structure_injection
+    - low_temperature
+    - software_engineering_principles
+    - design_pattern_enforcement
+    - security_constraints
+    - quality_gates
+    - anti_pattern_detection
