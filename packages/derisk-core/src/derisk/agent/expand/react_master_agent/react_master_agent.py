@@ -856,16 +856,17 @@ class ReActMasterAgent(ConversableAgent):
                 )
 
             if has_blank_action and act_outs:
-                await self._inject_no_tool_call_reminder(act_outs[0])
+                await self._inject_no_tool_call_reminder(act_outs[0], message.message_id)
 
         return act_outs
 
-    async def _inject_no_tool_call_reminder(self, action_output: ActionOutput):
+    async def _inject_no_tool_call_reminder(self, action_output: ActionOutput, message_id: str):
         """
         当没有工具调用时，注入系统提醒消息，引导继续推进任务
         
         Args:
             action_output: 当前执行的 ActionOutput
+            message_id: 关联的消息ID
         """
         from derisk.agent.core.memory.gpts.agent_system_message import (
             AgentSystemMessage,
@@ -898,6 +899,7 @@ class ReActMasterAgent(ConversableAgent):
                 phase=AgentPhase.ACTION_RUN,
                 content=reminder_content,
                 final_status=Status.RUNNING,
+                reply_message_id=message_id,
             )
             
             if self.memory and self.memory.gpts_memory:
