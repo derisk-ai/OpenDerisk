@@ -338,7 +338,7 @@ export default function Chat() {
           const skillParams = initMessage.skills.map((skill: SelectedSkill) => ({
             param_type: 'resource',
             param_value: JSON.stringify(skill),
-            sub_type: 'agent_skill',
+            sub_type: 'skill(derisk)',
           }));
           finalChatInParams = [...finalChatInParams, ...skillParams];
         }

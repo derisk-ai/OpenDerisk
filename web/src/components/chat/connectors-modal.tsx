@@ -71,16 +71,14 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
     }
   }, [open, defaultTab]);
 
-  // Initialize selected skills from props
+  // Initialize selected skills and MCPs from props when modal opens
   useEffect(() => {
-    setSelectedSkillCodes(selectedSkills.map(s => s.skill_code));
-  }, [selectedSkills]);
-
-  // Initialize selected MCPs from props
-  useEffect(() => {
-    const mcpCodes = selectedMcps.map(m => m.id || m.uuid || m.name || '');
-    setSelectedMcpCodes(mcpCodes.filter(code => code !== ''));
-  }, [selectedMcps]);
+    if (open) {
+      setSelectedSkillCodes(selectedSkills.map(s => s.skill_code));
+      const mcpCodes = selectedMcps.map(m => m.id || m.uuid || m.name || '');
+      setSelectedMcpCodes(mcpCodes.filter(code => code !== ''));
+    }
+  }, [open]);
 
   // --- MCP Data Fetching ---
   const { data: mcpList = [], loading: mcpLoading } = useRequest(async () => {
