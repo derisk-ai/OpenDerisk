@@ -30,17 +30,22 @@ interface IProps {
 }
 
 export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
+  const dataItems = data.items;
+  const runningAgentStr = useMemo(() => {
+    return Array.isArray(data.running_agent) ? data.running_agent.join(',') : data.running_agent;
+  }, [data.running_agent]);
+
   const runningAgent = useMemo(() => {
     if (Array.isArray(data.running_agent)) {
-      return data.running_agent[0] || get(data.items, [0, 'agent_name'], '');
+      return data.running_agent[0] || get(dataItems, [0, 'agent_name'], '');
     } else {
-      return data.running_agent || get(data.items, [0, 'agent_name'], '');
+      return data.running_agent || get(dataItems, [0, 'agent_name'], '');
     }
-  }, [data.running_agent]);
+  }, [runningAgentStr, dataItems]);
 
   const [currentAgent, setCurrentAgent] = useState<string>(runningAgent);
   const chatListContainerRef = useRef<HTMLDivElement>(null);
-  const runningAgents = keyBy(data.items, 'agent_name');
+  const runningAgents = useMemo(() => keyBy(dataItems, 'agent_name'), [dataItems]);
   const agentsOptions: MenuProps['items'] = data.items.map((item: RunningAgent, index) => {
     return {
       key: `${index}_${item.agent_name}`,
@@ -81,7 +86,7 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
   useEffect(() => {
     setCurrentAgent(runningAgent);
     scrollToRunningAgent(runningAgent);
-  }, [data.running_agent]);
+  }, [runningAgentStr]);
 
   useEffect(() => {
     const chatListContainer = chatListContainerRef.current;
@@ -103,7 +108,7 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
         });
       }
     }
-  }, [data]);
+  }, [dataItems]);
 
   // useEffect(() => {
   //   windowEmitter.on(
@@ -134,15 +139,14 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
 
   const [selectedItemIndex, setSelectedItemIndex] = useState<number>(0);
 
+  const currentItems = runningAgents?.[currentAgent]?.items;
+  const itemsLength = Array.isArray(currentItems) ? currentItems.length : 0;
+
   useEffect(() => {
-    // 只在页面第一次加载时执行
-    if (hasItems) {
-      const items = runningAgents?.[currentAgent]?.items;
-      if (Array.isArray(items) && items.length > 0) {
-        setSelectedItemIndex(items.length - 1);
-      }
+    if (itemsLength > 0) {
+      setSelectedItemIndex(itemsLength - 1);
     }
-  }, [hasItems]);
+  }, [itemsLength]);
 
   const CoderWindow = ({ runningAgents, currentAgent, selectedItemIndex, setSelectedItemIndex }: any) => {
     return (
