@@ -65,6 +65,7 @@ from ..actions.agent_action import AgentStart
 from ..actions.knowledge_action import KnowledgeSearch
 from ..actions.terminate_action import Terminate
 from ..actions.tool_action import ToolAction
+from ...core.action.blank_action import BlankAction
 
 # 导入 read_file 工具使其注册到 system_tool_dict
 from ...core.tools.read_file_tool import read_file  # noqa: F401
@@ -696,8 +697,14 @@ class ReActMasterAgent(ConversableAgent):
 
             tasks = []
             batch_init_action_reports = []
+            has_blank_action = False
 
             for real_action in real_actions:
+                if isinstance(real_action, BlankAction):
+                    has_blank_action = True
+                    logger.warning(
+                        "⚠️ No tool call returned by LLM, will inject system reminder"
+                    )
                 if hasattr(real_action, "prepare_init_msg"):
                     init_report = await real_action.prepare_init_msg(
                         ai_message=message.content if message.content else "",
@@ -848,7 +855,56 @@ class ReActMasterAgent(ConversableAgent):
                     await self.task_id_by_received_message(received_message),
                 )
 
+            if has_blank_action and act_outs:
+                await self._inject_no_tool_call_reminder(act_outs[0])
+
         return act_outs
+
+    async def _inject_no_tool_call_reminder(self, action_output: ActionOutput):
+        """
+        当没有工具调用时，注入系统提醒消息，引导继续推进任务
+        
+        Args:
+            action_output: 当前执行的 ActionOutput
+        """
+        from derisk.agent.core.memory.gpts.agent_system_message import (
+            AgentSystemMessage,
+            AgentPhase,
+            SystemMessageType,
+        )
+        
+        if not self.not_null_agent_context:
+            return
+        
+        reminder_content = """【系统提醒】你没有调用任何工具来推进任务。
+
+请遵循以下原则继续执行：
+1. **必须使用工具**：调用合适的工具来完成任务，不能只输出文本
+2. **循环只能通过 terminate 工具结束**：如果你想结束任务，请调用 terminate 工具
+3. **推进任务**：根据当前任务目标，选择下一步操作
+
+可用工具包括：
+- 信息获取：read_file, search, grep 等
+- 任务执行：调用相关工具执行具体操作
+- 任务结束：terminate（仅在任务完成时使用）
+
+请立即调用工具继续执行任务！"""
+
+        try:
+            system_message = AgentSystemMessage.build(
+                agent_context=self.agent_context,
+                agent=self,
+                type=SystemMessageType.STATUS,
+                phase=AgentPhase.ACTION_RUN,
+                content=reminder_content,
+                final_status=Status.RUNNING,
+            )
+            
+            if self.memory and self.memory.gpts_memory:
+                await self.memory.gpts_memory.append_system_message(system_message)
+                logger.info("✅ Injected no-tool-call reminder to guide task continuation")
+        except Exception as e:
+            logger.warning(f"Failed to inject no-tool-call reminder: {e}")
 
     async def _attach_delivery_files(
         self, action_out: "ActionOutput"
