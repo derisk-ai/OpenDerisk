@@ -1,33 +1,39 @@
-## 👋 Introduction
+# OpenDerisk Web
 
-[DERISK Web] is an Open source Tailwind and Next.js based chat UI for AI and GPT projects. It beautify a lot of markdown labels, such as `table`, `thead`, `th`, `td`, `code`, `h1`, `h2`, `ul`, `li`, `a`, `img`. Also it define some custom labels to adapted to AI-specific scenarios. Such as `plugin running`, `knowledge name`, `Chart view`, and so on.
+Web UI for OpenDeRisk AI-Native Risk Intelligence System.
 
-## 💪🏻 Getting Started
+## Introduction
 
-### Prerequisites
+OpenDerisk Web is an open-source Next.js and Tailwind CSS based chat UI for AI and GPT projects. It provides a beautiful markdown rendering for various elements including tables, code blocks, headers, lists, images, and more. It also includes custom components for AI-specific scenarios such as plugin running, knowledge visualization, and chart views.
+
+## Prerequisites
 
 - [Node.js](https://nodejs.org/) >= 18.18
 - [npm](https://npmjs.com/) >= 10
 - [yarn](https://yarnpkg.com/) >= 1.22
-- Supported OSes: Linux, macOS and Windows
+- Supported OSes: Linux, macOS, and Windows
 
-### Installation
+## Installation
 
-```sh
+```bash
 # Install dependencies
 npm install
+# or
 yarn install
 ```
 
-### Usage
-```sh
+## Configuration
+
+```bash
 cp .env.template .env
 ```
 
-edit the `NEXT_PUBLIC_API_BASE_URL` to the real address
+Edit the `NEXT_PUBLIC_API_BASE_URL` to point to your OpenDerisk server address.
 
-```sh
-# development model
+## Development
+
+```bash
+# Start development server
 npm run dev
 # or
 yarn dev
@@ -37,22 +43,36 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Packaging static files 
+## Building for Production
+
+```bash
+cd web
+yarn build
+cp -r out/* ../packages/derisk-app/src/derisk_app/static/web/
 ```
-1. cd web
 
-2. yarn build
+## Adding New Vis Components
 
-3. cp -r out/*  ../packages/derisk-app/src/derisk_app/static/web/
-```
+To add a new visual component:
 
+1. Create a new file in `components/chat-content-components/VisComponents`
+2. Implement the component using React and necessary libraries
+3. Update the `visComponentsRender` object in `config.tsx` to include your new component
 
-### Add New Vis Components
+## Tech Stack
 
-To add a new visual component, follow these steps:
+- Next.js
+- Tailwind CSS
+- React
+- TypeScript
 
-1. Create a new file for your component in the `components/chat-content-components/VisComponents` directory.
-2. Implement the component using React and any necessary libraries.
-3. Update the `visComponentsRender` object in `config.tsx` to include your new component.
+## Documentation
+
+- [OpenDerisk Main Documentation](../README.md)
+- [DeepWiki](https://deepwiki.com/derisk-ai/OpenDerisk)
+
+## License
+
+MIT
