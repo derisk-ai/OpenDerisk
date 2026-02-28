@@ -1,0 +1,471 @@
+# 研发约束范式配置
+# 定义开发过程中的约束和规范，确保代码质量和一致性
+
+version: "1.0.0"
+name: 研发约束范式
+description: 定义开发过程中的强制性约束和推荐性规范
+
+# ==================== 开发流程约束 (Development Process Constraints) ====================
+development_process:
+  # 分支策略
+  branch_strategy:
+    enabled: true
+    type: "trunk-based"
+    rules:
+      main_branch:
+        protected: true
+        require_pr: true
+        require_review: true
+        min_reviewers: 1
+      feature_branch:
+        prefix: "feature/"
+        auto_delete: true
+      bugfix_branch:
+        prefix: "bugfix/"
+      release_branch:
+        prefix: "release/"
+      hotfix_branch:
+        prefix: "hotfix/"
+
+  # 提交规范
+  commit_conventions:
+    enabled: true
+    style: "conventional_commits"
+    format: "<type>(<scope>): <subject>"
+    types:
+      - name: feat
+        description: 新功能
+        example: "feat(auth): 添加OAuth2登录支持"
+      - name: fix
+        description: Bug修复
+        example: "fix(api): 修复用户创建时的空指针异常"
+      - name: docs
+        description: 文档更新
+        example: "docs(readme): 更新安装说明"
+      - name: style
+        description: 代码格式调整（不影响逻辑）
+        example: "style format code"
+      - name: refactor
+        description: 重构（不添加功能或修复bug）
+        example: "refactor(core): 提取公共方法"
+      - name: test
+        description: 添加或修改测试
+        example: "test(user): 添加用户服务单元测试"
+      - name: chore
+        description: 构建、工具链等变更
+        example: "chore(deps): 更新依赖版本"
+      - name: perf
+        description: 性能优化
+        example: "perf(query): 优化数据库查询"
+    rules:
+      subject_max_length: 72
+      subject_lowercase: false
+      require_body: false
+      body_lines_max_length: 100
+
+  # 代码审查流程
+  code_review:
+    enabled: true
+    requirements:
+      min_reviewers: 1
+      require_ci_pass: true
+      require_no_conflicts: true
+    auto_assign_reviewers: true
+    checklist:
+      required:
+        - "代码是否遵循编码规范？"
+        - "是否有足够的测试覆盖？"
+        - "是否有安全风险？"
+      optional:
+        - "是否考虑了性能影响？"
+        - "文档是否需要更新？"
+        - "是否有更好的实现方式？"
+
+  # 持续集成
+  continuous_integration:
+    enabled: true
+    stages:
+      lint:
+        run_on: ["push", "pr"]
+        fail_fast: true
+      test:
+        run_on: ["push", "pr"]
+        coverage_threshold: 80
+      build:
+        run_on: ["push", "pr"]
+      security_scan:
+        run_on: ["pr", "schedule"]
+      deploy_preview:
+        run_on: ["pr"]
+      deploy:
+        run_on: ["main"]
+
+# ==================== 代码约束 (Code Constraints) ====================
+code_constraints:
+  forbidden:
+    - id: no_hardcoded_secrets
+      name: 禁止硬编码密钥
+      description: 不得在代码中硬编码密码、API密钥等敏感信息
+      severity: critical
+      patterns:
+        - "password\\s*=\\s*[\"'][^\"']+[\"']"
+        - "api_key\\s*=\\s*[\"'][^\"']+[\"']"
+        - "secret\\s*=\\s*[\"'][^\"']+[\"']"
+        - "token\\s*=\\s*[\"'][^\"']+[\"']"
+      action: reject
+
+    - id: no_bare_except
+      name: 禁止裸异常捕获
+      description: 不得使用裸except语句
+      severity: high
+      patterns:
+        - "except\\s*:"
+      action: warn
+
+    - id: no_unused_imports
+      name: 禁止未使用的导入
+      description: 移除所有未使用的导入语句
+      severity: low
+      action: warn
+
+    - id: no_debug_code
+      name: 禁止提交调试代码
+      description: 不得提交print、console.log等调试语句
+      severity: medium
+      patterns:
+        - "print\\s*\\("
+        - "console\\.log\\s*\\("
+        - "debugger;"
+        - "breakpoint()"
+      action: warn
+
+    - id: no_evaluate_exec
+      name: 禁止eval和exec
+      description: 避免使用eval、exec等危险函数
+      severity: critical
+      patterns:
+        - "eval\\s*\\("
+        - "exec\\s*\\("
+      action: reject
+
+    - id: no_sql_concat
+      name: 禁止SQL字符串拼接
+      description: 使用参数化查询，避免SQL注入
+      severity: critical
+      patterns:
+        - "f[\"'].*SELECT.*\\{"
+        - "\\+.(SELECT|INSERT|UPDATE|DELETE)"
+      action: reject
+
+  # 建议事项（软性约束）
+  recommended:
+    - id: prefer_type_hints
+      name: 使用类型注解
+      description: 所有公共函数应添加类型注解
+      severity: medium
+      action: suggest
+
+    - id: prefer_docstrings
+      name: 添加文档字符串
+      description: 公共API应添加文档说明
+      severity: medium
+      action: suggest
+
+    - id: prefer_early_return
+      name: 使用早返回
+      description: 减少嵌套层级，使用卫语句
+      severity: low
+      action: suggest
+
+    - id: prefer_const_names
+      name: 使用有意义的常量名
+      description: 避免魔法数字，使用命名常量
+      severity: low
+      action: suggest
+
+# ==================== 质量门禁 (Quality Gates) ====================
+quality_gates:
+  # 代码质量门禁
+  code_quality:
+    enabled: true
+    metrics:
+      cyclomatic_complexity:
+        threshold: 15
+        action: warn
+      cognitive_complexity:
+        threshold: 20
+        action: warn
+      lines_of_code:
+        function_max: 50
+        class_max: 300
+        file_max: 500
+        action: warn
+      duplication:
+        threshold: 5
+        action: warn
+      comment_ratio:
+        min: 10
+        max: 40
+        action: warn
+
+  # 测试质量门禁
+  test_quality:
+    enabled: true
+    metrics:
+      code_coverage:
+        line: 80
+        branch: 70
+        action: block
+      test_count:
+        min_per_file: 1
+        action: warn
+      mutation_score:
+        threshold: 60
+        action: warn
+
+  # 安全质量门禁
+  security_quality:
+    enabled: true
+    scanners:
+      - name: "依赖漏洞扫描"
+        tool: "safety"
+        action: warn
+      - name: "代码安全扫描"
+        tool: "bandit"
+        action: warn
+      - name: "密钥泄露扫描"
+        tool: "trufflehog"
+        action: block
+
+  # 性能质量门禁
+  performance_quality:
+    enabled: true
+    checks:
+      - name: "大数据集操作检测"
+        action: warn
+      - name: "循环中数据库调用检测"
+        action: warn
+      - name: "内存泄漏风险检测"
+        action: warn
+
+# ==================== 语言特定规范 (Language-Specific Standards) ====================
+language_standards:
+  python:
+    enabled: true
+    version: "3.9+"
+    style_guide: "PEP 8"
+    formatters:
+      - black
+      - isort
+    linters:
+      - ruff
+      - mypy
+    rules:
+      max_line_length: 100
+      docstring_style: "google"
+      use_f_strings: true
+      use_type_hints: true
+      use_pathlib: true
+
+  typescript:
+    enabled: true
+    version: "ES2020+"
+    style_guide: "Google TypeScript Style Guide"
+    formatters:
+      - prettier
+    linters:
+      - eslint
+    rules:
+      max_line_length: 100
+      strict_mode: true
+      use_const: true
+      prefer_interfaces: true
+
+  java:
+    enabled: true
+    version: "17+"
+    style_guide: "Google Java Style"
+    formatters:
+      - google-java-format
+    linters:
+      - checkstyle
+      - spotbugs
+    rules:
+      max_line_length: 100
+      use_lombok: false
+      prefer_immutables: true
+
+# ==================== 文件命名规范 (File Naming Conventions) ====================
+file_naming:
+  enabled: true
+  patterns:
+    python_modules:
+      pattern: "snake_case"
+      example: "user_service.py"
+    python_classes:
+      pattern: "PascalCase"
+      example: "UserService"
+    python_tests:
+      pattern: "test_{module}.py"
+      example: "test_user_service.py"
+    config_files:
+      pattern: "{name}.{format}"
+      examples: ["settings.yaml", "config.json"]
+    documentation:
+      pattern: "UPPER_CASE.md"
+      examples: ["README.md", "CONTRIBUTING.md"]
+
+# ==================== 依赖管理 (Dependency Management) ====================
+dependency_management:
+  enabled: true
+  version_control:
+    pin_versions: true
+    allow_prerelease: false
+    max_age_days: 365
+
+  vulnerability_check:
+    enabled: true
+    auto_update: false
+    notify_on_fixed: true
+
+  license_check:
+    enabled: true
+    allowed_licenses:
+      - MIT
+      - Apache-2.0
+      - BSD-2-Clause
+      - BSD-3-Clause
+      - ISC
+    forbidden_licenses:
+      - GPL-2.0
+      - GPL-3.0
+    review_licenses:
+      - LGPL-2.1
+      - LGPL-3.0
+      - MPL-2.0
+
+# ==================== 文档约束 (Documentation Constraints) ====================
+documentation:
+  # 必须的文档
+  required_docs:
+    - name: README
+      file: "README.md"
+      required_sections:
+        - "项目简介"
+        - "安装指南"
+        - "快速开始"
+        - "配置说明"
+      severity: high
+
+    - name: CHANGELOG
+      file: "CHANGELOG.md"
+      required_sections:
+        - "版本历史"
+      severity: medium
+
+    - name: CONTRIBUTING
+      file: "CONTRIBUTING.md"
+      required_sections:
+        - "贡献指南"
+        - "代码规范"
+        - "提交规范"
+      severity: medium
+
+  # API文档
+  api_documentation:
+    enabled: true
+    format: "OpenAPI 3.0"
+    require_examples: true
+    require_error_docs: true
+
+  # 内联文档
+  inline_docs:
+    enabled: true
+    coverage_threshold: 80
+    require_module_docs: true
+    require_class_docs: true
+    require_public_method_docs: true
+
+# ==================== 环境约束 (Environment Constraints) ====================
+environment:
+  # 开发环境
+  development:
+    require_virtualenv: true
+    python_version: ">=3.9"
+    node_version: ">=18"
+
+  # 生产环境
+  production:
+    require_secrets_manager: true
+    require_health_check: true
+    require_metrics_endpoint: true
+
+  # 配置管理
+  configuration:
+    require_env_files: false
+    use_12factor: true
+    sensitive_in_env: true
+
+# ==================== 监控与告警 (Monitoring & Alerts) ====================
+monitoring:
+  enabled: true
+  # 日志规范
+  logging:
+    format: "json"
+    level: "INFO"
+    require_request_id: true
+    require_timestamp: true
+    sensitive_fields_mask:
+      - password
+      - token
+      - api_key
+      - secret
+
+  # 指标采集
+  metrics:
+    enabled: true
+    collectors:
+      - name: "请求延迟"
+        unit: "ms"
+      - name: "错误率"
+        unit: "%"
+      - name: "吞吐量"
+        unit: "req/s"
+
+  # 告警规则
+  alerts:
+    - name: "高错误率"
+      condition: "error_rate > 5%"
+      severity: critical
+    - name: "高延迟"
+      condition: "p99_latency > 1000ms"
+      severity: warning
+
+# ==================== 合规检查 (Compliance Checks) ====================
+compliance:
+  # 代码合规
+  code_compliance:
+    enabled: true
+    checks:
+      - name: "版权声明检查"
+        require_header: false
+      - name: "许可证兼容性"
+        enabled: true
+
+  # 数据合规
+  data_compliance:
+    enabled: true
+    checks:
+      - name: "PII数据处理"
+        require_encryption: true
+      - name: "数据保留政策"
+        enabled: true
+
+  # 审计跟踪
+  audit_trail:
+    enabled: true
+    track:
+      - "代码变更"
+      - "部署操作"
+      - "配置变更"
+      - "权限变更"

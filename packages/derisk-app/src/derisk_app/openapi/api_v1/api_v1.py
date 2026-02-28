@@ -691,3 +691,10 @@ def message2Vo(message: dict, order, model_name) -> MessageVo:
         order=order,
         model_name=model_name,
     )
+
+
+from .config_api import router as config_router
+from .tools_api import router as tools_router
+
+router.include_router(config_router, prefix="/v1", tags=["Config"])
+router.include_router(tools_router, prefix="/v1", tags=["Tools"])

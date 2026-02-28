@@ -3,13 +3,15 @@ import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, 
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { useRequest } from 'ahooks';
-import { Checkbox, Form, Input, Select, Tag, Modal } from 'antd';
+import { Checkbox, Form, Input, Select, Tag, Modal, Radio, Space, Typography, Card } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatLayoutConfig from './chat-layout-config';
-import { EditOutlined, PictureOutlined } from '@ant-design/icons';
+import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined } from '@ant-design/icons';
+
+const { Text, Paragraph } = Typography;
 
 const iconOptions = [
   { value: '/icons/colorful-plugin.png', label: 'agent0' },
@@ -70,6 +72,7 @@ export default function TabOverview() {
         app_name: appInfo.app_name,
         app_describe: appInfo.app_describe,
         agent: appInfo.agent,
+        agent_version: appInfo.agent_version || 'v1',
         llm_strategy: appInfo?.llm_config?.llm_strategy,
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         chat_layout: layout?.chat_layout?.name || '',
@@ -165,6 +168,8 @@ export default function TabOverview() {
 
     if (fieldName === 'agent') {
       fetchUpdateApp({ ...appInfo, agent: fieldValue });
+    } else if (fieldName === 'agent_version') {
+      fetchUpdateApp({ ...appInfo, agent_version: fieldValue });
     } else if (fieldName === 'llm_strategy') {
       fetchUpdateApp({ ...appInfo, llm_config: { llm_strategy: fieldValue as string, llm_strategy_value: appInfo.llm_config?.llm_strategy_value || [] } });
     } else if (fieldName === 'llm_strategy_value') {
@@ -234,6 +239,30 @@ export default function TabOverview() {
             <div className="space-y-4">
               <Form.Item label={t('baseinfo_select_agent_type')} name="agent" rules={[{ required: true, message: t('baseinfo_select_agent_type') }]} className="mb-0">
                 <Select placeholder={t('baseinfo_select_agent_type')} options={targetOptions} allowClear className="w-full [&_.ant-select-selector]:!rounded-lg" />
+              </Form.Item>
+              <Form.Item label="Agent Version" name="agent_version" className="mb-0">
+                <Radio.Group className="w-full">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Radio.Button value="v1" className="h-auto py-3 px-4 rounded-xl border-2 [&.ant-radio-button-wrapper-checked]:border-blue-500 [&.ant-radio-button-wrapper-checked]:bg-blue-50/60">
+                      <div className="flex items-center gap-2">
+                        <ThunderboltOutlined className="text-lg text-blue-500" />
+                        <div>
+                          <div className="font-semibold text-sm">V1 Classic</div>
+                          <div className="text-xs text-gray-400">Stable PDCA Agent</div>
+                        </div>
+                      </div>
+                    </Radio.Button>
+                    <Radio.Button value="v2" className="h-auto py-3 px-4 rounded-xl border-2 [&.ant-radio-button-wrapper-checked]:border-green-500 [&.ant-radio-button-wrapper-checked]:bg-green-50/60">
+                      <div className="flex items-center gap-2">
+                        <RocketOutlined className="text-lg text-green-500" />
+                        <div>
+                          <div className="font-semibold text-sm">V2 Core_v2</div>
+                          <div className="text-xs text-gray-400">Canvas + Progress</div>
+                        </div>
+                      </div>
+                    </Radio.Button>
+                  </div>
+                </Radio.Group>
               </Form.Item>
               {is_reasoning_engine_agent && (
                 <Form.Item name="reasoning_engine" label={t('baseinfo_reasoning_engine')} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]} className="mb-0">

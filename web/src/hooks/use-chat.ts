@@ -10,6 +10,7 @@ import { VisParser } from '@/utils/parse-vis';
 type Props = {
   queryAgentURL?: string;
   app_code?: string;
+  agent_version?: 'v1' | 'v2';
 };
 
 type ChatParams = {
@@ -21,6 +22,13 @@ type ChatParams = {
   onClose?: () => void;
   onDone?: () => void;
   onError?: (content: string, error?: Error) => void;
+};
+
+type V2StreamChunk = {
+  type: 'response' | 'thinking' | 'tool_call' | 'error';
+  content: string;
+  metadata: Record<string, any>;
+  is_final: boolean;
 };
 
 export function parseChunkData(
@@ -41,9 +49,70 @@ export function parseChunkData(
   return { answerText, midMsgObject };
 }
 
-const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props) => {
+const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_version = 'v1' }: Props) => {
   const [ctrl, setCtrl] = useState<AbortController>({} as AbortController);
-  const chat = useCallback(
+  
+  const chatV2 = useCallback(async ({ data, onMessage, onClose, onDone, onError, ctrl }: ChatParams) => {
+    if (!data?.user_input && !data?.doc_id) {
+      message.warning(i18n.t('no_context_tip'));
+      return;
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/api/v2/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: data?.user_input,
+          session_id: data?.conv_uid,
+          agent_name: app_code,
+        }),
+        signal: ctrl?.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const chunk = JSON.parse(line.slice(6)) as V2StreamChunk;
+              if (chunk.type === 'response') {
+                onMessage?.(chunk.content);
+              } else if (chunk.type === 'error') {
+                onError?.(chunk.content);
+              }
+              if (chunk.is_final) {
+                onDone?.();
+              }
+            } catch {}
+          }
+        }
+      }
+      onDone?.();
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        onError?.('Request failed', err);
+      }
+    }
+  }, [app_code]);
+
+  const chatV1 = useCallback(
     async ({ data, onMessage, onClose, onDone, onError, ctrl }: ChatParams) => {
       ctrl && setCtrl(ctrl);
       if (!data?.user_input && !data?.doc_id) {
@@ -51,19 +120,12 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
         return;
       }
 
-      const params = {
-        ...data,
-        app_code    
-      };
-
+      const params = { ...data, app_code };
       const isIncremental = data?.ext_info?.incremental;
       let answerText = "";
-      let midMsgObject = {
-        nodeId: "",
-        text: "",
-      }; 
-      
+      let midMsgObject = { nodeId: "", text: "" };
       const visParser = new VisParser();
+      
       try {
         await fetchEventSource(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}${queryAgentURL}`, {
           method: 'POST',
@@ -75,65 +137,48 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
           signal: ctrl ? ctrl.signal : null,
           openWhenHidden: true,
           async onopen(response) {
-            if (response.ok && response.headers.get('content-type') === EventStreamContentType) {
-              return;
-            }
+            if (response.ok && response.headers.get('content-type') === EventStreamContentType) return;
             if (response.headers.get('content-type') === 'application/json') {
-              response.json().then(data => {
-                onMessage?.(data);
-                onDone?.();
-                ctrl && ctrl.abort();
-              });
+              response.json().then(data => { onMessage?.(data); onDone?.(); ctrl && ctrl.abort(); });
             }
           },
-          onclose() {
-            ctrl && ctrl.abort();
-            onClose?.();
-          },
-          onerror(err) {
-             console.error('err', err);
-            throw new Error(err);
-          },
+          onclose() { ctrl && ctrl.abort(); onClose?.(); },
+          onerror(err) { console.error('err', err); throw new Error(err); },
           onmessage: event => {
             let message = event.data;
             try {
               if (!isIncremental) {
                 message = JSON.parse(message).vis;
               } else {
-                const { answerText: newAnswerText, midMsgObject: newMidMsgObject } = parseChunkData(
-                  answerText,
-                  midMsgObject,
-                  JSON.parse(message),
-                  visParser,
-                );
-                answerText = newAnswerText;
-                message = newMidMsgObject.text;
+                const { midMsgObject: newMidMsgObject } = parseChunkData(answerText, midMsgObject, JSON.parse(message), visParser);
+                midMsgObject = newMidMsgObject;
+                message = midMsgObject.text;
               }
-             
-            } catch {
-              message.replaceAll('\\n', '\n');
-            }
+            } catch { message.replaceAll('\\n', '\n'); }
             if (typeof message === 'string') {
-              if (message === '[DONE]') {
-                onDone?.();
-              } else if (message?.startsWith('[ERROR]')) {
-                onError?.(message?.replace('[ERROR]', ''));
-              } else {
-                onMessage?.(message);
-              }
-            } else {
-              onMessage?.(message);
-              onDone?.();
-            }
+              if (message === '[DONE]') onDone?.();
+              else if (message?.startsWith('[ERROR]')) onError?.(message?.replace('[ERROR]', ''));
+              else onMessage?.(message);
+            } else { onMessage?.(message); onDone?.(); }
           },
         });
       } catch (err) {
         ctrl && ctrl.abort();
-        onError?.('Sorry, We meet some error, please try agin later.', err as Error);
+        onError?.('Sorry, We meet some error, please try again later.', err as Error);
       }
     },
     [queryAgentURL, app_code],
   );
+
+  const chat = useCallback(
+    async (params: ChatParams) => {
+      const version = params.data?.agent_version || agent_version;
+      if (version === 'v2') return chatV2(params);
+      return chatV1(params);
+    },
+    [agent_version, chatV1, chatV2],
+  );
+
   return { chat, ctrl };
 };
 
