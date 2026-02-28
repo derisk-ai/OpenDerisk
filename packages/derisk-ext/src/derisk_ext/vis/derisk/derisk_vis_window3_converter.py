@@ -299,6 +299,13 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         step_thought = ""
         extracted_phase = None
 
+        has_blank_action = False
+        if action_outs:
+            for action_out in action_outs:
+                if action_out.name == BlankAction.name and not action_out.terminate:
+                    has_blank_action = True
+                    break
+
         if title:
             step_thought = title
         elif thinking:
@@ -315,7 +322,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 step_thought = clean_thought.strip()
             else:
                 step_thought = thought.strip()
-        elif content and content.strip() and not tool_calls_info:
+        elif content and content.strip() and not tool_calls_info and not has_blank_action:
             if len(content.strip()) < 500:
                 step_thought = content.strip()
 
@@ -348,45 +355,23 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
 
         if action_outs:
             for action_out in action_outs:
+                if action_out.name == BlankAction.name and not action_out.terminate:
+                    if action_out.content and action_out.content.strip():
+                        text_content = DrskTextContent(
+                            dynamic=False,
+                            markdown=action_out.content,
+                            uid=f"{message_id}_{action_out.action_id}_text",
+                            type=UpdateType.ALL.value,
+                        )
+                        plan_tasks_vis.append(
+                            DrskContent().sync_display(
+                                content=text_content.to_dict(exclude_none=True)
+                            )
+                        )
+                    continue
                 plan_item = self._act_out_2_plan(action_out, layer_count)
                 if plan_item:
                     plan_tasks_vis.append(plan_item)
-
-        if not step_thought and action_outs and not has_completed_actions:
-            for action_out in action_outs:
-                if action_out.terminate:
-                    continue
-                if action_out.state == Status.COMPLETE.value:
-                    continue
-                tool_desc = self._generate_tool_step_description(action_out)
-                if tool_desc:
-                    report_content = DrskTextContent(
-                        dynamic=False,
-                        markdown=tool_desc,
-                        uid=f"{message_id}_'step_desc'",
-                        type=UpdateType.INCR.value,
-                    )
-                    plan_tasks_vis.insert(
-                        0,
-                        DrskContent().sync_display(
-                            content=report_content.to_dict(exclude_none=True)
-                        ),
-                    )
-                    break
-
-        if has_completed_actions:
-            clear_desc = DrskTextContent(
-                dynamic=False,
-                markdown="",
-                uid=f"{message_id}_'step_desc'",
-                type=UpdateType.ALL.value,
-            )
-            plan_tasks_vis.insert(
-                0,
-                DrskContent().sync_display(
-                    content=clear_desc.to_dict(exclude_none=True)
-                ),
-            )
 
         return "\n".join(plan_tasks_vis)
 
@@ -1016,7 +1001,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         action_out: ActionOutput,
         layer_count: int,
     ):
-        # 过滤看板相关动作，这些内容会通过 _find_kanban_for_node 单独挂载到对应节点下
+        if action_out.name == BlankAction.name and not action_out.terminate:
+            return None
+
         target_actions = ["create_kanban", "submit_deliverable"]
         if action_out.action in target_actions or action_out.name in target_actions:
             return None

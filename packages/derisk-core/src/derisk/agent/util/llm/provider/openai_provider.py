@@ -1,6 +1,7 @@
 import os
-from typing import Dict, Any, AsyncIterator, List, Optional
+import json
 import logging
+from typing import Dict, Any, AsyncIterator, List, Optional
 
 from derisk.core.interface.llm import (
     ModelRequest,
@@ -9,12 +10,18 @@ from derisk.core.interface.llm import (
     ModelInferenceMetrics,
 )
 from derisk.agent.util.llm.provider.base import LLMProvider
+from derisk.agent.util.llm.provider.tool_call_compat import (
+    is_model_without_native_fc,
+    inject_tool_prompt_to_messages,
+    extract_tool_calls_from_content,
+)
 from derisk.util.error_types import LLMChatError
-import json
+from derisk.agent.util.llm.provider.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
 
+@ProviderRegistry.register("openai", env_key="OPENAI_API_KEY")
 class OpenAIProvider(LLMProvider):
     """OpenAI LLM provider."""
 
@@ -42,13 +49,22 @@ class OpenAIProvider(LLMProvider):
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = request.max_new_tokens
 
-            # Function calling support
+            use_compat_fc = False
             if request.tools:
-                params["tools"] = request.tools
-                logger.info(f"OpenAIProvider: tools count={len(request.tools)}")
-            if request.tool_choice:
+                if is_model_without_native_fc(request.model):
+                    use_compat_fc = True
+                    messages = params["messages"]
+                    params["messages"] = inject_tool_prompt_to_messages(messages, request.tools)
+                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
+                    logger.info(f"OpenAIProvider: Using compat tool call mode for model {request.model}, tools={tool_names}")
+                else:
+                    params["tools"] = request.tools
+                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
+                    logger.info(f"OpenAIProvider: tools count={len(request.tools)}, names={tool_names}")
+            if request.tool_choice and not use_compat_fc:
                 params["tool_choice"] = request.tool_choice
-            if request.parallel_tool_calls is not None:
+                logger.info(f"OpenAIProvider: tool_choice={request.tool_choice}")
+            if request.parallel_tool_calls is not None and not use_compat_fc:
                 params["parallel_tool_calls"] = request.parallel_tool_calls
 
             response = await self.client.chat.completions.create(**params)
@@ -57,21 +73,29 @@ class OpenAIProvider(LLMProvider):
             content = choice.message.content
             tool_calls = choice.message.tool_calls
 
-            # Log tool_calls output
+            if use_compat_fc and not tool_calls and content:
+                compat_tool_calls, cleaned_content = extract_tool_calls_from_content(content)
+                if compat_tool_calls:
+                    tool_calls = compat_tool_calls
+                    content = cleaned_content
+                    tool_names = [tc.get("function", {}).get("name", "unknown") for tc in compat_tool_calls]
+                    logger.info(f"OpenAIProvider: Extracted tool_calls from compat mode: {tool_names}")
+
+            tc_output = None
             if tool_calls:
-                tc_summary = [
-                    {"id": tc.id, "name": tc.function.name} for tc in tool_calls
-                ]
-                logger.info(
-                    f"OpenAIProvider: tool_calls output={json.dumps(tc_summary)}"
-                )
+                if hasattr(tool_calls[0], 'model_dump'):
+                    tc_output = [tc.model_dump() for tc in tool_calls]
+                else:
+                    tc_output = list(tool_calls)
+                tc_summary = [{"id": tc.get("id"), "name": tc.get("function", {}).get("name")} for tc in tc_output]
+                logger.info(f"OpenAIProvider: tool_calls output={json.dumps(tc_summary)}")
+            else:
+                logger.info(f"OpenAIProvider: no tool_calls in response, finish_reason={choice.finish_reason}")
 
             return ModelOutput(
                 error_code=0,
                 text=content,
-                tool_calls=[tc.model_dump() for tc in tool_calls]
-                if tool_calls
-                else None,
+                tool_calls=tc_output,
                 finish_reason=choice.finish_reason,
                 usage=response.usage.model_dump() if response.usage else None,
             )
@@ -94,19 +118,28 @@ class OpenAIProvider(LLMProvider):
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = request.max_new_tokens
 
-            # Function calling support
+            use_compat_fc = False
             if request.tools:
-                params["tools"] = request.tools
-                logger.info(f"OpenAIProvider stream: tools count={len(request.tools)}")
-            if request.tool_choice:
+                if is_model_without_native_fc(request.model):
+                    use_compat_fc = True
+                    messages = params["messages"]
+                    params["messages"] = inject_tool_prompt_to_messages(messages, request.tools)
+                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
+                    logger.info(f"OpenAIProvider stream: Using compat tool call mode for model {request.model}, tools={tool_names}")
+                else:
+                    params["tools"] = request.tools
+                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
+                    logger.info(f"OpenAIProvider stream: tools count={len(request.tools)}, names={tool_names}")
+            if request.tool_choice and not use_compat_fc:
                 params["tool_choice"] = request.tool_choice
-            if request.parallel_tool_calls is not None:
+                logger.info(f"OpenAIProvider stream: tool_choice={request.tool_choice}")
+            if request.parallel_tool_calls is not None and not use_compat_fc:
                 params["parallel_tool_calls"] = request.parallel_tool_calls
 
             stream = await self.client.chat.completions.create(**params)
 
             accumulated_tool_calls = {}
-            last_content = ""
+            accumulated_content = ""
 
             async for chunk in stream:
                 if not chunk.choices:
@@ -116,40 +149,47 @@ class OpenAIProvider(LLMProvider):
                 content = delta.content if delta else None
                 tool_calls = delta.tool_calls if delta else None
 
-                # Track content
                 if content:
-                    last_content = content
+                    accumulated_content += content
 
-                # Handle tool_calls accumulation
                 if tool_calls:
                     for tc in tool_calls:
                         idx = tc.index if hasattr(tc, "index") else 0
                         if idx not in accumulated_tool_calls:
                             accumulated_tool_calls[idx] = {
-                                "id": tc.id,
-                                "type": tc.type,
+                                "id": tc.id if hasattr(tc, "id") else None,
+                                "type": tc.type if hasattr(tc, "type") else "function",
                                 "function": {"name": "", "arguments": ""},
                             }
-                        if tc.id:
+                        if hasattr(tc, "id") and tc.id:
                             accumulated_tool_calls[idx]["id"] = tc.id
-                        if tc.type:
+                        if hasattr(tc, "type") and tc.type:
                             accumulated_tool_calls[idx]["type"] = tc.type
-                        if tc.function:
+                        if hasattr(tc, "function") and tc.function:
                             if tc.function.name:
-                                accumulated_tool_calls[idx]["function"]["name"] = (
-                                    tc.function.name
-                                )
+                                accumulated_tool_calls[idx]["function"]["name"] = tc.function.name
                             if tc.function.arguments:
-                                accumulated_tool_calls[idx]["function"][
-                                    "arguments"
-                                ] += tc.function.arguments
+                                accumulated_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
 
-                # Always return accumulated tool_calls if available (even for chunks without new tool_calls data)
                 output_tool_calls = (
                     list(accumulated_tool_calls.values())
                     if accumulated_tool_calls
                     else None
                 )
+
+                if choice.finish_reason:
+                    logger.info(f"OpenAIProvider stream: finish_reason={choice.finish_reason}")
+                    if use_compat_fc and not output_tool_calls and accumulated_content:
+                        compat_tool_calls, cleaned_content = extract_tool_calls_from_content(accumulated_content)
+                        if compat_tool_calls:
+                            output_tool_calls = compat_tool_calls
+                            content = cleaned_content
+                            tool_names = [tc.get("function", {}).get("name", "unknown") for tc in compat_tool_calls]
+                            logger.info(f"OpenAIProvider stream: Extracted tool_calls from compat mode: {tool_names}")
+                    
+                    if output_tool_calls:
+                        tool_names = [tc.get("function", {}).get("name", "unknown") for tc in output_tool_calls]
+                        logger.info(f"OpenAIProvider stream: tool_calls output count={len(output_tool_calls)}, names={tool_names}")
 
                 yield ModelOutput(
                     error_code=0,
