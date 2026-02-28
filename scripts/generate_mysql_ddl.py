@@ -161,6 +161,7 @@ def map_type_to_mysql(col_info):
     """Map SQLAlchemy type to MySQL type."""
     col_type = col_info['type']
     type_args = col_info['type_args']
+    db_name = col_info.get('db_name', '')
     
     type_map = {
         'String': 'VARCHAR',
@@ -169,14 +170,14 @@ def map_type_to_mysql(col_info):
         'SmallInteger': 'SMALLINT',
         'Text': 'TEXT',
         'Boolean': 'TINYINT',
-        'DateTime': 'DATETIME',
+        'DateTime': 'TIMESTAMP',
         'JSON': 'JSON',
-        'Float': 'FLOAT',
+        'Float': 'DOUBLE',
     }
     
     mysql_type = type_map.get(col_type, col_type.upper())
     
-    if col_type == 'Integer' and col_info.get('primary_key') and col_info.get('autoincrement'):
+    if col_type == 'Integer' and col_info.get('primary_key'):
         return 'BIGINT'
     
     if col_type == 'String':
@@ -187,7 +188,6 @@ def map_type_to_mysql(col_info):
     if col_type == 'Text':
         if type_args:
             try:
-                # Handle length expressions
                 length = type_args.replace('length=', '').strip()
                 if '2**31' in length or '2147483647' in length:
                     return 'LONGTEXT'
@@ -207,6 +207,11 @@ def map_type_to_mysql(col_info):
     
     if col_type == 'Boolean':
         return 'TINYINT(1)'
+    
+    if col_type == 'DateTime':
+        if db_name in ('timestamp', 'gmt_create', 'gmt_modified', 'gmt_modify', 'created_at', 'updated_at'):
+            return 'TIMESTAMP'
+        return 'TIMESTAMP'
     
     return mysql_type
 
@@ -511,13 +516,13 @@ def generate_table_ddl(table_info):
         column_names.add(col['db_name'])
     
     has_gmt_create = any(col['db_name'] in ('gmt_create', 'created_at') for col in table_info['columns'])
-    has_gmt_modify = any(col['db_name'] in ('gmt_modify', 'updated_at') for col in table_info['columns'])
+    has_gmt_modify = any(col['db_name'] in ('gmt_modify', 'gmt_modified', 'updated_at') for col in table_info['columns'])
     
     if not has_gmt_create:
-        column_defs.append("  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'")
+        column_defs.append("  `gmt_create` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间'")
         column_names.add('gmt_create')
     if not has_gmt_modify:
-        column_defs.append("  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'")
+        column_defs.append("  `gmt_modify` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'")
         column_names.add('gmt_modify')
     
     if table_info['primary_keys']:
