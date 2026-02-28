@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .product_agent_registry import (
     ProductAgentRegistry,
@@ -43,6 +43,8 @@ class AppResource(BaseModel):
 
 class BindingResult(BaseModel):
     """绑定结果"""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
     success: bool
     app_code: str
     team_config: Optional[AgentTeamConfig] = None
