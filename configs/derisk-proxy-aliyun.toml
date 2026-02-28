@@ -3,14 +3,14 @@
 language = "${env:DERISK_LANG:-zh}"
 log_level = "INFO"
 api_keys = []
-encrypt_key = "your_secret_key"
+encrypt_key = "${ENCRYPT_KEY:-your_secret_key}"
 
 # Server Configurations
 [service.web]
-host = "127.0.0.1"
-port = "${env:WEB_SERVER_PORT:-8080}"
+host = "0.0.0.0"
+port = 7777
 model_storage = "database"
-web_url = "https://localhost:${env:WEB_SERVER_PORT:-8080}"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-7777}"
 
 [service.web.database]
 type = "sqlite"
@@ -22,93 +22,64 @@ file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
 [service.model.worker]
 host = "127.0.0.1"
 
-[rag]
-chunk_size=1000
-chunk_overlap=0
-similarity_top_k=5
-similarity_score_threshold=0.0
-max_chunks_once_load=10
-max_threads=1
-rerank_top_k=3
-graph_community_summary_enabled="True"
+[agent.llm]
+# (可选) 全局配置
+temperature = 0.5
 
-[rag.storage]
-[rag.storage.vector]
-type = "chroma"
-persist_path = "pilot/data"
+[[agent.llm.provider]]
+provider = "openai"
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = "${DASHSCOPE_API_KEY_2:-sk-...}"
 
-
-# Model Configurations
-[models]
-
-[[models.llms]]
+[[agent.llm.provider.model]]
 name = "deepseek-r1"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "deepseek-r1"
-
-[[models.llms]]
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
 name = "deepseek-v3"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "deepseek-v3"
-
-[[models.llms]]
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
 name = "Kimi-k2"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "Moonshot-Kimi-K2-Instruct"
-
-[[models.llms]]
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
 name = "qwen-plus"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "qwen-plus-latest"
-
-[[models.llms]]
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
 name = "qwen-vl-max"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "qwen-vl-max"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[agent.llm.provider.model]]
+name = "glm-5"
+temperature = 0.7
+max_new_tokens = 4096
+
+[[serves]]
+type = "file"
+# Default backend for file server
+default_backend = "oss"
+
+[[serves.backends]]
+type = "oss"
+endpoint = "https://oss-cn-beijing.aliyuncs.com"
+region = "oss-cn-beijing"
+access_key_id = "${env:OSS_ACCESS_KEY_ID:-xxx}"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xxx}"
+fixed_bucket = "openderisk"
 
 
-[[models.llms]]
-name = "wanx2.1-t2v-plus"
-provider = "proxy/tongyi"
-api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = "sk-xxxx"
-backend = "wanx2.1-t2v-plus"
-
-
-
-[[models.embeddings]]
-name = "bge-large-zh-v1.5"
-provider = "proxy/openai"
-api_url = "https://ai.gitee.com/v1/embeddings"
-api_key = "xxxx"
-
-
-#[[serves]]
-#type = "file"
-## Default backend for file server
-#default_backend = "oss"
-#
-#[[serves.backends]]
-#type = "oss"
-#endpoint = "https://oss-cn-beijing.aliyuncs.com"
-#region = "oss-cn-beijing"
-#access_key_id = "${env:OSS_ACCESS_KEY_ID}"
-#access_key_secret = "${env:OSS_ACCESS_KEY_SECRET}"
-#fixed_bucket = "${env:BUCKET_NAME}"
-
-[trace]
-tracer_storage_cls="derisk_serve.rag.tracer.rag_flow_span.RagFlowSpanStorage"
-
-[mcp]
-mode = "origin"
-enable_mcp_gateway="True"
+[sandbox]
+type="local"
+template_id=""
+user_id="derisk"
+agent_name="derisk"
+repo_url=""
+work_dir="/home/ubuntu"
+skill_dir="/mnt/derisk/skills"
+oss_ak="${env:OSS_ACCESS_KEY_ID:-xxx}"
+oss_sk="${env:OSS_ACCESS_KEY_SECRET:-xxx}"
+oss_endpoint="https://oss-cn-beijing.aliyuncs.com"
+oss_bucket_name="openderisk"
