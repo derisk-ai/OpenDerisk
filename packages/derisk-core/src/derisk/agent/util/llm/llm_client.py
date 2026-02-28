@@ -6,8 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 from derisk._private.pydantic import BaseModel, model_to_dict
 from derisk.agent.core.llm_config import AgentLLMConfig
 from derisk.agent.util.llm.provider.base import LLMProvider
-from derisk.agent.util.llm.provider.claude_provider import ClaudeProvider
-from derisk.agent.util.llm.provider.openai_provider import OpenAIProvider
+from derisk.agent.util.llm.provider.provider_registry import ProviderRegistry
 from derisk.core import (
     LLMClient,
     ModelInferenceMetrics,
@@ -90,38 +89,31 @@ class AIWrapper:
         api_key = self._llm_config.api_key
         base_url = self._llm_config.base_url
 
-        # If API key is not provided in config, try to get from env
         if not api_key:
-            if provider_name == "openai":
-                api_key = os.getenv("OPENAI_API_KEY")
-            elif provider_name == "claude":
-                api_key = os.getenv("ANTHROPIC_API_KEY")
+            env_key = ProviderRegistry.get_env_key(provider_name)
+            if env_key:
+                api_key = os.getenv(env_key)
 
         final_api_key: str = ""
         if api_key:
             final_api_key = api_key
         else:
-            # Fallback or error handling if key is missing?
-            # For now, we assume it might work without key (e.g. local models) or fail later
-            # But providers expect string, so we ensure it is at least an empty string or raise error if critical
-            # For OpenAI/Claude, key is usually required.
-            if provider_name in ["openai", "claude"]:
+            if ProviderRegistry.has_provider(provider_name):
                 raise ValueError(f"API Key is required for provider {provider_name}")
-            final_api_key = ""  # Default to empty string for other providers/local
+            final_api_key = ""
 
         kwargs = self._llm_config.extra_kwargs.copy()
 
-        if provider_name == "openai":
-            self._provider = OpenAIProvider(
-                api_key=final_api_key,
-                base_url=base_url,
-                model=self._llm_config.model,
-                **kwargs,
-            )
-        elif provider_name == "claude":
-            self._provider = ClaudeProvider(
-                api_key=final_api_key, base_url=base_url, **kwargs
-            )
+        provider = ProviderRegistry.create_provider(
+            name=provider_name,
+            api_key=final_api_key,
+            base_url=base_url,
+            model=self._llm_config.model,
+            **kwargs,
+        )
+        
+        if provider:
+            self._provider = provider
         else:
             logger.warning(
                 f"Unknown provider: {provider_name}, falling back to legacy LLMClient if available"
@@ -173,11 +165,9 @@ class AIWrapper:
         # Ensure llm_model is a string
         final_llm_model: str = str(llm_model) if llm_model else "default"
 
-        # 根据模型名从全局缓存获取配置，初始化 provider
         if llm_model and ModelConfigCache.has_model(llm_model):
             model_config_dict = ModelConfigCache.get_config(llm_model)
             if model_config_dict:
-                # 检查是否已有缓存的 provider
                 if llm_model not in self._provider_cache:
                     try:
                         temp_llm_config = AgentLLMConfig.from_dict(model_config_dict)
@@ -185,13 +175,15 @@ class AIWrapper:
                         api_key = temp_llm_config.api_key
                         base_url = temp_llm_config.base_url
 
-                        if provider_name == "openai":
-                            self._provider_cache[llm_model] = OpenAIProvider(
-                                api_key=api_key or "",
-                                base_url=base_url,
-                                model=temp_llm_config.model,
-                            )
-                            logger.info(f"Created OpenAIProvider for model={llm_model}")
+                        provider = ProviderRegistry.create_provider(
+                            name=provider_name,
+                            api_key=api_key or "",
+                            base_url=base_url,
+                            model=temp_llm_config.model,
+                        )
+                        if provider:
+                            self._provider_cache[llm_model] = provider
+                            logger.info(f"Created {provider_name} provider for model={llm_model}")
                     except Exception as e:
                         logger.error(
                             f"Failed to create provider for model {llm_model}: {e}"
@@ -322,6 +314,8 @@ class AIWrapper:
             tools = function_calling_context.get("tools")
             if tools:
                 request.tools = tools
+                tool_names = [t.get("function", {}).get("name") for t in tools]
+                logger.info(f"Tools being sent to LLM: {tool_names}")
             tool_choice = function_calling_context.get("tool_choice")
             if tool_choice:
                 request.tool_choice = tool_choice
@@ -329,8 +323,11 @@ class AIWrapper:
             if parallel_tool_calls is not None:
                 request.parallel_tool_calls = parallel_tool_calls
             logger.info(
-                f"Applied function_calling_context: tools={len(tools) if tools else 0}"
+                f"Applied function_calling_context: tools={len(tools) if tools else 0}, "
+                f"tool_choice={tool_choice}, parallel_tool_calls={parallel_tool_calls}"
             )
+        else:
+            logger.warning("No function_calling_context provided to LLM call!")
 
         try:
             # Choose client: self._provider or self._llm_client (legacy)

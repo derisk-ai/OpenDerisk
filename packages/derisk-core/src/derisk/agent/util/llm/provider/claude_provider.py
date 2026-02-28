@@ -3,10 +3,12 @@ import logging
 from typing import AsyncIterator, List, Optional
 
 from derisk.agent.util.llm.provider.base import LLMProvider
+from derisk.agent.util.llm.provider.provider_registry import ProviderRegistry
 from derisk.core.interface.llm import ModelMetadata, ModelOutput, ModelRequest
 
 logger = logging.getLogger(__name__)
 
+@ProviderRegistry.register("claude", env_key="ANTHROPIC_API_KEY")
 class ClaudeProvider(LLMProvider):
     """Anthropic Claude LLM provider."""
 

@@ -327,7 +327,7 @@ export default function Chat() {
                 ];
             }
             
-            setResourceValue(fileResources);
+setResourceValue(fileResources);
         }
         
         // Handle skills - convert to chat_in_params format
@@ -343,11 +343,45 @@ export default function Chat() {
           finalChatInParams = [...finalChatInParams, ...skillParams];
         }
         
-        if (initMessage.model) {
+        // Handle MCPs - convert to chat_in_params format
+        if (initMessage.mcps && initMessage.mcps.length > 0) {
+          const mcpParams = initMessage.mcps.map((mcp: any) => ({
+            param_type: 'resource',
+            param_value: JSON.stringify({
+              mcp_code: mcp.id || mcp.uuid || mcp.mcp_code,
+              name: mcp.name,
+            }),
+            sub_type: 'mcp(derisk)',
+          }));
+          finalChatInParams = [...finalChatInParams, ...mcpParams];
+        }
+        
+if (initMessage.model) {
            setModelValue(initMessage.model);
+           
+           const modelLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'model');
+           const existingModelParamIndex = finalChatInParams.findIndex(p => p.param_type === 'model');
+           
+           if (existingModelParamIndex >= 0) {
+             const newParams = [...finalChatInParams];
+             newParams[existingModelParamIndex] = {
+               ...newParams[existingModelParamIndex],
+               param_value: initMessage.model
+             };
+             finalChatInParams = newParams;
+           } else if (modelLayout) {
+             finalChatInParams = [
+               ...finalChatInParams,
+               {
+                 param_type: 'model',
+                 param_value: initMessage.model,
+                 sub_type: modelLayout?.sub_type,
+               }
+             ];
+           }
         }
 
-        setChatInParams(finalChatInParams);
+         setChatInParams(finalChatInParams);
 
         debouncedChat.run(initMessage.message, {
           app_code: appInfo?.app_code,

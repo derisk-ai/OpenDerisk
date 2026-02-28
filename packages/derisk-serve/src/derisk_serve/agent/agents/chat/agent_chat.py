@@ -1106,15 +1106,53 @@ class AgentChat(BaseComponent, ABC):
         if chat_in_params:
             for chat_in_param in chat_in_params:
                 if chat_in_param.param_type == "resource":
-                    dynamic_resources.append(
-                        AgentResource.from_dict(
-                            {
-                                "type": chat_in_param.sub_type,
-                                "name": f"用户选择了[{chat_in_param.sub_type}]资源",
-                                "value": chat_in_param.param_value,
-                            }
+                    sub_type = chat_in_param.sub_type
+                    param_value = chat_in_param.param_value
+                    
+                    if sub_type == "mcp(derisk)":
+                        try:
+                            if isinstance(param_value, str):
+                                value_data = json.loads(param_value)
+                            else:
+                                value_data = param_value
+                            
+                            mcp_code = value_data.get("mcp_code") if isinstance(value_data, dict) else value_data
+                            mcp_name = value_data.get("name") if isinstance(value_data, dict) else None
+                            
+                            if mcp_code:
+                                from derisk_serve.agent.resource.tool.mcp_collect import get_mcp_info
+                                mcp_info = get_mcp_info(mcp_code)
+                                if mcp_info:
+                                    mcp_value = {
+                                        "name": mcp_name or mcp_info.name or mcp_code,
+                                        "mcp_code": mcp_code,
+                                        "mcp_servers": mcp_info.server_url or "",
+                                        "headers": mcp_info.headers or {},
+                                        "source": mcp_info.source or "faas",
+                                        "timeout": mcp_info.timeout or 120,
+                                    }
+                                    mcp_resource = AgentResource.from_dict({
+                                        "type": "mcp(derisk)",
+                                        "name": mcp_name or f"MCP[{mcp_code}]",
+                                        "value": json.dumps(mcp_value, ensure_ascii=False),
+                                    })
+                                    dynamic_resources.append(mcp_resource)
+                                    logger.info(f"Added MCP resource from chat_in_params: {mcp_code}")
+                                else:
+                                    logger.warning(f"MCP info not found for code: {mcp_code}")
+                        except Exception as e:
+                            logger.warning(f"Failed to process MCP resource: {e}")
+                    else:
+                        dynamic_resources.append(
+                            AgentResource.from_dict(
+                                {
+                                    "type": sub_type,
+                                    "name": f"用户选择了[{sub_type}]资源",
+                                    "value": param_value,
+                                }
+                            )
                         )
-                    )
+                    
                     if chat_in_param.sub_type == DeriskSkillResource.type():
                         skill_param_value = chat_in_param.param_value
                         if isinstance(skill_param_value, str):
