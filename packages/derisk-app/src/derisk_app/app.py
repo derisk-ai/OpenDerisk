@@ -206,7 +206,7 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     from derisk_serve.agent.core_v2_adapter import get_core_v2
 
     core_v2 = get_core_v2()
-    system_app.register(core_v2)
+    system_app.register_instance(core_v2)
     logger.info("[Core_v2] Runtime component registered")
 
     # Before start, after on_init
