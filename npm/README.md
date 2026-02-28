@@ -8,14 +8,14 @@ NPM wrapper for OpenDeRisk AI-Native Risk Intelligence Systems.
 npm install -g openderisk
 ```
 
-Or use with npx (no installation):
+Or use with npx (no installation required):
 ```bash
 npx openderisk
 ```
 
 ## Usage
 
-### CLI
+### CLI Commands
 
 ```bash
 # Show help
@@ -31,7 +31,7 @@ openderisk-server
 openderisk --update
 ```
 
-### Requirements
+## Requirements
 
 - Node.js >= 16.0.0
 - Python >= 3.10 (will be installed automatically)
