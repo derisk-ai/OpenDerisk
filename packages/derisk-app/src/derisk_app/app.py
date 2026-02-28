@@ -49,7 +49,7 @@ def load_config(config_file: str = None) -> ApplicationConfig:
 
     if config_file is None:
         config_file = os.path.join(
-            DERISK_ROOT_PATH, "configs", "derisk-siliconflow.toml"
+            DERISK_ROOT_PATH, "configs", "derisk-proxy-aliyun.toml"
         )
     elif not os.path.isabs(config_file):
         # If config_file is a relative path, make it relative to DERISK_ROOT_PATH
