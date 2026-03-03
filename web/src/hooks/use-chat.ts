@@ -80,6 +80,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
       max_new_tokens: data?.max_new_tokens,
       work_mode: data?.work_mode || 'simple',
       stream: true,
+      user_id: getUserId(),
       ext_info: data?.ext_info || {},
     };
 
@@ -87,10 +88,15 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
       requestBody.messages = data.messages;
     }
 
+    const visParser = new VisParser();
+
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/api/v2/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          [HEADER_USER_ID_KEY]: getUserId() ?? '',
+        },
         body: JSON.stringify(requestBody),
         signal: ctrl?.signal,
       });
@@ -119,14 +125,14 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
               const data = JSON.parse(line.slice(6));
               const vis = data.vis;
               
-              // V1 兼容格式：直接使用 vis 字段
               if (typeof vis === 'string') {
                 if (vis === '[DONE]') {
                   onDone?.();
                 } else if (vis.startsWith('[ERROR]')) {
                   onError?.(vis.replace('[ERROR]', '').replace('[/ERROR]', ''));
                 } else {
-                  onMessage?.(vis);
+                  const merged = visParser.update(vis);
+                  onMessage?.(merged);
                 }
               }
             } catch {}

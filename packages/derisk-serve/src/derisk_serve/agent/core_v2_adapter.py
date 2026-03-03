@@ -134,6 +134,19 @@ class CoreV2Component(BaseComponent):
         except Exception as e:
             logger.warning(f"[CoreV2Component] Failed to initialize LLM client: {e}")
 
+        # 获取 Conversation 存储（用于 ChatHistoryMessageEntity）
+        conv_storage = None
+        message_storage = None
+        try:
+            from derisk_serve.conversation.serve import Serve as ConversationServe
+            conv_serve = ConversationServe.get_instance(self.system_app)
+            if conv_serve:
+                conv_storage = conv_serve.conv_storage
+                message_storage = conv_serve.message_storage
+                logger.info("[CoreV2Component] Conversation storage initialized")
+        except Exception as e:
+            logger.warning(f"[CoreV2Component] Failed to initialize conversation storage: {e}")
+
         self.runtime = V2AgentRuntime(
             config=RuntimeConfig(
                 max_concurrent_sessions=100,
@@ -143,6 +156,8 @@ class CoreV2Component(BaseComponent):
             gpts_memory=gpts_memory,
             enable_hierarchical_context=True,  # 启用分层上下文
             llm_client=llm_client,
+            conv_storage=conv_storage,
+            message_storage=message_storage,
         )
         
         self._register_agent_factories()

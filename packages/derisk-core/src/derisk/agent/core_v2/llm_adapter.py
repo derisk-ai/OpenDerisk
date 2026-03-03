@@ -22,6 +22,85 @@ import time
 logger = logging.getLogger(__name__)
 
 
+def validate_tool_call_pairs(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Pre-flight validator: ensures every assistant message with tool_calls is
+    followed by matching tool messages, and every tool message references a
+    valid tool_call_id from a preceding assistant message.
+
+    Repairs silently when possible:
+      - Orphan tool messages (no matching assistant tool_calls) → removed
+      - Assistant with tool_calls but missing tool responses → tool_calls stripped,
+        demoted to plain assistant message
+
+    Returns the (possibly repaired) message list.
+    """
+    # Build a set of valid tool_call_ids from assistant messages
+    valid_tc_ids: set = set()
+    for msg in messages:
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    valid_tc_ids.add(tc_id)
+
+    # Pass 1: Remove orphan tool messages (tool_call_id not in any assistant's tool_calls)
+    cleaned: List[Dict[str, Any]] = []
+    removed_tool_ids: set = set()
+    for msg in messages:
+        role = msg.get("role")
+        if role == "tool":
+            tc_id = msg.get("tool_call_id")
+            if tc_id and tc_id not in valid_tc_ids:
+                logger.warning(
+                    f"[validate_tool_call_pairs] Removing orphan tool message "
+                    f"with tool_call_id={tc_id} (no matching assistant tool_calls)"
+                )
+                removed_tool_ids.add(tc_id)
+                continue
+        cleaned.append(msg)
+
+    # Pass 2: For each assistant with tool_calls, verify that ALL referenced
+    # tool_call_ids have a subsequent tool message.  If any are missing,
+    # strip tool_calls to avoid OpenAI 400 errors.
+    present_tool_ids: set = set()
+    for msg in cleaned:
+        if msg.get("role") == "tool" and msg.get("tool_call_id"):
+            present_tool_ids.add(msg["tool_call_id"])
+
+    result: List[Dict[str, Any]] = []
+    for msg in cleaned:
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            tc_ids_in_msg = []
+            for tc in msg["tool_calls"]:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    tc_ids_in_msg.append(tc_id)
+            missing = [tid for tid in tc_ids_in_msg if tid not in present_tool_ids]
+            if missing:
+                logger.warning(
+                    f"[validate_tool_call_pairs] Assistant message has tool_calls "
+                    f"with ids {tc_ids_in_msg} but tool responses missing for {missing}. "
+                    f"Stripping tool_calls to avoid OpenAI error."
+                )
+                repaired = {k: v for k, v in msg.items() if k != "tool_calls"}
+                if not repaired.get("content"):
+                    repaired["content"] = "[tool call result unavailable — context was compacted]"
+                result.append(repaired)
+                continue
+        result.append(msg)
+
+    if len(result) != len(messages):
+        logger.warning(
+            f"[validate_tool_call_pairs] Repaired message list: "
+            f"{len(messages)} → {len(result)} messages"
+        )
+
+    return result
+
+
 class LLMProvider(str, Enum):
     """LLM提供商"""
     OPENAI = "openai"
@@ -221,6 +300,9 @@ class OpenAIAdapter(LLMAdapter):
                 params["function_call"] = kwargs["function_call"]
             if kwargs.get("response_format"):
                 params["response_format"] = kwargs["response_format"]
+            
+            # Pre-flight: validate tool-call pair integrity
+            params["messages"] = validate_tool_call_pairs(params["messages"])
             
             logger.info(f"[OpenAIAdapter] ========== 开始调用模型 ==========")
             logger.info(f"[OpenAIAdapter] 模型: {self.config.model}")

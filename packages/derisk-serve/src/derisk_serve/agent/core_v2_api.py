@@ -1,24 +1,28 @@
 """
 Core_v2 API 路由
 
-支持 VIS 可视化组件渲染
+支持 VIS 可视化组件渲染 (vis_window3 协议)
 """
 import json
 import logging
+import uuid
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter
+from fastapi import Request as FastAPIRequest
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .core_v2_adapter import get_core_v2
-from derisk.agent.core_v2.integration.adapter import V2MessageConverter
+from derisk.agent.core_v2.vis_converter import CoreV2VisWindow3Converter
 from derisk.storage.chat_history.chat_history_db import ChatHistoryDao, ChatHistoryEntity
+from derisk_serve.agent.db.gpts_conversations_db import GptsConversationsDao, GptsConversationsEntity
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2", tags=["Core_v2 Agent"])
 
-_vis_converter = V2MessageConverter()
+_vis_converter = CoreV2VisWindow3Converter()
 
 
 class ChatRequest(BaseModel):
@@ -46,7 +50,7 @@ class CreateSessionRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: FastAPIRequest):
     """
     发送消息 (流式响应)
 
@@ -60,21 +64,93 @@ async def chat(request: ChatRequest):
     message = request.get_message()
     session_id = request.get_session_id()
 
+    user_id = request.user_id or http_request.headers.get("user-id")
+
+    if session_id:
+        try:
+            gpts_conv_dao = GptsConversationsDao()
+            existing = gpts_conv_dao.get_by_conv_id(session_id)
+            if not existing:
+                user_goal = message[:6500] if message else ""
+                gpts_conv_dao.add(
+                    GptsConversationsEntity(
+                        conv_id=session_id,
+                        conv_session_id=session_id,
+                        user_goal=user_goal,
+                        gpts_name=app_code,
+                        team_mode="core_v2",
+                        state="running",
+                        max_auto_reply_round=0,
+                        auto_reply_count=0,
+                        user_code=user_id,
+                        sys_code="",
+                    )
+                )
+                logger.info(f"Created gpts_conversations record for session: {session_id}")
+
+            # Update chat_history summary from "New Conversation" to actual user message
+            if message:
+                try:
+                    chat_history_dao = ChatHistoryDao()
+                    entity = chat_history_dao.get_by_uid(session_id)
+                    if entity and (not entity.summary or entity.summary == "New Conversation"):
+                        entity.summary = message[:100]
+                        chat_history_dao.raw_update(entity)
+                except Exception as e:
+                    logger.warning(f"Failed to update chat_history summary: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to persist v2 conversation: {e}")
+
     async def generate():
+        # State tracking for incremental vis_window3 conversion
+        message_id = str(uuid.uuid4().hex)
+        accumulated_content = ""
+        is_first_chunk = True
+
         try:
             async for chunk in core_v2.dispatcher.dispatch_and_wait(
                 message=message,
                 session_id=session_id,
                 agent_name=app_code,
-                user_id=request.user_id,
+                user_id=user_id,
             ):
-                vis_content = _vis_converter.stream_chunk_to_vis(chunk)
+                # Build stream_msg dict matching the vis_window3 protocol
+                # (same structure as V2AgentRuntime._push_stream_chunk)
+                is_thinking = chunk.type == "thinking"
+                if chunk.type == "response":
+                    accumulated_content += chunk.content or ""
 
-                # 返回与 V1 兼容的格式
-                data = {"vis": vis_content}
-                yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                stream_msg = {
+                    "uid": message_id,
+                    "type": "incr",
+                    "message_id": message_id,
+                    "conv_id": session_id or "",
+                    "conv_session_uid": session_id or "",
+                    "goal_id": message_id,
+                    "task_goal_id": message_id,
+                    "sender": app_code,
+                    "sender_name": app_code,
+                    "sender_role": "assistant",
+                    "thinking": chunk.content if is_thinking else None,
+                    "content": "" if is_thinking else (chunk.content or ""),
+                    "prev_content": accumulated_content,
+                    "start_time": datetime.now(),
+                }
 
-                # V1 用 [DONE] 标记结束
+                # Use CoreV2VisWindow3Converter for proper vis_window3 output
+                vis_content = await _vis_converter.visualization(
+                    messages=[],
+                    stream_msg=stream_msg,
+                    is_first_chunk=is_first_chunk,
+                    is_first_push=is_first_chunk,
+                )
+                is_first_chunk = False
+
+                if vis_content:
+                    data = {"vis": vis_content}
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+                # V1 uses [DONE] to mark end of stream
                 if chunk.is_final:
                     yield f"data: {json.dumps({'vis': '[DONE]'})}\n\n"
         except Exception as e:
@@ -106,7 +182,7 @@ async def create_session(request: CreateSessionRequest):
         chat_history_dao = ChatHistoryDao()
         entity = ChatHistoryEntity(
             conv_uid=session.conv_id,
-            chat_mode="core_v2_chat",
+            chat_mode="chat_agent",
             summary="New Conversation",
             user_name=request.user_id,
             app_code=app_code,

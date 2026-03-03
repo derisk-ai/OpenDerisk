@@ -295,3 +295,195 @@ class UnifiedMessageDAO:
             return "agent"
         
         return "ai"
+    
+    async def list_conversations(
+        self,
+        user_id: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        filter_text: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20
+    ) -> dict:
+        """统一查询对话列表（Core V1 + Core V2）
+        
+        同时查询 chat_history 和 gpts_conversations 表，合并结果返回
+        
+        Args:
+            user_id: 用户ID
+            sys_code: 系统代码
+            filter_text: 过滤关键字（搜索摘要/目标）
+            page: 页码（从1开始）
+            page_size: 每页数量
+            
+        Returns:
+            {
+                "items": [UnifiedConversationSummary, ...],
+                "total_count": int,
+                "total_pages": int,
+                "page": int,
+                "page_size": int
+            }
+        """
+        from derisk.core.interface.unified_message import UnifiedConversationSummary
+        
+        # 1. 查询 Core V1 (chat_history)
+        v1_items = await self._list_conversations_v1(user_id, sys_code, filter_text)
+        
+        # 2. 查询 Core V2 (gpts_conversations)
+        v2_items = await self._list_conversations_v2(user_id, sys_code, filter_text)
+        
+        # 3. 合并结果（去重：同一 conv_id 优先保留 v2 记录）
+        seen_conv_ids = set()
+        all_items = []
+        # v2 优先
+        for item in v2_items:
+            if item.conv_id not in seen_conv_ids:
+                seen_conv_ids.add(item.conv_id)
+                all_items.append(item)
+        for item in v1_items:
+            if item.conv_id not in seen_conv_ids:
+                seen_conv_ids.add(item.conv_id)
+                all_items.append(item)
+        
+        # 4. 按时间倒序排序
+        all_items.sort(
+            key=lambda x: x.updated_at or x.created_at or datetime.min,
+            reverse=True
+        )
+        
+        # 5. 分页
+        total_count = len(all_items)
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_items = all_items[start_idx:end_idx]
+        
+        return {
+            "items": paginated_items,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "page": page,
+            "page_size": page_size
+        }
+    
+    async def _list_conversations_v1(
+        self,
+        user_id: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        filter_text: Optional[str] = None
+    ) -> List:
+        """查询 Core V1 (chat_history) 的对话列表
+        
+        Args:
+            user_id: 用户ID
+            sys_code: 系统代码
+            filter_text: 过滤关键字
+            
+        Returns:
+            UnifiedConversationSummary 列表
+        """
+        from derisk.core.interface.unified_message import UnifiedConversationSummary
+        from derisk.storage.chat_history.chat_history_db import ChatHistoryEntity, ChatHistoryDao
+        
+        try:
+            dao = ChatHistoryDao()
+            session = dao.get_raw_session()
+            try:
+                query = session.query(ChatHistoryEntity)
+                
+                if user_id:
+                    query = query.filter(ChatHistoryEntity.user_name == user_id)
+                if sys_code:
+                    query = query.filter(ChatHistoryEntity.sys_code == sys_code)
+                if filter_text:
+                    query = query.filter(ChatHistoryEntity.summary.like(f"%{filter_text}%"))
+                
+                # 按时间倒序
+                query = query.order_by(ChatHistoryEntity.id.desc())
+                
+                entities = query.all()
+                
+                result = []
+                for entity in entities:
+                    result.append(UnifiedConversationSummary(
+                        conv_id=entity.conv_uid,
+                        user_id=entity.user_name or "",
+                        goal=entity.summary,
+                        chat_mode=entity.chat_mode or "chat_normal",
+                        state="complete",
+                        app_code=entity.app_code,
+                        created_at=entity.gmt_created,
+                        updated_at=entity.gmt_modified,
+                        source="v1"
+                    ))
+                
+                logger.debug(f"Loaded {len(result)} conversations from chat_history")
+                return result
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.warning(f"Failed to query chat_history: {e}")
+            return []
+    
+    async def _list_conversations_v2(
+        self,
+        user_id: Optional[str] = None,
+        sys_code: Optional[str] = None,
+        filter_text: Optional[str] = None
+    ) -> List:
+        """查询 Core V2 (gpts_conversations) 的对话列表
+        
+        Args:
+            user_id: 用户ID
+            sys_code: 系统代码
+            filter_text: 过滤关键字
+            
+        Returns:
+            UnifiedConversationSummary 列表
+        """
+        from derisk.core.interface.unified_message import UnifiedConversationSummary
+        
+        try:
+            session = self.conv_dao.get_raw_session()
+            try:
+                from derisk_serve.agent.db.gpts_conversations_db import GptsConversationsEntity
+                
+                query = session.query(GptsConversationsEntity)
+                
+                if user_id:
+                    query = query.filter(GptsConversationsEntity.user_code == user_id)
+                if sys_code:
+                    query = query.filter(GptsConversationsEntity.sys_code == sys_code)
+                if filter_text:
+                    query = query.filter(GptsConversationsEntity.user_goal.like(f"%{filter_text}%"))
+                
+                # 按时间倒序
+                query = query.order_by(GptsConversationsEntity.id.desc())
+                
+                entities = query.all()
+                
+                result = []
+                for entity in entities:
+                    result.append(UnifiedConversationSummary(
+                        conv_id=entity.conv_id,
+                        user_id=entity.user_code or "",
+                        goal=entity.user_goal,
+                        chat_mode=entity.team_mode or "gpts_v2",
+                        state=entity.state or "active",
+                        app_code=entity.gpts_name,
+                        created_at=entity.created_at,
+                        updated_at=entity.updated_at,
+                        source="v2"
+                    ))
+                
+                logger.debug(f"Loaded {len(result)} conversations from gpts_conversations")
+                return result
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.warning(f"Failed to query gpts_conversations: {e}")
+            return []

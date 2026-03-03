@@ -15,6 +15,8 @@ from derisk_serve.unified_api.schemas import (
     UnifiedMessageListResponse,
     UnifiedMessageResponse,
     UnifiedRenderResponse,
+    UnifiedConversationListResponse,
+    UnifiedConversationSummaryResponse,
     APIResponse
 )
 
@@ -30,6 +32,71 @@ def get_unified_dao() -> UnifiedMessageDAO:
         UnifiedMessageDAO实例
     """
     return UnifiedMessageDAO()
+
+
+@router.get(
+    "/conversations",
+    response_model=APIResponse
+)
+async def list_conversations(
+    user_id: Optional[str] = Query(None, description="用户ID"),
+    sys_code: Optional[str] = Query(None, description="系统代码"),
+    filter_text: Optional[str] = Query(None, description="过滤关键字（搜索摘要/目标）"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    unified_dao: UnifiedMessageDAO = Depends(get_unified_dao)
+):
+    """
+    获取对话列表（统一API）
+    
+    同时查询Core V1（chat_history）和Core V2（gpts_conversations）的对话记录
+    
+    参数:
+    - user_id: 用户ID
+    - sys_code: 系统代码
+    - filter_text: 过滤关键字
+    - page: 页码（从1开始）
+    - page_size: 每页数量
+    """
+    try:
+        result = await unified_dao.list_conversations(
+            user_id=user_id,
+            sys_code=sys_code,
+            filter_text=filter_text,
+            page=page,
+            page_size=page_size
+        )
+        
+        conversation_responses = [
+            UnifiedConversationSummaryResponse(
+                conv_id=conv.conv_id,
+                user_id=conv.user_id,
+                goal=conv.goal,
+                chat_mode=conv.chat_mode,
+                state=conv.state,
+                message_count=conv.message_count,
+                created_at=conv.created_at,
+                updated_at=conv.updated_at
+            )
+            for conv in result["items"]
+        ]
+        
+        response_data = UnifiedConversationListResponse(
+            total=result["total_count"],
+            conversations=conversation_responses,
+            page=result["page"],
+            page_size=result["page_size"],
+            has_next=result["page"] < result["total_pages"]
+        )
+        
+        return APIResponse.success_response(response_data)
+        
+    except Exception as e:
+        logger.error(f"Failed to list conversations: {e}")
+        return APIResponse.error_response(
+            code="INTERNAL_ERROR",
+            message=f"Failed to list conversations: {str(e)}"
+        )
 
 
 @router.get(

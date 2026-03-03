@@ -1,0 +1,4 @@
+# Local memory files (not committed to Git)
+MEMORY.LOCAL/
+sessions/
+auto-memory.md

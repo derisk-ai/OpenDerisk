@@ -30,7 +30,7 @@ async def sync_session_to_chat_history(
         chat_history_dao = ChatHistoryDao()
         entity = ChatHistoryEntity(
             conv_uid=conv_id,
-            chat_mode="core_v2_chat",
+            chat_mode="chat_agent",
             summary=summary,
             user_name=user_id,
             app_code=agent_name,

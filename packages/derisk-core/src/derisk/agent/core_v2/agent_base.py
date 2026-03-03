@@ -22,6 +22,8 @@ from .unified_memory.base import UnifiedMemoryInterface, MemoryType
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory
+    from .project_memory import ProjectMemoryManager
+    from .context_isolation import SubagentContextConfig
 
 if TYPE_CHECKING:
     from .subagent_manager import SubagentManager, SubagentResult
@@ -114,6 +116,9 @@ class AgentBase(ABC):
         use_persistent_memory: bool = False,
         gpts_memory: Optional["GptsMemory"] = None,
         conv_id: Optional[str] = None,
+        # 新增参数 - 项目记忆和上下文隔离
+        project_memory: Optional["ProjectMemoryManager"] = None,
+        context_isolation_config: Optional["SubagentContextConfig"] = None,
     ):
         """
         初始化 Agent
@@ -124,6 +129,8 @@ class AgentBase(ABC):
             use_persistent_memory: 是否使用持久化记忆
             gpts_memory: GptsMemory 实例 (Core V1 的记忆管理器，用于统一后端)
             conv_id: 会话 ID (用于 GptsMemory 后端)
+            project_memory: 项目记忆管理器 (用于 CLAUDE.md 风格的多层级记忆)
+            context_isolation_config: 子代理上下文隔离配置
         """
         self.info = info
         self._state = AgentState.IDLE
@@ -137,6 +144,10 @@ class AgentBase(ABC):
         # 存储 GptsMemory 引用以便后续使用
         self._gpts_memory = gpts_memory
         self._conv_id = conv_id
+
+        # 项目记忆管理器 (CLAUDE.md 风格)
+        self._project_memory = project_memory
+        self._isolation_config = context_isolation_config
 
         # 初始化统一记忆
         if memory is not None:
@@ -192,6 +203,77 @@ class AgentBase(ABC):
                     use_persistent=self._use_persistent_memory,
                 )
         return self._memory
+
+    @property
+    def project_memory(self) -> Optional["ProjectMemoryManager"]:
+        """获取项目记忆管理器"""
+        return self._project_memory
+
+    @property
+    def isolation_config(self) -> Optional["SubagentContextConfig"]:
+        """获取上下文隔离配置"""
+        return self._isolation_config
+
+    async def build_system_prompt(self) -> str:
+        """
+        构建 System Prompt（包含项目记忆）
+
+        将 agent 的基础 system prompt 与项目记忆上下文合并，
+        参考 Claude Code 的 CLAUDE.md 机制。
+
+        Returns:
+            完整的 system prompt 字符串
+        """
+        base_prompt = self.info.system_prompt or ""
+
+        # 如果有项目记忆，添加项目上下文
+        if self._project_memory:
+            try:
+                memory_context = await self._project_memory.build_context(
+                    agent_name=self.info.name,
+                    session_id=self._session_id,
+                )
+
+                if memory_context:
+                    return f"{base_prompt}\n\n# Project Context\n\n{memory_context}"
+            except Exception as e:
+                # 如果获取项目记忆失败，只返回基础 prompt
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to build project memory context: {e}")
+
+        return base_prompt
+
+    def set_project_memory(
+        self,
+        project_memory: "ProjectMemoryManager",
+    ) -> "AgentBase":
+        """
+        设置项目记忆管理器
+
+        Args:
+            project_memory: ProjectMemoryManager 实例
+
+        Returns:
+            self: 支持链式调用
+        """
+        self._project_memory = project_memory
+        return self
+
+    def set_context_isolation_config(
+        self,
+        config: "SubagentContextConfig",
+    ) -> "AgentBase":
+        """
+        设置上下文隔离配置
+
+        Args:
+            config: SubagentContextConfig 实例
+
+        Returns:
+            self: 支持链式调用
+        """
+        self._isolation_config = config
+        return self
 
     def set_state(self, state: AgentState):
         """设置状态"""

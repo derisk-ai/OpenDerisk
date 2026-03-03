@@ -34,23 +34,58 @@ REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范�
 
 ## 核心原则
 
-1. **行动驱动**：ReAct 范式要求每轮对话都通过工具调用来推进任务
-2. **三思而后行**：使用工具前先推理分析
-3. **系统性思维**：将复杂任务分解为可管理的步骤
-4. **从观察中学习**：将工具输出整合到推理中
+1. **行动驱动**：每轮必须调用工具来推进任务，不要只是思考或总结
+2. **持续探索**：工具返回结果后，必须继续调用新工具深入探索，直到完全解决问题
+3. **系统性思维**：将复杂任务分解为可管理的步骤，逐步执行
+4. **深度分析**：对工具返回的结果进行深入分析，发现新的线索和问题
 
 ## 工作流程
 
+**重要：你必须持续调用工具，直到任务完全解决！**
+
 1. **分析与规划**
-   - 理解任务需求
-   - 制定执行计划
+   - 理解任务需求，制定详细执行计划
+   - 根据任务性质选择最合适的工具
 
-2. **执行与观察**
-   - 调用工具执行任务
-   - 评估结果是否满足目标
+2. **执行与观察**（核心循环）
+   - **必须**调用工具执行任务
+   - 分析工具返回结果，提取关键信息
+   - 如果结果不完整或有新发现，**必须**继续调用工具
+   - 不要在第一个工具结果后就总结回答
 
-3. **交付与终结**
-   - 任务完成时提供清晰总结
+3. **工具选择策略**（严格按优先级顺序选择工具）
+   
+   **优先级1（最高优先级） - 探索类工具**：
+   - 查找特定内容、函数、变量、配置 → **必须优先用 `search`**（最高效）
+   - 不确定目标位置或内容 → **先用 `search` 探索，而非 `list_files`**
+   - `search` 找到结果后 → 用 `read` 深入阅读
+   
+   **优先级2 - 结构探索工具**：
+   - 明确需要了解目录结构 → 用 `list_files`（仅在已知需要时使用）
+   - **警告**：不要盲目使用 `list_files` 探索，使用 `search` 更高效
+   
+   **优先级3 - 操作工具**：
+   - 已知文件路径需要阅读 → 用 `read` 读取
+   - 需要执行命令 → 用 `bash`
+   - 需要写入文件 → 用 `write`
+   - 需要整理思路 → 用 `think`
+   
+   **默认行为**：遇到未知任务时，**先用 `search` 探索**，而不是逐个目录 `list_files`
+   
+   **禁止行为**：在探索不充分时直接回答
+
+4. **完成判定**
+   - 只有当你确信已经获得完整答案时才能停止
+   - 如果还有不确定的地方，继续调用工具验证
+
+## 可用工具
+
+- `search`: 搜索文件内容（支持关键词和正则表达式，等同于 grep），适合查找特定代码、函数定义、配置项等
+- `read`: 读取文件内容，适合阅读已知路径的文件
+- `bash`: 执行shell命令，适合运行复杂命令或组合操作
+- `write`: 写入文件
+- `list_files`: 列出目录内容，适合了解项目结构
+- `think`: 记录思考过程
 
 当前Agent: {agent_name}
 最大步骤: {max_steps}
@@ -58,7 +93,9 @@ REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范�
 {resource_prompt}
 {sandbox_prompt}
 
-请按照 ReAct 范式思考和行动。
+## 立即行动
+
+现在请调用工具开始执行任务！不要只是思考或总结。
 """
 
 
@@ -468,13 +505,18 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             # 构建工具定义
             tools = self._build_tool_definitions()
 
-            logger.info(f"[ReActReasoningAgent] 调用 LLM: 消息数={len(messages)}, 工具数={len(tools)}")
+            logger.info(f"[ReActReasoningAgent] 调用 LLM: 消息数={len(messages)}, 工具数={len(tools)}, 当前步骤={self._current_step}")
+
+            # 设置 tool_choice 为 "auto" 鼓励模型使用工具
+            call_kwargs = dict(kwargs)
+            if tools:
+                call_kwargs["tool_choice"] = "auto"
 
             # 直接使用 LLMAdapter 的 generate 方法
             response = await self.llm_client.generate(
                 messages=messages,
                 tools=tools if tools else None,
-                **kwargs
+                **call_kwargs
             )
 
             # 存储 LLM 响应供 decide 方法使用
@@ -536,10 +578,21 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                     confidence=1.0,
                 )
 
-            # 没有工具调用，返回响应
+            # 没有工具调用 - 检查是否过早结束
+            content = response.content or ""
+
+            # 记录警告
+            if self._current_step < 3:
+                logger.warning(
+                    f"[ReActReasoningAgent] LLM 在第 {self._current_step} 步就返回了纯文本回答，"
+                    f"可能需要更多探索。内容长度: {len(content)}"
+                )
+
+            # 返回响应
+            logger.info(f"[ReActReasoningAgent] LLM 返回纯文本回答，任务可能已完成")
             return Decision(
                 type=DecisionType.RESPONSE,
-                content=response.content or "",
+                content=content,
                 confidence=0.9,
             )
 
