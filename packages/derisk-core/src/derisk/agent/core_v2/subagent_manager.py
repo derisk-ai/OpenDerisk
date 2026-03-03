@@ -10,7 +10,7 @@ SubagentManager - 子Agent管理器
 参考OpenCode的Task工具设计,实现简洁的子Agent调用模式
 """
 
-from typing import Any, Callable, Dict, List, Optional, Awaitable, AsyncIterator, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Awaitable, AsyncIterator, Type, Union, TYPE_CHECKING
 from datetime import datetime
 from enum import Enum
 from dataclasses import dataclass, field
@@ -23,6 +23,16 @@ from pydantic import BaseModel, Field
 
 from .agent_info import AgentInfo, AgentMode, PermissionRuleset, PermissionAction
 from .permission import PermissionChecker, PermissionResponse
+
+# Type hints for context isolation
+if TYPE_CHECKING:
+    from .context_isolation import (
+        ContextIsolationManager,
+        ContextIsolationMode,
+        SubagentContextConfig,
+        IsolatedContext,
+        ContextWindow,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -273,12 +283,17 @@ class SubagentManager:
         on_session_start: Optional[Callable[[SubagentSession], Awaitable[None]]] = None,
         on_session_complete: Optional[Callable[[SubagentSession, SubagentResult], Awaitable[None]]] = None,
         ask_permission_callback: Optional[Callable[[str, str], Awaitable[bool]]] = None,
+        # 新增: 上下文隔离管理器
+        context_isolation_manager: Optional["ContextIsolationManager"] = None,
     ):
         self._registry = registry or SubagentRegistry()
         self._on_session_start = on_session_start
         self._on_session_complete = on_session_complete
         self._ask_permission_callback = ask_permission_callback
-        
+
+        # 上下文隔离管理器
+        self._context_isolation_manager = context_isolation_manager
+
         self._sessions: Dict[str, SubagentSession] = {}
         self._active_executions: Dict[str, asyncio.Task] = {}
     
@@ -597,12 +612,194 @@ class SubagentManager:
         for session in self._sessions.values():
             status = session.status.value
             by_status[status] = by_status.get(status, 0) + 1
-        
+
         return {
             "total_sessions": total,
             "by_status": by_status,
             "registered_subagents": len(self._registry.list_all()),
         }
+
+    # ========== 上下文隔离相关方法 ==========
+
+    def set_context_isolation_manager(
+        self,
+        manager: "ContextIsolationManager",
+    ) -> "SubagentManager":
+        """
+        设置上下文隔离管理器
+
+        Args:
+            manager: ContextIsolationManager 实例
+
+        Returns:
+            self: 支持链式调用
+        """
+        self._context_isolation_manager = manager
+        return self
+
+    def register_with_context(
+        self,
+        info: SubagentInfo,
+        agent_class: Optional[Type] = None,
+        factory: Optional[Callable] = None,
+        context_config: Optional["SubagentContextConfig"] = None,
+    ) -> None:
+        """
+        注册带上下文配置的子Agent
+
+        Args:
+            info: 子Agent信息
+            agent_class: Agent类
+            factory: Agent工厂函数
+            context_config: 上下文隔离配置
+        """
+        # 存储上下文配置到 metadata
+        if context_config:
+            info.metadata = info.metadata or {}
+            info.metadata["context_isolation_config"] = context_config.dict()
+
+        self._registry.register(info, agent_class, factory)
+        logger.info(f"[SubagentManager] Registered subagent with context config: {info.name}")
+
+    async def delegate_with_isolation(
+        self,
+        subagent_name: str,
+        task: str,
+        parent_session_id: str,
+        context: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
+        isolation_mode: Optional["ContextIsolationMode"] = None,
+        context_config: Optional["SubagentContextConfig"] = None,
+    ) -> SubagentResult:
+        """
+        使用上下文隔离委派任务给子Agent
+
+        Args:
+            subagent_name: 子Agent名称
+            task: 任务内容
+            parent_session_id: 父会话ID
+            context: 上下文信息
+            timeout: 超时时间（秒）
+            isolation_mode: 隔离模式 (ISOLATED, SHARED, FORK)
+            context_config: 完整的上下文配置
+
+        Returns:
+            SubagentResult: 执行结果
+        """
+        from .context_isolation import (
+            ContextIsolationManager,
+            ContextIsolationMode,
+            SubagentContextConfig,
+            ContextWindow,
+        )
+
+        # 如果没有提供隔离管理器，使用普通委派
+        if not self._context_isolation_manager:
+            logger.warning("ContextIsolationManager not set, using regular delegate")
+            return await self.delegate(
+                subagent_name=subagent_name,
+                task=task,
+                parent_session_id=parent_session_id,
+                context=context,
+                timeout=timeout,
+                sync=True,
+            )
+
+        # 创建或使用提供的上下文配置
+        if context_config is None:
+            context_config = SubagentContextConfig(
+                isolation_mode=isolation_mode or ContextIsolationMode.FORK,
+            )
+
+        # 创建父上下文窗口（如果有）
+        parent_context_window = None
+        if context and "context_window" in context:
+            parent_context_window = context["context_window"]
+
+        # 创建隔离上下文
+        isolated_context = await self._context_isolation_manager.create_isolated_context(
+            parent_context=parent_context_window,
+            config=context_config,
+        )
+
+        # 委派任务
+        result = await self.delegate(
+            subagent_name=subagent_name,
+            task=task,
+            parent_session_id=parent_session_id,
+            context={
+                **(context or {}),
+                "isolated_context_id": isolated_context.context_id,
+            },
+            timeout=timeout,
+            sync=True,
+        )
+
+        # 合并结果回父上下文
+        if context_config.memory_scope.propagate_up:
+            merge_data = await self._context_isolation_manager.merge_context_back(
+                isolated_context,
+                {"output": result.output, "success": result.success},
+            )
+            # 可以将 merge_data 传递给父 Agent
+
+        # 清理隔离上下文
+        await self._context_isolation_manager.cleanup_context(isolated_context.context_id)
+
+        return result
+
+    def get_context_isolation_stats(self) -> Dict[str, Any]:
+        """
+        获取上下文隔离统计信息
+
+        Returns:
+            统计信息字典
+        """
+        if not self._context_isolation_manager:
+            return {"enabled": False, "message": "ContextIsolationManager not configured"}
+
+        return {
+            "enabled": True,
+            **self._context_isolation_manager.get_stats(),
+        }
+
+    async def create_isolated_subagent_context(
+        self,
+        parent_context: Optional["ContextWindow"],
+        isolation_mode: "ContextIsolationMode",
+        max_tokens: int = 32000,
+    ) -> "IsolatedContext":
+        """
+        创建隔离的子Agent上下文
+
+        这是一个便捷方法，用于在委派前创建上下文。
+
+        Args:
+            parent_context: 父Agent的上下文窗口
+            isolation_mode: 隔离模式
+            max_tokens: 最大token数
+
+        Returns:
+            创建的 IsolatedContext
+        """
+        from .context_isolation import (
+            ContextIsolationManager,
+            ContextIsolationMode,
+            SubagentContextConfig,
+        )
+
+        if not self._context_isolation_manager:
+            raise RuntimeError("ContextIsolationManager not configured")
+
+        config = SubagentContextConfig(
+            isolation_mode=isolation_mode,
+            max_context_tokens=max_tokens,
+        )
+
+        return await self._context_isolation_manager.create_isolated_context(
+            parent_context=parent_context,
+            config=config,
+        )
 
 
 subagent_manager = SubagentRegistry()

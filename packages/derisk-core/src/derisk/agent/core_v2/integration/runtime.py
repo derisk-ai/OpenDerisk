@@ -16,6 +16,7 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type, Uni
 from pydantic import BaseModel, Field
 
 from .adapter import V2Adapter, V2MessageConverter, V2StreamChunk
+from ..vis_converter import CoreV2VisWindow3Converter
 from ..visualization.progress import ProgressBroadcaster, ProgressEventType
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,12 @@ class RuntimeConfig:
     default_max_steps: int = 20
     cleanup_interval: int = 300
 
+    # 项目记忆配置
+    enable_project_memory: bool = True
+    project_root: Optional[str] = None
+    memory_dir: str = ".derisk"
+    auto_memory_threshold: int = 10
+
 
 @dataclass
 class SessionContext:
@@ -54,6 +61,9 @@ class SessionContext:
     current_message_id: Optional[str] = None
     accumulated_content: str = ""
     is_first_chunk: bool = True
+    
+    # StorageConversation 用于消息持久化到 ChatHistoryMessageEntity
+    storage_conv: Optional[Any] = None
 
 
 class V2AgentRuntime:
@@ -77,27 +87,38 @@ class V2AgentRuntime:
         progress_broadcaster: ProgressBroadcaster = None,
         enable_hierarchical_context: bool = True,
         llm_client: Any = None,
+        conv_storage: Any = None,
+        message_storage: Any = None,
     ):
         """
         初始化运行时
 
         Args:
             config: 运行时配置
-            gpts_memory: GptsMemory 实例 (用于消息持久化)
+            gpts_memory: GptsMemory 实例 (用于消息持久化到 gpts_messages)
             adapter: V2Adapter 实例
             progress_broadcaster: 进度广播器
             enable_hierarchical_context: 是否启用分层上下文
             llm_client: LLM 客户端 (用于上下文压缩)
+            conv_storage: 会话存储 (用于 StorageConversation)
+            message_storage: 消息存储 (用于 ChatHistoryMessageEntity)
         """
         self.config = config or RuntimeConfig()
         self.gpts_memory = gpts_memory
         self.adapter = adapter or V2Adapter()
         self.progress_broadcaster = progress_broadcaster
 
+        # Conversation 存储 (用于 ChatHistoryMessageEntity)
+        self._conv_storage = conv_storage
+        self._message_storage = message_storage
+
         # 分层上下文管理
         self._enable_hierarchical_context = enable_hierarchical_context
         self._llm_client = llm_client
         self._context_middleware: Optional[Any] = None
+
+        # 项目记忆管理器 (CLAUDE.md 风格)
+        self._project_memory: Optional[Any] = None
 
         self._sessions: Dict[str, SessionContext] = {}
         self._agents: Dict[str, Any] = {}
@@ -141,6 +162,13 @@ class V2AgentRuntime:
                 logger.warning(f"[V2Runtime] 初始化分层上下文中间件失败: {e}")
                 self._context_middleware = None
 
+        # 初始化项目记忆系统 (CLAUDE.md 风格)
+        if self.config.enable_project_memory:
+            try:
+                await self._initialize_project_memory()
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 初始化项目记忆系统失败: {e}")
+
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("[V2Runtime] 运行时已启动")
 
@@ -166,7 +194,110 @@ class V2AgentRuntime:
         if self.gpts_memory and hasattr(self.gpts_memory, "shutdown"):
             await self.gpts_memory.shutdown()
 
+        # 关闭项目记忆系统
+        if self._project_memory:
+            try:
+                # 项目记忆系统的清理（如果需要）
+                pass
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 关闭项目记忆系统失败: {e}")
+
         logger.info("[V2Runtime] 运行时已停止")
+
+    # ========== 项目记忆相关方法 ==========
+
+    async def _initialize_project_memory(self) -> None:
+        """
+        初始化项目记忆系统 (CLAUDE.md 风格)
+
+        这会扫描 .derisk/ 目录，加载多层级记忆文件，
+        并注册自动记忆钩子。
+        """
+        from pathlib import Path
+
+        from ..project_memory import ProjectMemoryManager, ProjectMemoryConfig
+
+        # 确定项目根目录
+        project_root = self.config.project_root
+        if not project_root:
+            # 尝试从当前工作目录推断
+            project_root = str(Path.cwd())
+
+        # 创建项目记忆配置
+        memory_config = ProjectMemoryConfig(
+            project_root=project_root,
+            memory_dir=self.config.memory_dir,
+            auto_memory_threshold=self.config.auto_memory_threshold,
+        )
+
+        # 创建并初始化项目记忆管理器
+        self._project_memory = ProjectMemoryManager()
+        await self._project_memory.initialize(memory_config)
+
+        # 注册自动记忆钩子
+        try:
+            from ..filesystem import register_project_memory_hooks
+            register_project_memory_hooks(self._project_memory)
+            logger.info("[V2Runtime] 项目记忆钩子已注册")
+        except Exception as e:
+            logger.warning(f"[V2Runtime] 注册项目记忆钩子失败: {e}")
+
+        logger.info(
+            f"[V2Runtime] 项目记忆系统已初始化: "
+            f"project_root={project_root}, memory_dir={self.config.memory_dir}"
+        )
+
+    @property
+    def project_memory(self) -> Optional[Any]:
+        """获取项目记忆管理器"""
+        return self._project_memory
+
+    async def get_project_context(
+        self,
+        agent_name: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """
+        获取项目上下文
+
+        这会合并所有记忆层并返回完整的上下文字符串，
+        可用于构建 agent 的 system prompt。
+
+        Args:
+            agent_name: Agent 名称（用于 agent 特定的记忆）
+            session_id: 会话 ID（用于 session 特定的记忆）
+
+        Returns:
+            合并后的项目上下文字符串
+        """
+        if not self._project_memory:
+            return ""
+
+        return await self._project_memory.build_context(
+            agent_name=agent_name,
+            session_id=session_id,
+        )
+
+    async def write_auto_memory(
+        self,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        写入自动记忆
+
+        Args:
+            content: 记忆内容
+            metadata: 元数据
+
+        Returns:
+            记忆 ID 或路径
+        """
+        if not self._project_memory:
+            logger.warning("[V2Runtime] 项目记忆系统未初始化，无法写入自动记忆")
+            return None
+
+        return await self._project_memory.write_auto_memory(content, metadata)
 
     async def create_session(
         self,
@@ -190,13 +321,32 @@ class V2AgentRuntime:
             metadata=metadata or {},
         )
 
+        # 初始化 StorageConversation (用于 ChatHistoryMessageEntity 存储)
+        if self._conv_storage and self._message_storage:
+            try:
+                from derisk.core import StorageConversation
+                storage_conv = StorageConversation(
+                    conv_uid=conv_id,
+                    chat_mode="chat_agent",
+                    user_name=user_id,
+                    conv_storage=self._conv_storage,
+                    message_storage=self._message_storage,
+                    load_message=False,  # 新会话不需要加载
+                )
+                storage_conv.start_new_round()
+                context.storage_conv = storage_conv
+                logger.info(f"[V2Runtime] 初始化 StorageConversation: {conv_id[:8]}")
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 初始化 StorageConversation 失败: {e}")
+
         self._sessions[session_id] = context
         self._message_queues[session_id] = asyncio.Queue(maxsize=100)
 
         if self.gpts_memory:
-            await self.gpts_memory.init(conv_id)
+            vis_converter = CoreV2VisWindow3Converter()
+            await self.gpts_memory.init(conv_id, vis_converter=vis_converter)
 
-        logger.info(f"[V2Runtime] 创建会话: {session_id[:8]}, conv_id: {conv_id[:8]}")
+        logger.info(f"[V2Runtime] 创建会话: {session_id[:8]}, conv_id: {conv_id[:8]}, vis_converter: vis_window3")
         return context
 
     async def get_session(self, session_id: str) -> Optional[SessionContext]:
@@ -519,23 +669,35 @@ class V2AgentRuntime:
     async def _push_user_message(self, conv_id: str, message: str):
         from derisk.agent.core.memory.gpts.base import GptsMessage
 
-        if not self.gpts_memory:
-            return
+        # 保存到 GptsMemory (gpts_messages 表)
+        if self.gpts_memory:
+            user_msg = type(
+                "GptsMessage",
+                (),
+                {
+                    "message_id": str(uuid.uuid4().hex),
+                    "conv_id": conv_id,
+                    "sender": "user",
+                    "receiver": "assistant",
+                    "content": message,
+                    "rounds": 0,
+                },
+            )()
+            await self.gpts_memory.append_message(conv_id, user_msg, save_db=True)
 
-        user_msg = type(
-            "GptsMessage",
-            (),
-            {
-                "message_id": str(uuid.uuid4().hex),
-                "conv_id": conv_id,
-                "sender": "user",
-                "receiver": "assistant",
-                "content": message,
-                "rounds": 0,
-            },
-        )()
-
-        await self.gpts_memory.append_message(conv_id, user_msg, save_db=True)
+        # 同时保存到 StorageConversation (ChatHistoryMessageEntity 表)
+        session = None
+        for s in self._sessions.values():
+            if s.conv_id == conv_id:
+                session = s
+                break
+        
+        if session and session.storage_conv:
+            try:
+                session.storage_conv.add_user_message(message)
+                logger.info(f"[V2Runtime] 用户消息已保存到 StorageConversation: {conv_id[:8]}")
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 保存用户消息到 StorageConversation 失败: {e}")
 
     async def _push_stream_chunk(self, conv_id: str, chunk: V2StreamChunk):
         if not self.gpts_memory:
@@ -559,6 +721,7 @@ class V2AgentRuntime:
         if chunk.type == "response":
             session.accumulated_content += chunk.content or ""
 
+        is_thinking = chunk.type == "thinking"
         stream_msg = {
             "uid": session.current_message_id,
             "type": "incr",
@@ -570,8 +733,8 @@ class V2AgentRuntime:
             "sender": session.agent_name,
             "sender_name": session.agent_name,
             "sender_role": "assistant",
-            "thinking": chunk.content if chunk.type == "thinking" else None,
-            "content": chunk.content or "",
+            "thinking": chunk.content if is_thinking else None,
+            "content": "" if is_thinking else (chunk.content or ""),
             "prev_content": session.accumulated_content,
             "start_time": datetime.now(),
         }
@@ -586,8 +749,37 @@ class V2AgentRuntime:
             session.is_first_chunk = False
         
         if chunk.is_final:
+            # 生成 vis_window3 最终视图用于持久化
+            # 历史会话加载时，前端需要 vis_window3 格式才能正确渲染
+            vis_final_content = session.accumulated_content
+            if session.accumulated_content:
+                try:
+                    from derisk.agent.core.memory.gpts.base import GptsMessage as GptsMsg
+                    vis_converter = CoreV2VisWindow3Converter()
+                    # 构建 GptsMessage 供 final_view 使用
+                    final_gpt_msg = GptsMsg(
+                        conv_id=conv_id,
+                        conv_session_id=session.session_id,
+                        sender=session.agent_name,
+                        sender_name=session.agent_name,
+                        message_id=session.current_message_id or str(uuid.uuid4().hex),
+                        role="assistant",
+                        content=session.accumulated_content,
+                        receiver="user",
+                        rounds=0,
+                    )
+                    vis_view = await vis_converter.final_view(
+                        messages=[final_gpt_msg],
+                        gpt_msg=final_gpt_msg,
+                    )
+                    if vis_view:
+                        vis_final_content = vis_view
+                        logger.info(f"[V2Runtime] 生成 vis_window3 最终视图: {conv_id[:8]}")
+                except Exception as e:
+                    logger.warning(f"[V2Runtime] 生成 vis_window3 最终视图失败，回退到纯文本: {e}")
+
+            # 保存到 GptsMemory (gpts_messages 表)
             if self.gpts_memory and session.accumulated_content:
-                from derisk.agent.core.memory.gpts.base import GptsMessage
                 assistant_msg = type(
                     "GptsMessage",
                     (),
@@ -596,11 +788,20 @@ class V2AgentRuntime:
                         "conv_id": conv_id,
                         "sender": session.agent_name,
                         "receiver": "user",
-                        "content": session.accumulated_content,
+                        "content": vis_final_content,
                         "rounds": 0,
                     },
                 )()
                 await self.gpts_memory.append_message(conv_id, assistant_msg, save_db=True)
+
+            # 同时保存到 StorageConversation (ChatHistoryMessageEntity 表)
+            if session.storage_conv and session.accumulated_content:
+                try:
+                    session.storage_conv.add_view_message(vis_final_content)
+                    session.storage_conv.end_current_round()
+                    logger.info(f"[V2Runtime] AI消息已保存到 StorageConversation: {conv_id[:8]}")
+                except Exception as e:
+                    logger.warning(f"[V2Runtime] 保存AI消息到 StorageConversation 失败: {e}")
             
             session.current_message_id = None
             session.accumulated_content = ""

@@ -195,11 +195,31 @@ const ChatContent: React.FC<{
     [cachePluginContext]
   );
 
-  // If the robot answers, the context needs to be parsed into an object, and then the left and right are rendered separately
-  const robotContext = getRobotContext(context as string);
-  const planning_window = (robotContext as any)?.planning_window;
-
-  const _context = planning_window !== undefined ? planning_window : value;
+  // 累积所有历史消息的 planning_window 内容
+  const accumulatedPlanningWindows: string[] = [];
+  const currentIndex = messages.findIndex(m => m === content);
+  
+  if (currentIndex >= 0 && isRobot) {
+    for (let i = 0; i <= currentIndex; i++) {
+      try {
+        const msg = messages[i];
+        if (msg.role === 'view') {
+          const msgContext = typeof msg.context === 'string' ? msg.context : '';
+          const msgRobotContext = getRobotContext(msgContext);
+          const pw = (msgRobotContext as any)?.planning_window;
+          if (pw) {
+            accumulatedPlanningWindows.push(pw);
+          }
+        }
+      } catch {
+        // Intentionally skip parsing errors
+      }
+    }
+  }
+  
+  const _context = accumulatedPlanningWindows.length > 0 
+    ? accumulatedPlanningWindows.join('\n\n---\n\n')
+    : value;
 
   return (
     <>

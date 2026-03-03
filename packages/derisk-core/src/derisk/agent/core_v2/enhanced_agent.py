@@ -644,6 +644,8 @@ class AutoCompactionManager:
             role=msg.role,
         )
         converted.context = msg.metadata
+        if msg.metadata and msg.metadata.get("tool_calls"):
+            converted.tool_calls = msg.metadata["tool_calls"]
         return converted
 
 
@@ -1021,7 +1023,24 @@ class ProductionAgent(AgentBase):
             if msg.role == "user":
                 messages.append(HumanMessage(content=msg.content))
             elif msg.role == "assistant":
-                messages.append(AIMessage(content=msg.content))
+                tool_calls = msg.metadata.get("tool_calls") if msg.metadata else None
+                if tool_calls:
+                    # Assistant message with tool calls — preserve for OpenAI pairing
+                    messages.append({
+                        "role": "assistant",
+                        "content": msg.content or "",
+                        "tool_calls": tool_calls,
+                    })
+                else:
+                    messages.append(AIMessage(content=msg.content))
+            elif msg.role == "tool":
+                # Tool result message — preserve tool_call_id for OpenAI pairing
+                tool_call_id = msg.metadata.get("tool_call_id", "") if msg.metadata else ""
+                messages.append({
+                    "role": "tool",
+                    "content": msg.content or "",
+                    "tool_call_id": tool_call_id,
+                })
             else:
                 messages.append(SystemMessage(content=msg.content))
         

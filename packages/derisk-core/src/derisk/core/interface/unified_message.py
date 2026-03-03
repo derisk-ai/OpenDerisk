@@ -17,44 +17,28 @@ class UnifiedMessage:
     支持Core V1（BaseMessage）和Core V2（GptsMessage）的双向转换
     """
     
-    # 基础字段
+    # 基础字段（必填字段放在前面）
     message_id: str
     conv_id: str
-    conv_session_id: Optional[str] = None
-    
-    # 发送者信息
     sender: str
+    
+    # 可选字段
+    conv_session_id: Optional[str] = None
     sender_name: Optional[str] = None
     receiver: Optional[str] = None
     receiver_name: Optional[str] = None
-    
-    # 消息类型
     message_type: str = "human"
-    
-    # 内容
     content: str = ""
     thinking: Optional[str] = None
-    
-    # 工具调用
     tool_calls: Optional[List[Dict]] = None
-    
-    # 观察和上下文
     observation: Optional[str] = None
     context: Optional[Dict] = None
-    
-    # Action报告
     action_report: Optional[Dict] = None
     resource_info: Optional[Dict] = None
-    
-    # 可视化（Core V2专用）- 不存储，读取时动态渲染
     vis_render: Optional[Dict] = None
-    
-    # 元数据
     rounds: int = 0
     message_index: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    # 时间戳
     created_at: Optional[datetime] = None
     
     def __post_init__(self):
@@ -284,4 +268,80 @@ class UnifiedMessage:
         return (
             f"UnifiedMessage(id={self.message_id}, type={self.message_type}, "
             f"sender={self.sender}, rounds={self.rounds})"
+        )
+
+
+@dataclass
+class UnifiedConversationSummary:
+    """统一对话摘要模型
+    
+    用于统一Core V1（chat_history）和Core V2（gpts_conversations）的对话列表格式
+    """
+    
+    # 基础字段（必须有默认值的放后面）
+    conv_id: str
+    user_id: str
+    goal: Optional[str] = None
+    chat_mode: str = "chat_normal"
+    state: str = "active"
+    app_code: Optional[str] = None
+    message_count: int = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    source: str = "unknown"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典（用于序列化）
+        
+        Returns:
+            字典格式的对话摘要数据
+        """
+        return {
+            "conv_id": self.conv_id,
+            "user_id": self.user_id,
+            "goal": self.goal,
+            "chat_mode": self.chat_mode,
+            "state": self.state,
+            "app_code": self.app_code,
+            "message_count": self.message_count,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "source": self.source
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'UnifiedConversationSummary':
+        """从字典创建实例
+        
+        Args:
+            data: 字典数据
+            
+        Returns:
+            UnifiedConversationSummary实例
+        """
+        created_at = data.get('created_at')
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at)
+        
+        updated_at = data.get('updated_at')
+        if isinstance(updated_at, str):
+            updated_at = datetime.fromisoformat(updated_at)
+        
+        return cls(
+            conv_id=data['conv_id'],
+            user_id=data.get('user_id', ''),
+            goal=data.get('goal'),
+            chat_mode=data.get('chat_mode', 'chat_normal'),
+            state=data.get('state', 'active'),
+            app_code=data.get('app_code'),
+            message_count=data.get('message_count', 0),
+            created_at=created_at,
+            updated_at=updated_at,
+            source=data.get('source', 'unknown')
+        )
+    
+    def __repr__(self) -> str:
+        return (
+            f"UnifiedConversationSummary(conv_id={self.conv_id}, "
+            f"user_id={self.user_id}, chat_mode={self.chat_mode}, source={self.source})"
         )

@@ -400,11 +400,26 @@ class MessageConverter:
                 "content": str(content),
             }
 
-            # 添加可选字段
-            if hasattr(msg, 'name') and msg.name:
-                llm_msg["name"] = msg.name
-            elif hasattr(msg, 'sender_name') and msg.sender_name:
-                llm_msg["name"] = msg.sender_name
+            # 添加可选字段 (but not for tool messages - OpenAI doesn't accept name on tool msgs)
+            if role != "tool":
+                if hasattr(msg, 'name') and msg.name:
+                    llm_msg["name"] = msg.name
+                elif hasattr(msg, 'sender_name') and msg.sender_name:
+                    llm_msg["name"] = msg.sender_name
+
+            # Preserve tool_calls for assistant messages (OpenAI function-call pairing)
+            tool_calls = getattr(msg, 'tool_calls', None)
+            if tool_calls:
+                llm_msg["tool_calls"] = tool_calls
+
+            # Preserve tool_call_id for tool messages (OpenAI function-call pairing)
+            tool_call_id = None
+            if hasattr(msg, 'context') and isinstance(msg.context, dict):
+                tool_call_id = msg.context.get('tool_call_id')
+            if not tool_call_id:
+                tool_call_id = getattr(msg, 'tool_call_id', None)
+            if tool_call_id:
+                llm_msg["tool_call_id"] = tool_call_id
 
             result.append(llm_msg)
 

@@ -864,6 +864,48 @@ __all__ = [
     "MCPToolRegistry",
     "MCPEnabledAgent",
     "create_mcp_agent",
+    # Project Memory System (CLAUDE.md style)
+    "MemoryPriority",
+    "MemorySource",
+    "MemoryLayer",
+    "ProjectMemoryConfig",
+    "ImportDirective",
+    "MemoryConsolidationConfig",
+    "ProjectMemoryInterface",
+    "ProjectMemoryManager",
+    # Context Isolation System
+    "ContextIsolationMode",
+    "ContextWindow",
+    "MemoryScope",
+    "ResourceBinding",
+    "ToolAccessRule",
+    "SubagentContextConfig",
+    "IsolatedContext",
+    "ContextIsolationInterface",
+    "ContextIsolationManager",
+    # Filesystem Integration
+    "ClaudeMdFrontMatter",
+    "ClaudeMdSection",
+    "ClaudeMdDocument",
+    "ClaudeMdParser",
+    "ClaudeCompatibleAdapter",
+    "ClaudeMdWatcher",
+    "SceneHookPriority",
+    "SceneAgentPhase",
+    "SceneHookContext",
+    "SceneHookResult",
+    "SceneHook",
+    "AutoMemoryHook",
+    "ImportantDecisionHook",
+    "ErrorRecoveryHook",
+    "KnowledgeExtractionHook",
+    "HookRegistry",
+    "create_default_hooks",
+    "MemoryArtifact",
+    "AgentFileSystemMemoryExtension",
+    "MemoryFileSync",
+    "PromptFileManager",
+    "register_project_memory_hooks",
 ]
 
 # Enhanced Interaction System
@@ -954,6 +996,60 @@ from .unified_memory import (
     MessageConverter,
     gpts_to_agent,
     agent_to_gpts,
+)
+
+# Project Memory System (CLAUDE.md style)
+from .project_memory import (
+    MemoryPriority,
+    MemorySource,
+    MemoryLayer,
+    ProjectMemoryConfig,
+    ImportDirective,
+    MemoryConsolidationConfig,
+    ProjectMemoryInterface,
+)
+from .project_memory.manager import ProjectMemoryManager
+
+# Context Isolation System
+from .context_isolation import (
+    ContextIsolationMode,
+    ContextWindow,
+    MemoryScope,
+    ResourceBinding,
+    ToolAccessRule,
+    SubagentContextConfig,
+    IsolatedContext,
+    ContextIsolationInterface,
+)
+from .context_isolation.manager import ContextIsolationManager
+
+# Filesystem Integration
+from .filesystem import (
+    # CLAUDE.md compatibility
+    ClaudeMdFrontMatter,
+    ClaudeMdSection,
+    ClaudeMdDocument,
+    ClaudeMdParser,
+    ClaudeCompatibleAdapter,
+    ClaudeMdWatcher,
+    # Auto memory hooks
+    HookPriority as SceneHookPriority,
+    AgentPhase as SceneAgentPhase,
+    HookContext as SceneHookContext,
+    HookResult as SceneHookResult,
+    SceneHook,
+    AutoMemoryHook,
+    ImportantDecisionHook,
+    ErrorRecoveryHook,
+    KnowledgeExtractionHook,
+    HookRegistry,
+    create_default_hooks,
+    # Integration
+    MemoryArtifact,
+    AgentFileSystemMemoryExtension,
+    MemoryFileSync,
+    PromptFileManager,
+    register_project_memory_hooks,
 )
 
 # Improved Session Compaction

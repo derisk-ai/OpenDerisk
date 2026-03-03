@@ -68,8 +68,12 @@ export function useDetailPanel(chatList: any[]): {
           mergedData.items = [...(mergedData.items || []), ...itemsData];
         }
         if (runningWindowContent) {
-          mergedData.running_window = runningWindowContent;
-          markdownContent = runningWindowContent;
+          // 🔧 FIX: 累积 running_window 内容，而不是覆盖
+          const prevContent = mergedData.running_window || "";
+          mergedData.running_window = prevContent 
+            ? `${prevContent}\n\n${runningWindowContent}` 
+            : runningWindowContent;
+          markdownContent = mergedData.running_window;
         }
       } catch (error) {
         console.debug("Skipping invalid chat item context:", {

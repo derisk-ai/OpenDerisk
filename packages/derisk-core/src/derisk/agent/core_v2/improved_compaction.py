@@ -604,8 +604,31 @@ class ImprovedSessionCompaction:
         if len(messages) <= self.recent_messages_keep:
             return [], messages
         
-        to_keep = messages[-self.recent_messages_keep:]
-        to_compact = messages[:-self.recent_messages_keep]
+        split_idx = len(messages) - self.recent_messages_keep
+        
+        # Adjust split point to avoid breaking tool-call atomic groups.
+        # A group is: assistant(tool_calls) followed by one or more tool(tool_call_id).
+        # If split lands inside a group, move split earlier to keep the whole group intact.
+        while split_idx > 0:
+            msg = messages[split_idx]
+            role = msg.role or ""
+            is_tool_msg = role == "tool"
+            is_tool_assistant = (
+                role == "assistant"
+                and hasattr(msg, 'tool_calls') and msg.tool_calls
+            )
+            if not is_tool_assistant:
+                ctx = getattr(msg, 'context', None)
+                if isinstance(ctx, dict) and ctx.get('tool_calls'):
+                    is_tool_assistant = True
+            
+            if is_tool_msg or is_tool_assistant:
+                split_idx -= 1
+            else:
+                break
+        
+        to_compact = messages[:split_idx]
+        to_keep = messages[split_idx:]
         
         return to_compact, to_keep
     
@@ -619,6 +642,38 @@ class ImprovedSessionCompaction:
             content = msg.content or ""
             
             if role == "system" and msg.context and msg.context.get("is_compaction_summary"):
+                continue
+            
+            # Flatten tool-call assistant messages into readable text
+            tool_calls = getattr(msg, 'tool_calls', None)
+            if not tool_calls and msg.context:
+                tool_calls = msg.context.get('tool_calls')
+            if role == "assistant" and tool_calls:
+                tc_descriptions = []
+                for tc in (tool_calls if isinstance(tool_calls, list) else []):
+                    func = tc.get("function", {}) if isinstance(tc, dict) else {}
+                    name = func.get("name", "unknown_tool")
+                    args = func.get("arguments", "")
+                    if isinstance(args, str) and len(args) > 300:
+                        args = args[:300] + "..."
+                    tc_descriptions.append(f"  - {name}({args})")
+                tc_text = "\n".join(tc_descriptions)
+                display = f"[assistant]: Called tools:\n{tc_text}"
+                if content:
+                    display = f"[assistant]: {content}\nCalled tools:\n{tc_text}"
+                lines.append(display)
+                continue
+            
+            # Flatten tool response messages into readable text
+            tool_call_id = None
+            if msg.context:
+                tool_call_id = msg.context.get('tool_call_id')
+            if not tool_call_id:
+                tool_call_id = getattr(msg, 'tool_call_id', None)
+            if role == "tool" and tool_call_id:
+                if len(content) > 1500:
+                    content = content[:1500] + "... [truncated]"
+                lines.append(f"[tool result ({tool_call_id})]: {content}")
                 continue
             
             if len(content) > 1500:
