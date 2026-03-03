@@ -151,7 +151,11 @@ class ImportanceScorer:
         
         try:
             prompt = self._build_scoring_prompt(messages)
-            response = await self.llm_client.generate(prompt)
+            from .llm_utils import call_llm
+            response = await call_llm(self.llm_client, prompt)
+            
+            if response is None:
+                return [0.5] * len(messages)
             
             scores = self._parse_llm_scores(response, len(messages))
             return scores
@@ -205,7 +209,11 @@ class KeyInfoExtractor:
         
         try:
             prompt = self._build_extraction_prompt(messages)
-            response = await self.llm_client.generate(prompt)
+            from .llm_utils import call_llm
+            response = await call_llm(self.llm_client, prompt)
+            
+            if response is None:
+                return self._extract_by_rules(messages)
             
             key_infos = self._parse_extraction_response(response, messages)
             return key_infos
@@ -330,8 +338,9 @@ class SummaryGenerator:
         
         try:
             prompt = self._build_summary_prompt(messages, style)
-            response = await self.llm_client.generate(prompt)
-            return response.strip()
+            from .llm_utils import call_llm
+            response = await call_llm(self.llm_client, prompt)
+            return response.strip() if response else self._generate_simple_summary(messages)
         except Exception as e:
             logger.error(f"[SummaryGenerator] 摘要生成失败: {e}")
             return self._generate_simple_summary(messages)

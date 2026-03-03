@@ -57,10 +57,17 @@ class BindingResult(BaseModel):
 
 
 class ResourceResolver:
-    """资源解析器"""
+    """
+    资源解析器 - 完整支持 MCP、Knowledge、Skill 等资源类型
+    
+    负责将资源配置解析为实际可用的资源实例
+    """
     
     def __init__(self, system_app: Optional[Any] = None):
         self._system_app = system_app
+        self._mcp_tools_cache: Dict[str, Any] = {}
+        self._knowledge_cache: Dict[str, Any] = {}
+        self._skill_cache: Dict[str, Any] = {}
     
     async def resolve(
         self,
@@ -71,41 +78,238 @@ class ResourceResolver:
         解析资源
         
         Args:
-            resource_type: 资源类型
+            resource_type: 资源类型 (knowledge, tool, mcp, skill, database, workflow)
             resource_value: 资源值
         
         Returns:
             (资源实例, 错误信息)
         """
         try:
-            if resource_type == "knowledge":
+            resource_type_lower = resource_type.lower() if isinstance(resource_type, str) else resource_type
+            
+            if resource_type_lower in ("knowledge", "knowledge_pack", ResourceType.Knowledge if hasattr(ResourceType, 'Knowledge') else "knowledge"):
                 return await self._resolve_knowledge(resource_value), None
-            elif resource_type == "database":
+            
+            elif resource_type_lower in ("database",):
                 return await self._resolve_database(resource_value), None
-            elif resource_type == "tool":
+            
+            elif resource_type_lower in ("tool", "local_tool"):
                 return await self._resolve_tool(resource_value), None
-            elif resource_type == "workflow":
+            
+            elif resource_type_lower in ("mcp", "tool(mcp)", "tool(mcp(sse))"):
+                return await self._resolve_mcp(resource_value), None
+            
+            elif resource_type_lower in ("skill", "skill(derisk)"):
+                return await self._resolve_skill(resource_value), None
+            
+            elif resource_type_lower in ("workflow",):
                 return await self._resolve_workflow(resource_value), None
+            
             else:
                 return resource_value, None
+                
         except Exception as e:
+            logger.error(f"[ResourceResolver] Failed to resolve {resource_type}: {e}")
             return None, str(e)
     
     async def _resolve_knowledge(self, value: Any) -> Any:
-        """解析知识资源"""
-        return {"type": "knowledge", "space_id": value}
+        """
+        解析知识资源
+        
+        返回知识空间的完整配置信息
+        """
+        import json
+        
+        knowledge_info = {"type": "knowledge"}
+        
+        if isinstance(value, dict):
+            knowledge_info.update(value)
+            space_id = value.get("space_id") or value.get("spaceId") or value.get("id")
+            if space_id:
+                knowledge_info["space_id"] = space_id
+                knowledge_info["space_name"] = value.get("space_name") or value.get("name", space_id)
+        
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                knowledge_info.update(parsed)
+                space_id = parsed.get("space_id") or parsed.get("spaceId") or parsed.get("id")
+                if space_id:
+                    knowledge_info["space_id"] = space_id
+            except:
+                knowledge_info["space_id"] = value
+                knowledge_info["space_name"] = value
+        
+        else:
+            knowledge_info["space_id"] = str(value)
+        
+        cache_key = knowledge_info.get("space_id", str(value))
+        if cache_key and cache_key in self._knowledge_cache:
+            return self._knowledge_cache[cache_key]
+        
+        try:
+            from derisk_serve.knowledge.service.service import KnowledgeService
+            from derisk.agent.resource.manage import _SYSTEM_APP
+            
+            if _SYSTEM_APP and knowledge_info.get("space_id"):
+                service = _SYSTEM_APP.get_component("knowledge_service", KnowledgeService, default=None)
+                if service:
+                    knowledge_space = service.get_knowledge_space(knowledge_info["space_id"])
+                    if knowledge_space:
+                        knowledge_info["space_name"] = knowledge_space.name
+                        knowledge_info["vector_type"] = getattr(knowledge_space, "vector_type", None)
+                        knowledge_info["owner"] = getattr(knowledge_space, "owner", None)
+        except Exception as e:
+            logger.debug(f"Could not fetch knowledge details: {e}")
+        
+        if cache_key:
+            self._knowledge_cache[cache_key] = knowledge_info
+        
+        return knowledge_info
     
     async def _resolve_database(self, value: Any) -> Any:
         """解析数据库资源"""
-        return {"type": "database", "config": value}
+        import json
+        
+        db_info = {"type": "database"}
+        
+        if isinstance(value, dict):
+            db_info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                db_info.update(parsed)
+            except:
+                db_info["name"] = value
+        
+        return db_info
     
     async def _resolve_tool(self, value: Any) -> Any:
-        """解析工具资源"""
-        return {"type": "tool", "name": value}
+        """
+        解析本地工具资源
+        
+        返回工具配置信息
+        """
+        import json
+        
+        tool_info = {"type": "tool"}
+        
+        if isinstance(value, dict):
+            tool_info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                tool_info.update(parsed)
+            except:
+                tool_info["name"] = value
+        
+        return tool_info
+    
+    async def _resolve_mcp(self, value: Any) -> Any:
+        """
+        解析 MCP 资源
+        
+        返回 MCP 服务器配置和可用工具列表
+        """
+        import json
+        
+        mcp_info = {"type": "mcp"}
+        
+        if isinstance(value, dict):
+            mcp_info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                mcp_info.update(parsed)
+            except:
+                mcp_info["url"] = value
+        
+        servers = mcp_info.get("mcp_servers") or mcp_info.get("servers") or mcp_info.get("url")
+        if isinstance(servers, str):
+            servers = [s.strip() for s in servers.split(";") if s.strip()]
+            mcp_info["servers"] = servers
+        
+        cache_key = str(servers)
+        if cache_key in self._mcp_tools_cache:
+            return self._mcp_tools_cache[cache_key]
+        
+        return mcp_info
+    
+    async def _resolve_skill(self, value: Any) -> Any:
+        """
+        解析技能资源
+        
+        返回技能的完整配置信息，包括沙箱路径
+        """
+        import json
+        
+        skill_info = {"type": "skill"}
+        
+        if isinstance(value, dict):
+            skill_info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                skill_info.update(parsed)
+            except:
+                skill_info["name"] = value
+                skill_info["skill_name"] = value
+        
+        skill_code = skill_info.get("skill_code") or skill_info.get("skillCode") or skill_info.get("skill_name")
+        if skill_code:
+            skill_info["skill_code"] = skill_code
+            
+            cache_key = skill_code
+            if cache_key in self._skill_cache:
+                return self._skill_cache[cache_key]
+            
+            try:
+                from derisk_serve.skill.service.service import Service, SKILL_SERVICE_COMPONENT_NAME
+                from derisk.agent.resource.manage import _SYSTEM_APP
+                
+                if _SYSTEM_APP:
+                    service = _SYSTEM_APP.get_component(SKILL_SERVICE_COMPONENT_NAME, Service, default=None)
+                    if service:
+                        skill_dir = service.get_skill_directory(skill_code)
+                        if skill_dir:
+                            skill_info["sandbox_path"] = skill_dir
+                            skill_info["path"] = skill_dir
+                            
+                            skill_meta = service.get_skill_by_code(skill_code)
+                            if skill_meta:
+                                skill_info["name"] = skill_meta.name
+                                skill_info["description"] = skill_meta.description
+                                skill_info["author"] = skill_meta.author
+                                skill_info["branch"] = getattr(skill_meta, "branch", "main")
+            except Exception as e:
+                logger.debug(f"Could not fetch skill details: {e}")
+            
+            self._skill_cache[cache_key] = skill_info
+        
+        return skill_info
     
     async def _resolve_workflow(self, value: Any) -> Any:
         """解析工作流资源"""
-        return {"type": "workflow", "id": value}
+        import json
+        
+        workflow_info = {"type": "workflow"}
+        
+        if isinstance(value, dict):
+            workflow_info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                workflow_info.update(parsed)
+            except:
+                workflow_info["id"] = value
+        
+        return workflow_info
+    
+    def clear_cache(self):
+        """清除所有缓存"""
+        self._mcp_tools_cache.clear()
+        self._knowledge_cache.clear()
+        self._skill_cache.clear()
 
 
 class ProductAgentBinding:

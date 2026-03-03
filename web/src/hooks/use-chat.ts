@@ -53,20 +53,45 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
   const [ctrl, setCtrl] = useState<AbortController>({} as AbortController);
   
   const chatV2 = useCallback(async ({ data, onMessage, onClose, onDone, onError, ctrl }: ChatParams) => {
-    if (!data?.user_input && !data?.doc_id) {
+    let messageText = '';
+    if (typeof data?.user_input === 'string') {
+      messageText = data.user_input;
+    } else if (data?.user_input?.content) {
+      const textItems = data.user_input.content.filter((item: any) => item.type === 'text');
+      messageText = textItems.map((item: any) => item.text).join(' ');
+    }
+
+    if (!messageText && !data?.doc_id) {
       message.warning(i18n.t('no_context_tip'));
       return;
+    }
+
+    const requestBody: Record<string, any> = {
+      message: messageText,
+      user_input: data?.user_input,
+      conv_uid: data?.conv_uid,
+      session_id: data?.conv_uid,
+      app_code: app_code,
+      agent_name: app_code,
+      model_name: data?.model_name,
+      select_param: data?.select_param,
+      chat_in_params: data?.chat_in_params,
+      temperature: data?.temperature,
+      max_new_tokens: data?.max_new_tokens,
+      work_mode: data?.work_mode || 'simple',
+      stream: true,
+      ext_info: data?.ext_info || {},
+    };
+
+    if (data?.messages) {
+      requestBody.messages = data.messages;
     }
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/api/v2/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: data?.user_input,
-          session_id: data?.conv_uid,
-          agent_name: app_code,
-        }),
+        body: JSON.stringify(requestBody),
         signal: ctrl?.signal,
       });
 
@@ -91,14 +116,18 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const chunk = JSON.parse(line.slice(6)) as V2StreamChunk;
-              if (chunk.type === 'response') {
-                onMessage?.(chunk.content);
-              } else if (chunk.type === 'error') {
-                onError?.(chunk.content);
-              }
-              if (chunk.is_final) {
-                onDone?.();
+              const data = JSON.parse(line.slice(6));
+              const vis = data.vis;
+              
+              // V1 兼容格式：直接使用 vis 字段
+              if (typeof vis === 'string') {
+                if (vis === '[DONE]') {
+                  onDone?.();
+                } else if (vis.startsWith('[ERROR]')) {
+                  onError?.(vis.replace('[ERROR]', '').replace('[/ERROR]', ''));
+                } else {
+                  onMessage?.(vis);
+                }
               }
             } catch {}
           }

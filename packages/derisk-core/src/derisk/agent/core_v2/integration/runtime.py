@@ -16,6 +16,7 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type, Uni
 from pydantic import BaseModel, Field
 
 from .adapter import V2Adapter, V2MessageConverter, V2StreamChunk
+from ..visualization.progress import ProgressBroadcaster, ProgressEventType
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,10 @@ class SessionContext:
     metadata: Dict[str, Any] = field(default_factory=dict)
     state: RuntimeState = RuntimeState.IDLE
     message_count: int = 0
+    
+    current_message_id: Optional[str] = None
+    accumulated_content: str = ""
+    is_first_chunk: bool = True
 
 
 class V2AgentRuntime:
@@ -61,6 +66,7 @@ class V2AgentRuntime:
     3. 消息流处理和推送
     4. 与 GptsMemory 集成
     5. 前端交互支持
+    6. 分层上下文管理 (通过 UnifiedContextMiddleware)
     """
 
     def __init__(
@@ -68,10 +74,30 @@ class V2AgentRuntime:
         config: RuntimeConfig = None,
         gpts_memory: Any = None,
         adapter: V2Adapter = None,
+        progress_broadcaster: ProgressBroadcaster = None,
+        enable_hierarchical_context: bool = True,
+        llm_client: Any = None,
     ):
+        """
+        初始化运行时
+
+        Args:
+            config: 运行时配置
+            gpts_memory: GptsMemory 实例 (用于消息持久化)
+            adapter: V2Adapter 实例
+            progress_broadcaster: 进度广播器
+            enable_hierarchical_context: 是否启用分层上下文
+            llm_client: LLM 客户端 (用于上下文压缩)
+        """
         self.config = config or RuntimeConfig()
         self.gpts_memory = gpts_memory
         self.adapter = adapter or V2Adapter()
+        self.progress_broadcaster = progress_broadcaster
+
+        # 分层上下文管理
+        self._enable_hierarchical_context = enable_hierarchical_context
+        self._llm_client = llm_client
+        self._context_middleware: Optional[Any] = None
 
         self._sessions: Dict[str, SessionContext] = {}
         self._agents: Dict[str, Any] = {}
@@ -96,19 +122,50 @@ class V2AgentRuntime:
 
     async def start(self):
         self._state = RuntimeState.RUNNING
+
+        # 启动 GptsMemory
         if self.gpts_memory and hasattr(self.gpts_memory, "start"):
             await self.gpts_memory.start()
+
+        # 初始化分层上下文中间件
+        if self._enable_hierarchical_context and self.gpts_memory:
+            try:
+                from derisk.context.unified_context_middleware import UnifiedContextMiddleware
+                self._context_middleware = UnifiedContextMiddleware(
+                    gpts_memory=self.gpts_memory,
+                    llm_client=self._llm_client,
+                )
+                await self._context_middleware.initialize()
+                logger.info("[V2Runtime] 分层上下文中间件已初始化")
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 初始化分层上下文中间件失败: {e}")
+                self._context_middleware = None
+
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("[V2Runtime] 运行时已启动")
 
     async def stop(self):
         self._state = RuntimeState.TERMINATED
+
+        # 取消清理任务
         if self._cleanup_task:
             self._cleanup_task.cancel()
+
+        # 取消所有执行任务
         for task in self._execution_tasks.values():
             task.cancel()
+
+        # 清理分层上下文中间件
+        if self._context_middleware:
+            try:
+                self._context_middleware.clear_all_cache()
+            except Exception as e:
+                logger.warning(f"[V2Runtime] 清理上下文中间件失败: {e}")
+
+        # 关闭 GptsMemory
         if self.gpts_memory and hasattr(self.gpts_memory, "shutdown"):
             await self.gpts_memory.shutdown()
+
         logger.info("[V2Runtime] 运行时已停止")
 
     async def create_session(
@@ -117,11 +174,12 @@ class V2AgentRuntime:
         user_id: Optional[str] = None,
         agent_name: str = "primary",
         metadata: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> SessionContext:
         if len(self._sessions) >= self.config.max_concurrent_sessions:
             raise RuntimeError("达到最大并发会话数限制")
 
-        session_id = str(uuid.uuid4().hex)
+        session_id = session_id or str(uuid.uuid4().hex)
         conv_id = conv_id or session_id
 
         context = SessionContext(
@@ -166,8 +224,22 @@ class V2AgentRuntime:
         session_id: str,
         message: str,
         stream: bool = True,
+        enable_context_loading: bool = True,
         **kwargs,
     ) -> AsyncIterator[V2StreamChunk]:
+        """
+        执行 Agent
+
+        Args:
+            session_id: 会话 ID
+            message: 用户消息
+            stream: 是否流式输出
+            enable_context_loading: 是否加载分层上下文
+            **kwargs: 其他参数
+
+        Yields:
+            V2StreamChunk: 响应块
+        """
         context = await self.get_session(session_id)
         if not context:
             yield V2StreamChunk(type="error", content="会话不存在")
@@ -177,6 +249,10 @@ class V2AgentRuntime:
         context.last_active = datetime.now()
         context.message_count += 1
 
+        context.current_message_id = None
+        context.accumulated_content = ""
+        context.is_first_chunk = True
+
         agent = await self._get_or_create_agent(context, kwargs)
         if not agent:
             yield V2StreamChunk(type="error", content="Agent 不存在")
@@ -185,8 +261,29 @@ class V2AgentRuntime:
         try:
             conv_id = context.conv_id
 
+            # 加载分层上下文
+            context_result = None
+            if enable_context_loading and self._context_middleware:
+                try:
+                    context_result = await self._context_middleware.load_context(
+                        conv_id=conv_id,
+                        task_description=message[:200] if message else None,
+                    )
+                    logger.info(
+                        f"[V2Runtime] 已加载分层上下文: conv_id={conv_id[:8]}, "
+                        f"chapters={context_result.stats.get('chapter_count', 0)}"
+                    )
+                except Exception as e:
+                    logger.warning(f"[V2Runtime] 加载分层上下文失败: {e}")
+
+            # 设置 GptsMemory 到 Agent
             if self.gpts_memory:
                 await self._push_user_message(conv_id, message)
+                await self.gpts_memory.set_agent(conv_id, self._create_sender_proxy(context.agent_name))
+
+                # 如果 Agent 支持，传入分层上下文
+                if context_result and hasattr(agent, 'set_context'):
+                    agent.set_context(context_result)
 
             if stream:
                 async for chunk in self._execute_stream(
@@ -210,15 +307,26 @@ class V2AgentRuntime:
         self, context: SessionContext, kwargs: Dict
     ) -> Optional[Any]:
         agent_name = context.agent_name
+        logger.debug(f"[V2Runtime] 尝试获取/创建 Agent: {agent_name}, 已注册工厂: {list(self._agent_factories.keys())}")
 
         if agent_name in self._agents:
+            logger.debug(f"[V2Runtime] 从缓存获取 Agent: {agent_name}")
             return self._agents[agent_name]
 
         if agent_name in self._agent_factories:
             agent = await self._create_agent_from_factory(agent_name, context, kwargs)
-            self._agents[agent_name] = agent
+            if agent:
+                self._agents[agent_name] = agent
             return agent
 
+        if "default" in self._agent_factories:
+            logger.info(f"[V2Runtime] Agent '{agent_name}' 未预注册，尝试使用 default 工厂创建")
+            agent = await self._create_agent_from_factory("default", context, {**kwargs, "app_code": agent_name})
+            if agent:
+                self._agents[agent_name] = agent
+            return agent
+
+        logger.warning(f"[V2Runtime] Agent '{agent_name}' 不在已注册工厂列表中: {list(self._agent_factories.keys())}")
         return None
 
     async def _create_agent_from_factory(
@@ -236,9 +344,13 @@ class V2AgentRuntime:
                 agent = await factory(context=context, **kwargs)
             else:
                 agent = factory(context=context, **kwargs)
+            if agent is None:
+                logger.error(f"[V2Runtime] Agent 工厂返回 None: {agent_name}")
+            else:
+                logger.info(f"[V2Runtime] Agent 创建成功: {agent_name}, type={type(agent).__name__}")
             return agent
         except Exception as e:
-            logger.error(f"[V2Runtime] 创建 Agent 失败: {e}")
+            logger.exception(f"[V2Runtime] 创建 Agent 失败: {agent_name}, error: {e}")
             return None
 
     async def _execute_stream(
@@ -249,30 +361,87 @@ class V2AgentRuntime:
         **kwargs,
     ) -> AsyncIterator[V2StreamChunk]:
         from ..agent_base import AgentBase, AgentState
+        from ..enhanced_agent import AgentBase as EnhancedAgentBase
+        import sys
+        # Check both AgentBase types (from agent_base.py and enhanced_agent.py)
+        is_agent_base = isinstance(agent, (AgentBase, EnhancedAgentBase))
+        print(f"[_execute_stream] agent type: {type(agent)}, isinstance(AgentBase): {is_agent_base}", file=sys.stderr, flush=True)
+        print(f"[_execute_stream] hasattr generate_reply: {hasattr(agent, 'generate_reply')}", file=sys.stderr, flush=True)
 
-        if isinstance(agent, AgentBase):
+        if is_agent_base:
+            print("[_execute_stream] Using AgentBase path", file=sys.stderr, flush=True)
             agent_context = self.adapter.context_bridge.create_v2_context(
                 conv_id=context.conv_id,
                 session_id=context.session_id,
                 user_id=context.user_id,
             )
             await agent.initialize(agent_context)
+            
+            if self.progress_broadcaster and hasattr(agent, '_progress_broadcaster'):
+                agent._progress_broadcaster = self.progress_broadcaster
 
-            async for chunk in agent.run(message, stream=True, **kwargs):
-                parsed = self._parse_agent_output(chunk)
-                yield parsed
+            print(f"[_execute_stream] Calling agent.run with message: {message[:50]}...", file=sys.stderr, flush=True)
+            chunk_count = 0
+            last_chunk = None
+            try:
+                async for chunk in agent.run(message, stream=True, **kwargs):
+                    chunk_count += 1
+                    print(f"[_execute_stream] Got chunk #{chunk_count}: {str(chunk)[:100]}", file=sys.stderr, flush=True)
+                    parsed = self._parse_agent_output(chunk)
+                    
+                    if self.progress_broadcaster:
+                        await self._emit_progress_event(parsed)
+                    
+                    if last_chunk:
+                        yield last_chunk
+                    last_chunk = parsed
+                print(f"[_execute_stream] Total chunks: {chunk_count}", file=sys.stderr, flush=True)
+                
+                if last_chunk:
+                    last_chunk.is_final = True
+                    yield last_chunk
+            except Exception as e:
+                logger.exception(f"[_execute_stream] agent.run 执行异常: {e}")
+                error_chunk = V2StreamChunk(type="error", content=f"执行异常: {e}", is_final=True)
+                if self.progress_broadcaster:
+                    await self._emit_progress_event(error_chunk)
+                yield error_chunk
 
         elif hasattr(agent, "generate_reply"):
-            response = await agent.generate_reply(
-                received_message={"content": message},
-                sender=None,
-                **kwargs,
-            )
-            content = getattr(response, "content", str(response))
-            yield V2StreamChunk(type="response", content=content, is_final=True)
+            print("[_execute_stream] Using generate_reply path", file=sys.stderr, flush=True)
+            try:
+                response = await agent.generate_reply(
+                    received_message={"content": message},
+                    sender=None,
+                    **kwargs,
+                )
+                content = getattr(response, "content", str(response))
+                yield V2StreamChunk(type="response", content=content, is_final=True)
+            except Exception as e:
+                logger.exception(f"[_execute_stream] generate_reply 执行异常: {e}")
+                yield V2StreamChunk(type="error", content=f"执行异常: {e}", is_final=True)
 
         else:
-            yield V2StreamChunk(type="error", content="不支持的 Agent 类型")
+            print("[_execute_stream] Unsupported agent type!", file=sys.stderr, flush=True)
+            yield V2StreamChunk(type="error", content="不支持的 Agent 类型", is_final=True)
+    
+    async def _emit_progress_event(self, chunk: V2StreamChunk):
+        if not self.progress_broadcaster:
+            return
+        
+        if chunk.type == "thinking":
+            await self.progress_broadcaster.thinking(chunk.content, **chunk.metadata)
+        elif chunk.type == "tool_call":
+            tool_name = chunk.metadata.get("tool_name", "unknown")
+            await self.progress_broadcaster.tool_started(tool_name, chunk.metadata.get("args", {}))
+        elif chunk.type == "tool_result":
+            tool_name = chunk.metadata.get("tool_name", "unknown")
+            await self.progress_broadcaster.tool_completed(tool_name, chunk.content)
+        elif chunk.type == "error":
+            await self.progress_broadcaster.error(chunk.content, **chunk.metadata)
+        elif chunk.type == "response":
+            if chunk.is_final:
+                await self.progress_broadcaster.complete(chunk.content)
 
     async def _execute_sync(
         self,
@@ -298,9 +467,13 @@ class V2AgentRuntime:
             content = output.replace("[THINKING]", "").replace("[/THINKING]", "")
             return V2StreamChunk(type="thinking", content=content)
         elif output.startswith("[TOOL:"):
-            parts = output.split("]", 1)
-            tool_name = parts[0].replace("[TOOL:", "")
-            content = parts[1].replace("[/TOOL]", "") if len(parts) > 1 else ""
+            match = output.split("]")
+            if len(match) >= 2:
+                tool_name = match[0].replace("[TOOL:", "")
+                content = match[1].replace("[/TOOL]", "") if "[/TOOL]" in output else match[1]
+            else:
+                tool_name = "unknown"
+                content = output
             return V2StreamChunk(
                 type="tool_call",
                 content=content,
@@ -310,14 +483,36 @@ class V2AgentRuntime:
             content = output.replace("[ERROR]", "").replace("[/ERROR]", "")
             return V2StreamChunk(type="error", content=content)
         elif output.startswith("[TERMINATE]"):
-            content = output.replace("[TERMINATE]", "").strip()
+            content = output.replace("[TERMINATE]", "").replace("[/TERMINATE]", "").strip()
             return V2StreamChunk(type="response", content=content, is_final=True)
         elif output.startswith("[WARNING]"):
-            content = output.replace("[WARNING]", "").replace("[WARNING]", "")
-            return V2StreamChunk(type="response", content=content)
+            content = output.replace("[WARNING]", "").replace("[/WARNING]", "")
+            return V2StreamChunk(type="response", content=f"⚠️ {content}")
         elif output.startswith("[INFO]"):
-            content = output.replace("[INFO]", "").replace("[INFO]", "")
+            content = output.replace("[INFO]", "").replace("[/INFO]", "")
             return V2StreamChunk(type="response", content=content)
+        elif output.startswith("[执行工具]"):
+            tool_name = output.replace("[执行工具]", "").strip()
+            return V2StreamChunk(
+                type="tool_call",
+                content=tool_name,
+                metadata={"tool_name": tool_name},
+            )
+        elif output.startswith("[错误]"):
+            content = output.replace("[错误]", "").strip()
+            return V2StreamChunk(type="error", content=content)
+        elif output.startswith("[异常]"):
+            content = output.replace("[异常]", "").strip()
+            return V2StreamChunk(type="error", content=content)
+        elif output.startswith("[警告]"):
+            content = output.replace("[警告]", "").strip()
+            return V2StreamChunk(type="response", content=f"⚠️ {content}")
+        elif output.startswith("[结果]"):
+            content = output.replace("[结果]", "").strip()
+            return V2StreamChunk(type="tool_result", content=content)
+        elif "[思考]" in output:
+            content = output.replace("[思考]", "").replace("[/思考]", "").strip()
+            return V2StreamChunk(type="thinking", content=content)
         else:
             return V2StreamChunk(type="response", content=output)
 
@@ -340,22 +535,88 @@ class V2AgentRuntime:
             },
         )()
 
-        await self.gpts_memory.append_message(conv_id, user_msg, save_db=False)
+        await self.gpts_memory.append_message(conv_id, user_msg, save_db=True)
 
     async def _push_stream_chunk(self, conv_id: str, chunk: V2StreamChunk):
         if not self.gpts_memory:
             return
 
-        vis_content = self.adapter.message_converter.stream_chunk_to_vis(chunk)
+        session = None
+        for s in self._sessions.values():
+            if s.conv_id == conv_id:
+                session = s
+                break
+        
+        if not session:
+            logger.warning(f"Session not found for conv_id: {conv_id}")
+            return
+
+        if session.current_message_id is None:
+            session.current_message_id = str(uuid.uuid4().hex)
+            session.accumulated_content = ""
+            session.is_first_chunk = True
+
+        if chunk.type == "response":
+            session.accumulated_content += chunk.content or ""
+
+        stream_msg = {
+            "uid": session.current_message_id,
+            "type": "incr",
+            "message_id": session.current_message_id,
+            "conv_id": conv_id,
+            "conv_session_uid": session.session_id,
+            "goal_id": session.current_message_id,
+            "task_goal_id": session.current_message_id,
+            "sender": session.agent_name,
+            "sender_name": session.agent_name,
+            "sender_role": "assistant",
+            "thinking": chunk.content if chunk.type == "thinking" else None,
+            "content": chunk.content or "",
+            "prev_content": session.accumulated_content,
+            "start_time": datetime.now(),
+        }
 
         await self.gpts_memory.push_message(
             conv_id,
-            stream_msg={
-                "type": chunk.type,
-                "content": vis_content,
-                "metadata": chunk.metadata,
-            },
+            stream_msg=stream_msg,
+            is_first_chunk=session.is_first_chunk,
         )
+        
+        if session.is_first_chunk:
+            session.is_first_chunk = False
+        
+        if chunk.is_final:
+            if self.gpts_memory and session.accumulated_content:
+                from derisk.agent.core.memory.gpts.base import GptsMessage
+                assistant_msg = type(
+                    "GptsMessage",
+                    (),
+                    {
+                        "message_id": session.current_message_id or str(uuid.uuid4().hex),
+                        "conv_id": conv_id,
+                        "sender": session.agent_name,
+                        "receiver": "user",
+                        "content": session.accumulated_content,
+                        "rounds": 0,
+                    },
+                )()
+                await self.gpts_memory.append_message(conv_id, assistant_msg, save_db=True)
+            
+            session.current_message_id = None
+            session.accumulated_content = ""
+            session.is_first_chunk = True
+
+    def _create_sender_proxy(self, agent_name: str):
+        """创建一个最小的 sender 代理对象，用于 VIS 转换器"""
+        class SenderProxy:
+            def __init__(self, name):
+                self.name = name
+                self.role = "assistant"
+                self.agent_context = type('obj', (object,), {
+                    'conv_session_id': name,
+                    'agent_app_code': name,
+                })()
+        return SenderProxy(agent_name)
 
     async def _cleanup_loop(self):
         while self._state == RuntimeState.RUNNING:
@@ -396,3 +657,91 @@ class V2AgentRuntime:
             return None
 
         return await self.gpts_memory.queue_iterator(context.conv_id)
+
+    # ============== 分层上下文管理 ==============
+
+    @property
+    def context_middleware(self) -> Optional[Any]:
+        """获取分层上下文中间件"""
+        return self._context_middleware
+
+    async def load_context_for_session(
+        self,
+        session_id: str,
+        task_description: Optional[str] = None,
+        force_reload: bool = False,
+    ) -> Optional[Any]:
+        """
+        为会话加载分层上下文
+
+        Args:
+            session_id: 会话 ID
+            task_description: 任务描述
+            force_reload: 是否强制重新加载
+
+        Returns:
+            ContextLoadResult 或 None
+        """
+        context = self._sessions.get(session_id)
+        if not context:
+            return None
+
+        if not self._context_middleware:
+            return None
+
+        try:
+            return await self._context_middleware.load_context(
+                conv_id=context.conv_id,
+                task_description=task_description,
+                force_reload=force_reload,
+            )
+        except Exception as e:
+            logger.error(f"[V2Runtime] 加载上下文失败: {e}")
+            return None
+
+    async def record_execution_step(
+        self,
+        session_id: str,
+        action_out: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        记录执行步骤到分层上下文
+
+        Args:
+            session_id: 会话 ID
+            action_out: 动作输出
+            metadata: 元数据
+
+        Returns:
+            Section ID 或 None
+        """
+        context = self._sessions.get(session_id)
+        if not context or not self._context_middleware:
+            return None
+
+        try:
+            return await self._context_middleware.record_step(
+                conv_id=context.conv_id,
+                action_out=action_out,
+                metadata=metadata,
+            )
+        except Exception as e:
+            logger.error(f"[V2Runtime] 记录执行步骤失败: {e}")
+            return None
+
+    def get_context_stats(self, session_id: str) -> Dict[str, Any]:
+        """
+        获取上下文统计信息
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            统计信息字典
+        """
+        context = self._sessions.get(session_id)
+        if not context or not self._context_middleware:
+            return {"error": "Context not available"}
+
+        return self._context_middleware.get_statistics(context.conv_id)

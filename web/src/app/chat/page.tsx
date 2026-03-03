@@ -228,6 +228,7 @@ export default function Chat() {
             team_mode: appInfo?.team_mode || '',
             app_config_code: appInfo?.config_code || '',
             conv_uid: chatId,
+            agent_version: appInfo?.agent_version || 'v1',
             ext_info: {
               vis_render: appInfo?.layout?.chat_layout?.name || '',
               incremental: appInfo?.layout?.chat_layout?.incremental || false,

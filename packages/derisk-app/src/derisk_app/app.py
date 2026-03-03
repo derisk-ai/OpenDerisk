@@ -96,8 +96,10 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
 
     # Core_v2 Agent API routes - V1/V2 共存
     from derisk_serve.agent.core_v2_api import router as core_v2_router
+    from derisk_serve.agent.agent_selection_api import router as agent_selection_router
 
     app.include_router(core_v2_router, tags=["Core_v2 Agent"])
+    app.include_router(agent_selection_router, tags=["Agent Selection"])
     logger.info("[Core_v2] API routes registered at /api/v2")
 
 

@@ -1426,14 +1426,30 @@ class AgentChat(BaseComponent, ABC):
         staff_no = ext_info.get("staff_no") or gpts_app.user_code or "derisk"
         try:
             if isinstance(user_query.content, List):
-                from derisk_serve.file.serve import Serve as FileServe
-                from derisk.core.interface.media import MediaContent
+                from derisk_serve.multimodal.service.service import MultimodalService
+                from derisk.core.interface.media import MediaContent, MediaContentType
 
-                file_serve = FileServe.get_instance(self.system_app)
-                new_content = MediaContent.replace_url(
-                    user_query.content, file_serve.replace_uri
-                )
-                user_query.content = new_content
+                multimodal_service = MultimodalService.get_instance(self.system_app)
+                
+                if multimodal_service:
+                    new_content = MediaContent.replace_url(
+                        user_query.content, multimodal_service.replace_uri
+                    )
+                    user_query.content = new_content
+                    
+                    matched_model = multimodal_service.match_model_for_content(
+                        user_query.content
+                    )
+                    if matched_model:
+                        ext_info["multimodal_matched_model"] = matched_model
+                        logger.info(f"[Multimodal] Auto matched model: {matched_model}")
+                else:
+                    from derisk_serve.file.serve import Serve as FileServe
+                    file_serve = FileServe.get_instance(self.system_app)
+                    new_content = MediaContent.replace_url(
+                        user_query.content, file_serve.replace_uri
+                    )
+                    user_query.content = new_content
 
             if not self.agent_manage:
                 self.agent_manage = get_agent_manager()

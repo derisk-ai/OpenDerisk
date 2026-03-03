@@ -174,11 +174,21 @@ class OpenAIAdapter(LLMAdapter):
         if self._client is None:
             try:
                 from openai import AsyncOpenAI
+                import httpx
+                
+                timeout = httpx.Timeout(
+                    connect=10.0,
+                    read=self.config.timeout,
+                    write=30.0,
+                    pool=10.0
+                )
+                
                 self._client = AsyncOpenAI(
                     api_key=self.config.api_key,
                     base_url=self.config.api_base,
-                    timeout=self.config.timeout
+                    timeout=timeout
                 )
+                logger.info(f"[OpenAIAdapter] 客户端初始化完成, base_url={self.config.api_base}")
             except ImportError:
                 raise ImportError("请安装openai: pip install openai")
     
@@ -187,6 +197,7 @@ class OpenAIAdapter(LLMAdapter):
         messages: List[LLMMessage],
         **kwargs
     ) -> LLMResponse:
+        import sys
         await self._init_client()
         
         start_time = time.time()
@@ -195,10 +206,9 @@ class OpenAIAdapter(LLMAdapter):
         try:
             params = {
                 "model": self.config.model,
-                "messages": [m.dict(exclude_none=True) for m in messages],
+                "messages": [m if isinstance(m, dict) else m.dict(exclude_none=True) for m in messages],
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
-                "top_p": kwargs.get("top_p", self.config.top_p),
             }
             
             if kwargs.get("tools"):
@@ -212,7 +222,19 @@ class OpenAIAdapter(LLMAdapter):
             if kwargs.get("response_format"):
                 params["response_format"] = kwargs["response_format"]
             
+            logger.info(f"[OpenAIAdapter] ========== 开始调用模型 ==========")
+            logger.info(f"[OpenAIAdapter] 模型: {self.config.model}")
+            logger.info(f"[OpenAIAdapter] 请求参数: temperature={params.get('temperature')}, max_tokens={params.get('max_tokens')}")
+            msg_list = [msg if isinstance(msg, dict) else msg.dict(exclude_none=True) for msg in messages]
+            logger.info(f"[OpenAIAdapter] 消息数量: {len(messages)}, 消息列表: {json.dumps(msg_list, ensure_ascii=False)}")
+            if params.get("tools"):
+                tool_names = [tool.get('function', {}).get('name', 'unknown') for tool in params['tools']]
+                logger.info(f"[OpenAIAdapter] 工具数量: {len(params['tools'])}, 工具列表: {tool_names}")
+            
             response = await self._client.chat.completions.create(**params)
+            
+            logger.info(f"[OpenAIAdapter] ========== 模型返回成功 ==========")
+            logger.info(f"[OpenAIAdapter] 响应延迟: {time.time() - start_time:.2f}s")
             
             latency = time.time() - start_time
             self._total_latency += latency
@@ -226,20 +248,55 @@ class OpenAIAdapter(LLMAdapter):
             )
             self._total_tokens += usage.total_tokens
             
+            logger.info(f"[OpenAIAdapter] Token使用: prompt={usage.prompt_tokens}, completion={usage.completion_tokens}, total={usage.total_tokens}")
+            logger.info(f"[OpenAIAdapter] 结束原因: {choice.finish_reason}")
+            
+            tool_calls = None
+            if choice.message.tool_calls:
+                logger.info(f"[OpenAIAdapter] 返回工具调用数量: {len(choice.message.tool_calls)}")
+                tool_calls = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
+                    for tc in choice.message.tool_calls
+                ]
+                for i, tc in enumerate(choice.message.tool_calls):
+                    logger.info(f"[OpenAIAdapter] 工具调用[{i}]: {tc.function.name}, 参数={tc.function.arguments}")
+            
+            function_call = None
+            if choice.message.function_call:
+                function_call = {
+                    "name": choice.message.function_call.name,
+                    "arguments": choice.message.function_call.arguments
+                }
+                logger.info(f"[OpenAIAdapter] 函数调用: {function_call['name']}, 参数={function_call['arguments']}")
+            
+            content = choice.message.content or ""
+            if content:
+                logger.info(f"[OpenAIAdapter] 返回内容: {content}")
+            
+            logger.info(f"[OpenAIAdapter] ========== 模型调用结束 ==========")
+            
             return LLMResponse(
-                content=choice.message.content or "",
+                content=content,
                 model=response.model,
                 provider="openai",
                 usage=usage,
                 finish_reason=choice.finish_reason,
-                function_call=choice.message.function_call,
-                tool_calls=choice.message.tool_calls,
+                function_call=function_call,
+                tool_calls=tool_calls,
                 latency=latency
             )
             
         except Exception as e:
             self._error_count += 1
-            logger.error(f"[OpenAIAdapter] 生成失败: {e}")
+            logger.error(f"[OpenAIAdapter] ========== 模型调用失败 ==========")
+            logger.error(f"[OpenAIAdapter] 错误: {e}", exc_info=True)
             raise
     
     async def stream(
@@ -251,24 +308,30 @@ class OpenAIAdapter(LLMAdapter):
         
         self._call_count += 1
         
-        params = {
-            "model": self.config.model,
-            "messages": [m.dict(exclude_none=True) for m in messages],
-            "temperature": kwargs.get("temperature", self.config.temperature),
-            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
-            "stream": True,
-        }
-        
         try:
+            params = {
+                "model": self.config.model,
+                "messages": [m if isinstance(m, dict) else m.dict(exclude_none=True) for m in messages],
+                "temperature": kwargs.get("temperature", self.config.temperature),
+                "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+            }
+            
+            logger.info(f"[OpenAIAdapter] ========== 开始流式调用模型 ==========")
+            logger.info(f"[OpenAIAdapter] 模型: {self.config.model}")
+            logger.info(f"[OpenAIAdapter] 消息数量: {len(messages)}")
+
             response = await self._client.chat.completions.create(**params)
             
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+            
+            logger.info(f"[OpenAIAdapter] ========== 流式调用结束 ==========")
                     
         except Exception as e:
             self._error_count += 1
-            logger.error(f"[OpenAIAdapter] 流式生成失败: {e}")
+            logger.error(f"[OpenAIAdapter] ========== 流式调用失败 ==========")
+            logger.error(f"[OpenAIAdapter] 错误: {e}", exc_info=True)
             raise
 
 
@@ -322,7 +385,19 @@ class AnthropicAdapter(LLMAdapter):
             if system_msg:
                 params["system"] = system_msg
             
+            logger.info(f"[AnthropicAdapter] ========== 开始调用模型 ==========")
+            logger.info(f"[AnthropicAdapter] 模型: {self.config.model}")
+            logger.info(f"[AnthropicAdapter] 请求参数: max_tokens={params.get('max_tokens')}")
+            logger.info(f"[AnthropicAdapter] 消息数量: {len(messages)}")
+            for i, msg in enumerate(messages):
+                logger.info(f"[AnthropicAdapter] 消息[{i}]: role={msg.role}, content={msg.content}")
+            if system_msg:
+                logger.info(f"[AnthropicAdapter] System提示: {system_msg}")
+            
             response = await self._client.messages.create(**params)
+            
+            logger.info(f"[AnthropicAdapter] ========== 模型返回成功 ==========")
+            logger.info(f"[AnthropicAdapter] 响应延迟: {time.time() - start_time:.2f}s")
             
             latency = time.time() - start_time
             self._total_latency += latency
@@ -334,7 +409,14 @@ class AnthropicAdapter(LLMAdapter):
             )
             self._total_tokens += usage.total_tokens
             
+            logger.info(f"[AnthropicAdapter] Token使用: prompt={usage.prompt_tokens}, completion={usage.completion_tokens}, total={usage.total_tokens}")
+            logger.info(f"[AnthropicAdapter] 结束原因: {response.stop_reason}")
+            
             content = response.content[0].text if response.content else ""
+            if content:
+                logger.info(f"[AnthropicAdapter] 返回内容: {content}")
+            
+            logger.info(f"[AnthropicAdapter] ========== 模型调用结束 ==========")
             
             return LLMResponse(
                 content=content,
@@ -347,7 +429,8 @@ class AnthropicAdapter(LLMAdapter):
             
         except Exception as e:
             self._error_count += 1
-            logger.error(f"[AnthropicAdapter] 生成失败: {e}")
+            logger.error(f"[AnthropicAdapter] ========== 模型调用失败 ==========")
+            logger.error(f"[AnthropicAdapter] 错误: {e}", exc_info=True)
             raise
     
     async def stream(
@@ -380,14 +463,20 @@ class AnthropicAdapter(LLMAdapter):
         if system_msg:
             params["system"] = system_msg
         
+        logger.info(f"[AnthropicAdapter] ========== 开始流式调用模型 ==========")
+        logger.info(f"[AnthropicAdapter] 模型: {self.config.model}")
+        logger.info(f"[AnthropicAdapter] 消息数量: {len(messages)}")
+        
         try:
             async with self._client.messages.stream(**params) as stream:
                 async for text in stream.text_stream:
                     yield text
+            logger.info(f"[AnthropicAdapter] ========== 流式调用结束 ==========")
                     
         except Exception as e:
             self._error_count += 1
-            logger.error(f"[AnthropicAdapter] 流式生成失败: {e}")
+            logger.error(f"[AnthropicAdapter] ========== 流式调用失败 ==========")
+            logger.error(f"[AnthropicAdapter] 错误: {e}", exc_info=True)
             raise
 
 

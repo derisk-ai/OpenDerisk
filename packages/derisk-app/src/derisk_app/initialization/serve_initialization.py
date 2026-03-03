@@ -28,6 +28,7 @@ def scan_serve_configs():
         "derisk_serve.flow",
         "derisk_serve.model",
         "derisk_serve.mcp",
+        "derisk_serve.multimodal",
         "derisk_serve.prompt",
         "derisk_serve.skill",
         "derisk_serve.rag",
