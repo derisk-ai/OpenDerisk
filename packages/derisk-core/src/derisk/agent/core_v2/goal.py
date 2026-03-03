@@ -256,7 +256,11 @@ class GoalManager:
     ...
 ]
 """
-            response = await self._llm_client.generate(prompt)
+            from .llm_utils import call_llm
+            response = await call_llm(self._llm_client, prompt)
+            if response is None:
+                logger.error("[GoalManager] LLM 调用失败")
+                return []
             import json
             sub_goal_data = json.loads(response)
             
@@ -499,7 +503,11 @@ class GoalManager:
 
 请只回答 "是" 或 "否"。
 """
-            response = await self._llm_client.generate(prompt)
+            from .llm_utils import call_llm
+            response = await call_llm(self._llm_client, prompt)
+            if response is None:
+                logger.error("[GoalManager] LLM评估失败")
+                return False
             return "是" in response or "yes" in response.lower()
         except Exception as e:
             logger.error(f"[GoalManager] LLM评估失败: {e}")

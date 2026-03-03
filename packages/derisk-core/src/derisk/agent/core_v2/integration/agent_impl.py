@@ -1,7 +1,7 @@
 """
 V2PDCAAgent - 基于 Core_v2 的 PDCA Agent 实现
 
-整合原有的 PDCA 能力与 Core_v2 架构
+整合原有的 PDCA 能力与 Core_v2 架构，完整支持 MCP、Knowledge、Skill 等资源
 """
 
 import asyncio
@@ -17,11 +17,82 @@ from ..agent_base import (
     AgentState,
 )
 from ..agent_info import AgentInfo, AgentMode
+from ..llm_utils import call_llm, LLMCaller
 
 logger = logging.getLogger(__name__)
 
 
-class V2PDCAAgent(AgentBase):
+class ResourceMixin:
+    """资源处理混入类，为Agent提供资源处理能力"""
+    
+    resources: Dict[str, Any] = {}
+    
+    def get_knowledge_context(self) -> str:
+        """获取知识资源上下文"""
+        knowledge_list = self.resources.get("knowledge", [])
+        if not knowledge_list:
+            return ""
+        
+        parts = ["<knowledge-resources>"]
+        for idx, k in enumerate(knowledge_list, 1):
+            space_id = k.get("space_id", k.get("id", ""))
+            space_name = k.get("space_name", k.get("name", space_id))
+            parts.append(f"<knowledge-{idx}>")
+            parts.append(f"<space-id>{space_id}</space-id>")
+            parts.append(f"<space-name>{space_name}</space-name>")
+            if k.get("description"):
+                parts.append(f"<description>{k.get('description')}</description>")
+            parts.append(f"</knowledge-{idx}>")
+        parts.append("</knowledge-resources>")
+        
+        return "\n".join(parts)
+    
+    def get_skills_context(self) -> str:
+        """获取技能资源上下文"""
+        skills_list = self.resources.get("skills", [])
+        if not skills_list:
+            return ""
+        
+        parts = ["<agent-skills>"]
+        for idx, s in enumerate(skills_list, 1):
+            name = s.get("name", s.get("skill_name", ""))
+            code = s.get("code", s.get("skill_code", ""))
+            description = s.get("description", "")
+            path = s.get("path", s.get("sandbox_path", ""))
+            owner = s.get("owner", s.get("author", ""))
+            branch = s.get("branch", "main")
+            
+            parts.append(f"<skill-{idx}>")
+            parts.append(f"<name>{name}</name>")
+            parts.append(f"<code>{code}</code>")
+            if description:
+                parts.append(f"<description>{description}</description>")
+            if path:
+                parts.append(f"<path>{path}</path>")
+            if owner:
+                parts.append(f"<owner>{owner}</owner>")
+            parts.append(f"<branch>{branch}</branch>")
+            parts.append(f"</skill-{idx}>")
+        parts.append("</agent-skills>")
+        
+        return "\n".join(parts)
+    
+    def build_resource_prompt(self, base_prompt: str = "") -> str:
+        """构建包含资源信息的完整提示"""
+        prompt_parts = [base_prompt] if base_prompt else []
+        
+        knowledge_ctx = self.get_knowledge_context()
+        if knowledge_ctx:
+            prompt_parts.append(knowledge_ctx)
+        
+        skills_ctx = self.get_skills_context()
+        if skills_ctx:
+            prompt_parts.append(skills_ctx)
+        
+        return "\n\n".join(prompt_parts)
+
+
+class V2PDCAAgent(AgentBase, ResourceMixin):
     """
     V2 PDCA Agent - 基于 Core_v2 架构实现
 
@@ -30,12 +101,17 @@ class V2PDCAAgent(AgentBase):
     2. Do - 任务执行
     3. Check - 结果检查
     4. Act - 调整行动
+    
+    支持 MCP、Knowledge、Skill 等完整资源类型
 
     示例:
         agent = V2PDCAAgent(
             info=AgentInfo(name="pdca", mode=AgentMode.PRIMARY),
             tools={"bash": bash_tool},
-            resources={},
+            resources={
+                "knowledge": [{"space_id": "kb_001"}],
+                "skills": [{"skill_code": "code_assistant"}],
+            },
         )
 
         async for chunk in agent.run("帮我完成数据分析任务"):
@@ -57,6 +133,7 @@ class V2PDCAAgent(AgentBase):
         self.model_config = model_config or {}
         self._plans: List[Dict[str, Any]] = []
         self._current_plan_idx = 0
+        self._initialized_mcp = False
 
     @property
     def available_tools(self) -> List[str]:
@@ -97,10 +174,20 @@ class V2PDCAAgent(AgentBase):
                     "type": "response",
                     "content": f"执行步骤 {self._current_plan_idx}: {plan.get('description', '完成')}",
                 }
-
+        
+        if self.model_provider:
+            try:
+                content = await call_llm(self.model_provider, message)
+                if content:
+                    return {"type": "response", "content": content}
+                return {"type": "response", "content": "抱歉，模型返回了空响应，请稍后重试。"}
+            except Exception as e:
+                logger.error(f"LLM 调用失败: {e}", exc_info=True)
+                return {"type": "response", "content": f"抱歉，模型调用失败: {str(e)}"}
+        
         return {
             "type": "response",
-            "content": f"任务已完成。共执行 {self._current_plan_idx} 个步骤。",
+            "content": "抱歉，未配置模型服务，无法处理您的请求。",
         }
 
     async def act(self, tool_name: str, tool_args: Dict[str, Any], **kwargs) -> Any:
@@ -168,12 +255,20 @@ class V2PDCAAgent(AgentBase):
             return []
 
         try:
-            prompt = f"""请为以下任务制定执行计划。
+            resource_context = self.build_resource_prompt()
+            
+            prompt_parts = [f"""请为以下任务制定执行计划。
 
 任务: {message}
 
-可用工具: {", ".join(self.tools.keys())}
-
+可用工具: {", ".join(self.tools.keys())}"""]
+            
+            if resource_context:
+                prompt_parts.append(f"""
+可用资源:
+{resource_context}""")
+            
+            prompt_parts.append("""
 请以 JSON 数组格式返回计划，每个步骤包含:
 - step: 步骤编号
 - action: "tool_call" 或 "response"
@@ -182,7 +277,9 @@ class V2PDCAAgent(AgentBase):
 - content: 响应内容(response 时)
 - description: 步骤描述
 
-只返回 JSON 数组，不要其他内容。"""
+只返回 JSON 数组，不要其他内容。""")
+            
+            prompt = "\n".join(prompt_parts)
 
             response = None
             if hasattr(self.model_provider, "generate"):
@@ -230,26 +327,15 @@ class V2SimpleAgent(AgentBase):
     async def decide(self, message: str, **kwargs) -> Dict[str, Any]:
         if self.model_provider:
             try:
-                response = None
-                if hasattr(self.model_provider, "generate"):
-                    response = await self.model_provider.generate(message)
-                elif hasattr(self.model_provider, "chat"):
-                    response = await self.model_provider.chat(
-                        [{"role": "user", "content": message}]
-                    )
-
-                if response:
-                    content = response
-                    if hasattr(response, "content"):
-                        content = response.content
-                    elif hasattr(response, "choices"):
-                        content = response.choices[0].message.content
-
+                content = await call_llm(self.model_provider, message)
+                if content:
                     return {"type": "response", "content": content}
+                return {"type": "response", "content": "抱歉，模型返回了空响应。"}
             except Exception as e:
-                logger.error(f"模型调用失败: {e}")
-
-        return {"type": "response", "content": f"收到: {message}"}
+                logger.error(f"LLM 调用失败: {e}", exc_info=True)
+                return {"type": "response", "content": f"抱歉，模型调用失败: {str(e)}"}
+        
+        return {"type": "response", "content": "抱歉，未配置模型服务。"}
 
     async def act(self, tool_name: str, tool_args: Dict[str, Any], **kwargs) -> Any:
         return {"result": "Simple agent does not support tools"}
@@ -283,8 +369,8 @@ def create_v2_agent(
 
     mode_map = {
         "primary": AgentMode.PRIMARY,
-        "planner": AgentMode.PLANNER,
-        "worker": AgentMode.WORKER,
+        "planner": AgentMode.PRIMARY,
+        "worker": AgentMode.SUBAGENT,
     }
 
     permission_ruleset = None
@@ -312,3 +398,52 @@ def create_v2_agent(
             info=info,
             model_provider=model_provider,
         )
+
+
+def create_default_agent(
+    name: str = "primary",
+    model: str = "gpt-4",
+    api_key: Optional[str] = None,
+    max_steps: int = 20,
+    **kwargs,
+) -> "ProductionAgentWithInteraction":
+    """
+    创建默认的主 Agent (ProductionAgentWithInteraction)
+
+    这是 Core_v2 推荐的默认 Agent，具备最完整的能力：
+    - LLM 调用
+    - 工具执行
+    - 目标追踪
+    - 权限检查
+    - 用户交互（主动提问、授权审批、方案选择）
+    - Todo 管理
+    - 中断恢复
+
+    Args:
+        name: Agent 名称
+        model: 模型名称
+        api_key: API Key
+        max_steps: 最大执行步骤
+        **kwargs: 其他参数
+
+    Returns:
+        ProductionAgentWithInteraction: 默认 Agent 实例
+
+    Example:
+        agent = create_default_agent(
+            name="my-agent",
+            model="gpt-4",
+            api_key="sk-xxx",
+        )
+        agent.init_interaction()
+        async for chunk in agent.run("帮我完成代码重构"):
+            print(chunk)
+    """
+    from ..production_interaction import ProductionAgentWithInteraction
+    return ProductionAgentWithInteraction.create(
+        name=name,
+        model=model,
+        api_key=api_key,
+        max_steps=max_steps,
+        **kwargs,
+    )

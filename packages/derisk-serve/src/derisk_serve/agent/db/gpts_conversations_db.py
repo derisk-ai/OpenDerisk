@@ -148,3 +148,11 @@ class GptsConversationsDao(BaseDao):
         )
         session.commit()
         session.close()
+
+    def delete_chat_message(self, conv_id: str) -> bool:
+        session = self.get_raw_session()
+        gpts_convs = session.query(GptsConversationsEntity)
+        gpts_convs.filter(GptsConversationsEntity.conv_id.like(f"%{conv_id}%")).delete()
+        session.commit()
+        session.close()
+        return True

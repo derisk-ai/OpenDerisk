@@ -76,13 +76,12 @@ class ReasoningStrategy(ABC):
     
     async def _generate(self, prompt: str) -> str:
         """生成响应"""
-        if hasattr(self.llm_client, "generate"):
-            return await self.llm_client.generate(prompt)
-        elif hasattr(self.llm_client, "chat"):
-            response = await self.llm_client.chat(model_id="default", message=prompt)
-            return response.content
-        else:
-            raise NotImplementedError("LLM client must have generate or chat method")
+        from .llm_utils import call_llm
+        
+        result = await call_llm(self.llm_client, prompt)
+        if result is None:
+            raise NotImplementedError("LLM client call failed")
+        return result
 
 
 class ReActStrategy(ReasoningStrategy):

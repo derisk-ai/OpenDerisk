@@ -160,8 +160,30 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return res
 
     def app_info_to_config(self, request: ServeRequest) -> AppConfigRequest:
-        ## TODO AWEL模式的自动判断 按需定制
-        if not request.team_mode == TeamMode.NATIVE_APP.value:
+        agent_version = getattr(request, 'agent_version', 'v1') or 'v1'
+        is_v2 = agent_version == 'v2'
+        
+        if is_v2:
+            from derisk.agent.core.plan.unified_context import UnifiedTeamContext
+            if request.team_context:
+                if isinstance(request.team_context, UnifiedTeamContext):
+                    team_context = request.team_context
+                elif isinstance(request.team_context, dict):
+                    team_context = UnifiedTeamContext.from_dict(request.team_context)
+                else:
+                    team_context = UnifiedTeamContext(
+                        agent_version="v2",
+                        team_mode="single_agent",
+                        agent_name=getattr(request.team_context, 'agent_name', None) or request.agent or "simple_chat"
+                    )
+            else:
+                team_context = UnifiedTeamContext(
+                    agent_version="v2",
+                    team_mode="single_agent",
+                    agent_name=request.agent or "simple_chat"
+                )
+            request.team_mode = TeamMode.SINGLE_AGENT.value
+        elif not request.team_mode == TeamMode.NATIVE_APP.value:
             if request.agent:
                 ag_mg = get_agent_manager()
                 ag = ag_mg.get(request.agent)
@@ -183,9 +205,15 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         team_context.agent_name = request.agent
             else:
                 request.team_mode = TeamMode.SINGLE_AGENT.value
-                team_context = SingleAgentContext(**request.team_context.to_dict())
+                if not request.team_context:
+                    team_context = SingleAgentContext(agent_name=request.agent or "default")
+                else:
+                    team_context = SingleAgentContext(**request.team_context.to_dict())
         else:
-            team_context = NativeTeamContext(**request.team_context.to_dict())
+            if not request.team_context:
+                team_context = NativeTeamContext()
+            else:
+                team_context = NativeTeamContext(**request.team_context.to_dict())
             if request.agent:
                 team_context.agent_name = request.agent
 
@@ -207,6 +235,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             system_prompt_template=request.system_prompt_template,
             user_prompt_template=request.user_prompt_template,
             context_config=request.context_config,
+            agent_version=getattr(request, 'agent_version', 'v1') or 'v1',
         )
 
     async def edit(self, request: ServeRequest) -> Optional[ServerResponse]:
@@ -223,6 +252,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             update_dict["icon"] = request.icon
         if request.language and request.language != app_resp.language:
             update_dict["language"] = request.language
+        request_agent_version = getattr(request, 'agent_version', 'v1') or 'v1'
+        if request_agent_version and request_agent_version != getattr(app_resp, 'agent_version', 'v1'):
+            update_dict["agent_version"] = request_agent_version
 
         if len(update_dict) > 0:
             self.dao.update(query_dict, update_dict)
@@ -265,8 +297,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         carefully_chosen: bool = False,
         description: Optional[str] = None,
     ) -> Optional[ServerResponse]:
-        """应用构建配置发布."""
-        logger.info(f"app publish:{app_code},{new_config_code},{operator}")
+        logger.info(f"[PUBLISH] Starting publish for app_code={app_code}, new_config_code={new_config_code}")
         with self.dao.session(commit=False) as session:
             ### 应用发布需要在同一个事务里做两件事情:
             ### 1.修改当前临时版本配置未正式配置代码，状态修改为发布
@@ -288,7 +319,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 ).filter(AppConfigEntity.code == new_config_code)
                 app_config_entry: AppConfigEntity = app_config_query.first()
                 if not app_config_entry:
-                    raise ValueError(f"配置[{app_config_entry.code}]已经不存在")
+                    raise ValueError(f"配置[{new_config_code}]已经不存在")
 
                 # 配置发布,状态和版本信息更新
                 release_config_version = config_service.temp_to_formal(
@@ -299,21 +330,50 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 app_config_entry.is_published = 1
                 app_config_entry.operator = operator
                 app_config_entry.description = description
+                
+                logger.info(f"[PUBLISH] Before commit: app_code={app_code}, new_config_code={new_config_code}")
+                logger.info(f"[PUBLISH] app_config_entry.code={app_config_entry.code}")
+                logger.info(f"[PUBLISH] app_config_entry.is_published={app_config_entry.is_published}")
+                logger.info(f"[PUBLISH] app_config_entry.resource_tool={app_config_entry.resource_tool}")
+                logger.info(f"[PUBLISH] app_config_entry.agent_version={getattr(app_config_entry, 'agent_version', 'N/A')}")
+                logger.info(f"[PUBLISH] app_config_entry.team_mode={app_config_entry.team_mode}")
 
-                # 应用配置代码更新
                 app_entry.config_code = new_config_code
                 app_entry.config_version = release_config_version
                 # When publishing, the app should be visible (published=1)
                 app_entry.published = 1
                 app_entry.updated_at = now
 
-                session.merge(app_config_entry)
-                session.merge(app_entry)
+                # 直接修改实体（已在 session 中被跟踪），不需要 merge
+                session.flush()
                 session.commit()
+                logger.info(f"[PUBLISH] Commit successful for app_code={app_code}")
+                logger.info(f"[PUBLISH] After commit, app_entry.config_code={app_entry.config_code}, app_config_entry.is_published={app_config_entry.is_published}")
+                
+                # 删除所有旧的临时配置（发布成功后删除）
+                try:
+                    old_temp_configs_query = session.query(AppConfigEntity)
+                    old_temp_configs_query = old_temp_configs_query.filter(
+                        AppConfigEntity.app_code == app_entry.app_code
+                    ).filter(AppConfigEntity.is_published == False)
+                    old_temp_count = old_temp_configs_query.delete(synchronize_session=False)
+                    session.commit()
+                    logger.info(f"[PUBLISH] Deleted {old_temp_count} old temp configs for app_code={app_code}")
+                except Exception as e:
+                    logger.warning(f"[PUBLISH] Failed to delete old temp configs: {e}")
+                
+                session.expire_all()
+                logger.info(f"[PUBLISH] Session cache cleared")
 
             else:
                 raise ValueError(f"发布失败，未找到对应的应用信息[{app_code}]")
-        return await self.app_detail(app_code=app_code)
+        
+        logger.info(f"[PUBLISH] Calling app_detail with building_mode=False to get published config")
+        result = await self.app_detail(app_code=app_code, specify_config_code=new_config_code, building_mode=False)
+        logger.info(f"[PUBLISH] app_detail returned: {result is not None}")
+        if result:
+            logger.info(f"[PUBLISH] result.team_mode={result.team_mode}, result.agent_version={getattr(result, 'agent_version', 'N/A')}")
+        return result
 
     def get_apps_by_codes(self, app_codes: List[str]):
         session = self.dao.get_raw_session()
@@ -509,30 +569,35 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         specify_config_code: Optional[str] = None,
         building_mode: bool = True,
     ) -> Optional[ServerResponse]:
-        logger.info(f"get_app_detail:{app_code},{specify_config_code},{building_mode}")
+        logger.info(f"[APP_DETAIL] get_app_detail: app_code={app_code}, specify_config_code={specify_config_code}, building_mode={building_mode}")
         app_resp = self.dao.get_one({"app_code": app_code})
         if not app_resp:
             raise ValueError(f"应用不存在[{app_code}]")
-        ## 如果是构建模式，默认加载当前临时配置，如果没有临时配置才加载应用的发布配置
+        
+        logger.info(f"[APP_DETAIL] app_resp.config_code={app_resp.config_code}, app_resp.config_version={app_resp.config_version}")
+        
         config_service = get_config_service()
         app_config = None
         if specify_config_code:
-            logger.info(f"指定了配置代码，需要加载指定的配置")
+            logger.info(f"[APP_DETAIL] 指定了配置代码，需要加载指定的配置: {specify_config_code}")
             app_config = config_service.get_by_code(specify_config_code)
+            logger.info(f"[APP_DETAIL] 指定配置查询结果: {app_config is not None}")
         else:
             if building_mode:
                 temp_config = config_service.get_app_temp_code(app_code=app_code)
+                logger.info(f"[APP_DETAIL] 构建模式, 临时配置查询结果: {temp_config is not None}")
                 if not temp_config:
-                    logger.info("构建模式,优先加载当前的临时版本配置！")
-                    ## 不存在临时配置 再看有没有真是配置
+                    logger.info("[APP_DETAIL] 构建模式, 不存在临时配置, 尝试加载发布的配置")
                     if app_resp.config_code:
                         app_config = config_service.get_by_code(app_resp.config_code)
+                        logger.info(f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}")
                 else:
                     app_config = temp_config
             else:
-                logger.info("非构建模式,只能加载当前发布版本配置！")
+                logger.info("[APP_DETAIL] 非构建模式, 只能加载当前发布版本配置")
                 if app_resp.config_code:
                     app_config = config_service.get_by_code(app_resp.config_code)
+                    logger.info(f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}")
 
         if app_config:
             all_resources = []
@@ -547,6 +612,14 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
             app_resp.team_context = app_config.team_context
             app_resp.team_mode = app_config.team_mode
+            
+            logger.info(f"[APP_DETAIL] 加载配置后:")
+            logger.info(f"  - team_mode: {app_resp.team_mode}")
+            logger.info(f"  - team_context: {app_resp.team_context}")
+            logger.info(f"  - team_context type: {type(app_resp.team_context)}")
+            if app_resp.team_context and hasattr(app_resp.team_context, '__dict__'):
+                logger.info(f"  - team_context.__dict__: {app_resp.team_context.__dict__}")
+            
             # app_resp.language =
             app_resp.param_need = (
                 app_config.layout.chat_in_layout if app_config.layout else None
@@ -562,6 +635,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_resp.llm_config = app_config.llm_config
 
             app_resp.context_config = build_by_agent_config(app_config.context_config)
+
+            ## Agent版本 - 优先使用配置中的版本，否则回退到应用表的版本
+            config_agent_version = getattr(app_config, 'agent_version', None)
+            app_resp.agent_version = config_agent_version or getattr(app_resp, 'agent_version', 'v1') or 'v1'
 
             ## 资源-知识
             if app_config.resource_knowledge:
@@ -584,7 +661,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             # if not building_mode:
             app_resp.all_resources = all_resources
 
+            from derisk.agent.core.plan.unified_context import UnifiedTeamContext
             if isinstance(app_config.team_context, SingleAgentContext):
+                app_resp.agent = app_config.team_context.agent_name
+            elif isinstance(app_config.team_context, UnifiedTeamContext):
                 app_resp.agent = app_config.team_context.agent_name
             else:
                 if app_config.team_context:
@@ -597,6 +677,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
             ag_mg = get_agent_manager()
             ag = ag_mg.get(app_resp.agent)
+            
+            agent_version = getattr(app_config, 'agent_version', 'v1') or 'v1'
+            is_v2_agent = agent_version == 'v2'
+            
             if ag and ag.is_reasoning_agent:
                 app_resp.is_reasoning_engine_agent = True
 
@@ -638,12 +722,18 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     logger.info("构建模式初始化推理引擎system_prompt模版！")
                     if r_engine_system_prompt_t:
                         app_resp.system_prompt_template = r_engine_system_prompt_t
+                elif is_v2_agent:
+                    logger.info("构建模式初始化Core_v2 Agent system_prompt模版！")
+                    app_resp.system_prompt_template = _get_v2_agent_system_prompt(app_config)
                 else:
-                    if not app_resp.team_mode == TeamMode.NATIVE_APP.value:
+                    if not app_resp.team_mode == TeamMode.NATIVE_APP.value and ag:
                         prompt_template, template_format = ag.prompt_template(
                             "system", app_resp.language
                         )
                         app_resp.system_prompt_template = prompt_template
+                    elif not app_resp.team_mode == TeamMode.NATIVE_APP.value:
+                        logger.warning(f"Agent [{app_resp.agent}] not found in AgentManager, using default prompt")
+                        app_resp.system_prompt_template = _get_default_system_prompt()
             else:
                 app_resp.system_prompt_template = app_config.system_prompt_template
 
@@ -652,18 +742,23 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     logger.info("构建模式初始化推理引擎user_prompt模版！")
                     if r_engine_user_prompt_t:
                         app_resp.user_prompt_template = r_engine_user_prompt_t
+                elif is_v2_agent:
+                    logger.info("构建模式初始化Core_v2 Agent user_prompt模版！")
+                    app_resp.user_prompt_template = _get_v2_agent_user_prompt(app_config)
                 else:
-                    if not app_resp.team_mode == TeamMode.NATIVE_APP.value:
+                    if not app_resp.team_mode == TeamMode.NATIVE_APP.value and ag:
                         logger.info(f"初始化[{app_resp.agent}]user_prompt模版！")
                         prompt_template, template_format = ag.prompt_template(
                             "user", app_resp.language
                         )
                         app_resp.user_prompt_template = prompt_template
+                    elif not app_resp.team_mode == TeamMode.NATIVE_APP.value:
+                        app_resp.user_prompt_template = _get_default_user_prompt()
             else:
                 app_resp.user_prompt_template = app_config.user_prompt_template
 
             if not app_resp.team_mode == TeamMode.NATIVE_APP.value:
-                if not app_config.custom_variables:
+                if not app_config.custom_variables and ag:
                     logger.info(f"构建模式初始化[{app_resp.agent}]的默认参数！")
                     app_resp.custom_variables = ag.init_variables()
             ## 处理关联的推荐问题
@@ -765,7 +860,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     gpts_app.team_context.llm_strategy_value = None
 
         # 获取当前应用对应的Agent信息
+        from derisk.agent.core.plan.unified_context import UnifiedTeamContext
         if isinstance(gpts_app.team_context, SingleAgentContext):
+            gpts_app.agent = gpts_app.team_context.agent_name
+        elif isinstance(gpts_app.team_context, UnifiedTeamContext):
             gpts_app.agent = gpts_app.team_context.agent_name
         else:
             if gpts_app.team_context:
@@ -811,25 +909,38 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 # reasoning_arg_suppliers = reasoning_engine_value.get("reasoning_arg_suppliers")
             else:
                 if gpts_app.team_context:
+                    agent_version = getattr(gpts_app, 'agent_version', 'v1') or 'v1'
+                    is_v2_agent = agent_version == 'v2'
+                    
                     if gpts_app.team_context.prompt_template:
                         gpts_app.system_prompt_template = (
                             gpts_app.team_context.prompt_template
                         )
-                    else:
+                    elif is_v2_agent:
+                        logger.info("旧版应用同步：初始化Core_v2 Agent system_prompt模版！")
+                        gpts_app.system_prompt_template = _get_v2_agent_system_prompt(None)
+                    elif ag:
                         prompt_template, template_format = ag.prompt_template(
                             "system", gpts_app.language
                         )
                         gpts_app.system_prompt_template = prompt_template
+                    else:
+                        gpts_app.system_prompt_template = _get_default_system_prompt()
 
                     if gpts_app.team_context.user_prompt_template:
                         gpts_app.user_prompt_template = (
                             gpts_app.team_context.user_prompt_template
                         )
-                    else:
+                    elif is_v2_agent:
+                        logger.info("旧版应用同步：初始化Core_v2 Agent user_prompt模版！")
+                        gpts_app.user_prompt_template = _get_v2_agent_user_prompt(None)
+                    elif ag:
                         prompt_template, template_format = ag.prompt_template(
                             "user", gpts_app.language
                         )
                         gpts_app.user_prompt_template = prompt_template
+                    else:
+                        gpts_app.user_prompt_template = _get_default_user_prompt()
 
                     # if building_mode:
                     #     gpts_app.team_context.prompt_template = None
@@ -1079,3 +1190,75 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             session.merge(entity)
             session.commit()
             logger.info(f"Set app {app_code} published status to {published}")
+
+
+def _get_v2_agent_system_prompt(app_config) -> str:
+    """
+    获取 Core_v2 Agent 的默认 System Prompt
+    
+    基于应用配置生成适合 Core_v2 架构的提示词模板
+    """
+    base_prompt = """You are an AI assistant powered by Core_v2 architecture.
+
+## Your Capabilities
+- Execute multi-step tasks with planning and reasoning
+- Use available tools and resources effectively
+- Maintain context across conversation turns
+- Provide clear and actionable responses
+
+## Available Resources
+{% if knowledge_resources %}
+### Knowledge Bases
+{% for kb in knowledge_resources %}
+- **{{ kb.name }}**: {{ kb.description or 'Knowledge base for information retrieval' }}
+{% endfor %}
+{% endif %}
+
+{% if skills %}
+### Skills
+{% for skill in skills %}
+- **{{ skill.name }}**: {{ skill.description or 'Specialized skill for task execution' }}
+{% endfor %}
+{% endif %}
+
+## Response Guidelines
+1. Break down complex tasks into clear steps
+2. Use tools when necessary to accomplish tasks
+3. Provide explanations for your reasoning
+4. Ask for clarification when needed
+
+Always respond in a helpful, professional manner."""
+    
+    return base_prompt
+
+
+def _get_v2_agent_user_prompt(app_config) -> str:
+    """
+    获取 Core_v2 Agent 的默认 User Prompt
+    """
+    user_prompt = """User request: {{user_input}}
+
+{% if context %}
+Context: {{context}}
+{% endif %}
+
+Please process this request using available tools and resources."""
+    
+    return user_prompt
+
+
+def _get_default_system_prompt() -> str:
+    """获取默认的 System Prompt（当 Agent 未在 AgentManager 中注册时）"""
+    return """You are an AI assistant.
+
+Please help users with their questions and tasks to the best of your ability.
+- Be helpful, accurate, and concise
+- Ask for clarification when needed
+- Provide actionable suggestions when appropriate"""
+
+
+def _get_default_user_prompt() -> str:
+    """获取默认的 User Prompt"""
+    return """User input: {{user_input}}
+
+Please respond appropriately."""

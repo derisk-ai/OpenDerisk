@@ -43,10 +43,23 @@ class V2MessageConverter:
     消息格式转换器
 
     负责在 Core_v2 的消息格式与原架构的 GptsMessage 之间转换
+    支持 VIS 组件渲染
     """
 
     def __init__(self, vis_converter: Optional[Any] = None):
         self._vis_converter = vis_converter
+        self._vis_tags_cache: Dict[str, Any] = {}
+
+    def _get_vis_tag(self, tag_name: str) -> Optional[Any]:
+        from derisk.vis.vis_converter import SystemVisTag
+        
+        tag_map = {
+            "thinking": SystemVisTag.VisThinking.value,
+            "tool": SystemVisTag.VisTool.value,
+            "text": SystemVisTag.VisText.value,
+            "message": SystemVisTag.VisMessage.value,
+        }
+        return tag_map.get(tag_name)
 
     def to_gpts_message(
         self,
@@ -100,17 +113,57 @@ class V2MessageConverter:
         chunk: V2StreamChunk,
         context: Optional[Dict[str, Any]] = None,
     ) -> str:
+        """
+        将 V2StreamChunk 转换为 VIS 组件格式
+        
+        返回 VIS 组件标记，前端可以渲染
+        """
         if chunk.type == "thinking":
-            return f"[THINKING]{chunk.content}[/THINKING]"
+            return self._render_thinking(chunk)
         elif chunk.type == "tool_call":
-            tool_name = chunk.metadata.get("tool_name", "unknown")
-            return f"[TOOL:{tool_name}]{chunk.content}[/TOOL]"
+            return self._render_tool_call(chunk)
+        elif chunk.type == "tool_result":
+            return self._render_tool_result(chunk)
         elif chunk.type == "response":
-            return chunk.content
+            return self._render_response(chunk)
         elif chunk.type == "error":
-            return f"[ERROR]{chunk.content}[/ERROR]"
+            return self._render_error(chunk)
         else:
             return chunk.content
+    
+    def _render_thinking(self, chunk: V2StreamChunk) -> str:
+        """渲染思考内容为 VIS 组件 (markdown 代码块格式)"""
+        return f"```vis-thinking\n{chunk.content}\n```"
+    
+    def _render_tool_call(self, chunk: V2StreamChunk) -> str:
+        """渲染工具调用为 VIS 组件 (markdown 代码块格式)"""
+        import json
+        tool_name = chunk.metadata.get("tool_name", "unknown")
+        tool_data = {
+            "name": tool_name,
+            "args": chunk.metadata.get("args", {}),
+            "status": "running",
+        }
+        return f"```vis-tool\n{json.dumps(tool_data, ensure_ascii=False)}\n```"
+    
+    def _render_tool_result(self, chunk: V2StreamChunk) -> str:
+        """渲染工具结果为 VIS 组件 (markdown 代码块格式)"""
+        import json
+        tool_name = chunk.metadata.get("tool_name", "unknown")
+        tool_data = {
+            "name": tool_name,
+            "status": "completed",
+            "output": chunk.content,
+        }
+        return f"```vis-tool\n{json.dumps(tool_data, ensure_ascii=False)}\n```"
+    
+    def _render_response(self, chunk: V2StreamChunk) -> str:
+        """渲染响应内容 - 纯文本格式"""
+        return chunk.content or ""
+    
+    def _render_error(self, chunk: V2StreamChunk) -> str:
+        """渲染错误内容"""
+        return f"[ERROR]{chunk.content}[/ERROR]"
 
 
 class V2ResourceBridge:

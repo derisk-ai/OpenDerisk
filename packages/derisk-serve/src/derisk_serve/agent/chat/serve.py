@@ -8,6 +8,7 @@ from derisk.storage.metadata import DatabaseManager
 from derisk_serve.core import BaseServe
 
 from .api.endpoints import init_endpoints, router
+from ..agent_selection_api import router as agent_selection_router
 from .config import (
     APP_NAME,
     SERVE_APP_NAME,
@@ -47,6 +48,10 @@ class Serve(BaseServe):
         self._system_app = system_app
         self._system_app.app.include_router(
             router, prefix=self._api_prefix, tags=self._api_tags
+        )
+        # 注册 Agent 选择 API
+        self._system_app.app.include_router(
+            agent_selection_router, tags=["Agent Selection"]
         )
         self._config = self._config or ServeConfig.from_app_config(
             system_app.config, SERVE_CONFIG_KEY_PREFIX

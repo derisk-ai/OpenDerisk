@@ -740,11 +740,10 @@ class StateCompressor:
             
             prompt = f"请简洁总结以下对话的关键信息（2-3句话）:\n\n{content}"
             
-            if hasattr(self.llm_client, "generate"):
-                return await self.llm_client.generate(prompt)
-            elif hasattr(self.llm_client, "chat"):
-                response = await self.llm_client.chat(model_id="default", message=prompt)
-                return response.content
+            from .llm_utils import call_llm
+            result = await call_llm(self.llm_client, prompt)
+            if result:
+                return result
             
         except Exception as e:
             logger.error(f"[StateCompressor] 生成摘要失败: {e}")

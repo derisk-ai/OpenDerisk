@@ -471,13 +471,11 @@ class TaskPlanner:
         if not self._llm_client:
             raise ValueError("LLM client not configured")
         
-        if hasattr(self._llm_client, 'generate'):
-            return await self._llm_client.generate(prompt)
-        elif hasattr(self._llm_client, 'acomplete'):
-            response = await self._llm_client.acomplete(prompt)
-            return response.text if hasattr(response, 'text') else str(response)
-        else:
-            raise ValueError("Unsupported LLM client interface")
+        from ..llm_utils import call_llm
+        result = await call_llm(self._llm_client, prompt)
+        if result is None:
+            raise ValueError("LLM call failed")
+        return result
     
     def update_task_status(
         self,

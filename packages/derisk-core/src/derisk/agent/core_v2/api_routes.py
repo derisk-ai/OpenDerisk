@@ -6,15 +6,20 @@
 - 检查点管理
 - 目标管理
 - 执行历史
+- 多模态消息支持
+- 动态资源选择
+- 模型选择
 """
 
-from typing import Dict, Any, List, Optional
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Dict, Any, List, Optional, Union
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 import logging
 import json
 import asyncio
+import uuid
+import time
 
 from ..agent_harness import (
     Checkpoint, CheckpointType, ExecutionSnapshot, ExecutionState,
@@ -61,6 +66,28 @@ def init_executor(api_key: str, model: str = "gpt-4"):
 
 # ========== 请求/响应模型 ==========
 
+class WorkMode:
+    SIMPLE = "simple"
+    QUICK = "quick"
+    BACKGROUND = "background"
+    ASYNC = "async"
+
+
+class ChatInParamValue(BaseModel):
+    param_type: str = Field(
+        ...,
+        description="The param type of app chat in.",
+    )
+    sub_type: Optional[str] = Field(
+        None,
+        description="The sub type of chat in param.",
+    )
+    param_value: str = Field(
+        ...,
+        description="The chat in param value"
+    )
+
+
 class CreateSessionRequest(BaseModel):
     user_id: Optional[str] = None
     agent_name: str = "default"
@@ -68,8 +95,37 @@ class CreateSessionRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
-    session_id: Optional[str] = None
+    model_config = ConfigDict(protected_namespaces=())
+
+    conv_uid: str = Field(default="", description="conversation uid")
+    app_code: Optional[str] = Field(None, description="app code")
+    app_config_code: Optional[str] = Field(None, description="app config code")
+    user_input: Union[str, Dict[str, Any], List[Any]] = Field(
+        default="", description="User input messages, supports multimodal content."
+    )
+    messages: Optional[List[Dict[str, Any]]] = Field(
+        None, description="OpenAI compatible messages list"
+    )
+    user_name: Optional[str] = Field(None, description="user name")
+    team_mode: Optional[str] = Field(default="", description="team mode")
+    chat_in_params: Optional[List[ChatInParamValue]] = Field(
+        None, description="chat in param values for dynamic resources"
+    )
+    select_param: Optional[Any] = Field(
+        None, description="chat scene select param for dynamic resources"
+    )
+    model_name: Optional[str] = Field(None, description="llm model name")
+    temperature: Optional[float] = Field(default=0.5, description="temperature")
+    max_new_tokens: Optional[int] = Field(default=640000, description="max new tokens")
+    incremental: bool = Field(default=False, description="incremental output")
+    sys_code: Optional[str] = Field(None, description="System code")
+    prompt_code: Optional[str] = Field(None, description="prompt code")
+    ext_info: Dict[str, Any] = Field(default_factory=dict, description="extra info")
+    work_mode: Optional[str] = Field(
+        default=WorkMode.SIMPLE, description="Work mode: simple, quick, background, async"
+    )
+    stream: bool = Field(default=True, description="Whether return stream")
+    session_id: Optional[str] = Field(None, description="session id (for v2 compatibility)")
 
 
 class CreateGoalRequest(BaseModel):
@@ -145,21 +201,220 @@ async def close_session(session_id: str):
 # ========== 聊天 ==========
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
-    """聊天"""
+async def chat(
+    background_tasks: BackgroundTasks,
+    req: ChatRequest,
+):
+    """
+    聊天接口 - 支持多模态、模型选择、动态资源
+    
+    功能:
+    - 多模态消息: 通过 user_input 或 messages 传入图片、音频等内容
+    - 模型选择: 通过 model_name 指定模型
+    - 动态资源: 通过 select_param 和 chat_in_params 选择资源
+    - 工作模式: simple/quick/background/async
+    """
+    logger.info(
+        f"chat:{req.team_mode},{req.select_param},"
+        f"{req.model_name}, work_mode={req.work_mode}, timestamp={int(time.time() * 1000)}"
+    )
+    
+    if not req.conv_uid:
+        req.conv_uid = uuid.uuid1().hex
+
+    if not req.user_input and req.messages:
+        try:
+            last_message = next(
+                (
+                    msg
+                    for msg in reversed(req.messages)
+                    if msg.get("role") == "user"
+                ),
+                None,
+            )
+            if last_message:
+                req.user_input = last_message.get("content", "")
+                logger.info(f"Extracted user_input from messages: {req.user_input}")
+        except Exception as e:
+            logger.warning(f"Failed to extract user_input from messages: {e}")
+
+    req.ext_info = req.ext_info or {}
+    req.ext_info.update({"trace_id": req.ext_info.get("trace_id") or uuid.uuid4().hex})
+    req.ext_info.update({"rpc_id": "0.1"})
+
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked",
+    }
+    
     try:
-        execution_id = await get_executor().execute(
-            task=req.message,
-            metadata={"session_id": req.session_id}
-        )
-        
-        return {
-            "success": True,
-            "execution_id": execution_id
-        }
+        req.ext_info.update({"model_name": req.model_name})
+        req.ext_info.update({"incremental": req.incremental})
+        req.ext_info.update({"temperature": req.temperature})
+        req.ext_info.update({"max_new_tokens": req.max_new_tokens})
+
+        try:
+            from derisk.core import HumanMessage
+            from derisk.core.schema.types import ChatCompletionUserMessageParam
+            user_msg = req.user_input
+            if isinstance(user_msg, str):
+                in_message = HumanMessage.parse_chat_completion_message(
+                    user_msg, ignore_unknown_media=True
+                )
+            elif isinstance(user_msg, dict):
+                user_msg.setdefault("role", "user")
+                in_message = HumanMessage.parse_chat_completion_message(
+                    ChatCompletionUserMessageParam(**user_msg), ignore_unknown_media=True
+                )
+            else:
+                in_message = str(user_msg)
+        except ImportError:
+            in_message = req.user_input if isinstance(req.user_input, str) else str(req.user_input)
+
+        work_mode = req.work_mode or WorkMode.SIMPLE
+
+        if work_mode == WorkMode.QUICK:
+            async def chat_wrapper_quick():
+                try:
+                    from derisk_serve.agent.agents.controller import multi_agents
+                    async for chunk, agent_conv_id in multi_agents.quick_app_chat(
+                        conv_session_id=req.conv_uid,
+                        user_query=in_message,
+                        chat_in_params=req.chat_in_params,
+                        app_code=req.app_code,
+                        user_code=req.user_name,
+                        sys_code=req.sys_code,
+                        **req.ext_info,
+                    ):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"[API] quick_app_chat error: {e}")
+                    yield f"data:{{'error': '{str(e)}'}}\n\n"
+
+            if req.stream:
+                return StreamingResponse(
+                    chat_wrapper_quick(),
+                    headers=headers,
+                    media_type="text/event-stream",
+                )
+            else:
+                result_chunks = []
+                async for chunk in chat_wrapper_quick():
+                    result_chunks.append(chunk)
+                return {"success": True, "content": "".join(result_chunks)}
+
+        elif work_mode == WorkMode.BACKGROUND:
+            async def chat_wrapper_background():
+                try:
+                    from derisk_serve.agent.agents.controller import multi_agents
+                    async for chunk, agent_conv_id in multi_agents.app_chat_v2(
+                        conv_uid=req.conv_uid,
+                        background_tasks=background_tasks,
+                        gpts_name=req.app_code,
+                        specify_config_code=req.app_config_code,
+                        user_query=in_message,
+                        user_code=req.user_name,
+                        sys_code=req.sys_code,
+                        chat_in_params=req.chat_in_params,
+                        **req.ext_info,
+                    ):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"[API] app_chat_v2 error: {e}")
+                    yield f"data:{{'error': '{str(e)}'}}\n\n"
+
+            return StreamingResponse(
+                chat_wrapper_background(),
+                headers=headers,
+                media_type="text/event-stream",
+            )
+
+        elif work_mode == WorkMode.ASYNC:
+            try:
+                from derisk_serve.agent.agents.controller import multi_agents
+                result = await multi_agents.app_chat_v3(
+                    conv_uid=req.conv_uid,
+                    background_tasks=background_tasks,
+                    gpts_name=req.app_code,
+                    specify_config_code=req.app_config_code,
+                    user_query=in_message,
+                    user_code=req.user_name,
+                    sys_code=req.sys_code,
+                    chat_in_params=req.chat_in_params,
+                    **req.ext_info,
+                )
+                agent_conv_id = result[1] if result else None
+                return {"success": True, "data": {"conv_id": agent_conv_id}}
+            except Exception as e:
+                logger.error(f"[API] app_chat_v3 error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        else:
+            try:
+                from derisk_serve.agent.agents.controller import multi_agents
+                async def chat_wrapper_simple():
+                    async for chunk, agent_conv_id in multi_agents.app_chat(
+                        conv_uid=req.conv_uid,
+                        gpts_name=req.app_code,
+                        specify_config_code=req.app_config_code,
+                        user_query=in_message,
+                        user_code=req.user_name,
+                        sys_code=req.sys_code,
+                        chat_in_params=req.chat_in_params,
+                        **req.ext_info,
+                    ):
+                        yield chunk
+
+                if req.stream:
+                    return StreamingResponse(
+                        chat_wrapper_simple(),
+                        headers=headers,
+                        media_type="text/event-stream",
+                    )
+                else:
+                    result_chunks = []
+                    async for chunk in chat_wrapper_simple():
+                        result_chunks.append(chunk)
+                    return {"success": True, "content": "".join(result_chunks)}
+            except Exception as e:
+                logger.error(f"[API] multi_agents not available, using fallback: {e}")
+                
+                if req.stream:
+                    async def fallback_wrapper():
+                        execution_id = await get_executor().execute(
+                            task=str(in_message),
+                            metadata={"session_id": req.session_id, "conv_uid": req.conv_uid}
+                        )
+                        yield f"data:{{'execution_id': '{execution_id}'}}\n\n"
+                    
+                    return StreamingResponse(
+                        fallback_wrapper(),
+                        headers=headers,
+                        media_type="text/event-stream",
+                    )
+                else:
+                    execution_id = await get_executor().execute(
+                        task=str(in_message),
+                        metadata={"session_id": req.session_id, "conv_uid": req.conv_uid}
+                    )
+                    return {"success": True, "execution_id": execution_id}
+
     except Exception as e:
-        logger.error(f"[API] 聊天失败: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Chat Exception! {e}")
+
+        async def error_text(err_msg):
+            yield f"data:{err_msg}\n\n"
+
+        if req.stream:
+            return StreamingResponse(
+                error_text(str(e)),
+                headers=headers,
+                media_type="text/plain",
+            )
+        else:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/input/submit", response_model=UserInputResponse)

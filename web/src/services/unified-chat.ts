@@ -13,6 +13,14 @@ export interface ChatConfig {
   agent_version?: AgentVersion;
   conv_uid?: string;
   user_input: string;
+  model_name?: string;
+  select_param?: any;
+  chat_in_params?: Array<{ param_type: string; sub_type?: string; param_value: string }>;
+  temperature?: number;
+  max_new_tokens?: number;
+  work_mode?: 'simple' | 'quick' | 'background' | 'async';
+  messages?: Array<{ role: string; content: any }>;
+  ext_info?: Record<string, any>;
   [key: string]: any;
 }
 
@@ -46,10 +54,33 @@ async function chatV1(config: ChatConfig, callbacks: any, controller: AbortContr
 
 // V2 Chat
 async function chatV2(config: ChatConfig, callbacks: any, controller: AbortController) {
+  const requestBody: Record<string, any> = {
+    user_input: config.user_input,
+    conv_uid: config.conv_uid,
+    session_id: config.conv_uid,
+    app_code: config.app_code,
+    model_name: config.model_name,
+    select_param: config.select_param,
+    chat_in_params: config.chat_in_params,
+    temperature: config.temperature,
+    max_new_tokens: config.max_new_tokens,
+    work_mode: config.work_mode || 'simple',
+    stream: true,
+    ext_info: config.ext_info || {},
+    user_id: getUserId(),
+  };
+
+  if (config.messages) {
+    requestBody.messages = config.messages;
+  }
+
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/api/v2/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: config.user_input, session_id: config.conv_uid, agent_name: config.app_code }),
+    headers: {
+      'Content-Type': 'application/json',
+      [HEADER_USER_ID_KEY]: getUserId() ?? '',
+    },
+    body: JSON.stringify(requestBody),
     signal: controller.signal,
   });
   const reader = res.body?.getReader();

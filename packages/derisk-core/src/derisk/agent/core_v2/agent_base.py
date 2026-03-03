@@ -15,6 +15,13 @@ from datetime import datetime
 
 from .agent_info import AgentInfo, PermissionAction
 from .permission import PermissionChecker, PermissionResponse, PermissionDeniedError
+from .memory_factory import create_agent_memory
+from .unified_memory.base import UnifiedMemoryInterface, MemoryType
+
+# Import GptsMemory for type hints
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory
 
 if TYPE_CHECKING:
     from .subagent_manager import SubagentManager, SubagentResult
@@ -100,7 +107,24 @@ class AgentBase(ABC):
                 return await self.execute_tool(tool_name, args)
     """
 
-    def __init__(self, info: AgentInfo):
+    def __init__(
+        self,
+        info: AgentInfo,
+        memory: Optional[UnifiedMemoryInterface] = None,
+        use_persistent_memory: bool = False,
+        gpts_memory: Optional["GptsMemory"] = None,
+        conv_id: Optional[str] = None,
+    ):
+        """
+        初始化 Agent
+
+        Args:
+            info: Agent 配置信息
+            memory: 统一记忆接口实例 (可选，如果提供则优先使用)
+            use_persistent_memory: 是否使用持久化记忆
+            gpts_memory: GptsMemory 实例 (Core V1 的记忆管理器，用于统一后端)
+            conv_id: 会话 ID (用于 GptsMemory 后端)
+        """
         self.info = info
         self._state = AgentState.IDLE
         self._context: Optional[AgentContext] = None
@@ -109,6 +133,29 @@ class AgentBase(ABC):
         self._current_step = 0
         self._subagent_manager: Optional["SubagentManager"] = None
         self._session_id: Optional[str] = None
+
+        # 存储 GptsMemory 引用以便后续使用
+        self._gpts_memory = gpts_memory
+        self._conv_id = conv_id
+
+        # 初始化统一记忆
+        if memory is not None:
+            # 使用传入的 memory 实例
+            self._memory = memory
+        elif gpts_memory is not None:
+            # 使用 GptsMemory 后端创建适配器
+            from .memory_factory import MemoryFactory
+            self._memory = MemoryFactory.create_with_gpts(
+                gpts_memory=gpts_memory,
+                conv_id=conv_id or self._session_id or "",
+                session_id=self._session_id,
+            )
+        else:
+            # 延迟创建，等待 session_id 设置
+            self._memory = None
+
+        self._use_persistent_memory = use_persistent_memory
+        self._memory_initialized = False
 
     @property
     def state(self) -> AgentState:
@@ -124,6 +171,27 @@ class AgentBase(ABC):
     def messages(self) -> List[AgentMessage]:
         """获取消息历史"""
         return self._messages.copy()
+    
+    @property
+    def memory(self) -> UnifiedMemoryInterface:
+        """获取统一记忆管理器"""
+        if self._memory is None:
+            # 如果设置了 GptsMemory，使用适配器
+            if self._gpts_memory is not None:
+                from .memory_factory import MemoryFactory
+                self._memory = MemoryFactory.create_with_gpts(
+                    gpts_memory=self._gpts_memory,
+                    conv_id=self._conv_id or self._session_id or "",
+                    session_id=self._session_id,
+                )
+            else:
+                # 否则创建新的记忆管理器
+                self._memory = create_agent_memory(
+                    agent_name=self.info.name,
+                    session_id=self._session_id,
+                    use_persistent=self._use_persistent_memory,
+                )
+        return self._memory
 
     def set_state(self, state: AgentState):
         """设置状态"""
@@ -134,6 +202,95 @@ class AgentBase(ABC):
         self._messages.append(
             AgentMessage(role=role, content=content, metadata=metadata or {})
         )
+    
+    async def save_memory(
+        self,
+        content: str,
+        memory_type: MemoryType = MemoryType.WORKING,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        保存记忆到统一记忆管理器
+        
+        Args:
+            content: 记忆内容
+            memory_type: 记忆类型
+            metadata: 元数据
+            
+        Returns:
+            记忆ID
+        """
+        return await self.memory.write(
+            content=content,
+            memory_type=memory_type,
+            metadata=metadata,
+        )
+    
+    async def load_memory(
+        self,
+        query: str = "",
+        memory_types: Optional[List[MemoryType]] = None,
+        top_k: int = 10,
+    ) -> List[AgentMessage]:
+        """
+        从统一记忆管理器加载记忆
+        
+        Args:
+            query: 查询字符串
+            memory_types: 记忆类型列表
+            top_k: 返回数量
+            
+        Returns:
+            消息列表
+        """
+        from .unified_memory.base import SearchOptions
+        
+        options = SearchOptions(
+            top_k=top_k,
+            memory_types=memory_types,
+        )
+        
+        items = await self.memory.read(query, options)
+        
+        messages = []
+        for item in items:
+            messages.append(AgentMessage(
+                role="assistant",
+                content=item.content,
+                metadata={
+                    "memory_id": item.id,
+                    "memory_type": item.memory_type.value,
+                    "importance": item.importance,
+                    "created_at": item.created_at.isoformat(),
+                    **item.metadata,
+                },
+            ))
+        
+        return messages
+    
+    async def get_conversation_history(self, max_messages: int = 50) -> List[AgentMessage]:
+        """
+        获取对话历史（包含持久化记忆）
+        
+        Args:
+            max_messages: 最大消息数
+            
+        Returns:
+            对话历史
+        """
+        messages = list(self._messages)
+        
+        memory_messages = await self.load_memory(
+            query="",
+            memory_types=[MemoryType.WORKING, MemoryType.EPISODIC],
+            top_k=max_messages - len(messages),
+        )
+        
+        messages.extend(memory_messages)
+        
+        messages.sort(key=lambda m: m.metadata.get("created_at", ""))
+        
+        return messages[:max_messages]
 
     async def initialize(self, context: AgentContext):
         """
@@ -146,6 +303,11 @@ class AgentBase(ABC):
         self._context.start_time = datetime.now()
         self._current_step = 0
         self.set_state(AgentState.IDLE)
+        
+        if not self._memory_initialized:
+            if hasattr(self.memory, 'initialize'):
+                await self.memory.initialize()
+            self._memory_initialized = True
 
     # ========== 核心抽象方法 ==========
 
@@ -291,14 +453,49 @@ class AgentBase(ABC):
     def set_session_id(self, session_id: str) -> "AgentBase":
         """
         设置会话ID
-        
+
         Args:
             session_id: 会话ID
-            
+
         Returns:
             self: 支持链式调用
         """
         self._session_id = session_id
+
+        # 如果使用 GptsMemory 且没有 conv_id，使用 session_id 作为 conv_id
+        if self._gpts_memory is not None and not self._conv_id:
+            self._conv_id = session_id
+
+        return self
+
+    def set_gpts_memory(
+        self,
+        gpts_memory: "GptsMemory",
+        conv_id: Optional[str] = None,
+    ) -> "AgentBase":
+        """
+        设置 GptsMemory 后端
+
+        Args:
+            gpts_memory: GptsMemory 实例
+            conv_id: 会话 ID
+
+        Returns:
+            self: 支持链式调用
+        """
+        self._gpts_memory = gpts_memory
+        self._conv_id = conv_id or self._session_id
+
+        # 重新创建记忆适配器
+        if self._gpts_memory is not None:
+            from .memory_factory import MemoryFactory
+            self._memory = MemoryFactory.create_with_gpts(
+                gpts_memory=self._gpts_memory,
+                conv_id=self._conv_id or "",
+                session_id=self._session_id,
+            )
+            self._memory_initialized = False
+
         return self
     
     async def delegate_to_subagent(
@@ -371,35 +568,42 @@ class AgentBase(ABC):
         Yields:
             str: 响应片段
         """
-        # 添加用户消息到历史
         self.add_message("user", message)
+        
+        await self.save_memory(
+            content=f"User: {message}",
+            memory_type=MemoryType.WORKING,
+            metadata={"role": "user"},
+        )
 
-        # 重置步数计数
         self._current_step = 0
 
         while self._current_step < self.info.max_steps:
             try:
-                # 1. 思考阶段
                 self.set_state(AgentState.THINKING)
 
                 if stream:
                     async for chunk in self.think(message, **kwargs):
                         yield f"[THINKING] {chunk}"
 
-                # 2. 决策阶段
                 decision = await self.decide(message, **kwargs)
 
                 decision_type = decision.get("type")
 
                 if decision_type == "response":
-                    # 直接响应
                     content = decision.get("content", "")
                     self.add_message("assistant", content)
+                    
+                    await self.save_memory(
+                        content=f"Assistant: {content}",
+                        memory_type=MemoryType.WORKING,
+                        metadata={"role": "assistant"},
+                    )
+                    
                     yield content
                     break
 
                 elif decision_type == "tool_call":
-                    # 执行工具
                     tool_name = decision.get("tool_name")
                     tool_args = decision.get("tool_args", {})
 
@@ -411,7 +615,6 @@ class AgentBase(ABC):
                         yield f"[ERROR] {message}"
 
                 elif decision_type == "subagent":
-                    # 委派给子Agent
                     subagent = decision.get("subagent")
                     task = decision.get("task")
                     
@@ -427,12 +630,10 @@ class AgentBase(ABC):
                         yield f"[ERROR] {message}"
 
                 elif decision_type == "terminate":
-                    # 终止执行
                     yield "[TERMINATE] 执行已完成"
                     break
 
                 else:
-                    # 未知决策类型
                     yield f"[ERROR] 未知的决策类型: {decision_type}"
                     break
 
@@ -441,7 +642,6 @@ class AgentBase(ABC):
                 yield f"[ERROR] 执行出错: {str(e)}"
                 break
 
-        # 检查是否超步数
         if self._current_step >= self.info.max_steps:
             yield f"[WARNING] 达到最大步数限制({self.info.max_steps})"
 

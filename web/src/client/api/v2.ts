@@ -98,11 +98,26 @@ export function createV2ChatStream(
         const lines = text.split('\n').filter(Boolean);
 
         for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          
+          const jsonStr = line.slice(6); // 去掉 'data: ' 前缀
           try {
-            const chunk = JSON.parse(line);
+            const data = JSON.parse(jsonStr);
+            
+            if (data.vis === '[DONE]') {
+              callbacks.onDone();
+              return;
+            }
+            
+            const chunk: V2StreamChunk = {
+              type: 'response',
+              content: data.vis || '',
+              metadata: {},
+              is_final: false,
+            };
             callbacks.onMessage(chunk);
           } catch (e) {
-            // 忽略解析错误
+            console.error('SSE parse error:', e, 'line:', line);
           }
         }
       }

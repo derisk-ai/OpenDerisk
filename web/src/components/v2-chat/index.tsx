@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useRef, useEffect, useState } from 'react';
-import { Input, Button, Spin, Empty, Typography, Tag, Card, Space } from 'antd';
+import { Input, Button, Spin, Empty, Typography, Tag, Card, Space, Alert } from 'antd';
 import {
   SendOutlined,
   StopOutlined,
@@ -10,6 +10,7 @@ import {
   ToolOutlined,
   BulbOutlined,
   ExclamationCircleOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { useV2Chat } from '@/hooks/use-v2-chat';
 import type { V2StreamChunk } from '@/types/v2';
@@ -54,13 +55,29 @@ const ChunkRenderer: React.FC<{ chunk: V2StreamChunk }> = ({ chunk }) => {
       );
     case 'error':
       return (
-        <Card size="small" style={{ marginBottom: 8, backgroundColor: '#fff1f0', borderColor: '#ffa39e' }}>
-          <Space>
-            <ExclamationCircleOutlined style={{ color: '#f5222d' }} />
-            <Text type="danger">Error</Text>
-          </Space>
-          <Paragraph style={{ marginTop: 8, marginBottom: 0, color: '#f5222d' }}>{chunk.content}</Paragraph>
-        </Card>
+        <Alert
+          type="error"
+          showIcon
+          closable
+          icon={<ExclamationCircleOutlined />}
+          message="Error"
+          description={chunk.content}
+          style={{ marginBottom: 8, borderRadius: 6 }}
+          className="shadow-sm"
+        />
+      );
+    case 'warning':
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          icon={<WarningOutlined />}
+          message="Warning"
+          description={chunk.content}
+          style={{ marginBottom: 8, borderRadius: 6 }}
+          className="shadow-sm"
+        />
       );
     default:
       return null;

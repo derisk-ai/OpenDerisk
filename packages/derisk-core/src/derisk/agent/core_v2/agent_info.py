@@ -102,6 +102,16 @@ class PermissionRuleset(BaseModel):
             rules.append(PermissionRule(pattern=pattern, action=action))
         return cls(rules=rules)
 
+    @classmethod
+    def default(cls) -> "PermissionRuleset":
+        """创建默认权限规则集（允许所有操作）"""
+        return cls(
+            rules=[
+                PermissionRule(pattern="*", action=PermissionAction.ALLOW),
+            ],
+            default_action=PermissionAction.ALLOW,
+        )
+
 
 class AgentInfo(BaseModel):
     """

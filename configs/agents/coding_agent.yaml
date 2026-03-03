@@ -1,0 +1,37 @@
+# 编程Agent配置示例
+
+agent:
+  type: "coding"
+  name: "coding-agent"
+  description: "编程开发Agent"
+  
+  model: "gpt-4"
+  api_key: "${OPENAI_API_KEY}"
+  
+  options:
+    max_steps: 30
+    workspace_path: "./"
+    enable_auto_exploration: true
+    enable_code_quality_check: true
+    
+    code_style_rules:
+      - "Use consistent indentation (4 spaces for Python)"
+      - "Follow PEP 8 for Python code"
+      - "Use meaningful variable and function names"
+      - "Add docstrings for public functions"
+      - "Keep functions under 50 lines"
+      - "Avoid deep nesting"
+
+tools:
+  default:
+    - read
+    - write
+    - bash
+    - grep
+    - glob
+    - think
+  
+  custom: []
+
+# 使用示例
+# agent = create_agent_from_config("configs/agents/coding_agent.yaml")

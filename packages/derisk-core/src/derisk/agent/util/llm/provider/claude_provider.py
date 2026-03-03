@@ -76,6 +76,18 @@ class ClaudeProvider(LLMProvider):
         """Generate a response from the model."""
         try:
             params = self._prepare_request(request)
+            
+            log_params = {
+                "model": params.get("model"),
+                "messages": params.get("messages"),
+                "max_tokens": params.get("max_tokens"),
+                "temperature": params.get("temperature"),
+                "system": params.get("system"),
+                "tools": request.tools,
+                "tool_choice": request.tool_choice,
+            }
+            logger.info(f"ClaudeProvider generate request: {json.dumps(log_params, ensure_ascii=False)}")
+            
             response = await self.client.messages.create(**params)
             
             content_text = ""
@@ -85,8 +97,6 @@ class ClaudeProvider(LLMProvider):
                 if content_block.type == "text":
                     content_text += content_block.text
                 elif content_block.type == "tool_use":
-                    # Convert Anthropic tool use to generic format if needed
-                    # For now just treating it as structure, but strictly ModelOutput expects list of dicts or objects
                     tool_calls.append({
                         "id": content_block.id,
                         "type": "function",
@@ -95,14 +105,23 @@ class ClaudeProvider(LLMProvider):
                             "arguments": json.dumps(content_block.input)
                         }
                     })
-                    # Note: Anthropic input is already a dict. OpenAI is string. 
-                    # If downstream expects string JSON, we might need json.dumps(content_block.input)
+
+            log_response = {
+                "stop_reason": response.stop_reason,
+                "content": content_text,
+                "tool_calls": tool_calls,
+                "usage": {
+                    "prompt_tokens": response.usage.input_tokens,
+                    "completion_tokens": response.usage.output_tokens,
+                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens
+                }
+            }
+            logger.info(f"ClaudeProvider generate response: {json.dumps(log_response, ensure_ascii=False)}")
 
             return ModelOutput(
                 error_code=0,
                 text=content_text,
-                # Simple tool support for now
-                # tool_calls=tool_calls if tool_calls else None, 
+                tool_calls=tool_calls if tool_calls else None,
                 finish_reason=response.stop_reason,
                 usage={
                     "prompt_tokens": response.usage.input_tokens,
@@ -120,17 +139,50 @@ class ClaudeProvider(LLMProvider):
             params = self._prepare_request(request)
             params["stream"] = True
 
+            log_params = {
+                "model": params.get("model"),
+                "messages": params.get("messages"),
+                "max_tokens": params.get("max_tokens"),
+                "temperature": params.get("temperature"),
+                "system": params.get("system"),
+                "tools": request.tools,
+                "tool_choice": request.tool_choice,
+                "stream": True,
+            }
+            logger.info(f"ClaudeProvider generate_stream request: {json.dumps(log_params, ensure_ascii=False)}")
+
+            accumulated_content = ""
+            accumulated_tool_calls = []
+            
             async with self.client.messages.stream(**params) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                        accumulated_content += event.delta.text
                         yield ModelOutput(
                             error_code=0,
                             text=event.delta.text,
                             incremental=True
                         )
+                    elif event.type == "content_block_start":
+                        if hasattr(event, "content_block") and event.content_block.type == "tool_use":
+                            accumulated_tool_calls.append({
+                                "id": event.content_block.id,
+                                "type": "function",
+                                "function": {
+                                    "name": event.content_block.name,
+                                    "arguments": ""
+                                }
+                            })
+                    elif event.type == "content_block_delta" and hasattr(event.delta, "type") and event.delta.type == "input_json_delta":
+                        if accumulated_tool_calls:
+                            last_tool = accumulated_tool_calls[-1]
+                            last_tool["function"]["arguments"] += event.delta.partial_json
                     elif event.type == "message_stop":
-                        # Final event
-                        pass
+                        log_response = {
+                            "content": accumulated_content,
+                            "tool_calls": accumulated_tool_calls,
+                        }
+                        logger.info(f"ClaudeProvider generate_stream response: {json.dumps(log_response, ensure_ascii=False)}")
 
         except Exception as e:
             logger.exception(f"Claude stream error: {e}")

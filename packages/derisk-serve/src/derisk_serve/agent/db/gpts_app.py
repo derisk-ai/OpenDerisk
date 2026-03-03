@@ -242,7 +242,7 @@ class GptsAppDao(BaseDao):
             "team_mode": app_info.team_mode,
             "config_code": app_info.config_code,
             "team_context": _load_team_context(
-                app_info.team_mode, app_info.team_context
+                app_info.team_mode, app_info.team_context, getattr(app_info, 'agent_version', 'v1')
             ),
             "user_code": app_info.user_code,
             "icon": app_info.icon,
@@ -543,13 +543,30 @@ def _parse_team_context(
 
 
 def _load_team_context(
-        team_mode: str = None, team_context: str = None
+        team_mode: str = None, team_context: str = None, agent_version: str = None
 ) -> Union[
     str, SingleAgentContext, AutoTeamContext
 ]:
     """
     load team_context to str or AWELTeamContext
     """
+    actual_version = agent_version or 'v1'
+    is_v2 = actual_version == 'v2'
+    
+    if is_v2:
+        try:
+            if team_context:
+                from derisk.agent.core.plan.unified_context import UnifiedTeamContext
+                return UnifiedTeamContext(**json.loads(team_context))
+            else:
+                return None
+        except Exception as ex:
+            logger.warning(
+                f"_load_team_context error for v2, agent_version={agent_version}, "
+                f"team_context={team_context}, {ex}"
+            )
+            return None
+    
     if team_mode is not None:
         match team_mode:
             case TeamMode.SINGLE_AGENT.value:

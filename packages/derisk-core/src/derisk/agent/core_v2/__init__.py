@@ -309,6 +309,15 @@ from .llm_adapter import (
     llm_factory,
 )
 
+from .production_agent import (
+    ProductionAgent,
+    AgentBuilder,
+)
+from .production_interaction import (
+    ProductionAgentInteractionMixin,
+    ProductionAgentWithInteraction,
+)
+
 from .task_scene import (
     TaskScene,
     TruncationStrategy,
@@ -655,6 +664,10 @@ __all__ = [
     "AnthropicAdapter",
     "LLMFactory",
     "llm_factory",
+    "ProductionAgent",
+    "AgentBuilder",
+    "ProductionAgentInteractionMixin",
+    "ProductionAgentWithInteraction",
     "TaskScene",
     "TruncationStrategy",
     "DedupStrategy",
@@ -804,6 +817,53 @@ __all__ = [
     "SubagentRegistry",
     "SubagentManager",
     "subagent_manager",
+    "ClaudeCodeCompatibleMemory",
+    "GptsMemoryAdapter",
+    "MessageConverter",
+    "gpts_to_agent",
+    "agent_to_gpts",
+    # Improved Session Compaction
+    "CompactionTrigger",
+    "ContentProtector",
+    "ProtectedContent",
+    "KeyInfoExtractor",
+    "KeyInfo",
+    "ImprovedSessionCompaction",
+    "ImprovedCompactionConfig",
+    "ImprovedSessionCompactionAlias",
+    # Enhanced Agent Module
+    "DecisionType",
+    "Decision",
+    "ActionResult",
+    "EnhancedAgentInfo",
+    "EnhancedPermissionChecker",
+    "EnhancedToolRegistry",
+    "EnhancedSubagentSession",
+    "EnhancedSubagentResult",
+    "EnhancedSubagentManager",
+    "EnhancedTaskStatus",
+    "EnhancedTask",
+    "TaskList",
+    "TeamManager",
+    "AutoCompactionManager",
+    "EnhancedAgentBase",
+    "EnhancedProductionAgent",
+    # Agent Decorators
+    "agent",
+    "think",
+    "decide",
+    "act",
+    "tool",
+    "AgentRegistry",
+    "register_all_decorated",
+    "AgentDefinition",
+    # MCP Integration
+    "MCPToolConfig",
+    "MCPServerConfig",
+    "MCPToolAdapter",
+    "MCPToolRegistry",
+    "MCPEnabledAgent",
+    "create_mcp_agent",
 ]
 
 # Enhanced Interaction System
@@ -878,4 +938,52 @@ from .subagent_manager import (
     SubagentRegistry,
     SubagentManager,
     subagent_manager,
+)
+
+# Unified Memory Framework
+from .unified_memory import (
+    MemoryItem,
+    MemoryType,
+    SearchOptions,
+    UnifiedMemoryInterface,
+    MemoryConsolidationResult,
+    FileBackedStorage,
+    UnifiedMemoryManager,
+    ClaudeCodeCompatibleMemory,
+    GptsMemoryAdapter,
+    MessageConverter,
+    gpts_to_agent,
+    agent_to_gpts,
+)
+
+# Improved Session Compaction
+from .improved_compaction import (
+    CompactionTrigger,
+    ContentProtector,
+    ProtectedContent,
+    KeyInfoExtractor,
+    KeyInfo,
+    ImprovedSessionCompaction,
+    CompactionConfig as ImprovedCompactionConfig,
+    SessionCompaction as ImprovedSessionCompactionAlias,
+)
+
+# Enhanced Agent Module
+from .enhanced_agent import (
+    DecisionType,
+    Decision,
+    ActionResult,
+    AgentInfo as EnhancedAgentInfo,
+    PermissionChecker as EnhancedPermissionChecker,
+    ToolRegistry as EnhancedToolRegistry,
+    SubagentSession as EnhancedSubagentSession,
+    SubagentResult as EnhancedSubagentResult,
+    SubagentManager as EnhancedSubagentManager,
+    TaskStatus as EnhancedTaskStatus,
+    Task as EnhancedTask,
+    TaskList,
+    TeamManager,
+    AutoCompactionManager,
+    AgentBase as EnhancedAgentBase,
+    ProductionAgent as EnhancedProductionAgent,
 )

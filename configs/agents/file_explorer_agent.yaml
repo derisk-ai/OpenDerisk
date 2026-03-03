@@ -1,0 +1,28 @@
+# 文件探索Agent配置示例
+
+agent:
+  type: "file_explorer"
+  name: "file-explorer-agent"
+  description: "文件探索Agent"
+  
+  model: "gpt-4"
+  api_key: "${OPENAI_API_KEY}"
+  
+  options:
+    max_steps: 20
+    project_path: "./"
+    enable_auto_exploration: true
+    max_exploration_depth: 5
+
+tools:
+  default:
+    - glob
+    - grep
+    - read
+    - bash
+    - think
+  
+  custom: []
+
+# 使用示例
+# agent = create_agent_from_config("configs/agents/file_explorer_agent.yaml")
