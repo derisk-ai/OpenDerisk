@@ -13,7 +13,7 @@ import {
 import { useRequest } from 'ahooks';
 import { App, Button, Card, Descriptions, Form, Popconfirm, Space, Switch, Tag, Typography } from 'antd';
 import moment from 'moment';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -22,8 +22,8 @@ const { Title, Text } = Typography;
 export default function EditChannelClient() {
   const { t } = useTranslation();
   const router = useRouter();
-  const params = useParams();
-  const channelId = params?.id as string;
+  const searchParams = useSearchParams();
+  const channelId = searchParams?.get('id') as string;
   const { message, modal } = App.useApp();
   const [form] = Form.useForm();
 
@@ -37,7 +37,7 @@ export default function EditChannelClient() {
       if (err) {
         throw err;
       }
-      return res?.data;
+      return res;
     },
     {
       ready: !!channelId,
@@ -61,7 +61,7 @@ export default function EditChannelClient() {
       if (err) {
         throw err;
       }
-      return res?.data;
+      return res;
     },
     {
       manual: true,
@@ -81,7 +81,7 @@ export default function EditChannelClient() {
       if (err) {
         throw err;
       }
-      return res?.data;
+      return res;
     },
     {
       manual: true,
