@@ -39,6 +39,10 @@ import {
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { configService, toolsService, AppConfig, AgentConfig, ToolInfo } from '@/services/config';
+import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
+import ToolManagementPanel from '@/components/config/ToolManagementPanel';
+import type { AuthorizationConfig } from '@/types/authorization';
+import type { ToolMetadata } from '@/types/tool';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
@@ -54,11 +58,16 @@ export default function ConfigPage() {
   const [currentAgent, setCurrentAgent] = useState<AgentConfig | null>(null);
   const [form] = Form.useForm();
   const [sandboxStatus, setSandboxStatus] = useState<{ docker_available: boolean; recommended: string } | null>(null);
+  const [authorizationConfig, setAuthorizationConfig] = useState<AuthorizationConfig | undefined>(undefined);
+  const [toolMetadata, setToolMetadata] = useState<ToolMetadata[]>([]);
+  const [enabledTools, setEnabledTools] = useState<string[]>([]);
 
   useEffect(() => {
     loadConfig();
     loadTools();
     loadSandboxStatus();
+    loadAuthorizationConfig();
+    loadToolMetadata();
   }, []);
 
   const loadConfig = async () => {
@@ -91,6 +100,59 @@ export default function ConfigPage() {
       setSandboxStatus(status);
     } catch (error) {
       console.error('加载沙箱状态失败', error);
+    }
+  };
+
+  const loadAuthorizationConfig = async () => {
+    try {
+      const data = await configService.getConfig();
+      if (data.authorization) {
+        setAuthorizationConfig(data.authorization);
+      }
+    } catch (error) {
+      console.error('加载授权配置失败', error);
+    }
+  };
+
+  const loadToolMetadata = async () => {
+    try {
+      const data = await toolsService.listTools();
+      const metadata: ToolMetadata[] = data.map((tool: ToolInfo) => ({
+        id: tool.name,
+        name: tool.name,
+        version: '1.0.0',
+        description: tool.description,
+        category: tool.category || 'CODE',
+        authorization: {
+          requires_authorization: tool.requires_permission || false,
+          risk_level: tool.risk || 'LOW',
+          risk_categories: [],
+        },
+        parameters: [],
+        tags: [],
+      }));
+      setToolMetadata(metadata);
+      setEnabledTools(data.map((t: ToolInfo) => t.name));
+    } catch (error) {
+      console.error('加载工具元数据失败', error);
+    }
+  };
+
+  const handleAuthorizationConfigChange = async (newConfig: AuthorizationConfig) => {
+    setAuthorizationConfig(newConfig);
+    try {
+      await configService.importConfig({ ...config, authorization: newConfig });
+      message.success('授权配置已保存');
+    } catch (error: any) {
+      message.error('保存授权配置失败: ' + error.message);
+    }
+  };
+
+  const handleToolToggle = async (toolName: string, enabled: boolean) => {
+    if (enabled) {
+      setEnabledTools([...enabledTools, toolName]);
+    } else {
+      setEnabledTools(enabledTools.filter(t => t !== toolName));
     }
   };
 
@@ -328,17 +390,29 @@ export default function ConfigPage() {
         </TabPane>
 
         <TabPane
+          tab={<span><SafetyOutlined /> 授权配置</span>}
+          key="authorization"
+        >
+          <AgentAuthorizationConfig
+            value={authorizationConfig}
+            onChange={handleAuthorizationConfigChange}
+            availableTools={tools.map(t => t.name)}
+            showAdvanced={true}
+          />
+        </TabPane>
+
+        <TabPane
           tab={<span><ToolOutlined /> 工具管理</span>}
           key="tools"
         >
-          <Card title="可用工具列表">
-            <Table
-              dataSource={tools}
-              columns={toolColumns}
-              rowKey="name"
-              pagination={{ pageSize: 10 }}
-            />
-          </Card>
+          <ToolManagementPanel
+            tools={toolMetadata}
+            enabledTools={enabledTools}
+            onToolToggle={handleToolToggle}
+            allowToggle={true}
+            showDetailModal={true}
+            loading={loading}
+          />
         </TabPane>
       </Tabs>
 

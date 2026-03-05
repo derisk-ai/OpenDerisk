@@ -13,6 +13,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { useV2Chat } from '@/hooks/use-v2-chat';
+import { InteractionHandler } from '@/components/interaction';
 import type { V2StreamChunk } from '@/types/v2';
 
 const { TextArea } = Input;
@@ -145,6 +146,7 @@ export const V2Chat: React.FC<V2ChatProps> = ({ agentName, placeholder = 'Type a
           </div>
         </div>
       </div>
+      <InteractionHandler />
     </div>
   );
 };
