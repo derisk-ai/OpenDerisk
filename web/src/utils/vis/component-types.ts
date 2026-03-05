@@ -178,6 +178,27 @@ export interface VisTodoProps extends VisBaseProps {
 
 export const VisTodoTag = 'vis-todo';
 
+// ============== Status Notification Component ==============
+
+export type VisNotificationLevel = 'info' | 'success' | 'warning' | 'error' | 'progress';
+
+export interface VisStatusNotificationProps extends VisBaseProps {
+  title: string;
+  message: string;
+  level?: VisNotificationLevel;
+  progress?: number;
+  icon?: string;
+  dismissible?: boolean;
+  auto_dismiss?: number;
+  actions?: Array<{
+    label: string;
+    action: string;
+    [key: string]: any;
+  }>;
+}
+
+export const VisStatusNotificationTag = 'd-status-notification';
+
 // ============== Union Types ==============
 
 export type VisComponentTag =
@@ -192,7 +213,8 @@ export type VisComponentTag =
   | typeof VisSelectTag
   | typeof VisDashboardTag
   | typeof VisAttachTag
-  | typeof VisTodoTag;
+  | typeof VisTodoTag
+  | typeof VisStatusNotificationTag;
 
 export type VisComponentProps =
   | VisThinkingProps
@@ -206,7 +228,8 @@ export type VisComponentProps =
   | VisSelectProps
   | VisDashboardProps
   | VisAttachProps
-  | VisTodoProps;
+  | VisTodoProps
+  | VisStatusNotificationProps;
 
 // ============== Component Registry ==============
 
@@ -366,6 +389,13 @@ VisComponentRegistry.register({
   category: 'planning',
   description: 'Todo list display',
   validate: createValidator<VisTodoProps>(VisTodoTag, ['items']),
+});
+
+VisComponentRegistry.register({
+  tag: VisStatusNotificationTag,
+  category: 'notification',
+  description: 'Status notification display for system messages',
+  validate: createValidator<VisStatusNotificationProps>(VisStatusNotificationTag, ['title', 'message']),
 });
 
 export default VisComponentRegistry;

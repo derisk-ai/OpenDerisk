@@ -28,8 +28,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CompactionTemplate:
-    """压缩模板（参考OpenCode的结构化摘要）"""
-    
     CHAPTER_SUMMARY_TEMPLATE = """请为以下任务阶段生成一个结构化的摘要。
 
 ## 阶段信息
@@ -83,7 +81,6 @@ class CompactionTemplate:
 
 @dataclass
 class CompactionResult:
-    """压缩结果"""
     success: bool
     original_tokens: int
     compacted_tokens: int
@@ -94,22 +91,22 @@ class CompactionResult:
 class HierarchicalCompactor:
     """
     分层上下文压缩器
-    
+
     使用LLM进行智能压缩：
     1. 章节级压缩：生成结构化摘要
     2. 节级压缩：保留关键信息
     3. 批量压缩：多个节合并压缩
-    
+
     使用示例:
         compactor = HierarchicalCompactor(llm_client=client)
-        
+
         # 压缩章节
         result = await compactor.compact_chapter(chapter)
-        
+
         # 压缩节
         result = await compactor.compact_section(section)
     """
-    
+
     def __init__(
         self,
         llm_client: Optional[LLMClient] = None,
@@ -121,324 +118,416 @@ class HierarchicalCompactor:
         self.max_summary_tokens = max_summary_tokens
         self.max_section_compact_tokens = max_section_compact_tokens
         self.enable_structured_output = enable_structured_output
-        
+
         self._compaction_history: List[Dict[str, Any]] = []
-    
+
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] INIT | llm_client={'set' if llm_client else 'none'}, "
+            f"max_summary_tokens={max_summary_tokens}, "
+            f"max_section_compact_tokens={max_section_compact_tokens}"
+        )
+
     def set_llm_client(self, llm_client: LLMClient) -> None:
-        """设置LLM客户端"""
         self.llm_client = llm_client
-    
+        logger.info("[Layer3:HierarchicalCompaction] LLM_CLIENT_SET")
+
     async def compact_chapter(
         self,
         chapter: Chapter,
         force: bool = False,
     ) -> CompactionResult:
-        """
-        压缩章节
-        
-        Args:
-            chapter: 要压缩的章节
-            force: 是否强制压缩
-            
-        Returns:
-            压缩结果
-        """
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_START | "
+            f"chapter_id={chapter.chapter_id[:8]}, title={chapter.title}, "
+            f"sections={len(chapter.sections)}, is_compacted={chapter.is_compacted}, force={force}"
+        )
+
         if chapter.is_compacted and not force:
+            logger.info(
+                f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_SKIP | "
+                f"chapter_id={chapter.chapter_id[:8]} | reason=already_compacted"
+            )
             return CompactionResult(
                 success=True,
                 original_tokens=chapter.tokens,
                 compacted_tokens=len(chapter.summary) // 4 if chapter.summary else 0,
                 summary=chapter.summary,
             )
-        
+
         if not self.llm_client:
+            logger.info(
+                f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_SIMPLE | "
+                f"chapter_id={chapter.chapter_id[:8]} | reason=no_llm_client"
+            )
             return self._simple_chapter_summary(chapter)
-        
+
         try:
             sections_overview = self._format_sections_overview(chapter.sections)
-            
+
             prompt = CompactionTemplate.CHAPTER_SUMMARY_TEMPLATE.format(
                 title=chapter.title,
                 phase=chapter.phase.value,
                 section_count=len(chapter.sections),
                 sections_overview=sections_overview,
             )
-            
+
+            logger.debug(
+                f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_LLM_CALL | "
+                f"chapter_id={chapter.chapter_id[:8]} | prompt_length={len(prompt)}"
+            )
+
             summary = await self._call_llm(prompt)
-            
+
             if summary:
                 chapter.summary = summary
                 chapter.is_compacted = True
-                
+
                 original_tokens = chapter.tokens
                 chapter.tokens = len(summary) // 4 + sum(
                     len(s.content) // 4 for s in chapter.sections
                 )
-                
-                self._record_compaction("chapter", chapter.chapter_id, original_tokens, chapter.tokens)
-                
-                logger.info(
-                    f"[HierarchicalCompactor] Compacted chapter {chapter.chapter_id[:8]}: "
-                    f"{original_tokens} -> {chapter.tokens} tokens"
+
+                self._record_compaction(
+                    "chapter", chapter.chapter_id, original_tokens, chapter.tokens
                 )
-                
+
+                compression_ratio = (
+                    chapter.tokens / original_tokens if original_tokens > 0 else 0
+                )
+                logger.info(
+                    f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_COMPLETE | "
+                    f"chapter_id={chapter.chapter_id[:8]} | "
+                    f"original={original_tokens}tokens -> compacted={chapter.tokens}tokens | "
+                    f"compression_ratio={compression_ratio:.1%} | "
+                    f"saved={original_tokens - chapter.tokens}tokens"
+                )
+
                 return CompactionResult(
                     success=True,
                     original_tokens=original_tokens,
                     compacted_tokens=chapter.tokens,
                     summary=summary,
                 )
-            
+
+            logger.warning(
+                f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_FAIL | "
+                f"chapter_id={chapter.chapter_id[:8]} | reason=empty_summary"
+            )
             return CompactionResult(
                 success=False,
                 original_tokens=chapter.tokens,
                 compacted_tokens=chapter.tokens,
                 error="Failed to generate summary",
             )
-            
+
         except Exception as e:
-            logger.error(f"[HierarchicalCompactor] Failed to compact chapter: {e}")
+            logger.error(
+                f"[Layer3:HierarchicalCompaction] COMPACT_CHAPTER_ERROR | "
+                f"chapter_id={chapter.chapter_id[:8]} | error={e}"
+            )
             return CompactionResult(
                 success=False,
                 original_tokens=chapter.tokens,
                 compacted_tokens=chapter.tokens,
                 error=str(e),
             )
-    
+
     async def compact_section(
         self,
         section: Section,
         preserve_critical: bool = True,
     ) -> CompactionResult:
-        """
-        压缩节
-        
-        Args:
-            section: 要压缩的节
-            preserve_critical: 是否保护关键内容
-            
-        Returns:
-            压缩结果
-        """
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_START | "
+            f"section_id={section.section_id[:8]}, step_name={section.step_name}, "
+            f"priority={section.priority.value}, preserve_critical={preserve_critical}"
+        )
+
         if preserve_critical and section.priority == ContentPriority.CRITICAL:
+            logger.info(
+                f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_SKIP | "
+                f"section_id={section.section_id[:8]} | reason=critical_priority"
+            )
             return CompactionResult(
                 success=True,
                 original_tokens=section.tokens,
                 compacted_tokens=section.tokens,
                 summary=section.content,
             )
-        
+
         if not self.llm_client:
+            logger.info(
+                f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_SIMPLE | "
+                f"section_id={section.section_id[:8]} | reason=no_llm_client"
+            )
             return self._simple_section_summary(section)
-        
+
         try:
             prompt = CompactionTemplate.SECTION_COMPACT_TEMPLATE.format(
                 step_name=section.step_name,
                 priority=section.priority.value,
-                content=section.content[:2000],  # 限制输入长度
+                content=section.content[:2000],
             )
-            
-            summary = await self._call_llm(prompt, max_tokens=self.max_section_compact_tokens)
-            
+
+            logger.debug(
+                f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_LLM_CALL | "
+                f"section_id={section.section_id[:8]} | prompt_length={len(prompt)}"
+            )
+
+            summary = await self._call_llm(
+                prompt, max_tokens=self.max_section_compact_tokens
+            )
+
             if summary:
                 original_tokens = section.tokens
                 original_content = section.content
-                
+
                 section.content = summary
                 section.tokens = len(summary) // 4
-                
+
                 if section.metadata is None:
                     section.metadata = {}
                 section.metadata["original_content_preview"] = original_content[:200]
                 section.metadata["was_compacted"] = True
-                
-                self._record_compaction("section", section.section_id, original_tokens, section.tokens)
-                
+
+                self._record_compaction(
+                    "section", section.section_id, original_tokens, section.tokens
+                )
+
+                compression_ratio = (
+                    section.tokens / original_tokens if original_tokens > 0 else 0
+                )
+                logger.info(
+                    f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_COMPLETE | "
+                    f"section_id={section.section_id[:8]} | "
+                    f"original={original_tokens}tokens -> compacted={section.tokens}tokens | "
+                    f"compression_ratio={compression_ratio:.1%} | "
+                    f"saved={original_tokens - section.tokens}tokens"
+                )
+
                 return CompactionResult(
                     success=True,
                     original_tokens=original_tokens,
                     compacted_tokens=section.tokens,
                     summary=summary,
                 )
-            
+
+            logger.warning(
+                f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_FAIL | "
+                f"section_id={section.section_id[:8]} | reason=empty_summary"
+            )
             return CompactionResult(
                 success=False,
                 original_tokens=section.tokens,
                 compacted_tokens=section.tokens,
                 error="Failed to generate summary",
             )
-            
+
         except Exception as e:
-            logger.error(f"[HierarchicalCompactor] Failed to compact section: {e}")
+            logger.error(
+                f"[Layer3:HierarchicalCompaction] COMPACT_SECTION_ERROR | "
+                f"section_id={section.section_id[:8]} | error={e}"
+            )
             return CompactionResult(
                 success=False,
                 original_tokens=section.tokens,
                 compacted_tokens=section.tokens,
                 error=str(e),
             )
-    
+
     async def compact_sections_batch(
         self,
         sections: List[Section],
         merge_threshold: int = 5,
     ) -> List[CompactionResult]:
-        """
-        批量压缩多个节
-        
-        对于大量节，考虑合并压缩以提高效率
-        
-        Args:
-            sections: 要压缩的节列表
-            merge_threshold: 触发合并压缩的阈值
-            
-        Returns:
-            压缩结果列表
-        """
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] COMPACT_BATCH_START | "
+            f"sections={len(sections)}, merge_threshold={merge_threshold}"
+        )
+
         if not sections:
             return []
-        
+
         results = []
-        
-        # 小批量：逐个压缩
+
         if len(sections) < merge_threshold:
+            logger.debug(
+                f"[Layer3:HierarchicalCompaction] COMPACT_BATCH_INDIVIDUAL | "
+                f"count={len(sections)} < threshold={merge_threshold}"
+            )
             for section in sections:
                 result = await self.compact_section(section)
                 results.append(result)
             return results
-        
-        # 大批量：合并压缩
+
         if not self.llm_client:
+            logger.info(
+                "[Layer3:HierarchicalCompaction] COMPACT_BATCH_SIMPLE | reason=no_llm_client"
+            )
             for section in sections:
                 result = self._simple_section_summary(section)
                 results.append(result)
             return results
-        
+
         try:
-            sections_content = "\n\n".join([
-                f"**{s.step_name}** ({s.priority.value}):\n{s.content[:500]}"
-                for s in sections
-            ])
-            
+            sections_content = "\n\n".join(
+                [
+                    f"**{s.step_name}** ({s.priority.value}):\n{s.content[:500]}"
+                    for s in sections
+                ]
+            )
+
             prompt = CompactionTemplate.MULTI_SECTION_COMPACT_TEMPLATE.format(
                 sections_content=sections_content,
             )
-            
-            batch_summary = await self._call_llm(prompt, max_tokens=self.max_summary_tokens)
-            
+
+            logger.debug(
+                f"[Layer3:HierarchicalCompaction] COMPACT_BATCH_LLM_CALL | "
+                f"prompt_length={len(prompt)}"
+            )
+
+            batch_summary = await self._call_llm(
+                prompt, max_tokens=self.max_summary_tokens
+            )
+
             if batch_summary:
                 total_original = sum(s.tokens for s in sections)
                 total_compacted = len(batch_summary) // 4
-                
-                for i, section in enumerate(sections):
+
+                for section in sections:
                     section.content = f"[批量压缩] {batch_summary[:200]}..."
                     section.tokens = len(section.content) // 4
                     if section.metadata is None:
                         section.metadata = {}
                     section.metadata["batch_compacted"] = True
-                
-                self._record_compaction("batch", "multiple", total_original, total_compacted)
-                
-                return [CompactionResult(
-                    success=True,
-                    original_tokens=total_original,
-                    compacted_tokens=total_compacted,
-                    summary=batch_summary,
-                )] * len(sections)
-            
+
+                self._record_compaction(
+                    "batch", "multiple", total_original, total_compacted
+                )
+
+                compression_ratio = (
+                    total_compacted / total_original if total_original > 0 else 0
+                )
+                logger.info(
+                    f"[Layer3:HierarchicalCompaction] COMPACT_BATCH_COMPLETE | "
+                    f"sections={len(sections)} | "
+                    f"original={total_original}tokens -> compacted={total_compacted}tokens | "
+                    f"compression_ratio={compression_ratio:.1%} | "
+                    f"saved={total_original - total_compacted}tokens"
+                )
+
+                return [
+                    CompactionResult(
+                        success=True,
+                        original_tokens=total_original,
+                        compacted_tokens=total_compacted,
+                        summary=batch_summary,
+                    )
+                ] * len(sections)
+
         except Exception as e:
-            logger.error(f"[HierarchicalCompactor] Batch compaction failed: {e}")
-        
-        # 回退到逐个压缩
+            logger.error(
+                f"[Layer3:HierarchicalCompaction] COMPACT_BATCH_ERROR | error={e}"
+            )
+
         for section in sections:
             result = await self.compact_section(section)
             results.append(result)
-        
+
         return results
-    
+
     async def compact_by_priority(
         self,
         sections: List[Section],
-        priority_order: List[ContentPriority] = None,
+        priority_order: Optional[List[ContentPriority]] = None,
     ) -> Dict[str, CompactionResult]:
-        """
-        按优先级压缩
-        
-        优先压缩低优先级内容，保护高优先级
-        
-        Args:
-            sections: 节列表
-            priority_order: 压缩顺序（从早压缩到晚）
-            
-        Returns:
-            按section_id索引的压缩结果
-        """
         if priority_order is None:
             priority_order = [
                 ContentPriority.LOW,
                 ContentPriority.MEDIUM,
                 ContentPriority.HIGH,
             ]
-        
+
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] COMPACT_BY_PRIORITY_START | "
+            f"sections={len(sections)}, priority_order={[p.value for p in priority_order]}"
+        )
+
         results = {}
-        
+
         for priority in priority_order:
-            sections_to_compact = [
-                s for s in sections
-                if s.priority == priority
-            ]
-            
+            sections_to_compact = [s for s in sections if s.priority == priority]
+
+            logger.debug(
+                f"[Layer3:HierarchicalCompaction] COMPACT_BY_PRIORITY | "
+                f"priority={priority.value}, count={len(sections_to_compact)}"
+            )
+
             for section in sections_to_compact:
                 result = await self.compact_section(section)
                 results[section.section_id] = result
-        
+
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] COMPACT_BY_PRIORITY_COMPLETE | "
+            f"compacted={len(results)}"
+        )
+
         return results
-    
+
     def _simple_chapter_summary(self, chapter: Chapter) -> CompactionResult:
-        """简单章节摘要（无LLM时使用）"""
         original_tokens = chapter.tokens
-        
+
         summary_parts = [
             f"## {chapter.title} ({chapter.phase.value})",
             f"完成 {len(chapter.sections)} 个执行步骤",
             "",
             "### 主要步骤:",
         ]
-        
-        for section in chapter.sections[:5]:  # 只保留前5个
+
+        for section in chapter.sections[:5]:
             summary_parts.append(f"- {section.step_name}: {section.content[:100]}...")
-        
+
         if len(chapter.sections) > 5:
             summary_parts.append(f"- ... 还有 {len(chapter.sections) - 5} 个步骤")
-        
+
         summary = "\n".join(summary_parts)
         chapter.summary = summary
         chapter.is_compacted = True
-        
+
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] SIMPLE_CHAPTER_SUMMARY | "
+            f"chapter_id={chapter.chapter_id[:8]} | "
+            f"original={original_tokens}tokens -> compacted={len(summary) // 4}tokens"
+        )
+
         return CompactionResult(
             success=True,
             original_tokens=original_tokens,
             compacted_tokens=len(summary) // 4,
             summary=summary,
         )
-    
+
     def _simple_section_summary(self, section: Section) -> CompactionResult:
-        """简单节摘要（无LLM时使用）"""
         original_tokens = section.tokens
-        
-        # 保留前200字符
+
         if len(section.content) > 200:
             section.content = section.content[:200] + "..."
             section.tokens = len(section.content) // 4
-        
+
+        logger.info(
+            f"[Layer3:HierarchicalCompaction] SIMPLE_SECTION_SUMMARY | "
+            f"section_id={section.section_id[:8]} | "
+            f"original={original_tokens}tokens -> compacted={section.tokens}tokens"
+        )
+
         return CompactionResult(
             success=True,
             original_tokens=original_tokens,
             compacted_tokens=section.tokens,
             summary=section.content,
         )
-    
+
     def _format_sections_overview(self, sections: List[Section]) -> str:
-        """格式化节概览"""
         lines = []
         for i, section in enumerate(sections, 1):
             lines.append(
@@ -446,34 +535,37 @@ class HierarchicalCompactor:
                 f"{section.content[:100]}..."
             )
         return "\n".join(lines)
-    
-    async def _call_llm(self, prompt: str, max_tokens: int = None) -> Optional[str]:
-        """调用LLM"""
+
+    async def _call_llm(
+        self, prompt: str, max_tokens: Optional[int] = None
+    ) -> Optional[str]:
         if not self.llm_client:
             return None
-        
+
         try:
             from derisk.core import HumanMessage, SystemMessage
-            
+
             messages = [
-                SystemMessage(content="You are a helpful assistant specialized in summarizing task execution history."),
+                SystemMessage(
+                    content="You are a helpful assistant specialized in summarizing task execution history."
+                ),
                 HumanMessage(content=prompt),
             ]
-            
+
             response = await self.llm_client.acompletion(
                 messages,
                 max_tokens=max_tokens or self.max_summary_tokens,
             )
-            
+
             if response and response.choices:
                 return response.choices[0].message.content.strip()
-            
+
             return None
-            
+
         except Exception as e:
-            logger.error(f"[HierarchicalCompactor] LLM call failed: {e}")
+            logger.error(f"[Layer3:HierarchicalCompaction] LLM_CALL_ERROR | error={e}")
             return None
-    
+
     def _record_compaction(
         self,
         compaction_type: str,
@@ -481,27 +573,31 @@ class HierarchicalCompactor:
         original_tokens: int,
         compacted_tokens: int,
     ) -> None:
-        """记录压缩历史"""
-        self._compaction_history.append({
-            "type": compaction_type,
-            "target_id": target_id,
-            "original_tokens": original_tokens,
-            "compacted_tokens": compacted_tokens,
-            "tokens_saved": original_tokens - compacted_tokens,
-            "compression_ratio": compacted_tokens / original_tokens if original_tokens > 0 else 0,
-        })
-    
+        self._compaction_history.append(
+            {
+                "type": compaction_type,
+                "target_id": target_id,
+                "original_tokens": original_tokens,
+                "compacted_tokens": compacted_tokens,
+                "tokens_saved": original_tokens - compacted_tokens,
+                "compression_ratio": compacted_tokens / original_tokens
+                if original_tokens > 0
+                else 0,
+            }
+        )
+
     def get_statistics(self) -> Dict[str, Any]:
-        """获取压缩统计"""
         if not self._compaction_history:
             return {
                 "total_compactions": 0,
                 "total_tokens_saved": 0,
             }
-        
+
         total_saved = sum(h["tokens_saved"] for h in self._compaction_history)
-        avg_ratio = sum(h["compression_ratio"] for h in self._compaction_history) / len(self._compaction_history)
-        
+        avg_ratio = sum(h["compression_ratio"] for h in self._compaction_history) / len(
+            self._compaction_history
+        )
+
         return {
             "total_compactions": len(self._compaction_history),
             "total_tokens_saved": total_saved,
@@ -516,15 +612,15 @@ class HierarchicalCompactor:
 class CompactionScheduler:
     """
     压缩调度器
-    
+
     决定何时触发压缩，压缩哪些内容
-    
+
     策略：
     1. Token阈值触发：超过阈值自动压缩
     2. 阶段转换触发：进入新阶段时压缩旧阶段
     3. 周期性压缩：每N步检查一次
     """
-    
+
     def __init__(
         self,
         compactor: HierarchicalCompactor,
@@ -536,60 +632,80 @@ class CompactionScheduler:
         self.token_threshold = token_threshold
         self.check_interval = check_interval
         self.auto_compact = auto_compact
-        
+
         self._step_count = 0
         self._last_compaction_step = 0
-    
+
+        logger.info(
+            f"[Layer3:CompactionScheduler] INIT | "
+            f"token_threshold={token_threshold}, check_interval={check_interval}, "
+            f"auto_compact={auto_compact}"
+        )
+
     async def check_and_compact(
         self,
         chapters: List[Chapter],
         current_tokens: int,
     ) -> Dict[str, Any]:
-        """
-        检查并执行压缩
-        
-        Args:
-            chapters: 章节列表
-            current_tokens: 当前token数
-            
-        Returns:
-            压缩报告
-        """
         self._step_count += 1
-        
+
+        logger.debug(
+            f"[Layer3:CompactionScheduler] CHECK | "
+            f"step={self._step_count}, tokens={current_tokens}/{self.token_threshold}"
+        )
+
         actions = []
         total_saved = 0
-        
-        # 检查是否需要压缩
+
         needs_compaction = (
-            current_tokens > self.token_threshold and
-            self._step_count - self._last_compaction_step >= self.check_interval
+            current_tokens > self.token_threshold
+            and self._step_count - self._last_compaction_step >= self.check_interval
         )
-        
+
         if not needs_compaction:
+            logger.debug(
+                f"[Layer3:CompactionScheduler] CHECK_SKIP | "
+                f"tokens={current_tokens}/{self.token_threshold}, "
+                f"steps_since_last={self._step_count - self._last_compaction_step}"
+            )
             return {
                 "triggered": False,
                 "reason": "No compaction needed",
             }
-        
-        # 按优先级压缩早期章节
-        chapters_to_compact = [
-            c for c in chapters[:-1]  # 排除当前章节
-            if not c.is_compacted
-        ]
-        
+
+        logger.info(
+            f"[Layer3:CompactionScheduler] TRIGGERED | "
+            f"tokens={current_tokens} > threshold={self.token_threshold}"
+        )
+
+        chapters_to_compact = [c for c in chapters[:-1] if not c.is_compacted]
+
+        logger.info(
+            f"[Layer3:CompactionScheduler] CHAPTERS_TO_COMPACT | "
+            f"count={len(chapters_to_compact)}"
+        )
+
         for chapter in chapters_to_compact:
             result = await self.compactor.compact_chapter(chapter)
             if result.success:
-                actions.append({
-                    "action": "compact_chapter",
-                    "target": chapter.chapter_id,
-                    "tokens_saved": result.original_tokens - result.compacted_tokens,
-                })
+                actions.append(
+                    {
+                        "action": "compact_chapter",
+                        "target": chapter.chapter_id,
+                        "tokens_saved": result.original_tokens
+                        - result.compacted_tokens,
+                    }
+                )
                 total_saved += result.original_tokens - result.compacted_tokens
-        
+
         self._last_compaction_step = self._step_count
-        
+
+        logger.info(
+            f"[Layer3:CompactionScheduler] COMPLETE | "
+            f"actions={len(actions)}, total_saved={total_saved}tokens, "
+            f"new_tokens={current_tokens - total_saved}"
+        )
+
         return {
             "triggered": True,
             "reason": f"Token threshold exceeded ({current_tokens} > {self.token_threshold})",
@@ -603,5 +719,4 @@ def create_hierarchical_compactor(
     llm_client: Optional[LLMClient] = None,
     **kwargs,
 ) -> HierarchicalCompactor:
-    """创建分层压缩器"""
     return HierarchicalCompactor(llm_client=llm_client, **kwargs)

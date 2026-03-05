@@ -35,6 +35,7 @@ import VisStepListCard from './VisStepListCard';
 import { parseFirstJson } from '@/utils/json';
 import VisTodoList from './VisTodoList';
 import VisParseError from './VisParseError';
+import VisStatusNotification from './VisStatusNotification';
 
 export const visComponentsRender: { [key: string]: (props: { children: React.ReactNode }) => JSX.Element } = {
   'nex-running-window': ({ children }) => {
@@ -525,6 +526,19 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="d-todo-list" />;
+    }
+  },
+  'd-status-notification': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-status-notification" />}>
+          <VisStatusNotification {...data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="d-status-notification" />;
     }
   },
 };
