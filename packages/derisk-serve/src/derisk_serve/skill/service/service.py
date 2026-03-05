@@ -1012,6 +1012,48 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             "message": "Deleted successfully",
         }
 
+    def rename_skill_file(self, skill_code: str, old_path: str, new_path: str) -> Dict[str, Any]:
+        """Rename a file in the skill directory.
+
+        Args:
+            skill_code (str): The skill code
+            old_path (str): Current relative file path within skill directory
+            new_path (str): New relative file path within skill directory
+
+        Returns:
+            Dict with rename result
+        """
+        skill_dir = self.get_skill_directory(skill_code)
+
+        # Normalize file paths
+        old_path = old_path.replace("\\", "/")
+        new_path = new_path.replace("\\", "/")
+
+        old_full_path = os.path.join(skill_dir, *old_path.split("/"))
+        new_full_path = os.path.join(skill_dir, *new_path.split("/"))
+
+        if not os.path.exists(old_full_path):
+            raise ValueError(f"File not found: {old_path}")
+
+        if os.path.exists(new_full_path):
+            raise ValueError(f"File already exists: {new_path}")
+
+        # Ensure target directory exists
+        new_dir_path = os.path.dirname(new_full_path)
+        if new_dir_path and not os.path.exists(new_dir_path):
+            os.makedirs(new_dir_path, exist_ok=True)
+
+        # Perform rename
+        os.rename(old_full_path, new_full_path)
+
+        return {
+            "skill_code": skill_code,
+            "old_path": old_path,
+            "new_path": new_path,
+            "success": True,
+            "message": "Renamed successfully",
+        }
+
     # -------------------- Async Git Sync Methods --------------------
 
     def _get_sync_task_dao(self):

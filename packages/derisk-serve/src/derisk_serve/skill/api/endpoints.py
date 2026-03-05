@@ -19,6 +19,8 @@ from .schemas import (
     SkillFileReadResponse,
     SkillFileWriteRequest,
     SkillFileWriteResponse,
+    SkillFileRenameRequest,
+    SkillFileRenameResponse,
     SkillSyncTaskRequest,
     SkillSyncTaskResponse,
 )
@@ -107,15 +109,16 @@ async def delete(
     request: SkillRequest, service: Service = Depends(get_service)
 ) -> Result[bool]:
     """Delete a Skill entity"""
+    skill_code = request.skill_code
     try:
         deleted_entity = service.get(request)
         if not deleted_entity:
-            return Result.failed(f"Skill '{request.name}' not found")
+            return Result.failed(f"Skill '{skill_code}' not found")
 
         service.delete(request)
         return Result.succ(True)
     except Exception as e:
-        logger.exception(f"Failed to delete Skill '{request.name}': {e}")
+        logger.exception(f"Failed to delete Skill '{skill_code}': {e}")
         return Result.failed(str(e))
 
 
@@ -301,6 +304,24 @@ async def delete_skill_file(
         return Result.succ(delete_result)
     except Exception as e:
         logger.exception("skill file delete exception!")
+        return Result.failed(str(e))
+
+
+@router.post(
+    "/file/rename",
+    response_model=Result[SkillFileRenameResponse],
+    dependencies=[Depends(check_api_key)],
+)
+async def rename_skill_file(
+    request: SkillFileRenameRequest,
+    service: Service = Depends(get_service),
+) -> Result[SkillFileRenameResponse]:
+    """Rename a file in the skill directory"""
+    try:
+        rename_result = service.rename_skill_file(request.skill_code, request.old_path, request.new_path)
+        return Result.succ(rename_result)
+    except Exception as e:
+        logger.exception("skill file rename exception!")
         return Result.failed(str(e))
 
 
