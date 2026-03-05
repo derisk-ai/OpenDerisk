@@ -24,10 +24,14 @@ from derisk_serve.building.config.api.schemas import Layout, LLMResource
 
 class SceneStrategyRef(BaseModel):
     """场景策略引用"""
+
     scene_code: str = Field(description="场景编码")
     scene_name: Optional[str] = Field(default=None, description="场景名称")
     is_primary: bool = Field(default=True, description="是否主要场景")
-    custom_overrides: Dict[str, Any] = Field(default_factory=dict, description="自定义覆盖")
+    custom_overrides: Dict[str, Any] = Field(
+        default_factory=dict, description="自定义覆盖"
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -170,15 +174,19 @@ class GptsApp(BaseModel):
     is_reasoning_engine_agent: bool = False
     ## 上下文工程配置
     context_config: Optional[GroupedConfigItem] = None
-    
+
     ## 场景策略配置
     scene_strategy: Optional[SceneStrategyRef] = Field(
-        default=None, 
-        description="关联的场景策略"
+        default=None, description="关联的场景策略"
     )
     scene_strategies: List[SceneStrategyRef] = Field(
+        default_factory=list, description="关联的多个场景策略"
+    )
+
+    ## 场景文件列表（绑定到应用的.md场景文件）
+    scenes: List[str] = Field(
         default_factory=list,
-        description="关联的多个场景策略"
+        description="绑定的场景文件ID列表，如 ['coding', 'schedule', 'deploy']",
     )
 
     creator: Optional[str] = None

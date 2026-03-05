@@ -67,6 +67,10 @@ export type IApp = {
     llm_strategy?: string;
     llm_strategy_value?: string[];
   };
+  /**
+   * 绑定的场景文件ID列表
+   */
+  scenes?: string[];
 };
 
 export type IAppData = {
