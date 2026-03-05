@@ -25,15 +25,21 @@ class ChannelEntity(Model):
 
     # Basic info
     name = Column(String(255), nullable=False, comment="Channel display name")
-    channel_type = Column(String(32), nullable=False, comment="Channel type (dingtalk/feishu)")
-    enabled = Column(Integer, default=1, comment="Whether channel is enabled (1=yes, 0=no)")
+    channel_type = Column(
+        String(32), nullable=False, comment="Channel type (dingtalk/feishu)"
+    )
+    enabled = Column(
+        Integer, default=1, comment="Whether channel is enabled (1=yes, 0=no)"
+    )
 
     # Platform specific config stored as JSON
     config = Column(JSON, nullable=False, comment="Platform-specific configuration")
 
     # Status
     status = Column(String(32), default="disconnected", comment="Channel status")
-    last_connected = Column(DateTime, nullable=True, comment="Last successful connection time")
+    last_connected = Column(
+        DateTime, nullable=True, comment="Last successful connection time"
+    )
     last_error = Column(Text, nullable=True, comment="Last error message")
 
     # Timestamps
@@ -66,7 +72,9 @@ class ChannelDao(BaseDao[ChannelEntity, ChannelRequest, ChannelResponse]):
         super().__init__()
         self._serve_config = serve_config
 
-    def from_request(self, request: Union[ChannelRequest, Dict[str, Any]]) -> ChannelEntity:
+    def from_request(
+        self, request: Union[ChannelRequest, Dict[str, Any]]
+    ) -> ChannelEntity:
         """Convert a request to an entity.
 
         Args:
@@ -184,4 +192,21 @@ class ChannelDao(BaseDao[ChannelEntity, ChannelRequest, ChannelResponse]):
             List of enabled channel entities.
         """
         with self.session() as session:
-            return session.query(ChannelEntity).filter(ChannelEntity.enabled == 1).all()
+            channels = (
+                session.query(ChannelEntity).filter(ChannelEntity.enabled == 1).all()
+            )
+            # Access all attributes to load them before session closes
+            for ch in channels:
+                _ = ch.id
+                _ = ch.name
+                _ = ch.channel_type
+                _ = ch.config
+                _ = ch.enabled
+                _ = ch.status
+                _ = ch.last_connected
+                _ = ch.last_error
+                _ = ch.gmt_created
+                _ = ch.gmt_modified
+            # Expunge objects from session so they remain usable after session closes
+            session.expunge_all()
+            return channels
