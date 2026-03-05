@@ -71,7 +71,7 @@ async def create_cron_job(
     at_time: Optional[str] = None,
     timezone: Optional[str] = None,
     enabled: bool = True,
-    session_mode: str = "isolated",
+    session_mode: str = "shared",
     conv_session_id: Optional[str] = None,
     description: Optional[str] = None,
 ) -> str:
@@ -87,7 +87,7 @@ async def create_cron_job(
         at_time: ISO datetime string for 'at' schedule.
         timezone: Timezone for the schedule (default: system timezone).
         enabled: Whether the job is enabled immediately.
-        session_mode: Session mode for agent execution ('isolated' or 'shared', default 'isolated').
+        session_mode: Session mode for agent execution ('isolated' or 'shared', default 'shared').
         conv_session_id: Conversation session ID for shared session mode.
         description: Optional description of the job.
 

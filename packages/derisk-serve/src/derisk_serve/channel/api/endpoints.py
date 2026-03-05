@@ -267,6 +267,111 @@ async def disable_channel(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post(
+    "/channels/{channel_id}/start",
+    response_model=Result[dict],
+    dependencies=[Depends(check_api_key)],
+)
+async def start_channel(
+    channel_id: str,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Start a channel connection.
+
+    Args:
+        channel_id: The channel ID.
+
+    Returns:
+        Result indicating success or failure.
+    """
+    success = await service.start_channel(channel_id)
+    if success:
+        return Result.succ({"started": True, "channel_id": channel_id})
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to start channel {channel_id}",
+        )
+
+
+@router.post(
+    "/channels/{channel_id}/stop",
+    response_model=Result[dict],
+    dependencies=[Depends(check_api_key)],
+)
+async def stop_channel(
+    channel_id: str,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Stop a channel connection.
+
+    Args:
+        channel_id: The channel ID.
+
+    Returns:
+        Result indicating success or failure.
+    """
+    success = await service.stop_channel(channel_id)
+    if success:
+        return Result.succ({"stopped": True, "channel_id": channel_id})
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to stop channel {channel_id}",
+        )
+
+
+@router.get(
+    "/channels/running",
+    response_model=Result[List[str]],
+    dependencies=[Depends(check_api_key)],
+)
+async def get_running_channels(
+    service: Service = Depends(get_service),
+) -> Result[List[str]]:
+    """Get list of running channel IDs.
+
+    Returns:
+        List of channel IDs that are currently running.
+    """
+    channels = service.get_running_channels()
+    return Result.succ(channels)
+
+
+@router.post(
+    "/channels/start-all",
+    response_model=Result[dict],
+    dependencies=[Depends(check_api_key)],
+)
+async def start_all_channels(
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Start all enabled channels.
+
+    Returns:
+        Result with status for each channel.
+    """
+    results = await service.start_all_channels()
+    return Result.succ(results)
+
+
+@router.post(
+    "/channels/stop-all",
+    response_model=Result[dict],
+    dependencies=[Depends(check_api_key)],
+)
+async def stop_all_channels(
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Stop all running channels.
+
+    Returns:
+        Result with status for each channel.
+    """
+    results = await service.stop_all_channels()
+    return Result.succ(results)
+
+
 # Webhook endpoints (placeholder - actual implementation in derisk-ext)
 @router.post(
     "/webhook/dingtalk/{channel_id}",

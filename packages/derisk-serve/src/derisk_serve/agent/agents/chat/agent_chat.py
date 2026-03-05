@@ -336,8 +336,9 @@ class AgentChat(BaseComponent, ABC):
                 except Exception as e:
                     logger.exception(f"获取{agent_conv_id}最终消息异常: {str(e)}")
                     final_message = str(e)
+
+            final_report = None
             if callable(chat_call_back):
-                final_report = None
                 try:
                     final_report = await self.memory.user_answer(agent_conv_id)
                 except Exception as e:
@@ -370,6 +371,15 @@ class AgentChat(BaseComponent, ABC):
                     post_action_reports=post_action_reports,
                 )
 
+            # Deliver to channel if configured (handles cron job message delivery)
+            if not err_msg:
+                content = final_report # 只看final_report 不看final_message
+                content = content.lstrip() if content else None
+                if content:
+                    await self._deliver_to_channel_if_configured(
+                        conv_session_id, content
+                    )
+
             # logger.info(f"获取{conv_session_id}最终消息: {final_message}, 异常信息:{err_msg}")
             if not final_message:
                 final_message = ""
@@ -382,6 +392,93 @@ class AgentChat(BaseComponent, ABC):
 
         finally:
             await self.memory.clear(agent_conv_id)
+
+    async def _deliver_to_channel_if_configured(
+        self,
+        conv_session_id: str,
+        content: str,
+    ) -> bool:
+        """Deliver message to channel if configured in conversation extra.
+
+        This method handles automatic message delivery to channels (e.g., DingTalk)
+        when the conversation was initiated from a channel or when a cron job
+        needs to deliver results to a channel.
+
+        The channel info is stored in the conversation's extra field when
+        the conversation is created from a channel message.
+
+        Args:
+            conv_session_id: The conversation session ID.
+            content: The message content to deliver.
+
+        Returns:
+            True if delivered successfully, False otherwise.
+        """
+        if not conv_session_id:
+            return False
+
+        try:
+            # Get channel info from conversation extra
+            conversations = await self.gpts_conversations.get_by_session_id_asc(
+                conv_session_id
+            )
+
+            if not conversations:
+                logger.debug(f"No conversations found for session {conv_session_id}")
+                return False
+
+            # Get the most recent conversation to extract channel info
+            first_conv = conversations[-1]
+            if not first_conv.extra:
+                logger.debug(f"No extra field in conversation {first_conv.conv_id}")
+                return False
+
+            # Parse extra field
+            extra = orjson.loads(first_conv.extra)
+            channel_info = extra.get("channel")
+
+            if not channel_info:
+                logger.debug(f"No channel info in conversation {first_conv.conv_id}")
+                return False
+
+            channel_id = channel_info.get("channel_id")
+            receiver_id = channel_info.get("receiver_id")
+            is_group = channel_info.get("is_group", False)
+
+            if not channel_id or not receiver_id:
+                logger.warning(
+                    f"Incomplete channel info: channel_id={channel_id}, receiver_id={receiver_id}"
+                )
+                return False
+
+            # Get the channel handler from registry
+            from derisk.channel.registry import ChannelHandlerRegistry
+
+            registry = ChannelHandlerRegistry.get_instance()
+            handler = registry.get_handler(channel_id)
+
+            if not handler:
+                logger.warning(f"No active handler for channel {channel_id}")
+                return False
+
+            # Send the message
+            result = await handler.send_message(
+                receiver_id=receiver_id,
+                content=content,
+                content_type="text",
+                is_group=is_group,
+            )
+
+            if result.success:
+                logger.info(f"Delivered message to channel {channel_id}")
+                return True
+            else:
+                logger.error(f"Failed to deliver: {result.error}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error delivering to channel: {e}")
+            return False
 
     @trace("agent.initialize_conversation", requires=["app_code", "conv_session_id"])
     async def _initialize_conversation(
