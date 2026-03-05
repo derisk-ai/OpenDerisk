@@ -43,6 +43,8 @@ export default function ChannelPage() {
   const router = useRouter();
   const { message } = App.useApp();
   const [includeDisabled, setIncludeDisabled] = useState(false);
+  const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
+  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
 
   // Fetch channels
   const {
@@ -55,7 +57,7 @@ export default function ChannelPage() {
       if (err) {
         return [];
       }
-      return res?.data || [];
+      return res || [];
     },
     {
       refreshDeps: [includeDisabled],
@@ -63,8 +65,9 @@ export default function ChannelPage() {
   );
 
   // Delete channel
-  const { run: runDeleteChannel, loading: deleteLoading } = useRequest(
+  const { run: runDeleteChannel } = useRequest(
     async (channelId: string) => {
+      setDeletingChannelId(channelId);
       const [err] = await apiInterceptors(deleteChannel(channelId));
       if (err) {
         throw err;
@@ -72,6 +75,9 @@ export default function ChannelPage() {
     },
     {
       manual: true,
+      onFinally: () => {
+        setDeletingChannelId(null);
+      },
       onSuccess: () => {
         message.success(t('channel_delete_success'));
         refreshChannels();
@@ -83,16 +89,20 @@ export default function ChannelPage() {
   );
 
   // Test connection
-  const { run: runTestChannel, loading: testLoading } = useRequest(
+  const { run: runTestChannel } = useRequest(
     async (channelId: string) => {
+      setTestingChannelId(channelId);
       const [err, res] = await apiInterceptors(testChannel(channelId));
       if (err) {
         throw err;
       }
-      return res?.data;
+      return res;
     },
     {
       manual: true,
+      onFinally: () => {
+        setTestingChannelId(null);
+      },
       onSuccess: (data) => {
         if (data?.success) {
           message.success(t('channel_test_success'));
@@ -113,7 +123,7 @@ export default function ChannelPage() {
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record: ChannelResponse) => (
-        <Link href={`/channel/${record.id}`} className="text-blue-500 hover:text-blue-700 flex items-center gap-2">
+        <Link href={`/channel/edit?id=${record.id}`} className="text-blue-500 hover:text-blue-700 flex items-center gap-2">
           {channelTypeIcons[record.channel_type]}
           {name}
         </Link>
@@ -180,14 +190,14 @@ export default function ChannelPage() {
             <Button
               type="text"
               icon={<EditOutlined />}
-              onClick={() => router.push(`/channel/${record.id}`)}
+              onClick={() => router.push(`/channel/edit?id=${record.id}`)}
             />
           </Tooltip>
           <Tooltip title={t('channel_test')}>
             <Button
               type="text"
               icon={<ApiOutlined />}
-              loading={testLoading}
+              loading={testingChannelId === record.id}
               onClick={() => runTestChannel(record.id)}
             />
           </Tooltip>
@@ -198,7 +208,7 @@ export default function ChannelPage() {
             cancelText={t('No')}
           >
             <Tooltip title={t('Delete')}>
-              <Button type="text" danger icon={<DeleteOutlined />} loading={deleteLoading} />
+              <Button type="text" danger icon={<DeleteOutlined />} loading={deletingChannelId === record.id} />
             </Tooltip>
           </Popconfirm>
         </Space>

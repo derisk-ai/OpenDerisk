@@ -624,14 +624,37 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
                 # Generate a new conversation ID for isolated sessions
                 conv_uid = str(uuid.uuid4())
 
-            # Execute the agent chat
+            # Create a simple callback for logging only
+            # Message delivery is handled by the Agent layer (see agent_chat.py)
+            async def execution_callback(
+                conv_session_id: str,
+                agent_conv_id: str,
+                final_message: str,
+                final_report: str,
+                err_msg: Optional[str],
+                first_chunk_ms: Optional[int],
+                post_action_reports: Optional[list] = None,
+            ):
+                """Simple callback for logging execution results.
+
+                Message delivery to channels is handled by the Agent layer
+                through the _deliver_to_channel_if_configured method.
+                """
+                if err_msg:
+                    logger.error(f"Agent execution error for job {job.id}: {err_msg}")
+                else:
+                    logger.info(f"Agent execution completed for job {job.id}")
+
+            # Execute the agent chat with callback
             # Note: gpts_name is the agent_id, user_query is the message
+            # app_chat_v3 returns (None, agent_conv_id) immediately since it runs in background
             result, agent_conv_id = await multi_agents.app_chat_v3(
                 conv_uid=conv_uid,
                 gpts_name=payload.agent_id,
                 user_query=payload.message or "",
                 stream=False,  # Non-streaming for cron jobs
                 background_tasks=None,
+                chat_call_back=execution_callback,
             )
 
             # If using shared session and got a new session ID, update the job
@@ -648,12 +671,13 @@ class Service(BaseService[CronJobEntity, ServeRequest, ServerResponse], CronSche
                             session.commit()
                             logger.info(f"Updated conv_session_id for job {job.id} to {conv_session_id}")
 
-            logger.info(f"Agent turn completed for job {job.id}, conv_uid={conv_uid}")
+            logger.info(f"Agent turn initiated for job {job.id}, conv_uid={conv_uid}")
             return True
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
             raise
 
+    
     def _update_job_state(
         self,
         job_id: str,

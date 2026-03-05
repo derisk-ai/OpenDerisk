@@ -11,6 +11,7 @@ from sqlalchemy import URL
 
 from derisk.component import SystemApp
 from derisk.storage.metadata import DatabaseManager
+from derisk.util.fastapi import register_event_handler
 from derisk_serve.core import BaseServe
 
 from .api.endpoints import init_endpoints, router
@@ -19,6 +20,7 @@ from .config import (
     SERVE_APP_NAME,
     SERVE_APP_NAME_HUMP,
     SERVE_CONFIG_KEY_PREFIX,
+    SERVE_SERVICE_COMPONENT_NAME,
     ServeConfig,
 )
 
@@ -91,13 +93,28 @@ class Serve(BaseServe):
     def before_start(self):
         """Called before the application starts.
 
-        Initialize the service.
+        Register async startup and shutdown handlers to properly
+        start/stop channel connections when the event loop is running.
         """
-        logger.info("Starting channel serve component")
+        logger.info("Registering channel startup/shutdown handlers")
+        from .service.service import Service
 
-    def before_stop(self):
-        """Called before the application stops.
+        service = self._system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, Service)
+        if service:
 
-        Cleanup resources.
-        """
-        logger.info("Stopping channel serve component")
+            async def startup_channels():
+                """Start all enabled channels on app startup."""
+                logger.info("Starting channel connection manager and enabled channels")
+                await service.start_connection_manager()
+                await service.start_all_channels()
+
+            async def shutdown_channels():
+                """Stop all channels on app shutdown."""
+                logger.info("Stopping all channels and connection manager")
+                await service.stop_all_channels()
+                await service.stop_connection_manager()
+
+            # Register the async handlers with FastAPI's event system
+            app = self._system_app.app
+            register_event_handler(app, "startup", startup_channels)
+            register_event_handler(app, "shutdown", shutdown_channels)
