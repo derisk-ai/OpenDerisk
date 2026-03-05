@@ -336,30 +336,29 @@ class SystemApp(LifeCycle):
         await asyncio.gather(*tasks)
 
     def _build(self):
-        """Integrate lifecycle events with the internal ASGI app if available."""
+        import sys
+        print(f"[_build] Called, self.app={self.app}", file=sys.stderr, flush=True)
         if not self.app:
+            print("[_build] No app, registering exit handler", file=sys.stderr, flush=True)
             self._register_exit_handler()
             return
         from derisk.util.fastapi import register_event_handler
 
         async def startup_event():
-            """ASGI app startup event handler."""
-
-            async def _startup_func():
-                try:
-                    await self.async_after_start()
-                except Exception as e:
-                    logger.error(f"Error starting system app: {e}")
-                    sys.exit(1)
-
-            asyncio.create_task(_startup_func())
+            import sys
+            print("[startup_event] Called", file=sys.stderr, flush=True)
+            try:
+                await self.async_after_start()
+            except Exception as e:
+                logger.error(f"Error starting system app: {e}")
+                sys.exit(1)
             self.after_start()
 
         async def shutdown_event():
-            """ASGI app shutdown event handler."""
             await self.async_before_stop()
             self.before_stop()
 
+        print("[_build] Registering event handlers", file=sys.stderr, flush=True)
         register_event_handler(self.app, "startup", startup_event)
         register_event_handler(self.app, "shutdown", shutdown_event)
 

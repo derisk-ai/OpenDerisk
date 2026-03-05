@@ -1,6 +1,12 @@
 // app
+export type AgentVersion = 'v1' | 'v2';
+
 export type IApp = {
   app_code: string;
+  /**
+   * Agent 版本 (v1: 经典版, v2: Core_v2)
+   */
+  agent_version?: AgentVersion;
   /**
    * 应用名
    */
@@ -61,6 +67,10 @@ export type IApp = {
     llm_strategy?: string;
     llm_strategy_value?: string[];
   };
+  /**
+   * 绑定的场景文件ID列表
+   */
+  scenes?: string[];
 };
 
 export type IAppData = {
@@ -152,6 +162,7 @@ export interface CreateAppParams {
   team_context?: Record<string, any>;
   param_need?: ParamNeed[];
   icon?: string;
+  agent_version?: AgentVersion;
 }
 
 export interface AppListResponse {

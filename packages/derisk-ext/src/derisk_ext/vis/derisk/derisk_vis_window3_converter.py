@@ -935,6 +935,96 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         self._unpack_agent(main_agent, main_agent_folder)
         return main_agent_folder
 
+    async def _build_file_system_folder(
+        self,
+        main_agent: Optional["ConversableAgent"],
+    ) -> Optional[FolderNode]:
+        conv_id = main_agent.agent_context.conv_id
+        conv_session_id = main_agent.agent_context.conv_session_id
+        
+        file_system_folder = FolderNode(
+            uid=f"{conv_session_id}_file_system",
+            type=UpdateType.INCR.value,
+            item_type="folder",
+            title="📁 文件系统",
+            description="AgentFileSystem 文件目录",
+            avatar="https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original",
+            items=[],
+        )
+        
+        try:
+            from derisk.agent.core.memory.gpts import GptsMemory
+            from derisk.agent.core.memory.gpts.file_base import FileType
+            
+            memory = main_agent.agent_context.memory
+            if not memory or not hasattr(memory, 'gpts_memory'):
+                return file_system_folder
+            
+            gpts_memory = memory.gpts_memory
+            if not isinstance(gpts_memory, GptsMemory):
+                return file_system_folder
+            
+            files = await gpts_memory.list_files(conv_id)
+            
+            if not files:
+                return file_system_folder
+            
+            type_groups: Dict[str, List] = {}
+            for file_meta in files:
+                file_type = file_meta.file_type or "other"
+                if file_type not in type_groups:
+                    type_groups[file_type] = []
+                type_groups[file_type].append(file_meta)
+            
+            type_display_names = {
+                FileType.CONCLUSION.value: "📋 结论文件",
+                FileType.TOOL_OUTPUT.value: "🔧 工具输出",
+                FileType.WRITE_FILE.value: "📝 写入文件",
+                FileType.DELIVERABLE.value: "📦 交付物",
+                FileType.TRUNCATED_OUTPUT.value: "📄 截断输出",
+                FileType.KANBAN.value: "📊 看板文件",
+                FileType.WORK_LOG.value: "📆 工作日志",
+                FileType.TODO.value: "✅ 任务列表",
+                "other": "📁 其他文件",
+            }
+            
+            for file_type, file_list in type_groups.items():
+                type_folder = FolderNode(
+                    uid=f"{conv_session_id}_fs_{file_type}",
+                    type=UpdateType.INCR.value,
+                    item_type="folder",
+                    title=type_display_names.get(file_type, f"📁 {file_type}"),
+                    items=[],
+                )
+                
+                for file_meta in file_list:
+                    file_node = FolderNode(
+                        uid=f"{conv_session_id}_file_{file_meta.file_id}",
+                        type=UpdateType.INCR.value,
+                        item_type="file",
+                        title=file_meta.file_name,
+                        description=f"{file_meta.file_size} bytes" if file_meta.file_size else None,
+                        status=file_meta.status,
+                        task_type="afs_file",
+                        file_id=file_meta.file_id,
+                        file_name=file_meta.file_name,
+                        file_type=file_meta.file_type,
+                        file_size=file_meta.file_size,
+                        preview_url=file_meta.preview_url,
+                        download_url=file_meta.download_url,
+                        oss_url=file_meta.oss_url,
+                        mime_type=file_meta.mime_type,
+                    )
+                    type_folder.items.append(file_node)
+                
+                file_system_folder.items.append(type_folder)
+            
+            return file_system_folder
+            
+        except Exception as e:
+            logger.warning(f"Failed to build file system folder: {e}")
+            return file_system_folder
+
     async def _running_vis_build(
         self,
         gpt_msg: Optional[GptsMessage] = None,
@@ -959,9 +1049,15 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             senders_map=senders_map,
         )
         main_agent_folder = None
+        file_system_folder = None
         if is_first_push:
-            logger.info("构建vis_window2空间，进行首次资源管理器刷新!")
+            logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
             main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+            file_system_folder = await self._build_file_system_folder(main_agent=main_agent)
+            if main_agent_folder and file_system_folder:
+                if main_agent_folder.items is None:
+                    main_agent_folder.items = []
+                main_agent_folder.items.append(file_system_folder)
 
         work_space_content = None
         if work_items and main_agent_folder:

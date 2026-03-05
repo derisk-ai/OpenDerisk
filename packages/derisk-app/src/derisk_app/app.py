@@ -79,7 +79,6 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     from derisk_app.openapi.api_v1.feedback.api_fb_v1 import router as api_fb_v1
     from derisk_app.openapi.api_v2.api_v2 import router as api_v2
 
-
     app.include_router(api_v1, prefix="/api", tags=["Chat"])
     app.include_router(api_v2, prefix="/api", tags=["ChatV2"])
     app.include_router(api_fb_v1, prefix="/api", tags=["FeedBack"])
@@ -94,6 +93,14 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     from derisk_serve.agent.app.controller import router as agent_app_router
 
     app.include_router(agent_app_router, prefix="/api", tags=["Agent App"])
+
+    # Core_v2 Agent API routes - V1/V2 共存
+    from derisk_serve.agent.core_v2_api import router as core_v2_router
+    from derisk_serve.agent.agent_selection_api import router as agent_selection_router
+
+    app.include_router(core_v2_router, tags=["Core_v2 Agent"])
+    app.include_router(agent_selection_router, tags=["Agent Selection"])
+    logger.info("[Core_v2] API routes registered at /api/v2")
 
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
@@ -144,6 +151,7 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     )
 
     from derisk_app.component_configs import initialize_components
+
     initialize_components(
         param,
         system_app,
@@ -196,6 +204,13 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
 
     mount_static_files(app, param)
 
+    # Initialize Core_v2 Agent Runtime
+    from derisk_serve.agent.core_v2_adapter import get_core_v2
+
+    core_v2 = get_core_v2()
+    system_app.register_instance(core_v2)
+    logger.info("[Core_v2] Runtime component registered")
+
     # Before start, after on_init
     system_app.before_start()
     return param
@@ -243,9 +258,11 @@ class AppCreator:
             system_app.config.configs["app_config"] = config
             if hasattr(config, "agent"):
                 system_app.config.set("agent", config.agent)
-            
+
             initialize_app(param=config, app=app, system_app=system_app)
-            initialize_tracer(system_app=system_app, tracer_parameters=config.service.web.trace)
+            initialize_tracer(
+                system_app=system_app, tracer_parameters=config.service.web.trace
+            )
             logger.info(f"{cls.__name__} [pid:{pid}]启动成功")
         except BaseException as e:
             logger.exception(f"{cls.__name__} [pid:{pid}]启动失败: {repr(e)}")

@@ -1,0 +1,37 @@
+# ReAct推理Agent配置示例
+
+agent:
+  type: "react_reasoning"
+  name: "react-reasoning-agent"
+  description: "长程任务推理Agent"
+  
+  model: "gpt-4"
+  api_key: "${OPENAI_API_KEY}"
+  
+  options:
+    max_steps: 30
+    enable_doom_loop_detection: true
+    doom_loop_threshold: 3
+    
+    enable_output_truncation: true
+    max_output_lines: 2000
+    max_output_bytes: 50000
+    
+    enable_context_compaction: true
+    context_window: 128000
+    
+    enable_history_pruning: true
+
+tools:
+  default:
+    - bash
+    - read
+    - write
+    - grep
+    - glob
+    - think
+  
+  custom: []
+
+# 使用示例
+# agent = create_agent_from_config("configs/agents/react_reasoning_agent.yaml")
