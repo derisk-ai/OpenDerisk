@@ -1,15 +1,17 @@
 'use client';
-import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, getChatInputConfig, getChatInputConfigParams, getResourceV2, apiInterceptors, getUsableModels } from '@/client/api';
+import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, getChatInputConfig, getChatInputConfigParams, getResourceV2, apiInterceptors, getUsableModels, getAgentList } from '@/client/api';
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { useRequest } from 'ahooks';
-import { Checkbox, Form, Input, Select, Tag, Modal } from 'antd';
+import { Checkbox, Form, Input, Select, Tag, Modal, Radio, Space, Typography, Card } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatLayoutConfig from './chat-layout-config';
-import { EditOutlined, PictureOutlined } from '@ant-design/icons';
+import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined } from '@ant-design/icons';
+
+const { Text, Paragraph } = Typography;
 
 const iconOptions = [
   { value: '/icons/colorful-plugin.png', label: 'agent0' },
@@ -35,6 +37,15 @@ const layoutConfigValueChangeList = [
   'max_new_tokens_value',
 ];
 
+const V2_AGENT_ICONS: Record<string, string> = {
+  simple_chat: '💬',
+  planner: '📋',
+  code_assistant: '💻',
+  data_analyst: '📊',
+  researcher: '🔍',
+  writer: '✍️',
+};
+
 export default function TabOverview() {
   const { t } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
@@ -42,6 +53,7 @@ export default function TabOverview() {
   const [selectedIcon, setSelectedIcon] = useState<string>(appInfo?.icon || '/agents/agent1.jpg');
   const [isIconModalOpen, setIsIconModalOpen] = useState(false);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
+  const [agentVersion, setAgentVersion] = useState<string>(appInfo?.agent_version || 'v1');
 
   // Initialize form values from appInfo
   useEffect(() => {
@@ -66,10 +78,15 @@ export default function TabOverview() {
         }
       });
 
+      const currentAgentVersion = appInfo.agent_version || 'v1';
+      const v2TemplateName = appInfo?.team_context?.agent_name || 'simple_chat';
+      
       form.setFieldsValue({
         app_name: appInfo.app_name,
         app_describe: appInfo.app_describe,
-        agent: appInfo.agent,
+        agent: currentAgentVersion === 'v1' ? appInfo.agent : undefined,
+        agent_version: currentAgentVersion,
+        v2_agent_template: currentAgentVersion === 'v2' ? v2TemplateName : undefined,
         llm_strategy: appInfo?.llm_config?.llm_strategy,
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         chat_layout: layout?.chat_layout?.name || '',
@@ -77,9 +94,12 @@ export default function TabOverview() {
         reasoning_engine: engineItemValue?.key ?? engineItemValue?.name,
         ...chat_in_layout_obj,
       });
+      
+      setAgentVersion(currentAgentVersion);
       setSelectedIcon(appInfo.icon || '/agents/agent1.jpg');
     }
-  }, [appInfo, form]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appInfo]);
 
   // Fetch data
   const { data: strategyData } = useRequest(async () => await getAppStrategy());
@@ -106,6 +126,23 @@ export default function TabOverview() {
     const [, res] = await apiInterceptors(getUsableModels());
     return res ?? [];
   });
+  
+  // 获取 V2 Agent 模板列表
+  const { data: v2AgentTemplates, run: fetchV2Agents } = useRequest(
+    async () => {
+      const res = await getAgentList('v2');
+      // API 直接返回 { version, agents }，不需要 .data
+      return res?.data?.agents || res?.agents || [];
+    },
+    { manual: true },
+  );
+  
+  // 当 agent_version 变化时获取对应的 Agent 列表
+  useEffect(() => {
+    if (agentVersion === 'v2') {
+      fetchV2Agents();
+    }
+  }, [agentVersion, fetchV2Agents]);
 
   useEffect(() => {
     getAppLLmList(appInfo?.llm_config?.llm_strategy || 'priority');
@@ -132,6 +169,18 @@ export default function TabOverview() {
   const selectedChatConfigs = Form.useWatch('chat_in_layout', form);
 
   const is_reasoning_engine_agent = useMemo(() => appInfo?.is_reasoning_engine_agent, [appInfo]);
+  
+  // V2 Agent 模板选项
+  const v2AgentOptions = useMemo(() => 
+    v2AgentTemplates?.map((agent: any) => ({
+      value: agent.name,
+      label: agent.display_name,
+      agent,
+    })) || [],
+  [v2AgentTemplates]);
+  
+  // 当前选中的 Agent 版本
+  const currentAgentVersion = Form.useWatch('agent_version', form);
 
   // Layout config change handler
   const layoutConfigChange = () => {
@@ -165,6 +214,38 @@ export default function TabOverview() {
 
     if (fieldName === 'agent') {
       fetchUpdateApp({ ...appInfo, agent: fieldValue });
+    } else if (fieldName === 'agent_version') {
+      setAgentVersion(fieldValue);
+      // 切换版本时更新 team_context 和清除旧字段
+      const currentTeamContext = appInfo?.team_context || {};
+      if (fieldValue === 'v2') {
+        // 切换到 V2，设置默认的 V2 模板
+        const v2TemplateName = 'simple_chat';
+        form.setFieldValue('v2_agent_template', v2TemplateName);
+        form.setFieldValue('agent', undefined); // 清除 V1 的 agent 值
+        const newTeamContext = {
+          ...currentTeamContext,
+          agent_version: fieldValue,
+          agent_name: v2TemplateName,
+        };
+        fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext, agent: undefined });
+      } else {
+        // 切换到 V1
+        form.setFieldValue('v2_agent_template', undefined);
+        const newTeamContext = {
+          ...currentTeamContext,
+          agent_version: fieldValue,
+        };
+        fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext });
+      }
+    } else if (fieldName === 'v2_agent_template') {
+      // V2 Agent 模板选择
+      const currentTeamContext = appInfo?.team_context || {};
+      const newTeamContext = {
+        ...currentTeamContext,
+        agent_name: fieldValue,
+      };
+      fetchUpdateApp({ ...appInfo, team_context: newTeamContext });
     } else if (fieldName === 'llm_strategy') {
       fetchUpdateApp({ ...appInfo, llm_config: { llm_strategy: fieldValue as string, llm_strategy_value: appInfo.llm_config?.llm_strategy_value || [] } });
     } else if (fieldName === 'llm_strategy_value') {
@@ -232,9 +313,72 @@ export default function TabOverview() {
               {t('baseinfo_agent_config')}
             </h3>
             <div className="space-y-4">
-              <Form.Item label={t('baseinfo_select_agent_type')} name="agent" rules={[{ required: true, message: t('baseinfo_select_agent_type') }]} className="mb-0">
-                <Select placeholder={t('baseinfo_select_agent_type')} options={targetOptions} allowClear className="w-full [&_.ant-select-selector]:!rounded-lg" />
+              {/* Agent Version 选择器 - 放在上面 */}
+              <Form.Item label="Agent Version" name="agent_version" className="mb-0">
+                <Radio.Group className="w-full">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Radio.Button value="v1" className="h-auto py-3 px-4 rounded-xl border-2 [&.ant-radio-button-wrapper-checked]:border-blue-500 [&.ant-radio-button-wrapper-checked]:bg-blue-50/60">
+                      <div className="flex items-center gap-2">
+                        <ThunderboltOutlined className="text-lg text-blue-500" />
+                        <div>
+                          <div className="font-semibold text-sm">V1 Classic</div>
+                          <div className="text-xs text-gray-400">Stable PDCA Agent</div>
+                        </div>
+                      </div>
+                    </Radio.Button>
+                    <Radio.Button value="v2" className="h-auto py-3 px-4 rounded-xl border-2 [&.ant-radio-button-wrapper-checked]:border-green-500 [&.ant-radio-button-wrapper-checked]:bg-green-50/60">
+                      <div className="flex items-center gap-2">
+                        <RocketOutlined className="text-lg text-green-500" />
+                        <div>
+                          <div className="font-semibold text-sm">V2 Core_v2</div>
+                          <div className="text-xs text-gray-400">Canvas + Progress</div>
+                        </div>
+                      </div>
+                    </Radio.Button>
+                  </div>
+                </Radio.Group>
               </Form.Item>
+              {/* Agent 模板选择器 - 根据版本动态切换 */}
+              {currentAgentVersion === 'v2' ? (
+                <Form.Item 
+                  label="Agent Template" 
+                  name="v2_agent_template" 
+                  key="v2_agent_template"
+                  rules={[{ required: true, message: 'Please select a V2 Agent template' }]} 
+                  className="mb-0"
+                >
+                  <Select 
+                    placeholder="Select V2 Agent Template" 
+                    options={v2AgentOptions} 
+                    className="w-full [&_.ant-select-selector]:!rounded-lg"
+                    loading={!v2AgentTemplates || v2AgentTemplates.length === 0}
+                    optionRender={(option) => (
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{V2_AGENT_ICONS[option.value as string] || '🤖'}</span>
+                        <div>
+                          <div className="font-medium">{option.data?.agent?.display_name || option.label}</div>
+                          <div className="text-xs text-gray-400">{option.data?.agent?.description}</div>
+                        </div>
+                      </div>
+                    )}
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item 
+                  label={t('baseinfo_select_agent_type')} 
+                  name="agent" 
+                  key="v1_agent"
+                  rules={[{ required: true, message: t('baseinfo_select_agent_type') }]} 
+                  className="mb-0"
+                >
+                  <Select 
+                    placeholder={t('baseinfo_select_agent_type')} 
+                    options={targetOptions} 
+                    allowClear 
+                    className="w-full [&_.ant-select-selector]:!rounded-lg" 
+                  />
+                </Form.Item>
+              )}
               {is_reasoning_engine_agent && (
                 <Form.Item name="reasoning_engine" label={t('baseinfo_reasoning_engine')} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]} className="mb-0">
                   <Select options={reasoningEngineOptions} placeholder={t('baseinfo_select_reasoning_engine')} className="w-full [&_.ant-select-selector]:!rounded-lg" />

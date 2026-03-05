@@ -103,16 +103,27 @@ class ThetaProvider(LLMProvider):
                     use_compat_fc = True
                     messages = params["messages"]
                     params["messages"] = inject_tool_prompt_to_messages(messages, request.tools)
-                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
-                    logger.info(f"ThetaProvider: Using compat tool call mode for model {model_name}, tools={tool_names}")
                 else:
                     params["tools"] = request.tools
-                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
-                    logger.info(f"ThetaProvider: tools count={len(request.tools)}, names={tool_names}")
+            
             if request.tool_choice and not use_compat_fc:
                 params["tool_choice"] = request.tool_choice
             if request.parallel_tool_calls is not None and not use_compat_fc:
                 params["parallel_tool_calls"] = request.parallel_tool_calls
+
+            log_params = {
+                "model": model_name,
+                "messages": openai_messages,
+                "temperature": request.temperature,
+                "max_tokens": params.get("max_tokens"),
+                "tools": request.tools,
+                "tool_choice": request.tool_choice,
+                "parallel_tool_calls": request.parallel_tool_calls,
+                "use_compat_fc": use_compat_fc,
+            }
+            logger.info(f"[ThetaProvider] ========== 开始调用模型 ==========")
+            logger.info(f"[ThetaProvider] 模型: {model_name}")
+            logger.info(f"[ThetaProvider] 请求参数: {json.dumps(log_params, ensure_ascii=False)}")
 
             self.client.api_key = api_key
             response = await self.client.chat.completions.create(**params)
@@ -126,28 +137,34 @@ class ThetaProvider(LLMProvider):
                 if compat_tool_calls:
                     tool_calls = compat_tool_calls
                     content = cleaned_content
-                    tool_names = [tc.get("function", {}).get("name", "unknown") for tc in compat_tool_calls]
-                    logger.info(f"ThetaProvider: Extracted tool_calls from compat mode: {tool_names}")
 
+            tc_output = None
             if tool_calls:
                 if hasattr(tool_calls[0], 'model_dump'):
                     tc_output = [tc.model_dump() for tc in tool_calls]
                 else:
                     tc_output = list(tool_calls)
-                tc_summary = [{"id": tc.get("id"), "name": tc.get("function", {}).get("name")} for tc in tc_output]
-                logger.info(f"ThetaProvider: tool_calls output={json.dumps(tc_summary)}")
-            else:
-                logger.info(f"ThetaProvider: no tool_calls in response, finish_reason={choice.finish_reason}")
+
+            logger.info(f"[ThetaProvider] ========== 模型返回成功 ==========")
+            log_response = {
+                "finish_reason": choice.finish_reason,
+                "content": content,
+                "tool_calls": tc_output,
+                "usage": response.usage.model_dump() if response.usage else None,
+            }
+            logger.info(f"[ThetaProvider] 响应: {json.dumps(log_response, ensure_ascii=False)}")
+            logger.info(f"[ThetaProvider] ========== 模型调用结束 ==========")
 
             return ModelOutput(
                 error_code=0,
                 text=content,
-                tool_calls=tc_output if tool_calls else None,
+                tool_calls=tc_output,
                 finish_reason=choice.finish_reason,
                 usage=response.usage.model_dump() if response.usage else None,
             )
         except Exception as e:
-            logger.exception(f"Theta generate error: {e}")
+            logger.error(f"[ThetaProvider] ========== 模型调用失败 ==========")
+            logger.exception(f"[ThetaProvider] 错误: {e}")
             return ModelOutput(error_code=1, text=str(e))
 
     async def generate_stream(
@@ -175,16 +192,28 @@ class ThetaProvider(LLMProvider):
                     use_compat_fc = True
                     messages = params["messages"]
                     params["messages"] = inject_tool_prompt_to_messages(messages, request.tools)
-                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
-                    logger.info(f"ThetaProvider stream: Using compat tool call mode for model {model_name}, tools={tool_names}")
                 else:
                     params["tools"] = request.tools
-                    tool_names = [t.get("function", {}).get("name") for t in request.tools]
-                    logger.info(f"ThetaProvider stream: tools count={len(request.tools)}, names={tool_names}")
+            
             if request.tool_choice and not use_compat_fc:
                 params["tool_choice"] = request.tool_choice
             if request.parallel_tool_calls is not None and not use_compat_fc:
                 params["parallel_tool_calls"] = request.parallel_tool_calls
+
+            log_params = {
+                "model": model_name,
+                "messages": openai_messages,
+                "temperature": request.temperature,
+                "max_tokens": params.get("max_tokens"),
+                "tools": request.tools,
+                "tool_choice": request.tool_choice,
+                "parallel_tool_calls": request.parallel_tool_calls,
+                "use_compat_fc": use_compat_fc,
+                "stream": True,
+            }
+            logger.info(f"[ThetaProvider] ========== 开始流式调用模型 ==========")
+            logger.info(f"[ThetaProvider] 模型: {model_name}")
+            logger.info(f"[ThetaProvider] 请求参数: {json.dumps(log_params, ensure_ascii=False)}")
 
             self.client.api_key = api_key
             stream = await self.client.chat.completions.create(**params)
@@ -229,18 +258,20 @@ class ThetaProvider(LLMProvider):
                 )
 
                 if choice.finish_reason:
-                    logger.info(f"ThetaProvider stream: finish_reason={choice.finish_reason}")
                     if use_compat_fc and not output_tool_calls and accumulated_content:
                         compat_tool_calls, cleaned_content = extract_tool_calls_from_content(accumulated_content)
                         if compat_tool_calls:
                             output_tool_calls = compat_tool_calls
                             content = cleaned_content
-                            tool_names = [tc.get("function", {}).get("name", "unknown") for tc in compat_tool_calls]
-                            logger.info(f"ThetaProvider stream: Extracted tool_calls from compat mode: {tool_names}")
+                            accumulated_content = cleaned_content
                     
-                    if output_tool_calls:
-                        tool_names = [tc.get("function", {}).get("name", "unknown") for tc in output_tool_calls]
-                        logger.info(f"ThetaProvider stream: tool_calls output count={len(output_tool_calls)}, names={tool_names}")
+                    logger.info(f"[ThetaProvider] ========== 流式调用结束 ==========")
+                    log_response = {
+                        "finish_reason": choice.finish_reason,
+                        "content": accumulated_content,
+                        "tool_calls": output_tool_calls,
+                    }
+                    logger.info(f"[ThetaProvider] 响应: {json.dumps(log_response, ensure_ascii=False)}")
 
                 yield ModelOutput(
                     error_code=0,
@@ -250,7 +281,8 @@ class ThetaProvider(LLMProvider):
                     incremental=True,
                 )
         except Exception as e:
-            logger.exception(f"Theta stream error: {e}")
+            logger.error(f"[ThetaProvider] ========== 流式调用失败 ==========")
+            logger.exception(f"[ThetaProvider] 错误: {e}")
             yield ModelOutput(error_code=1, text=str(e))
 
     async def models(self) -> List[ModelMetadata]:

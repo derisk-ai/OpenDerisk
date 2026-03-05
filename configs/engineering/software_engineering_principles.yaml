@@ -1,0 +1,577 @@
+# 软件工程黄金法则配置
+# 保证代码开发符合最佳架构和软件工程实践
+
+version: "1.0.0"
+name: 软件工程黄金法则
+description: 内置软件工程最佳实践，确保代码质量和架构规范
+
+# ==================== 设计原则 (Design Principles) ====================
+design_principles:
+  # SOLID 原则
+  solid:
+    enabled: true
+    principles:
+      single_responsibility:
+        name: 单一职责原则 (SRP)
+        description: |
+          一个类/模块只负责一个职责，只有一个引起它变化的原因。
+          - 每个类/模块只做一件事
+          - 职责通过变化原因来界定
+          - 避免上帝类(God Class)
+        check_points:
+          - "类/模块是否有多个变化的理由？"
+          - "是否可以拆分为更小的单元？"
+          - "方法是否都在操作同一组数据？"
+        violation_penalty: high
+        
+      open_closed:
+        name: 开闭原则 (OCP)
+        description: |
+          软件实体应该对扩展开放，对修改关闭。
+          - 通过抽象和多态实现扩展
+          - 使用策略模式、装饰器模式
+          - 避免直接修改已存在的代码
+        check_points:
+          - "新增功能是否需要修改现有代码？"
+          - "是否使用了合适的抽象层？"
+          - "是否可以通过继承或组合扩展？"
+        violation_penalty: high
+        
+      liskov_substitution:
+        name: 里氏替换原则 (LSP)
+        description: |
+          子类必须能够替换其父类，且行为一致。
+          - 子类不应该破坏父类的约定
+          - 前置条件不能强化，后置条件不能弱化
+          - 保持行为兼容性
+        check_points:
+          - "子类是否能完全替代父类？"
+          - "是否违反了父类的行为约定？"
+          - "是否抛出了父类没有声明的异常？"
+        violation_penalty: medium
+        
+      interface_segregation:
+        name: 接口隔离原则 (ISP)
+        description: |
+          客户端不应该依赖它不需要的接口。
+          - 接口要小而专注
+          - 避免胖接口(Fat Interface)
+          - 使用多个专门接口而非一个大接口
+        check_points:
+          - "接口是否包含客户端不需要的方法？"
+          - "是否可以将接口拆分？"
+          - "实现类是否需要实现空方法？"
+        violation_penalty: medium
+        
+      dependency_inversion:
+        name: 依赖倒置原则 (DIP)
+        description: |
+          高层模块不应依赖低层模块，二者都应依赖抽象。
+          - 依赖抽象而非具体实现
+          - 使用依赖注入
+          - 避免直接依赖具体类
+        check_points:
+          - "是否依赖了具体实现而非抽象？"
+          - "高层模块是否被低层模块耦合？"
+          - "是否可以使用依赖注入解耦？"
+        violation_penalty: high
+
+  # 简洁性原则
+  kiss:
+    enabled: true
+    name: KISS原则 (Keep It Simple, Stupid)
+    description: |
+      保持简单，避免不必要的复杂性。
+      - 简单的解决方案优于复杂的方案
+      - 避免过度设计
+      - 代码应该易于理解
+    guidelines:
+      - "优先选择最简单的实现方式"
+      - "避免引入不必要的抽象层"
+      - "代码应自解释，减少注释依赖"
+    max_complexity_score: 10
+
+  # DRY原则
+  dry:
+    enabled: true
+    name: DRY原则 (Don't Repeat Yourself)
+    description: |
+      每个知识片段在系统中应该有单一、明确的表示。
+      - 避免代码重复
+      - 使用抽象和提取公共代码
+      - 保持单一事实来源
+    detection_patterns:
+      - "重复的代码块 (阈值: 6行)"
+      - "相似的逻辑结构"
+      - "重复的配置常量"
+    max_duplication_ratio: 0.05
+
+  # YAGNI原则
+  yagni:
+    enabled: true
+    name: YAGNI原则 (You Aren't Gonna Need It)
+    description: |
+      不要添加当前不需要的功能。
+      - 避免过度设计
+      - 只实现当前需求
+      - 不要预留扩展点除非有明确需求
+    guidelines:
+      - "不要为假想的需求编码"
+      - "不要创建过多的抽象层"
+      - "优先实现最直接的方案"
+
+  # 最少惊讶原则
+  principle_of_least_astonishment:
+    enabled: true
+    name: 最少惊讶原则 (POLA)
+    description: |
+      系统行为应符合用户预期，避免意外。
+      - 命名要准确描述行为
+      - 遵循语言和框架惯例
+      - API行为要一致和可预测
+
+# ==================== 架构模式 (Architecture Patterns) ====================
+architecture_patterns:
+  # 分层架构
+  layered_architecture:
+    enabled: true
+    name: 分层架构
+    layers:
+      presentation:
+        description: 表现层 - UI和API入口
+        responsibilities:
+          - "接收用户请求"
+          - "数据格式转换"
+          - "输入验证"
+        forbidden:
+          - "直接访问数据库"
+          - "包含业务逻辑"
+      business:
+        description: 业务层 - 核心业务逻辑
+        responsibilities:
+          - "业务规则验证"
+          - "业务流程编排"
+          - "领域模型操作"
+        forbidden:
+          - "直接处理HTTP请求"
+          - "SQL语句"
+      data_access:
+        description: 数据访问层 - 持久化操作
+        responsibilities:
+          - "CRUD操作"
+          - "数据映射"
+          - "缓存管理"
+        forbidden:
+          - "业务逻辑"
+          - "直接暴露给表现层"
+    dependency_rule: "上层依赖下层，下层不知道上层"
+
+  # 依赖注入
+  dependency_injection:
+    enabled: true
+    name: 依赖注入模式
+    patterns:
+      constructor_injection:
+        preferred: true
+        description: 构造函数注入，依赖在创建时确定
+      setter_injection:
+        preferred: false
+        description: Setter注入，用于可选依赖
+      interface_injection:
+        preferred: false
+        description: 接口注入，用于复杂场景
+
+  # 关注点分离
+  separation_of_concerns:
+    enabled: true
+    name: 关注点分离
+    guidelines:
+      - "每个模块只关注一个功能领域"
+      - "业务逻辑与基础设施分离"
+      - "配置与代码分离"
+      - "数据与行为分离"
+
+  # 接口隔离
+  contract_first_design:
+    enabled: true
+    name: 契约优先设计
+    description: |
+      先定义接口契约，再实现细节。
+      - 接口定义优于实现
+      - API契约先行
+      - 模块间通过接口通信
+
+# ==================== 代码质量标准 (Code Quality Standards) ====================
+code_quality:
+  # 命名规范
+  naming:
+    enabled: true
+    rules:
+      classes:
+        pattern: "PascalCase"
+        description: "类名使用名词，体现职责"
+        examples:
+          good: ["UserService", "OrderProcessor", "PaymentGateway"]
+          bad: ["UsrSrv", "DoWork", "Helper"]
+      functions:
+        pattern: "snake_case / camelCase"
+        description: "函数名使用动词或动词短语，表达意图"
+        examples:
+          good: ["get_user_by_id", "calculateTotalPrice", "validateEmail"]
+          bad: ["data", "process", "handle"]
+      variables:
+        pattern: "snake_case / camelCase"
+        description: "变量名具有描述性，避免简写"
+        examples:
+          good: ["user_count", "total_price", "is_valid"]
+          bad: ["x", "temp", "data"]
+      constants:
+        pattern: "UPPER_SNAKE_CASE"
+        description: "常量全大写，下划线分隔"
+        examples:
+          good: ["MAX_RETRY_COUNT", "DEFAULT_TIMEOUT"]
+          bad: ["maxRetry", "default_timeout"]
+
+  # 函数设计
+  function_design:
+    enabled: true
+    rules:
+      max_lines: 20
+      max_parameters: 4
+      max_nesting_level: 3
+      single_return_preferred: false
+      pure_functions_preferred: true
+    guidelines:
+      - "一个函数只做一件事"
+      - "函数名应准确描述其行为"
+      - "避免副作用，优先纯函数"
+      - "参数过多时考虑使用对象"
+
+  # 类设计
+  class_design:
+    enabled: true
+    rules:
+      max_methods: 15
+      max_lines: 200
+      max_instance_variables: 10
+    guidelines:
+      - "类应该小而专注"
+      - "高内聚、低耦合"
+      - "优先组合而非继承"
+
+  # 注释规范
+  comments:
+    enabled: true
+    rules:
+      require_docstrings: true
+      docstring_style: "google / numpy / sphinx"
+    guidelines:
+      - "代码应自解释，减少注释需求"
+      - "解释为什么，而非做什么"
+      - "保持注释与代码同步"
+      - "公共API必须有文档"
+
+  # 错误处理
+  error_handling:
+    enabled: true
+    rules:
+      no_bare_except: true
+      specific_exceptions: true
+      proper_logging: true
+    guidelines:
+      - "不要吞掉异常"
+      - "使用具体的异常类型"
+      - "在合适的层级处理异常"
+      - "记录足够的上下文信息"
+
+  # 类型安全
+  type_safety:
+    enabled: true
+    rules:
+      use_type_hints: true
+      strict_typing: false
+      runtime_validation: true
+    guidelines:
+      - "所有公共函数添加类型注解"
+      - "使用 TypedDict 定义复杂数据结构"
+      - "运行时验证外部输入"
+
+# ==================== 安全约束 (Security Constraints) ====================
+security:
+  # 输入验证
+  input_validation:
+    enabled: true
+    rules:
+      validate_at_boundary: true
+      sanitize_user_input: true
+      escape_output: true
+    guidelines:
+      - "永远不要信任用户输入"
+      - "在系统边界进行验证"
+      - "使用白名单而非黑名单"
+
+  # 敏感数据处理
+  sensitive_data:
+    enabled: true
+    rules:
+      no_hardcoded_secrets: true
+      encrypt_at_rest: true
+      encrypt_in_transit: true
+      mask_in_logs: true
+    patterns_to_avoid:
+      - "password = 'xxx'"
+      - "api_key = 'sk-xxx'"
+      - "token = 'xxx'"
+    replacement_patterns:
+      - "使用环境变量"
+      - "使用密钥管理服务"
+      - "使用配置文件（不提交到版本控制）"
+
+  # 认证授权
+  authentication:
+    enabled: true
+    guidelines:
+      - "使用成熟的认证框架"
+      - "实现最小权限原则"
+      - "记录所有认证事件"
+
+  # 安全编码
+  secure_coding:
+    enabled: true
+    rules:
+      no_sql_injection: true
+      no_xss: true
+      no_csrf: true
+      use_parameterized_queries: true
+
+# ==================== 性能约束 (Performance Constraints) ====================
+performance:
+  # 算法复杂度
+  algorithm_complexity:
+    enabled: true
+    rules:
+      max_time_complexity: "O(n log n)"
+      max_space_complexity: "O(n)"
+      avoid_n_plus_one: true
+
+  # 资源管理
+  resource_management:
+    enabled: true
+    rules:
+      close_resources: true
+      connection_pooling: true
+      lazy_loading: true
+    guidelines:
+      - "及时释放资源"
+      - "使用上下文管理器"
+      - "避免资源泄漏"
+
+  # 缓存策略
+  caching:
+    enabled: true
+    guidelines:
+      - "缓存计算结果"
+      - "缓存数据库查询"
+      - "设置合理的过期时间"
+      - "处理缓存失效"
+
+  # 并发处理
+  concurrency:
+    enabled: true
+    guidelines:
+      - "避免共享可变状态"
+      - "使用线程安全的数据结构"
+      - "正确处理竞态条件"
+      - "使用适当的锁策略"
+
+# ==================== 可维护性约束 (Maintainability Constraints) ====================
+maintainability:
+  # 模块化
+  modularity:
+    enabled: true
+    rules:
+      max_file_lines: 500
+      max_module_dependencies: 10
+    guidelines:
+      - "每个模块有明确的职责"
+      - "模块间通过接口通信"
+      - "模块可独立测试"
+
+  # 测试要求
+  testing:
+    enabled: true
+    rules:
+      min_code_coverage: 80
+      unit_tests_required: true
+      integration_tests_required: true
+    guidelines:
+      - "测试驱动开发(TDD)"
+      - "每个公共方法有单元测试"
+      - "测试边界情况"
+      - "测试失败路径"
+
+  # 文档要求
+  documentation:
+    enabled: true
+    rules:
+      readme_required: true
+      api_docs_required: true
+      architecture_docs_required: true
+    guidelines:
+      - "代码即文档"
+      - "保持文档同步"
+      - "记录架构决策(ADR)"
+
+  # 版本控制
+  version_control:
+    enabled: true
+    rules:
+      meaningful_commits: true
+      no_committed_secrets: true
+      branch_strategy: "gitflow / trunk-based"
+    guidelines:
+      - "每个提交应该是一个原子变更"
+      - "编写清晰的提交信息"
+      - "使用分支进行功能开发"
+
+# ==================== 代码审查清单 (Code Review Checklist) ====================
+code_review:
+  enabled: true
+  auto_check:
+    - name: "代码风格检查"
+      tools: ["ruff", "black", "isort"]
+      severity: medium
+    - name: "类型检查"
+      tools: ["mypy", "pyright"]
+      severity: high
+    - name: "安全扫描"
+      tools: ["bandit", "safety"]
+      severity: critical
+    - name: "复杂度分析"
+      tools: ["radon", "cyclomatic"]
+      severity: medium
+
+  manual_check:
+    - "代码是否遵循设计原则？"
+    - "是否有重复代码？"
+    - "命名是否清晰准确？"
+    - "错误处理是否完善？"
+    - "是否有足够的测试？"
+    - "是否有安全隐患？"
+    - "性能是否可接受？"
+    - "文档是否完整？"
+
+# ==================== 反模式检测 (Anti-Patterns Detection) ====================
+anti_patterns:
+  enabled: true
+  patterns:
+    god_class:
+      name: 上帝类
+      description: 类承担了过多职责
+      detection:
+        max_methods: 20
+        max_lines: 300
+      severity: critical
+
+    god_object:
+      name: 上帝对象
+      description: 对象知道太多、做太多事情
+      detection:
+        max_attributes: 15
+      severity: critical
+
+    spaghetti_code:
+      name: 意大利面条代码
+      description: 代码结构混乱，难以理解和维护
+      detection:
+        max_cyclomatic_complexity: 15
+      severity: critical
+
+    copy_paste_programming:
+      name: 复制粘贴编程
+      description: 通过复制代码而非抽象来实现功能
+      detection:
+        duplication_threshold: 0.1
+      severity: high
+
+    magic_numbers:
+      name: 魔法数字
+      description: 代码中出现未解释的常量
+      detection:
+        pattern: "[0-9]+"
+        ignore:
+          - "0"
+          - "1"
+          - "-1"
+      severity: low
+
+    golden_hammer:
+      name: 金锤子
+      description: 过度使用某种技术解决所有问题
+      severity: medium
+
+    premature_optimization:
+      name: 过早优化
+      description: 在需要之前就进行优化
+      severity: medium
+
+    big_ball_of_mud:
+      name: 泥球
+      description: 缺乏清晰架构的系统
+      severity: critical
+
+# ==================== 最佳实践注入 (Best Practices Injection) ====================
+injection:
+  # 系统提示注入
+  system_prompt:
+    enabled: true
+    template: |
+      你是一位遵循软件工程最佳实践的资深开发工程师。
+      
+      在编写代码时，你必须遵循以下黄金法则：
+      
+      ## 设计原则
+      {design_principles}
+      
+      ## 架构要求
+      {architecture_guidelines}
+      
+      ## 代码质量标准
+      {quality_standards}
+      
+      ## 安全约束
+      {security_constraints}
+      
+      每行代码都应该体现这些原则。如果发现违反原则的情况，请主动指出并建议改进方案。
+
+  # 上下文注入
+  context_injection:
+    enabled: true
+    inject_project_patterns: true
+    inject_architecture_decisions: true
+    inject_coding_standards: true
+
+  # 实时检查
+  real_time_check:
+    enabled: true
+    check_on_write: true
+    check_on_edit: true
+    suggest_improvements: true
+
+# ==================== 输出约束 (Output Constraints) ====================
+output_constraints:
+  # 代码输出格式
+  code_output:
+    require_explanation: true
+    require_imports: true
+    require_type_hints: true
+    require_docstrings: true
+    require_error_handling: true
+    require_tests: false
+    
+  # 建议输出
+  suggestions:
+    suggest_refactoring: true
+    suggest_optimizations: true
+    suggest_best_practices: true
+    suggest_alternative_implementations: true

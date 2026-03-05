@@ -1,0 +1,102 @@
+# ============================================================
+# OpenDerisk 分布式部署配置范例
+# ============================================================
+# 此配置展示如何启用分布式模式，支持多节点部署
+# ============================================================
+
+[system]
+language = "${env:DERISK_LANG:-zh}"
+log_level = "INFO"
+api_keys = []
+encrypt_key = "${env:ENCRYPT_KEY:-your_secret_key_change_in_production}"
+
+# ============================================================
+# 分布式配置（用于多节点部署）
+# ============================================================
+# 启用分布式模式后，Agent执行状态和用户输入会通过Redis同步
+# 如果不配置 Redis，系统会使用内存模式（单机部署）
+[system.distributed]
+# 是否启用分布式模式（可选，默认自动检测）
+# enabled = true
+
+# Redis 连接配置
+redis_url = "${env:REDIS_URL:-redis://localhost:6379/0}"
+
+# 执行状态TTL（秒），默认1小时
+execution_ttl = 3600
+
+# 心跳间隔（秒），默认10秒
+heartbeat_interval = 10
+
+# ============================================================
+# 服务配置
+# ============================================================
+[service.web]
+host = "0.0.0.0"
+port = "${env:WEB_SERVER_PORT:-8888}"
+model_storage = "database"
+web_url = "https://localhost:${env:WEB_SERVER_PORT:-8888}"
+
+[service.web.database]
+type = "${env:DB_TYPE:-sqlite}"
+path = "pilot/meta_data/derisk.db"
+# MySQL 配置（可选）
+# type = "mysql"
+# host = "${env:LOCAL_DB_HOST:-db}"
+# port = "${env:LOCAL_DB_PORT:-3306}"
+# user = "${env:LOCAL_DB_USER:-root}"
+# password = "${env:LOCAL_DB_PASSWORD:-aa123456}"
+# name = "${env:LOCAL_DB_NAME:-derisk}"
+
+[service.web.trace]
+file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
+
+# ============================================================
+# Agent LLM 配置
+# ============================================================
+[agent.llm]
+temperature = 0.5
+
+[[agent.llm.provider]]
+provider = "openai"
+api_base = "${env:OPENAI_API_BASE:-https://api.openai.com/v1}"
+api_key = "${env:OPENAI_API_KEY}"
+
+[[agent.llm.provider.model]]
+name = "gpt-4"
+temperature = 0.7
+max_new_tokens = 4096
+
+# ============================================================
+# SSE 流式输出配置
+# ============================================================
+# 配置 Agent SSE 流式输出的行为
+[agent.sse]
+# 用户输入检查间隔（毫秒），在步骤之间检查是否有用户输入
+input_check_interval = 100
+
+# 是否在步骤完成时通知前端可以输入
+notify_step_complete = true
+
+# 最大等待用户输入时间（秒），0表示不主动等待
+max_wait_input_time = 0
+
+# ============================================================
+# 文件存储配置
+# ============================================================
+[[serves]]
+type = "file"
+default_backend = "local"
+
+[[serves.backends]]
+type = "local"
+storage_path = "${env:FILE_STORAGE_PATH:-./data/files}"
+
+# OSS 存储（可选）
+# [[serves.backends]]
+# type = "oss"
+# endpoint = "https://oss-cn-beijing.aliyuncs.com"
+# region = "oss-cn-beijing"
+# access_key_id = "${env:OSS_ACCESS_KEY_ID}"
+# access_key_secret = "${env:OSS_ACCESS_KEY_SECRET}"
+# fixed_bucket = "derisk-files"

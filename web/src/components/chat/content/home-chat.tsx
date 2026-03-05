@@ -50,6 +50,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ConnectorsModal } from '@/components/chat/connectors-modal';
+import { InteractionHandler } from '@/components/interaction';
 import { IApp } from '@/types/app';
 import { IModelData } from '@/types/model';
 
@@ -1194,6 +1195,8 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         selectedMcps={selectedMcps}
         onMcpsChange={setSelectedMcps}
       />
+
+      <InteractionHandler />
     </div>
   );
 }

@@ -5,11 +5,14 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 import {
   DownOutlined,
+  DownloadOutlined,
+  EyeOutlined,
   FileTextOutlined,
   RightOutlined,
 } from '@ant-design/icons';
 import { CheckCircleOutlined, ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { GPTVis } from '@antv/gpt-vis';
+import { Tooltip } from 'antd';
 import { codeComponents, markdownPlugins } from '../../config';
 import { ee as workWindowEmitter } from '@/utils/event-emitter';
 import {
@@ -26,6 +29,7 @@ import {
   FolderItemStyled,
   TreeContainer,
 } from './style';
+import { formatFileSize } from '../VisDAttach/utils';
 
 const iconUrlMap: Record<string, string> = {
   report: 'https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*xaTaQ5rDghgAAAAALTAAAAgAeprcAQ/original',
@@ -66,6 +70,14 @@ export interface AgentFolderItem {
   cost?: number;
   markdown?: string;
   items?: AgentFolderItem[];
+  file_id?: string;
+  file_name?: string;
+  file_type?: string;
+  file_size?: number;
+  preview_url?: string;
+  download_url?: string;
+  oss_url?: string;
+  mime_type?: string;
 }
 
 export interface FolderItem {
@@ -124,6 +136,20 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [tasks, setTasks] = useState<AgentFolderItem[]>([]);
 
+  const handleFilePreview = (item: AgentFolderItem) => {
+    const previewUrl = item.preview_url || item.oss_url;
+    if (previewUrl) {
+      window.open(previewUrl, '_blank');
+    }
+  };
+
+  const handleFileDownload = (item: AgentFolderItem) => {
+    const downloadUrl = item.download_url || item.oss_url;
+    if (downloadUrl) {
+      window.open(downloadUrl, '_blank');
+    }
+  };
+
   const rootItem: AgentFolderItem = useMemo(() => {
     const d = data as VisAgentFolderData & AgentFolderItem;
     if (isTreeRoot(data as AgentFolderItem)) return data as AgentFolderItem;
@@ -174,6 +200,9 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
     const isCollapsed = collapsedRoles.includes(item.uid);
     const hasChildren = item.item_type === 'folder';
     const isTask = item.item_type === 'file';
+    const isAfsFile = item.task_type === 'afs_file';
+    const hasPreview = !!(item.preview_url || item.oss_url);
+    const hasDownload = !!(item.download_url || item.oss_url);
 
     return (
       <FolderItemContainer key={item.uid}>
@@ -187,7 +216,7 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
                 isCollapsed ? prev.filter((id) => id !== item.uid) : [...prev, item.uid],
               );
             }
-            if (isTask) {
+            if (isTask && !isAfsFile) {
               setSelectedTask(item.uid);
               workWindowEmitter.emit('clickFolder', { uid: item.uid });
             }
@@ -219,7 +248,32 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
               </AvatarWrapper>
             )}
             <TitleText>{item.agent_name || item.title || item.uid}</TitleText>
+            {isAfsFile && item.file_size !== undefined && item.file_size > 0 && (
+              <span style={{ fontSize: '0.75rem', color: '#9ca3af', marginLeft: '4px' }}>
+                ({formatFileSize(item.file_size)})
+              </span>
+            )}
           </HeaderContent>
+          {isAfsFile && (hasPreview || hasDownload) && (
+            <div style={{ display: 'flex', gap: '8px', marginRight: '8px' }} onClick={(e) => e.stopPropagation()}>
+              {hasPreview && (
+                <Tooltip title="预览">
+                  <EyeOutlined 
+                    style={{ fontSize: '14px', color: '#1677ff', cursor: 'pointer' }}
+                    onClick={() => handleFilePreview(item)}
+                  />
+                </Tooltip>
+              )}
+              {hasDownload && (
+                <Tooltip title="下载">
+                  <DownloadOutlined 
+                    style={{ fontSize: '14px', color: '#52c41a', cursor: 'pointer' }}
+                    onClick={() => handleFileDownload(item)}
+                  />
+                </Tooltip>
+              )}
+            </div>
+          )}
         </RoleHeader>
         {!isCollapsed && item.items && item.items.length > 0 && (
           <ChildrenContainer>

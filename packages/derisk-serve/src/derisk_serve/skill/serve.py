@@ -120,17 +120,15 @@ class Serve(BaseServe):
         await self._load_default_skills()
 
     async def _load_default_skills(self):
-        """Load default skills from git repository on startup."""
+        """Load default skills from git repository on startup (non-blocking)."""
         from .service.service import Service
-        
-        logger.info("Loading default skills from git repository...")
         
         try:
             service: Service = self._system_app.get_component(
                 Service.name, Service
             )
             if not service:
-                logger.warning("Skill service not available, skipping default skill loading")
+                logger.info("Skill service not available, skipping default skill loading")
                 return
             
             default_repo_url = self._config.get_default_skill_repo_url()
@@ -140,15 +138,14 @@ class Serve(BaseServe):
                 logger.info("No default skill repository URL configured, skipping")
                 return
             
-            logger.info(f"Syncing skills from default repository: {default_repo_url} (branch: {default_branch})")
+            logger.info(f"Starting background sync from default repository: {default_repo_url} (branch: {default_branch})")
             
-            synced_skills = await service.sync_from_git(
+            task = service.create_sync_task(
                 repo_url=default_repo_url,
                 branch=default_branch,
                 force_update=False
             )
-            
-            logger.info(f"Successfully loaded {len(synced_skills)} default skills")
+            logger.info(f"Background sync task created: {task.task_id}")
             
         except Exception as e:
-            logger.warning(f"Failed to load default skills: {e}", exc_info=True)
+            logger.warning(f"Failed to start default skill sync: {e}", exc_info=True)
