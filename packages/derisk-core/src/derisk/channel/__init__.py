@@ -6,6 +6,7 @@ including:
 - Channel configuration
 - Channel message format
 - Channel handler interface
+- Message router for agent integration
 
 Example:
     ```python
@@ -31,11 +32,15 @@ Example:
 from .base import (
     ChannelCapabilities,
     ChannelConfig,
+    ChannelConnectionState,
     ChannelHandler,
     ChannelMessage,
     ChannelSender,
     ChannelType,
+    SendMessageResult,
 )
+from .registry import ChannelHandlerRegistry
+from .router import ChannelMessageRouter
 from .schemas import DingTalkConfig, FeishuConfig
 
 __all__ = [
@@ -45,8 +50,14 @@ __all__ = [
     "ChannelSender",
     "ChannelMessage",
     "ChannelCapabilities",
+    "ChannelConnectionState",
+    "SendMessageResult",
     # Interfaces
     "ChannelHandler",
+    # Registry
+    "ChannelHandlerRegistry",
+    # Router
+    "ChannelMessageRouter",
     # Platform configs
     "DingTalkConfig",
     "FeishuConfig",
