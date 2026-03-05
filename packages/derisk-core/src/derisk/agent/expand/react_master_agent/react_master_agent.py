@@ -24,6 +24,7 @@ from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
 from derisk.agent.core.base_parser import SchemaType
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status
+from derisk.agent.util.llm.llm_client import AgentLLMOut
 from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
 from derisk_serve.agent.resource.tool.mcp import MCPToolPack
@@ -204,6 +205,9 @@ class ReActMasterAgent(ConversableAgent):
                 self.available_system_tools[tool_name] = tool
                 logger.info(f"{tool_name} 工具已注入")
 
+        # NOTE: 历史回顾工具（read_history_chapter, search_history 等）不在此处注入。
+        # 它们只在首次 compaction 完成后才动态注入，见 _inject_history_tools_if_needed()。
+
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""
         self.function_calling_context = await self.function_calling_params()
@@ -353,6 +357,10 @@ class ReActMasterAgent(ConversableAgent):
         # 9. 初始化交互能力
         self._interaction_extension = None
         logger.info("Interaction extension enabled (will initialize on demand)")
+
+        # 10. 初始化统一压缩管道（延迟初始化，需要 conv_id）
+        self._compaction_pipeline = None
+        self._pipeline_initialized = False
 
     def _get_interaction_extension(self):
         """获取交互扩展（懒加载）"""
@@ -519,6 +527,53 @@ class ReActMasterAgent(ConversableAgent):
             )
             return None
 
+    async def _ensure_compaction_pipeline(self):
+        """确保统一压缩管道已初始化（懒加载）"""
+        if self._pipeline_initialized:
+            return self._compaction_pipeline
+
+        afs = await self._ensure_agent_file_system()
+        if not afs:
+            self._pipeline_initialized = True
+            return None
+
+        try:
+            from derisk.agent.core.memory.compaction_pipeline import (
+                UnifiedCompactionPipeline,
+                HistoryCompactionConfig,
+            )
+
+            ctx = self.not_null_agent_context
+            self._compaction_pipeline = UnifiedCompactionPipeline(
+                conv_id=ctx.conv_id,
+                session_id=ctx.conv_session_id or ctx.conv_id,
+                agent_file_system=afs,
+                work_log_storage=self.memory.gpts_memory if self.memory else None,
+                llm_client=self._get_llm_client(),
+                config=HistoryCompactionConfig(
+                    context_window=self.context_window,
+                    compaction_threshold_ratio=self.compaction_threshold_ratio,
+                    prune_protect_tokens=self.prune_protect_tokens,
+                    max_output_lines=(
+                        self._truncator_max_lines
+                        if hasattr(self, "_truncator_max_lines")
+                        else 2000
+                    ),
+                    max_output_bytes=(
+                        self._truncator_max_bytes
+                        if hasattr(self, "_truncator_max_bytes")
+                        else 50 * 1024
+                    ),
+                ),
+            )
+            self._pipeline_initialized = True
+            logger.info("UnifiedCompactionPipeline initialized")
+            return self._compaction_pipeline
+        except Exception as e:
+            logger.warning(f"Failed to initialize compaction pipeline: {e}")
+            self._pipeline_initialized = True
+            return None
+
     def _get_llm_client(self) -> Optional[Any]:
         """获取 LLM 客户端"""
         if (
@@ -528,6 +583,37 @@ class ReActMasterAgent(ConversableAgent):
         ):
             return self.llm_config.llm_client
         return None
+
+    async def _inject_history_tools_if_needed(self):
+        """在首次压缩完成后动态注入历史回顾工具。
+
+        历史回顾工具只在 compaction 发生后才有意义（此时才有归档章节可供检索），
+        因此不在 preload_resource() 中静态注入，而是由 load_thinking_messages() 
+        在检测到 pipeline.has_compacted 后调用本方法。
+        """
+        # 如果已经注入过，跳过
+        if "read_history_chapter" in self.available_system_tools:
+            return
+
+        pipeline = await self._ensure_compaction_pipeline()
+        if not pipeline or not pipeline.has_compacted:
+            return
+
+        try:
+            from derisk.agent.core.tools.history_tools import create_history_tools
+
+            history_tools = create_history_tools(pipeline)
+            for name, tool in history_tools.items():
+                self.available_system_tools[name] = tool
+
+            # 刷新 function_calling_context 以使 LLM 能看到新工具
+            self.function_calling_context = await self.function_calling_params()
+            logger.info(
+                f"History recovery tools injected after first compaction: "
+                f"{list(history_tools.keys())}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to inject history tools: {e}")
 
     async def _check_and_compact_context(
         self,
@@ -681,9 +767,15 @@ class ReActMasterAgent(ConversableAgent):
                 state=Status.FAILED.value,
             )
 
-        # 3. 截断输出（如果启用且是工具输出）
+        # 3. 截断输出（使用统一压缩管道 Layer 1 或回退到旧逻辑）
         if result.content and self.enable_output_truncation:
-            result.content = self._truncate_tool_output(result.content, tool_name)
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                tr = await pipeline.truncate_output(result.content, tool_name, args)
+                result.content = tr.content
+            elif self._truncator:
+                tr_result = self._truncator.truncate(result.content, tool_name=tool_name)
+                result.content = tr_result.content
 
         return result
 
@@ -713,16 +805,94 @@ class ReActMasterAgent(ConversableAgent):
         if not messages:
             return messages, context, system_prompt, user_prompt
 
-        # 1. 执行历史修剪
-        messages = await self._prune_history(messages)
+        # 尝试使用统一压缩管道（Layer 2 + Layer 3）
+        pipeline = await self._ensure_compaction_pipeline()
+        if pipeline:
+            # Layer 2: 历史修剪
+            prune_result = await pipeline.prune_history(messages)
+            messages = prune_result.messages
+            if prune_result.pruned_count > 0:
+                self._prune_count += 1
+                logger.info(
+                    f"Pipeline pruning: removed {prune_result.pruned_count} entries, "
+                    f"saved ~{prune_result.tokens_saved} tokens"
+                )
 
-        # 2. 执行上下文压缩
-        messages = await self._check_and_compact_context(messages)
+            # Layer 3: 上下文压缩 + 章节归档
+            compact_result = await pipeline.compact_if_needed(messages)
+            messages = compact_result.messages
+            if compact_result.compaction_triggered:
+                self._compaction_count += 1
+                logger.info(
+                    f"Pipeline compaction: archived {compact_result.messages_archived} messages, "
+                    f"saved ~{compact_result.tokens_saved} tokens"
+                )
+                # 首次压缩完成后动态注入历史回顾工具
+                if pipeline.has_compacted:
+                    await self._inject_history_tools_if_needed()
+        else:
+            # 降级到传统的修剪 + 压缩
+            messages = await self._prune_history(messages)
+            messages = await self._check_and_compact_context(messages)
 
-        # 3. 确保AgentFileSystem已初始化（用于文件管理）
+        # 确保AgentFileSystem已初始化（用于文件管理）
         await self._ensure_agent_file_system()
 
         return messages, context, system_prompt, user_prompt
+
+    async def thinking(
+        self,
+        messages: List[AgentMessage],
+        reply_message_id: str,
+        sender: Optional[Agent] = None,
+        prompt: Optional[str] = None,
+        received_message: Optional[AgentMessage] = None,
+        reply_message: Optional[AgentMessage] = None,
+        **kwargs,
+    ) -> Optional[AgentLLMOut]:
+        """Override thinking to compact tool_messages from current memory.
+
+        In function-calling mode, base_agent accumulates raw tool messages across
+        iterations in all_tool_messages and passes them via kwargs['tool_messages'].
+        These raw messages bypass compaction, defeating context management.
+
+        Fix: when the compaction pipeline is active, apply pruning + compaction
+        to tool_messages before they reach the LLM.
+        """
+        tool_messages: Optional[List[Dict]] = kwargs.get("tool_messages")
+        if tool_messages:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                try:
+                    prune_result = await pipeline.prune_history(tool_messages)
+                    compacted_tool_messages = prune_result.messages
+
+                    compact_result = await pipeline.compact_if_needed(
+                        compacted_tool_messages
+                    )
+                    compacted_tool_messages = compact_result.messages
+
+                    if compact_result.compaction_triggered:
+                        logger.info(
+                            f"Tool messages compacted: {len(tool_messages)} -> "
+                            f"{len(compacted_tool_messages)} messages"
+                        )
+                        if pipeline.has_compacted:
+                            await self._inject_history_tools_if_needed()
+
+                    kwargs["tool_messages"] = compacted_tool_messages
+                except Exception as e:
+                    logger.warning(f"Failed to compact tool messages: {e}")
+
+        return await super().thinking(
+            messages,
+            reply_message_id,
+            sender,
+            prompt=prompt,
+            received_message=received_message,
+            reply_message=reply_message,
+            **kwargs,
+        )
 
     async def act(
         self,

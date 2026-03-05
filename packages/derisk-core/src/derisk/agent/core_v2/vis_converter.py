@@ -241,10 +241,9 @@ class CoreV2VisWindow3Converter(VisProtocolConverter):
     def _build_running_from_stream(
         self, stream_msg: dict, is_first_chunk: bool, is_first_push: bool
     ) -> str:
-        """从 stream_msg 构建 running_window 内容。
+        """从 stream_msg 构建 running_window (d-work 标签)。
 
-        running_window 展示当前步骤的详细输出。
-        使用 nex-work-space 标签包裹工作项。
+        items 必须是带 uid 的 dict，前端 combineItems() 依赖 keyBy(items, 'uid')。
         """
         message_id = stream_msg.get("message_id", "")
         conv_session_uid = stream_msg.get("conv_session_uid", "")
@@ -252,80 +251,105 @@ class CoreV2VisWindow3Converter(VisProtocolConverter):
         thinking = stream_msg.get("thinking")
         sender_name = stream_msg.get("sender_name", "assistant")
 
-        work_items: List[str] = []
+        work_items: List[dict] = []
 
         # 思考内容 → 工作空间的 thinking 展示
         if thinking and thinking.strip():
-            work_items.append(
-                _vis_tag(
-                    "drsk-thinking",
-                    {
-                        "uid": f"{message_id}_work_thinking",
-                        "type": "incr",
-                        "dynamic": False,
-                        "markdown": thinking.strip(),
-                        "expand": True,
-                    },
-                )
+            thinking_vis = _vis_tag(
+                "drsk-thinking",
+                {
+                    "uid": f"{message_id}_work_thinking",
+                    "type": "incr",
+                    "dynamic": False,
+                    "markdown": thinking.strip(),
+                    "expand": True,
+                },
             )
+            work_items.append({
+                "uid": f"{message_id}_task_thinking",
+                "type": "incr",
+                "item_type": "file",
+                "title": "Thinking",
+                "task_type": "llm",
+                "markdown": thinking_vis,
+            })
 
         # 普通内容 → 工作空间的 LLM 输出
         if content and content.strip():
-            work_items.append(
-                _vis_tag(
-                    "drsk-content",
-                    {
-                        "uid": f"{message_id}_work_content",
-                        "type": "incr",
-                        "dynamic": False,
-                        "markdown": content.strip(),
-                    },
-                )
+            content_vis = _vis_tag(
+                "drsk-content",
+                {
+                    "uid": f"{message_id}_work_content",
+                    "type": "incr",
+                    "dynamic": False,
+                    "markdown": content.strip(),
+                },
             )
+            work_items.append({
+                "uid": f"{message_id}_task_llm",
+                "type": "incr",
+                "item_type": "file",
+                "title": sender_name,
+                "task_type": "llm",
+                "markdown": content_vis,
+            })
 
         if not work_items:
             return ""
 
-        # 用 nex-work-space 包裹
+        # 用 d-work 包裹（与 V1 WorkSpace.vis_tag() = "d-work" 一致）
+        # 数据结构兼容 WorkSpaceContent: uid, type, items, agent_name
         workspace_data = {
             "uid": conv_session_uid or message_id,
             "type": "incr",
+            "agent_name": sender_name,
             "items": work_items,
         }
 
-        return _vis_tag("nex-work-space", workspace_data)
+        return _vis_tag("d-work", workspace_data)
 
     def _build_running_from_msg(self, gpt_msg: GptsMessage) -> str:
-        """从 GptsMessage 构建 running_window 内容。"""
         message_id = gpt_msg.message_id or ""
-        work_items: List[str] = []
+        work_items: List[dict] = []
 
         if gpt_msg.thinking and gpt_msg.thinking.strip():
-            work_items.append(
-                _vis_tag(
-                    "drsk-thinking",
-                    {
-                        "uid": f"{message_id}_work_thinking",
-                        "type": "all",
-                        "dynamic": False,
-                        "markdown": gpt_msg.thinking.strip(),
-                        "expand": False,
-                    },
-                )
+            thinking_vis = _vis_tag(
+                "drsk-thinking",
+                {
+                    "uid": f"{message_id}_work_thinking",
+                    "type": "all",
+                    "dynamic": False,
+                    "markdown": gpt_msg.thinking.strip(),
+                    "expand": False,
+                },
             )
+            work_items.append({
+                "uid": f"{message_id}_task_thinking",
+                "type": "incr",
+                "item_type": "file",
+                "title": "Thinking",
+                "task_type": "llm",
+                "markdown": thinking_vis,
+            })
 
         if gpt_msg.content and gpt_msg.content.strip():
-            work_items.append(
-                _vis_tag(
-                    "drsk-content",
-                    {
-                        "uid": f"{message_id}_work_content",
-                        "type": "all",
-                        "dynamic": False,
-                        "markdown": gpt_msg.content.strip(),
-                    },
-                )
+            content_vis = _vis_tag(
+                "drsk-content",
+                {
+                    "uid": f"{message_id}_work_content",
+                    "type": "all",
+                    "dynamic": False,
+                    "markdown": gpt_msg.content.strip(),
+                },
             )
+            work_items.append({
+                "uid": f"{message_id}_task_llm",
+                "type": "incr",
+                "item_type": "file",
+                "title": "LLM Output",
+                "task_type": "llm",
+                "markdown": content_vis,
+            })
 
         if gpt_msg.action_report:
             for action_out in gpt_msg.action_report:
@@ -334,26 +358,34 @@ class CoreV2VisWindow3Converter(VisProtocolConverter):
                     action_out, "content", ""
                 )
                 if view_content and view_content.strip():
-                    work_items.append(
-                        _vis_tag(
-                            "drsk-content",
-                            {
-                                "uid": f"{action_id}_work_view",
-                                "type": "all",
-                                "dynamic": False,
-                                "markdown": view_content.strip(),
-                            },
-                        )
+                    action_vis = _vis_tag(
+                        "drsk-content",
+                        {
+                            "uid": f"{action_id}_work_view",
+                            "type": "all",
+                            "dynamic": False,
+                            "markdown": view_content.strip(),
+                        },
                     )
+                    work_items.append({
+                        "uid": f"{action_id}_task_action",
+                        "type": "incr",
+                        "item_type": "file",
+                        "title": getattr(action_out, "action", "Action"),
+                        "task_type": "tool",
+                        "markdown": action_vis,
+                    })
 
         if not work_items:
             return ""
 
         conv_session_id = gpt_msg.conv_session_id or message_id
+        sender = gpt_msg.sender or "assistant"
         workspace_data = {
             "uid": conv_session_id,
             "type": "incr",
+            "agent_name": sender,
             "items": work_items,
         }
 
-        return _vis_tag("nex-work-space", workspace_data)
+        return _vis_tag("d-work", workspace_data)

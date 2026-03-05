@@ -1,3 +1,5 @@
+'use client';
+
 import { AppContext, ChatContentContext, SelectedSkill } from '@/contexts';
 import { ChartData, ChatHistoryResponse, UserChatContent} from '@/types/chat';
 import { useContext, useState, useRef, useCallback, useEffect } from 'react';

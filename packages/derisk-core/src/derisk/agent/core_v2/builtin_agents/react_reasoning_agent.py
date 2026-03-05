@@ -14,6 +14,7 @@ ReActReasoningAgent - 长程任务推理Agent
 from typing import AsyncIterator, Dict, Any, Optional, List
 import logging
 import json
+import time
 
 from .base_builtin_agent import BaseBuiltinAgent
 from ..agent_info import AgentInfo
@@ -133,6 +134,11 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         use_persistent_memory: bool = False,
         enable_hierarchical_context: bool = True,
         hc_config: Optional[Any] = None,
+        # New: compaction pipeline parameters
+        enable_compaction_pipeline: bool = True,
+        agent_file_system: Optional[Any] = None,
+        work_log_storage: Optional[Any] = None,
+        compaction_config: Optional[Any] = None,
         **kwargs
     ):
         super().__init__(
@@ -161,6 +167,17 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         self._resource_prompt_cache: Optional[str] = None
         self._sandbox_prompt_cache: Optional[str] = None
         
+        # Compaction pipeline (lazy initialization)
+        self._compaction_pipeline = None
+        self._pipeline_initialized = False
+        self._enable_compaction_pipeline = enable_compaction_pipeline
+        self._compaction_config = compaction_config
+        self._agent_file_system = agent_file_system
+        self._work_log_storage = work_log_storage
+        self._context_window = context_window
+        self._max_output_lines = max_output_lines
+        self._max_output_bytes = max_output_bytes
+        
         if enable_doom_loop_detection:
             self._doom_loop_detector = DoomLoopDetector(
                 threshold=doom_loop_threshold
@@ -180,12 +197,21 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         if enable_history_pruning:
             self._history_pruner = HistoryPruner()
         
+        # Initialize WorkLogStorage if not provided
+        if self._work_log_storage is None and enable_compaction_pipeline:
+            try:
+                from ...core.memory.gpts.file_base import SimpleWorkLogStorage
+                self._work_log_storage = SimpleWorkLogStorage()
+            except Exception:
+                pass
+        
         logger.info(
             f"[ReActReasoningAgent] 初始化完成: "
             f"doom_loop={enable_doom_loop_detection}, "
             f"truncation={enable_output_truncation}, "
             f"compaction={enable_context_compaction}, "
             f"pruning={enable_history_pruning}, "
+            f"compaction_pipeline={enable_compaction_pipeline}, "
             f"sandbox={sandbox_manager is not None}, "
             f"memory={'persistent' if use_persistent_memory else 'in-memory'}, "
             f"hierarchical_context={enable_hierarchical_context}"
@@ -195,6 +221,110 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         """获取默认工具列表"""
         return ["bash", "read", "write", "search", "list_files", "think"]
     
+    # ==================== Compaction Pipeline Support ====================
+    
+    async def _ensure_agent_file_system(self) -> Optional[Any]:
+        """确保 AgentFileSystem 已初始化（懒加载）"""
+        if self._agent_file_system:
+            return self._agent_file_system
+        
+        try:
+            from ...core.file_system.agent_file_system import AgentFileSystem
+            
+            session_id = self._session_id or self.info.name
+            conv_id = getattr(self, "_conv_id", None) or session_id
+            self._agent_file_system = AgentFileSystem(
+                conv_id=conv_id,
+                session_id=session_id,
+            )
+            await self._agent_file_system.sync_workspace()
+            return self._agent_file_system
+        except Exception as e:
+            logger.warning(f"[ReActReasoningAgent] Failed to initialize AgentFileSystem: {e}")
+            return None
+    
+    async def _ensure_compaction_pipeline(self) -> Optional[Any]:
+        """确保统一压缩管道已初始化（懒加载）"""
+        if self._pipeline_initialized:
+            return self._compaction_pipeline
+        
+        if not self._enable_compaction_pipeline:
+            self._pipeline_initialized = True
+            return None
+        
+        afs = await self._ensure_agent_file_system()
+        if not afs:
+            self._pipeline_initialized = True
+            return None
+        
+        try:
+            from derisk.agent.core.memory.compaction_pipeline import (
+                UnifiedCompactionPipeline,
+                HistoryCompactionConfig,
+            )
+            
+            session_id = self._session_id or self.info.name
+            conv_id = getattr(self, "_conv_id", None) or session_id
+            
+            config = self._compaction_config or HistoryCompactionConfig(
+                context_window=self._context_window,
+                max_output_lines=self._max_output_lines,
+                max_output_bytes=self._max_output_bytes,
+            )
+            
+            self._compaction_pipeline = UnifiedCompactionPipeline(
+                conv_id=conv_id,
+                session_id=session_id,
+                agent_file_system=afs,
+                work_log_storage=self._work_log_storage,
+                llm_client=self.llm_client,
+                config=config,
+            )
+            self._pipeline_initialized = True
+            logger.info("[ReActReasoningAgent] UnifiedCompactionPipeline initialized")
+            return self._compaction_pipeline
+        except Exception as e:
+            logger.warning(f"[ReActReasoningAgent] Failed to initialize compaction pipeline: {e}")
+            self._pipeline_initialized = True
+            return None
+    
+    async def _inject_history_tools_if_needed(self) -> None:
+        """在首次压缩完成后动态注入历史回顾工具。
+
+        历史回顾工具只在 compaction 发生后才有意义（此时才有归档章节可供检索），
+        因此不在 preload_resource() 中静态注入，而是由 think() 在检测到
+        pipeline.has_compacted 后调用本方法。
+        """
+        # If already injected, skip
+        if self.tools.get("read_history_chapter"):
+            return
+        
+        pipeline = await self._ensure_compaction_pipeline()
+        if not pipeline or not pipeline.has_compacted:
+            return
+        
+        try:
+            from derisk.agent.core.tools.history_tools import create_history_tools
+            
+            history_tools = create_history_tools(pipeline)
+            for name, func_tool in history_tools.items():
+                # Adapt v1 FunctionTool to v2 ToolBase via register_function
+                self.tools.register_function(
+                    name=name,
+                    description=getattr(func_tool, "description", "") or f"History tool: {name}",
+                    func=getattr(func_tool, "func", None) or (lambda: "Not available"),
+                    parameters=getattr(func_tool, "args", {}) or {},
+                )
+            
+            logger.info(
+                f"[ReActReasoningAgent] History recovery tools injected after first compaction: "
+                f"{list(history_tools.keys())}"
+            )
+        except Exception as e:
+            logger.warning(f"[ReActReasoningAgent] Failed to inject history tools: {e}")
+    
+    # ==================== End Compaction Pipeline Support ====================
+    
     async def preload_resource(self) -> None:
         """
         预加载资源并注入工具
@@ -203,6 +333,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         1. 调用父类的preload_resource（注入知识、Agent、沙箱工具）
         2. 注入skill相关工具
         3. 构建资源提示词和沙箱提示词
+        
+        NOTE: 历史回顾工具（read_history_chapter, search_history 等）不在此处注入。
+        它们只在首次 compaction 完成后才动态注入，见 _inject_history_tools_if_needed()。
         """
         await super().preload_resource()
         
@@ -463,7 +596,12 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         )
     
     async def think(self, message: str, **kwargs) -> AsyncIterator[str]:
-        """思考阶段 - 调用LLM生成思考内容（支持Function Calling）"""
+        """思考阶段 - 调用LLM生成思考内容（支持Function Calling）
+        
+        集成 UnifiedCompactionPipeline Layer 2 (pruning) + Layer 3 (compaction):
+        在构建消息列表前，对 self._messages 执行修剪和压缩。
+        压缩后如果是首次 compaction，动态注入历史回顾工具。
+        """
         # 先 yield 一个思考开始的标记
         yield f"[思考] 分析任务: {message[:100]}..."
 
@@ -473,6 +611,35 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             return
 
         try:
+            # Layer 2 + Layer 3: 在构建消息前执行压缩管道
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline and self._messages:
+                try:
+                    # Layer 2: Pruning
+                    prune_result = await pipeline.prune_history(self._messages)
+                    self._messages = prune_result.messages
+                    if prune_result.pruned_count > 0:
+                        logger.info(
+                            f"[ReActReasoningAgent] Pruned {prune_result.pruned_count} messages, "
+                            f"saved ~{prune_result.tokens_saved} tokens"
+                        )
+                    
+                    # Layer 3: Compaction + Archival
+                    compact_result = await pipeline.compact_if_needed(self._messages)
+                    self._messages = compact_result.messages
+                    if compact_result.compaction_triggered:
+                        logger.info(
+                            f"[ReActReasoningAgent] Compaction triggered: archived "
+                            f"{compact_result.messages_archived} messages, "
+                            f"saved ~{compact_result.tokens_saved} tokens"
+                        )
+                        # After first compaction, inject history tools
+                        await self._inject_history_tools_if_needed()
+                except Exception as e:
+                    logger.warning(
+                        f"[ReActReasoningAgent] Compaction pipeline failed, using raw messages: {e}"
+                    )
+
             # 构建系统提示词
             system_prompt = self._build_system_prompt()
 
@@ -605,7 +772,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         )
     
     async def act(self, decision: "Decision", **kwargs) -> "ActionResult":
-        """执行工具 - 带截断和检测
+        """执行工具 - 带截断和检测（集成 UnifiedCompactionPipeline Layer 1）
 
         Args:
             decision: 决策对象，包含 tool_name 和 tool_args
@@ -633,8 +800,38 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         # 执行工具
         result = await self.execute_tool(tool_name, tool_args)
 
-        # 输出截断处理
-        if self._output_truncator and result.output:
+        # Layer 1: 使用 UnifiedCompactionPipeline 截断（优先）
+        pipeline = await self._ensure_compaction_pipeline()
+        if pipeline and result.output:
+            try:
+                tr = await pipeline.truncate_output(result.output, tool_name, tool_args)
+                result.output = tr.content
+                if tr.is_truncated:
+                    result.metadata["truncated"] = True
+                    result.metadata["file_key"] = tr.file_key
+                    result.metadata["truncation_info"] = {
+                        "original_size": tr.original_size,
+                        "truncated_size": tr.truncated_size,
+                    }
+            except Exception as e:
+                logger.warning(f"[ReActReasoningAgent] Pipeline truncation failed, fallback to legacy: {e}")
+                # Fallback to legacy OutputTruncator
+                if self._output_truncator and result.output:
+                    truncation_result = self._output_truncator.truncate(
+                        result.output, tool_name=tool_name
+                    )
+                    if truncation_result.is_truncated:
+                        result.output = truncation_result.content
+                        result.metadata["truncated"] = True
+                        result.metadata["truncation_info"] = {
+                            "original_lines": truncation_result.original_lines,
+                            "truncated_lines": truncation_result.truncated_lines,
+                            "temp_file": truncation_result.temp_file_path
+                        }
+                        if truncation_result.suggestion:
+                            result.output += truncation_result.suggestion
+        elif self._output_truncator and result.output:
+            # Fallback: legacy OutputTruncator when pipeline not available
             truncation_result = self._output_truncator.truncate(
                 result.output,
                 tool_name=tool_name
@@ -651,6 +848,26 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
                 if truncation_result.suggestion:
                     result.output += truncation_result.suggestion
+
+        # Record to WorkLog
+        if self._work_log_storage and pipeline:
+            try:
+                from derisk.agent.core.memory.gpts.file_base import WorkEntry
+                
+                entry = WorkEntry(
+                    timestamp=time.time(),
+                    tool=tool_name,
+                    args=tool_args,
+                    result=result.output[:500] if result.output else None,
+                    full_result_archive=result.metadata.get("file_key"),
+                    success=result.success,
+                    step_index=self._current_step,
+                )
+                session_id = self._session_id or self.info.name
+                conv_id = getattr(self, "_conv_id", None) or session_id
+                await self._work_log_storage.append_work_entry(conv_id, entry)
+            except Exception as e:
+                logger.debug(f"[ReActReasoningAgent] Failed to record WorkLog entry: {e}")
 
         # 转换 ToolResult 为 ActionResult
         return ActionResult(
@@ -770,5 +987,13 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         
         if self._history_pruner:
             stats["pruning"] = self._history_pruner.get_statistics()
+        
+        # Compaction pipeline stats
+        if self._compaction_pipeline:
+            stats["compaction_pipeline"] = {
+                "initialized": self._pipeline_initialized,
+                "has_compacted": self._compaction_pipeline.has_compacted,
+                "history_tools_injected": self.tools.get("read_history_chapter") is not None,
+            }
         
         return stats

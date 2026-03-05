@@ -15,7 +15,7 @@ export type SuccessTuple<T = any, D = any> = [null, T, ResponseType<T>, ApiRespo
 
 export type FailedTuple<T = any, D = any> = [Error | AxiosError<T, D>, null, null, null];
 
-const ins = axios.create({
+export const ins = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? '/',
 });
 

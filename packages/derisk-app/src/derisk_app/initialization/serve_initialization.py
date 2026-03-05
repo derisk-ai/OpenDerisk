@@ -286,7 +286,6 @@ def register_serve_apps(
     )
     # ################################ Evaluate Serve Register End ####################
 
-
     # ################################ Model Serve Register Begin #####################
     from derisk_serve.model.serve import Serve as ModelServe
 
@@ -306,7 +305,9 @@ def register_serve_apps(
     # ################################ App Building Serve Register Begin #####################
     from derisk_serve.building.app.serve import Serve as AppServe
     from derisk_serve.building.config.serve import Serve as AppConfigServe
-    from derisk_serve.building.recommend_question.serve import Serve as RecommendQuestionServe
+    from derisk_serve.building.recommend_question.serve import (
+        Serve as RecommendQuestionServe,
+    )
 
     # Register serve model
     system_app.register(
@@ -353,9 +354,9 @@ def register_serve_apps(
         ),
     )
 
-
     # ################################ Config Serve Register Begin ################
-    from derisk_serve.config.serve import  Serve as ConfigServe
+    from derisk_serve.config.serve import Serve as ConfigServe
+
     system_app.register(
         ConfigServe,
         config=get_config(
@@ -427,7 +428,7 @@ def register_serve_apps(
 
     # ################################ Cron Serve Register End   ################
 
-    # ################################ Cron Serve Register Begin ################
+    # ################################ Channel Serve Register Begin ################
     from derisk_serve.channel.serve import Serve as ChannelServe
 
     system_app.register(
@@ -440,4 +441,19 @@ def register_serve_apps(
         ),
     )
 
-    # ################################ Cron Serve Register End   ################
+    # ################################ Channel Serve Register End   ################
+
+    # ################################ Scene Serve Register Begin ################
+    from derisk_serve.scene.serve import Serve as SceneServe
+
+    system_app.register(
+        SceneServe,
+        config=get_config(
+            serve_configs,
+            SceneServe.name,
+            derisk_serve.scene.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Scene Serve Register End   ################
