@@ -21,6 +21,8 @@ from .schemas import (
     SkillFileWriteResponse,
     SkillFileRenameRequest,
     SkillFileRenameResponse,
+    SkillFileBatchUploadRequest,
+    SkillFileBatchUploadResponse,
     SkillSyncTaskRequest,
     SkillSyncTaskResponse,
 )
@@ -322,6 +324,28 @@ async def rename_skill_file(
         return Result.succ(rename_result)
     except Exception as e:
         logger.exception("skill file rename exception!")
+        return Result.failed(str(e))
+
+
+@router.post(
+    "/file/upload_batch",
+    response_model=Result[SkillFileBatchUploadResponse],
+    dependencies=[Depends(check_api_key)],
+)
+async def batch_upload_files(
+    request: SkillFileBatchUploadRequest,
+    service: Service = Depends(get_service),
+) -> Result[SkillFileBatchUploadResponse]:
+    """Upload multiple files to a skill directory"""
+    try:
+        result = service.batch_upload_files(
+            request.skill_code,
+            [f.model_dump() for f in request.files],
+            request.overwrite
+        )
+        return Result.succ(result)
+    except Exception as e:
+        logger.exception("skill file batch upload exception!")
         return Result.failed(str(e))
 
 

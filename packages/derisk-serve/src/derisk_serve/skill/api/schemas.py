@@ -192,6 +192,45 @@ class SkillFileRenameResponse(BaseModel):
     )
 
 
+class SkillFileUploadItem(BaseModel):
+    """Single file item for batch upload"""
+
+    file_path: str = Field(..., description="relative file path within skill directory")
+    content: str = Field(..., description="file content (base64 encoded for binary files)")
+    is_base64: bool = Field(False, description="whether content is base64 encoded")
+
+    model_config = ConfigDict(
+        title=f"SkillFileUploadItem for {SERVE_APP_NAME_HUMP}"
+    )
+
+
+class SkillFileBatchUploadRequest(BaseModel):
+    """Request for batch file upload"""
+
+    skill_code: str = Field(..., description="skill code")
+    files: List[SkillFileUploadItem] = Field(..., description="list of files to upload")
+    overwrite: bool = Field(False, description="whether to overwrite existing files")
+
+    model_config = ConfigDict(
+        title=f"SkillFileBatchUploadRequest for {SERVE_APP_NAME_HUMP}"
+    )
+
+
+class SkillFileBatchUploadResponse(BaseModel):
+    """Response for batch file upload"""
+
+    skill_code: str = Field(..., description="skill code")
+    total_count: int = Field(..., description="total number of files to upload")
+    success_count: int = Field(..., description="number of successfully uploaded files")
+    failed_count: int = Field(..., description="number of failed uploads")
+    success_files: List[str] = Field(default_factory=list, description="list of successfully uploaded file paths")
+    failed_files: List[Dict[str, str]] = Field(default_factory=list, description="list of failed file paths with error messages")
+
+    model_config = ConfigDict(
+        title=f"SkillFileBatchUploadResponse for {SERVE_APP_NAME_HUMP}"
+    )
+
+
 # ------------------------ Sync Task Models ------------------------
 class SkillSyncTaskRequest(BaseModel):
     """Request to create a sync task"""
