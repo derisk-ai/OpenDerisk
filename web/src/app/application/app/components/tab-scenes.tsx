@@ -200,8 +200,14 @@ export default function TabScenes() {
 
   // 从 appInfo 中获取已选择的场景
   useEffect(() => {
-    if (appInfo?.scenes) {
-      setSelectedScenes(appInfo.scenes);
+    if (appInfo?.scenes && appInfo.scenes.length > 0) {
+      const serverHasNewScenes = appInfo.scenes.some(id => !selectedScenes.includes(id));
+      const localHasUnsyncedScenes = selectedScenes.some(id => !appInfo.scenes.includes(id));
+      const isInitializing = selectedScenes.length === 0;
+      
+      if (serverHasNewScenes || (isInitializing && !localHasUnsyncedScenes)) {
+        setSelectedScenes(appInfo.scenes);
+      }
     }
   }, [appInfo?.scenes]);
 
@@ -338,10 +344,12 @@ export default function TabScenes() {
 
       const newScenes = [...selectedScenes, newScene.scene_id];
       setSelectedScenes(newScenes);
+
       await fetchUpdateApp({ ...appInfo, scenes: newScenes });
 
       message.success(t('scene_create_success', '场景创建成功'));
       setCreateModalVisible(false);
+      
       setActiveSceneId(newScene.scene_id);
       setEditingContent(defaultContent);
       setHasChanges(false);

@@ -1137,11 +1137,12 @@ class AgentChat(BaseComponent, ABC):
             return ""
 
         # 构建场景提示词
+        scene_separator = "\n\n---\n\n"
         scene_prompt = f"""# 场景定义
 
 你是根据以下场景定义来协助用户的智能助手。请严格遵循场景定义中的角色设定、工作流程和工具使用规范。
 
-{"\n\n---\n\n".join(scene_contents)}
+{scene_separator.join(scene_contents)}
 
 ---
 
