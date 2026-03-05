@@ -166,6 +166,32 @@ class SkillFileWriteResponse(BaseModel):
     )
 
 
+class SkillFileRenameRequest(BaseModel):
+    """Request to rename a skill file"""
+
+    skill_code: str = Field(..., description="skill code")
+    old_path: str = Field(..., description="current relative file path within skill directory")
+    new_path: str = Field(..., description="new relative file path within skill directory")
+
+    model_config = ConfigDict(
+        title=f"SkillFileRenameRequest for {SERVE_APP_NAME_HUMP}"
+    )
+
+
+class SkillFileRenameResponse(BaseModel):
+    """Response for skill file rename"""
+
+    skill_code: str = Field(..., description="skill code")
+    old_path: str = Field(..., description="old file path")
+    new_path: str = Field(..., description="new file path")
+    success: bool = Field(..., description="rename operation success")
+    message: str = Field(..., description="operation message")
+
+    model_config = ConfigDict(
+        title=f"SkillFileRenameResponse for {SERVE_APP_NAME_HUMP}"
+    )
+
+
 # ------------------------ Sync Task Models ------------------------
 class SkillSyncTaskRequest(BaseModel):
     """Request to create a sync task"""
