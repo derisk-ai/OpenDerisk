@@ -62,7 +62,7 @@ dev-dependencies = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["packages"]
+pythonpath = ["packages", "."]
 addopts = ["--import-mode=importlib", ]
 python_files = ["test_*.py", "*_test.py"]
 

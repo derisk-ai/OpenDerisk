@@ -83,6 +83,14 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+from .agent_info import (
+    AgentInfo,
+    AgentMode,
+    AgentRegistry,
+    PermissionAction,
+    PermissionRuleset,
+)
+
 
 class ContextHelper(BaseModel, Generic[T]):
     _context: contextvars.ContextVar[T] = PrivateAttr(
@@ -166,6 +174,28 @@ class ConversableAgent(Role, Agent):
 
     # 沙箱客户端对象，和Agent同生命周期
     sandbox_manager: Optional[SandboxManager] = None
+
+    # ========== 新增：Permission系统和AgentInfo配置 ==========
+    # 权限规则集，用于细粒度控制工具访问权限
+    permission_ruleset: Optional[PermissionRuleset] = Field(
+        default=None, description="Permission ruleset for tool access control"
+    )
+    # Agent配置信息，支持声明式配置
+    agent_info: Optional[AgentInfo] = Field(
+        default=None, description="Agent configuration info"
+    )
+    # Agent模式：primary/subagent
+    agent_mode: AgentMode = Field(
+        default=AgentMode.PRIMARY, description="Agent mode: primary or subagent"
+    )
+    # 最大执行步数（替代max_retry_count语义）
+    max_steps: Optional[int] = Field(
+        default=None, description="Maximum agentic iterations"
+    )
+    # 可用系统工具（从Role继承）
+    available_system_tools: Dict[str, Any] = Field(
+        default_factory=dict, description="Available system tools"
+    )
 
     def __init__(self, **kwargs):
         """Create a new agent."""
@@ -513,12 +543,71 @@ class ConversableAgent(Role, Agent):
                 continue
             first = resources[0]
             if isinstance(first, resource_type):
-                # 特殊处理：仅当单元素且 is_empty 为 True 时，视为“没有”
+                # 特殊处理：仅当单元素且 is_empty 为 True 时，视为"没有"
                 if len(resources) == 1 and getattr(first, "is_empty", False):
                     return False
                 else:
                     return True
         return False
+
+    def check_tool_permission(
+        self, tool_name: str, command: Optional[str] = None
+    ) -> PermissionAction:
+        """
+        检查工具权限 - 基于新的Permission系统。
+
+        参考 opencode 的权限设计，提供细粒度控制：
+        - ASK: 需要用户确认
+        - ALLOW: 直接允许
+        - DENY: 拒绝执行
+
+        Args:
+            tool_name: 工具名称
+            command: 命令参数（可选）
+
+        Returns:
+            PermissionAction: 权限动作
+        """
+        # 优先使用 agent_info 中的权限配置
+        if self.agent_info and self.agent_info.permission_ruleset:
+            return self.agent_info.check_permission(tool_name, command)
+
+        # 其次使用直接的 permission_ruleset
+        if self.permission_ruleset:
+            return self.permission_ruleset.check(tool_name, command)
+
+        # 检查 tools 配置
+        if self.agent_info and tool_name in self.agent_info.tools:
+            if not self.agent_info.tools[tool_name]:
+                return PermissionAction.DENY
+
+        # 默认允许
+        return PermissionAction.ALLOW
+
+    def is_tool_allowed(self, tool_name: str, command: Optional[str] = None) -> bool:
+        """检查工具是否被允许执行"""
+        action = self.check_tool_permission(tool_name, command)
+        return action == PermissionAction.ALLOW
+
+    def is_tool_denied(self, tool_name: str, command: Optional[str] = None) -> bool:
+        """检查工具是否被拒绝"""
+        action = self.check_tool_permission(tool_name, command)
+        return action == PermissionAction.DENY
+
+    def needs_tool_approval(
+        self, tool_name: str, command: Optional[str] = None
+    ) -> bool:
+        """检查工具是否需要用户批准"""
+        action = self.check_tool_permission(tool_name, command)
+        return action == PermissionAction.ASK
+
+    def get_effective_max_steps(self) -> int:
+        """获取有效的最大步骤数"""
+        if self.max_steps is not None:
+            return self.max_steps
+        if self.agent_info and self.agent_info.max_steps:
+            return self.agent_info.max_steps
+        return self.max_retry_count
 
     async def sandbox_tool_injection(self):
         ## 如果存在沙箱，需要注入沙箱工具

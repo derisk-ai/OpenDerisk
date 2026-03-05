@@ -1,3 +1,5 @@
+'use client';
+
 import { ConfigurableParams } from "@/types/common";
 import { Checkbox, Form, FormInstance, Input, InputNumber, Select } from "antd";
 import { useEffect } from "react";
@@ -80,7 +82,9 @@ function ConfigurableForm({
     const values = form.getFieldsValue();
     const normalizedValues = normalizeFormValues(values);
     form.setFieldsValue(normalizedValues);
-    originalSubmit.call(form);
+    if (originalSubmit && typeof originalSubmit === 'function') {
+      originalSubmit.call(form);
+    }
   };
 
   function renderItem(param: ConfigurableParams) {

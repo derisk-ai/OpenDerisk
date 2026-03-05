@@ -1,3 +1,5 @@
+'use client';
+
 import { Col, Form, FormInstance, Input, Row, Select } from 'antd';
 import React from 'react';
 import { useTranslation } from 'react-i18next';

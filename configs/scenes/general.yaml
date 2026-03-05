@@ -1,0 +1,107 @@
+# 通用模式场景配置
+# 适用于大多数任务，平衡上下文保留和响应速度
+
+scene: general
+name: 通用模式
+description: |
+  适用于大多数任务场景，提供平衡的上下文管理和响应策略。
+  - 平衡的截断策略，兼顾速度和质量
+  - 智能去重，减少冗余信息
+  - 混合压缩策略，保留关键上下文
+icon: 🎯
+tags:
+  - default
+  - balanced
+  - general-purpose
+
+version: "1.0.0"
+author: DeRisk Team
+
+# 上下文策略配置
+context:
+  # 截断策略
+  truncation:
+    strategy: balanced                    # 平衡截断
+    max_context_ratio: 0.7               # 上下文占最大token比例
+    preserve_recent_ratio: 0.2           # 保留最近消息比例
+    preserve_system_messages: true       # 保留系统消息
+    preserve_first_user_message: true    # 保留第一条用户消息
+    code_block_protection: false         # 不保护代码块（通用模式）
+    thinking_chain_protection: true      # 保护思考链
+    file_path_protection: false          # 不保护文件路径
+    custom_protect_patterns: []          # 自定义保护模式
+  
+  # 压缩策略
+  compaction:
+    strategy: hybrid                     # 混合压缩：摘要+重要性
+    trigger_threshold: 40                # 触发压缩的消息数
+    target_message_count: 20             # 压缩后目标消息数
+    keep_recent_count: 5                 # 保留最近N条消息
+    importance_threshold: 0.7            # 重要性阈值
+    preserve_tool_results: true          # 保留工具调用结果
+    preserve_error_messages: true        # 保留错误消息
+    preserve_user_questions: true        # 保留用户问题
+    summary_style: concise               # 摘要风格：简洁
+    max_summary_length: 500              # 最大摘要长度
+  
+  # 去重策略
+  dedup:
+    enabled: true                        # 启用去重
+    strategy: smart                      # 智能去重（精确+语义）
+    similarity_threshold: 0.9           # 相似度阈值
+    window_size: 10                      # 检测窗口大小
+    preserve_first_occurrence: true      # 保留首次出现
+    dedup_tool_results: false            # 不去重工具结果
+  
+  # Token预算分配
+  token_budget:
+    total_budget: 128000                 # 总Token预算
+    system_prompt_budget: 2000           # 系统提示词预算
+    tools_budget: 3000                   # 工具定义预算
+    history_budget: 8000                 # 历史消息预算
+    working_budget: 4000                 # 工作区预算
+  
+  validation_level: normal               # 验证级别
+  enable_auto_compaction: true           # 启用自动压缩
+  enable_context_caching: true           # 启用上下文缓存
+
+# Prompt策略配置
+prompt:
+  system_prompt_type: default            # 默认系统提示词
+  include_examples: true                 # 包含示例
+  examples_count: 2                      # 示例数量
+  
+  # 上下文注入
+  inject_file_context: true              # 注入文件上下文
+  inject_workspace_info: true           # 注入工作区信息
+  inject_git_info: false                 # 不注入Git信息
+  inject_project_structure: false        # 不注入项目结构
+  
+  # 输出配置
+  output_format: natural                 # 自然语言输出
+  response_style: balanced               # 平衡响应风格
+  
+  # 模型参数
+  temperature: 0.7                       # 温度参数
+  top_p: 1.0                            # Top-P采样
+  max_tokens: 4096                       # 最大输出Token
+
+# 工具策略配置
+tools:
+  preferred_tools: []                    # 无偏好（使用所有可用工具）
+  excluded_tools: []                     # 不排除任何工具
+  require_confirmation: []               # 无需确认
+  auto_execute_safe_tools: true          # 自动执行安全工具
+  max_tool_calls_per_step: 5             # 每步最大工具调用数
+  tool_timeout: 60                       # 工具超时时间（秒）
+
+# 推理策略配置
+reasoning:
+  strategy: react                        # ReAct推理策略
+  max_steps: 20                          # 最大推理步骤
+
+# 元数据
+metadata:
+  priority: 1
+  category: core
+  documentation: https://docs.derisk.ai/scenes/general

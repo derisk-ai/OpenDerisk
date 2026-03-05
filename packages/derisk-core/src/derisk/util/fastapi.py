@@ -56,22 +56,16 @@ _GLOBAL_SHUTDOWN_HANDLERS: List[Callable] = []
 
 
 def register_event_handler(app: FastAPI, event: str, handler: Callable):
-    """Register an event handler.
-
-    Args:
-        app (FastAPI): The FastAPI app.
-        event (str): The event type.
-        handler (Callable): The handler function.
-
-    """
+    import sys
+    print(f"[register_event_handler] event={event}, FastAPI version={_FASTAPI_VERSION}", file=sys.stderr, flush=True)
     if _FASTAPI_VERSION >= "0.109.1":
-        # https://fastapi.tiangolo.com/release-notes/#01091
         if event == "startup":
             if _HAS_STARTUP:
                 raise ValueError(
                     "FastAPI app already started. Cannot add startup handler."
                 )
             _GLOBAL_STARTUP_HANDLERS.append(handler)
+            print(f"[register_event_handler] Added startup handler, total: {len(_GLOBAL_STARTUP_HANDLERS)}", file=sys.stderr, flush=True)
         elif event == "shutdown":
             if _HAS_SHUTDOWN:
                 raise ValueError(
@@ -91,39 +85,48 @@ def register_event_handler(app: FastAPI, event: str, handler: Callable):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Trigger the startup event.
+    import sys
+    print(f"[lifespan] Called, handlers count: {len(_GLOBAL_STARTUP_HANDLERS)}", file=sys.stderr, flush=True)
     global _HAS_STARTUP, _HAS_SHUTDOWN
     for handler in _GLOBAL_STARTUP_HANDLERS:
+        print(f"[lifespan] Calling handler: {handler}", file=sys.stderr, flush=True)
         await handler()
     _HAS_STARTUP = True
+    print("[lifespan] Startup complete", file=sys.stderr, flush=True)
     yield
-    # Trigger the shutdown event.
     for handler in _GLOBAL_SHUTDOWN_HANDLERS:
         await handler()
     _HAS_SHUTDOWN = True
 
 
 def create_app(*args, **kwargs) -> FastAPI:
-    """Create a FastAPI app."""
+    import sys
+    print(f"[create_app] Called, FastAPI version={_FASTAPI_VERSION}", file=sys.stderr, flush=True)
     _sp = None
     if _FASTAPI_VERSION >= "0.109.1":
         if "lifespan" not in kwargs:
             kwargs["lifespan"] = lifespan
+            print("[create_app] Using default lifespan", file=sys.stderr, flush=True)
         _sp = kwargs["lifespan"]
     app = FastAPI(*args, **kwargs)
     if _sp:
         app.__derisk_custom_lifespan = _sp
+        print(f"[create_app] Set __derisk_custom_lifespan", file=sys.stderr, flush=True)
     return app
 
 
 def replace_router(app: FastAPI, router: Optional[APIRouter] = None):
-    """Replace the router of the FastAPI app."""
+    import sys
+    print(f"[replace_router] Called, FastAPI version={_FASTAPI_VERSION}", file=sys.stderr, flush=True)
     if not router:
         router = PriorityAPIRouter()
     if _FASTAPI_VERSION >= "0.109.1":
         if hasattr(app, "__derisk_custom_lifespan"):
             _sp = getattr(app, "__derisk_custom_lifespan")
             router.lifespan_context = _sp
+            print(f"[replace_router] Set lifespan_context on router", file=sys.stderr, flush=True)
+        else:
+            print("[replace_router] No __derisk_custom_lifespan found", file=sys.stderr, flush=True)
 
     app.router = router
     app.setup()

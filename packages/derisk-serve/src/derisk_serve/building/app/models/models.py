@@ -65,6 +65,7 @@ class ServeEntity(Model):
         comment="last update time",
     )
     admins = Column(Text, nullable=True, comment="administrators")
+    agent_version = Column(String(32), nullable=True, default="v1", comment="agent version: v1 or v2")
 
     __table_args__ = (UniqueConstraint("app_name", name="uk_gpts_app"),)
 
@@ -117,6 +118,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 updated_at=datetime.now(),
                 icon=request.icon,
                 published=request.published,
+                agent_version=getattr(request, 'agent_version', 'v1') or 'v1',
 
             )  # type: ignore
         else:
@@ -133,7 +135,8 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 "created_at": request.get('created_at'),
                 "updated_at": request.get('updated_at'),
                 "icon": request.get('icon'),
-                "published": request.get("published", False) ,
+                "published": request.get("published", False),
+                "agent_version": request.get('agent_version', 'v1'),
 
             }
             entity = ServeEntity(**request_dict)
@@ -163,7 +166,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 "config_code": entity.config_code,
                 "config_version": entity.config_version,
                 "team_context": _load_team_context(
-                    entity.team_mode, entity.team_context       # type: ignore
+                    entity.team_mode, entity.team_context, getattr(entity, 'agent_version', 'v1')       # type: ignore
                 ),
                 "user_code": entity.user_code,
                 "icon": entity.icon,
@@ -180,6 +183,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 "owner_name": entity.user_code,
 
                 "admins": [],
+                "agent_version": getattr(entity, 'agent_version', 'v1') or 'v1',
 
                 # "keep_start_rounds": app_info.keep_start_rounds,
                 # "keep_end_rounds": app_info.keep_end_rounds,
