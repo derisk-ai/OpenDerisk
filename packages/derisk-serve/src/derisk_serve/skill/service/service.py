@@ -1054,6 +1054,83 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             "message": "Renamed successfully",
         }
 
+    def batch_upload_files(
+        self, skill_code: str, files: List[Dict[str, Any]], overwrite: bool = False
+    ) -> Dict[str, Any]:
+        """Upload multiple files to a skill directory.
+
+        Args:
+            skill_code (str): The skill code
+            files (List[Dict]): List of file dicts with 'file_path', 'content', and optional 'is_base64'
+            overwrite (bool): Whether to overwrite existing files
+
+        Returns:
+            Dict with batch upload result
+        """
+        import base64
+
+        skill_dir = self.get_skill_directory(skill_code)
+
+        success_files = []
+        failed_files = []
+
+        for file_item in files:
+            file_path = file_item.get("file_path", "")
+            content = file_item.get("content", "")
+            is_base64 = file_item.get("is_base64", False)
+
+            if not file_path:
+                continue
+
+            try:
+                # Normalize file path
+                file_path = file_path.replace("\\", "/")
+                full_path = os.path.join(skill_dir, *file_path.split("/"))
+
+                # Check if file exists and we're not overwriting
+                if os.path.exists(full_path) and not overwrite:
+                    failed_files.append({
+                        "file_path": file_path,
+                        "error": "File already exists (use overwrite=true to replace)"
+                    })
+                    continue
+
+                # Ensure directory exists
+                dir_path = os.path.dirname(full_path)
+                if dir_path and not os.path.exists(dir_path):
+                    os.makedirs(dir_path, exist_ok=True)
+
+                # Decode content if base64
+                if is_base64:
+                    try:
+                        file_content = base64.b64decode(content)
+                        with open(full_path, "wb") as f:
+                            f.write(file_content)
+                    except Exception:
+                        # If base64 decode fails, treat as plain text
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                else:
+                    # Write as text
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+
+                success_files.append(file_path)
+            except Exception as e:
+                failed_files.append({
+                    "file_path": file_path,
+                    "error": str(e)
+                })
+
+        return {
+            "skill_code": skill_code,
+            "total_count": len(files),
+            "success_count": len(success_files),
+            "failed_count": len(failed_files),
+            "success_files": success_files,
+            "failed_files": failed_files,
+        }
+
     # -------------------- Async Git Sync Methods --------------------
 
     def _get_sync_task_dao(self):

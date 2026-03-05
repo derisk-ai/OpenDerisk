@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import {
@@ -34,6 +34,7 @@ import {
   InfoCircleOutlined,
   FileTextOutlined,
   EditOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import dynamic from 'next/dynamic';
 import { apiInterceptors } from '@/client/api';
@@ -45,6 +46,7 @@ import {
   createSkillFile,
   deleteSkillFile,
   renameSkillFile,
+  batchUploadSkillFiles,
   updateSkill,
 } from '@/client/api/skill';
 
@@ -121,9 +123,11 @@ export default function SkillDetailPage() {
   const [isCreateFileModalVisible, setIsCreateFileModalVisible] = useState(false);
   const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [isUploadingFolder, setIsUploadingFolder] = useState(false);
 
   const [createFileForm] = Form.useForm();
   const [renameFileForm] = Form.useForm();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load skill data and files
   const loadSkillData = useCallback(async () => {
@@ -329,6 +333,75 @@ export default function SkillDetailPage() {
     setIsRenameModalVisible(true);
   }, [renameFileForm]);
 
+  // Handle folder upload
+  const handleFolderUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingFolder(true);
+    try {
+      const fileList: { file_path: string; content: string; is_base64?: boolean }[] = [];
+
+      // Get the first file to determine the root folder name
+      const firstFile = files[0];
+      const webkitRelativePath = firstFile.webkitRelativePath;
+      const rootFolderName = webkitRelativePath.split('/')[0];
+
+      // Read all files
+      const readPromises = Array.from(files).map(async (file) => {
+        // Calculate relative path (remove root folder name)
+        const relativePath = file.webkitRelativePath.replace(rootFolderName + '/', '');
+
+        // For binary files, we use base64 encoding
+        const isBinary = !file.type.startsWith('text/') && file.type !== 'application/json' && file.type !== '';
+
+        if (isBinary) {
+          const content = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = reader.result as string;
+              resolve(base64.split(',')[1]); // Remove data URL prefix
+            };
+            reader.readAsDataURL(file);
+          });
+          return { file_path: relativePath, content, is_base64: true };
+        } else {
+          const content = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsText(file);
+          });
+          return { file_path: relativePath, content, is_base64: false };
+        }
+      });
+
+      const results = await Promise.all(readPromises);
+      fileList.push(...results);
+
+      if (fileList.length === 0) {
+        message.error('No files found in selected folder');
+        return;
+      }
+
+      const [err, res] = await apiInterceptors(batchUploadSkillFiles(skillCode, fileList, true));
+      if (res) {
+        message.success(`Uploaded ${res.success_count} files, failed ${res.failed_count}`);
+        loadFiles();
+      } else {
+        message.error('Failed to upload folder');
+      }
+    } catch (error) {
+      console.error('Folder upload error:', error);
+      message.error('Failed to upload folder');
+    } finally {
+      setIsUploadingFolder(false);
+      // Reset input so the same folder can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [skillCode, loadFiles]);
+
   // Build file tree structure
   const buildFileTree = useCallback((files: SkillFile[]): FileNode[] => {
     const tree: Record<string, FileNode> = {};
@@ -531,6 +604,22 @@ export default function SkillDetailPage() {
               onClick={() => loadFiles()}
             >
               Refresh
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              webkitdirectory="true"
+              directory="true"
+              multiple
+              onChange={handleFolderUpload}
+            />
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => fileInputRef.current?.click()}
+              loading={isUploadingFolder}
+            >
+              Upload Folder
             </Button>
             <Button
               icon={<PlusOutlined />}
