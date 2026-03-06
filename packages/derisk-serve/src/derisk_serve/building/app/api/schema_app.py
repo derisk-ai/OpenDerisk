@@ -21,7 +21,20 @@ from derisk_serve.agent.app.recommend_question.recommend_question import (
 from derisk_serve.agent.model import NativeTeamContext
 from derisk_serve.building.config.api.schemas import Layout, LLMResource
 
+
+class SceneStrategyRef(BaseModel):
+    """场景策略引用"""
+
+    scene_code: str = Field(description="场景编码")
+    scene_name: Optional[str] = Field(default=None, description="场景名称")
+    is_primary: bool = Field(default=True, description="是否主要场景")
+    custom_overrides: Dict[str, Any] = Field(
+        default_factory=dict, description="自定义覆盖"
+    )
+
+
 logger = logging.getLogger(__name__)
+
 
 class BindAppRequest(BaseModel):
     team_app_code: str
@@ -104,6 +117,7 @@ class GptsAppDetail(BaseModel):
             updated_at=entity.updated_at,
         )
 
+
 class GptsApp(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -115,11 +129,8 @@ class GptsApp(BaseModel):
     config_code: Optional[str] = None
     config_version: Optional[str] = None
     language: Optional[str] = "zh"
-    team_context: Optional[
-        Union[
-             str, AutoTeamContext, SingleAgentContext
-        ]
-    ] = None
+    agent_version: Optional[str] = "v1"  # v1 (经典) v2 (Core_v2)
+    team_context: Optional[Union[str, AutoTeamContext, SingleAgentContext]] = None
     user_code: Optional[str] = None
     sys_code: Optional[str] = None
     is_collected: Optional[str] = None
@@ -158,15 +169,28 @@ class GptsApp(BaseModel):
     ## 用户prompt模版
     user_prompt_template: Optional[str] = None
     ## agent信息
-    agent:Optional[str] = None
+    agent: Optional[str] = None
     ## 标记当前是否为推理引擎Agent
     is_reasoning_engine_agent: bool = False
     ## 上下文工程配置
     context_config: Optional[GroupedConfigItem] = None
 
+    ## 场景策略配置
+    scene_strategy: Optional[SceneStrategyRef] = Field(
+        default=None, description="关联的场景策略"
+    )
+    scene_strategies: List[SceneStrategyRef] = Field(
+        default_factory=list, description="关联的多个场景策略"
+    )
+
+    ## 场景文件列表（绑定到应用的.md场景文件）
+    scenes: List[str] = Field(
+        default_factory=list,
+        description="绑定的场景文件ID列表，如 ['coding', 'schedule', 'deploy']",
+    )
+
     creator: Optional[str] = None
     editor: Optional[str] = None
-
 
     # By default, keep the last two rounds of conversation records as the context
     keep_start_rounds: int = 1
@@ -223,6 +247,7 @@ class GptsApp(BaseModel):
             config_code=d.get("config_code"),
             agent=d.get("agent"),
             config_version=d.get("config_version"),
+            agent_version=d.get("agent_version", "v1"),
         )
 
     @model_validator(mode="before")

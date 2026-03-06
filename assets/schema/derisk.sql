@@ -9,8 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
-
--- Generated: 2026-02-28 13:57:50
+-- Generated: 2026-02-28 17:45:47
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -24,22 +23,37 @@ CREATE TABLE IF NOT EXISTS `derisk_cluster_registry_instance` (
   `host` VARCHAR(128) NOT NULL COMMENT 'Host of the model',
   `port` INT NOT NULL COMMENT 'Port of the model',
   `weight` FLOAT NULL COMMENT 'Weight of the model',
+  `check_healthy` TINYINT(1) NULL DEFAULT 1 COMMENT 'Whether to check the health of the model',
+  `healthy` TINYINT(1) NULL DEFAULT 0 COMMENT 'Whether the model is healthy',
+  `enabled` TINYINT(1) NULL DEFAULT 1 COMMENT 'Whether the model is enabled',
+  `prompt_template` VARCHAR(128) NULL COMMENT 'Prompt template for the model instance',
+  `last_heartbeat` DATETIME NULL COMMENT 'Last heartbeat time of the model instance',
   `user_name` VARCHAR(128) NULL COMMENT 'User name',
   `sys_code` VARCHAR(128) NULL COMMENT 'System code',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_model_instance` (`model_name`, `host`, `port`, `sys_code`, `uk_model_instance`)
+  UNIQUE KEY `uk_model_instance` (`model_name`, `host`, `port`, `sys_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_history
 -- Source Model: ChatHistoryEntity
 CREATE TABLE IF NOT EXISTS `chat_history` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_uid` VARCHAR(255) NOT NULL COMMENT 'Conversation record unique id',
   `chat_mode` VARCHAR(255) NOT NULL COMMENT 'Conversation scene mode',
+  `summary` LONGTEXT NOT NULL COMMENT 'Conversation record summary',
   `user_name` VARCHAR(255) NULL COMMENT 'interlocutor',
+  `messages` LONGTEXT NULL COMMENT 'Conversation details',
+  `message_ids` LONGTEXT NULL COMMENT 'Message ids, split by comma',
   `sys_code` VARCHAR(128) NULL COMMENT 'System code',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
   `app_code` VARCHAR(255) NULL COMMENT 'App unique code',
-  UNIQUE KEY `uk_conv_uid` (`conv_uid`, `uk_conv_uid`),
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_conv_uid` (`conv_uid`),
   KEY `idx_q_user` (`user_name`),
   KEY `idx_q_mode` (`chat_mode`),
   KEY `idx_q_conv` (`summary`),
@@ -49,10 +63,16 @@ CREATE TABLE IF NOT EXISTS `chat_history` (
 -- Table: chat_history_message
 -- Source Model: ChatHistoryMessageEntity
 CREATE TABLE IF NOT EXISTS `chat_history_message` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_uid` VARCHAR(255) NOT NULL COMMENT 'Conversation record unique id',
   `index` INT NOT NULL COMMENT 'Message index',
   `round_index` INT NOT NULL COMMENT 'Message round index',
+  `message_detail` LONGTEXT NULL COMMENT 'Message details, json format',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
-  UNIQUE KEY `uk_conversation_message` (`conv_uid`, `index`, `uk_conversation_message`)
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_conversation_message` (`conv_uid`, `index`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: user
@@ -61,14 +81,16 @@ CREATE TABLE IF NOT EXISTS `user` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(50) NULL,
   `fullname` VARCHAR(50) NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: recommend_question
 -- Source Model: RecommendQuestionEntity
 CREATE TABLE IF NOT EXISTS `recommend_question` (
-  KEY `idx_rec_q_app_code` (`app_code`),
-  KEY `idx_rec_q_app_code` (`app_code`)
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: user_recent_apps
@@ -79,11 +101,10 @@ CREATE TABLE IF NOT EXISTS `user_recent_apps` (
   `user_code` VARCHAR(255) NULL COMMENT 'user code',
   `sys_code` VARCHAR(255) NULL COMMENT 'system app code',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
   `last_accessed` DATETIME NULL COMMENT 'last access time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_user_r_app_code` (`app_code`),
-  KEY `idx_user_code` (`user_code`),
-  KEY `idx_last_accessed` (`last_accessed`),
   KEY `idx_user_r_app_code` (`app_code`),
   KEY `idx_user_code` (`user_code`),
   KEY `idx_last_accessed` (`last_accessed`)
@@ -93,17 +114,23 @@ CREATE TABLE IF NOT EXISTS `user_recent_apps` (
 -- Source Model: GptsConversationsEntity
 CREATE TABLE IF NOT EXISTS `gpts_conversations` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
   `user_goal` TEXT NOT NULL COMMENT 'User',
   `gpts_name` VARCHAR(255) NOT NULL COMMENT 'The gpts name',
+  `team_mode` VARCHAR(255) NOT NULL COMMENT 'The conversation team mode',
   `state` VARCHAR(255) NULL COMMENT 'The gpts state',
+  `max_auto_reply_round` INT NOT NULL COMMENT 'max auto reply round',
   `auto_reply_count` INT NOT NULL COMMENT 'auto reply count',
   `user_code` VARCHAR(255) NULL COMMENT 'user code',
   `sys_code` VARCHAR(255) NULL COMMENT 'system app ',
   `vis_render` VARCHAR(255) NULL COMMENT 'vis mode of chat conversation ',
   `extra` TEXT NULL COMMENT 'the extra info of the conversation',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_gpts_conversations` (`conv_id`, `uk_gpts_conversations`),
-  KEY `idx_gpts_name` (`gpts_name`),
+  UNIQUE KEY `uk_gpts_conversations` (`conv_id`),
   KEY `idx_gpts_name` (`gpts_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -111,6 +138,10 @@ CREATE TABLE IF NOT EXISTS `gpts_conversations` (
 -- Source Model: GptsFileMetadataEntity
 CREATE TABLE IF NOT EXISTS `gpts_file_metadata` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The session id within conversation',
+  `file_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the file',
+  `file_key` VARCHAR(512) NOT NULL COMMENT 'The key of the file in file system',
   `file_name` VARCHAR(512) NOT NULL COMMENT 'The name of the file',
   `file_type` VARCHAR(64) NOT NULL COMMENT 'The type of the file',
   `file_size` INT NOT NULL DEFAULT 0 COMMENT 'The size of file in bytes',
@@ -119,6 +150,7 @@ CREATE TABLE IF NOT EXISTS `gpts_file_metadata` (
   `preview_url` VARCHAR(1024) NULL COMMENT 'The preview URL of the file',
   `download_url` VARCHAR(1024) NULL COMMENT 'The download URL of the file',
   `content_hash` VARCHAR(128) NULL COMMENT 'The content hash for deduplication',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: pending/uploading/completed/failed/expired',
   `mime_type` VARCHAR(128) NULL COMMENT 'The MIME type of the file',
   `is_public` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Whether the file is public',
   `created_by` VARCHAR(255) NULL COMMENT 'The agent name that created this file',
@@ -127,10 +159,10 @@ CREATE TABLE IF NOT EXISTS `gpts_file_metadata` (
   `tool_name` VARCHAR(255) NULL COMMENT 'The related tool name',
   `metadata` TEXT NULL COMMENT 'Additional metadata (JSON)',
   `expires_at` DATETIME NULL COMMENT 'The expiration time',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_file_meta_conv_session` (`conv_id`, `conv_session_id`),
-  KEY `idx_file_meta_file_key` (`conv_id`, `file_key`),
-  KEY `idx_file_meta_file_type` (`conv_id`, `file_type`),
   KEY `idx_file_meta_conv_session` (`conv_id`, `conv_session_id`),
   KEY `idx_file_meta_file_key` (`conv_id`, `file_key`),
   KEY `idx_file_meta_file_type` (`conv_id`, `file_type`),
@@ -141,8 +173,13 @@ CREATE TABLE IF NOT EXISTS `gpts_file_metadata` (
 -- Source Model: GptsFileCatalogEntity
 CREATE TABLE IF NOT EXISTS `gpts_file_catalog` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation',
+  `file_key` VARCHAR(512) NOT NULL COMMENT 'The key of the file in file system',
+  `file_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the file',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_file_catalog_conv` (`conv_id`),
   KEY `idx_file_catalog_conv` (`conv_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -150,10 +187,18 @@ CREATE TABLE IF NOT EXISTS `gpts_file_catalog` (
 -- Source Model: GptsKanbanEntity
 CREATE TABLE IF NOT EXISTS `gpts_kanban` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation',
+  `session_id` VARCHAR(255) NOT NULL COMMENT 'The session id within conversation',
+  `agent_id` VARCHAR(255) NOT NULL COMMENT 'The agent id that created this kanban',
+  `kanban_id` VARCHAR(255) NOT NULL COMMENT 'Kanban unique id',
   `mission` TEXT NOT NULL COMMENT 'Mission description',
+  `current_stage_index` INT NOT NULL DEFAULT 0 COMMENT 'Current stage index',
   `stages` LONGTEXT NULL COMMENT 'Stages data (JSON)',
+  `deliverables` LONGTEXT NULL COMMENT 'Deliverables data (JSON)',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_kanban_conv_session` (`conv_id`, `session_id`),
   KEY `idx_kanban_conv_session` (`conv_id`, `session_id`),
   KEY `idx_pre_kanban_log_conv_session` (`conv_id`, `session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -162,9 +207,14 @@ CREATE TABLE IF NOT EXISTS `gpts_kanban` (
 -- Source Model: GptsPreKanbanLogEntity
 CREATE TABLE IF NOT EXISTS `gpts_pre_kanban_log` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation',
+  `session_id` VARCHAR(255) NOT NULL COMMENT 'The session id within conversation',
   `agent_id` VARCHAR(255) NOT NULL COMMENT 'The agent id',
+  `logs` LONGTEXT NULL COMMENT 'Pre-kanban logs (JSON)',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_pre_kanban_log_conv_session` (`conv_id`, `session_id`),
   KEY `idx_pre_kanban_log_conv_session` (`conv_id`, `session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -172,19 +222,47 @@ CREATE TABLE IF NOT EXISTS `gpts_pre_kanban_log` (
 -- Source Model: GptsMessagesEntity
 CREATE TABLE IF NOT EXISTS `gpts_messages` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
+  `message_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the messages',
+  `sender` VARCHAR(255) NOT NULL COMMENT 'Who(role) speaking in the current conversation turn',
+  `sender_name` VARCHAR(255) NOT NULL COMMENT 'Who(name) speaking in the current conversation turn',
+  `receiver` VARCHAR(255) NOT NULL COMMENT 'Who(role) receive message in the current conversation turn',
+  `receiver_name` VARCHAR(255) NOT NULL COMMENT 'Who(name) receive message in the current conversation turn',
   `model_name` VARCHAR(255) NULL COMMENT 'message generate model',
   `rounds` INT NOT NULL COMMENT 'dialogue turns',
   `is_success` TINYINT(1) NULL DEFAULT 1 COMMENT 'is success',
+  `app_code` VARCHAR(255) NOT NULL COMMENT 'The message in which app',
+  `app_name` VARCHAR(255) NOT NULL COMMENT 'The message in which app name',
+  `thinking` TEXT NULL COMMENT 'Thinking of the speech',
+  `content` TEXT NULL COMMENT 'Content of the speech',
+  `content_types` VARCHAR(1000) NULL COMMENT 'Content types of the speech',
+  `message_type` VARCHAR(255) NULL COMMENT 'type of the message',
+  `system_prompt` TEXT NULL COMMENT 'this message system prompt',
+  `user_prompt` TEXT NULL COMMENT 'this message system prompt',
+  `show_message` TINYINT(1) NULL COMMENT 'Whether the current message needs to be displayed to the user',
+  `goal_id` VARCHAR(255) NULL COMMENT 'The target id to the current message',
+  `current_goal` TEXT NULL COMMENT 'The target corresponding to the current message',
   `context` TEXT NULL COMMENT 'Current conversation context',
+  `review_info` TEXT NULL COMMENT 'Current conversation review info',
+  `action_report` TEXT NULL COMMENT 'Current conversation action report',
+  `resource_info` TEXT NULL COMMENT 'Current conversation resource info',
+  `role` VARCHAR(255) NULL COMMENT 'The role of the current message content',
+  `avatar` VARCHAR(255) NULL COMMENT 'The avatar of the agent who send current message content',
+  `metrics` VARCHAR(1000) NULL COMMENT 'The performance metrics of agent messages',
+  `tool_calls` TEXT NULL COMMENT 'The tool_calls of agent messages',
+  `observation` TEXT NULL COMMENT 'The  message observation',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_q_messages` (`conv_id`, `rounds`, `sender`),
   KEY `idx_q_messages` (`conv_id`, `rounds`, `sender`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_messages_system
 -- Source Model: GptsMessagesSystemEntity
 CREATE TABLE IF NOT EXISTS `gpts_messages_system` (
-  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
   `conv_id` VARCHAR(255) NOT NULL COMMENT 'agent对话id',
@@ -199,11 +277,8 @@ CREATE TABLE IF NOT EXISTS `gpts_messages_system` (
   `content_extra` VARCHAR(2000) NULL COMMENT '消息扩展内容，根据类型阶段不同，内容不同',
   `retry_time` SMALLINT NULL DEFAULT 0 COMMENT '当前阶段重试次数',
   `final_status` VARCHAR(20) NULL COMMENT '当前阶段最终状态',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_message_phase` (`conv_id`, `phase`),
-  KEY `idx_message_type` (`conv_id`, `type`, `phase`),
-  KEY `idx_agent_message` (`conv_id`, `agent_message_id`),
-  KEY `idx_message` (`message_id`),
   KEY `idx_message_phase` (`conv_id`, `phase`),
   KEY `idx_message_type` (`conv_id`, `type`, `phase`),
   KEY `idx_agent_message` (`conv_id`, `agent_message_id`),
@@ -214,6 +289,8 @@ CREATE TABLE IF NOT EXISTS `gpts_messages_system` (
 -- Source Model: GptsPlansEntity
 CREATE TABLE IF NOT EXISTS `gpts_plans` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation record',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation session',
   `task_uid` VARCHAR(255) NOT NULL COMMENT 'The uid of the plan task',
   `sub_task_num` INT NOT NULL COMMENT 'Subtask id',
   `conv_round` INT NOT NULL COMMENT 'The dialogue turns',
@@ -222,14 +299,22 @@ CREATE TABLE IF NOT EXISTS `gpts_plans` (
   `task_parent` VARCHAR(255) NULL COMMENT 'Subtask parent task id',
   `sub_task_title` VARCHAR(255) NOT NULL COMMENT 'subtask title',
   `sub_task_content` TEXT NOT NULL COMMENT 'subtask content',
+  `sub_task_agent` VARCHAR(255) NULL COMMENT 'Available agents corresponding to subtasks',
   `resource_name` VARCHAR(255) NULL COMMENT 'resource name',
+  `agent_model` VARCHAR(255) NULL COMMENT 'LLM model used by subtask processing agents',
   `retry_times` INT NULL DEFAULT 0 COMMENT 'number of retries',
+  `max_retry_times` INT NULL DEFAULT 0 COMMENT 'Maximum number of retries',
   `state` VARCHAR(255) NULL COMMENT 'subtask status',
   `result` TEXT NULL COMMENT 'subtask result',
   `task_round_title` VARCHAR(255) NULL COMMENT 'task round title.(Can be empty if there are no multiple tasks in a round)',
   `task_round_description` VARCHAR(500) NULL COMMENT 'task round description.(Can be empty if there are no multiple tasks in a round)',
+  `planning_agent` VARCHAR(255) NULL COMMENT 'task generate planner name',
+  `planning_model` VARCHAR(255) NULL COMMENT 'task generate llm model',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_sub_task` (`conv_id`, `sub_task_id`, `uk_sub_task`)
+  UNIQUE KEY `uk_sub_task` (`conv_id`, `sub_task_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_tool
@@ -243,8 +328,8 @@ CREATE TABLE IF NOT EXISTS `gpts_tool` (
   `owner` VARCHAR(255) NOT NULL COMMENT 'tool owner',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_tool_name` (`tool_id`),
   KEY `idx_tool_name` (`tool_id`),
   KEY `idx_tool_detail_id` (`tool_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -265,8 +350,8 @@ CREATE TABLE IF NOT EXISTS `gpts_tool_detail` (
   `category` VARCHAR(255) NULL COMMENT 'tool category',
   `tag` VARCHAR(255) NULL COMMENT 'tool tag',
   `owner` VARCHAR(255) NULL COMMENT 'tool owner',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_tool_detail_id` (`tool_id`),
   KEY `idx_tool_detail_id` (`tool_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -286,11 +371,8 @@ CREATE TABLE IF NOT EXISTS `gpts_tool_messages` (
   `session_id` VARCHAR(255) NULL COMMENT 'tool session id',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_tool_id` (`tool_id`),
-  KEY `idx_tool_name` (`name`),
-  KEY `idx_tool_name_sub_name` (`name`, `sub_name`),
-  KEY `idx_session_id` (`session_id`),
   KEY `idx_tool_id` (`tool_id`),
   KEY `idx_tool_name` (`name`),
   KEY `idx_tool_name_sub_name` (`name`, `sub_name`),
@@ -301,16 +383,25 @@ CREATE TABLE IF NOT EXISTS `gpts_tool_messages` (
 -- Source Model: GptsWorkLogEntity
 CREATE TABLE IF NOT EXISTS `gpts_work_log` (
   `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The unique id of the conversation',
+  `session_id` VARCHAR(255) NOT NULL COMMENT 'The session id within conversation',
+  `agent_id` VARCHAR(255) NOT NULL COMMENT 'The agent id that created this log',
+  `step_index` INT NOT NULL DEFAULT 0 COMMENT 'The step index in the session',
   `tool` VARCHAR(255) NOT NULL COMMENT 'Tool name',
   `args` TEXT NULL COMMENT 'Tool arguments (JSON)',
   `summary` TEXT NULL COMMENT 'Brief summary of the action',
   `result` LONGTEXT NULL COMMENT 'Result content',
+  `full_result_archive` VARCHAR(512) NULL COMMENT 'File key for archived full result',
   `archives` TEXT NULL COMMENT 'List of archive file keys (JSON)',
+  `success` INT NOT NULL DEFAULT 1 COMMENT 'Whether the action succeeded',
   `tags` TEXT NULL COMMENT 'Tags (JSON array)',
   `tokens` INT NOT NULL DEFAULT 0 COMMENT 'Estimated token count',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: active/compressed/archived',
+  `timestamp` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'When the action was performed',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_work_log_conv_session` (`conv_id`, `session_id`),
-  KEY `idx_work_log_conv_tool` (`conv_id`, `tool`),
   KEY `idx_work_log_conv_session` (`conv_id`, `session_id`),
   KEY `idx_work_log_conv_tool` (`conv_id`, `tool`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -344,15 +435,16 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `context_config` VARCHAR(2000) NULL COMMENT '上下文工程配置',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_config_version` (`code`, `uk_config_version`),
-  KEY `idx_app_config` (`app_code`, `is_published`),
+  UNIQUE KEY `uk_config_version` (`code`),
   KEY `idx_app_config` (`app_code`, `is_published`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: connect_config
 -- Source Model: ConnectConfigEntity
 CREATE TABLE IF NOT EXISTS `connect_config` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `db_type` VARCHAR(255) NOT NULL COMMENT 'db type',
   `db_name` VARCHAR(255) NOT NULL COMMENT 'db name',
   `db_path` VARCHAR(255) NULL COMMENT 'file db path',
@@ -366,8 +458,11 @@ CREATE TABLE IF NOT EXISTS `connect_config` (
   `user_name` VARCHAR(128) NULL COMMENT 'User name',
   `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
-  UNIQUE KEY `uk_db` (`db_name`, `uk_db`),
-  KEY `idx_q_db_type` (`db_type`),
+  `ext_config` TEXT NULL COMMENT 'Extended configuration, json format',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_db` (`db_name`),
   KEY `idx_q_db_type` (`db_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -392,8 +487,10 @@ CREATE TABLE IF NOT EXISTS `evaluate_manage` (
   `user_name` VARCHAR(128) NULL COMMENT 'User name',
   `sys_code` VARCHAR(128) NULL COMMENT 'System code',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_evaluate_code` (`evaluate_code`, `uk_evaluate_code`)
+  UNIQUE KEY `uk_evaluate_code` (`evaluate_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_feed_back
@@ -409,11 +506,14 @@ CREATE TABLE IF NOT EXISTS `chat_feed_back` (
   `messages` TEXT NULL,
   `remark` TEXT NULL COMMENT 'feedback remark',
   `message_id` VARCHAR(255) NULL COMMENT 'Message ID',
+  `feedback_type` VARCHAR(31) NULL COMMENT 'Feedback type like or unlike',
+  `reason_types` VARCHAR(255) NULL COMMENT 'Feedback reason categories',
   `user_code` VARCHAR(255) NULL COMMENT 'User ID',
   `user_name` VARCHAR(128) NULL,
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Modification time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  KEY `idx_conv_uid` (`conv_uid`),
-  KEY `idx_gmt_create` (`gmt_create`),
   KEY `idx_conv_uid` (`conv_uid`),
   KEY `idx_gmt_create` (`gmt_create`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -429,8 +529,10 @@ CREATE TABLE IF NOT EXISTS `prompt_manage` (
   `prompt_name` VARCHAR(256) NULL COMMENT 'Prompt name',
   `content` TEXT NULL COMMENT 'Prompt content',
   `response_schema` TEXT NULL COMMENT 'Prompt response schema',
+  `gmt_create` VARCHAR(128) NULL COMMENT 'Prompt model name(we can use different models for different prompt',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_prompt_name_sys_code` (`prompt_name`, `sys_code`, `prompt_language`, `model`, `uk_prompt_name_sys_code`)
+  UNIQUE KEY `uk_prompt_name_sys_code` (`prompt_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: document_chunk
@@ -454,6 +556,7 @@ CREATE TABLE IF NOT EXISTS `document_chunk` (
   `image_url` VARCHAR(2048) NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -479,6 +582,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_document` (
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
   `questions` TEXT NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -495,6 +599,7 @@ CREATE TABLE IF NOT EXISTS `graph_node` (
   `version` VARCHAR(100) NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -512,6 +617,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_refresh_record` (
   `context` TEXT NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -527,6 +633,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_space_graph_relation` (
   `user_login_name` VARCHAR(100) NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -555,6 +662,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_task` (
   `host` VARCHAR(100) NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -576,6 +684,7 @@ CREATE TABLE IF NOT EXISTS `knowledge_space` (
   `refresh` VARCHAR(100) NULL,
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -597,6 +706,7 @@ CREATE TABLE IF NOT EXISTS `rag_flow_span` (
   `node_type` VARCHAR(500) NULL,
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -610,6 +720,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `operator` VARCHAR(100) NULL,
   `gmt_create` DATETIME NULL,
   `gmt_modified` DATETIME NULL,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -650,11 +761,12 @@ CREATE TABLE IF NOT EXISTS `knowledge_yuque` (
 -- Table: skill_sync_task
 -- Source Model: SkillSyncTaskEntity
 CREATE TABLE IF NOT EXISTS `skill_sync_task` (
-  `id` INT NOT NULL AUTO_INCREMENT,
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
   `task_id` VARCHAR(100) NOT NULL COMMENT 'unique task identifier',
   `repo_url` VARCHAR(500) NOT NULL COMMENT 'git repository url',
   `branch` VARCHAR(100) NOT NULL COMMENT 'git branch',
   `force_update` TINYINT(1) NULL DEFAULT 0 COMMENT 'force update existing skills',
+  `status` VARCHAR(50) NOT NULL COMMENT 'task status: pending, running, completed, failed',
   `progress` INT NULL DEFAULT 0 COMMENT 'progress percentage (0-100)',
   `current_step` VARCHAR(200) NULL COMMENT 'current step description',
   `total_steps` INT NULL DEFAULT 0 COMMENT 'total number of steps',
@@ -667,6 +779,7 @@ CREATE TABLE IF NOT EXISTS `skill_sync_task` (
   `end_time` DATETIME NULL COMMENT 'task end time',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -144,6 +144,9 @@ class FunctionCallOutputParser(AgentParser):
                     logger.warning(f"function info is not dict: {type(function_info)}")
                     continue
                 function_name = function_info.get("name")
+                if not function_name:
+                    logger.warning(f"function name is missing in tool_call: {item}")
+                    continue
                 func_args = function_info.get("arguments")
                 logger.info(
                     f"Parsing tool_call: id={tool_call_id}, name={function_name}, args={func_args[:100] if func_args else None}..."
@@ -157,7 +160,7 @@ class FunctionCallOutputParser(AgentParser):
                     parsed_args = func_args
                 steps.append(
                     ToolCall(
-                        tool_call_id=tool_call_id, name=function_name, args=parsed_args
+                        tool_call_id=tool_call_id, name=str(function_name), args=parsed_args
                     )
                 )
 

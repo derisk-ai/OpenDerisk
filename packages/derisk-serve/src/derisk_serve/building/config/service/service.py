@@ -151,6 +151,15 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         else:
             # if not request.creator:
             #     raise ValueError("当前编辑配置缺少创建者信息参数")
+            published_config = self.dao.get_one({"app_code": request.app_code, "is_published": True})
+            if published_config:
+                for field in ['team_mode', 'team_context', 'resources', 'details', 'ext_config',
+                              'recommend_questions', 'layout', 'custom_variables', 'llm_config',
+                              'resource_knowledge', 'resource_tool', 'resource_agent',
+                              'system_prompt_template', 'user_prompt_template', 'context_config', 'agent_version']:
+                    if getattr(request, field, None) is None and hasattr(published_config, field):
+                        setattr(request, field, getattr(published_config, field))
+            
             request.is_published = False
             request.version_info = (
                 f"{datetime.now().strftime('%Y%m%d%H%M%S')}{TEMP_VERSION_SUFFIX}"
@@ -338,7 +347,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return self.dao.get_one({"code": code})
 
     def get_app_temp_code(self, app_code: str) -> Optional[ServerResponse]:
-        return self.dao.get_one({"app_code": app_code, "is_published": False})
+        result = self.dao.get_one({"app_code": app_code, "is_published": False})
+        logger.info(f"get_app_temp_code: app_code={app_code}, is_published=False, result={result is not None}")
+        if result:
+            logger.info(f"  - result.code={result.code}, resource_tool={result.resource_tool is not None if result else 'N/A'}")
+        return result
 
     async def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a Building/config entity

@@ -12,6 +12,39 @@ from typing import Any, Dict, List, Optional
 from derisk._private.pydantic import BaseModel, ConfigDict, Field
 
 
+class ChannelConnectionState(str, Enum):
+    """Channel connection state enumeration."""
+
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    ERROR = "error"
+    RECONNECTING = "reconnecting"
+
+
+class SendMessageResult(BaseModel):
+    """Result of sending a message through a channel."""
+
+    model_config = ConfigDict(title="SendMessageResult")
+
+    success: bool = Field(
+        ...,
+        description="Whether the message was sent successfully",
+    )
+    message_id: Optional[str] = Field(
+        default=None,
+        description="Message ID returned by the channel platform",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Error message if sending failed",
+    )
+    timestamp: Optional[datetime] = Field(
+        default=None,
+        description="Timestamp when the message was sent",
+    )
+
+
 class ChannelType(str, Enum):
     """Channel type enumeration."""
 
@@ -83,7 +116,7 @@ class ChannelCapabilities(BaseModel):
 class ChannelConfig(BaseModel):
     """Base channel configuration."""
 
-    model_config = ConfigDict(title="ChannelConfig")
+    model_config = ConfigDict(title="ChannelConfig", extra="allow")
 
     enabled: bool = Field(
         default=True,
@@ -96,6 +129,10 @@ class ChannelConfig(BaseModel):
     description: Optional[str] = Field(
         default=None,
         description="Channel description",
+    )
+    platform_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Platform-specific configuration (FeishuConfig, DingTalkConfig, etc.)",
     )
 
 
@@ -160,6 +197,88 @@ class ChannelHandler(ABC):
     Channel handlers are implemented in derisk-ext for specific platforms.
     They handle message processing, signature validation, and capability reporting.
     """
+
+    def __init__(self, channel_id: str, config: "ChannelConfig"):
+        """Initialize the channel handler.
+
+        Args:
+            channel_id: The unique identifier for this channel.
+            config: The channel configuration.
+        """
+        self._channel_id = channel_id
+        self._config = config
+        self._connection_state: ChannelConnectionState = (
+            ChannelConnectionState.DISCONNECTED
+        )
+
+    @classmethod
+    def get_default_capabilities(cls) -> ChannelCapabilities:
+        """Get default capabilities for this channel type.
+
+        This class method can be called without instantiating the handler.
+        Subclasses should override this to return their specific capabilities.
+
+        Returns:
+            ChannelCapabilities instance with default values.
+        """
+        return ChannelCapabilities()
+
+    @property
+    def channel_id(self) -> str:
+        """Get the channel ID."""
+        return self._channel_id
+
+    @property
+    def connection_state(self) -> ChannelConnectionState:
+        """Get the current connection state."""
+        return self._connection_state
+
+    @abstractmethod
+    async def start(self) -> None:
+        """Start the channel handler.
+
+        This should establish the connection to the platform (WebSocket, Stream, etc.)
+        and start listening for incoming messages.
+        """
+        pass
+
+    @abstractmethod
+    async def stop(self) -> None:
+        """Stop the channel handler.
+
+        This should close all connections and stop listening for messages.
+        """
+        pass
+
+    @abstractmethod
+    async def send_message(
+        self,
+        receiver_id: str,
+        content: str,
+        content_type: str = "text",
+        **kwargs,
+    ) -> SendMessageResult:
+        """Send a message to a receiver through this channel.
+
+        Args:
+            receiver_id: The ID of the receiver (user or group).
+            content: The message content.
+            content_type: The content type (text, markdown, etc.).
+            **kwargs: Additional parameters (reply_to, mentions, etc.).
+
+        Returns:
+            SendMessageResult indicating success or failure.
+        """
+        pass
+
+    @abstractmethod
+    def get_connection_url(self) -> Optional[str]:
+        """Get the webhook URL for setting up the channel integration.
+
+        Returns:
+            The webhook URL if applicable, None if using WebSocket/Stream mode.
+        """
+        pass
 
     @abstractmethod
     async def process_message(

@@ -28,6 +28,9 @@ class FileType(enum.Enum):
     WORK_LOG = "work_log"  # 工作日志文件
     WORK_LOG_SUMMARY = "work_log_summary"  # 工作日志摘要文件
     TODO = "todo"  # 任务列表文件
+    HISTORY_CHAPTER = "history_chapter"  # 历史章节归档文件
+    HISTORY_CATALOG = "history_catalog"  # 历史目录索引文件
+    HISTORY_SUMMARY = "history_summary"  # 历史摘要文件
 
 
 class FileStatus(enum.Enum):
@@ -510,6 +513,7 @@ class WorkLogStatus(str, enum.Enum):
     ACTIVE = "active"
     COMPRESSED = "compressed"
     ARCHIVED = "archived"
+    CHAPTER_ARCHIVED = "chapter_archived"
 
 
 @dataclasses.dataclass
@@ -728,6 +732,16 @@ class WorkLogStorage(ABC):
             统计信息字典
         """
 
+    async def get_history_catalog(self, conv_id: str) -> Optional[Dict[str, Any]]:
+        """Get history catalog for a session (optional, for compaction pipeline)."""
+        return None
+
+    async def save_history_catalog(
+        self, conv_id: str, catalog_data: Dict[str, Any]
+    ) -> None:
+        """Save history catalog for a session (optional, for compaction pipeline)."""
+        pass
+
 
 class SimpleWorkLogStorage(WorkLogStorage):
     """简单的内存工作日志存储.
@@ -829,6 +843,21 @@ class SimpleWorkLogStorage(WorkLogStorage):
             "success_count": sum(1 for e in entries if e.success),
             "fail_count": sum(1 for e in entries if not e.success),
         }
+
+    async def get_history_catalog(self, conv_id: str) -> Optional[Dict[str, Any]]:
+        if conv_id not in self._storage:
+            return None
+        return self._storage[conv_id].get("history_catalog")
+
+    async def save_history_catalog(
+        self, conv_id: str, catalog_data: Dict[str, Any]
+    ) -> None:
+        if conv_id not in self._storage:
+            self._storage[conv_id] = {
+                "entries": [],
+                "summaries": [],
+            }
+        self._storage[conv_id]["history_catalog"] = catalog_data
 
 
 # ============================================================================

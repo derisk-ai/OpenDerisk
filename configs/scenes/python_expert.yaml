@@ -1,0 +1,70 @@
+# Python专家模式场景配置
+# 继承自编码模式，专门优化Python开发
+
+scene: custom
+name: Python专家模式
+description: |
+  专门针对Python开发优化，继承编码模式的基本配置：
+  - 更严格的代码风格（PEP 8）
+  - Python特定的代码块保护
+  - 单元测试优先的工具配置
+  - 更低的温度参数确保代码质量
+icon: 🐍
+tags:
+  - python
+  - development
+  - testing
+
+# 【关键】继承编码模式
+extends: coding
+
+version: "1.0.0"
+author: Custom User
+
+# 覆盖部分上下文策略
+context:
+  truncation:
+    code_block_max_lines: 300           # 较短的代码块限制
+    
+  compaction:
+    importance_threshold: 0.6           # 更低的阈值，保留更多
+
+# 覆盖Prompt策略
+prompt:
+  temperature: 0.2                       # 更低的温度
+  max_tokens: 6144                       # 中等输出长度
+  
+  # Python特定的代码风格
+  code_style_rules:
+    - "Follow PEP 8 strictly"
+    - "Use type hints for all functions"
+    - "Use docstrings (Google style)"
+    - "Maximum line length: 88 characters"
+    - "Use f-strings for string formatting"
+    - "Use list/dict comprehensions where appropriate"
+  
+  lint_config_path: pyproject.toml
+
+# Python专用工具配置
+tools:
+  preferred_tools:
+    - read
+    - write
+    - edit
+    - grep
+    - glob
+    - bash
+    - pytest                              # 测试工具
+  require_confirmation:
+    - bash
+    - pytest
+
+# 多步推理，复杂重构
+reasoning:
+  max_steps: 35
+
+metadata:
+  language: python
+  test_framework: pytest
+  code_formatter: black
+  linter: ruff

@@ -104,7 +104,7 @@ export default function TabTools() {
   const loading = loadingTools || loadingLocal;
 
   const getToolTypeTag = (tool: any) => {
-    if (tool.toolType.includes('local')) return { label: 'Local', color: 'green' };
+    if (tool.toolType?.includes('local')) return { label: 'Local', color: 'green' };
     return { label: 'Built-IN', color: 'blue' };
   };
 

@@ -17,6 +17,8 @@
     "@antv/g6": "^5.0.49",
     "@antv/gpt-vis": "^0.5.2",
     "@berryv/g2-react": "^0.1.0",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/view": "^6.38.1",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

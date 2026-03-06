@@ -150,3 +150,24 @@ export const getAgentDefaultPrompt = (agentName: string, language: string = 'en'
     `/api/v1/agent/default-prompt?agent_name=${agentName}&language=${language}`,
   );
 };
+
+/**
+ * 获取 Agent 列表（支持按版本过滤）
+ * @param version Agent版本: v1 或 v2
+ */
+export const getAgentList = (version: 'v1' | 'v2' = 'v1') => {
+  return GET<null, { version: string; agents: V2AgentTemplate[] }>(
+    `/api/agent/list?version=${version}`,
+  );
+};
+
+/**
+ * V2 Agent 模板类型
+ */
+export interface V2AgentTemplate {
+  name: string;
+  display_name: string;
+  description: string;
+  mode: string;
+  tools: string[];
+}

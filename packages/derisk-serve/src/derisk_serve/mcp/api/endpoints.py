@@ -121,6 +121,9 @@ async def create(
         request.mcp_code = str(uuid.uuid4())
     logger.info(f"mcp add:{request}")
     try:
+        existing = service.get(ServeRequest(name=request.name))
+        if existing:
+            return Result.failed(f"MCP with name '{request.name}' already exists. Please use a different name or update the existing one.")
         return Result.succ(service.create(request))
     except Exception as e:
         logger.exception("mcp add exception!")
@@ -161,11 +164,12 @@ async def delete(
         ServerResponse: The response
     """
     try:
-        deleted_entity = service.get(request)
+        query_request = ServeRequest(mcp_code=request.mcp_code)
+        deleted_entity = service.get(query_request)
         if not deleted_entity:
-            return Result.failed(f"MCP '{request.name}' not found")
+            return Result.failed(f"MCP '{request.name or request.mcp_code}' not found")
 
-        service.delete(request)
+        service.delete(query_request)
         return Result.succ(True)
     except Exception as e:
         logger.exception(f"Failed to delete MCP '{request.name}': {e}")

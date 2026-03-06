@@ -32,6 +32,14 @@ class FolderNode(DrskVisBase):
     task_type: Optional[str] = Field(None, description="当前节点的具体任务类型，file类型时区分(tool、knowledge, llm、code、file等)")
     markdown: Optional[str] = Field(None, description="当前节点的内容,item_type为 file时存在")
     items: Optional[List['FolderNode']] = Field(None, description="当前节点的子节点信息")
+    file_id: Optional[str] = Field(None, description="文件ID (afs_file类型)")
+    file_name: Optional[str] = Field(None, description="文件名 (afs_file类型)")
+    file_type: Optional[str] = Field(None, description="文件类型 (afs_file类型)")
+    file_size: Optional[int] = Field(None, description="文件大小 (afs_file类型)")
+    preview_url: Optional[str] = Field(None, description="预览URL (afs_file类型)")
+    download_url: Optional[str] = Field(None, description="下载URL (afs_file类型)")
+    oss_url: Optional[str] = Field(None, description="OSS URL (afs_file类型)")
+    mime_type: Optional[str] = Field(None, description="MIME类型 (afs_file类型)")
 
 
 

@@ -8,6 +8,7 @@ from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict, Field
 from derisk.agent import AgentResource
 from derisk.agent.core.plan.base import TeamContext, SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
+from derisk.agent.core.plan.unified_context import UnifiedTeamContext
 from derisk.agent.core.schema import DynamicParam
 from derisk.context.operator import GroupedConfigItem
 from derisk.vis.schema import ChatLayout
@@ -134,7 +135,7 @@ class ServeRequest(BaseModel):
     team_mode: Optional[str] = Field(None, description="当前版本配置的对话模式")
     team_context: Optional[
         Union[
-            str, AutoTeamContext, SingleAgentContext
+            str, AutoTeamContext, SingleAgentContext, UnifiedTeamContext
         ]
     ] = Field(None, description="应用的TeamContext信息")
     resources: Optional[List[AgentResource]] = Field(None, description="应用的Resources信息")
@@ -169,17 +170,19 @@ class ServeRequest(BaseModel):
                                                                      description="推理引擎配置,Agent为ReasoningPlanner时可用")
     ## 上下文工程配置
     context_config: Optional[GroupedConfigItem] = Field(None, description="上下文工程配置")
+    ## Agent版本
+    agent_version: Optional[str] = Field("v1", description="Agent版本: v1(经典) or v2(Core_v2)")
 
     @staticmethod
     def _parse_team_context(
-        team_mode: Optional[str], team_context: Optional[Union[str, dict, AutoTeamContext, SingleAgentContext]]
-    ) -> Optional[Union[AutoTeamContext, SingleAgentContext]]:
+        team_mode: Optional[str], team_context: Optional[Union[str, dict, AutoTeamContext, SingleAgentContext, UnifiedTeamContext]]
+    ) -> Optional[Union[AutoTeamContext, SingleAgentContext, UnifiedTeamContext]]:
         """Parse team_context from string to appropriate object type"""
         if team_context is None:
             return None
 
         # Already an instance of the expected type
-        if isinstance(team_context, (AutoTeamContext, SingleAgentContext)):
+        if isinstance(team_context, (AutoTeamContext, SingleAgentContext, UnifiedTeamContext)):
             return team_context
 
         # Handle JSON string
@@ -189,6 +192,11 @@ class ServeRequest(BaseModel):
             except json.JSONDecodeError:
                 # If it's not valid JSON, return the string as is
                 return None  # or could return team_context as raw string
+
+            # Check for agent_version to determine V2 context
+            agent_version = context_dict.get("agent_version", "v1")
+            if agent_version == "v2":
+                return UnifiedTeamContext(**context_dict)
 
             # Parse based on team_mode
             from derisk_serve.agent.team.base import TeamMode
@@ -200,6 +208,11 @@ class ServeRequest(BaseModel):
 
         # Handle dict
         if isinstance(team_context, dict):
+            # Check for agent_version to determine V2 context
+            agent_version = team_context.get("agent_version", "v1")
+            if agent_version == "v2":
+                return UnifiedTeamContext(**team_context)
+
             from derisk_serve.agent.team.base import TeamMode
             if team_mode == TeamMode.SINGLE_AGENT.value:
                 return SingleAgentContext(**team_context)

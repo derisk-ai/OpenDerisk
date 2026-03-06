@@ -15,6 +15,7 @@ import TabSkills from './components/tab-skills';
 import TabTools from './components/tab-tools';
 import TabAgents from './components/tab-agents';
 import TabKnowledge from './components/tab-knowledge';
+import TabScenes from './components/tab-scenes';
 import ChatContent from './components/chat-content';
 import { AppstoreOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons';
 
@@ -76,7 +77,7 @@ export default function AgentBuilder() {
   );
 
   // Update agent
-  const { run: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(
+  const { runAsync: fetchUpdateApp, loading: fetchUpdateAppLoading } = useRequest(
     async (app: any) => await apiInterceptors(updateApp(app), notification),
     {
       manual: true,
@@ -163,6 +164,8 @@ export default function AgentBuilder() {
         return <TabAgents />;
       case 'knowledge':
         return <TabKnowledge />;
+      case 'scenes':
+        return <TabScenes />;
       default:
         return <TabOverview />;
     }

@@ -473,8 +473,15 @@ function SideBar() {
             icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
             path: '/vis-merge-test',
           },
+          {
+            key: 'system_config',
+            name: t('system_config'),
+            isActive: pathname.startsWith('/settings/config'),
+            icon: <SettingOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/settings/config',
+          },
         ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel'),
+isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config'),
       },
     ];
     return items;
