@@ -14,6 +14,8 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 
 from derisk._private.pydantic import Field, PrivateAttr
+from derisk.configs.model_config import DATA_DIR
+import os
 from derisk.agent import (
     ActionOutput,
     Agent,
@@ -1402,6 +1404,21 @@ class ReActMasterAgent(ConversableAgent):
         async def var_skills(instance):
             logger.info("注入技能资源")
 
+            # Sandbox mode: skill_dir comes from the sandbox client
+            # (e.g. /mnt/derisk/skills set in [sandbox].skill_dir of the toml).
+            # Local mode: default to DATA_DIR/skill (pilot/data/skill).
+            sandbox_skill_dir: Optional[str] = None
+            if instance and getattr(instance, "sandbox_manager", None):
+                sb_client = getattr(instance.sandbox_manager, "client", None)
+                if sb_client:
+                    sandbox_skill_dir = getattr(sb_client, "skill_dir", None)
+
+            local_skill_dir = os.path.join(DATA_DIR, "skill")
+            logger.info(
+                f"var_skills: sandbox_skill_dir={sandbox_skill_dir!r}, "
+                f"local_skill_dir={local_skill_dir!r}"
+            )
+
             prompts = ""
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
@@ -1414,11 +1431,34 @@ class ReActMasterAgent(ConversableAgent):
                         skill_meta = skill_item.skill_meta(mode)
                         if not skill_meta:
                             continue
-                        skill_path = (
-                            skill_item._skill.parent_folder
-                            if hasattr(skill_item, "_skill") and skill_item._skill
-                            else skill_meta.path
-                        )
+
+                        # skill_code is the UUID (DeriskSkillResource) or dir name.
+                        skill_code = getattr(
+                            skill_item, "_skill_code", None
+                        ) or getattr(skill_item, "skill_code", None)
+                        if not skill_code and skill_meta.path:
+                            skill_code = os.path.basename(skill_meta.path)
+
+                        # Use sandbox path only when the skill directory actually
+                        # exists inside the sandbox; otherwise fall back to local.
+                        if os.path.isdir(os.path.join(sandbox_skill_dir, skill_code)):
+                            skill_path = os.path.join(sandbox_skill_dir,skill_code)
+                        else:
+                            skill_path = os.path.join(local_skill_dir,skill_item._skill_path)
+
+
+                        # if skill_code and sandbox_skill_dir:
+                        #     sandbox_path = os.path.join(sandbox_skill_dir, skill_code)
+                        #     skill_path = (
+                        #         sandbox_path
+                        #         if os.path.exists(sandbox_path)
+                        #         else os.path.join(local_skill_dir, skill_code)
+                        #     )
+                        # elif skill_code:
+                        #     skill_path = os.path.join(local_skill_dir, skill_code)
+                        # else:
+                        #    skill_path = skill_meta.path
+
                         prompts += (
                             f"- <skill>"
                             f"<name>{skill_meta.name}</name>"
