@@ -57,11 +57,12 @@ class ServeEntity(Model):
 
     layout = Column(String(255), nullable=True, comment="当前版本配置的布局配置")
     custom_variables = Column(String(2000), nullable=True, comment="当前版本配置自定义参数配置")
-    llm_config = Column(String(1000), nullable=True, comment="当前版本配置的模型配置")
-    resource_knowledge = Column(String(2000), nullable=True, comment="当前版本配置的知识配置")
-    resource_tool = Column(String(2000), nullable=True, comment="当前版本配置的工具配置")
-    resource_agent = Column(String(2000), nullable=True, comment="当前版本配置的agent配置")
+    llm_config = Column(Text, nullable=True, comment="当前版本配置的模型配置")
+    resource_knowledge = Column(Text, nullable=True, comment="当前版本配置的知识配置")
+    resource_tool = Column(Text, nullable=True, comment="当前版本配置的工具配置")
+    resource_agent = Column(Text, nullable=True, comment="当前版本配置的agent配置")
     context_config = Column(String(2000), nullable=True, comment="上下文工程配置")
+    agent_version = Column(String(32), nullable=True, default="v1", comment="agent version: v1 or v2")
 
     gmt_create = Column(DateTime, default=datetime.now, comment="Record creation time")
     gmt_modified = Column(DateTime, default=datetime.now, comment="Record update time")
@@ -79,9 +80,11 @@ class ServeEntity(Model):
 
 
 def _load_team_context(
-        team_mode: str, team_context: Optional[Union[str, dict]] = None
+        team_mode: Optional[str] = None, 
+        team_context: Optional[Union[str, dict]] = None,
+        agent_version: Optional[str] = None
 ) -> Optional[Union[
-    str,  SingleAgentContext, AutoTeamContext
+    str, SingleAgentContext, AutoTeamContext
 ]]:
     """
     load team_context to str or AWELTeamContext
@@ -105,6 +108,13 @@ def _load_team_context(
                 f"team_context={team_context}, {ex}"
             )
             return None
+
+    actual_version = agent_version or 'v1'
+    is_v2 = actual_version == 'v2'
+    
+    if is_v2:
+        from derisk.agent.core.plan.unified_context import UnifiedTeamContext
+        return _str_to_team_context(UnifiedTeamContext, team_context)
 
     if team_mode is not None:
         from derisk_serve.agent.team.base import TeamMode
@@ -216,6 +226,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             "user_prompt_template": request.user_prompt_template,
             "context_config": json.dumps(request.context_config.to_dict(),
                                          ensure_ascii=False) if request.context_config else None,
+            "agent_version": getattr(request, 'agent_version', 'v1') or 'v1',
         }
 
     def to_db_dict(self, request:ServeRequest):
@@ -262,7 +273,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             code=entity.code,
             app_code=entity.app_code,
             team_mode=entity.team_mode,
-            team_context=_load_team_context(team_mode=entity.team_mode, team_context=entity.team_context),
+            team_context=_load_team_context(team_mode=entity.team_mode, team_context=entity.team_context, agent_version=getattr(entity, 'agent_version', 'v1')),
             resources=_load_resource(entity.resources),
             details=json.loads(entity.details) if entity.details else None,
 
@@ -285,6 +296,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             context_config=_load_context_config(entity.context_config),
             gmt_create=gmt_created_str,
             gmt_modified=gmt_modified_str,
+            agent_version=getattr(entity, 'agent_version', 'v1') or 'v1',
         )
 
     def to_response(self, entity: ServeEntity) -> ServerResponse:

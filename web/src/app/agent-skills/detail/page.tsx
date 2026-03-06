@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import {
@@ -33,6 +33,8 @@ import {
   DeleteOutlined,
   InfoCircleOutlined,
   FileTextOutlined,
+  EditOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import dynamic from 'next/dynamic';
 import { apiInterceptors } from '@/client/api';
@@ -43,6 +45,8 @@ import {
   writeSkillFile,
   createSkillFile,
   deleteSkillFile,
+  renameSkillFile,
+  batchUploadSkillFiles,
   updateSkill,
 } from '@/client/api/skill';
 
@@ -117,8 +121,13 @@ export default function SkillDetailPage() {
 
   // UI state
   const [isCreateFileModalVisible, setIsCreateFileModalVisible] = useState(false);
+  const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
+  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [isUploadingFolder, setIsUploadingFolder] = useState(false);
 
   const [createFileForm] = Form.useForm();
+  const [renameFileForm] = Form.useForm();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load skill data and files
   const loadSkillData = useCallback(async () => {
@@ -252,31 +261,146 @@ export default function SkillDetailPage() {
     }
   }, [skillCode, createFileForm, loadFiles, loadFileContent]);
 
-  const handleDeleteFile = useCallback(async (filePath: string) => {
-    Modal.confirm({
-      title: 'Delete File',
-      content: `Are you sure you want to delete ${filePath}?`,
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          const [err, res] = await apiInterceptors(deleteSkillFile(skillCode, filePath));
-          if (res) {
-            message.success('File deleted successfully');
-            loadFiles();
-            if (selectedFile === filePath) {
-              setSelectedFile(null);
-              setFileContent('');
-              setOriginalContent('');
-            }
-          }
-        } catch (error) {
-          message.error('Failed to delete file');
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+
+  const openDeleteModal = useCallback((filePath: string) => {
+    setDeletingFile(filePath);
+    setIsDeleteModalVisible(true);
+  }, []);
+
+  const handleDeleteFileConfirm = useCallback(async () => {
+    if (!deletingFile) return;
+
+    try {
+      const [err, res] = await apiInterceptors(deleteSkillFile(skillCode, deletingFile));
+      if (res) {
+        message.success('File deleted successfully');
+        loadFiles();
+        if (selectedFile === deletingFile) {
+          setSelectedFile(null);
+          setFileContent('');
+          setOriginalContent('');
         }
-      },
-    });
-  }, [skillCode, selectedFile, loadFiles]);
+      }
+    } catch (error) {
+      message.error('Failed to delete file');
+    } finally {
+      setIsDeleteModalVisible(false);
+      setDeletingFile(null);
+    }
+  }, [skillCode, deletingFile, selectedFile, loadFiles]);
+
+  const handleRenameFile = useCallback(async () => {
+    if (!renamingFile) return;
+
+    try {
+      const values = await renameFileForm.validateFields();
+      const newName = values.newName;
+
+      if (!newName || newName === renamingFile.split('/').pop()) {
+        message.info('File name unchanged');
+        setIsRenameModalVisible(false);
+        return;
+      }
+
+      // Construct new path by replacing the last part of the old path
+      const pathParts = renamingFile.split('/');
+      pathParts[pathParts.length - 1] = newName;
+      const newPath = pathParts.join('/');
+
+      const [err, res] = await apiInterceptors(renameSkillFile(skillCode, renamingFile, newPath));
+      if (res) {
+        message.success('File renamed successfully');
+        setIsRenameModalVisible(false);
+        renameFileForm.resetFields();
+        loadFiles();
+        // Update selected file if it was renamed
+        if (selectedFile === renamingFile) {
+          setSelectedFile(newPath);
+        }
+        setRenamingFile(null);
+      }
+    } catch (error) {
+      message.error('Failed to rename file');
+    }
+  }, [skillCode, renamingFile, selectedFile, renameFileForm, loadFiles]);
+
+  const openRenameModal = useCallback((filePath: string) => {
+    setRenamingFile(filePath);
+    const fileName = filePath.split('/').pop() || '';
+    renameFileForm.setFieldsValue({ newName: fileName });
+    setIsRenameModalVisible(true);
+  }, [renameFileForm]);
+
+  // Handle folder upload
+  const handleFolderUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploadingFolder(true);
+    try {
+      const fileList: { file_path: string; content: string; is_base64?: boolean }[] = [];
+
+      // Get the first file to determine the root folder name
+      const firstFile = files[0];
+      const webkitRelativePath = firstFile.webkitRelativePath;
+      const rootFolderName = webkitRelativePath.split('/')[0];
+
+      // Read all files
+      const readPromises = Array.from(files).map(async (file) => {
+        // Calculate relative path (remove root folder name)
+        const relativePath = file.webkitRelativePath.replace(rootFolderName + '/', '');
+
+        // For binary files, we use base64 encoding
+        const isBinary = !file.type.startsWith('text/') && file.type !== 'application/json' && file.type !== '';
+
+        if (isBinary) {
+          const content = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const base64 = reader.result as string;
+              resolve(base64.split(',')[1]); // Remove data URL prefix
+            };
+            reader.readAsDataURL(file);
+          });
+          return { file_path: relativePath, content, is_base64: true };
+        } else {
+          const content = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsText(file);
+          });
+          return { file_path: relativePath, content, is_base64: false };
+        }
+      });
+
+      const results = await Promise.all(readPromises);
+      fileList.push(...results);
+
+      if (fileList.length === 0) {
+        message.error('No files found in selected folder');
+        return;
+      }
+
+      const [err, res] = await apiInterceptors(batchUploadSkillFiles(skillCode, fileList, true));
+      if (res) {
+        message.success(`Uploaded ${res.success_count} files, failed ${res.failed_count}`);
+        loadFiles();
+      } else {
+        message.error('Failed to upload folder');
+      }
+    } catch (error) {
+      console.error('Folder upload error:', error);
+      message.error('Failed to upload folder');
+    } finally {
+      setIsUploadingFolder(false);
+      // Reset input so the same folder can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [skillCode, loadFiles]);
 
   // Build file tree structure
   const buildFileTree = useCallback((files: SkillFile[]): FileNode[] => {
@@ -333,23 +457,41 @@ export default function SkillDetailPage() {
   // Render file tree item
   const renderTreeNode = (node: FileNode) => ({
     title: (
-      <span className="flex items-center justify-between pr-2 group">
-        <span className="flex items-center gap-2">
+      <span className="flex items-center justify-between pr-2 group w-full">
+        <span className="flex items-center gap-2 flex-1 min-w-0">
           {node.isDirectory ? (
-            <FolderOutlined className="text-yellow-500" />
+            <FolderOutlined className="text-yellow-500 flex-shrink-0" />
           ) : (
-            <FileOutlined className="text-blue-400" />
+            <FileOutlined className="text-blue-400 flex-shrink-0" />
           )}
-          <span>{node.name}</span>
+          <span className="truncate">{node.name}</span>
         </span>
         {!node.isDirectory && (
-          <DeleteOutlined
-            className="text-red-400 opacity-0 group-hover:opacity-100 cursor-pointer hover:text-red-600"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDeleteFile(node.path);
-            }}
-          />
+          <span
+            className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              type="text"
+              size="small"
+              className="text-blue-400 hover:text-blue-600"
+              icon={<EditOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                openRenameModal(node.path);
+              }}
+            />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDeleteModal(node.path);
+              }}
+            />
+          </span>
         )}
       </span>
     ),
@@ -462,6 +604,22 @@ export default function SkillDetailPage() {
               onClick={() => loadFiles()}
             >
               Refresh
+            </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              webkitdirectory="true"
+              directory="true"
+              multiple
+              onChange={handleFolderUpload}
+            />
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => fileInputRef.current?.click()}
+              loading={isUploadingFolder}
+            >
+              Upload Folder
             </Button>
             <Button
               icon={<PlusOutlined />}
@@ -723,6 +881,45 @@ export default function SkillDetailPage() {
             help="Leave empty to create in root, or specify directory like templates/ to create in subdirectory"
           >
             <Input placeholder="directory/path" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Delete File Confirmation Modal */}
+      <Modal
+        title="Delete File"
+        open={isDeleteModalVisible}
+        onOk={handleDeleteFileConfirm}
+        onCancel={() => {
+          setIsDeleteModalVisible(false);
+          setDeletingFile(null);
+        }}
+        okText="Delete"
+        okType="danger"
+        cancelText="Cancel"
+      >
+        <p>Are you sure you want to delete <strong>{deletingFile}</strong>?</p>
+        <p className="text-gray-500 text-sm mt-2">This action cannot be undone.</p>
+      </Modal>
+
+      {/* Rename File Modal */}
+      <Modal
+        title="Rename File"
+        open={isRenameModalVisible}
+        onOk={handleRenameFile}
+        onCancel={() => {
+          setIsRenameModalVisible(false);
+          renameFileForm.resetFields();
+          setRenamingFile(null);
+        }}
+      >
+        <Form form={renameFileForm} layout="vertical">
+          <Form.Item
+            name="newName"
+            label="New File Name"
+            rules={[{ required: true, message: 'Please enter new file name' }]}
+          >
+            <Input placeholder="e.g. new_name.md" />
           </Form.Item>
         </Form>
       </Modal>

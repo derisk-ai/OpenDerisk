@@ -12,7 +12,9 @@ from .config import (
     SERVE_SERVICE_COMPONENT_NAME,
     ServeConfig,
 )
+from .connection import ChannelConnectionManager
 from .serve import Serve
+from .service.service import Service
 
 __all__ = [
     "APP_NAME",
@@ -23,4 +25,6 @@ __all__ = [
     "SERVE_SERVICE_COMPONENT_NAME",
     "ServeConfig",
     "Serve",
+    "Service",
+    "ChannelConnectionManager",
 ]

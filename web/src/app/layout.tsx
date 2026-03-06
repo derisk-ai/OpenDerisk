@@ -1,5 +1,6 @@
 "use client";
 import { ChatContext, ChatContextProvider } from "@/contexts";
+import { InteractionProvider } from "@/components/interaction";
 import SideBar from "@/components/layout/side-bar";
 import FloatHelper from "@/components/layout/float-helper";
 import {
@@ -149,9 +150,11 @@ export default function RootLayout({
           </App>
           }>
           <ChatContextProvider>
-            <CssWrapper>
-              <LayoutWrapper>{children}</LayoutWrapper>
-            </CssWrapper>
+            <InteractionProvider autoConnect={false}>
+              <CssWrapper>
+                <LayoutWrapper>{children}</LayoutWrapper>
+              </CssWrapper>
+            </InteractionProvider>
           </ChatContextProvider>
         </Suspense>
       </body>

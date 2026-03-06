@@ -336,8 +336,9 @@ class AgentChat(BaseComponent, ABC):
                 except Exception as e:
                     logger.exception(f"获取{agent_conv_id}最终消息异常: {str(e)}")
                     final_message = str(e)
+
+            final_report = None
             if callable(chat_call_back):
-                final_report = None
                 try:
                     final_report = await self.memory.user_answer(agent_conv_id)
                 except Exception as e:
@@ -370,6 +371,15 @@ class AgentChat(BaseComponent, ABC):
                     post_action_reports=post_action_reports,
                 )
 
+            # Deliver to channel if configured (handles cron job message delivery)
+            if not err_msg:
+                content = final_report # 只看final_report 不看final_message
+                content = content.lstrip() if content else None
+                if content:
+                    await self._deliver_to_channel_if_configured(
+                        conv_session_id, content
+                    )
+
             # logger.info(f"获取{conv_session_id}最终消息: {final_message}, 异常信息:{err_msg}")
             if not final_message:
                 final_message = ""
@@ -382,6 +392,93 @@ class AgentChat(BaseComponent, ABC):
 
         finally:
             await self.memory.clear(agent_conv_id)
+
+    async def _deliver_to_channel_if_configured(
+        self,
+        conv_session_id: str,
+        content: str,
+    ) -> bool:
+        """Deliver message to channel if configured in conversation extra.
+
+        This method handles automatic message delivery to channels (e.g., DingTalk)
+        when the conversation was initiated from a channel or when a cron job
+        needs to deliver results to a channel.
+
+        The channel info is stored in the conversation's extra field when
+        the conversation is created from a channel message.
+
+        Args:
+            conv_session_id: The conversation session ID.
+            content: The message content to deliver.
+
+        Returns:
+            True if delivered successfully, False otherwise.
+        """
+        if not conv_session_id:
+            return False
+
+        try:
+            # Get channel info from conversation extra
+            conversations = await self.gpts_conversations.get_by_session_id_asc(
+                conv_session_id
+            )
+
+            if not conversations:
+                logger.debug(f"No conversations found for session {conv_session_id}")
+                return False
+
+            # Get the most recent conversation to extract channel info
+            first_conv = conversations[-1]
+            if not first_conv.extra:
+                logger.debug(f"No extra field in conversation {first_conv.conv_id}")
+                return False
+
+            # Parse extra field
+            extra = orjson.loads(first_conv.extra)
+            channel_info = extra.get("channel")
+
+            if not channel_info:
+                logger.debug(f"No channel info in conversation {first_conv.conv_id}")
+                return False
+
+            channel_id = channel_info.get("channel_id")
+            receiver_id = channel_info.get("receiver_id")
+            is_group = channel_info.get("is_group", False)
+
+            if not channel_id or not receiver_id:
+                logger.warning(
+                    f"Incomplete channel info: channel_id={channel_id}, receiver_id={receiver_id}"
+                )
+                return False
+
+            # Get the channel handler from registry
+            from derisk.channel.registry import ChannelHandlerRegistry
+
+            registry = ChannelHandlerRegistry.get_instance()
+            handler = registry.get_handler(channel_id)
+
+            if not handler:
+                logger.warning(f"No active handler for channel {channel_id}")
+                return False
+
+            # Send the message
+            result = await handler.send_message(
+                receiver_id=receiver_id,
+                content=content,
+                content_type="text",
+                is_group=is_group,
+            )
+
+            if result.success:
+                logger.info(f"Delivered message to channel {channel_id}")
+                return True
+            else:
+                logger.error(f"Failed to deliver: {result.error}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error delivering to channel: {e}")
+            return False
 
     @trace("agent.initialize_conversation", requires=["app_code", "conv_session_id"])
     async def _initialize_conversation(
@@ -816,6 +913,38 @@ class AgentChat(BaseComponent, ABC):
                 context, app, need_sandbox
             )
 
+            # 初始化场景文件到沙箱（如果应用绑定了场景）
+            # 注意：每个Agent有独立的场景文件目录，避免多Agent共享沙箱时的冲突
+            if sandbox_manager and app.scenes and len(app.scenes) > 0:
+                try:
+                    from derisk.agent.core_v2.scene_sandbox_initializer import (
+                        initialize_scenes_for_agent,
+                    )
+
+                    scene_init_result = await initialize_scenes_for_agent(
+                        app_code=app.app_code,
+                        agent_name=app.app_name or app.app_code or "default_agent",
+                        scenes=app.scenes,
+                        sandbox_manager=sandbox_manager,
+                    )
+                    if scene_init_result.get("success"):
+                        logger.info(
+                            f"[AgentChat] Scene files initialized for {app.app_code}: "
+                            f"{len(scene_init_result.get('files', []))} files "
+                            f"in {scene_init_result.get('scenes_dir', 'unknown')}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[AgentChat] Failed to initialize scene files for {app.app_code}: "
+                            f"{scene_init_result.get('message')}"
+                        )
+                except Exception as scene_init_error:
+                    logger.warning(
+                        f"[AgentChat] Error initializing scene files for {app.app_code}: "
+                        f"{scene_init_error}"
+                    )
+                    # 场景初始化失败不影响主流程
+
             employees: List[ConversableAgent] = []
             if "extra_agents" in kwargs and kwargs.get("extra_agents"):
                 # extra_agents 表示动态添加的子Agent
@@ -896,6 +1025,25 @@ class AgentChat(BaseComponent, ABC):
                     temp_profile.system_prompt_template = app.system_prompt_template
                 if app.user_prompt_template:
                     temp_profile.user_prompt_template = app.user_prompt_template
+
+                # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
+                if app.scenes and len(app.scenes) > 0 and sandbox_manager:
+                    try:
+                        scene_content = await self._load_and_inject_scenes(
+                            agent_name=app.app_name or app.app_code or "default_agent",
+                            scenes=app.scenes,
+                            sandbox_manager=sandbox_manager,
+                            agent_profile=temp_profile,
+                        )
+                        if scene_content:
+                            logger.info(
+                                f"[AgentChat] 场景内容已注入Agent: "
+                                f"{len(scene_content)} 字符"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[AgentChat] 场景内容注入失败: {e}")
+                        # 场景注入失败不影响主流程
+
                 recipient.bind(temp_profile)
 
                 return recipient
@@ -1039,6 +1187,70 @@ class AgentChat(BaseComponent, ABC):
         extra_employees = await asyncio.gather(*tasks)
         return list(extra_employees)
 
+    async def _load_and_inject_scenes(
+        self,
+        agent_name: str,
+        scenes: List[str],
+        sandbox_manager: SandboxManager,
+        agent_profile: Any,
+    ) -> str:
+        """
+        从沙箱加载场景内容并注入到Agent的System Prompt
+
+        Args:
+            agent_name: Agent名称
+            scenes: 场景ID列表
+            sandbox_manager: 沙箱管理器
+            agent_profile: Agent配置对象
+
+        Returns:
+            注入的场景内容
+        """
+        from derisk.agent.core_v2.scene_sandbox_initializer import get_scene_initializer
+
+        initializer = get_scene_initializer(sandbox_manager)
+        scene_contents = []
+
+        # 读取每个场景文件
+        for scene_id in scenes:
+            try:
+                content = await initializer.read_scene_file(agent_name, scene_id)
+                if content:
+                    # 解析YAML Front Matter，提取有效内容
+                    parts = content.split("---\n")
+                    if len(parts) >= 3:
+                        # 有Front Matter，提取body部分
+                        body = "---\n".join(parts[2:])
+                        scene_contents.append(f"## 场景: {scene_id}\n\n{body}")
+                    else:
+                        # 没有Front Matter，使用全部内容
+                        scene_contents.append(f"## 场景: {scene_id}\n\n{content}")
+
+                    logger.debug(f"[AgentChat] 加载场景内容: {scene_id}")
+            except Exception as e:
+                logger.warning(f"[AgentChat] 加载场景 {scene_id} 失败: {e}")
+
+        if not scene_contents:
+            return ""
+
+        # 构建场景提示词
+        scene_separator = "\n\n---\n\n"
+        scene_prompt = f"""# 场景定义
+
+你是根据以下场景定义来协助用户的智能助手。请严格遵循场景定义中的角色设定、工作流程和工具使用规范。
+
+{scene_separator.join(scene_contents)}
+
+---
+
+"""
+
+        # 注入到Agent的System Prompt
+        original_prompt = agent_profile.system_prompt_template or ""
+        agent_profile.system_prompt_template = scene_prompt + original_prompt
+
+        return scene_prompt
+
     def agent_to_resource(self, agent: ConversableAgent) -> AgentResource:
         return AgentResource.from_dict(
             {
@@ -1106,15 +1318,72 @@ class AgentChat(BaseComponent, ABC):
         if chat_in_params:
             for chat_in_param in chat_in_params:
                 if chat_in_param.param_type == "resource":
-                    dynamic_resources.append(
-                        AgentResource.from_dict(
-                            {
-                                "type": chat_in_param.sub_type,
-                                "name": f"用户选择了[{chat_in_param.sub_type}]资源",
-                                "value": chat_in_param.param_value,
-                            }
+                    sub_type = chat_in_param.sub_type
+                    param_value = chat_in_param.param_value
+
+                    if sub_type == "mcp(derisk)":
+                        try:
+                            if isinstance(param_value, str):
+                                value_data = json.loads(param_value)
+                            else:
+                                value_data = param_value
+
+                            mcp_code = (
+                                value_data.get("mcp_code")
+                                if isinstance(value_data, dict)
+                                else value_data
+                            )
+                            mcp_name = (
+                                value_data.get("name")
+                                if isinstance(value_data, dict)
+                                else None
+                            )
+
+                            if mcp_code:
+                                from derisk_serve.agent.resource.tool.mcp_collect import (
+                                    get_mcp_info,
+                                )
+
+                                mcp_info = get_mcp_info(mcp_code)
+                                if mcp_info:
+                                    mcp_value = {
+                                        "name": mcp_name or mcp_info.name or mcp_code,
+                                        "mcp_code": mcp_code,
+                                        "mcp_servers": mcp_info.server_url or "",
+                                        "headers": mcp_info.headers or {},
+                                        "source": mcp_info.source or "faas",
+                                        "timeout": mcp_info.timeout or 120,
+                                    }
+                                    mcp_resource = AgentResource.from_dict(
+                                        {
+                                            "type": "mcp(derisk)",
+                                            "name": mcp_name or f"MCP[{mcp_code}]",
+                                            "value": json.dumps(
+                                                mcp_value, ensure_ascii=False
+                                            ),
+                                        }
+                                    )
+                                    dynamic_resources.append(mcp_resource)
+                                    logger.info(
+                                        f"Added MCP resource from chat_in_params: {mcp_code}"
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"MCP info not found for code: {mcp_code}"
+                                    )
+                        except Exception as e:
+                            logger.warning(f"Failed to process MCP resource: {e}")
+                    else:
+                        dynamic_resources.append(
+                            AgentResource.from_dict(
+                                {
+                                    "type": sub_type,
+                                    "name": f"用户选择了[{sub_type}]资源",
+                                    "value": param_value,
+                                }
+                            )
                         )
-                    )
+
                     if chat_in_param.sub_type == DeriskSkillResource.type():
                         skill_param_value = chat_in_param.param_value
                         if isinstance(skill_param_value, str):
@@ -1388,14 +1657,31 @@ class AgentChat(BaseComponent, ABC):
         staff_no = ext_info.get("staff_no") or gpts_app.user_code or "derisk"
         try:
             if isinstance(user_query.content, List):
-                from derisk_serve.file.serve import Serve as FileServe
-                from derisk.core.interface.media import MediaContent
+                from derisk_serve.multimodal.service.service import MultimodalService
+                from derisk.core.interface.media import MediaContent, MediaContentType
 
-                file_serve = FileServe.get_instance(self.system_app)
-                new_content = MediaContent.replace_url(
-                    user_query.content, file_serve.replace_uri
-                )
-                user_query.content = new_content
+                multimodal_service = MultimodalService.get_instance(self.system_app)
+
+                if multimodal_service:
+                    new_content = MediaContent.replace_url(
+                        user_query.content, multimodal_service.replace_uri
+                    )
+                    user_query.content = new_content
+
+                    matched_model = multimodal_service.match_model_for_content(
+                        user_query.content
+                    )
+                    if matched_model:
+                        ext_info["multimodal_matched_model"] = matched_model
+                        logger.info(f"[Multimodal] Auto matched model: {matched_model}")
+                else:
+                    from derisk_serve.file.serve import Serve as FileServe
+
+                    file_serve = FileServe.get_instance(self.system_app)
+                    new_content = MediaContent.replace_url(
+                        user_query.content, file_serve.replace_uri
+                    )
+                    user_query.content = new_content
 
             if not self.agent_manage:
                 self.agent_manage = get_agent_manager()

@@ -92,3 +92,19 @@ export const deleteSkillFile = (skill_code: string, file_path: string) => {
     file_path,
   });
 };
+
+export const renameSkillFile = (skill_code: string, old_path: string, new_path: string) => {
+  return POST('/api/v1/serve_skill_service/file/rename', {
+    skill_code,
+    old_path,
+    new_path,
+  });
+};
+
+export const batchUploadSkillFiles = (skill_code: string, files: { file_path: string; content: string; is_base64?: boolean }[], overwrite?: boolean) => {
+  return POST('/api/v1/serve_skill_service/file/upload_batch', {
+    skill_code,
+    files,
+    overwrite,
+  });
+};

@@ -1,0 +1,66 @@
+# Hierarchical Context Configuration
+# 分层上下文配置文件
+
+hierarchical_context:
+  enabled: true                    # 是否启用分层上下文
+
+# 章节配置
+chapter:
+  max_chapter_tokens: 10000        # 单章最大 tokens
+  max_section_tokens: 2000         # 单节最大 tokens
+  recent_chapters_full: 2          # 最近 N 章完整展示
+  middle_chapters_index: 3         # 中间 N 章展示索引
+  early_chapters_summary: 5        # 早期 N 章只展示摘要
+
+# 压缩配置
+compaction:
+  enabled: true                    # 是否启用自动压缩
+  strategy: "llm_summary"          # 压缩策略：llm_summary / rule_based / hybrid
+  
+  # 触发条件
+  trigger:
+    token_threshold: 40000         # Token 阈值
+  
+  # 保护策略
+  protection:
+    protect_recent_chapters: 2     # 保护最近 N 章
+    protect_recent_tokens: 15000   # 保护最近 N tokens
+
+# WorkLog 转换配置
+worklog_conversion:
+  enabled: true                    # 是否转换 WorkLog
+  
+  # 阶段检测规则
+  phase_detection:
+    exploration_tools:
+      - read
+      - glob
+      - grep
+      - search
+      - think
+    development_tools:
+      - write
+      - edit
+      - bash
+      - execute
+      - run
+    refinement_keywords:
+      - refactor
+      - optimize
+      - improve
+      - enhance
+    delivery_keywords:
+      - summary
+      - document
+      - conclusion
+      - report
+
+# 灰度发布配置
+gray_release:
+  enabled: false                   # 是否启用灰度
+  gray_percentage: 0               # 灰度百分比 (0-100)
+  user_whitelist: []               # 用户白名单
+  app_whitelist: []                # 应用白名单
+  conv_whitelist: []               # 会话白名单
+  user_blacklist: []               # 用户黑名单
+  app_blacklist: []                # 应用黑名单

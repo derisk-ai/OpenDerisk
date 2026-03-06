@@ -16,6 +16,7 @@ interface AgentHeaderProps {
 const tabs = [
   { key: 'overview', labelKey: 'builder_tab_overview' },
   { key: 'prompts', labelKey: 'builder_tab_prompts' },
+  { key: 'scenes', labelKey: 'builder_tab_scenes' },
   { key: 'tools', labelKey: 'builder_tab_tools' },
   { key: 'skills', labelKey: 'builder_tab_skills' },
   { key: 'sub-agents', labelKey: 'builder_tab_sub_agents' },
