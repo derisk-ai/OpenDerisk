@@ -103,7 +103,7 @@ REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范�
 class ReActReasoningAgent(BaseBuiltinAgent):
     """
     ReAct推理Agent - 长程任务解决
-    
+
     完整参考core架构的ReActMasterAgent实现，特性：
     1. 末日循环检测（DoomLoopDetector）
     2. 上下文压缩（ContextCompactor）
@@ -113,7 +113,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
     6. 资源注入（skill、知识、自定义资源）
     7. 沙箱环境支持
     """
-    
+
     def __init__(
         self,
         info: AgentInfo,
@@ -139,7 +139,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         agent_file_system: Optional[Any] = None,
         work_log_storage: Optional[Any] = None,
         compaction_config: Optional[Any] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             info=info,
@@ -152,21 +152,21 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             use_persistent_memory=use_persistent_memory,
             enable_hierarchical_context=enable_hierarchical_context,
             hc_config=hc_config,
-            **kwargs
+            **kwargs,
         )
-        
+
         self.enable_doom_loop_detection = enable_doom_loop_detection
         self.enable_output_truncation = enable_output_truncation
-        self.enable_context_compaction = enable_context_compaction
-        self.enable_history_pruning = enable_history_pruning
-        
+        # enable_context_compaction removed - Pipeline handles this
+        # enable_history_pruning removed - Pipeline handles this
+
         self._doom_loop_detector = None
-        self._output_truncator = None
-        self._context_compactor = None
-        self._history_pruner = None
+        self._output_truncator = None  # Kept as fallback
+        # _context_compactor removed - replaced by UnifiedCompactionPipeline
+        # _history_pruner removed - replaced by UnifiedCompactionPipeline
         self._resource_prompt_cache: Optional[str] = None
         self._sandbox_prompt_cache: Optional[str] = None
-        
+
         # Compaction pipeline (lazy initialization)
         self._compaction_pipeline = None
         self._pipeline_initialized = False
@@ -177,34 +177,28 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         self._context_window = context_window
         self._max_output_lines = max_output_lines
         self._max_output_bytes = max_output_bytes
-        
+
         if enable_doom_loop_detection:
-            self._doom_loop_detector = DoomLoopDetector(
-                threshold=doom_loop_threshold
-            )
-        
+            self._doom_loop_detector = DoomLoopDetector(threshold=doom_loop_threshold)
+
+        # OutputTruncator kept as fallback for Layer 1 (Pipeline优先)
         if enable_output_truncation:
             self._output_truncator = OutputTruncator(
-                max_lines=max_output_lines,
-                max_bytes=max_output_bytes
+                max_lines=max_output_lines, max_bytes=max_output_bytes
             )
-        
-        if enable_context_compaction:
-            self._context_compactor = ContextCompactor(
-                max_tokens=context_window
-            )
-        
-        if enable_history_pruning:
-            self._history_pruner = HistoryPruner()
-        
+
+        # ContextCompactor removed in Phase 2 - replaced by UnifiedCompactionPipeline
+        # HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
+
         # Initialize WorkLogStorage if not provided
         if self._work_log_storage is None and enable_compaction_pipeline:
             try:
                 from ...core.memory.gpts.file_base import SimpleWorkLogStorage
+
                 self._work_log_storage = SimpleWorkLogStorage()
             except Exception:
                 pass
-        
+
         logger.info(
             f"[ReActReasoningAgent] 初始化完成: "
             f"doom_loop={enable_doom_loop_detection}, "
@@ -216,21 +210,21 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             f"memory={'persistent' if use_persistent_memory else 'in-memory'}, "
             f"hierarchical_context={enable_hierarchical_context}"
         )
-    
+
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
         return ["bash", "read", "write", "search", "list_files", "think"]
-    
+
     # ==================== Compaction Pipeline Support ====================
-    
+
     async def _ensure_agent_file_system(self) -> Optional[Any]:
         """确保 AgentFileSystem 已初始化（懒加载）"""
         if self._agent_file_system:
             return self._agent_file_system
-        
+
         try:
             from ...core.file_system.agent_file_system import AgentFileSystem
-            
+
             session_id = self._session_id or self.info.name
             conv_id = getattr(self, "_conv_id", None) or session_id
             self._agent_file_system = AgentFileSystem(
@@ -240,38 +234,40 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             await self._agent_file_system.sync_workspace()
             return self._agent_file_system
         except Exception as e:
-            logger.warning(f"[ReActReasoningAgent] Failed to initialize AgentFileSystem: {e}")
+            logger.warning(
+                f"[ReActReasoningAgent] Failed to initialize AgentFileSystem: {e}"
+            )
             return None
-    
+
     async def _ensure_compaction_pipeline(self) -> Optional[Any]:
         """确保统一压缩管道已初始化（懒加载）"""
         if self._pipeline_initialized:
             return self._compaction_pipeline
-        
+
         if not self._enable_compaction_pipeline:
             self._pipeline_initialized = True
             return None
-        
+
         afs = await self._ensure_agent_file_system()
         if not afs:
             self._pipeline_initialized = True
             return None
-        
+
         try:
             from derisk.agent.core.memory.compaction_pipeline import (
                 UnifiedCompactionPipeline,
                 HistoryCompactionConfig,
             )
-            
+
             session_id = self._session_id or self.info.name
             conv_id = getattr(self, "_conv_id", None) or session_id
-            
+
             config = self._compaction_config or HistoryCompactionConfig(
                 context_window=self._context_window,
                 max_output_lines=self._max_output_lines,
                 max_output_bytes=self._max_output_bytes,
             )
-            
+
             self._compaction_pipeline = UnifiedCompactionPipeline(
                 conv_id=conv_id,
                 session_id=session_id,
@@ -284,10 +280,12 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             logger.info("[ReActReasoningAgent] UnifiedCompactionPipeline initialized")
             return self._compaction_pipeline
         except Exception as e:
-            logger.warning(f"[ReActReasoningAgent] Failed to initialize compaction pipeline: {e}")
+            logger.warning(
+                f"[ReActReasoningAgent] Failed to initialize compaction pipeline: {e}"
+            )
             self._pipeline_initialized = True
             return None
-    
+
     async def _inject_history_tools_if_needed(self) -> None:
         """在首次压缩完成后动态注入历史回顾工具。
 
@@ -298,77 +296,79 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         # If already injected, skip
         if self.tools.get("read_history_chapter"):
             return
-        
+
         pipeline = await self._ensure_compaction_pipeline()
         if not pipeline or not pipeline.has_compacted:
             return
-        
+
         try:
             from derisk.agent.core.tools.history_tools import create_history_tools
-            
+
             history_tools = create_history_tools(pipeline)
             for name, func_tool in history_tools.items():
                 # Adapt v1 FunctionTool to v2 ToolBase via register_function
                 self.tools.register_function(
                     name=name,
-                    description=getattr(func_tool, "description", "") or f"History tool: {name}",
+                    description=getattr(func_tool, "description", "")
+                    or f"History tool: {name}",
                     func=getattr(func_tool, "func", None) or (lambda: "Not available"),
                     parameters=getattr(func_tool, "args", {}) or {},
                 )
-            
+
             logger.info(
                 f"[ReActReasoningAgent] History recovery tools injected after first compaction: "
                 f"{list(history_tools.keys())}"
             )
         except Exception as e:
             logger.warning(f"[ReActReasoningAgent] Failed to inject history tools: {e}")
-    
+
     # ==================== End Compaction Pipeline Support ====================
-    
+
     async def preload_resource(self) -> None:
         """
         预加载资源并注入工具
-        
+
         参考core架构的ReActMasterAgent.preload_resource实现：
         1. 调用父类的preload_resource（注入知识、Agent、沙箱工具）
         2. 注入skill相关工具
         3. 构建资源提示词和沙箱提示词
-        
+
         NOTE: 历史回顾工具（read_history_chapter, search_history 等）不在此处注入。
         它们只在首次 compaction 完成后才动态注入，见 _inject_history_tools_if_needed()。
         """
         await super().preload_resource()
-        
+
         await self._inject_skill_tools()
-        
+
         self._resource_prompt_cache = await self._build_resource_prompt()
         self._sandbox_prompt_cache = await self._build_sandbox_prompt()
-        
+
         logger.info(
             f"[ReActReasoningAgent] 资源预加载完成: "
             f"tools_count={len(self.tools.list_names())}, "
             f"resource_prompt_len={len(self._resource_prompt_cache or '')}"
         )
-    
+
     async def _inject_skill_tools(self) -> None:
         """注入skill相关工具"""
         try:
             from ...resource.agent_skills import AgentSkillResource
-            
+
             if self._check_have_resource(AgentSkillResource):
                 logger.info("[ReActReasoningAgent] 检测到Skill资源，注入skill工具")
                 try:
                     from ...expand.actions.skill_action import SkillAction
+
                     self._register_action_as_tool(SkillAction)
                 except ImportError:
                     logger.debug("SkillAction未找到")
         except ImportError:
             logger.debug("AgentSkillResource模块未找到")
-    
+
     async def _build_resource_prompt(self) -> str:
         """
         构建资源提示词
-        
+
         参考core架构的register_variables实现，生成：
         1. available_agents - 可用Agent资源
         2. available_knowledges - 可用知识库
@@ -376,34 +376,34 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         4. other_resources - 其他资源
         """
         prompts = []
-        
+
         try:
             available_agents = await self._get_available_agents_prompt()
             if available_agents:
                 prompts.append(f"## 可用Agent资源\n{available_agents}")
-            
+
             available_knowledges = await self._get_available_knowledges_prompt()
             if available_knowledges:
                 prompts.append(f"## 可用知识库\n{available_knowledges}")
-            
+
             available_skills = await self._get_available_skills_prompt()
             if available_skills:
                 prompts.append(f"## 可用技能\n{available_skills}")
-            
+
             other_resources = await self._get_other_resources_prompt()
             if other_resources:
                 prompts.append(f"## 其他资源\n{other_resources}")
-                
+
         except Exception as e:
             logger.warning(f"构建资源提示词时出错: {e}")
-        
+
         return "\n\n".join(prompts) if prompts else ""
-    
+
     async def _get_available_agents_prompt(self) -> str:
         """获取可用Agent资源的提示词"""
         try:
             from ...resource.app import AppResource
-            
+
             prompts = []
             for k, v in self.resource_map.items():
                 if v and isinstance(v[0], AppResource):
@@ -414,16 +414,16 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                             f"<name>{app_item.app_name}</name>"
                             f"<description>{app_item.app_desc}</description></agent>"
                         )
-            
+
             return "\n".join(prompts) if prompts else ""
         except ImportError:
             return ""
-    
+
     async def _get_available_knowledges_prompt(self) -> str:
         """获取可用知识库的提示词"""
         try:
             from ...resource import RetrieverResource
-            
+
             prompts = []
             for k, v in self.resource_map.items():
                 if v and isinstance(v[0], RetrieverResource):
@@ -435,16 +435,16 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                                     f"<name>{knowledge_space.name}</name>"
                                     f"<description>{knowledge_space.desc}</description></knowledge>"
                                 )
-            
+
             return "\n".join(prompts) if prompts else ""
         except ImportError:
             return ""
-    
+
     async def _get_available_skills_prompt(self) -> str:
         """获取可用技能的提示词"""
         try:
             from ...resource.agent_skills import AgentSkillResource
-            
+
             prompts = []
             for k, v in self.resource_map.items():
                 if v and isinstance(v[0], AgentSkillResource):
@@ -454,11 +454,11 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         debug_info = getattr(skill_item, "debug_info", None)
                         if debug_info and debug_info.get("is_debug"):
                             mode, branch = "debug", debug_info.get("branch")
-                        
+
                         skill_meta = skill_item.skill_meta(mode)
                         if not skill_meta:
                             continue
-                        
+
                         skill_path = (
                             skill_item._skill.parent_folder
                             if hasattr(skill_item, "_skill") and skill_item._skill
@@ -470,11 +470,11 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                             f"<path>{skill_path}</path>"
                             f"<branch>{branch}</branch></skill>"
                         )
-            
+
             return "\n".join(prompts) if prompts else ""
         except ImportError:
             return ""
-    
+
     async def _get_other_resources_prompt(self) -> str:
         """获取其他资源的提示词"""
         try:
@@ -482,7 +482,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             from ...resource.agent_skills import AgentSkillResource
             from ...resource.app import AppResource
             from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-            
+
             excluded_types = (
                 BaseTool,
                 MCPToolPack,
@@ -490,7 +490,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 AgentSkillResource,
                 RetrieverResource,
             )
-            
+
             prompts = []
             for k, v in self.resource_map.items():
                 if v and not isinstance(v[0], excluded_types):
@@ -505,50 +505,50 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                                     if hasattr(resource_type, "value")
                                     else str(resource_type)
                                 )
-                            
+
                             resource_name = item.name if hasattr(item, "name") else k
                             prompts.append(
                                 f"- <{type_name}><name>{resource_name}</name></{type_name}>"
                             )
                         except Exception:
                             continue
-            
+
             return "\n".join(prompts) if prompts else ""
         except ImportError:
             return ""
-    
+
     async def _build_sandbox_prompt(self) -> str:
         """
         构建沙箱环境提示词
-        
+
         兼容两种架构：
         1. core架构：SandboxManager有 client 和 initialized 属性
         2. core_v2架构：SandboxManager管理多个沙箱
         """
         if not self.sandbox_manager:
             return ""
-        
+
         try:
             sandbox_client = None
-            
-            if hasattr(self.sandbox_manager, 'client'):
-                if hasattr(self.sandbox_manager, 'initialized'):
+
+            if hasattr(self.sandbox_manager, "client"):
+                if hasattr(self.sandbox_manager, "initialized"):
                     if not self.sandbox_manager.initialized:
                         logger.warning("沙箱尚未准备完成!")
                 sandbox_client = self.sandbox_manager.client
-            elif hasattr(self.sandbox_manager, 'get_sandbox'):
+            elif hasattr(self.sandbox_manager, "get_sandbox"):
                 sandbox_ids = self.sandbox_manager.list_sandboxes()
                 if sandbox_ids:
                     sandbox_client = self.sandbox_manager.get_sandbox(sandbox_ids[0])
-            
+
             if not sandbox_client:
                 return "## 沙箱环境\n沙箱环境已启用，可在沙箱中执行代码。"
-            
+
             try:
                 from derisk.util.template_utils import render
             except ImportError:
                 return "## 沙箱环境\n沙箱环境已启用，可在沙箱中执行代码。"
-            
+
             try:
                 from ...core.sandbox.prompt import (
                     AGENT_SKILL_SYSTEM_PROMPT,
@@ -558,46 +558,46 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 )
             except ImportError:
                 return "## 沙箱环境\n沙箱环境已启用，可在沙箱中执行代码。"
-            
-            work_dir = getattr(sandbox_client, 'work_dir', '/workspace')
-            skill_dir = getattr(sandbox_client, 'skill_dir', '/skills')
-            enable_skill = getattr(sandbox_client, 'enable_skill', False)
-            
+
+            work_dir = getattr(sandbox_client, "work_dir", "/workspace")
+            skill_dir = getattr(sandbox_client, "skill_dir", "/skills")
+            enable_skill = getattr(sandbox_client, "enable_skill", False)
+
             env_param = {"sandbox": {"work_dir": work_dir}}
             skill_param = {"sandbox": {"agent_skill_dir": skill_dir}}
-            
+
             param = {
                 "sandbox": {
                     "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
                     "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
-                    "agent_skill_system": render(
-                        AGENT_SKILL_SYSTEM_PROMPT, skill_param
-                    ) if enable_skill else "",
+                    "agent_skill_system": render(AGENT_SKILL_SYSTEM_PROMPT, skill_param)
+                    if enable_skill
+                    else "",
                     "use_agent_skill": enable_skill,
                 }
             }
-            
+
             return render(sandbox_prompt, param)
-            
+
         except Exception as e:
             logger.warning(f"构建沙箱提示词时出错: {e}")
             return ""
-    
+
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
         resource_prompt = self._resource_prompt_cache or ""
         sandbox_prompt = self._sandbox_prompt_cache or ""
-        
+
         return REACT_REASONING_SYSTEM_PROMPT.format(
             agent_name=self.info.name,
             max_steps=self.info.max_steps,
             resource_prompt=resource_prompt,
             sandbox_prompt=sandbox_prompt,
         )
-    
+
     async def think(self, message: str, **kwargs) -> AsyncIterator[str]:
         """思考阶段 - 调用LLM生成思考内容（支持Function Calling）
-        
+
         集成 UnifiedCompactionPipeline Layer 2 (pruning) + Layer 3 (compaction):
         在构建消息列表前，对 self._messages 执行修剪和压缩。
         压缩后如果是首次 compaction，动态注入历史回顾工具。
@@ -623,7 +623,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                             f"[ReActReasoningAgent] Pruned {prune_result.pruned_count} messages, "
                             f"saved ~{prune_result.tokens_saved} tokens"
                         )
-                    
+
                     # Layer 3: Compaction + Archival
                     compact_result = await pipeline.compact_if_needed(self._messages)
                     self._messages = compact_result.messages
@@ -645,6 +645,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
             # 构建消息列表
             from ..llm_adapter import LLMMessage
+
             messages = []
 
             if system_prompt:
@@ -654,25 +655,31 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             for msg in self._messages[-20:]:  # 增加历史消息数量
                 if msg.role == "tool":
                     # 工具结果消息
-                    messages.append(LLMMessage(
-                        role="tool",
-                        content=msg.content,
-                        tool_call_id=msg.metadata.get("tool_call_id", "unknown"),
-                    ))
+                    messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content=msg.content,
+                            tool_call_id=msg.metadata.get("tool_call_id", "unknown"),
+                        )
+                    )
                 elif msg.role == "assistant" and msg.metadata.get("tool_calls"):
                     # 包含工具调用的助手消息
-                    messages.append(LLMMessage(
-                        role="assistant",
-                        content=msg.content or "",
-                        tool_calls=msg.metadata.get("tool_calls"),
-                    ))
+                    messages.append(
+                        LLMMessage(
+                            role="assistant",
+                            content=msg.content or "",
+                            tool_calls=msg.metadata.get("tool_calls"),
+                        )
+                    )
                 else:
                     messages.append(LLMMessage(role=msg.role, content=msg.content))
 
             # 构建工具定义
             tools = self._build_tool_definitions()
 
-            logger.info(f"[ReActReasoningAgent] 调用 LLM: 消息数={len(messages)}, 工具数={len(tools)}, 当前步骤={self._current_step}")
+            logger.info(
+                f"[ReActReasoningAgent] 调用 LLM: 消息数={len(messages)}, 工具数={len(tools)}, 当前步骤={self._current_step}"
+            )
 
             # 设置 tool_choice 为 "auto" 鼓励模型使用工具
             call_kwargs = dict(kwargs)
@@ -681,9 +688,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
             # 直接使用 LLMAdapter 的 generate 方法
             response = await self.llm_client.generate(
-                messages=messages,
-                tools=tools if tools else None,
-                **call_kwargs
+                messages=messages, tools=tools if tools else None, **call_kwargs
             )
 
             # 存储 LLM 响应供 decide 方法使用
@@ -707,23 +712,26 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         from ..enhanced_agent import Decision, DecisionType
 
         # 检查是否有 LLM 响应
-        if hasattr(self, '_last_llm_response') and self._last_llm_response:
+        if hasattr(self, "_last_llm_response") and self._last_llm_response:
             response = self._last_llm_response
 
             # 检查是否有工具调用
             if response.tool_calls and len(response.tool_calls) > 0:
                 tc = response.tool_calls[0]  # 取第一个工具调用
                 import json
+
                 try:
-                    args = json.loads(tc['function']['arguments'])
+                    args = json.loads(tc["function"]["arguments"])
                 except json.JSONDecodeError:
                     args = {}
 
-                logger.info(f"[ReActReasoningAgent] 工具调用: {tc['function']['name']}, 参数: {args}")
+                logger.info(
+                    f"[ReActReasoningAgent] 工具调用: {tc['function']['name']}, 参数: {args}"
+                )
                 return Decision(
                     type=DecisionType.TOOL_CALL,
                     content=response.content,
-                    tool_name=tc['function']['name'],
+                    tool_name=tc["function"]["name"],
                     tool_args=args,
                     confidence=1.0,
                 )
@@ -731,16 +739,19 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             # 如果有 function_call（旧格式）
             if response.function_call:
                 import json
+
                 try:
-                    args = json.loads(response.function_call['arguments'])
+                    args = json.loads(response.function_call["arguments"])
                 except json.JSONDecodeError:
                     args = {}
 
-                logger.info(f"[ReActReasoningAgent] 函数调用: {response.function_call['name']}")
+                logger.info(
+                    f"[ReActReasoningAgent] 函数调用: {response.function_call['name']}"
+                )
                 return Decision(
                     type=DecisionType.TOOL_CALL,
                     content=response.content,
-                    tool_name=response.function_call['name'],
+                    tool_name=response.function_call["name"],
                     tool_args=args,
                     confidence=1.0,
                 )
@@ -770,7 +781,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             content=thinking,
             confidence=0.8,
         )
-    
+
     async def act(self, decision: "Decision", **kwargs) -> "ActionResult":
         """执行工具 - 带截断和检测（集成 UnifiedCompactionPipeline Layer 1）
 
@@ -794,7 +805,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 return ActionResult(
                     success=False,
                     output=f"[警告] {check_result.message}",
-                    error="Doom loop detected"
+                    error="Doom loop detected",
                 )
 
         # 执行工具
@@ -814,7 +825,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         "truncated_size": tr.truncated_size,
                     }
             except Exception as e:
-                logger.warning(f"[ReActReasoningAgent] Pipeline truncation failed, fallback to legacy: {e}")
+                logger.warning(
+                    f"[ReActReasoningAgent] Pipeline truncation failed, fallback to legacy: {e}"
+                )
                 # Fallback to legacy OutputTruncator
                 if self._output_truncator and result.output:
                     truncation_result = self._output_truncator.truncate(
@@ -826,15 +839,14 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         result.metadata["truncation_info"] = {
                             "original_lines": truncation_result.original_lines,
                             "truncated_lines": truncation_result.truncated_lines,
-                            "temp_file": truncation_result.temp_file_path
+                            "temp_file": truncation_result.temp_file_path,
                         }
                         if truncation_result.suggestion:
                             result.output += truncation_result.suggestion
         elif self._output_truncator and result.output:
             # Fallback: legacy OutputTruncator when pipeline not available
             truncation_result = self._output_truncator.truncate(
-                result.output,
-                tool_name=tool_name
+                result.output, tool_name=tool_name
             )
 
             if truncation_result.is_truncated:
@@ -843,7 +855,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 result.metadata["truncation_info"] = {
                     "original_lines": truncation_result.original_lines,
                     "truncated_lines": truncation_result.truncated_lines,
-                    "temp_file": truncation_result.temp_file_path
+                    "temp_file": truncation_result.temp_file_path,
                 }
 
                 if truncation_result.suggestion:
@@ -853,7 +865,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         if self._work_log_storage and pipeline:
             try:
                 from derisk.agent.core.memory.gpts.file_base import WorkEntry
-                
+
                 entry = WorkEntry(
                     timestamp=time.time(),
                     tool=tool_name,
@@ -867,7 +879,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 conv_id = getattr(self, "_conv_id", None) or session_id
                 await self._work_log_storage.append_work_entry(conv_id, entry)
             except Exception as e:
-                logger.debug(f"[ReActReasoningAgent] Failed to record WorkLog entry: {e}")
+                logger.debug(
+                    f"[ReActReasoningAgent] Failed to record WorkLog entry: {e}"
+                )
 
         # 转换 ToolResult 为 ActionResult
         return ActionResult(
@@ -876,12 +890,12 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             error=result.error,
             metadata=result.metadata,
         )
-    
+
     async def run(self, message: str, stream: bool = True) -> AsyncIterator[str]:
         """主执行循环"""
         async for chunk in super().run(message, stream):
             yield chunk
-    
+
     @classmethod
     def create(
         cls,
@@ -901,42 +915,43 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         use_persistent_memory: bool = False,
         enable_hierarchical_context: bool = True,
         hc_config: Optional[Any] = None,
-        **kwargs
+        **kwargs,
     ) -> "ReActReasoningAgent":
         """便捷创建方法 - 优先使用 ModelConfigCache 配置"""
         import os
         from derisk.agent.util.llm.model_config_cache import ModelConfigCache
-        
+
         if not api_key or not api_base:
             if ModelConfigCache.has_model(model):
                 model_config = ModelConfigCache.get_config(model)
                 if model_config:
                     api_key = api_key or model_config.get("api_key")
-                    api_base = api_base or model_config.get("base_url") or model_config.get("api_base")
-                    logger.info(f"[ReActReasoningAgent] 从 ModelConfigCache 获取配置: model={model}, api_base={api_base}")
-        
+                    api_base = (
+                        api_base
+                        or model_config.get("base_url")
+                        or model_config.get("api_base")
+                    )
+                    logger.info(
+                        f"[ReActReasoningAgent] 从 ModelConfigCache 获取配置: model={model}, api_base={api_base}"
+                    )
+
         if not api_key or not api_base:
             import os
+
             api_key = api_key or os.getenv("OPENAI_API_KEY")
             api_base = api_base or os.getenv("OPENAI_API_BASE")
-        
+
         if not api_key:
-            raise ValueError(f"需要提供 API Key，请配置 agent.llm.provider 或设置环境变量（model={model}）")
-        
-        info = AgentInfo(
-            name=name,
-            max_steps=max_steps,
-            **kwargs
-        )
-        
-        llm_config = LLMConfig(
-            model=model,
-            api_key=api_key,
-            api_base=api_base
-        )
-        
+            raise ValueError(
+                f"需要提供 API Key，请配置 agent.llm.provider 或设置环境变量（model={model}）"
+            )
+
+        info = AgentInfo(name=name, max_steps=max_steps, **kwargs)
+
+        llm_config = LLMConfig(model=model, api_key=api_key, api_base=api_base)
+
         llm_adapter = LLMFactory.create(llm_config)
-        
+
         return cls(
             info=info,
             llm_adapter=llm_adapter,
@@ -951,9 +966,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             use_persistent_memory=use_persistent_memory,
             enable_hierarchical_context=enable_hierarchical_context,
             hc_config=hc_config,
-            **kwargs
+            **kwargs,
         )
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         stats = {
@@ -966,34 +981,29 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             "memory_type": "persistent" if self._use_persistent_memory else "in-memory",
             "hierarchical_context_enabled": self._enable_hierarchical_context,
         }
-        
-        if hasattr(self.memory, 'get_stats'):
+
+        if hasattr(self.memory, "get_stats"):
             stats["memory_stats"] = self.memory.get_stats()
-        
+
         if self._context_load_result:
             stats["hierarchical_context_stats"] = self._context_load_result.stats
-        
+
         if self._doom_loop_detector:
             stats["doom_loop"] = self._doom_loop_detector.get_statistics()
-        
+
         if self._output_truncator:
             stats["truncation"] = {
                 "max_lines": self._output_truncator.max_lines,
-                "max_bytes": self._output_truncator.max_bytes
+                "max_bytes": self._output_truncator.max_bytes,
             }
-        
-        if self._context_compactor:
-            stats["compaction"] = self._context_compactor.get_statistics()
-        
-        if self._history_pruner:
-            stats["pruning"] = self._history_pruner.get_statistics()
-        
-        # Compaction pipeline stats
+
+        # Compaction pipeline stats (removed legacy compactor/pruner stats)
         if self._compaction_pipeline:
             stats["compaction_pipeline"] = {
                 "initialized": self._pipeline_initialized,
                 "has_compacted": self._compaction_pipeline.has_compacted,
-                "history_tools_injected": self.tools.get("read_history_chapter") is not None,
+                "history_tools_injected": self.tools.get("read_history_chapter")
+                is not None,
             }
-        
+
         return stats

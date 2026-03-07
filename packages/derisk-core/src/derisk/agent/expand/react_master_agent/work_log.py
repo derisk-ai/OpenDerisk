@@ -6,11 +6,13 @@ WorkLog 管理器 - 通用 ReAct Agent 的历史记录管理
 2. 兼容旧版 AgentFileSystem 直接存储模式
 3. 支持历史记录压缩，当超过 LLM 上下文窗口时自动压缩整理
 4. 提供结构化的工作日志记录，便于追踪和调试
+5. 使用统一配置 (UnifiedCompactionConfig)，与 Pipeline 保持一致
 
 重构说明：
 - 新增 work_log_storage 参数，优先使用 WorkLogStorage 接口
 - 保留 agent_file_system 参数向后兼容
 - 如果同时提供两者，优先使用 work_log_storage
+- 使用 UnifiedCompactionConfig 统一配置，确保与 Pipeline 行为一致
 """
 
 import asyncio
@@ -18,7 +20,8 @@ import json
 import logging
 import time
 import hashlib
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Tuple
 
 from derisk.agent import ActionOutput
 from ...core.file_system.agent_file_system import AgentFileSystem
@@ -29,6 +32,7 @@ from ...core.memory.gpts.file_base import (
     WorkLogSummary,
     FileType,
 )
+from ...core.memory.compaction_pipeline import UnifiedCompactionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +93,11 @@ class WorkLogManager:
         session_id: str,
         agent_file_system: Optional[AgentFileSystem] = None,
         work_log_storage: Optional[WorkLogStorage] = None,
-        context_window_tokens: int = 128000,
-        compression_threshold_ratio: float = 0.7,
-        max_summary_entries: int = 100,
+        config: Optional[UnifiedCompactionConfig] = None,
+        # 向后兼容参数
+        context_window_tokens: Optional[int] = None,
+        compression_threshold_ratio: Optional[float] = None,
+        max_summary_entries: Optional[int] = None,
     ):
         """
         初始化工作日志管理器
@@ -101,19 +107,38 @@ class WorkLogManager:
             session_id: Session ID
             agent_file_system: AgentFileSystem 实例（向后兼容）
             work_log_storage: WorkLogStorage 实例（推荐，集成到 Memory）
-            context_window_tokens: LLM 上下文窗口大小（token）
-            compression_threshold_ratio: 触发压缩的阈值比例
-            max_summary_entries: 单次最大摘要条目数
+            config: UnifiedCompactionConfig 实例（推荐，统一配置）
+            context_window_tokens: 向后兼容参数，优先使用 config
+            compression_threshold_ratio: 向后兼容参数，优先使用 config
+            max_summary_entries: 向后兼容参数
         """
         self.agent_id = agent_id
         self.session_id = session_id
         self.afs = agent_file_system
         self._work_log_storage = work_log_storage
-        self.context_window_tokens = context_window_tokens
+
+        # 使用统一配置或创建默认配置
+        if config is None:
+            config = UnifiedCompactionConfig()
+
+        # 向后兼容：允许覆盖配置参数
+        if context_window_tokens is not None:
+            config.context_window = context_window_tokens
+        if compression_threshold_ratio is not None:
+            config.compaction_threshold_ratio = compression_threshold_ratio
+
+        self.config = config
+        self.max_summary_entries = max_summary_entries or config.chapter_max_messages
+
+        # 从统一配置中获取参数
+        self.context_window_tokens = config.context_window
         self.compression_threshold = int(
-            context_window_tokens * compression_threshold_ratio
+            config.context_window * config.compaction_threshold_ratio
         )
-        self.max_summary_entries = max_summary_entries
+        self.large_result_threshold_bytes = config.large_result_threshold_bytes
+        self.chars_per_token = config.chars_per_token
+        self.read_file_preview_length = config.read_file_preview_length
+        self.summary_only_tools = set(config.summary_only_tools)
 
         # 工作日志存储（本地缓存）
         self.work_log: List[WorkEntry] = []
@@ -123,17 +148,21 @@ class WorkLogManager:
         self.work_log_file_key = f"{agent_id}_{session_id}_work_log"
         self.summaries_file_key = f"{agent_id}_{session_id}_work_log_summaries"
 
-        # 配置
-        self.large_result_threshold_bytes = 10 * 1024  # 10KB
-        self.chars_per_token = 4  # 估算 token 的字符比例
-
-        # 特殊工具配置
-        self.read_file_preview_length = 2000
-        self.summary_only_tools = {"grep", "search", "find"}
-
         # 锁
         self._lock = asyncio.Lock()
         self._loaded = False
+
+        # 自适应触发相关
+        self._round_counter: int = 0
+        self._last_token_count: int = 0
+
+        # 监控指标
+        self._metrics = {
+            "truncation_count": 0,
+            "compression_count": 0,
+            "tokens_saved": 0,
+            "archived_count": 0,
+        }
 
         # 记录存储模式
         if work_log_storage:
@@ -256,6 +285,74 @@ class WorkLogManager:
             return 0
         return len(text) // self.chars_per_token
 
+    def _extract_protected_content(
+        self, text: str, max_blocks: Optional[int] = None
+    ) -> Dict[str, List[str]]:
+        """
+        提取受保护的内容块（代码块、思维链、文件路径）
+
+        Args:
+            text: 文本内容
+            max_blocks: 最大保护块数，默认使用配置
+
+        Returns:
+            分类的受保护内容字典
+        """
+        if max_blocks is None:
+            max_blocks = self.config.max_protected_blocks
+
+        protected: Dict[str, List[str]] = {
+            "code": [],
+            "thinking": [],
+            "file_path": [],
+        }
+
+        if self.config.code_block_protection:
+            code_pattern = r"```[\s\S]*?```"
+            code_blocks = re.findall(code_pattern, text)
+            protected["code"] = code_blocks[:max_blocks]
+
+        if self.config.thinking_chain_protection:
+            thinking_pattern = (
+                r"<(?:thinking|scratch_pad|reasoning)>[\s\S]*?"
+                r"</(?:thinking|scratch_pad|reasoning)>"
+            )
+            thinking_blocks = re.findall(thinking_pattern, text, re.IGNORECASE)
+            protected["thinking"] = thinking_blocks[:max_blocks]
+
+        if self.config.file_path_protection:
+            file_pattern = r'["\']?(?:/[\w\-./]+|(?:\.\.?/)?[\w\-./]+\.[\w]+)["\']?'
+            file_paths = list(set(re.findall(file_pattern, text)))
+            protected["file_path"] = [
+                p for p in file_paths if len(p) > 3 and not p.startswith("http")
+            ][:max_blocks]
+
+        return protected
+
+    def _format_protected_content_for_summary(
+        self, protected: Dict[str, List[str]]
+    ) -> str:
+        """格式化受保护内容用于摘要"""
+        parts = []
+
+        if protected.get("code"):
+            parts.append("\n=== Protected Code Blocks ===")
+            for i, code in enumerate(protected["code"][:5], 1):
+                parts.append(f"\n--- Code Block {i} ---")
+                parts.append(code[:500])
+
+        if protected.get("thinking"):
+            parts.append("\n=== Key Reasoning ===")
+            for thinking in protected["thinking"][:2]:
+                parts.append(thinking[:300])
+
+        if protected.get("file_path"):
+            parts.append("\n=== Referenced Files ===")
+            for path in list(set(protected["file_path"]))[:10]:
+                parts.append(f"- {path}")
+
+        return "\n".join(parts) if parts else ""
+
     async def _save_large_result(self, tool_name: str, result: str) -> Optional[str]:
         """保存大结果到文件系统
 
@@ -344,6 +441,8 @@ class WorkLogManager:
             archive_file_key  # 保存 action_output 中的归档 key
         )
 
+        truncated = False  # 标记是否截断
+
         if tool_name == "read_file":
             # read_file 特殊处理：保存较长预览，完整内容归档
             if len(result_content) > self.read_file_preview_length:
@@ -358,6 +457,7 @@ class WorkLogManager:
                     )
                     if saved_archive_key:
                         archive_file_key = saved_archive_key
+                        truncated = True
             else:
                 result_to_save = result_content
 
@@ -369,11 +469,13 @@ class WorkLogManager:
                 )
                 if saved_archive_key:
                     archive_file_key = saved_archive_key
+                    truncated = True
             result_to_save = None  # 不保存结果，只用 summary
 
         elif archive_file_key_from_action:
             # 已有归档文件，不保存完整结果
             result_to_save = None
+            truncated = True
         else:
             # 普通工具，没有归档文件
             if len(result_content) > self.large_result_threshold_bytes:
@@ -384,12 +486,18 @@ class WorkLogManager:
                 if saved_archive_key:
                     archive_file_key = saved_archive_key
                     result_to_save = None
+                    truncated = True
                 else:
                     # 归档失败，保存截断的结果
                     result_to_save = result_content[: self.large_result_threshold_bytes]
+                    truncated = True
             else:
                 # 结果不大，直接保存
                 result_to_save = result_content
+
+        # 更新监控指标
+        if truncated:
+            self._metrics["truncation_count"] += 1
 
         # 创建工作日志条目
         entry = WorkEntry(
@@ -482,9 +590,29 @@ class WorkLogManager:
         return "\n".join(lines)
 
     async def _check_and_compress(self):
-        """检查并压缩工作日志"""
+        """检查并压缩工作日志（支持自适应触发）"""
         current_tokens = self._calculate_total_tokens(self.work_log)
 
+        # 自适应触发检查
+        self._round_counter += 1
+        should_check = self._round_counter % self.config.adaptive_check_interval == 0
+
+        # 检查增长率
+        if should_check and self._last_token_count > 0:
+            growth_rate = (
+                (current_tokens - self._last_token_count) / self._last_token_count
+                if self._last_token_count > 0
+                else 0
+            )
+
+            if growth_rate > self.config.adaptive_growth_threshold:
+                logger.info(
+                    f"🔄 检测到快速增长率 ({growth_rate:.2%})，提前触发压缩检查"
+                )
+
+        self._last_token_count = current_tokens
+
+        # 标准阈值检查
         if current_tokens <= self.compression_threshold:
             return
 
@@ -500,8 +628,18 @@ class WorkLogManager:
         entries_to_compress = self.work_log[: -self.max_summary_entries]
         entries_to_keep = self.work_log[-self.max_summary_entries :]
 
+        # 提取受保护内容
+        all_content = "\n\n".join(
+            e.result or e.summary or "" for e in entries_to_compress
+        )
+        protected = self._extract_protected_content(all_content)
+        protected_text = self._format_protected_content_for_summary(protected)
+
         # 生成摘要
         summary_content = await self._generate_summary(entries_to_compress)
+
+        if protected_text:
+            summary_content += "\n" + protected_text
 
         # 提取关键工具
         key_tools = list(set(e.tool for e in entries_to_compress))
@@ -525,9 +663,15 @@ class WorkLogManager:
         self.work_log = entries_to_keep
         self.summaries.append(summary)
 
+        # 更新监控指标
+        tokens_saved = current_tokens - self._calculate_total_tokens(self.work_log)
+        self._metrics["compression_count"] += 1
+        self._metrics["tokens_saved"] += tokens_saved
+        self._metrics["archived_count"] += len(entries_to_compress)
+
         logger.info(
             f"✅ 压缩完成: {len(entries_to_compress)} 条 -> 1 个摘要, "
-            f"保留 {len(entries_to_keep)} 条活跃日志"
+            f"保留 {len(entries_to_keep)} 条活跃日志, 节省 {tokens_saved} tokens"
         )
 
     async def get_context_for_prompt(
@@ -583,7 +727,7 @@ class WorkLogManager:
             }
 
     async def get_stats(self) -> Dict[str, Any]:
-        """获取工作日志统计信息"""
+        """获取工作日志统计信息（包含监控指标）"""
         async with self._lock:
             total_entries = len(self.work_log) + sum(
                 s.compressed_entries_count for s in self.summaries
@@ -591,6 +735,7 @@ class WorkLogManager:
             current_tokens = self._calculate_total_tokens(self.work_log)
 
             return {
+                # 基础统计
                 "total_entries": total_entries,
                 "active_entries": len(self.work_log),
                 "compressed_summaries": len(self.summaries),
@@ -599,6 +744,26 @@ class WorkLogManager:
                 "usage_ratio": current_tokens / self.compression_threshold
                 if self.compression_threshold > 0
                 else 0,
+                # 监控指标
+                "metrics": {
+                    "truncation_count": self._metrics["truncation_count"],
+                    "compression_count": self._metrics["compression_count"],
+                    "tokens_saved": self._metrics["tokens_saved"],
+                    "archived_count": self._metrics["archived_count"],
+                    "avg_tokens_per_compression": (
+                        self._metrics["tokens_saved"]
+                        / self._metrics["compression_count"]
+                        if self._metrics["compression_count"] > 0
+                        else 0
+                    ),
+                },
+                # 配置信息
+                "config": {
+                    "context_window": self.config.context_window,
+                    "compaction_threshold_ratio": self.config.compaction_threshold_ratio,
+                    "prune_protect_tokens": self.config.prune_protect_tokens,
+                    "adaptive_check_interval": self.config.adaptive_check_interval,
+                },
             }
 
     async def clear(self):
@@ -619,6 +784,7 @@ async def create_work_log_manager(
     session_id: str,
     agent_file_system: Optional[AgentFileSystem] = None,
     work_log_storage: Optional[WorkLogStorage] = None,
+    config: Optional[UnifiedCompactionConfig] = None,
     **kwargs,
 ) -> WorkLogManager:
     """
@@ -629,16 +795,44 @@ async def create_work_log_manager(
         session_id: Session ID
         agent_file_system: AgentFileSystem 实例（向后兼容）
         work_log_storage: WorkLogStorage 实例（推荐）
-        **kwargs: 传递给 WorkLogManager 的额外参数
+        config: UnifiedCompactionConfig 实例（推荐，统一配置）
+        **kwargs: 传递给 WorkLogManager 的额外参数（向后兼容）
+            - context_window_tokens: 上下文窗口大小
+            - compression_threshold_ratio: 压缩阈值比例
+            - max_summary_entries: 最大摘要条目数
 
     Returns:
         已初始化的 WorkLogManager 实例
+
+    示例:
+        # 推荐用法：使用统一配置
+        from derisk.agent.core.memory.compaction_pipeline import UnifiedCompactionConfig
+
+        config = UnifiedCompactionConfig(
+            compaction_threshold_ratio=0.8,
+            prune_protect_tokens=10000,
+        )
+        manager = await create_work_log_manager(
+            agent_id="my_agent",
+            session_id="session_123",
+            work_log_storage=storage,
+            config=config,
+        )
+
+        # 向后兼容用法
+        manager = await create_work_log_manager(
+            agent_id="my_agent",
+            session_id="session_123",
+            agent_file_system=afs,
+            context_window_tokens=128000,
+        )
     """
     manager = WorkLogManager(
         agent_id=agent_id,
         session_id=session_id,
         agent_file_system=agent_file_system,
         work_log_storage=work_log_storage,
+        config=config,
         **kwargs,
     )
     await manager.initialize()
