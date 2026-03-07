@@ -18,3 +18,13 @@ from .hybrid import HybridMemory  # noqa: F401
 from .llm import LLMImportanceScorer, LLMInsightExtractor  # noqa: F401
 from .long_term import LongTermMemory, LongTermRetriever  # noqa: F401
 from .short_term import EnhancedShortTermMemory  # noqa: F401
+from .context_metrics import (  # noqa: F401
+    ContextMetrics,
+    ContextMetricsCollector,
+    ContextMetricsRegistry,
+    TruncationMetrics,
+    PruningMetrics,
+    CompactionMetrics,
+    CompressionLayer,
+    metrics_registry,
+)

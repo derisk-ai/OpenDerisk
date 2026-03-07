@@ -40,8 +40,8 @@ from .doom_loop_detector import (
     IntelligentDoomLoopDetector,
     DoomLoopCheckResult,
 )
-from .session_compaction import SessionCompaction, CompactionResult
-from .prune import HistoryPruner
+
+# SessionCompaction and HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
 from .truncation import Truncator, TruncationConfig
 
 from .prompt_fc import (
@@ -58,7 +58,11 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 from .work_log import WorkLogManager, create_work_log_manager
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
-from .kanban_manager import KanbanManager, create_kanban_manager, validate_deliverable_schema
+from .kanban_manager import (
+    KanbanManager,
+    create_kanban_manager,
+    validate_deliverable_schema,
+)
 from ...resource import BaseTool, RetrieverResource, FunctionTool, ToolPack
 from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
@@ -158,9 +162,9 @@ class ReActMasterAgent(ConversableAgent):
     # 内部状态
     _ctx: ContextHelper[dict] = PrivateAttr(default_factory=lambda: ContextHelper(dict))
     _doom_loop_detector: Optional[DoomLoopDetector] = PrivateAttr(default=None)
-    _session_compaction: Optional[SessionCompaction] = PrivateAttr(default=None)
-    _history_pruner: Optional[HistoryPruner] = PrivateAttr(default=None)
-    _truncator: Optional[Truncator] = PrivateAttr(default=None)
+    # _session_compaction removed - replaced by UnifiedCompactionPipeline
+    # _history_pruner removed - replaced by UnifiedCompactionPipeline
+    _truncator: Optional[Truncator] = PrivateAttr(default=None)  # Kept as fallback
     _agent_file_system: Optional[AgentFileSystem] = PrivateAttr(default=None)
     _tool_call_count: int = PrivateAttr(default=0)
     _compaction_count: int = PrivateAttr(default=0)
@@ -180,7 +184,7 @@ class ReActMasterAgent(ConversableAgent):
         super().__init__(**kwargs)
         self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction])
         self._initialize_components()
-        
+
         # 初始化交互能力
         self._interaction_extension = None
 
@@ -199,6 +203,7 @@ class ReActMasterAgent(ConversableAgent):
 
         # 注入 Todo 工具 (todowrite, todoread)
         from .todo_tools import get_todo_tools
+
         todo_tools = get_todo_tools()
         for tool_name, tool in todo_tools.items():
             if tool_name not in self.available_system_tools:
@@ -280,24 +285,8 @@ class ReActMasterAgent(ConversableAgent):
                 f"DoomLoopDetector initialized with threshold={self.doom_loop_threshold}"
             )
 
-        # 2. 初始化上下文压缩器
-        if self.enable_session_compaction:
-            self._session_compaction = SessionCompaction(
-                context_window=self.context_window,
-                threshold_ratio=self.compaction_threshold_ratio,
-            )
-            logger.info(
-                f"SessionCompaction initialized with window={self.context_window}"
-            )
-
-        # 3. 初始化历史修剪器
-        if self.enable_history_pruning:
-            self._history_pruner = HistoryPruner(
-                prune_protect=self.prune_protect_tokens,
-            )
-            logger.info(
-                f"HistoryPruner initialized with protect={self.prune_protect_tokens}"
-            )
+        # SessionCompaction and HistoryPruner have been replaced by UnifiedCompactionPipeline.
+        # Initialization removed in Phase 2 cleanup.
 
         # 4. 初始化 AgentFileSystem 和输出截断器
         if self.enable_output_truncation:
@@ -353,7 +342,7 @@ class ReActMasterAgent(ConversableAgent):
         else:
             self._kanban_manager = None
             self._kanban_initialized = False
-        
+
         # 9. 初始化交互能力
         self._interaction_extension = None
         logger.info("Interaction extension enabled (will initialize on demand)")
@@ -366,9 +355,10 @@ class ReActMasterAgent(ConversableAgent):
         """获取交互扩展（懒加载）"""
         if self._interaction_extension is None:
             from .interaction_extension import create_interaction_extension
+
             self._interaction_extension = create_interaction_extension(self)
         return self._interaction_extension
-    
+
     @property
     def interaction(self):
         """交互能力访问入口"""
@@ -387,26 +377,26 @@ class ReActMasterAgent(ConversableAgent):
         """
         try:
             extension = self._get_interaction_extension()
-            
+
             tool_name = context.get("tool_name", "unknown") if context else "unknown"
             tool_args = context.get("tool_args", {}) if context else {}
-            
+
             authorized = await extension.request_tool_authorization(
                 tool_name=tool_name,
                 tool_args=tool_args,
                 reason=message,
             )
-            
+
             if authorized:
                 logger.info(f"User authorized: {tool_name}")
             else:
                 logger.warning(f"User denied: {tool_name}")
-            
+
             return authorized
-            
+
         except Exception as e:
             logger.warning(f"Interaction failed, falling back to default: {e}")
-            
+
             if self.memory and self.memory.gpts_memory and self.not_null_agent_context:
                 await self.memory.gpts_memory.push_message(
                     conv_id=self.not_null_agent_context.conv_id,
@@ -416,20 +406,25 @@ class ReActMasterAgent(ConversableAgent):
                         "context": context or {},
                     },
                 )
-            
+
             return False
-    
-    async def ask_user(self, question: str, title: str = "需要您的输入", 
-                       default: str = None, options: List[str] = None) -> str:
+
+    async def ask_user(
+        self,
+        question: str,
+        title: str = "需要您的输入",
+        default: str = None,
+        options: List[str] = None,
+    ) -> str:
         """
         主动向用户提问
-        
+
         Args:
             question: 问题内容
             title: 标题
             default: 默认值
             options: 选项列表
-            
+
         Returns:
             str: 用户回答
         """
@@ -440,30 +435,31 @@ class ReActMasterAgent(ConversableAgent):
             default=default,
             options=options,
         )
-    
-    async def choose_plan(self, plans: List[Dict[str, Any]], 
-                          title: str = "请选择执行方案") -> str:
+
+    async def choose_plan(
+        self, plans: List[Dict[str, Any]], title: str = "请选择执行方案"
+    ) -> str:
         """
         让用户选择执行方案
-        
+
         Args:
             plans: 方案列表
             title: 标题
-            
+
         Returns:
             str: 选择的方案ID
         """
         extension = self._get_interaction_extension()
         return await extension.choose_plan(plans=plans, title=title)
-    
+
     async def confirm_action(self, message: str, title: str = "确认操作") -> bool:
         """
         请求用户确认
-        
+
         Args:
             message: 确认消息
             title: 标题
-            
+
         Returns:
             bool: 是否确认
         """
@@ -588,7 +584,7 @@ class ReActMasterAgent(ConversableAgent):
         """在首次压缩完成后动态注入历史回顾工具。
 
         历史回顾工具只在 compaction 发生后才有意义（此时才有归档章节可供检索），
-        因此不在 preload_resource() 中静态注入，而是由 load_thinking_messages() 
+        因此不在 preload_resource() 中静态注入，而是由 load_thinking_messages()
         在检测到 pipeline.has_compacted 后调用本方法。
         """
         # 如果已经注入过，跳过
@@ -615,68 +611,8 @@ class ReActMasterAgent(ConversableAgent):
         except Exception as e:
             logger.warning(f"Failed to inject history tools: {e}")
 
-    async def _check_and_compact_context(
-        self,
-        messages: List[AgentMessage],
-    ) -> List[AgentMessage]:
-        """
-        检查并压缩上下文
-
-        Args:
-            messages: 当前消息列表
-
-        Returns:
-            List[AgentMessage]: 处理后的消息列表
-        """
-        if not self.enable_session_compaction or not self._session_compaction:
-            return messages
-
-        # 设置 LLM 客户端（如果可用）
-        llm_client = self._get_llm_client()
-        if llm_client and not self._session_compaction.llm_client:
-            self._session_compaction.set_llm_client(llm_client)
-
-        # 执行压缩
-        result = await self._session_compaction.compact(messages, force=False)
-
-        if result.success and result.messages_removed > 0:
-            self._compaction_count += 1
-            logger.info(
-                f"Session compaction #{self._compaction_count}: "
-                f"removed {result.messages_removed} messages, "
-                f"saved ~{result.tokens_saved} tokens"
-            )
-            return result.compacted_messages
-
-        return messages
-
-    async def _prune_history(
-        self,
-        messages: List[AgentMessage],
-    ) -> List[AgentMessage]:
-        """
-        修剪历史记录
-
-        Args:
-            messages: 当前消息列表
-
-        Returns:
-            List[AgentMessage]: 处理后的消息列表
-        """
-        if not self.enable_history_pruning or not self._history_pruner:
-            return messages
-
-        result = self._history_pruner.prune(messages)
-
-        if result.success and result.removed_count > 0:
-            self._prune_count += 1
-            logger.info(
-                f"History pruning #{self._prune_count}: "
-                f"marked {result.removed_count} messages as compacted, "
-                f"saved ~{result.tokens_saved} tokens"
-            )
-
-        return result.pruned_messages
+    # _check_and_compact_context removed in Phase 2 - replaced by UnifiedCompactionPipeline
+    # _prune_history removed in Phase 2 - replaced by UnifiedCompactionPipeline
 
     async def _check_doom_loop(
         self,
@@ -774,7 +710,9 @@ class ReActMasterAgent(ConversableAgent):
                 tr = await pipeline.truncate_output(result.content, tool_name, args)
                 result.content = tr.content
             elif self._truncator:
-                tr_result = self._truncator.truncate(result.content, tool_name=tool_name)
+                tr_result = self._truncator.truncate(
+                    result.content, tool_name=tool_name
+                )
                 result.content = tr_result.content
 
         return result
@@ -1111,14 +1049,18 @@ class ReActMasterAgent(ConversableAgent):
                 )
 
             if has_blank_action and act_outs:
-                await self._inject_no_tool_call_reminder(act_outs[0], message.message_id)
+                await self._inject_no_tool_call_reminder(
+                    act_outs[0], message.message_id
+                )
 
         return act_outs
 
-    async def _inject_no_tool_call_reminder(self, action_output: ActionOutput, message_id: str):
+    async def _inject_no_tool_call_reminder(
+        self, action_output: ActionOutput, message_id: str
+    ):
         """
         当没有工具调用时，注入系统提醒消息，引导继续推进任务
-        
+
         Args:
             action_output: 当前执行的 ActionOutput
             message_id: 关联的消息ID
@@ -1128,10 +1070,10 @@ class ReActMasterAgent(ConversableAgent):
             AgentPhase,
             SystemMessageType,
         )
-        
+
         if not self.not_null_agent_context:
             return
-        
+
         reminder_content = """【系统提醒】你没有调用任何工具来推进任务。
 
 请遵循以下原则继续执行：
@@ -1156,10 +1098,12 @@ class ReActMasterAgent(ConversableAgent):
                 final_status=Status.RUNNING,
                 reply_message_id=message_id,
             )
-            
+
             if self.memory and self.memory.gpts_memory:
                 await self.memory.gpts_memory.append_system_message(system_message)
-                logger.info("✅ Injected no-tool-call reminder to guide task continuation")
+                logger.info(
+                    "✅ Injected no-tool-call reminder to guide task continuation"
+                )
         except Exception as e:
             logger.warning(f"Failed to inject no-tool-call reminder: {e}")
 
@@ -1523,12 +1467,12 @@ class ReActMasterAgent(ConversableAgent):
         @self._vm.register("memory", "工作日志")
         async def var_memory(instance):
             """获取工具执行记录(work_log)作为 memory 变量
-            
+
             注意：不再从 gpts_memory 获取对话历史，因为：
             1. gpts_memory.messages 已包含工具执行结果
             2. WorkLogManager 也记录了工具执行结果
             3. 两者会导致重复
-            
+
             WorkLogManager 的优势：
             - 结构化更好，有压缩机制
             - 专门为 prompt 设计
@@ -1858,7 +1802,11 @@ class ReActMasterAgent(ConversableAgent):
             afs = await self._ensure_agent_file_system()
 
             kanban_storage = None
-            if self.memory and hasattr(self.memory, "gpts_memory") and self.memory.gpts_memory:
+            if (
+                self.memory
+                and hasattr(self.memory, "gpts_memory")
+                and self.memory.gpts_memory
+            ):
                 kanban_storage = self.memory.gpts_memory
 
             self._kanban_manager = await create_kanban_manager(
@@ -1880,7 +1828,9 @@ class ReActMasterAgent(ConversableAgent):
             logger.warning(f"Failed to initialize KanbanManager: {e}")
             return None
 
-    async def create_kanban(self, mission: str, stages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def create_kanban(
+        self, mission: str, stages: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """
         创建看板
 
@@ -1942,7 +1892,9 @@ class ReActMasterAgent(ConversableAgent):
             if result.get("all_completed"):
                 self.set_phase("complete", "All stages completed")
             elif result.get("next_stage"):
-                self.set_phase("execution", f"Moving to stage: {result['next_stage']['stage_id']}")
+                self.set_phase(
+                    "execution", f"Moving to stage: {result['next_stage']['stage_id']}"
+                )
 
         return result
 
