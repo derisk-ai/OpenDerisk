@@ -84,6 +84,16 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
             request.skill_code = str(uuid.uuid4())
 
+        # Set default path to skill_dir/skill_code if not provided
+        if not request.path:
+            project_skill_dir = self._serve_config.get_project_skill_dir()
+            request.path = os.path.join(project_skill_dir, request.skill_code)
+
+            logger.info(
+                f"Skill '{request.name}' path is empty, "
+                f"using default path '{request.path}'"
+            )
+
         existing_skill = self.dao.get_one({"skill_code": request.skill_code})
         if existing_skill:
             logger.info(f"Skill {request.skill_code} already exists, updating instead")
@@ -108,6 +118,21 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         request_dict.pop("skill_code", None)
         request_dict.pop("gmt_created", None)
         request_dict.pop("gmt_modified", None)
+
+        # Set default path if not provided
+        if not request_dict.get("path"):
+            existing = self.dao.get_one({"skill_code": request.skill_code})
+            if existing and existing.path:
+                request_dict["path"] = existing.path
+            else:
+                project_skill_dir = self._serve_config.get_project_skill_dir()
+                request_dict["path"] = os.path.join(
+                    project_skill_dir, request.skill_code
+                )
+                logger.info(
+                    f"Skill '{request.skill_code}' update path is empty, "
+                    f"using default path '{request_dict['path']}'"
+                )
 
         return self.dao.update(query_request, request_dict)
 
