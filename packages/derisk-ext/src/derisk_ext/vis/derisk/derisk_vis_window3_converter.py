@@ -355,51 +355,15 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 )
             )
 
-        # 🔧 修复：检测是否已经渲染过相似内容，避免 BlankAction 重复渲染
-        # step_thought 已经包含了 thinking/content 的内容
-        # 如果 BlankAction 的 content 与 step_thought 相似，则跳过渲染
-        rendered_content_normalized = ""
-        if step_thought:
-            # 移除阶段标记和空白字符用于比较
-            rendered_content_normalized = re.sub(
-                r"【阶段[^】]*】|\[Phase[^\]]*\]", "", step_thought
-            )
-            rendered_content_normalized = re.sub(
-                r"\s+", "", rendered_content_normalized
-            )
-
         if action_outs:
             for action_out in action_outs:
                 if action_out.name == BlankAction.name and not action_out.terminate:
                     if action_out.content and action_out.content.strip():
-                        # 检查是否与已渲染内容相似
-                        action_content_normalized = re.sub(
-                            r"【阶段[^】]*】|\[Phase[^\]]*\]", "", action_out.content
-                        )
-                        action_content_normalized = re.sub(
-                            r"\s+", "", action_content_normalized
-                        )
-
-                        # 如果内容相似度超过 80%，跳过渲染避免重复
-                        if rendered_content_normalized and action_content_normalized:
-                            # 计算前 200 个字符的相似度
-                            compare_len = min(
-                                200,
-                                len(rendered_content_normalized),
-                                len(action_content_normalized),
-                            )
-                            if (
-                                compare_len > 0
-                                and rendered_content_normalized[:compare_len]
-                                == action_content_normalized[:compare_len]
-                            ):
-                                # 内容相似，跳过 BlankAction 的渲染
-                                continue
-
+                        # 使用和 step_thought 相同的 uid，利用 VIS 协议的增量更新机制自动覆盖
                         text_content = DrskTextContent(
                             dynamic=False,
                             markdown=action_out.content,
-                            uid=f"{message_id}_{action_out.action_id}_text",
+                            uid=f"{message_id}_'step_thought'",
                             type=UpdateType.ALL.value,
                         )
                         plan_tasks_vis.append(

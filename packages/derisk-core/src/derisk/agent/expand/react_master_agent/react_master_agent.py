@@ -755,7 +755,7 @@ class ReActMasterAgent(ConversableAgent):
                     user_context=received_message.context if received_message else None,
                 )
                 logger.info(
-                    f"Layer 4: Started new conversation round with question: {user_question[:100]}..."
+                    f"Layer 4: Started new conversation round with question: {user_question[:100] if user_question else ''}..."
                 )
         except Exception as e:
             logger.warning(f"Layer 4: Failed to start conversation round: {e}")
@@ -798,6 +798,22 @@ class ReActMasterAgent(ConversableAgent):
                 # 首次压缩完成后动态注入历史回顾工具
                 if pipeline.has_compacted:
                     await self._inject_history_tools_if_needed()
+
+            # ========== 新增：Layer 4 历史注入 ==========
+            # 将压缩后的跨轮次历史注入到 system_prompt，让 LLM 能看到历史上下文
+            try:
+                layer4_history = await pipeline.get_layer4_history_for_prompt()
+                if layer4_history:
+                    if system_prompt:
+                        system_prompt = f"{system_prompt}\n\n{layer4_history}"
+                    else:
+                        system_prompt = layer4_history
+                    logger.info(
+                        f"Layer 4: Injected {len(layer4_history)} chars of compressed history into prompt"
+                    )
+            except Exception as e:
+                logger.warning(f"Layer 4: Failed to inject history into prompt: {e}")
+
         else:
             # 降级到传统的修剪 + 压缩
             messages = await self._prune_history(messages)
@@ -807,6 +823,50 @@ class ReActMasterAgent(ConversableAgent):
         await self._ensure_agent_file_system()
 
         return messages, context, system_prompt, user_prompt
+
+    async def _get_worklog_tool_messages(
+        self, max_entries: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
+
+        重写基类方法，从 compaction_pipeline 获取历史工具调用记录。
+
+        核心设计：压缩后的条目使用摘要替代原始内容，保证上下文管理有效。
+        - 历史 WorkLog 压缩后，用摘要替代原始结果
+        - 当前轮次保持原生 Function Call 模式
+
+        遵循 OpenAI Function Call 协议：
+        [
+            {"role": "assistant", "content": "", "tool_calls": [...]},
+            {"role": "tool", "tool_call_id": "...", "content": "..."},
+            ...
+        ]
+
+        Args:
+            max_entries: 最大获取的 WorkEntry 数量
+
+        Returns:
+            符合原生 Function Call 格式的消息列表
+        """
+        pipeline = await self._ensure_compaction_pipeline()
+        if not pipeline:
+            return []
+
+        try:
+            # 使用压缩摘要，保证上下文连续性
+            tool_messages = await pipeline.get_tool_messages_from_worklog(
+                max_entries=max_entries,
+                use_compressed_summary=True,  # 默认值，显式声明
+            )
+            if tool_messages:
+                logger.info(
+                    f"Converted WorkLog to {len(tool_messages)} tool messages for LLM"
+                )
+            return tool_messages
+        except Exception as e:
+            logger.warning(f"Failed to get worklog tool messages: {e}")
+            return []
 
     async def thinking(
         self,
@@ -826,8 +886,12 @@ class ReActMasterAgent(ConversableAgent):
 
         Fix: when the compaction pipeline is active, apply pruning + compaction
         to tool_messages before they reach the LLM.
+
+        Note: WorkLog to tool messages conversion is handled by base class generate_reply
+        via _get_worklog_tool_messages method.
         """
         tool_messages: Optional[List[Dict]] = kwargs.get("tool_messages")
+
         if tool_messages:
             pipeline = await self._ensure_compaction_pipeline()
             if pipeline:
