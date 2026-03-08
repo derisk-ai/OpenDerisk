@@ -13,6 +13,8 @@ def register_file_tools(registry: 'ToolRegistry') -> None:
     from .edit import EditTool
     from .glob import GlobTool
     from .grep import GrepTool
+    from .list_files import ListFilesTool
+    from .search import SearchTool
     
     from ...base import ToolSource
     
@@ -21,3 +23,5 @@ def register_file_tools(registry: 'ToolRegistry') -> None:
     registry.register(EditTool(), source=ToolSource.CORE)
     registry.register(GlobTool(), source=ToolSource.CORE)
     registry.register(GrepTool(), source=ToolSource.CORE)
+    registry.register(ListFilesTool(), source=ToolSource.CORE)
+    registry.register(SearchTool(), source=ToolSource.CORE)

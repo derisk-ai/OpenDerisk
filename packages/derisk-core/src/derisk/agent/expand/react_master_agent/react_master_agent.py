@@ -44,6 +44,8 @@ from .doom_loop_detector import (
 )
 
 # SessionCompaction and HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
+# 但 CompactionResult 仍在 compress_session 方法中使用
+from .session_compaction import CompactionResult
 from .truncation import Truncator, TruncationConfig
 
 from .prompt_fc import (
@@ -223,7 +225,12 @@ class ReActMasterAgent(ConversableAgent):
     async def function_calling_params(self):
         from derisk.agent.resource import ToolPack
 
-        def _tool_to_function(tool: BaseTool) -> Dict:
+        def _tool_to_function(tool) -> Dict:
+            # 新框架 ToolBase: 使用 to_openai_tool() 方法
+            if hasattr(tool, "to_openai_tool"):
+                return tool.to_openai_tool()
+
+            # 旧框架 BaseTool: 使用 args 属性
             properties = {}
             required_list = []
             for key, value in tool.args.items():
@@ -727,11 +734,32 @@ class ReActMasterAgent(ConversableAgent):
         **kwargs,
     ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
         """
-        加载思考消息，包含上下文压缩和历史修剪
+        加载思考消息，包含四层上下文压缩
+
+        四层架构：
+        - Layer 1: 工具输出截断
+        - Layer 2: 历史修剪
+        - Layer 3: 上下文压缩
+        - Layer 4: 跨轮次对话历史压缩
 
         Returns:
             Tuple: (消息列表, 上下文, 系统提示, 用户提示)
         """
+        # Layer 4: 启动新的对话轮次（跨轮次历史管理）
+        user_question = received_message.content if received_message else ""
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                await pipeline.start_conversation_round(
+                    user_question=user_question,
+                    user_context=received_message.context if received_message else None,
+                )
+                logger.info(
+                    f"Layer 4: Started new conversation round with question: {user_question[:100]}..."
+                )
+        except Exception as e:
+            logger.warning(f"Layer 4: Failed to start conversation round: {e}")
+
         # 获取基础消息列表
         (
             messages,
@@ -1037,6 +1065,21 @@ class ReActMasterAgent(ConversableAgent):
 
                             # 切换到完成阶段
                             self.set_phase("complete", "任务全部完成")
+
+                            # Layer 4: 完成当前对话轮次
+                            try:
+                                pipeline = await self._ensure_compaction_pipeline()
+                                if pipeline:
+                                    ai_response = result.view or result.content or ""
+                                    await pipeline.complete_conversation_round(
+                                        ai_response=ai_response,
+                                        ai_thinking=result.content or "",
+                                    )
+                                    logger.info("Layer 4: Completed conversation round")
+                            except Exception as e:
+                                logger.warning(
+                                    f"Layer 4: Failed to complete conversation round: {e}"
+                                )
 
                         act_outs.append(result)
                     else:
@@ -1386,10 +1429,11 @@ class ReActMasterAgent(ConversableAgent):
                         # Use sandbox path only when the skill directory actually
                         # exists inside the sandbox; otherwise fall back to local.
                         if os.path.isdir(os.path.join(sandbox_skill_dir, skill_code)):
-                            skill_path = os.path.join(sandbox_skill_dir,skill_code)
+                            skill_path = os.path.join(sandbox_skill_dir, skill_code)
                         else:
-                            skill_path = os.path.join(local_skill_dir,skill_item._skill_path)
-
+                            skill_path = os.path.join(
+                                local_skill_dir, skill_item._skill_path
+                            )
 
                         # if skill_code and sandbox_skill_dir:
                         #     sandbox_path = os.path.join(sandbox_skill_dir, skill_code)
@@ -1506,19 +1550,22 @@ class ReActMasterAgent(ConversableAgent):
 
         @self._vm.register("memory", "工作日志")
         async def var_memory(instance):
-            """获取工具执行记录(work_log)作为 memory 变量
+            """获取Layer 4压缩的历史对话记录作为 memory 变量
 
-            注意：不再从 gpts_memory 获取对话历史，因为：
-            1. gpts_memory.messages 已包含工具执行结果
-            2. WorkLogManager 也记录了工具执行结果
-            3. 两者会导致重复
+            四层架构设计：
+            - Layer 1-3: 处理当前轮次的工具输出（截断、修剪、压缩）
+            - Layer 4: 处理跨轮次对话历史的压缩
 
-            WorkLogManager 的优势：
-            - 结构化更好，有压缩机制
-            - 专门为 prompt 设计
+            memory 变量现在包含：
+            - 历史轮次的压缩摘要（用户提问 + WorkLog摘要 + 答案摘要）
+            - 不包含当前轮次的详细工具执行（通过原生Function Call传递）
+
+            这种设计避免了重复：
+            - 历史轮次：通过 memory 变量以摘要形式提供
+            - 当前轮次：通过原生 tool messages 直接传递
             """
-            logger.info("var_memory: fetching work_log...")
-            return await instance._get_work_log_context_for_memory()
+            logger.info("var_memory: fetching Layer 4 compressed history...")
+            return await instance._get_layer4_history_for_memory()
 
         @self._vm.register("work_log", "工作日志")
         async def var_work_log(instance):
@@ -1564,6 +1611,36 @@ class ReActMasterAgent(ConversableAgent):
         except Exception as e:
             logger.warning(f"Failed to get work log context: {e}")
             return ""
+
+    async def _get_layer4_history_for_memory(self) -> str:
+        """获取 Layer 4 压缩的跨轮次对话历史
+
+        四层架构中的 Layer 4：处理多轮对话历史的压缩
+        - 返回历史轮次的压缩摘要
+        - 当前轮次的工具执行通过原生 Function Call 传递
+        """
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if not pipeline:
+                logger.debug(
+                    "Layer 4: Pipeline not available, falling back to work log"
+                )
+                return await self._get_work_log_context_for_memory()
+
+            # 获取 Layer 4 压缩的历史记录
+            history = await pipeline.get_layer4_history_for_prompt()
+            if history:
+                logger.info(
+                    f"Layer 4: Retrieved compressed history ({len(history)} chars)"
+                )
+                return history
+            else:
+                logger.debug("Layer 4: No compressed history available")
+                return ""
+        except Exception as e:
+            logger.warning(f"Layer 4: Failed to get compressed history: {e}")
+            # 降级到 WorkLog
+            return await self._get_work_log_context_for_memory()
 
     async def _ensure_work_log_manager(self):
         """确保 WorkLog 管理器已初始化

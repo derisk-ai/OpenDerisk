@@ -45,19 +45,50 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
 
   const [currentAgent, setCurrentAgent] = useState<string>(runningAgent);
   const chatListContainerRef = useRef<HTMLDivElement>(null);
-  const runningAgents = useMemo(() => keyBy(dataItems, 'agent_name'), [dataItems]);
-  const agentsOptions: MenuProps['items'] = data.items.map((item: RunningAgent, index) => {
+
+  // 修复：处理扁平任务列表，将其归组到当前运行的agent下
+  // 后端发送的是 FolderNode[] (扁平结构)，前端期望 RunningAgent[] (嵌套结构)
+  const runningAgents = useMemo(() => {
+    // 从 data.running_agent 获取当前运行的agent名称
+    const currentAgentName = Array.isArray(data.running_agent)
+      ? data.running_agent[0]
+      : data.running_agent;
+
+    if (!currentAgentName || !dataItems) {
+      return {};
+    }
+
+    // 检查是否已经是嵌套结构（dataItems 包含 agent_name 字段）
+    const isNestedStructure = dataItems.some(item => item.agent_name);
+
+    if (isNestedStructure) {
+      // 如果已经是嵌套结构，直接按 agent_name 分组
+      return keyBy(dataItems, 'agent_name');
+    }
+
+    // 如果是扁平结构（FolderNode[]），将所有任务归组到当前agent下
     return {
-      key: `${index}_${item.agent_name}`,
+      [currentAgentName]: {
+        agent_name: currentAgentName,
+        items: dataItems,  // 直接使用扁平的任务列表
+        avatar: dataItems[0]?.avatar,
+        description: dataItems[0]?.description,
+        markdown: dataItems[0]?.markdown
+      }
+    };
+  }, [dataItems, data.running_agent]);
+  const agentsOptions: MenuProps['items'] = Object.values(runningAgents).map((agent: any, index) => {
+    return {
+      key: `${index}_${agent.agent_name}`,
       label: (
         <a
           onClick={() => {
-            if (item.agent_name) {
-              setCurrentAgent(item.agent_name);
+            if (agent.agent_name) {
+              setCurrentAgent(agent.agent_name);
             }
           }}
         >
-          {item.agent_name === data.running_agent ? (
+          {agent.agent_name === runningAgent ? (
             <img
               src='/icons/loading.png'
               width={14}
@@ -65,12 +96,12 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
             />
           ) : (
             <img
-              src={item.avatar || '/agents/agent1.jpg'}
+              src={agent.avatar || '/agents/agent1.jpg'}
               width={14}
               style={{ display: 'inline', marginRight: '4px' }}
             />
           )}
-          {item.agent_name}
+          {agent.agent_name}
         </a>
       ),
     };
@@ -222,35 +253,35 @@ export const VisRunningWindow: FC<IProps> = ({ otherComponents, data }) => {
     <AgentContainer style={{ height: `${containerHeight}px` }}>
       <AgentTabsContainer>
         <AgentTabHeader>
-          {data.items.map(i => (
+          {Object.values(runningAgents).map((agent: any) => (
             <AgentTab
-              key={i.agent_name}
-              id={`agentTab_${i.agent_name}`}
+              key={agent.agent_name}
+              id={`agentTab_${agent.agent_name}`}
               onClick={() => {
-                if (i.agent_name) {
-                  setCurrentAgent(i.agent_name);
+                if (agent.agent_name) {
+                  setCurrentAgent(agent.agent_name);
                 }
               }}
             >
               <AgentTabSmall
                 className='tabTitle'
                 style={{
-                  border: currentAgent === i.agent_name ? '1px solid #1b62ff' : '1px solid #000a1a29',
-                  backgroundColor: currentAgent === i.agent_name ? '#1b62ff10' : 'transparent',
+                  border: currentAgent === agent.agent_name ? '1px solid #1b62ff' : '1px solid #000a1a29',
+                  backgroundColor: currentAgent === agent.agent_name ? '#1b62ff10' : 'transparent',
                 }}
               >
-                {i.agent_name === data.running_agent ? (
+                {agent.agent_name === runningAgent ? (
                   <Avatar
                     src='/icons/loading.png'
                     width={25}
                   />
                 ) : (
                   <Avatar
-                    src={i.avatar || '/agents/default_avatar.png'}
+                    src={agent.avatar || '/agents/default_avatar.png'}
                     width={25}
                   />
                 )}
-                <span style={{ marginLeft: '8px' }}>{i.agent_name}</span>
+                <span style={{ marginLeft: '8px' }}>{agent.agent_name}</span>
               </AgentTabSmall>
             </AgentTab>
           ))}

@@ -1354,7 +1354,8 @@ class StorageConversation(OnceConversation, StorageItem):
         self._has_stored_message_index = len(message_list) - 1
         if self.save_message_independent:
             # Save messages independently
-            self.message_storage.save_list(messages_to_save)
+            # Use save_or_update_list to handle duplicate messages gracefully
+            self.message_storage.save_or_update_list(messages_to_save)
         # Save conversation
         if self.summary is not None and len(self.summary) > 4000:
             self.summary = self.summary[0:4000]

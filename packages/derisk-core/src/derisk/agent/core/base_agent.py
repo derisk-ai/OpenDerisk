@@ -615,8 +615,11 @@ class ConversableAgent(Role, Agent):
             logger.info("注入沙箱工具！")
             from derisk.agent.core.sandbox.sandbox_tool_registry import (
                 sandbox_tool_dict,
+                register_sandbox_tools_to_unified,
             )
 
+            # 确保工具已注册到统一框架，然后同步到 sandbox_tool_dict
+            register_sandbox_tools_to_unified()
             self.available_system_tools.update(sandbox_tool_dict)
 
     async def system_tool_injection(self):
@@ -637,10 +640,14 @@ class ConversableAgent(Role, Agent):
             self.available_system_tools[knowledge_tool.name] = knowledge_tool
 
         from derisk.agent.core.system_tool_registry import system_tool_dict
+
         if "create_cron_job" in system_tool_dict:
-            self.available_system_tools["create_cron_job"] = system_tool_dict.get("create_cron_job")
+            self.available_system_tools["create_cron_job"] = system_tool_dict.get(
+                "create_cron_job"
+            )
 
         from ..expand.actions.terminate_action import Terminate
+
         terminate_tool = Terminate()
         self.available_system_tools[terminate_tool.name] = terminate_tool
 
@@ -2222,9 +2229,7 @@ class ConversableAgent(Role, Agent):
     ) -> List[GptsMessage]:
         return messages
 
-    def _kick_actions_prompts(
-        self, histories: list[str]
-    ) -> tuple[int, list[str]]:
+    def _kick_actions_prompts(self, histories: list[str]) -> tuple[int, list[str]]:
         if not histories:
             return 0, histories
 
@@ -2256,24 +2261,24 @@ class ConversableAgent(Role, Agent):
             [
                 item
                 for item in [
-                f"<!-- action|start -->\n",
-                f"#### action_id: {action_report.action_id}"
-                if action_report.action_id
-                else None,
-                f"message_id: {message.message_id}" if message.message_id else None,
-                f"action_handler: {message.sender_name}"
-                if message.sender_name
-                else None,
-                f"action_name: {action_report.action_name}"
-                if action_report.action_name
-                else None,
-                f"action: {action_report.action}" if action_report.action else None,
-                f"action_input: {action_report.action_input}"
-                if action_report.action_input
-                else None,
-                f"action_output: {action_report.content}",
-                f"<!-- action|end -->"
-            ]
+                    f"<!-- action|start -->\n",
+                    f"#### action_id: {action_report.action_id}"
+                    if action_report.action_id
+                    else None,
+                    f"message_id: {message.message_id}" if message.message_id else None,
+                    f"action_handler: {message.sender_name}"
+                    if message.sender_name
+                    else None,
+                    f"action_name: {action_report.action_name}"
+                    if action_report.action_name
+                    else None,
+                    f"action: {action_report.action}" if action_report.action else None,
+                    f"action_input: {action_report.action_input}"
+                    if action_report.action_input
+                    else None,
+                    f"action_output: {action_report.content}",
+                    f"<!-- action|end -->",
+                ]
                 if item
             ]
         )
@@ -2282,13 +2287,14 @@ class ConversableAgent(Role, Agent):
         size, kicked_histories = self._kick_actions_prompts(histories)
         if size:
             kicked_histories = [
-                               f"由于长度限制, {size}条最早的历史数据被剔除"
-                           ] + kicked_histories
+                f"由于长度限制, {size}条最早的历史数据被剔除"
+            ] + kicked_histories
 
         history_prompt = (
-            ("> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n" if kicked_histories and (
-                kicked_histories[0].startswith("<!-- action")) else "")
-            + ("\n\n".join(kicked_histories)))
+            "> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n"
+            if kicked_histories and (kicked_histories[0].startswith("<!-- action"))
+            else ""
+        ) + ("\n\n".join(kicked_histories))
 
         _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
         if history_files:
@@ -2298,7 +2304,7 @@ class ConversableAgent(Role, Agent):
 
     def _get_agent_llm_context_length(self) -> int:
         default_length = 32000
-        if not hasattr(self, 'llm_config') or not self.llm_config:
+        if not hasattr(self, "llm_config") or not self.llm_config:
             return default_length
 
         model_list = self.llm_config.strategy_context

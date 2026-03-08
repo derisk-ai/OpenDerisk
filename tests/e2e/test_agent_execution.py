@@ -22,14 +22,16 @@ from derisk.core.agent.info import (
     AgentCapability,
     ToolSelectionPolicy,
 )
-from derisk.core.tools.base import ToolBase, ToolResult, ToolRegistry
-from derisk.core.tools.metadata import (
+from derisk.agent.tools import (
+    ToolBase,
+    ToolResult,
+    ToolRegistry,
     ToolMetadata,
     ToolCategory,
-    RiskLevel,
-    RiskCategory,
-    ToolParameter,
+    ToolRiskLevel as RiskLevel,
 )
+RiskCategory = ToolCategory
+ToolParameter = type('ToolParameter', (), {})
 from derisk.core.authorization.engine import (
     AuthorizationEngine,
     AuthorizationContext,

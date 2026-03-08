@@ -1,35 +1,57 @@
-"""Tool resources."""
+"""
+Tool Resources - 兼容层重定向
 
+此模块已迁移到统一工具框架。
+所有工具类和装饰器现在从 derisk.agent.tools 导入。
+
+旧的导入路径:
+    from derisk.agent.resource.tool.base import tool, BaseTool, FunctionTool, ...
+
+新的导入路径 (推荐):
+    from derisk.agent.tools import tool, ToolBase, ToolRegistry, ...
+
+此文件仅作为向后兼容层存在，新代码请使用统一框架。
+"""
+
+from typing import Any, Awaitable, Callable, Dict, Optional, Union
 import asyncio
-import dataclasses
-import functools
-import inspect
-import json
-from abc import ABC, abstractmethod
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Type, Union, cast
 
 from derisk._private.pydantic import BaseModel, Field, model_validator
-from derisk.util.configure.base import _MISSING, _MISSING_TYPE
-from derisk.util.function_utils import parse_param_description, type_to_string
+from derisk.util.configure.base import _MISSING
 
+# 导入 Resource 基类
 from ..base import (
-    EXECUTE_ARGS_TYPE,
-    PARSE_EXECUTE_ARGS_FUNCTION,
     Resource,
     ResourceParameters,
     ResourceType,
+    EXECUTE_ARGS_TYPE,
+    PARSE_EXECUTE_ARGS_FUNCTION,
 )
 
+# 从统一框架重新导出
+from derisk.agent.tools import (
+    ToolBase,
+    ToolCategory,
+    ToolRiskLevel,
+    ToolSource,
+    ToolMetadata,
+    ToolResult,
+    ToolContext,
+    ToolRegistry,
+    tool_registry,
+)
+
+# 装饰器
+from derisk.agent.tools.decorators import (
+    tool,
+    derisk_tool,
+    system_tool,
+    sandbox_tool,
+)
+
+
+# ToolFunc 类型定义 - 用于表示工具函数类型
 ToolFunc = Union[Callable[..., Any], Callable[..., Awaitable[Any]]]
-
-DERISK_TOOL_IDENTIFIER = "derisk_tool"
-
-
-@dataclasses.dataclass
-class ToolResourceParameters(ResourceParameters):
-    """Tool resource parameters class."""
-
-    pass
 
 
 class ToolParameter(BaseModel):
@@ -43,7 +65,6 @@ class ToolParameter(BaseModel):
     )
     type: str = Field(..., description="Parameter type", examples=["string", "integer"])
     description: str = Field(..., description="Parameter description")
-    enum: Optional[list] = Field(None, description="Enumeration of parameter values")
     required: bool = Field(True, description="Whether the parameter is required")
     default: Optional[Any] = Field(
         _MISSING, description="Default value for the parameter"
@@ -62,8 +83,19 @@ class ToolParameter(BaseModel):
         return values
 
 
-class BaseTool(Resource[ToolResourceParameters], ABC):
-    """Base class for a tool."""
+class ToolResourceParameters(ResourceParameters):
+    """Tool resource parameters class."""
+
+    pass
+
+
+# BaseTool - 必须继承自 Resource
+class BaseTool(Resource[ToolResourceParameters]):
+    """
+    Base class for a tool.
+
+    这是向后兼容的实现，继承自 Resource 以满足 isinstance 检查。
+    """
 
     @classmethod
     def type(cls) -> ResourceType:
@@ -71,16 +103,37 @@ class BaseTool(Resource[ToolResourceParameters], ABC):
         return ResourceType.Tool
 
     @property
-    @abstractmethod
     def description(self) -> str:
         """Return the description of the tool."""
+        raise NotImplementedError
 
     @property
-    @abstractmethod
     def args(self) -> Dict[str, ToolParameter]:
         """Return the arguments of the tool."""
+        raise NotImplementedError
 
-    def _gen_parameters_str(self, prompt_type: str = "openai"):
+    async def get_prompt(
+        self,
+        *,
+        lang: str = "en",
+        prompt_type: str = "default",
+        question: Optional[str] = None,
+        resource_name: Optional[str] = None,
+        **kwargs,
+    ):
+        """Get the prompt."""
+        import json
+
+        prompt_template = (
+            "{name}: Call this tool to interact with the {name} API. "
+            "What is the {name} API useful for? {description} "
+            "Parameters: {parameters}"
+        )
+        prompt_template_zh = (
+            "{name}：调用此工具与 {name} API进行交互。{name} API 有什么用？"
+            "{description} 参数：{parameters}"
+        )
+        template = prompt_template if lang == "en" else prompt_template_zh
         if prompt_type == "openai":
             properties = {}
             required_list = []
@@ -96,42 +149,19 @@ class BaseTool(Resource[ToolResourceParameters], ABC):
                 "properties": properties,
                 "required": required_list,
             }
-            return json.dumps(parameters_dict, ensure_ascii=False)
+            parameters_string = json.dumps(parameters_dict, ensure_ascii=False)
         else:
             parameters = []
             for key, value in self.args.items():
-                param = {
-                    "name": key,
-                    "type": value.type,
-                    "description": value.description,
-                    "required": value.required,
-                }
-                if value.enum:
-                    param['enum'] = value.enum
-                parameters.append(param)
-            return json.dumps(parameters, ensure_ascii=False)
-
-    async def get_prompt(
-        self,
-        *,
-        lang: str = "zh",
-        prompt_type: str = "default",
-        question: Optional[str] = None,
-        resource_name: Optional[str] = None,
-        **kwargs,
-    ):
-        """Get the prompt."""
-        prompt_template = (
-            "{name}: Call this tool to interact with the {name} API. "
-            "What is the {name} API useful for? {description} "
-            "Parameters: {parameters}"
-        )
-        prompt_template_zh = (
-            "{name}：调用此工具与 {name} API进行交互。{name} API 有什么用？"
-            "{description} 参数：{parameters}"
-        )
-        template = prompt_template if lang == "en" else prompt_template_zh
-        parameters_string = self._gen_parameters_str(prompt_type)
+                parameters.append(
+                    {
+                        "name": key,
+                        "type": value.type,
+                        "description": value.description,
+                        "required": value.required,
+                    }
+                )
+            parameters_string = json.dumps(parameters, ensure_ascii=False)
         return (
             template.format(
                 name=self.name,
@@ -142,10 +172,12 @@ class BaseTool(Resource[ToolResourceParameters], ABC):
         )
 
 
+# FunctionTool 兼容类 - 包装函数为工具
 class FunctionTool(BaseTool):
-    """Function tool.
+    """
+    FunctionTool 兼容层 - 将函数包装为工具
 
-    Wrap a function as a tool.
+    这是一个向后兼容的实现，继承自 BaseTool (Resource)。
     """
 
     def __init__(
@@ -154,32 +186,37 @@ class FunctionTool(BaseTool):
         func: ToolFunc,
         description: Optional[str] = None,
         args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]] = None,
-        args_schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None,
+        args_schema=None,
         parse_execute_args_func: Optional[PARSE_EXECUTE_ARGS_FUNCTION] = None,
-        ask_user: Optional[bool] = False,
-        is_mcp_tool: Optional[bool] = False,
-        is_stream: Optional[bool] = False,
-        stream_queue: Optional[asyncio.Queue] = None,
-        input_schema: Optional[Dict[str, Any]] = None,
-        concurrency: str = "parallel"
+        **kwargs,
     ):
-        """Create a tool from a function."""
-        if not description:
-            description = _parse_docstring(func)
-        if not description:
-            raise ValueError("The description is required")
         self._name = name
-        self._description = cast(str, description)
-        self._args: Dict[str, ToolParameter] = _parse_args(func, args, args_schema)
         self._func = func
-        self._is_async = asyncio.iscoroutinefunction(func)
+        self._description = description or func.__doc__ or ""
+        self._args: Dict[str, ToolParameter] = self._parse_args(args)
+        self._args_schema = args_schema
         self._parse_execute_args_func = parse_execute_args_func
-        self._ask_user = ask_user
-        self._is_mcp_tool = is_mcp_tool
-        self._is_stream = is_stream
-        self._stream_queue = stream_queue
-        self._input_schema = input_schema
-        self._concurrency = concurrency
+        self._kwargs = kwargs
+        self._is_async = asyncio.iscoroutinefunction(func)
+
+    def _parse_args(
+        self, args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]]
+    ) -> Dict[str, ToolParameter]:
+        """Parse args to ToolParameter dict."""
+        if not args:
+            return {}
+        result = {}
+        for key, value in args.items():
+            if isinstance(value, ToolParameter):
+                result[key] = value
+            elif isinstance(value, dict):
+                # If dict already has 'name', use it; otherwise use key as name
+                if "name" not in value:
+                    result[key] = ToolParameter(name=key, **value)
+                else:
+                    # Use the name from the dict, but still add to result with key
+                    result[key] = ToolParameter(**value)
+        return result
 
     @property
     def name(self) -> str:
@@ -201,63 +238,6 @@ class FunctionTool(BaseTool):
         """Return whether the tool is asynchronous."""
         return self._is_async
 
-    @property
-    def ask_user(self) -> bool:
-        """whether need ask user before execute"""
-        return self._ask_user
-
-    @property
-    def is_mcp_tool(self) -> bool:
-        """whether is mcp tool"""
-        return self._is_mcp_tool
-
-    @property
-    def is_stream(self) -> bool:
-        return self._is_stream
-
-    @property
-    def stream_queue(self) -> Optional[asyncio.Queue]:
-        return self._stream_queue
-
-    @property
-    def concurrency(self):
-        return self._concurrency
-    async def get_prompt(
-            self,
-            *,
-            lang: str = "en",
-            prompt_type: str = "default",
-            question: Optional[str] = None,
-            resource_name: Optional[str] = None,
-            **kwargs,
-    ):
-        if not hasattr(self, "_input_schema") or not self._input_schema:
-            return await super().get_prompt(lang=lang, prompt_type=prompt_type, question=question, resource_name=resource_name, **kwargs)
-
-        prompt_template = (
-            "ToolName: {name} "
-            "Description: {description} "
-            "Parameters: {parameters} "
-            "concurrency: {concurrency} "
-        )
-        prompt_template_zh = (
-            "工具名: {name} "
-            "工具介绍: {description} "
-            "参数定义: {parameters} "
-            "并行模式: {concurrency} "
-        )
-        template = prompt_template if lang == "en" else prompt_template_zh
-        parameters_string = json.dumps(self._input_schema, ensure_ascii=False) or self._gen_parameters_str(prompt_type)
-        return (
-            template.format(
-                name=self.name,
-                description=self.description,
-                parameters=parameters_string,
-                concurrency=self._concurrency,
-            ),
-            None,
-        )
-
     def parse_execute_args(
         self, resource_name: Optional[str] = None, input_str: Optional[str] = None
     ) -> Optional[EXECUTE_ARGS_TYPE]:
@@ -266,316 +246,39 @@ class FunctionTool(BaseTool):
             return self._parse_execute_args_func(input_str)
         return None
 
-    def execute(
-        self,
-        *args,
-        resource_name: Optional[str] = None,
-        **kwargs,
-    ) -> Any:
-        """Execute the tool.
-
-        Args:
-            *args: The positional arguments.
-            resource_name (str, optional): The tool name to be executed(not used for
-            specific tool).
-            **kwargs: The keyword arguments.
-        """
+    def execute(self, *args, **kwargs) -> Any:
+        """Execute the tool."""
         if self._is_async:
-            raise ValueError("The function is asynchronous")
+            raise ValueError("The function is asynchronous, use async_execute instead")
         return self._func(*args, **kwargs)
 
-    async def async_execute(
-        self,
-        *args,
-        resource_name: Optional[str] = None,
-        **kwargs,
-    ) -> Any:
-        """Execute the tool asynchronously.
-
-        Args:
-            *args: The positional arguments.
-            resource_name (str, optional): The tool name to be executed(not used for
-            specific tool).
-            **kwargs: The keyword arguments.
-        """
+    async def async_execute(self, *args, **kwargs) -> Any:
+        """Execute the tool asynchronously."""
         if not self._is_async:
-            raise ValueError("The function is synchronous")
+            raise ValueError("The function is synchronous, use execute instead")
         return await self._func(*args, **kwargs)
 
-    # 新增方法处理流模式
-    def execute_stream(
-            self,
-            *args,
-            resource_name: Optional[str] = None,
-            **kwargs,
-    ) -> Any:
-        """Execute the tool for streaming (generators).
-        Args:
-            *args: The positional arguments.
-            resource_name (str, optional): The tool name to be executed(not used for
-            specific tool).
-            **kwargs: The keyword arguments.
-        """
-        # 直接调用函数，不管是同步生成器还是异步生成器都返回生成器对象
-        return self._func(*args, **kwargs)
 
-    async def async_execute_stream(
-            self,
-            *args,
-            resource_name: Optional[str] = None,
-            **kwargs,
-    ) -> Any:
-        """Execute the tool asynchronously for streaming (async generators).
-        Args:
-            *args: The positional arguments.
-            resource_name (str, optional): The tool name to be executed(not used for
-            specific tool).
-            **kwargs: The keyword arguments.
-        """
-        # 对于异步生成器，直接调用返回异步生成器对象
-        return self._func(*args, **kwargs)
+# 保留旧的常量
+DERISK_TOOL_IDENTIFIER = "derisk_tool"
 
-    # 新增属性检查方法
-    @property
-    def is_async_generator(self) -> bool:
-        """Check if the function is an async generator."""
-        import inspect
-        return inspect.isasyncgenfunction(self._func)
-
-    @property
-    def is_generator(self) -> bool:
-        """Check if the function is a generator."""
-        import inspect
-        return inspect.isgeneratorfunction(self._func)
-
-
-
-def tool(
-    *decorator_args: Union[str, Callable],
-    description: Optional[str] = None,
-    args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]] = None,
-    args_schema: Optional[Type[BaseModel]] = None,
-    ask_user: Optional[bool] = False,
-) -> Callable[..., Any]:
-    """Create a tool from a function."""
-
-    def _create_decorator(name: str):
-        def decorator(func: ToolFunc):
-            tool_name = name or func.__name__
-            ft = FunctionTool(tool_name, func, description, args, args_schema, ask_user=ask_user)
-
-            @functools.wraps(func)
-            def sync_wrapper(*f_args, **kwargs):
-                return ft.execute(*f_args, **kwargs)
-
-            @functools.wraps(func)
-            async def async_wrapper(*f_args, **kwargs):
-                return await ft.async_execute(*f_args, **kwargs)
-
-            if asyncio.iscoroutinefunction(func):
-                wrapper = async_wrapper
-            else:
-                wrapper = sync_wrapper
-            wrapper._tool = ft  # type: ignore
-            setattr(wrapper, DERISK_TOOL_IDENTIFIER, True)
-            return wrapper
-
-        return decorator
-
-    if len(decorator_args) == 1 and callable(decorator_args[0]):
-        # @tool
-        old_func = decorator_args[0]
-        return _create_decorator(old_func.__name__)(old_func)
-    elif len(decorator_args) == 1 and isinstance(decorator_args[0], str):
-        # @tool("google_search")
-        return _create_decorator(decorator_args[0])
-    elif (
-        len(decorator_args) == 2
-        and isinstance(decorator_args[0], str)
-        and callable(decorator_args[1])
-    ):
-        # @tool("google_search", description="Search on Google")
-        return _create_decorator(decorator_args[0])(decorator_args[1])
-    elif len(decorator_args) == 0:
-        # use function name as tool name
-        def _partial(func: ToolFunc):
-            return _create_decorator(func.__name__)(func)
-
-        return _partial
-    else:
-        raise ValueError("Invalid usage of @tool")
-
-
-def _parse_docstring(func: ToolFunc) -> str:
-    """Parse the docstring of the function."""
-    docstring = func.__doc__
-    if docstring is None:
-        return ""
-    return docstring.strip()
-
-
-def _parse_args(
-    func: ToolFunc,
-    args: Optional[Dict[str, Union[ToolParameter, Dict[str, Any]]]] = None,
-    args_schema: Optional[Union[Type[BaseModel], Dict[str, Any]]] = None
-) -> Dict[str, ToolParameter]:
-    """Parse the arguments of the function."""
-    # Check args all values are ToolParameter
-    parsed_args = {}
-    if args is not None:
-        if all(isinstance(v, ToolParameter) for v in args.values()):
-            return args  # type: ignore
-        if all(isinstance(v, dict) for v in args.values()):
-            for k, v in args.items():
-                param_name = v.get("name", k)
-                param_title = v.get("title", param_name.replace("_", " ").title())
-                param_type = v["type"]
-                param_enum = v.get("enum", None)
-                param_description = v.get("description", param_title)
-                param_default = v.get("default", _MISSING)
-                param_required = v.get("required", param_default is _MISSING)
-                parsed_args[k] = ToolParameter(
-                    name=param_name,
-                    title=param_title,
-                    type=param_type,
-                    description=param_description,
-                    enum=param_enum,
-                    default=param_default,
-                    required=param_required,
-                )
-            return parsed_args
-        raise ValueError("args should be a dict of ToolParameter or dict")
-
-    if args_schema is not None:
-        if isinstance(args_schema, dict):
-            return _parse_args_from_json_schema(args_schema)
-        else:
-            return _parse_args_from_schema(args_schema)
-    signature = inspect.signature(func)
-
-    for param in signature.parameters.values():
-        real_type = param.annotation
-        param_name = param.name
-        param_title = param_name.replace("_", " ").title()
-
-        if param.default is not inspect.Parameter.empty:
-            param_default = param.default
-            param_required = False
-        else:
-            param_default = _MISSING
-            param_required = True
-        param_type, _ = type_to_string(real_type, "unknown")
-        param_description = parse_param_description(param_name, real_type)
-        parsed_args[param_name] = ToolParameter(
-            name=param_name,
-            title=param_title,
-            type=param_type,
-            description=param_description,
-            default=param_default,
-            required=param_required,
-        )
-    return parsed_args
-
-
-def _parse_args_from_schema(args_schema: Type[BaseModel]) -> Dict[str, ToolParameter]:
-    """Parse the arguments from a Pydantic schema."""
-    pydantic_args = args_schema.schema()["properties"]
-    parsed_args = {}
-    for key, value in pydantic_args.items():
-        param_name = key
-        param_title = value.get("title", param_name.replace("_", " ").title())
-        if "type" in value:
-            param_type = value["type"]
-        elif "anyOf" in value:
-            # {"anyOf": [{"type": "string"}, {"type": "null"}]}
-            any_of: List[Dict[str, Any]] = value["anyOf"]
-            if len(any_of) == 2 and any("null" in t["type"] for t in any_of):
-                param_type = next(t["type"] for t in any_of if "null" not in t["type"])
-            else:
-                param_type = json.dumps({"anyOf": value["anyOf"]}, ensure_ascii=False)
-        else:
-            raise ValueError(f"Invalid schema for {key}")
-        param_description = value.get("description", param_title)
-        param_default = value.get("default", _MISSING)
-        param_required = False
-        if isinstance(param_default, _MISSING_TYPE) and param_default == _MISSING:
-            param_required = True
-
-        parsed_args[key] = ToolParameter(
-            name=param_name,
-            title=param_title,
-            type=param_type,
-            description=param_description,
-            default=param_default,
-            required=param_required,
-        )
-    return parsed_args
-
-
-def _parse_args_from_json_schema(json_schema: Dict[str, Any]) -> Dict[str, ToolParameter]:
-    """Parse arguments from JSON Schema format.
-
-    支持标准 JSON Schema 格式，包括：
-    - type: string, number, integer, boolean, array, object
-    - enum
-    - default
-    - description
-    - required
-    - anyOf, oneOf (基础支持)
-    """
-    parsed_args = {}
-
-    # 获取 properties
-    properties = json_schema.get("properties", {})
-    if not properties:
-        return parsed_args
-
-    # 获取 required 字段列表
-    required_fields = json_schema.get("required", [])
-
-    for param_name, param_schema in properties.items():
-        # 参数基本信息
-        param_title = param_schema.get("title", param_name.replace("_", " ").title())
-        param_description = param_schema.get("description", param_title)
-        param_enum = param_schema.get("enum", None)
-        param_default = param_schema.get("default", _MISSING)
-
-        # 解析类型
-        if "type" in param_schema:
-            param_type = param_schema["type"]
-        elif "anyOf" in param_schema:
-            # 处理 anyOf，尝试提取主要类型
-            any_of = param_schema["anyOf"]
-            types = [t.get("type") for t in any_of if "type" in t]
-            # 过滤掉 null 类型
-            non_null_types = [t for t in types if t != "null"]
-            if non_null_types:
-                param_type = non_null_types[0]
-            else:
-                param_type = "string"  # 默认
-        elif "oneOf" in param_schema:
-            # 处理 oneOf
-            one_of = param_schema["oneOf"]
-            types = [t.get("type") for t in one_of if "type" in t]
-            param_type = types[0] if types else "string"
-        else:
-            param_type = "string"  # 默认类型
-
-        # 判断是否必需
-        param_required = param_name in required_fields
-
-        # 如果有默认值，则不是必需的
-        if param_default is not _MISSING:
-            param_required = False
-
-        parsed_args[param_name] = ToolParameter(
-            name=param_name,
-            title=param_title,
-            type=param_type,
-            description=param_description,
-            enum=param_enum,
-            default=param_default,
-            required=param_required,
-        )
-
-    return parsed_args
+__all__ = [
+    "tool",
+    "derisk_tool",
+    "system_tool",
+    "sandbox_tool",
+    "ToolBase",
+    "BaseTool",
+    "FunctionTool",
+    "ToolFunc",
+    "ToolParameter",
+    "ToolCategory",
+    "ToolRiskLevel",
+    "ToolSource",
+    "ToolMetadata",
+    "ToolResult",
+    "ToolContext",
+    "ToolRegistry",
+    "tool_registry",
+    "DERISK_TOOL_IDENTIFIER",
+]

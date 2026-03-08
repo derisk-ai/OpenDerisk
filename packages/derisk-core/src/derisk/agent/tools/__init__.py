@@ -117,6 +117,35 @@ from .migration import (
     local_tool_migrator,
 )
 
+from .decorators import (
+    tool as tool_decorator,
+    derisk_tool,
+    system_tool,
+    sandbox_tool,
+    shell_tool,
+    file_read_tool,
+    file_write_tool,
+    network_tool,
+    agent_tool,
+    interaction_tool,
+)
+
+from .tool_manager import (
+    ToolManager,
+    ToolBindingType,
+    ToolBindingConfig,
+    ToolGroup,
+    AgentToolConfiguration,
+    tool_manager,
+    get_tool_manager,
+)
+
+from .runtime_loader import (
+    AgentRuntimeToolLoader,
+    load_agent_tools,
+    is_tool_available_for_agent,
+)
+
 __all__ = [
     # 基类与枚举
     "ToolBase",
@@ -148,7 +177,29 @@ __all__ = [
     "UserToolConfig",
     # 装饰器
     "tool",
+    "tool_decorator",
+    "derisk_tool",
+    "system_tool",
+    "sandbox_tool",
+    "shell_tool",
+    "file_read_tool",
+    "file_write_tool",
+    "network_tool",
+    "agent_tool",
+    "interaction_tool",
     "register_tool",
+    # 工具管理器
+    "ToolManager",
+    "ToolBindingType",
+    "ToolBindingConfig",
+    "ToolGroup",
+    "AgentToolConfiguration",
+    "tool_manager",
+    "get_tool_manager",
+    # 运行时加载器
+    "AgentRuntimeToolLoader",
+    "load_agent_tools",
+    "is_tool_available_for_agent",
     # 异常
     "ToolError",
     "ToolNotFoundError",
