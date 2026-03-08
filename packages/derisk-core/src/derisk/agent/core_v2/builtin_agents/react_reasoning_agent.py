@@ -598,9 +598,10 @@ class ReActReasoningAgent(BaseBuiltinAgent):
     async def think(self, message: str, **kwargs) -> AsyncIterator[str]:
         """思考阶段 - 调用LLM生成思考内容（支持Function Calling）
 
-        集成 UnifiedCompactionPipeline Layer 2 (pruning) + Layer 3 (compaction):
-        在构建消息列表前，对 self._messages 执行修剪和压缩。
-        压缩后如果是首次 compaction，动态注入历史回顾工具。
+        集成 UnifiedCompactionPipeline 四层压缩：
+        - Layer 2: Pruning（修剪）
+        - Layer 3: Compaction（压缩归档）
+        - Layer 4: Multi-Turn History（跨轮次历史压缩）
         """
         # 先 yield 一个思考开始的标记
         yield f"[思考] 分析任务: {message[:100]}..."
@@ -640,8 +641,22 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         f"[ReActReasoningAgent] Compaction pipeline failed, using raw messages: {e}"
                     )
 
-            # 构建系统提示词
+            # Layer 4: 获取跨轮次历史压缩
+            layer4_history = ""
+            if pipeline:
+                try:
+                    layer4_history = await pipeline.get_layer4_history_for_prompt()
+                    if layer4_history:
+                        logger.info(
+                            f"[ReActReasoningAgent] Layer 4: Retrieved {len(layer4_history)} chars of history"
+                        )
+                except Exception as e:
+                    logger.debug(f"[ReActReasoningAgent] Layer 4: Failed to get history: {e}")
+
+            # 构建系统提示词（包含 Layer 4 历史）
             system_prompt = self._build_system_prompt()
+            if layer4_history:
+                system_prompt += f"\n\n## 历史对话记录\n\n{layer4_history}\n\n*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*"
 
             # 构建消息列表
             from ..llm_adapter import LLMMessage

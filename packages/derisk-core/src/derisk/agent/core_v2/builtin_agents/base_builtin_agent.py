@@ -35,6 +35,7 @@ from ..tools_v2 import (
 from ..llm_adapter import LLMAdapter, LLMConfig, LLMFactory
 from ..production_agent import ProductionAgent
 from ..sandbox_docker import SandboxManager
+from ...tools.runtime_loader import AgentRuntimeToolLoader
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,10 @@ class BaseBuiltinAgent(ProductionAgent):
         context_window: int = 128000,
         max_output_lines: int = 2000,
         max_output_bytes: int = 50000,
+        # 工具运行时加载器配置
+        app_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        use_runtime_tool_loader: bool = True,
         **kwargs,
     ):
         super().__init__(
@@ -95,6 +100,23 @@ class BaseBuiltinAgent(ProductionAgent):
         self.resource = resource
         self.resource_map = resource_map or defaultdict(list)
         self.sandbox_manager = sandbox_manager
+
+        # 初始化工具运行时加载器
+        self._app_id = app_id or info.name
+        self._agent_name = agent_name or info.name
+        self._use_runtime_tool_loader = use_runtime_tool_loader
+        self._tool_loader: Optional[AgentRuntimeToolLoader] = None
+
+        if use_runtime_tool_loader:
+            self._tool_loader = AgentRuntimeToolLoader(
+                app_id=self._app_id,
+                agent_name=self._agent_name,
+                default_tools=default_tools or self._get_default_tools(),
+            )
+            logger.info(
+                f"[{self.__class__.__name__}] 已初始化工具运行时加载器: "
+                f"app_id={self._app_id}, agent_name={self._agent_name}"
+            )
 
         self.default_tools = default_tools or self._get_default_tools()
         self._setup_default_tools()
@@ -130,13 +152,46 @@ class BaseBuiltinAgent(ProductionAgent):
 
     def _setup_default_tools(self):
         """设置默认工具"""
-        if len(self.tools.list_all()) == 0:
-            register_builtin_tools(self.tools)
-            register_interaction_tools(self.tools)
+        # 如果使用运行时加载器，工具会在运行时被动态加载
+        if self._use_runtime_tool_loader and self._tool_loader:
+            logger.info(
+                f"[{self.__class__.__name__}] 使用运行时工具加载器，工具将在运行时动态加载"
+            )
+            # 仍然注册基础工具到注册表，但实际可用的工具由运行时加载器控制
+            if len(self.tools.list_all()) == 0:
+                register_builtin_tools(self.tools)
+                register_interaction_tools(self.tools)
+        else:
+            # 传统模式：直接注册所有工具
+            if len(self.tools.list_all()) == 0:
+                register_builtin_tools(self.tools)
+                register_interaction_tools(self.tools)
 
             logger.info(
                 f"[{self.__class__.__name__}] 已注册默认工具: {len(self.tools.list_names())} 个"
             )
+
+    async def _load_runtime_tools(self) -> List[Dict[str, Any]]:
+        """
+        加载运行时工具定义
+
+        根据 Agent 配置返回实际可用的工具定义列表
+
+        Returns:
+            工具定义列表（OpenAI Function Calling格式）
+        """
+        if self._use_runtime_tool_loader and self._tool_loader:
+            tool_data = await self._tool_loader.load_tools(format_type="openai")
+            schemas = tool_data.get("schemas", [])
+
+            logger.info(
+                f"[{self.__class__.__name__}] 运行时加载工具: "
+                f"数量={len(schemas)}, 工具列表={[s.get('function', {}).get('name') for s in schemas]}"
+            )
+            return schemas
+        else:
+            # 传统模式：返回所有注册的工具
+            return self._build_tool_definitions()
 
     def _build_tool_definitions(self) -> List[Dict[str, Any]]:
         """
@@ -500,7 +555,7 @@ class BaseBuiltinAgent(ProductionAgent):
             )
             self._pipeline_initialized = True
             logger.info(
-                f"[{self.__class__.__name__}] UnifiedCompactionPipeline initialized"
+                f"[{self.__class__.__name__}] UnifiedCompactionPipeline initialized with Layer 4 support"
             )
             return self._compaction_pipeline
         except Exception as e:
@@ -547,3 +602,48 @@ class BaseBuiltinAgent(ProductionAgent):
             logger.debug(
                 f"[{self.__class__.__name__}] Failed to inject history tools: {e}"
             )
+
+    # ==================== Layer 4: Multi-Turn History ====================
+
+    async def start_conversation_round(
+        self, user_question: str, user_context: Optional[Dict] = None
+    ) -> Optional[Any]:
+        """Start a new conversation round (Layer 4)."""
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                return await pipeline.start_conversation_round(
+                    user_question, user_context
+                )
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Layer 4: Failed to start round: {e}"
+            )
+        return None
+
+    async def complete_conversation_round(
+        self, ai_response: str, ai_thinking: str = ""
+    ):
+        """Complete current conversation round (Layer 4)."""
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                await pipeline.complete_conversation_round(ai_response, ai_thinking)
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Layer 4: Failed to complete round: {e}"
+            )
+
+    async def get_layer4_history_for_prompt(
+        self, max_rounds: Optional[int] = None
+    ) -> str:
+        """Get Layer 4 compressed history for prompt injection."""
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                return await pipeline.get_layer4_history_for_prompt(max_rounds)
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Layer 4: Failed to get history: {e}"
+            )
+        return ""

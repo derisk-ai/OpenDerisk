@@ -1,8 +1,9 @@
-"""Unified Compaction Pipeline — three-layer compression for v1 and v2 agents.
+"""Unified Compaction Pipeline — four-layer compression for v1 and v2 agents.
 
 Layer 1: Truncation — truncate large tool outputs, archive full content to AFS.
 Layer 2: Pruning — prune old tool outputs in history to save tokens.
 Layer 3: Compaction & Archival — compress + archive old messages into chapters.
+Layer 4: Multi-Turn History — compress cross-round conversation history.
 
 Works with both v1 (core) and v2 (core_v2) AgentMessage via UnifiedMessageAdapter.
 
@@ -10,6 +11,11 @@ Monitoring Integration:
     This module integrates with `context_metrics.ContextMetricsCollector` to provide
     real-time monitoring of context compression operations. Metrics are logged and
     can be pushed to product layers for visualization.
+
+Four-Layer Architecture:
+    - Historical rounds: User question + WorkLog summary + Answer summary (compressed, via prompt)
+    - Current round: Native Function Call mode, tool messages directly passed
+    - memory variable: Injects only historical rounds' compressed summary
 """
 
 from __future__ import annotations
@@ -124,6 +130,19 @@ class UnifiedCompactionConfig:
     # 特殊工具配置
     read_file_preview_length: int = 2000
     summary_only_tools: Tuple[str, ...] = ("grep", "search", "find")
+
+    # ==================== Layer 4: Multi-Turn History ====================
+    # 跨轮次对话历史压缩配置
+    enable_layer4_compression: bool = True  # 启用第四层压缩
+    max_rounds_before_compression: int = 3  # 保留最近3轮不压缩
+    max_total_rounds: int = 10  # 最多保留10轮历史
+    layer4_compression_token_threshold: int = 8000  # 超过此token数触发压缩
+    layer4_chars_per_token: int = 4
+
+    # Layer 4 摘要长度限制
+    max_question_summary_length: int = 200
+    max_response_summary_length: int = 300
+    max_findings_length: int = 300
 
 
 # Backward compatibility alias
@@ -404,7 +423,12 @@ def _format_key_infos(
 
 
 class UnifiedCompactionPipeline:
-    """Three-layer compression pipeline shared by v1 and v2 agents."""
+    """Four-layer compression pipeline shared by v1 and v2 agents.
+
+    Layer 4 (Multi-Turn History): Compress cross-round conversation history.
+    - Historical rounds: User question + WorkLog summary + Answer summary
+    - Current round: Native Function Call mode with direct tool messages
+    """
 
     def __init__(
         self,
@@ -428,6 +452,10 @@ class UnifiedCompactionPipeline:
         self._round_counter: int = 0
         self._adapter = UnifiedMessageAdapter
         self._first_compaction_done: bool = False
+
+        # Layer 4: Multi-Turn History Compression
+        self._conversation_history_manager: Optional[Any] = None
+        self._layer4_enabled: bool = self.config.enable_layer4_compression
 
         # 自适应剪枝状态跟踪
         self._last_token_count: int = 0
@@ -1284,3 +1312,83 @@ class UnifiedCompactionPipeline:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ==================== Layer 4: Multi-Turn History ====================
+
+    async def get_or_create_history_manager(self) -> Optional[Any]:
+        """Get or create Layer 4 conversation history manager."""
+        if not self._layer4_enabled:
+            return None
+
+        if self._conversation_history_manager is None:
+            try:
+                from .layer4_conversation_history import (
+                    get_conversation_history_manager,
+                    Layer4CompressionConfig,
+                )
+
+                config = Layer4CompressionConfig(
+                    max_rounds_before_compression=self.config.max_rounds_before_compression,
+                    max_total_rounds=self.config.max_total_rounds,
+                    compression_token_threshold=self.config.layer4_compression_token_threshold,
+                    chars_per_token=self.config.layer4_chars_per_token,
+                    max_question_summary_length=self.config.max_question_summary_length,
+                    max_response_summary_length=self.config.max_response_summary_length,
+                    max_findings_length=self.config.max_findings_length,
+                )
+
+                self._conversation_history_manager = (
+                    await get_conversation_history_manager(
+                        session_id=self.session_id,
+                        config=config,
+                    )
+                )
+                logger.info(
+                    f"Layer 4: Initialized ConversationHistoryManager for session {self.session_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Layer 4: Failed to initialize history manager: {e}")
+                self._layer4_enabled = False
+                return None
+
+        return self._conversation_history_manager
+
+    async def start_conversation_round(
+        self, user_question: str, user_context: Optional[Dict] = None
+    ) -> Optional[Any]:
+        """Start a new conversation round (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            return await manager.start_new_round(user_question, user_context)
+        return None
+
+    async def complete_conversation_round(
+        self, ai_response: str, ai_thinking: str = ""
+    ):
+        """Complete current conversation round (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            await manager.complete_current_round(ai_response, ai_thinking)
+
+    async def get_layer4_history_for_prompt(
+        self, max_rounds: Optional[int] = None
+    ) -> str:
+        """Get Layer 4 compressed history for prompt injection."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            return await manager.get_history_for_prompt(
+                max_rounds=max_rounds,
+                include_current=False,  # Exclude current round
+            )
+        return ""
+
+    async def update_current_round_worklog(
+        self, worklog_entries: List[Dict], summary: Optional[Dict] = None
+    ):
+        """Update current round's worklog (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            from .layer4_conversation_history import WorkLogSummary
+
+            wls = WorkLogSummary(**summary) if summary else None
+            await manager.update_current_round_worklog(worklog_entries, wls)

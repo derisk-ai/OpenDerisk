@@ -12,12 +12,12 @@ import json
 import logging
 import asyncio
 
-from .base import ToolBase, ToolCategory, ToolSource, ToolRiskLevel, ToolEnvironment
-from .metadata import ToolMetadata
-from .context import ToolContext
-from .result import ToolResult
-from .registry import ToolRegistry, tool_registry
-from .resource_manager import (
+from ..base import ToolBase, ToolCategory, ToolSource, ToolRiskLevel, ToolEnvironment
+from ..metadata import ToolMetadata
+from ..context import ToolContext
+from ..result import ToolResult
+from ..registry import ToolRegistry, tool_registry
+from ..resource_manager import (
     ToolResource, ToolResourceManager, ToolVisibility, ToolStatus,
     tool_resource_manager
 )

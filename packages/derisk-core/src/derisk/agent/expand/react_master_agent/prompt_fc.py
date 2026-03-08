@@ -50,10 +50,16 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 
 **重要规则**：
 - 每次响应只输出一个阶段，不要连续输出多个阶段
+- **不要重复输出相同的阶段标记** - 只在开头输出一次
 - 输出一个阶段后，立即调用工具执行动作
 - 等待工具返回结果后，再进入下一阶段
 
 **阶段描述要求**：每个阶段只需1-2句话，简洁说明当前状态和下一步动作。
+
+**禁止的行为**：
+- ❌ 不要在同一响应中多次输出【阶段: xxx】
+- ❌ 不要在思考内容和最终输出中重复相同的阶段标记
+- ❌ 不要输出空阶段标记如【阶段:】
 
 可选阶段：
 - `【阶段: 分析】` - 分析任务、收集信息、理解需求
@@ -115,8 +121,11 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 """
 
 REACT_MASTER_FC_USER_TEMPLATE_CN = """{% if memory %}
-已完成步骤:
+## 历史对话记录
+
 {{ memory }}
+
+*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*
 {% endif %}
 
 请思考下一步计划直到完成任务目标。
@@ -186,10 +195,16 @@ During thinking, **output only ONE phase per response**, mark it at the beginnin
 
 **Important Rules**:
 - Output only ONE phase per response, do NOT output multiple phases consecutively
+- **Do NOT output the same phase marker multiple times** - only output once at the beginning
 - After outputting a phase, immediately call the tool to execute the action
 - Wait for tool results before proceeding to the next phase
 
 **Phase description requirement**: Each phase needs only 1-2 sentences, briefly stating current status and next action.
+
+**Forbidden behaviors**:
+- ❌ Do NOT output [Phase: xxx] multiple times in the same response
+- ❌ Do NOT repeat the same phase marker in thinking content and final output
+- ❌ Do NOT output empty phase markers like [Phase:]
 
 Available phases:
 - `[Phase: Analysis]` - Analyze task, gather information, understand requirements
@@ -251,8 +266,11 @@ You cannot access file system. All operations must be done through tools.
 """
 
 REACT_MASTER_FC_USER_TEMPLATE = """{% if memory %}
-Completed steps:
+## Conversation History
+
 {{ memory }}
+
+*Note: Above is the compressed history of previous conversation rounds. Current round tool executions are passed via native Function Call.*
 {% endif %}
 
 Think about the next step until the task goal is achieved.

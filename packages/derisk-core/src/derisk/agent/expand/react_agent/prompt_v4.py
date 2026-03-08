@@ -140,8 +140,11 @@ REACT_FC_SYSTEM_TEMPLATE = """\
 
 REACT_FC_USER_TEMPLATE = """\
 {% if memory %}
-已完成步骤:
+## 历史对话记录
+
 {{ memory }}
+
+*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*
 {% endif %}
 
 请思考下一步计划直到完成你的任务目标。

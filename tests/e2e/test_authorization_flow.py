@@ -29,7 +29,8 @@ from derisk.core.authorization.model import (
 )
 from derisk.core.authorization.cache import AuthorizationCache
 from derisk.core.authorization.risk_assessor import RiskAssessor, RiskAssessment
-from derisk.core.tools.metadata import ToolMetadata, RiskLevel, ToolCategory, RiskCategory
+from derisk.agent.tools import ToolMetadata, ToolRiskLevel as RiskLevel, ToolCategory
+RiskCategory = ToolCategory
 
 
 class TestAuthorizationFlowE2E:
