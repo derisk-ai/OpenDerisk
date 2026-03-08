@@ -694,6 +694,25 @@ class ConversableAgent(Role, Agent):
 
         return function_call_reply_messages
 
+    async def _get_worklog_tool_messages(
+        self, max_entries: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
+
+        子类可以重写此方法来提供具体的 WorkLog 转换逻辑。
+        例如 ReActMasterAgent 可以从 compaction_pipeline 获取历史工具调用记录。
+
+        Returns:
+            符合原生 Function Call 格式的消息列表:
+            [
+                {"role": "assistant", "content": "", "tool_calls": [...]},
+                {"role": "tool", "tool_call_id": "...", "content": "..."},
+                ...
+            ]
+        """
+        return []
+
     async def generate_reply(
         self,
         received_message: AgentMessage,
@@ -775,6 +794,15 @@ class ConversableAgent(Role, Agent):
             )
 
             all_tool_messages: List[Dict] = []
+
+            if self.enable_function_call and self.current_retry_counter == 0:
+                worklog_messages = await self._get_worklog_tool_messages()
+                if worklog_messages:
+                    all_tool_messages.extend(worklog_messages)
+                    logger.info(
+                        f"Injected {len(worklog_messages)} worklog tool messages for function call mode"
+                    )
+
             while not done and self.current_retry_counter < self.max_retry_count:
                 with root_tracer.start_span(
                     "agent.generate_reply.loop",

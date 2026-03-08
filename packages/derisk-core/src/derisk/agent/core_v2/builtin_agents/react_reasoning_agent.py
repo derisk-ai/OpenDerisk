@@ -651,7 +651,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                             f"[ReActReasoningAgent] Layer 4: Retrieved {len(layer4_history)} chars of history"
                         )
                 except Exception as e:
-                    logger.debug(f"[ReActReasoningAgent] Layer 4: Failed to get history: {e}")
+                    logger.debug(
+                        f"[ReActReasoningAgent] Layer 4: Failed to get history: {e}"
+                    )
 
             # 构建系统提示词（包含 Layer 4 历史）
             system_prompt = self._build_system_prompt()
@@ -688,6 +690,29 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                     )
                 else:
                     messages.append(LLMMessage(role=msg.role, content=msg.content))
+
+            worklog_tool_messages = await self._get_worklog_tool_messages()
+            if worklog_tool_messages:
+                for tool_msg in worklog_tool_messages:
+                    if tool_msg.get("role") == "assistant":
+                        messages.append(
+                            LLMMessage(
+                                role="assistant",
+                                content=tool_msg.get("content", ""),
+                                tool_calls=tool_msg.get("tool_calls"),
+                            )
+                        )
+                    elif tool_msg.get("role") == "tool":
+                        messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content=tool_msg.get("content", ""),
+                                tool_call_id=tool_msg.get("tool_call_id", ""),
+                            )
+                        )
+                logger.info(
+                    f"[ReActReasoningAgent] Injected {len(worklog_tool_messages)} worklog tool messages"
+                )
 
             # 构建工具定义
             tools = self._build_tool_definitions()

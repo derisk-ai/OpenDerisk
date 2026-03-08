@@ -1392,3 +1392,171 @@ class UnifiedCompactionPipeline:
 
             wls = WorkLogSummary(**summary) if summary else None
             await manager.update_current_round_worklog(worklog_entries, wls)
+
+    # ==================== Tool Messages Conversion ====================
+
+    async def get_tool_messages_from_worklog(
+        self,
+        max_entries: int = 50,
+        use_compressed_summary: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的消息列表。
+
+        这是为了让模型能够看到历史工具调用结果，按 OpenAI Function Call 协议格式：
+        [
+            {"role": "assistant", "content": "", "tool_calls": [...]},
+            {"role": "tool", "tool_call_id": "...", "content": "..."},
+            ...
+        ]
+
+        核心设计：压缩后的条目使用摘要替代原始内容，保证上下文管理有效。
+
+        Args:
+            max_entries: 最大条目数
+            use_compressed_summary: 对于已压缩条目，是否使用压缩摘要替代原始内容
+                - True (默认): 使用压缩摘要，节省 token，保留关键信息
+                - False: 跳过压缩条目（仅用于特殊场景，会导致历史信息丢失）
+
+        Returns:
+            符合原生 Function Call 格式的消息列表
+        """
+        messages: List[Dict[str, Any]] = []
+
+        # 1. 从 WorkLogStorage 获取条目
+        work_entries = await self._get_work_entries(max_entries)
+        if not work_entries:
+            return messages
+
+        # 2. 转换为 Function Call 消息格式
+        import uuid
+        from .gpts.file_base import WorkLogStatus
+
+        compressed_count = 0
+
+        for entry in work_entries:
+            is_compressed = (
+                hasattr(entry, "status")
+                and entry.status == WorkLogStatus.COMPRESSED.value
+            )
+
+            # 如果不使用压缩摘要且条目已压缩，则跳过（不推荐，会导致信息丢失）
+            if not use_compressed_summary and is_compressed:
+                continue
+
+            # 生成唯一的 tool_call_id
+            tool_call_id = f"tc_{entry.tool}_{uuid.uuid4().hex[:8]}"
+
+            # 构建 assistant 消息（包含 tool_calls）
+            tool_call = {
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": entry.tool,
+                    "arguments": json.dumps(entry.args) if entry.args else "{}",
+                },
+            }
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "",  # 工具调用时 content 通常为空
+                    "tool_calls": [tool_call],
+                }
+            )
+
+            # 构建 tool 消息（工具结果）
+            # 根据压缩状态选择内容
+            if is_compressed:
+                # 压缩条目：优先使用 summary，保证上下文连续性
+                result_content = entry.summary or entry.result or ""
+                if result_content:
+                    result_content = f"[压缩摘要] {result_content}"
+                compressed_count += 1
+            else:
+                # 未压缩条目：优先使用原始 result
+                result_content = entry.result or entry.summary or ""
+
+            if entry.full_result_archive:
+                # 如果结果被归档，添加提示
+                result_content = (
+                    f"{result_content}\n\n[完整结果已归档: {entry.full_result_archive}]"
+                )
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": result_content,
+                }
+            )
+
+        if compressed_count > 0:
+            logger.info(
+                f"Converted {len(work_entries)} work entries to {len(messages)} tool messages "
+                f"({compressed_count} compressed entries using summaries)"
+            )
+        else:
+            logger.info(
+                f"Converted {len(work_entries)} work entries to {len(messages)} tool messages"
+            )
+        return messages
+
+    async def _get_work_entries(self, max_entries: int) -> List[Any]:
+        """获取 WorkEntry 列表（包含所有状态，由调用方决定如何处理压缩条目）"""
+        entries = []
+
+        # 优先从 WorkLogStorage 获取
+        if self.work_log_storage:
+            try:
+                entries = list(
+                    await self.work_log_storage.get_work_log(self.session_id)
+                )
+                # 限制条目数
+                if len(entries) > max_entries:
+                    entries = entries[-max_entries:]
+            except Exception as e:
+                logger.warning(f"Failed to get work log from storage: {e}")
+
+        # 如果没有条目，尝试从历史章节恢复
+        if not entries and self._catalog is not None:
+            chapters = getattr(self._catalog, "chapters", None)
+            if chapters:
+                entries = await self._recover_entries_from_chapters(max_entries)
+
+        return entries
+
+    async def _recover_entries_from_chapters(self, max_entries: int) -> List[Any]:
+        """从历史章节恢复 WorkEntry"""
+        from .gpts.file_base import WorkEntry
+
+        entries = []
+
+        if self._catalog is None:
+            return entries
+
+        chapters = getattr(self._catalog, "chapters", [])
+        if not chapters:
+            return entries
+
+        sorted_chapters = sorted(chapters, key=lambda c: c.time_range[0], reverse=True)
+
+        for chapter in sorted_chapters:
+            if len(entries) >= max_entries:
+                break
+
+            # 从章节的 tool_call_count 和 summary 推断工具调用
+            # 这是一个简化实现，实际可能需要从归档文件恢复
+            if chapter.tool_call_count > 0 and chapter.summary:
+                # 从摘要中解析工具名称
+                tool_names = chapter.key_tools if chapter.key_tools else []
+                for i, tool_name in enumerate(tool_names[: chapter.tool_call_count]):
+                    entry = WorkEntry(
+                        timestamp=chapter.time_range[0] + i,
+                        tool=tool_name,
+                        summary=chapter.summary[:500],
+                        success=True,
+                    )
+                    entries.append(entry)
+
+        return entries[:max_entries]
