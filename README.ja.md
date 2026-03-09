@@ -81,15 +81,35 @@ openderisk-server
 
 ### ソースからのインストール（開発用）
 
-uv のインストール（必須）：
-```shell
+#### uv のインストール（必須）
 
+**macOS/Linux:**
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+```shell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+#### クローンと依存関係のインストール
+
+```shell
 git clone https://github.com/derisk-ai/OpenDerisk.git
 
 cd OpenDerisk
 
-# 依存関係のインストール
-sh scripts/prepare_release.sh
+# uv で依存関係をインストール
+uv sync --all-packages --frozen \
+    --extra "base" \
+    --extra "proxy_openai" \
+    --extra "rag" \
+    --extra "storage_chromadb" \
+    --extra "derisks" \
+    --extra "storage_oss2" \
+    --extra "client" \
+    --extra "ext_base"
 ```
 
 #### サーバーの起動
