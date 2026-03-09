@@ -186,7 +186,7 @@ class ToolAction(Action[ToolInput]):
             view=view,
             action_id=self.action_uid,
             action=param.tool_name,
-            action_name=tool_info.description,
+            action_name=self._get_tool_attr(tool_info, "description"),
             action_input=param.args,
             state=Status.RUNNING.value,
         )
@@ -302,7 +302,7 @@ class ToolAction(Action[ToolInput]):
         # Handle user approval requirement
         if require_approval and self.requires_user_approval(tool_info, tool_pack):
             logger.info(
-                f"工具[{tool_info.name}]需要进行工具执行确认审核！{require_approval},{tool_info.ask_user},{tool_pack.ask_user if tool_pack else ''}"
+                f"工具[{tool_info.name}]需要进行工具执行确认审核！{require_approval},{self._get_tool_attr(tool_info, 'ask_user')},{tool_pack.ask_user if tool_pack else ''}"
             )
             return await self._create_user_approval_output(
                 tool_info,
@@ -458,6 +458,7 @@ class ToolAction(Action[ToolInput]):
                 args=param.args,
                 start_time=start_time,
                 eval_view=tool_result.get("eval_view"),
+                err_msg=tool_result.get("error"),
                 **kwargs_filtered,
             )
 
@@ -473,7 +474,7 @@ class ToolAction(Action[ToolInput]):
         return ActionOutput(
             action_id=self.action_uid,
             is_exe_success=tool_result["success"],
-            action_name=tool_info.description,
+            action_name=self._get_tool_attr(tool_info, "description"),
             action=tool_info.name,
             name=self.name,
             action_input=json.dumps(param.args, ensure_ascii=False),
@@ -564,7 +565,7 @@ class ToolAction(Action[ToolInput]):
             action_id=self.action_uid,
             action=tool_info.name,
             metrics=metrics,
-            action_name=tool_info.description,
+            action_name=self._get_tool_attr(tool_info, "description"),
             action_input=tool_args,
             state=Status.RUNNING.value,
             stream=True,
@@ -600,12 +601,29 @@ class ToolAction(Action[ToolInput]):
             state=Status.RUNNING.value,
         )
 
+    def _get_tool_attr(self, tool_info, attr: str):
+        """兼容新旧工具框架获取属性
+
+        新框架 ToolBase: description 在 metadata 中, ask_user 对应 requires_permission
+        旧框架 BaseTool: 直接有 description 和 ask_user 属性
+        """
+        if attr == "description":
+            if hasattr(tool_info, "metadata"):
+                return tool_info.metadata.description
+            return tool_info.description
+        elif attr == "ask_user":
+            if hasattr(tool_info, "metadata"):
+                return tool_info.metadata.requires_permission
+            return tool_info.ask_user
+        else:
+            return getattr(tool_info, attr, None)
+
     def requires_user_approval(
-        self, tool_info: BaseTool, tool_pack: Optional[ToolPack] = None
+        self, tool_info, tool_pack: Optional[ToolPack] = None
     ) -> bool:
         """Check if tool requires user approval."""
         if tool_info:
-            if tool_info.ask_user:
+            if self._get_tool_attr(tool_info, "ask_user"):
                 return True
             else:
                 return tool_pack.ask_user if tool_pack else False
@@ -727,9 +745,12 @@ class ToolAction(Action[ToolInput]):
                 else:
                     raise ValueError("LLM client not configured for snapshot mode")
             else:
-                arguments = {k: v for k, v in args.items() if k in tool_info.args}
+                # Build arguments for tool execution
+                # Use all passed args (including system-injected params like 'client')
+                # and supplement with system_args if not present
+                arguments = dict(args)  # Start with all passed args
                 for k, v in system_args.items():
-                    if k in tool_info.args and k not in arguments:
+                    if k not in arguments:
                         arguments[k] = v
                 if tool_info.is_async:
                     raw_content = await tool_info.async_execute(**arguments)
@@ -751,6 +772,7 @@ class ToolAction(Action[ToolInput]):
                 {
                     "success": False,
                     "content": e.message,
+                    "error": e.message,
                     "mcp_error": True,
                 }
             )
@@ -760,6 +782,7 @@ class ToolAction(Action[ToolInput]):
                 {
                     "success": False,
                     "content": str(e),
+                    "error": str(e),
                 }
             )
             logger.exception(f"Tool {tool_info.name} execution error: {str(e)}")
@@ -862,7 +885,7 @@ class ToolAction(Action[ToolInput]):
             action_id=self.action_uid,
             name=self.name,
             is_exe_success=True,
-            action=f"{tool_info.description}「待用户确认」",
+            action=f"{self._get_tool_attr(tool_info, 'description')}「待用户确认」",
             action_name=tool_info.name,
             action_input=json.dumps(args, ensure_ascii=False),
             content="Waiting for user approval",
@@ -887,7 +910,7 @@ class ToolAction(Action[ToolInput]):
         self,
         message_id,
         tool_call_id,
-        tool_info: BaseTool,
+        tool_info,
         status,
         tool_pack: Optional[ToolPack] = None,
         args: Optional[Any] = None,
@@ -902,6 +925,21 @@ class ToolAction(Action[ToolInput]):
         **kwargs,
     ):
         logger.info(f"Tool Action gen view!{self.action_view_tag}")
+
+        # 兼容新旧工具框架
+        # 新框架 ToolBase: description 在 metadata 中, ask_user 对应 requires_permission
+        # 旧框架 BaseTool: 直接有 description 和 ask_user 属性
+        if hasattr(tool_info, "metadata"):
+            # 新框架 ToolBase
+            tool_name = tool_info.name
+            tool_desc = tool_info.metadata.description
+            need_ask_user = tool_info.metadata.requires_permission
+        else:
+            # 旧框架 BaseTool
+            tool_name = tool_info.name
+            tool_desc = tool_info.description
+            need_ask_user = tool_info.ask_user
+
         # 设置进度
         progress = 100 if status == "completed" else (50 if status == "running" else 0)
         # Build visualization content
@@ -910,11 +948,11 @@ class ToolAction(Action[ToolInput]):
             message_id=message_id,
             type=view_type,
             avatar=None,
-            tool_name=tool_info.name,
-            tool_desc=tool_info.description,
+            tool_name=tool_name,
+            tool_desc=tool_desc,
             tool_version=None,
             tool_author=None,
-            need_ask_user=tool_info.ask_user,
+            need_ask_user=need_ask_user,
             tool_args=args,
             status=status,
             out_type=out_type,

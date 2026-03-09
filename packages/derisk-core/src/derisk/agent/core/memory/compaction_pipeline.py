@@ -1,10 +1,21 @@
-"""Unified Compaction Pipeline — three-layer compression for v1 and v2 agents.
+"""Unified Compaction Pipeline — four-layer compression for v1 and v2 agents.
 
 Layer 1: Truncation — truncate large tool outputs, archive full content to AFS.
 Layer 2: Pruning — prune old tool outputs in history to save tokens.
 Layer 3: Compaction & Archival — compress + archive old messages into chapters.
+Layer 4: Multi-Turn History — compress cross-round conversation history.
 
 Works with both v1 (core) and v2 (core_v2) AgentMessage via UnifiedMessageAdapter.
+
+Monitoring Integration:
+    This module integrates with `context_metrics.ContextMetricsCollector` to provide
+    real-time monitoring of context compression operations. Metrics are logged and
+    can be pushed to product layers for visualization.
+
+Four-Layer Architecture:
+    - Historical rounds: User question + WorkLog summary + Answer summary (compressed, via prompt)
+    - Current round: Native Function Call mode, tool messages directly passed
+    - memory variable: Injects only historical rounds' compressed summary
 """
 
 from __future__ import annotations
@@ -19,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Awaitable
 
 from .message_adapter import UnifiedMessageAdapter
 from .history_archive import HistoryChapter, HistoryCatalog
+from .context_metrics import ContextMetricsCollector, ContextMetrics, metrics_registry
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +42,58 @@ NotificationCallback = Callable[[str, str], Awaitable[None]]
 # =============================================================================
 
 
+# =============================================================================
+# Unified Configuration
+# =============================================================================
+
+
 @dataclasses.dataclass
-class HistoryCompactionConfig:
-    # Layer 1: Truncation
+class UnifiedCompactionConfig:
+    """统一压缩配置 - Pipeline 和 WorkLogManager 共用
+
+    设计原则：
+    1. 统一配置避免行为不一致
+    2. 所有压缩策略使用相同阈值
+    3. 完整的功能覆盖（内容保护、自适应触发、降级机制）
+    """
+
+    # ==================== Layer 1: Truncation ====================
     max_output_lines: int = 2000
     max_output_bytes: int = 50 * 1024  # 50KB
 
-    # Layer 2: Pruning
-    prune_protect_tokens: int = 4000
-    prune_interval_rounds: int = 5
-    min_messages_keep: int = 10
+    # ==================== Layer 2: Pruning ====================
+    # Layer 2: Pruning（混合智能剪枝策略）
+    # 参考：ImprovedSessionCompaction + Claude Code 风格
+
+    # 基础参数
+    prune_protect_tokens: int = 10000
+    min_messages_keep: int = 20
     prune_protected_tools: Tuple[str, ...] = ("skill",)
 
-    # Layer 3: Compaction + Archival
+    # 自适应剪枝配置（参考 improved_compaction.py）
+    enable_adaptive_pruning: bool = True
+
+    # 基于上下文使用率的三级触发
+    prune_trigger_low_usage: float = 0.3  # < 30%: 低频检查
+    prune_trigger_medium_usage: float = 0.6  # 30%-60%: 中频检查
+    prune_trigger_high_usage: float = 0.8  # > 80%: 高频/立即
+
+    # 动态剪枝间隔（根据使用率自动调整）
+    prune_interval_low_usage: int = 15  # 低使用率：每15轮
+    prune_interval_medium_usage: int = 8  # 中使用率：每8轮
+    prune_interval_high_usage: int = 3  # 高使用率：每3轮
+
+    # 任务进展感知（参考 improved_compaction.py）
+    adaptive_check_interval: int = 5  # 检查间隔
+    adaptive_growth_threshold: float = 0.15  # 增长阈值 15%
+
+    # 智能选择策略
+    max_tool_outputs_keep: int = 20  # 最多保留的工具输出数
+    use_uniform_sampling: bool = False  # 是否使用均匀采样（否则基于重要性）
+
+    # ==================== Layer 3: Compaction + Archival ====================
     context_window: int = 128000
-    compaction_threshold_ratio: float = 0.8
+    compaction_threshold_ratio: float = 0.8  # 统一为 80%
     recent_messages_keep: int = 5
     chars_per_token: int = 4
 
@@ -53,12 +102,13 @@ class HistoryCompactionConfig:
     chapter_summary_max_tokens: int = 2000
     max_chapters_in_memory: int = 3
 
-    # Content protection (ported from ImprovedSessionCompaction)
+    # ==================== Content Protection ====================
     code_block_protection: bool = True
     thinking_chain_protection: bool = True
     file_path_protection: bool = True
     max_protected_blocks: int = 10
 
+    # ==================== Advanced Features ====================
     # Shared memory
     reload_shared_memory: bool = True
 
@@ -72,6 +122,31 @@ class HistoryCompactionConfig:
 
     # Backward compatibility
     fallback_to_legacy: bool = True
+
+    # ==================== WorkLogManager Extensions ====================
+    # 大结果归档阈值
+    large_result_threshold_bytes: int = 10 * 1024  # 10KB
+
+    # 特殊工具配置
+    read_file_preview_length: int = 2000
+    summary_only_tools: Tuple[str, ...] = ("grep", "search", "find")
+
+    # ==================== Layer 4: Multi-Turn History ====================
+    # 跨轮次对话历史压缩配置
+    enable_layer4_compression: bool = True  # 启用第四层压缩
+    max_rounds_before_compression: int = 3  # 保留最近3轮不压缩
+    max_total_rounds: int = 10  # 最多保留10轮历史
+    layer4_compression_token_threshold: int = 8000  # 超过此token数触发压缩
+    layer4_chars_per_token: int = 4
+
+    # Layer 4 摘要长度限制
+    max_question_summary_length: int = 200
+    max_response_summary_length: int = 300
+    max_findings_length: int = 300
+
+
+# Backward compatibility alias
+HistoryCompactionConfig = UnifiedCompactionConfig
 
 
 # =============================================================================
@@ -348,7 +423,12 @@ def _format_key_infos(
 
 
 class UnifiedCompactionPipeline:
-    """Three-layer compression pipeline shared by v1 and v2 agents."""
+    """Four-layer compression pipeline shared by v1 and v2 agents.
+
+    Layer 4 (Multi-Turn History): Compress cross-round conversation history.
+    - Historical rounds: User question + WorkLog summary + Answer summary
+    - Current round: Native Function Call mode with direct tool messages
+    """
 
     def __init__(
         self,
@@ -373,6 +453,32 @@ class UnifiedCompactionPipeline:
         self._adapter = UnifiedMessageAdapter
         self._first_compaction_done: bool = False
 
+        # Layer 4: Multi-Turn History Compression
+        self._conversation_history_manager: Optional[Any] = None
+        self._layer4_enabled: bool = self.config.enable_layer4_compression
+
+        # 自适应剪枝状态跟踪
+        self._last_token_count: int = 0
+        self._last_prune_round: int = 0
+        self._tool_calls_in_current_round: int = 0
+        self._current_usage_ratio: float = 0.0
+
+        # 监控模块 - 初始化指标收集器
+        self._metrics_collector = ContextMetricsCollector(
+            conv_id=conv_id,
+            session_id=session_id,
+            context_window=self.config.context_window,
+            config={
+                "max_output_lines": self.config.max_output_lines,
+                "max_output_bytes": self.config.max_output_bytes,
+                "prune_protect_tokens": self.config.prune_protect_tokens,
+                "compaction_threshold_ratio": self.config.compaction_threshold_ratio,
+                "recent_messages_keep": self.config.recent_messages_keep,
+            },
+            enable_logging=True,
+        )
+        metrics_registry.register(self._metrics_collector)
+
     async def _send_notification(self, title: str, message: str) -> None:
         if self._notify:
             try:
@@ -382,8 +488,25 @@ class UnifiedCompactionPipeline:
 
     @property
     def has_compacted(self) -> bool:
-        """Whether at least one compaction has occurred (for tool injection gating)."""
         return self._first_compaction_done
+
+    def get_context_metrics(self) -> ContextMetrics:
+        return self._metrics_collector.get_metrics()
+
+    def get_context_metrics_dict(self) -> Dict[str, Any]:
+        return self._metrics_collector.get_metrics_dict()
+
+    def update_metrics_context_state(
+        self,
+        tokens: int,
+        message_count: int,
+        round_counter: Optional[int] = None,
+    ) -> None:
+        self._metrics_collector.update_context_state(
+            tokens=tokens,
+            message_count=message_count,
+            round_counter=round_counter or self._round_counter,
+        )
 
     # ==================== Layer 1: Truncation ====================
 
@@ -444,6 +567,16 @@ class UnifiedCompactionPipeline:
             )
         truncated = truncated + "\n\n" + suggestion
 
+        # 记录截断指标
+        self._metrics_collector.record_truncation(
+            tool_name=tool_name,
+            original_bytes=original_size,
+            truncated_bytes=len(truncated.encode("utf-8")),
+            original_lines=line_count,
+            truncated_lines=min(line_count, self.config.max_output_lines),
+            file_key=file_key,
+        )
+
         return TruncationResult(
             content=truncated,
             is_truncated=True,
@@ -455,24 +588,92 @@ class UnifiedCompactionPipeline:
 
     # ==================== Layer 2: Pruning ====================
 
+    def _calculate_adaptive_prune_interval(self, messages: List[Any]) -> int:
+        """根据上下文使用率计算动态剪枝间隔"""
+        if not self.config.enable_adaptive_pruning:
+            return 8
+
+        total_tokens = self._estimate_tokens(messages)
+        usage_ratio = total_tokens / self.config.context_window
+        self._current_usage_ratio = usage_ratio
+
+        if usage_ratio < self.config.prune_trigger_low_usage:
+            return self.config.prune_interval_low_usage
+        elif usage_ratio < self.config.prune_trigger_medium_usage:
+            return self.config.prune_interval_medium_usage
+        else:
+            return self.config.prune_interval_high_usage
+
+    def _should_prune_now(self, messages: List[Any]) -> Tuple[bool, str]:
+        if not self.config.enable_adaptive_pruning:
+            rounds_since_last = self._round_counter - self._last_prune_round
+            if rounds_since_last >= 8:
+                return True, "fixed_interval"
+            return False, "interval_not_reached"
+
+        # 1. 检查间隔（参考 improved_compaction.py）
+        message_count = self._round_counter - self._last_prune_round
+        if message_count < self.config.adaptive_check_interval:
+            return False, "check_interval_not_reached"
+
+        # 2. 估算当前 tokens
+        total_tokens = self._estimate_tokens(messages)
+        usage_ratio = total_tokens / self.config.context_window
+        self._current_usage_ratio = usage_ratio
+
+        # 3. 高使用率立即触发（紧急情况）
+        if usage_ratio >= self.config.prune_trigger_high_usage:
+            logger.info(f"🔥 高上下文使用率 ({usage_ratio:.1%})，立即剪枝")
+            return True, f"high_usage_{usage_ratio:.1%}"
+
+        # 4. 检查增长率（参考 improved_compaction.py）
+        if self._last_token_count > 0:
+            growth = (total_tokens - self._last_token_count) / max(
+                self._last_token_count, 1
+            )
+
+            if growth > self.config.adaptive_growth_threshold:
+                logger.info(f"⚡ 快速 token 增长 ({growth:.1%})，提前剪枝")
+                return True, f"rapid_growth_{growth:.1%}"
+
+        # 5. 根据使用率计算动态间隔
+        dynamic_interval = self._calculate_adaptive_prune_interval(messages)
+        rounds_since_last = self._round_counter - self._last_prune_round
+
+        if rounds_since_last >= dynamic_interval:
+            logger.debug(
+                f"动态间隔检查: {rounds_since_last}/{dynamic_interval} 轮，使用率 {usage_ratio:.1%}"
+            )
+            return True, f"dynamic_interval_{usage_ratio:.1%}"
+
+        # 6. 更新状态
+        self._last_token_count = total_tokens
+
+        return False, "no_need"
+
     async def prune_history(
         self,
         messages: List[Any],
     ) -> PruningResult:
         self._round_counter += 1
-        if self._round_counter % self.config.prune_interval_rounds != 0:
+
+        # 使用智能决策
+        should_prune, reason = self._should_prune_now(messages)
+
+        if not should_prune:
+            logger.debug(f"剪枝跳过: {reason}")
             return PruningResult(messages=messages)
 
         if len(messages) <= self.config.min_messages_keep:
+            logger.debug(
+                f"消息数不足，跳过剪枝: {len(messages)} <= {self.config.min_messages_keep}"
+            )
             return PruningResult(messages=messages)
 
         adapter = self._adapter
-        # Walk backwards, accumulate tokens; once we exceed protect budget,
-        # start pruning old tool output messages.
         cumulative_tokens = 0
-        protect_boundary_idx = len(
-            messages
-        )  # everything at/after this index is protected
+        protect_boundary_idx = len(messages)
+
         for i in range(len(messages) - 1, -1, -1):
             cumulative_tokens += adapter.get_token_estimate(messages[i])
             if cumulative_tokens > self.config.prune_protect_tokens:
@@ -515,9 +716,28 @@ class UnifiedCompactionPipeline:
                     pass
 
         if pruned_count > 0:
+            self._last_prune_round = self._round_counter
+            self._last_token_count = self._estimate_tokens(result_messages)
+
             await self._send_notification(
                 "历史剪枝",
-                f"正在清理历史消息中的旧工具输出以节省上下文空间...\n已清理 {pruned_count} 个工具输出，节省约 {tokens_saved} tokens",
+                f"正在清理历史消息中的旧工具输出以节省上下文空间...\n"
+                f"已清理 {pruned_count} 个工具输出，节省约 {tokens_saved} tokens\n"
+                f"触发原因: {reason}\n"
+                f"当前使用率: {self._current_usage_ratio:.1%}",
+            )
+
+            logger.info(
+                f"剪枝完成: 清理 {pruned_count} 个工具输出，"
+                f"节省 {tokens_saved} tokens，使用率 {self._current_usage_ratio:.1%}"
+            )
+
+            # 记录剪枝指标
+            self._metrics_collector.record_pruning(
+                messages_pruned=pruned_count,
+                tokens_saved=tokens_saved,
+                trigger_reason=reason,
+                usage_ratio=self._current_usage_ratio,
             )
 
         return PruningResult(
@@ -600,6 +820,15 @@ class UnifiedCompactionPipeline:
             f"Compaction completed: archived {len(to_compact)} messages into "
             f"chapter {chapter.chapter_index if chapter else '?'}, "
             f"saved ~{tokens_saved} tokens"
+        )
+
+        # 记录压缩指标
+        self._metrics_collector.record_compaction(
+            messages_archived=len(to_compact),
+            tokens_saved=tokens_saved,
+            chapter_index=chapter.chapter_index if chapter else 0,
+            summary_length=len(summary) if summary else 0,
+            key_tools=key_tools,
         )
 
         await self._send_notification(
@@ -1083,3 +1312,251 @@ class UnifiedCompactionPipeline:
             lines.append("")
 
         return "\n".join(lines)
+
+    # ==================== Layer 4: Multi-Turn History ====================
+
+    async def get_or_create_history_manager(self) -> Optional[Any]:
+        """Get or create Layer 4 conversation history manager."""
+        if not self._layer4_enabled:
+            return None
+
+        if self._conversation_history_manager is None:
+            try:
+                from .layer4_conversation_history import (
+                    get_conversation_history_manager,
+                    Layer4CompressionConfig,
+                )
+
+                config = Layer4CompressionConfig(
+                    max_rounds_before_compression=self.config.max_rounds_before_compression,
+                    max_total_rounds=self.config.max_total_rounds,
+                    compression_token_threshold=self.config.layer4_compression_token_threshold,
+                    chars_per_token=self.config.layer4_chars_per_token,
+                    max_question_summary_length=self.config.max_question_summary_length,
+                    max_response_summary_length=self.config.max_response_summary_length,
+                    max_findings_length=self.config.max_findings_length,
+                )
+
+                self._conversation_history_manager = (
+                    await get_conversation_history_manager(
+                        session_id=self.session_id,
+                        config=config,
+                    )
+                )
+                logger.info(
+                    f"Layer 4: Initialized ConversationHistoryManager for session {self.session_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Layer 4: Failed to initialize history manager: {e}")
+                self._layer4_enabled = False
+                return None
+
+        return self._conversation_history_manager
+
+    async def start_conversation_round(
+        self, user_question: str, user_context: Optional[Dict] = None
+    ) -> Optional[Any]:
+        """Start a new conversation round (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            return await manager.start_new_round(user_question, user_context)
+        return None
+
+    async def complete_conversation_round(
+        self, ai_response: str, ai_thinking: str = ""
+    ):
+        """Complete current conversation round (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            await manager.complete_current_round(ai_response, ai_thinking)
+
+    async def get_layer4_history_for_prompt(
+        self, max_rounds: Optional[int] = None
+    ) -> str:
+        """Get Layer 4 compressed history for prompt injection."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            return await manager.get_history_for_prompt(
+                max_rounds=max_rounds,
+                include_current=False,  # Exclude current round
+            )
+        return ""
+
+    async def update_current_round_worklog(
+        self, worklog_entries: List[Dict], summary: Optional[Dict] = None
+    ):
+        """Update current round's worklog (Layer 4)."""
+        manager = await self.get_or_create_history_manager()
+        if manager:
+            from .layer4_conversation_history import WorkLogSummary
+
+            wls = WorkLogSummary(**summary) if summary else None
+            await manager.update_current_round_worklog(worklog_entries, wls)
+
+    # ==================== Tool Messages Conversion ====================
+
+    async def get_tool_messages_from_worklog(
+        self,
+        max_entries: int = 50,
+        use_compressed_summary: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的消息列表。
+
+        这是为了让模型能够看到历史工具调用结果，按 OpenAI Function Call 协议格式：
+        [
+            {"role": "assistant", "content": "", "tool_calls": [...]},
+            {"role": "tool", "tool_call_id": "...", "content": "..."},
+            ...
+        ]
+
+        核心设计：压缩后的条目使用摘要替代原始内容，保证上下文管理有效。
+
+        Args:
+            max_entries: 最大条目数
+            use_compressed_summary: 对于已压缩条目，是否使用压缩摘要替代原始内容
+                - True (默认): 使用压缩摘要，节省 token，保留关键信息
+                - False: 跳过压缩条目（仅用于特殊场景，会导致历史信息丢失）
+
+        Returns:
+            符合原生 Function Call 格式的消息列表
+        """
+        messages: List[Dict[str, Any]] = []
+
+        # 1. 从 WorkLogStorage 获取条目
+        work_entries = await self._get_work_entries(max_entries)
+        if not work_entries:
+            return messages
+
+        # 2. 转换为 Function Call 消息格式
+        import uuid
+        from .gpts.file_base import WorkLogStatus
+
+        compressed_count = 0
+
+        for entry in work_entries:
+            is_compressed = (
+                hasattr(entry, "status")
+                and entry.status == WorkLogStatus.COMPRESSED.value
+            )
+
+            # 如果不使用压缩摘要且条目已压缩，则跳过（不推荐，会导致信息丢失）
+            if not use_compressed_summary and is_compressed:
+                continue
+
+            # 生成唯一的 tool_call_id
+            tool_call_id = f"tc_{entry.tool}_{uuid.uuid4().hex[:8]}"
+
+            # 构建 assistant 消息（包含 tool_calls）
+            tool_call = {
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": entry.tool,
+                    "arguments": json.dumps(entry.args) if entry.args else "{}",
+                },
+            }
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "",  # 工具调用时 content 通常为空
+                    "tool_calls": [tool_call],
+                }
+            )
+
+            # 构建 tool 消息（工具结果）
+            # 根据压缩状态选择内容
+            if is_compressed:
+                # 压缩条目：优先使用 summary，保证上下文连续性
+                result_content = entry.summary or entry.result or ""
+                if result_content:
+                    result_content = f"[压缩摘要] {result_content}"
+                compressed_count += 1
+            else:
+                # 未压缩条目：优先使用原始 result
+                result_content = entry.result or entry.summary or ""
+
+            if entry.full_result_archive:
+                # 如果结果被归档，添加提示
+                result_content = (
+                    f"{result_content}\n\n[完整结果已归档: {entry.full_result_archive}]"
+                )
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": result_content,
+                }
+            )
+
+        if compressed_count > 0:
+            logger.info(
+                f"Converted {len(work_entries)} work entries to {len(messages)} tool messages "
+                f"({compressed_count} compressed entries using summaries)"
+            )
+        else:
+            logger.info(
+                f"Converted {len(work_entries)} work entries to {len(messages)} tool messages"
+            )
+        return messages
+
+    async def _get_work_entries(self, max_entries: int) -> List[Any]:
+        """获取 WorkEntry 列表（包含所有状态，由调用方决定如何处理压缩条目）"""
+        entries = []
+
+        # 优先从 WorkLogStorage 获取
+        if self.work_log_storage:
+            try:
+                entries = list(
+                    await self.work_log_storage.get_work_log(self.session_id)
+                )
+                # 限制条目数
+                if len(entries) > max_entries:
+                    entries = entries[-max_entries:]
+            except Exception as e:
+                logger.warning(f"Failed to get work log from storage: {e}")
+
+        # 如果没有条目，尝试从历史章节恢复
+        if not entries and self._catalog is not None:
+            chapters = getattr(self._catalog, "chapters", None)
+            if chapters:
+                entries = await self._recover_entries_from_chapters(max_entries)
+
+        return entries
+
+    async def _recover_entries_from_chapters(self, max_entries: int) -> List[Any]:
+        """从历史章节恢复 WorkEntry"""
+        from .gpts.file_base import WorkEntry
+
+        entries = []
+
+        if self._catalog is None:
+            return entries
+
+        chapters = getattr(self._catalog, "chapters", [])
+        if not chapters:
+            return entries
+
+        sorted_chapters = sorted(chapters, key=lambda c: c.time_range[0], reverse=True)
+
+        for chapter in sorted_chapters:
+            if len(entries) >= max_entries:
+                break
+
+            # 从章节的 tool_call_count 和 summary 推断工具调用
+            # 这是一个简化实现，实际可能需要从归档文件恢复
+            if chapter.tool_call_count > 0 and chapter.summary:
+                # 从摘要中解析工具名称
+                tool_names = chapter.key_tools if chapter.key_tools else []
+                for i, tool_name in enumerate(tool_names[: chapter.tool_call_count]):
+                    entry = WorkEntry(
+                        timestamp=chapter.time_range[0] + i,
+                        tool=tool_name,
+                        summary=chapter.summary[:500],
+                        success=True,
+                    )
+                    entries.append(entry)
+
+        return entries[:max_entries]

@@ -10,7 +10,7 @@ import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { Flex, Layout, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
-import { ChatContentContext, SelectedSkill } from '@/contexts';
+import { ChatContentContext, SelectedSkill, ContextMetricsProvider } from '@/contexts';
 import HomeChat from '@/components/chat/content/home-chat';
 import { useTranslation } from 'react-i18next';
 
@@ -410,47 +410,49 @@ if (initMessage.model) {
       );
   };
 
-  return (
-   <ChatContentContext.Provider
-      value={{
-        history,
-        replyLoading,
-        scrollRef,
-        canAbort,
-        chartsData: chartsData || [],
-        agent,
-        currentDialogue,
-        appInfo,
-        temperatureValue,
-        maxNewTokensValue,
-        resourceValue,
-        modelValue,
-        selectedSkills,
-        setModelValue,
-        setResourceValue,
-        setSelectedSkills,
-        setTemperatureValue,
-        setMaxNewTokensValue,
-        setAppInfo,
-        setAgent,
-        setCanAbort,
-        setReplyLoading,
-        handleChat,
-        refreshDialogList,
-        refreshHistory,
-        refreshAppInfo,
-         setHistory,
-         isShowDetail,
-         setIsShowDetail,
-         setChatInParams,
-         chatInParams,
-       }}
-    >
-      <Flex flex={1} className='h-screen'>
-        <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
-          <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
-        </Layout>
-      </Flex>
-    </ChatContentContext.Provider>
+return (
+    <ContextMetricsProvider convId={chatId}>
+      <ChatContentContext.Provider
+        value={{
+          history,
+          replyLoading,
+          scrollRef,
+          canAbort,
+          chartsData: chartsData || [],
+          agent,
+          currentDialogue,
+          appInfo,
+          temperatureValue,
+          maxNewTokensValue,
+          resourceValue,
+          modelValue,
+          selectedSkills,
+          setModelValue,
+          setResourceValue,
+          setSelectedSkills,
+          setTemperatureValue,
+          setMaxNewTokensValue,
+          setAppInfo,
+          setAgent,
+          setCanAbort,
+          setReplyLoading,
+          handleChat,
+          refreshDialogList,
+          refreshHistory,
+          refreshAppInfo,
+          setHistory,
+          isShowDetail,
+          setIsShowDetail,
+          setChatInParams,
+          chatInParams,
+        }}
+      >
+        <Flex flex={1} className='h-screen'>
+          <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
+            <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
+          </Layout>
+        </Flex>
+      </ChatContentContext.Provider>
+    </ContextMetricsProvider>
   )
 }

@@ -919,18 +919,19 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         </div>
 
         {/* 底部工具栏 - 首页样式：左侧资源选择/模型选择，右侧文件上传和发送 */}
-        <div className="flex items-center justify-between px-3 pb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 px-3 pb-3 min-w-0">
+          {/* 左侧工具区 - 可收缩 */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-shrink overflow-hidden">
             {/* 动态资源选择器 - 根据chat_in_layout配置渲染 */}
             {shouldShowResourceSelect && (
               <Select
-                className="w-[160px] h-9 [&_.ant-select-selector]:!pr-8 [&_.ant-select-selection-item]:!max-w-[100px] [&_.ant-select-selection-item]:!truncate"
+                className="min-w-[80px] max-w-[130px] h-9 flex-shrink [&_.ant-select-selector]:!pr-6 [&_.ant-select-selection-item]:!max-w-[70px] [&_.ant-select-selection-item]:!truncate"
                 placeholder={resourceConfig?.param_description || t('select_resource', '选择资源')}
                 value={(resourceValue?.value || resourceValue?.key) as string | undefined}
                 onChange={handleResourceSelectChange}
                 loading={fetchResourceLoading}
                 options={resourceOptions}
-                suffixIcon={<DatabaseOutlined className="text-gray-400" />}
+                suffixIcon={<DatabaseOutlined className="text-gray-400 text-xs" />}
                 variant="borderless"
                 style={{ 
                   backgroundColor: 'rgb(249 250 251 / 1)',
@@ -952,8 +953,8 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
                 }}
               >
                 <Tooltip title={resourceConfig?.param_description || t('upload_file', '上传文件')}>
-                  <button className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">
-                    <FolderAddOutlined />
+                  <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all flex-shrink-0">
+                    <FolderAddOutlined className="text-sm" />
                   </button>
                 </Tooltip>
               </Upload>
@@ -961,7 +962,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
 
             {/* 分隔线 - 仅当有资源配置时显示 */}
             {(shouldShowResourceSelect || shouldShowFileUpload) && (
-              <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+              <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
             )}
 
             {/* 模型选择器 */}
@@ -974,12 +975,12 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
               arrow={false}
               overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-xl [&_.ant-popover-inner]:!shadow-xl"
             >
-              <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-all group">
-                <ModelIcon model={selectedModel} width={16} height={16} />
-                <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[100px] truncate group-hover:text-indigo-500 transition-colors">
+              <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded-full border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-all group flex-shrink-0">
+                <ModelIcon model={selectedModel} width={14} height={14} />
+                <span className="text-xs text-gray-700 dark:text-gray-300 max-w-[80px] truncate group-hover:text-indigo-500 transition-colors">
                   {selectedModel || t('select_model', '选择模型')}
                 </span>
-                <DownOutlined className="text-xs text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                <DownOutlined className="text-[10px] text-gray-400 group-hover:text-indigo-500 transition-colors" />
               </div>
             </Popover>
 
@@ -987,19 +988,19 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
             <Tooltip title={t('model_params', '模型参数')}>
               <button
                 onClick={() => setIsParamsModalOpen(true)}
-                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-indigo-500 transition-all"
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-indigo-500 transition-all flex-shrink-0"
               >
-                <SlidersOutlined />
+                <SlidersOutlined className="text-sm" />
               </button>
             </Tooltip>
           </div>
 
-          {/* 右侧：文件上传和发送按钮 */}
-          <div className="flex items-center gap-2">
+          {/* 右侧：文件上传和发送按钮 - 固定不收缩 */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* 文件上传 - 首页位置（右侧） */}
             <Upload {...uploadProps} showUploadList={false}>
-              <button className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">
-                <PaperClipOutlined />
+              <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">
+                <PaperClipOutlined className="text-sm" />
               </button>
             </Upload>
 
@@ -1008,7 +1009,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
               type="primary"
               shape="circle"
               className={classNames(
-                'w-10 h-10 flex items-center justify-center transition-all !border-0',
+                'w-9 h-9 flex items-center justify-center transition-all !border-0 flex-shrink-0',
                 userInput.trim() || fileList.length > 0
                   ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 shadow-md hover:shadow-lg'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -1017,9 +1018,9 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
               disabled={(!userInput.trim() && fileList.length === 0) || replyLoading}
             >
               {replyLoading ? (
-                <Spin indicator={<LoadingOutlined className="text-white" spin />} />
+                <Spin indicator={<LoadingOutlined className="text-white text-sm" spin />} />
               ) : (
-                <ArrowUpOutlined className="text-white text-lg" />
+                <ArrowUpOutlined className="text-white text-base" />
               )}
             </Button>
           </div>

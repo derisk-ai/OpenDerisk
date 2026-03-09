@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 class CodeLanguage(Enum):
     """Supported programming languages."""
-    
+
     PYTHON = "python"
     JAVASCRIPT = "javascript"
     BASH = "bash"
@@ -46,18 +46,16 @@ class CodeLanguage(Enum):
     UNKNOWN = "unknown"
 
 
-
-
-
 class CodeAssistantAgent(ConversableAgent):
     """Professional Code Assistant Agent for code generation and execution.
-    
+
     This agent specializes in:
     1. Generating code solutions based on user requirements
     2. Executing code safely in sandbox environments
     3. Managing code files through AgentFileSystem
     4. Iteratively refining code based on execution feedback
-    
+    5. Unified context management with three-layer compression
+
     Attributes:
         sandbox_manager: Manager for sandbox environments
         file_system: File system for code file management
@@ -65,13 +63,32 @@ class CodeAssistantAgent(ConversableAgent):
         max_code_length: Maximum code length in characters
         execution_timeout: Timeout for code execution in seconds
         prompt_language: Language for prompts ("zh" for Chinese, "en" for English)
+        enable_compaction_pipeline: Enable unified compaction pipeline
     """
 
-    default_language: str = Field(default="python", description="Default programming language")
-    max_code_length: int = Field(default=50000, description="Maximum code length in characters")
-    execution_timeout: int = Field(default=300, description="Execution timeout in seconds")
-    auto_save_code: bool = Field(default=True, description="Auto-save executed code to file system")
+    default_language: str = Field(
+        default="python", description="Default programming language"
+    )
+    max_code_length: int = Field(
+        default=50000, description="Maximum code length in characters"
+    )
+    execution_timeout: int = Field(
+        default=300, description="Execution timeout in seconds"
+    )
+    auto_save_code: bool = Field(
+        default=True, description="Auto-save executed code to file system"
+    )
 
+    # UnifiedCompactionPipeline 配置
+    enable_compaction_pipeline: bool = Field(
+        default=True, description="Enable unified compaction pipeline"
+    )
+    context_window: int = Field(
+        default=128000, description="Context window size for compaction"
+    )
+    compaction_threshold_ratio: float = Field(
+        default=0.8, description="Compaction threshold ratio"
+    )
 
     profile: ProfileConfig = ProfileConfig(
         name="CodeAssistant",
@@ -87,6 +104,15 @@ class CodeAssistantAgent(ConversableAgent):
         self._current_sandbox: Optional[SandboxBase] = None
         self._init_actions([CodeAction])
 
+        # UnifiedCompactionPipeline 相关属性
+        self._compaction_pipeline = None
+        self._pipeline_initialized = False
+        self._compaction_config = None
+
+        logger.info(
+            f"[{self.__class__.__name__}] Initialized with compaction_pipeline={self.enable_compaction_pipeline}"
+        )
+
     @property
     def execution_history(self) -> List[ExecutionResult]:
         return self._execution_history
@@ -100,7 +126,7 @@ class CodeAssistantAgent(ConversableAgent):
     async def get_file_system(self) -> Optional[AgentFileSystem]:
         if not self.agent_context:
             return None
-        
+
         return AgentFileSystem(
             conv_id=self.agent_context.conv_id,
             session_id=self.agent_context.conv_session_id,
@@ -141,9 +167,9 @@ class CodeAssistantAgent(ConversableAgent):
                 error="Sandbox environment not available",
                 language=language,
             )
-        
+
         start_time = datetime.now()
-        
+
         try:
             if len(code) > self.max_code_length:
                 return ExecutionResult(
@@ -151,10 +177,10 @@ class CodeAssistantAgent(ConversableAgent):
                     error=f"Code exceeds maximum length ({len(code)} > {self.max_code_length})",
                     language=language,
                 )
-            
+
             sandbox = self.sandbox_manager.client
             work_dir = sandbox.work_dir or "/workspace"
-            
+
             if language.lower() in ["python", "python3"]:
                 result = await sandbox.shell.exec_command(
                     command=f"python3 -c {repr(code)}",
@@ -179,18 +205,23 @@ class CodeAssistantAgent(ConversableAgent):
                     error=f"Unsupported language: {language}",
                     language=language,
                 )
-            
+
             output = getattr(result, "output", "") or ""
             exit_code = getattr(result, "exit_code", 0)
             success = exit_code == 0
-            
-            execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-            
+
+            execution_time_ms = int(
+                (datetime.now() - start_time).total_seconds() * 1000
+            )
+
             saved_files = []
             if save_to_file and self.auto_save_code:
                 file_system = await self.get_file_system()
                 if file_system:
-                    saved_key = file_key or f"code_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                    saved_key = (
+                        file_key
+                        or f"code_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                    )
                     extension = self._get_file_extension(language)
                     await file_system.save_file(
                         file_key=saved_key,
@@ -200,7 +231,7 @@ class CodeAssistantAgent(ConversableAgent):
                         created_by=self.name,
                     )
                     saved_files.append(saved_key)
-            
+
             execution_result = ExecutionResult(
                 success=success,
                 output=output,
@@ -210,13 +241,15 @@ class CodeAssistantAgent(ConversableAgent):
                 execution_time_ms=execution_time_ms,
                 saved_files=saved_files,
             )
-            
+
             self._execution_history.append(execution_result)
             return execution_result
-            
+
         except Exception as e:
             logger.exception("Code execution failed")
-            execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+            execution_time_ms = int(
+                (datetime.now() - start_time).total_seconds() * 1000
+            )
             return ExecutionResult(
                 success=False,
                 error=str(e),
@@ -249,14 +282,14 @@ class CodeAssistantAgent(ConversableAgent):
         if not file_system:
             logger.warning("File system not available for saving code")
             return None
-        
+
         extension = self._get_file_extension(language)
         file_key = f"code_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{file_name}"
-        
+
         metadata = {"language": language}
         if description:
             metadata["description"] = description
-        
+
         result = await file_system.save_file(
             file_key=file_key,
             data=code,
@@ -266,7 +299,7 @@ class CodeAssistantAgent(ConversableAgent):
             created_by=self.name,
             metadata=metadata,
         )
-        
+
         logger.info(f"Saved code file: {result.file_key} -> {result.local_path}")
         return result.file_key
 
@@ -274,7 +307,7 @@ class CodeAssistantAgent(ConversableAgent):
         file_system = await self.get_file_system()
         if not file_system:
             return None
-        
+
         content = await file_system.read_file(file_key)
         if content:
             logger.info(f"Loaded code file: {file_key}")
@@ -284,7 +317,7 @@ class CodeAssistantAgent(ConversableAgent):
         file_system = await self.get_file_system()
         if not file_system:
             return []
-        
+
         files = await file_system.list_files(file_type=FileType.SANDBOX_FILE)
         return [
             {
@@ -304,17 +337,17 @@ class CodeAssistantAgent(ConversableAgent):
     ) -> Tuple[bool, Optional[str]]:
         task_goal = message.current_goal
         action_report = message.action_report
-        
+
         if not action_report:
             return False, "No execution results to check"
-        
+
         if isinstance(action_report, list) and len(action_report) > 0:
             action_report = action_report[0]
-        
+
         from ...util.llm.llm_client import AgentLLMOut
-        
+
         check_prompt = CHECK_RESULT_SYSTEM_MESSAGE
-        
+
         agent_llm_out: AgentLLMOut = await self.thinking(
             messages=[
                 AgentMessage(
@@ -330,26 +363,26 @@ class CodeAssistantAgent(ConversableAgent):
             reply_message_id=uuid.uuid4().hex,
             prompt=check_prompt,
         )
-        
+
         success = str_to_bool(agent_llm_out.content)
         fail_reason = None
-        
+
         if not success:
             fail_reason = (
                 f"Code executed successfully but did not achieve the goal. "
                 f"Reason: {agent_llm_out.content}"
             )
-        
+
         return success, fail_reason
 
     def get_execution_summary(self) -> Dict[str, Any]:
         if not self._execution_history:
             return {"total_executions": 0, "successful": 0, "failed": 0}
-        
+
         successful = sum(1 for r in self._execution_history if r.success)
         failed = len(self._execution_history) - successful
         total_time = sum(r.execution_time_ms for r in self._execution_history)
-        
+
         return {
             "total_executions": len(self._execution_history),
             "successful": successful,
@@ -357,3 +390,101 @@ class CodeAssistantAgent(ConversableAgent):
             "total_execution_time_ms": total_time,
             "languages_used": list(set(r.language for r in self._execution_history)),
         }
+
+    async def _ensure_compaction_pipeline(self) -> Optional[Any]:
+        """确保统一压缩管道已初始化（懒加载）"""
+        if self._pipeline_initialized:
+            return self._compaction_pipeline
+
+        if not self.enable_compaction_pipeline:
+            self._pipeline_initialized = True
+            return None
+
+        try:
+            from ...core.file_system.agent_file_system import AgentFileSystem
+            from ...core.memory.compaction_pipeline import (
+                UnifiedCompactionPipeline,
+                HistoryCompactionConfig,
+            )
+
+            conv_id = (
+                self.agent_context.conv_id if self.agent_context else str(uuid.uuid4())
+            )
+            session_id = (
+                self.agent_context.conv_session_id if self.agent_context else conv_id
+            )
+
+            afs = AgentFileSystem(
+                conv_id=conv_id,
+                session_id=session_id,
+                sandbox=self.current_sandbox,
+            )
+
+            config = self._compaction_config or HistoryCompactionConfig(
+                context_window=self.context_window,
+                compaction_threshold_ratio=self.compaction_threshold_ratio,
+            )
+
+            self._compaction_pipeline = UnifiedCompactionPipeline(
+                conv_id=conv_id,
+                session_id=session_id,
+                agent_file_system=afs,
+                llm_client=self.llm_config.llm_client if self.llm_config else None,
+                config=config,
+            )
+            self._pipeline_initialized = True
+            logger.info(
+                f"[{self.__class__.__name__}] UnifiedCompactionPipeline initialized"
+            )
+            return self._compaction_pipeline
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Failed to initialize compaction pipeline: {e}"
+            )
+            self._pipeline_initialized = True
+            return None
+
+    async def load_thinking_messages(
+        self,
+        received_message: AgentMessage,
+        sender: Agent,
+        rely_messages: Optional[List[AgentMessage]] = None,
+        **kwargs,
+    ) -> Tuple[List[AgentMessage], Optional[Dict], Optional[str], Optional[str]]:
+        """加载思考消息，集成 UnifiedCompactionPipeline"""
+        (
+            messages,
+            resource_refs,
+            system_prompt,
+            user_prompt,
+        ) = await super().load_thinking_messages(
+            received_message, sender, rely_messages, **kwargs
+        )
+
+        if not messages:
+            return messages, resource_refs, system_prompt, user_prompt
+
+        try:
+            pipeline = await self._ensure_compaction_pipeline()
+            if pipeline:
+                # Layer 2: Pruning
+                prune_result = await pipeline.prune_history(messages)
+                messages = prune_result.messages
+                if prune_result.pruned_count > 0:
+                    logger.info(
+                        f"[{self.__class__.__name__}] Pruned {prune_result.pruned_count} messages"
+                    )
+
+                # Layer 3: Compaction
+                compact_result = await pipeline.compact_if_needed(messages)
+                messages = compact_result.messages
+                if compact_result.compaction_triggered:
+                    logger.info(
+                        f"[{self.__class__.__name__}] Compacted {compact_result.messages_archived} messages"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Pipeline processing failed: {e}"
+            )
+
+        return messages, resource_refs, system_prompt, user_prompt

@@ -20,6 +20,7 @@ from .unified_memory.base import UnifiedMemoryInterface, MemoryType
 
 # Import GptsMemory for type hints
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory
     from .project_memory import ProjectMemoryManager
@@ -156,6 +157,7 @@ class AgentBase(ABC):
         elif gpts_memory is not None:
             # 使用 GptsMemory 后端创建适配器
             from .memory_factory import MemoryFactory
+
             self._memory = MemoryFactory.create_with_gpts(
                 gpts_memory=gpts_memory,
                 conv_id=conv_id or self._session_id or "",
@@ -182,7 +184,7 @@ class AgentBase(ABC):
     def messages(self) -> List[AgentMessage]:
         """获取消息历史"""
         return self._messages.copy()
-    
+
     @property
     def memory(self) -> UnifiedMemoryInterface:
         """获取统一记忆管理器"""
@@ -190,6 +192,7 @@ class AgentBase(ABC):
             # 如果设置了 GptsMemory，使用适配器
             if self._gpts_memory is not None:
                 from .memory_factory import MemoryFactory
+
                 self._memory = MemoryFactory.create_with_gpts(
                     gpts_memory=self._gpts_memory,
                     conv_id=self._conv_id or self._session_id or "",
@@ -239,7 +242,10 @@ class AgentBase(ABC):
             except Exception as e:
                 # 如果获取项目记忆失败，只返回基础 prompt
                 import logging
-                logging.getLogger(__name__).warning(f"Failed to build project memory context: {e}")
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to build project memory context: {e}"
+                )
 
         return base_prompt
 
@@ -284,7 +290,7 @@ class AgentBase(ABC):
         self._messages.append(
             AgentMessage(role=role, content=content, metadata=metadata or {})
         )
-    
+
     async def save_memory(
         self,
         content: str,
@@ -293,12 +299,12 @@ class AgentBase(ABC):
     ) -> str:
         """
         保存记忆到统一记忆管理器
-        
+
         Args:
             content: 记忆内容
             memory_type: 记忆类型
             metadata: 元数据
-            
+
         Returns:
             记忆ID
         """
@@ -307,7 +313,7 @@ class AgentBase(ABC):
             memory_type=memory_type,
             metadata=metadata,
         )
-    
+
     async def load_memory(
         self,
         query: str = "",
@@ -316,63 +322,86 @@ class AgentBase(ABC):
     ) -> List[AgentMessage]:
         """
         从统一记忆管理器加载记忆
-        
+
         Args:
             query: 查询字符串
             memory_types: 记忆类型列表
             top_k: 返回数量
-            
+
         Returns:
             消息列表
         """
         from .unified_memory.base import SearchOptions
-        
+
         options = SearchOptions(
             top_k=top_k,
             memory_types=memory_types,
         )
-        
+
         items = await self.memory.read(query, options)
-        
+
         messages = []
         for item in items:
-            messages.append(AgentMessage(
-                role="assistant",
-                content=item.content,
-                metadata={
-                    "memory_id": item.id,
-                    "memory_type": item.memory_type.value,
-                    "importance": item.importance,
-                    "created_at": item.created_at.isoformat(),
-                    **item.metadata,
-                },
-            ))
-        
+            messages.append(
+                AgentMessage(
+                    role="assistant",
+                    content=item.content,
+                    metadata={
+                        "memory_id": item.id,
+                        "memory_type": item.memory_type.value,
+                        "importance": item.importance,
+                        "created_at": item.created_at.isoformat(),
+                        **item.metadata,
+                    },
+                )
+            )
+
         return messages
-    
-    async def get_conversation_history(self, max_messages: int = 50) -> List[AgentMessage]:
+
+    async def get_conversation_history(
+        self, max_messages: int = 50
+    ) -> List[AgentMessage]:
         """
         获取对话历史（包含持久化记忆）
-        
+
         Args:
             max_messages: 最大消息数
-            
+
         Returns:
             对话历史
         """
         messages = list(self._messages)
-        
+
         memory_messages = await self.load_memory(
             query="",
             memory_types=[MemoryType.WORKING, MemoryType.EPISODIC],
             top_k=max_messages - len(messages),
         )
-        
+
         messages.extend(memory_messages)
-        
+
         messages.sort(key=lambda m: m.metadata.get("created_at", ""))
-        
+
         return messages[:max_messages]
+
+    async def _get_worklog_tool_messages(
+        self, max_entries: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
+
+        子类可以重写此方法来提供具体的 WorkLog 转换逻辑。
+        例如 ReActReasoningAgent 可以从 memory 或 compaction_pipeline 获取历史工具调用记录。
+
+        Returns:
+            符合原生 Function Call 格式的消息列表:
+            [
+                {"role": "assistant", "content": "", "tool_calls": [...]},
+                {"role": "tool", "tool_call_id": "...", "content": "..."},
+                ...
+            ]
+        """
+        return []
 
     async def initialize(self, context: AgentContext):
         """
@@ -385,9 +414,9 @@ class AgentBase(ABC):
         self._context.start_time = datetime.now()
         self._current_step = 0
         self.set_state(AgentState.IDLE)
-        
+
         if not self._memory_initialized:
-            if hasattr(self.memory, 'initialize'):
+            if hasattr(self.memory, "initialize"):
                 await self.memory.initialize()
             self._memory_initialized = True
 
@@ -522,16 +551,16 @@ class AgentBase(ABC):
     def set_subagent_manager(self, manager: "SubagentManager") -> "AgentBase":
         """
         设置子Agent管理器
-        
+
         Args:
             manager: SubagentManager实例
-            
+
         Returns:
             self: 支持链式调用
         """
         self._subagent_manager = manager
         return self
-    
+
     def set_session_id(self, session_id: str) -> "AgentBase":
         """
         设置会话ID
@@ -571,6 +600,7 @@ class AgentBase(ABC):
         # 重新创建记忆适配器
         if self._gpts_memory is not None:
             from .memory_factory import MemoryFactory
+
             self._memory = MemoryFactory.create_with_gpts(
                 gpts_memory=self._gpts_memory,
                 conv_id=self._conv_id or "",
@@ -579,7 +609,7 @@ class AgentBase(ABC):
             self._memory_initialized = False
 
         return self
-    
+
     async def delegate_to_subagent(
         self,
         subagent_name: str,
@@ -589,18 +619,18 @@ class AgentBase(ABC):
     ) -> "SubagentResult":
         """
         委派任务给子Agent
-        
+
         这是子Agent调用的核心方法，参考 OpenCode 的 Task 工具设计。
-        
+
         Args:
             subagent_name: 子Agent名称
             task: 任务内容
             context: 额外上下文
             timeout: 超时时间(秒)
-            
+
         Returns:
             SubagentResult: 执行结果
-            
+
         Raises:
             RuntimeError: 如果未配置SubagentManager
         """
@@ -608,9 +638,9 @@ class AgentBase(ABC):
             raise RuntimeError(
                 "SubagentManager 未配置。请调用 set_subagent_manager() 进行配置。"
             )
-        
+
         session_id = self._session_id or "default"
-        
+
         result = await self._subagent_manager.delegate(
             subagent_name=subagent_name,
             task=task,
@@ -619,19 +649,19 @@ class AgentBase(ABC):
             timeout=timeout,
             sync=True,
         )
-        
+
         return result
-    
+
     def get_available_subagents(self) -> List[str]:
         """
         获取可用的子Agent列表
-        
+
         Returns:
             List[str]: 子Agent名称列表
         """
         if not self._subagent_manager:
             return []
-        
+
         return [a.name for a in self._subagent_manager.get_available_subagents()]
 
     # ========== 主执行循环 ==========
@@ -640,7 +670,11 @@ class AgentBase(ABC):
         self, message: str, stream: bool = True, **kwargs
     ) -> AsyncIterator[str]:
         """
-        执行主循环
+        执行主循环 - 支持四层上下文压缩架构
+
+        四层架构：
+        - Layer 1-3: 处理当前轮次的工具输出
+        - Layer 4: 处理跨轮次对话历史压缩
 
         Args:
             message: 用户消息
@@ -650,8 +684,11 @@ class AgentBase(ABC):
         Yields:
             str: 响应片段
         """
+        # Layer 4: 启动新的对话轮次
+        await self._start_conversation_round(message)
+
         self.add_message("user", message)
-        
+
         await self.save_memory(
             content=f"User: {message}",
             memory_type=MemoryType.WORKING,
@@ -659,6 +696,7 @@ class AgentBase(ABC):
         )
 
         self._current_step = 0
+        final_response = ""
 
         while self._current_step < self.info.max_steps:
             try:
@@ -674,14 +712,15 @@ class AgentBase(ABC):
 
                 if decision_type == "response":
                     content = decision.get("content", "")
+                    final_response = content
                     self.add_message("assistant", content)
-                    
+
                     await self.save_memory(
                         content=f"Assistant: {content}",
                         memory_type=MemoryType.WORKING,
                         metadata={"role": "assistant"},
                     )
-                    
+
                     yield content
                     break
 
@@ -699,14 +738,16 @@ class AgentBase(ABC):
                 elif decision_type == "subagent":
                     subagent = decision.get("subagent")
                     task = decision.get("task")
-                    
+
                     try:
                         result = await self.delegate_to_subagent(
                             subagent_name=subagent,
                             task=task,
                         )
                         message = result.to_llm_message()
-                        self.add_message("assistant", f"[子Agent {subagent}] {result.output}")
+                        self.add_message(
+                            "assistant", f"[子Agent {subagent}] {result.output}"
+                        )
                     except Exception as e:
                         message = f"子Agent执行失败: {str(e)}"
                         yield f"[ERROR] {message}"
@@ -726,6 +767,17 @@ class AgentBase(ABC):
 
         if self._current_step >= self.info.max_steps:
             yield f"[WARNING] 达到最大步数限制({self.info.max_steps})"
+
+        # Layer 4: 完成对话轮次
+        await self._complete_conversation_round(final_response)
+
+    async def _start_conversation_round(self, user_question: str):
+        """启动新的对话轮次（Layer 4）- 子类可重写"""
+        pass
+
+    async def _complete_conversation_round(self, ai_response: str):
+        """完成对话轮次（Layer 4）- 子类可重写"""
+        pass
 
     def _format_tool_result(self, tool_name: str, result: Any) -> str:
         """格式化工具结果"""
