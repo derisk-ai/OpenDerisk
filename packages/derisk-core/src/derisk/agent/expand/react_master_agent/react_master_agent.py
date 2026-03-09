@@ -110,7 +110,7 @@ class ReActMasterAgent(ConversableAgent):
     """
 
     # 基础配置
-    max_retry_count: int = 25
+    max_retry_count: int = 300
     run_mode: AgentRunMode = AgentRunMode.LOOP
 
     profile: ProfileConfig = Field(
