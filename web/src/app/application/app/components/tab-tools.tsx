@@ -1,212 +1,502 @@
 'use client';
-import { getResourceV2 } from '@/client/api';
-import { AppContext } from '@/contexts';
-import { CheckCircleFilled, SearchOutlined, ToolOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useRequest } from 'ahooks';
-import { Input, Spin, Tag, Tooltip } from 'antd';
-import { useContext, useMemo, useState } from 'react';
+
+import { useState, useCallback, useMemo, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useRequest } from 'ahooks';
+import {
+  Input,
+  Spin,
+  Tag,
+  Tooltip,
+  Badge,
+  Empty,
+  message,
+  Switch,
+  Collapse,
+  Button,
+  Space,
+  Alert,
+  Divider,
+} from 'antd';
+import {
+  SearchOutlined,
+  ReloadOutlined,
+  SafetyOutlined,
+  ToolOutlined,
+  AppstoreOutlined,
+  CloudServerOutlined,
+  CheckCircleFilled,
+  MinusCircleFilled,
+  PlusCircleFilled,
+  InfoCircleOutlined,
+} from '@ant-design/icons';
 
-type ToolSource = 'all' | 'tool' | 'local';
+import { AppContext } from '@/contexts';
+import {
+  getToolGroups,
+  updateToolBinding,
+  batchUpdateToolBindings,
+  clearToolCache,
+  type ToolGroup,
+  type ToolWithBinding,
+  type ToolBindingType,
+} from '@/client/api/tools/management';
 
-export default function TabTools() {
+const { Panel } = Collapse;
+
+// 分组配置
+const GROUP_CONFIG: Record<ToolBindingType, { icon: React.ReactNode; color: string }> = {
+  builtin_required: {
+    icon: <SafetyOutlined />,
+    color: '#1677ff',
+  },
+  builtin_optional: {
+    icon: <ToolOutlined />,
+    color: '#13c2c2',
+  },
+  custom: {
+    icon: <AppstoreOutlined />,
+    color: '#fa8c16',
+  },
+  external: {
+    icon: <CloudServerOutlined />,
+    color: '#722ed1',
+  },
+};
+
+// 风险等级颜色
+const RISK_COLORS: Record<string, string> = {
+  safe: 'green',
+  low: 'green',
+  medium: 'orange',
+  high: 'red',
+  critical: 'red',
+};
+
+export default function TabToolsManagement() {
   const { t } = useTranslation();
-  const { appInfo, fetchUpdateApp } = useContext(AppContext);
+  const { appInfo } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
-  const [activeSource, setActiveSource] = useState<ToolSource>('all');
+  const [togglingTools, setTogglingTools] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
 
-  const { data: toolData, loading: loadingTools, refresh: refreshTools } = useRequest(async () => await getResourceV2({ type: 'tool' }));
-  const { data: localData, loading: loadingLocal, refresh: refreshLocal } = useRequest(async () => await getResourceV2({ type: 'tool(local)' }));
+  // 获取应用代码和Agent名称
+  const appCode = appInfo?.app_code;
+  const agentName = useMemo(() => {
+    // 从 appInfo 中获取第一个 Agent 的名称，或者使用默认值
+    const firstAgent = appInfo?.details?.[0];
+    return firstAgent?.agent_name || 'default';
+  }, [appInfo]);
 
-  const builtInTools = useMemo(() => {
-    const tools: any[] = [];
-    const addItems = (data: any, type: string) => {
-      data?.data?.data?.forEach((group: any) => {
-        group.valid_values?.forEach((item: any) => {
-          tools.push({ ...item, toolType: type, groupName: group.param_name, isBuiltIn: true });
-        });
+  // 获取工具分组列表
+  const { data: toolGroupsData, loading, refresh } = useRequest(
+    async () => {
+      if (!appCode) return null;
+      const res = await getToolGroups({
+        app_id: appCode,
+        agent_name: agentName,
+        lang: t('language') || 'zh',
       });
-    };
-    addItems(toolData, 'tool');
-    addItems(localData, 'tool(local)');
-    return tools;
-  }, [toolData, localData]);
-
-  const filteredBySource = useMemo(() => {
-    switch (activeSource) {
-      case 'tool':
-        return builtInTools.filter((t: any) => t.toolType === 'tool');
-      case 'local':
-        return builtInTools.filter((t: any) => t.toolType === 'tool(local)');
-      default:
-        return builtInTools;
+      if (res.success) {
+        // 默认展开所有分组
+        setExpandedGroups(res.data.map((g) => g.group_id));
+        return res.data;
+      }
+      return null;
+    },
+    {
+      refreshDeps: [appCode, agentName, t],
+      ready: !!appCode,
     }
-  }, [builtInTools, activeSource]);
+  );
 
-  const enabledToolKeys = useMemo(() => {
-    return (appInfo?.resource_tool || []).map((item: any) => {
-      const parsed = JSON.parse(item.value || '{}');
-      return parsed?.key || parsed?.name;
-    }).filter(Boolean);
-  }, [appInfo?.resource_tool]);
+  // 过滤工具
+  const filteredGroups = useMemo(() => {
+    if (!toolGroupsData) return [];
+    if (!searchValue) return toolGroupsData;
 
-  const filteredTools = useMemo(() => {
-    if (!searchValue) return filteredBySource;
     const lower = searchValue.toLowerCase();
-    return filteredBySource.filter((item: any) => (item.label || item.name || '').toLowerCase().includes(lower) || (item.key || '').toLowerCase().includes(lower));
-  }, [filteredBySource, searchValue]);
+    return toolGroupsData
+      .map((group) => ({
+        ...group,
+        tools: group.tools.filter(
+          (tool) =>
+            tool.name.toLowerCase().includes(lower) ||
+            tool.display_name.toLowerCase().includes(lower) ||
+            tool.description.toLowerCase().includes(lower) ||
+            tool.tags.some((tag) => tag.toLowerCase().includes(lower))
+        ),
+      }))
+      .filter((group) => group.tools.length > 0);
+  }, [toolGroupsData, searchValue]);
 
-  const toolCount = builtInTools.filter((t: any) => t.toolType === 'tool').length;
-  const localCount = builtInTools.filter((t: any) => t.toolType === 'tool(local)').length;
+  // 处理工具绑定/解绑
+  const handleToggleBinding = useCallback(
+    async (tool: ToolWithBinding, groupType: ToolBindingType) => {
+      const toolId = tool.tool_id;
+      const newBindingState = !tool.is_bound;
 
-  const handleToggle = (tool: any) => {
-    const key = tool.key || tool.name;
-    const toolType = tool.toolType;
-    const toolName = tool.label || tool.name;
-    const isEnabled = enabledToolKeys.includes(key);
+      if (togglingTools.has(toolId)) return;
+      setTogglingTools((prev) => new Set(prev).add(toolId));
 
-    if (isEnabled) {
-      // Remove - by both key AND (type + name) to handle any re-creation scenario
-      const updatedTools = (appInfo.resource_tool || []).filter((item: any) => {
-        const parsed = JSON.parse(item.value || '{}');
-        const itemKey = parsed?.key || parsed?.name;
-        const itemType = parsed?.toolType || item.type;
-        const itemName = parsed?.name || item.name;
-        // Remove if matches key OR matches (type + name)
-        const matchesKey = itemKey === key;
-        const matchesTypeAndName = itemType === toolType && itemName === toolName;
-        return !matchesKey && !matchesTypeAndName;
+      try {
+        const res = await updateToolBinding({
+          app_id: appCode!,
+          agent_name: agentName,
+          tool_id: toolId,
+          is_bound: newBindingState,
+        });
+
+        if (res.success) {
+          message.success(
+            newBindingState
+              ? t('builder_tool_bound_success') || '工具绑定成功'
+              : t('builder_tool_unbound_success') || '工具解绑成功'
+          );
+          refresh();
+        } else {
+          message.error(res.message || t('builder_tool_toggle_error') || '操作失败');
+        }
+      } catch (error) {
+        message.error(t('builder_tool_toggle_error') || '操作失败');
+      } finally {
+        setTogglingTools((prev) => {
+          const next = new Set(prev);
+          next.delete(toolId);
+          return next;
+        });
+      }
+    },
+    [appCode, agentName, togglingTools, refresh, t]
+  );
+
+  // 批量绑定/解绑分组内所有工具
+  const handleBatchToggle = useCallback(
+    async (group: ToolGroup, bindAll: boolean) => {
+      const bindings = group.tools.map((tool) => ({
+        tool_id: tool.tool_id,
+        is_bound: bindAll,
+      }));
+
+      try {
+        const res = await batchUpdateToolBindings({
+          app_id: appCode!,
+          agent_name: agentName,
+          bindings,
+        });
+
+        if (res.success) {
+          message.success(
+            bindAll
+              ? t('builder_batch_bound_success') || '批量绑定成功'
+              : t('builder_batch_unbound_success') || '批量解绑成功'
+          );
+          refresh();
+        } else {
+          message.error(res.message || t('builder_batch_toggle_error') || '批量操作失败');
+        }
+      } catch (error) {
+        message.error(t('builder_batch_toggle_error') || '批量操作失败');
+      }
+    },
+    [appCode, agentName, refresh, t]
+  );
+
+  // 获取统计信息
+  const stats = useMemo(() => {
+    if (!toolGroupsData) return { total: 0, bound: 0, defaultBound: 0 };
+    let total = 0;
+    let bound = 0;
+    let defaultBound = 0;
+    toolGroupsData.forEach((group) => {
+      total += group.tools.length;
+      group.tools.forEach((tool) => {
+        if (tool.is_bound) bound++;
+        if (tool.is_default && tool.is_bound) defaultBound++;
       });
-      fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
-    } else {
-      const newTool = {
-        type: toolType,
-        name: toolName,
-        value: JSON.stringify({ key: key, name: toolName, ...tool }),
-      };
-      const existingTools = (appInfo.resource_tool || []).filter((item: any) => {
-        const parsed = JSON.parse(item.value || '{}');
-        const itemType = parsed?.toolType || item.type;
-        const itemName = parsed?.name || item.name;
-        // Remove if same type AND same name
-        const hasSameTypeAndName = itemType === toolType && itemName === toolName;
-        return !hasSameTypeAndName;
-      });
-      fetchUpdateApp({ ...appInfo, resource_tool: [...existingTools, newTool] });
-    }
-  };
+    });
+    return { total, bound, defaultBound };
+  }, [toolGroupsData]);
 
-  const handleRefresh = () => {
-    refreshTools();
-    refreshLocal();
-  };
+  // 切换分组展开状态
+  const handleCollapseChange = useCallback((keys: string | string[]) => {
+    setExpandedGroups(Array.isArray(keys) ? keys : [keys]);
+  }, []);
 
-  const loading = loadingTools || loadingLocal;
-
-  const getToolTypeTag = (tool: any) => {
-    if (tool.toolType?.includes('local')) return { label: 'Local', color: 'green' };
-    return { label: 'Built-IN', color: 'blue' };
-  };
+  if (!appCode) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Alert
+          message={t('builder_no_app_selected') || '未选择应用'}
+          description={t('builder_please_select_app') || '请先选择或创建一个应用'}
+          type="info"
+          showIcon
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col h-full">
-      <div className="px-5 py-3 border-b border-gray-100/40 flex items-center gap-2">
+    <div className="flex flex-col h-full bg-white">
+      {/* 头部工具栏 */}
+      <div className="px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800">
+            {t('builder_tool_management') || '工具管理'}
+          </h3>
+          <Space>
+            <Tooltip title={t('builder_refresh') || '刷新'}>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={refresh}
+                loading={loading}
+                size="small"
+              />
+            </Tooltip>
+          </Space>
+        </div>
+
+        {/* 搜索框 */}
         <Input
           prefix={<SearchOutlined className="text-gray-400" />}
-          placeholder={t('builder_search_placeholder')}
+          placeholder={t('builder_search_tools_placeholder') || '搜索工具...'}
           value={searchValue}
-          onChange={e => setSearchValue(e.target.value)}
+          onChange={(e) => setSearchValue(e.target.value)}
           allowClear
-          className="rounded-lg h-9 flex-1"
+          className="rounded-lg"
         />
-        <Tooltip title={t('builder_refresh')}>
-          <button
-            onClick={handleRefresh}
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200/80 bg-white hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-all flex-shrink-0"
-          >
-            <ReloadOutlined className={`text-sm ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </Tooltip>
-      </div>
 
-      <div className="px-5 pt-2 pb-0 border-b border-gray-100/40">
-        <div className="flex items-center gap-0">
-          {([
-            { key: 'all', label: t('builder_tool_all'), count: builtInTools.length },
-            { key: 'tool', label: t('builder_tool_builtin'), count: toolCount },
-            { key: 'local', label: t('builder_tool_local'), count: localCount },
-          ] as const).map(tab => (
-            <button
-              key={tab.key}
-              className={`px-3 py-2 text-[12px] font-medium transition-all duration-200 border-b-2 ${
-                activeSource === tab.key
-                  ? 'text-blue-600 border-blue-500'
-                  : 'text-gray-400 border-transparent hover:text-gray-600'
-              }`}
-              onClick={() => setActiveSource(tab.key)}
-            >
-              {tab.label}
-              <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
-                activeSource === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'
-              }`}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
+        {/* 统计信息 */}
+        <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
+          <span>
+            {t('builder_tools_total') || '共'} <b className="text-gray-700">{stats.total}</b>{' '}
+            {t('builder_tools_count') || '个工具'}
+          </span>
+          <Divider type="vertical" />
+          <span>
+            {t('builder_tools_bound') || '已绑定'} <b className="text-green-600">{stats.bound}</b>{' '}
+            {t('builder_tools_count') || '个'}
+          </span>
+          <Divider type="vertical" />
+          <span>
+            {t('builder_tools_default_bound') || '默认绑定'} <b className="text-blue-600">{stats.defaultBound}</b>{' '}
+            {t('builder_tools_count') || '个'}
+          </span>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-3 custom-scrollbar">
+      {/* 工具分组列表 */}
+      <div className="flex-1 overflow-y-auto p-4">
         <Spin spinning={loading}>
-          {filteredTools.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2">
-              {filteredTools.map((tool: any, idx: number) => {
-                const key = tool.key || tool.name;
-                const isEnabled = enabledToolKeys.includes(key);
-                const typeTag = getToolTypeTag(tool);
-                return (
-                  <div
-                    key={`${key}-${idx}`}
-                    className={`group flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
-                      isEnabled
-                        ? 'border-blue-200/80 bg-blue-50/30 shadow-sm'
-                        : 'border-gray-100/80 bg-gray-50/20 hover:border-gray-200/80 hover:bg-gray-50/40'
-                    }`}
-                    onClick={() => handleToggle(tool)}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isEnabled ? 'bg-blue-100' : 'bg-gray-100'
-                      }`}>
-                        <ToolOutlined className={`text-sm ${isEnabled ? 'text-blue-500' : 'text-gray-400'}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-medium text-gray-700 truncate">{tool.label || tool.name}</span>
+          {filteredGroups.length > 0 ? (
+            <Collapse
+              activeKey={expandedGroups}
+              onChange={handleCollapseChange}
+              bordered={false}
+              expandIconPosition="end"
+              className="tool-groups-collapse"
+            >
+              {filteredGroups.map((group) => (
+                <Panel
+                  key={group.group_id}
+                  header={
+                    <div className="flex items-center justify-between pr-4">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                          style={{
+                            backgroundColor: GROUP_CONFIG[group.group_type].color,
+                          }}
+                        >
+                          {GROUP_CONFIG[group.group_type].icon}
                         </div>
-                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                          {tool.description || tool.toolType}
+                        <div>
+                          <div className="font-medium text-gray-800">{group.group_name}</div>
+                          <div className="text-xs text-gray-400">{group.description}</div>
                         </div>
+                        <Badge
+                          count={group.count}
+                          style={{
+                            backgroundColor: GROUP_CONFIG[group.group_type].color,
+                          }}
+                        />
                       </div>
-                      <Tag className="mr-0 text-[10px] rounded-md border-0 font-medium px-1.5" color={typeTag.color}>
-                        {typeTag.label}
-                      </Tag>
+                      {/* 批量操作按钮 */}
+                      <Space onClick={(e) => e.stopPropagation()}>
+                        <span className="text-xs text-gray-400">
+                          {group.tools.filter((t) => t.is_bound).length}/{group.count}{' '}
+                          {t('builder_tools_bound') || '已绑定'}
+                        </span>
+                        {group.group_type !== 'builtin_required' && (
+                          <>
+                            <Button
+                              size="small"
+                              icon={<PlusCircleFilled />}
+                              onClick={() => handleBatchToggle(group, true)}
+                            >
+                              {t('builder_bind_all') || '全部绑定'}
+                            </Button>
+                            <Button
+                              size="small"
+                              icon={<MinusCircleFilled />}
+                              onClick={() => handleBatchToggle(group, false)}
+                            >
+                              {t('builder_unbind_all') || '全部解绑'}
+                            </Button>
+                          </>
+                        )}
+                      </Space>
                     </div>
-                    {isEnabled && (
-                      <CheckCircleFilled className="text-blue-500 text-base ml-2 flex-shrink-0" />
-                    )}
+                  }
+                  className="mb-3 bg-gray-50 rounded-lg overflow-hidden"
+                >
+                  {/* 分组提示 */}
+                  {group.group_type === 'builtin_required' && (
+                    <Alert
+                      message={t('builder_builtin_required_tip') || '默认绑定工具'}
+                      description={
+                        t('builder_builtin_required_desc') ||
+                        '这些工具是 Agent 默认绑定的核心工具，您可以反向解除绑定，但可能会影响 Agent 的基础功能。'
+                      }
+                      type="info"
+                      showIcon
+                      icon={<InfoCircleOutlined />}
+                      className="mb-3"
+                    />
+                  )}
+
+                  {/* 工具列表 */}
+                  <div className="space-y-2">
+                    {group.tools.map((tool) => (
+                      <ToolItem
+                        key={tool.tool_id}
+                        tool={tool}
+                        groupType={group.group_type}
+                        isToggling={togglingTools.has(tool.tool_id)}
+                        onToggle={() => handleToggleBinding(tool, group.group_type)}
+                        t={t}
+                      />
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                </Panel>
+              ))}
+            </Collapse>
           ) : (
             !loading && (
-              <div className="text-center py-12 text-gray-300 text-xs">
-                {t('builder_no_items')}
-              </div>
+              <Empty
+                description={t('builder_no_tools') || '没有找到匹配的工具'}
+                className="py-12"
+              />
             )
           )}
         </Spin>
+      </div>
+    </div>
+  );
+}
+
+// 单个工具项组件
+interface ToolItemProps {
+  tool: ToolWithBinding;
+  groupType: ToolBindingType;
+  isToggling: boolean;
+  onToggle: () => void;
+  t: (key: string) => string;
+}
+
+function ToolItem({ tool, groupType, isToggling, onToggle, t }: ToolItemProps) {
+  const isBuiltinRequired = groupType === 'builtin_required';
+  const isBound = tool.is_bound;
+  const isDefault = tool.is_default;
+  const canUnbind = tool.can_unbind;
+
+  // 状态标签
+  const statusTag = useMemo(() => {
+    if (isDefault && isBound) {
+      return (
+        <Tag color="blue" className="text-xs">
+          {t('tool_status_default') || '默认'}
+        </Tag>
+      );
+    }
+    if (isBound) {
+      return (
+        <Tag color="green" className="text-xs">
+          {t('tool_status_bound') || '已绑定'}
+        </Tag>
+      );
+    }
+    return (
+      <Tag className="text-xs">
+        {t('tool_status_unbound') || '未绑定'}
+      </Tag>
+    );
+  }, [isDefault, isBound, t]);
+
+  return (
+    <div
+      className={`group flex items-center justify-between p-3 rounded-lg border transition-all ${
+        isBound
+          ? 'bg-blue-50/50 border-blue-100 hover:bg-blue-50'
+          : 'bg-white border-gray-100 hover:border-gray-200'
+      } ${isToggling ? 'opacity-50 pointer-events-none' : ''}`}
+    >
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {/* 绑定状态图标 */}
+        <div
+          className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+            isBound ? 'bg-blue-100 text-blue-500' : 'bg-gray-100 text-gray-400'
+          }`}
+        >
+          {isBound ? <CheckCircleFilled /> : <ToolOutlined />}
+        </div>
+
+        {/* 工具信息 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-gray-800">{tool.display_name || tool.name}</span>
+            {statusTag}
+            {tool.risk_level === 'high' || tool.risk_level === 'critical' ? (
+              <Tooltip title={t('builder_tool_high_risk') || '高风险工具'}>
+                <Tag color="red" className="text-xs">
+                  {tool.risk_level.toUpperCase()}
+                </Tag>
+              </Tooltip>
+            ) : null}
+            {tool.requires_permission && (
+              <Tooltip title={t('builder_tool_requires_permission') || '需要权限'}>
+                <Tag color="orange" className="text-xs">
+                  {t('tool_permission_required') || '需权限'}
+                </Tag>
+              </Tooltip>
+            )}
+          </div>
+          <div className="text-xs text-gray-500 mt-1 truncate">{tool.description}</div>
+          {tool.tags.length > 0 && (
+            <div className="flex gap-1 mt-2">
+              {tool.tags.slice(0, 3).map((tag) => (
+                <Tag key={tag} className="text-xs" size="small">
+                  {tag}
+                </Tag>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 绑定/解绑开关 */}
+      <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+        <span className="text-xs text-gray-400">
+          {isBound
+            ? t('tool_action_unbind') || '点击解绑'
+            : t('tool_action_bind') || '点击绑定'}
+        </span>
+        <Switch
+          checked={isBound}
+          onChange={onToggle}
+          loading={isToggling}
+          disabled={isBuiltinRequired && isDefault && !canUnbind}
+        />
       </div>
     </div>
   );

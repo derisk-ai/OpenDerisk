@@ -1,123 +1,112 @@
-import asyncio
-import functools
-import inspect
-import logging
-from typing import get_origin, get_args, Any, Annotated, Callable
+"""
+Sandbox 工具注册表 - 兼容层
 
-from derisk.agent.resource.tool.base import ToolFunc, FunctionTool
+这是一个向后兼容的模块，将旧的 sandbox_tool 注册机制适配到统一工具框架。
+
+新的代码应该使用:
+    from derisk.agent.tools import tool_registry
+    from derisk.agent.tools.decorators import sandbox_tool
+
+旧的代码可以继续使用:
+    from derisk.agent.core.sandbox.sandbox_tool_registry import sandbox_tool, sandbox_tool_dict
+"""
+
+import logging
+from typing import Dict, Any, Optional, Callable
+
+# 向后兼容：导入统一框架
+from derisk.agent.tools.decorators import sandbox_tool as _unified_sandbox_tool
+from derisk.agent.tools.registry import tool_registry
 
 logger = logging.getLogger(__name__)
+
 DERISK_TOOL_IDENTIFIER = 'sandbox_tool'
 
-# 工具函数映射
-sandbox_tool_dict:[str, FunctionTool] = {}
-
+# 向后兼容：保留全局字典，但实际从统一注册表同步
+sandbox_tool_dict: Dict[str, Any] = {}
 
 
 def sandbox_tool(
-        name=None,
-        description=None,
-        owner=None,
-        input_schema=None,
-        ask_user=False,
-        stream=False,
-        concurrency="parallel",
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    owner: Optional[str] = None,
+    input_schema: Optional[Dict[str, Any]] = None,
+    ask_user: bool = False,
+    stream: bool = False,
+    concurrency: str = "parallel",
 ) -> Callable[..., Any]:
     """
-    Decorator to register a function with a name and description.
+    沙箱工具装饰器 - 向后兼容层
+    
+    将旧版 @sandbox_tool 装饰器适配到统一工具框架。
+    
+    使用方式（与旧版完全兼容）:
+        @sandbox_tool(name="my_tool", description="My tool")
+        async def my_tool(client, arg1: str) -> str:
+            ...
     """
-
-    def decorator(func: ToolFunc):
-        tool_name = name if name is not None else func.__name__
-        ft = FunctionTool(tool_name, func, description, None, None, input_schema=input_schema, ask_user=ask_user, concurrency=concurrency)
-
-        func._to_register = {
-            'name': tool_name,
-            'description': description,
-            'owner': owner if owner is not None else 'derisk',
-            'input_schema': input_schema if input_schema is not None else generate_function_schema(func),
-            'ask_user': ask_user,
-            'stream': stream,
-        }  # Attribute indicates it should be registered
-        func.__ant_tool__ = True
-        # 更新全局映射 poc_function_map
-        if name not in sandbox_tool_dict:
-            sandbox_tool_dict[name] = ft
-            logger.info(f"工具{name}已成功注册")
-        else:
-            logger.warning(f"工具{name}已存在，跳过重复注册")
-
-        @functools.wraps(func)
-        def sync_wrapper(*f_args, **kwargs):
-            if stream:
-                return ft.execute_stream(*f_args, **kwargs)
-            else:
-                return ft.execute(*f_args, **kwargs)
-
-        @functools.wraps(func)
-        async def async_wrapper(*f_args, **kwargs):
-            if stream:
-                return ft.async_execute_stream(*f_args, **kwargs)
-            else:
-                return await ft.async_execute(*f_args, **kwargs)
-
-        # 检查函数类型
-        import inspect
-        if inspect.isasyncgenfunction(func) or asyncio.iscoroutinefunction(func):
-            wrapper = async_wrapper
-        else:
-            wrapper = sync_wrapper
-
-        wrapper._tool = ft  # type: ignore
-        setattr(wrapper, DERISK_TOOL_IDENTIFIER, True)
-        return wrapper
-
-    return decorator
+    # 使用统一框架的 sandbox_tool 装饰器
+    return _unified_sandbox_tool(
+        name=name,
+        description=description,
+        input_schema=input_schema,
+    )
 
 
-def generate_function_schema(func):
+def _sync_from_unified_registry():
+    """从统一注册表同步 sandbox 工具到旧的全局字典"""
+    global sandbox_tool_dict
+    from derisk.agent.tools.base import ToolCategory
+    
+    # 获取所有 SANDBOX 类别的工具
+    sandbox_tools = tool_registry.get_by_category(ToolCategory.SANDBOX)
+    
+    for tool in sandbox_tools:
+        tool_name = tool.name
+        if tool_name not in sandbox_tool_dict:
+            sandbox_tool_dict[tool_name] = tool
+            logger.debug(f"[兼容层] 已同步 sandbox 工具: {tool_name}")
+
+
+def get_sandbox_tool(tool_name: str):
     """
-    从函数中提取参数类型注解，生成符合 JSON schema 格式的字典。
+    获取沙箱工具
+    
+    优先从统一注册表获取，如果不存在则从旧字典获取。
     """
-    sig = inspect.signature(func)
-    schema = {
-        "type": "object",
-        "properties": {}
-    }
-
-    for name, param in sig.parameters.items():
-        if name == "self":
-            continue
-        annotation = param.annotation
-        if annotation is inspect.Parameter.empty:
-            raise TypeError(f"Missing type annotation for parameter '{name}' in function {func.__name__}.")
-
-        schema["properties"][name] = {
-            "type": _convert_type(annotation)
-        }
-
-    return schema
+    # 先尝试从统一注册表获取
+    tool = tool_registry.get(tool_name)
+    if tool:
+        return tool
+    
+    # 回退到旧字典
+    return sandbox_tool_dict.get(tool_name)
 
 
-def _convert_type(t: Any) -> str:
-    """
-    将 Python 类型注解转换为 JSON schema 中的类型字符串。
-    支持基本类型和部分组合类型（如 List, Dict）。
-    """
-    if get_origin(t) is Annotated:
-        t = get_args(t)[0]
-    if t is str:
-        return "string"
-    elif t is int:
-        return "integer"
-    elif t is float:
-        return "number"
-    elif t is bool:
-        return "boolean"
-    elif t is bytes:
-        return "string"  # JSON 中用 string 表示二进制数据
-    elif get_origin(t) is list:
-        return "array"
-    else:
-        return "object"
+def register_sandbox_tools_to_unified():
+    """将旧的 sandbox 工具注册到统一框架"""
+    from derisk.agent.tools.builtin.sandbox import register_sandbox_tools
+    register_sandbox_tools(tool_registry)
+    _sync_from_unified_registry()
+    logger.info(f"[兼容层] 已注册 {len(sandbox_tool_dict)} 个 sandbox 工具")
 
+
+# 初始化时同步
+def _init():
+    """初始化兼容层"""
+    try:
+        _sync_from_unified_registry()
+    except Exception as e:
+        logger.debug(f"[兼容层] 初始化同步失败（可能统一注册表尚未初始化）: {e}")
+
+
+_init()
+
+
+__all__ = [
+    "sandbox_tool",
+    "sandbox_tool_dict",
+    "DERISK_TOOL_IDENTIFIER",
+    "get_sandbox_tool",
+    "register_sandbox_tools_to_unified",
+]
