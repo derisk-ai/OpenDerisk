@@ -450,8 +450,10 @@ class BaseBuiltinAgent(ProductionAgent):
             )
 
         try:
-            # 使用 ToolRegistry 的 execute 方法
-            result = await self.tools.execute(tool_name, tool_args, kwargs)
+            context = dict(kwargs)
+            if self.sandbox_manager is not None:
+                context["sandbox_manager"] = self.sandbox_manager
+            result = await self.tools.execute(tool_name, tool_args, context)
             return result
         except Exception as e:
             logger.exception(f"[{self.__class__.__name__}] 工具执行异常: {tool_name}")

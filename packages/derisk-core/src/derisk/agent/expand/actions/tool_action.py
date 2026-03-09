@@ -482,7 +482,7 @@ class ToolAction(Action[ToolInput]):
             view=view,
             observations=None,
             ask_user=False,
-            state=Status.COMPLETE.value,
+            state=status,  # 使用根据执行结果计算的 status
             thoughts=param.thought,
             terminate=isinstance(tool_info, Terminate),
             cost_ms=cost_ms,
@@ -752,10 +752,22 @@ class ToolAction(Action[ToolInput]):
                 for k, v in system_args.items():
                     if k not in arguments:
                         arguments[k] = v
+
+                # Build context with sandbox_manager for sandbox tools
+                tool_context = None
+                if (
+                    agent
+                    and hasattr(agent, "sandbox_manager")
+                    and agent.sandbox_manager
+                ):
+                    tool_context = {"sandbox_manager": agent.sandbox_manager}
+
                 if tool_info.is_async:
-                    raw_content = await tool_info.async_execute(**arguments)
+                    raw_content = await tool_info.async_execute(
+                        **arguments, context=tool_context
+                    )
                 else:
-                    raw_content = tool_info.execute(**arguments)
+                    raw_content = tool_info.execute(**arguments, context=tool_context)
 
                 normalized_content, is_success, error_msg = self._normalize_content(
                     raw_content
