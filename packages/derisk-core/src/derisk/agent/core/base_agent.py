@@ -666,6 +666,7 @@ class ConversableAgent(Role, Agent):
         from derisk.core import ModelMessageRoleType
 
         ## 历史消息
+        has_tool_calls = llm_out and llm_out.tool_calls
         if llm_out:
             llm_content = llm_out.content or ""
             if llm_out.thinking_content:
@@ -681,7 +682,11 @@ class ConversableAgent(Role, Agent):
                 }
             )
 
-        if action_outs:
+        # 只有当 assistant 消息中含有 tool_calls 时，才追加 tool 结果消息。
+        # 若 tool_calls 为 None/空，说明 LLM 未发起工具调用，此时追加 tool 消息会
+        # 导致 API 报错：messages with role "tool" must be a response to a
+        # preceeding message with "tool_calls"
+        if action_outs and has_tool_calls:
             ## 准备当前轮次的ToolMessage
             for action_out in action_outs:
                 function_call_reply_messages.append(
@@ -691,6 +696,12 @@ class ConversableAgent(Role, Agent):
                         "content": action_out.content,
                     }
                 )
+        elif action_outs and not has_tool_calls:
+            logger.warning(
+                f"[function_callning_reply_messages] Skipping {len(action_outs)} tool result(s) "
+                f"because the preceding assistant message has no tool_calls. "
+                f"This prevents invalid message sequences being sent to the LLM."
+            )
 
         return function_call_reply_messages
 
@@ -1402,6 +1413,11 @@ class ConversableAgent(Role, Agent):
                     tool_messages: Optional[List[dict]] = kwargs.get("tool_messages")
                     if tool_messages:
                         llm_messages.extend(tool_messages)
+
+                    # 过滤非法消息序列：移除没有匹配 tool_calls 的孤立 tool 角色消息
+                    # 否则 API 会报错：messages with role "tool" must be a response
+                    # to a preceeding message with "tool_calls"
+                    llm_messages = _sanitize_tool_messages(llm_messages)
 
                     if not self.llm_client:
                         raise ValueError("LLM client is not initialized!")
@@ -2717,6 +2733,57 @@ class ConversableAgent(Role, Agent):
 def _new_system_message(content):
     """Return the system message."""
     return [{"content": content, "role": ModelMessageRoleType.SYSTEM}]
+
+
+def _sanitize_tool_messages(messages: List[dict]) -> List[dict]:
+    """Remove orphaned 'tool' role messages that have no matching preceding
+    assistant message with 'tool_calls'.
+
+    OpenAI-compatible APIs require that every message with role='tool' is
+    immediately preceded (in the message sequence) by an assistant message
+    that contains a non-empty 'tool_calls' list.  Sending orphaned tool
+    messages causes a 400 error:
+      "messages with role 'tool' must be a response to a preceeding message
+       with 'tool_calls'."
+
+    This helper scans the list in one pass and drops any tool message whose
+    preceding assistant message has no tool_calls.
+    """
+    if not messages:
+        return messages
+
+    sanitized: List[dict] = []
+    orphan_count = 0
+
+    for msg in messages:
+        role = msg.get("role", "")
+        if role == ModelMessageRoleType.TOOL:
+            # Check that the last assistant message has tool_calls
+            prev_assistant = None
+            for m in reversed(sanitized):
+                if m.get("role") == ModelMessageRoleType.AI:
+                    prev_assistant = m
+                    break
+                # Stop if we hit any non-assistant message after the last AI msg
+            if prev_assistant and prev_assistant.get("tool_calls"):
+                sanitized.append(msg)
+            else:
+                orphan_count += 1
+                logger.warning(
+                    f"[_sanitize_tool_messages] Dropped orphaned tool message "
+                    f"(tool_call_id={msg.get('tool_call_id')!r}) — "
+                    f"no preceding assistant message with tool_calls."
+                )
+        else:
+            sanitized.append(msg)
+
+    if orphan_count:
+        logger.warning(
+            f"[_sanitize_tool_messages] Removed {orphan_count} orphaned tool "
+            f"message(s) from LLM input to prevent API 400 errors."
+        )
+
+    return sanitized
 
 
 def _is_list_of_type(lst: List[Any], type_cls: type) -> bool:
