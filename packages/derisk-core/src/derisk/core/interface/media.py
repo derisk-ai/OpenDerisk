@@ -296,21 +296,24 @@ class MediaContent:
         cls,
         role,
         content: Union[str, "MediaContent", List["MediaContent"]],
-        tool_calls: Optional[str] = None,
+        tool_calls: Optional[List[Dict]] = None,
         support_media_content: bool = True,
         type_mapping: Optional[Dict[str, str]] = None,
         replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionMessageParam:
         """Convert the media contents to chat completion message."""
+        # Build base message, only include tool_calls when present
+        def build_message(role_val, content_val, tool_calls_val=None):
+            msg: Dict[str, Any] = {"role": role_val, "content": content_val}
+            if tool_calls_val is not None:
+                msg["tool_calls"] = tool_calls_val
+            return cast(ChatCompletionMessageParam, msg)
+
         if not content:
-            return cast(ChatCompletionMessageParam, {
-                "role": role,
-                "tool_calls": tool_calls,
-                "content": "",
-            })
+            return build_message(role, "", tool_calls)
 
         if isinstance(content, str):
-            return cast(ChatCompletionMessageParam, {"role": role, "content": content, "tool_calls": tool_calls})
+            return build_message(role, content, tool_calls)
         if isinstance(content, MediaContent):
             content = [content]
         new_content = [
@@ -324,16 +327,8 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            return cast(ChatCompletionMessageParam, {
-                "role": role,
-                "tool_calls": tool_calls,
-                "content": text_content[0],
-            })
-        return cast(ChatCompletionMessageParam, {
-            "role": role,
-            "tool_calls": tool_calls,
-            "content": new_content,
-        })
+            return build_message(role, text_content[0], tool_calls)
+        return build_message(role, new_content, tool_calls)
 
     @classmethod
     def to_chat_tool_message(
