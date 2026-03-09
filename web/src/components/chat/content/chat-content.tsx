@@ -195,31 +195,9 @@ const ChatContent: React.FC<{
     [cachePluginContext]
   );
 
-  // 累积所有历史消息的 planning_window 内容
-  const accumulatedPlanningWindows: string[] = [];
-  const currentIndex = messages.findIndex(m => m === content);
-  
-  if (currentIndex >= 0 && isRobot) {
-    for (let i = 0; i <= currentIndex; i++) {
-      try {
-        const msg = messages[i];
-        if (msg.role === 'view') {
-          const msgContext = typeof msg.context === 'string' ? msg.context : '';
-          const msgRobotContext = getRobotContext(msgContext);
-          const pw = (msgRobotContext as any)?.planning_window;
-          if (pw) {
-            accumulatedPlanningWindows.push(pw);
-          }
-        }
-      } catch {
-        // Intentionally skip parsing errors
-      }
-    }
-  }
-  
-  const _context = accumulatedPlanningWindows.length > 0 
-    ? accumulatedPlanningWindows.join('\n\n---\n\n')
-    : value;
+  // VIS 协议通过 type=INCR/type=ALL 在后端处理增量更新
+  // 前端只需显示当前消息的 planning_window 内容，避免历史消息重复
+  const _context = value;
 
   return (
     <>
