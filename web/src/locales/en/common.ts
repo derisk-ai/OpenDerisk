@@ -550,6 +550,8 @@ export const CommonEn = {
   Create_Skill: 'Create Skill',
   delete_skill: 'Delete Skill',
   delete_skill_confirm: 'Are you sure to delete this skill?',
+  delete_mcp: 'Delete MCP',
+  delete_mcp_confirm: 'Are you sure to delete this MCP?',
   status_updated: 'Status Updated',
   skill_deleted: 'Skill deleted successfully',
   skill_created: 'Skill created successfully',

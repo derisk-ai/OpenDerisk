@@ -1,4 +1,4 @@
-import { addMCP, apiInterceptors } from '@/client/api';
+import { addMCP, updateMCP, apiInterceptors } from '@/client/api';
 import { PlusOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { Button, Col, Form, Input, Modal, Row, Select, message } from 'antd';
@@ -34,28 +34,31 @@ const CreatMcpModel: React.FC<CreatMcpModelProps> = (props: CreatMcpModelProps) 
   const [form] = Form.useForm();
   const [mcpType, setMcpType] = useState<string>('http');
 
+  const isEditing = !!formData?.mcp_code;
+
   const { loading, run: runAddMCP } = useRequest(
     async (params): Promise<any> => {
-      return await apiInterceptors(addMCP(params));
+      const apiCall = isEditing ? updateMCP : addMCP;
+      return await apiInterceptors(apiCall(params));
     },
     {
       manual: true,
       onSuccess: data => {
         const [, , res] = data;
         if (res?.success) {
-          message.success(t('create_success'));
+          message.success(isEditing ? t('update_success') : t('create_success'));
           form?.resetFields();
           setMcpType('http');
           setIsModalOpen(false);
           props.setFormData({});
           onSuccess?.();
         } else {
-          message.error(res?.message || t('create_failed'));
+          message.error(res?.message || (isEditing ? t('update_failed') : t('create_failed')));
         }
       },
       onError: (error) => {
-        message.error(t('create_failed'));
-        console.error('Create MCP error:', error);
+        message.error(isEditing ? t('update_failed') : t('create_failed'));
+        console.error(isEditing ? 'Update MCP error:' : 'Create MCP error:', error);
       },
       throttleWait: 300,
     },
