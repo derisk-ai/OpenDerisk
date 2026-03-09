@@ -11,7 +11,8 @@ import {
   ThunderboltOutlined,
   MessageOutlined,
   AppstoreOutlined,
-  PlusOutlined
+  PlusOutlined,
+  CloudServerOutlined
 } from '@ant-design/icons';
 import { Button, message, Dropdown, Badge, Tag, Tooltip } from 'antd';
 import copy from 'copy-to-clipboard';
@@ -21,6 +22,8 @@ import { useRequest } from 'ahooks';
 import classNames from 'classnames';
 import AppDefaultIcon from '../../icons/app-default-icon';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useContextMetrics } from '@/contexts/context-metrics-context';
+import ContextMetricsDisplay from '../chat-content-components/ContextMetricsDisplay';
 
 interface ChatHeaderProps {
   isScrollToTop?: boolean;
@@ -33,6 +36,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { metrics } = useContextMetrics();
 
   const appScene = useMemo(() => {
     return appInfo?.team_context?.chat_scene || 'chat_agent';
@@ -139,7 +143,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+<div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
               {appInfo?.team_context?.chat_scene && (
                 <span className="truncate">{appInfo?.team_context?.chat_scene}</span>
               )}
@@ -149,10 +153,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
                   {messageCount} 轮
                 </span>
               )}
+              {metrics && (
+                <ContextMetricsDisplay metrics={metrics} compact />
+              )}
             </div>
           </div>
 
- {/* 操作按钮 */}
+          {/* 操作按钮 */}
             <div className="flex items-center gap-1 flex-shrink-0">
               <Tooltip title="新会话" placement="bottom">
                 <Button
