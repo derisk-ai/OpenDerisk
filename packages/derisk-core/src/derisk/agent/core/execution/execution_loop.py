@@ -27,7 +27,7 @@ class LoopContext:
     """Context for a single execution loop iteration."""
 
     iteration: int = 0
-    max_iterations: int = 10
+    max_iterations: int = 300  # Increased from 10 to support long-running tasks
     state: ExecutionState = ExecutionState.PENDING
     last_output: Optional[Any] = None
     error_message: Optional[str] = None
@@ -104,7 +104,7 @@ class ExecutionContext:
 
     def __init__(
         self,
-        max_iterations: int = 10,
+        max_iterations: int = 300,  # Increased from 10 to support long-running tasks
         on_iteration_start: Optional[Callable] = None,
         on_iteration_end: Optional[Callable] = None,
         on_error: Optional[Callable] = None,
@@ -193,7 +193,7 @@ class SimpleExecutionLoop:
 
     def __init__(
         self,
-        max_iterations: int = 10,
+        max_iterations: int = 300,  # Increased from 10 to support long-running tasks
         enable_retry: bool = True,
         max_retries: int = 3,
     ):
@@ -260,11 +260,11 @@ class SimpleExecutionLoop:
             self._context.context.terminate(reason)
 
 
-def create_execution_context(max_iterations: int = 10, **kwargs) -> ExecutionContext:
+def create_execution_context(max_iterations: int = 300, **kwargs) -> ExecutionContext:
     """Factory function to create an execution context."""
     return ExecutionContext(max_iterations=max_iterations, **kwargs)
 
 
-def create_execution_loop(max_iterations: int = 10, **kwargs) -> SimpleExecutionLoop:
+def create_execution_loop(max_iterations: int = 300, **kwargs) -> SimpleExecutionLoop:
     """Factory function to create an execution loop."""
     return SimpleExecutionLoop(max_iterations=max_iterations, **kwargs)

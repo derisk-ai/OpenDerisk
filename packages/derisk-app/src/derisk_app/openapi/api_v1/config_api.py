@@ -15,7 +15,7 @@ class ConfigUpdateRequest(BaseModel):
 class AgentConfigRequest(BaseModel):
     name: str
     description: Optional[str] = None
-    max_steps: Optional[int] = 20
+    max_steps: Optional[int] = 200
     permission: Optional[Dict[str, Any]] = None
 
 class SandboxConfigRequest(BaseModel):
@@ -142,7 +142,7 @@ async def create_agent(request: AgentConfigRequest):
         agent = AgentConfig(
             name=request.name,
             description=request.description or "",
-            max_steps=request.max_steps or 20,
+            max_steps=request.max_steps or 200,
             permission=PermissionConfig(**request.permission) if request.permission else PermissionConfig()
         )
         

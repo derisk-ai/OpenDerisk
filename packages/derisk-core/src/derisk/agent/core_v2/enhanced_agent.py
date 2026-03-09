@@ -104,7 +104,7 @@ class AgentInfo:
     tools: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
 
-    max_steps: int = 10
+    max_steps: int = 50  # Increased from 10 to support long-running tasks like RCA
     timeout: int = 300
 
     model: str = "inherit"
