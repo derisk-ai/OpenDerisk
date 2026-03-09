@@ -22,51 +22,34 @@ from derisk_serve.agent.db.gpts_tool_messages import (
     GptsToolMessages,
 )
 
-
-def _make_json_serializable(obj: Any) -> Any:
-    """将对象转换为 JSON 可序列化的格式。
-
-    处理包括 AgentFileSystem 等非序列化对象，将其转换为字符串或字典表示。
-    """
-    if obj is None:
-        return None
-    if isinstance(obj, (str, int, float, bool)):
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_make_json_serializable(item) for item in obj]
-    if isinstance(obj, dict):
-        return {k: _make_json_serializable(v) for k, v in obj.items()}
-
-    # 处理 AgentFileSystem 和其他常见非序列化类型
-    type_name = type(obj).__name__
-
-    # AgentFileSystem 类型 - 转换为字符串表示
-    if type_name == "AgentFileSystem":
-        return f"<AgentFileSystem: {getattr(obj, 'root_path', str(obj))}>"
-
-    # Pydantic 模型 - 使用 model_dump 或 dict
-    if hasattr(obj, "model_dump"):
-        return _make_json_serializable(obj.model_dump())
-    if hasattr(obj, "dict"):
-        return _make_json_serializable(obj.dict())
-
-    # dataclass - 使用 asdict
-    if hasattr(obj, "__dataclass_fields__"):
-        from dataclasses import asdict
-        return _make_json_serializable(asdict(obj))
-
-    # 其他对象 - 尝试转换为字符串
-    try:
-        return str(obj)
-    except Exception:
-        return f"<{type_name}: unserializable>"
-
 logger = logging.getLogger(__name__)
 tool_cache = TTLCache(maxsize=200, ttl=300)
 gpts_tool_messages_dao = GptsToolMessagesDao()
 gpts_tool_dao = GptsToolDao()
 
 CFG = Config()
+
+
+def _make_json_serializable(obj: Any) -> Any:
+    """
+    递归地将对象转换为 JSON 可序列化的格式
+
+    Args:
+        obj: 任意对象
+
+    Returns:
+        JSON 可序列化的对象
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    else:
+        # 对于不可序列化的对象，返回其字符串表示
+        # 这包括 AgentFileSystem, SandboxClient 等复杂对象
+        return str(obj)
 
 
 def switch_mcp_input_schema(input_schema: dict):
@@ -223,7 +206,7 @@ async def call_mcp_tool(
         tool_id = str(uuid.uuid4())
 
     async def call_tool(server: str, arguments: dict):
-        # 将参数转换为 JSON 可序列化格式，处理 AgentFileSystem 等对象
+        # 将 arguments 转换为 JSON 可序列化的格式
         serializable_arguments = _make_json_serializable(arguments)
 
         gpts_tool_messages = GptsToolMessages(
@@ -255,7 +238,10 @@ async def call_mcp_tool(
             ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(tool_name, arguments=serializable_arguments)
+                    # 使用序列化后的参数调用 MCP 工具
+                    result = await session.call_tool(
+                        tool_name, arguments=serializable_arguments
+                    )
                     end_time = int(datetime.now().timestamp() * 1000)
                     LOGGER.info(
                         f"[DIGEST][tools/call]mcp_server=[{mcp_name}],sse=[{mcp_server}],success=[Y],err_msg=[],tool=[{tool_name}],costMs=[{end_time - start_time}],result_length=[{len(str(result.json()))}],headers=[{headers}],result:[{result.json()}]"

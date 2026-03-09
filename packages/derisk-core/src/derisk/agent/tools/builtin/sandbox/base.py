@@ -30,7 +30,7 @@ class SandboxToolBase(ToolBase):
         从上下文获取沙箱客户端
 
         Args:
-            context: 工具上下文
+            context: 工具上下文（可以是 ToolContext 或普通字典）
 
         Returns:
             SandboxBase: 沙箱客户端实例
@@ -39,6 +39,28 @@ class SandboxToolBase(ToolBase):
             ValueError: 如果沙箱客户端不可用
         """
         if context is None:
+            return None
+
+        # 支持普通字典类型的 context
+        if isinstance(context, dict):
+            sandbox_manager = context.get("sandbox_manager")
+            if sandbox_manager is not None:
+                if hasattr(sandbox_manager, "client"):
+                    return sandbox_manager.client
+                if hasattr(sandbox_manager, "get_client"):
+                    return sandbox_manager.get_client()
+            # 尝试直接获取 sandbox_client
+            client = context.get("sandbox_client")
+            if client is not None:
+                return client
+            # 尝试从 config 中获取
+            config = context.get("config", {})
+            sandbox_manager = config.get("sandbox_manager")
+            if sandbox_manager is not None:
+                if hasattr(sandbox_manager, "client"):
+                    return sandbox_manager.client
+                if hasattr(sandbox_manager, "get_client"):
+                    return sandbox_manager.get_client()
             return None
 
         # 尝试从 context 的 config 中获取
