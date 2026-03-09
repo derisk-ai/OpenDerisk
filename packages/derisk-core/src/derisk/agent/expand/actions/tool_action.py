@@ -279,8 +279,9 @@ class ToolAction(Action[ToolInput]):
         # 使用确定的环境变量覆盖生成变量
         tool_args.update(self.init_params)
 
-        # 传入 agent_file_system 供 read_file 等工具使用
-        if kwargs.get("agent_file_system"):
+        # 传入 agent_file_system 供系统工具（如 read_file）使用
+        # 注意：只有系统工具才需要此参数，MCP 工具不需要
+        if kwargs.get("agent_file_system") and param.tool_name in system_tool_dict:
             tool_args["agent_file_system"] = kwargs.get("agent_file_system")
 
         ## 推送工具执行初始化消息（如果不跳过）
@@ -752,6 +753,32 @@ class ToolAction(Action[ToolInput]):
                 for k, v in system_args.items():
                     if k not in arguments:
                         arguments[k] = v
+
+                # Filter arguments based on tool definition to avoid passing
+                # unexpected parameters that cause validation errors
+                # (especially for MCP tools with strict Pydantic validation)
+                if hasattr(tool_info, "args") and tool_info.args:
+                    # Get valid parameter names from tool definition
+                    valid_keys = set(tool_info.args.keys())
+
+                    # Preserve special parameters that tools may need
+                    # - 'context': Used by some tools for additional context (sandbox_manager, etc.)
+                    # - 'client': Used by sandbox tools
+                    # Note: 'agent_file_system' is handled separately in run() for system tools only
+                    special_params = {"context", "client"}
+                    valid_keys.update(special_params)
+
+                    # Log filtering if any parameters will be removed
+                    original_keys = set(arguments.keys())
+                    removed_keys = original_keys - valid_keys
+                    if removed_keys:
+                        logger.debug(
+                            f"Filtering tool arguments for {tool_info.name}: "
+                            f"removed={removed_keys}, kept={original_keys & valid_keys}"
+                        )
+
+                    # Filter to only include valid parameters
+                    arguments = {k: v for k, v in arguments.items() if k in valid_keys}
 
                 # Build context with sandbox_manager for sandbox tools
                 tool_context = None
