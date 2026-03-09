@@ -35,8 +35,8 @@ temperature = 0.5
 
 [[agent.llm.provider]]
 provider = "openai"
-api_base = "https://antchat.alipay.com/v1"
-api_key = "fbCTZnIbReh1vVW8oySViGHhrQ8fK2mS"
+api_base = "https://base_url/v1"
+api_key = ""
 
 [[agent.llm.provider.model]]
 name = "deepseek-r1"
@@ -72,8 +72,8 @@ type = "oss"
 endpoint = "https://oss-cn-beijing.aliyuncs.com"
 region = "oss-cn-beijing"
 access_key_id = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
-access_key_secret = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
-fixed_bucket = "dbgpt-test"
+access_key_secret = "${env:OSS_ACCESS_KEY_SECRET}"
+fixed_bucket = "xx-test"
 
 [sandbox]
 type = "local"
@@ -82,6 +82,6 @@ user_id = "derisk"
 agent_name = "derisk"
 repo_url = ""
 oss_ak = "${env:OSS_ACCESS_KEY_ID:-LTAI5tDkae7TM8D6ENa5xf2o}"
-oss_sk = "${env:OSS_ACCESS_KEY_SECRET:-xf8O3ADZUwrfythtM43osX4CjHwXys}"
+oss_sk = "${env:OSS_ACCESS_KEY_SECRET}"
 oss_endpoint = "https://oss-cn-beijing.aliyuncs.com"
-oss_bucket_name = "dbgpt-test"
+oss_bucket_name = "xx-test"

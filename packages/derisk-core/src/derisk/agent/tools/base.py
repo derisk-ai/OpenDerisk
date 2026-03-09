@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class ToolCategory(str, Enum):
     """工具主分类"""
-    
+
     BUILTIN = "builtin"
     FILE_SYSTEM = "file_system"
     CODE = "code"
@@ -46,7 +46,7 @@ class ToolCategory(str, Enum):
 
 class ToolSource(str, Enum):
     """工具来源"""
-    
+
     CORE = "core"
     SYSTEM = "system"
     EXTENSION = "extension"
@@ -58,7 +58,7 @@ class ToolSource(str, Enum):
 
 class ToolRiskLevel(str, Enum):
     """工具风险等级"""
-    
+
     SAFE = "safe"
     LOW = "low"
     MEDIUM = "medium"
@@ -68,7 +68,7 @@ class ToolRiskLevel(str, Enum):
 
 class ToolEnvironment(str, Enum):
     """工具执行环境"""
-    
+
     LOCAL = "local"
     DOCKER = "docker"
     WASM = "wasm"
@@ -79,13 +79,13 @@ class ToolEnvironment(str, Enum):
 class ToolBase(ABC):
     """
     统一工具基类
-    
+
     设计原则：
     1. Pydantic Schema - 类型安全的参数定义
     2. 权限集成 - 通过metadata.requires_permission
     3. 结果标准化 - 统一的ToolResult格式
     4. 风险分级 - 通过risk_level标识
-    
+
     示例：
         class MyTool(ToolBase):
             def _define_metadata(self) -> ToolMetadata:
@@ -94,7 +94,7 @@ class ToolBase(ABC):
                     description="我的工具",
                     category=ToolCategory.UTILITY
                 )
-            
+
             def _define_parameters(self) -> Dict[str, Any]:
                 return {
                     "type": "object",
@@ -103,114 +103,126 @@ class ToolBase(ABC):
                     },
                     "required": ["input"]
                 }
-            
+
             async def execute(self, args: Dict[str, Any], context: Optional[ToolContext] = None) -> ToolResult:
                 return ToolResult(success=True, output="结果")
     """
-    
+
     def __init__(self):
         from .metadata import ToolMetadata
         from .result import ToolResult
         from .context import ToolContext
-        
+
         self._metadata = self._define_metadata()
         self._parameters = self._define_parameters()
         self._initialized = False
-        
+
     @property
     def metadata(self):
         from .metadata import ToolMetadata
+
         return self._metadata
-    
+
     @property
     def parameters(self):
         return self._parameters
-    
+
     @property
     def name(self) -> str:
         return self._metadata.name
-    
+
+    @property
+    def is_stream(self) -> bool:
+        """是否流式输出工具，默认为 False"""
+        return False
+
+    @property
+    def is_async(self) -> bool:
+        """是否异步执行工具，默认为 True（execute 方法是 async）"""
+        return True
+
+    @property
+    def stream_queue(self) -> Optional[asyncio.Queue]:
+        """流式输出队列，仅当 is_stream=True 时使用"""
+        return None
+
     @abstractmethod
     def _define_metadata(self):
         """
         定义工具元数据
-        
+
         Returns:
             ToolMetadata: 工具元数据
         """
         pass
-    
+
     @abstractmethod
     def _define_parameters(self) -> Dict[str, Any]:
         """
         定义工具参数(Schema格式)
-        
+
         Returns:
             Dict: JSON Schema格式的参数定义
         """
         pass
-    
+
     @abstractmethod
-    async def execute(
-        self, 
-        args: Dict[str, Any], 
-        context: Optional[Any] = None
-    ):
+    async def execute(self, args: Dict[str, Any], context: Optional[Any] = None):
         """
         执行工具
-        
+
         Args:
             args: 工具参数
             context: 执行上下文
-        
+
         Returns:
             ToolResult: 执行结果
         """
         pass
-    
+
     async def on_register(self) -> None:
         """注册时调用"""
         self._initialized = True
         logger.info(f"[Tool] {self.name} registered")
-    
+
     async def on_unregister(self) -> None:
         """注销时调用"""
         logger.info(f"[Tool] {self.name} unregistered")
-    
+
     async def pre_execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """执行前钩子"""
         return args
-    
+
     async def post_execute(self, result) -> Any:
         """执行后钩子"""
         return result
-    
+
     def validate_args(self, args: Dict[str, Any]) -> bool:
         """
         验证参数
-        
+
         Args:
             args: 待验证的参数
-        
+
         Returns:
             bool: 是否有效
         """
         required = self.parameters.get("required", [])
         return all(param in args for param in required)
-    
+
     def get_description_for_llm(self) -> str:
         """
         获取给LLM的工具描述
-        
+
         Returns:
             str: 工具描述
         """
         return f"{self.metadata.name}: {self.metadata.description}"
-    
+
     def to_openai_tool(self) -> Dict[str, Any]:
         """
         转换为OpenAI工具格式
-        
+
         Returns:
             Dict: OpenAI工具定义
         """
@@ -222,11 +234,11 @@ class ToolBase(ABC):
                 "parameters": self.parameters,
             },
         }
-    
+
     def to_anthropic_tool(self) -> Dict[str, Any]:
         """
         转换为Anthropic工具格式
-        
+
         Returns:
             Dict: Anthropic工具定义
         """
@@ -235,19 +247,19 @@ class ToolBase(ABC):
             "description": self.metadata.description,
             "input_schema": self.parameters,
         }
-    
+
     def get_prompt(self, lang: str = "en") -> str:
         """
         获取工具提示词
-        
+
         Args:
             lang: 语言(en/zh)
-        
+
         Returns:
             str: 工具提示词
         """
         import json
-        
+
         if lang == "zh":
             return (
                 f"工具名称: {self.metadata.name}\n"
@@ -266,48 +278,48 @@ def tool(
     description: Optional[str] = None,
     category: ToolCategory = ToolCategory.UTILITY,
     risk_level: ToolRiskLevel = ToolRiskLevel.LOW,
-    **metadata_kwargs
+    **metadata_kwargs,
 ) -> Callable:
     """
     工具装饰器 - 将函数转换为工具
-    
+
     示例:
         @tool(name="my_tool", description="我的工具")
         async def my_tool(input: str) -> str:
             return f"processed: {input}"
     """
     from .metadata import ToolMetadata
-    
-    def decorator(func: Callable) -> 'ToolBase':
+
+    def decorator(func: Callable) -> "ToolBase":
         from .result import ToolResult
-        
+
         tool_name = name or func.__name__
         tool_description = description or (func.__doc__ or "").strip()
-        
+
         class FunctionTool(ToolBase):
             def __init__(self):
                 self._func = func
                 self._is_async = asyncio.iscoroutinefunction(func)
                 super().__init__()
-            
+
             def _define_metadata(self) -> ToolMetadata:
                 return ToolMetadata(
                     name=tool_name,
                     description=tool_description,
                     category=category,
                     risk_level=risk_level,
-                    **metadata_kwargs
+                    **metadata_kwargs,
                 )
-            
+
             def _define_parameters(self) -> Dict[str, Any]:
                 sig = inspect.signature(func)
                 properties = {}
                 required = []
-                
+
                 for param_name, param in sig.parameters.items():
-                    if param_name in ('self', 'cls', 'context'):
+                    if param_name in ("self", "cls", "context"):
                         continue
-                    
+
                     param_type = "string"
                     if param.annotation != inspect.Parameter.empty:
                         type_map = {
@@ -319,74 +331,71 @@ def tool(
                             dict: "object",
                         }
                         param_type = type_map.get(param.annotation, "string")
-                    
+
                     properties[param_name] = {
                         "type": param_type,
-                        "description": f"参数 {param_name}"
+                        "description": f"参数 {param_name}",
                     }
-                    
+
                     if param.default == inspect.Parameter.empty:
                         required.append(param_name)
-                
+
                 return {
                     "type": "object",
                     "properties": properties,
-                    "required": required
+                    "required": required,
                 }
-            
+
             async def execute(
-                self, 
-                args: Dict[str, Any], 
-                context: Optional[Any] = None
+                self, args: Dict[str, Any], context: Optional[Any] = None
             ):
                 try:
                     if self._is_async:
                         result = await self._func(**args)
                     else:
                         result = self._func(**args)
-                    
-                    return ToolResult(
-                        success=True,
-                        output=result,
-                        tool_name=self.name
-                    )
+
+                    return ToolResult(success=True, output=result, tool_name=self.name)
                 except Exception as e:
                     return ToolResult(
-                        success=False,
-                        output=None,
-                        error=str(e),
-                        tool_name=self.name
+                        success=False, output=None, error=str(e), tool_name=self.name
                     )
-        
+
         tool_instance = FunctionTool()
-        
+
         if not asyncio.iscoroutinefunction(func):
+
             @wraps(func)
             def sync_wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
+
             sync_wrapper._tool = tool_instance
             return sync_wrapper
         else:
+
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 return await func(*args, **kwargs)
+
             async_wrapper._tool = tool_instance
             return async_wrapper
-    
+
     return decorator
 
 
-def register_tool(registry: 'ToolRegistry', source: ToolSource = ToolSource.SYSTEM):
+def register_tool(registry: "ToolRegistry", source: ToolSource = ToolSource.SYSTEM):
     """
     注册工具装饰器
-    
+
     示例:
         @register_tool(tool_registry, source=ToolSource.USER)
         class MyTool(ToolBase):
             ...
     """
+
     def decorator(tool_class: type) -> type:
         instance = tool_class()
         registry.register(instance, source=source)
         return tool_class
+
     return decorator
