@@ -9,6 +9,7 @@ from derisk_app.openapi.api_v1.feedback.feed_back_db import ChatFeedBackEntity
 from derisk_serve.agent.app.recommend_question.recommend_question import (
     RecommendQuestionEntity,
 )
+from derisk_serve.channel.models import ChannelEntity
 
 from derisk_serve.datasource.manages.connect_config_db import ConnectConfigEntity
 from derisk_serve.file.models.models import ServeEntity as FileServeEntity
@@ -45,4 +46,5 @@ _MODELS = [
     AppDetailServeEntity,
     AppConfigServeEntity,
     MCPServeEntity,
+    ChannelEntity,
 ]

@@ -322,7 +322,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 step_thought = clean_thought.strip()
             else:
                 step_thought = thought.strip()
-        elif content and content.strip() and not tool_calls_info and not has_blank_action:
+        elif (
+            content and content.strip() and not tool_calls_info and not has_blank_action
+        ):
             if len(content.strip()) < 500:
                 step_thought = content.strip()
 
@@ -357,10 +359,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             for action_out in action_outs:
                 if action_out.name == BlankAction.name and not action_out.terminate:
                     if action_out.content and action_out.content.strip():
+                        # 使用和 step_thought 相同的 uid，利用 VIS 协议的增量更新机制自动覆盖
                         text_content = DrskTextContent(
                             dynamic=False,
                             markdown=action_out.content,
-                            uid=f"{message_id}_{action_out.action_id}_text",
+                            uid=f"{message_id}_'step_thought'",
                             type=UpdateType.ALL.value,
                         )
                         plan_tasks_vis.append(
@@ -381,20 +384,32 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         支持格式：
         - 中文：【阶段: 分析】或【阶段：分析】
         - 英文：[Phase: Analysis] 或 [Phase：Analysis]
+
+        修复：移除所有重复的阶段标记，避免重复渲染
         """
         if not text:
             return None, text
 
+        phase_key = None
+        clean_text = text
+
+        # 遍历所有模式，提取第一个阶段标记并移除所有阶段标记
         for pattern, _ in PHASE_PATTERNS:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                phase_raw = match.group(1).strip()
-                phase_key = PHASE_NORMALIZE_MAP.get(
-                    phase_raw.lower(), phase_raw.lower()
-                )
-                clean_text = text[: match.start()] + text[match.end() :]
-                clean_text = clean_text.strip()
-                return phase_key, clean_text
+            matches = list(re.finditer(pattern, text, re.IGNORECASE))
+            if matches:
+                # 使用第一个匹配的阶段
+                if phase_key is None:
+                    phase_raw = matches[0].group(1).strip()
+                    phase_key = PHASE_NORMALIZE_MAP.get(
+                        phase_raw.lower(), phase_raw.lower()
+                    )
+                # 移除所有匹配的阶段标记
+                for match in reversed(matches):  # 从后往前移除，避免索引变化
+                    clean_text = clean_text[: match.start()] + clean_text[match.end() :]
+
+        if phase_key:
+            clean_text = clean_text.strip()
+            return phase_key, clean_text
 
         return None, text
 
@@ -808,9 +823,34 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         sender: ConversableAgent = senders_map.get(sender_name)
         if not sender:
             return None
+
+        # 🔧 修复：检测 thinking 和 content 是否包含相似内容，避免重复渲染
+        def _is_similar_content(text1: Optional[str], text2: Optional[str]) -> bool:
+            """检测两个文本是否包含相似内容（忽略空白字符差异）"""
+            if not text1 or not text2:
+                return False
+            # 移除空白字符后比较
+            clean1 = re.sub(r"\s+", "", text1)
+            clean2 = re.sub(r"\s+", "", text2)
+            # 如果一个文本是另一个的子串，或者相似度超过80%，认为是重复
+            if clean1 in clean2 or clean2 in clean1:
+                return True
+            # 简单的相似度检测：检查前100个字符
+            prefix_len = min(100, len(clean1), len(clean2))
+            if prefix_len > 0 and clean1[:prefix_len] == clean2[:prefix_len]:
+                return True
+            return False
+
+        # 如果 thinking 和 content 相似，只保留 thinking
+        skip_content = False
+        if thinking and content and _is_similar_content(thinking, content):
+            skip_content = True
+
         ## 模型数据文件
         llm_content_md = ""
         if thinking:
+            # 移除重复的阶段标记
+            _, clean_thinking = self._extract_phase(thinking)
             thinking_content = DrskThinkingContent(
                 markdown=thinking,
                 uid=message_id + "_thinking",
@@ -822,7 +862,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             )
             llm_content_md = llm_content_md + "\n" + vis_thinking
 
-        if content:
+        if content and not skip_content:
             llm_content = DrskTextContent(
                 markdown=content, uid=message_id + "_content", type=update_type
             )
@@ -941,7 +981,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     ) -> Optional[FolderNode]:
         conv_id = main_agent.agent_context.conv_id
         conv_session_id = main_agent.agent_context.conv_session_id
-        
+
         file_system_folder = FolderNode(
             uid=f"{conv_session_id}_file_system",
             type=UpdateType.INCR.value,
@@ -951,31 +991,31 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             avatar="https://mdn.alipayobjects.com/huamei_5qayww/afts/img/A*WC8ARKan1WEAAAAAQBAAAAgAeprcAQ/original",
             items=[],
         )
-        
+
         try:
             from derisk.agent.core.memory.gpts import GptsMemory
             from derisk.agent.core.memory.gpts.file_base import FileType
-            
+
             memory = main_agent.agent_context.memory
-            if not memory or not hasattr(memory, 'gpts_memory'):
+            if not memory or not hasattr(memory, "gpts_memory"):
                 return file_system_folder
-            
+
             gpts_memory = memory.gpts_memory
             if not isinstance(gpts_memory, GptsMemory):
                 return file_system_folder
-            
+
             files = await gpts_memory.list_files(conv_id)
-            
+
             if not files:
                 return file_system_folder
-            
+
             type_groups: Dict[str, List] = {}
             for file_meta in files:
                 file_type = file_meta.file_type or "other"
                 if file_type not in type_groups:
                     type_groups[file_type] = []
                 type_groups[file_type].append(file_meta)
-            
+
             type_display_names = {
                 FileType.CONCLUSION.value: "📋 结论文件",
                 FileType.TOOL_OUTPUT.value: "🔧 工具输出",
@@ -987,7 +1027,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 FileType.TODO.value: "✅ 任务列表",
                 "other": "📁 其他文件",
             }
-            
+
             for file_type, file_list in type_groups.items():
                 type_folder = FolderNode(
                     uid=f"{conv_session_id}_fs_{file_type}",
@@ -996,14 +1036,16 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     title=type_display_names.get(file_type, f"📁 {file_type}"),
                     items=[],
                 )
-                
+
                 for file_meta in file_list:
                     file_node = FolderNode(
                         uid=f"{conv_session_id}_file_{file_meta.file_id}",
                         type=UpdateType.INCR.value,
                         item_type="file",
                         title=file_meta.file_name,
-                        description=f"{file_meta.file_size} bytes" if file_meta.file_size else None,
+                        description=f"{file_meta.file_size} bytes"
+                        if file_meta.file_size
+                        else None,
                         status=file_meta.status,
                         task_type="afs_file",
                         file_id=file_meta.file_id,
@@ -1016,11 +1058,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                         mime_type=file_meta.mime_type,
                     )
                     type_folder.items.append(file_node)
-                
+
                 file_system_folder.items.append(type_folder)
-            
+
             return file_system_folder
-            
+
         except Exception as e:
             logger.warning(f"Failed to build file system folder: {e}")
             return file_system_folder
@@ -1053,7 +1095,9 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         if is_first_push:
             logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
             main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
-            file_system_folder = await self._build_file_system_folder(main_agent=main_agent)
+            file_system_folder = await self._build_file_system_folder(
+                main_agent=main_agent
+            )
             if main_agent_folder and file_system_folder:
                 if main_agent_folder.items is None:
                     main_agent_folder.items = []
@@ -1127,7 +1171,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 layer_count=layer_count,
                 cost=action_out.metrics.cost_seconds if action_out.metrics else 0,
             ).to_dict()
-)
+        )
 
     TOOL_STEP_DESCRIPTIONS = {
         "view": "正在查看文件内容...",

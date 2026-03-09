@@ -18,6 +18,21 @@ from ...util.executor_utils import execute_to_thread, t
 logger = logging.getLogger(__name__)
 
 
+def _is_valid_resource_instance(obj: Any) -> bool:
+    """Check if object is a valid resource instance (Resource or ToolBase)."""
+    if isinstance(obj, Resource):
+        return True
+    # Also accept ToolBase instances from the new unified framework
+    try:
+        from derisk.agent.tools.base import ToolBase
+
+        if isinstance(obj, ToolBase):
+            return True
+    except ImportError:
+        pass
+    return False
+
+
 class RegisterResource(BaseModel):
     """Register resource model."""
 
@@ -26,8 +41,9 @@ class RegisterResource(BaseModel):
     name: Optional[str] = None
     resource_type: Union[ResourceType, str]
     resource_type_alias: Optional[str] = None
-    resource_cls: Type[Resource]
-    resource_instance: Optional[Resource] = None
+    # Use Any to allow both Resource and ToolBase subclasses
+    resource_cls: Any
+    resource_instance: Optional[Any] = None
     is_class: bool = True
 
     @property
@@ -52,17 +68,28 @@ class RegisterResource(BaseModel):
             return values
         resource_instance = values.get("resource_instance")
         if resource_instance is not None:
-            values["name"] = values["name"] or resource_instance.name
+            values["name"] = values.get("name") or getattr(
+                resource_instance, "name", None
+            )
             values["is_class"] = False
-            if not isinstance(resource_instance, Resource):
+            if not _is_valid_resource_instance(resource_instance):
                 raise ValueError(
-                    f"resource_instance must be a Resource instance, not "
+                    f"resource_instance must be a Resource or ToolBase instance, not "
                     f"{type(resource_instance)}"
                 )
+
+        resource_cls = values.get("resource_cls")
         if not values.get("resource_type"):
-            values["resource_type"] = values["resource_cls"].type()
+            if resource_cls and hasattr(resource_cls, "type"):
+                values["resource_type"] = resource_cls.type()
+            else:
+                # Default to Tool type for ToolBase instances
+                values["resource_type"] = ResourceType.Tool
         if not values.get("resource_type_alias"):
-            values["resource_type_alias"] = values["resource_cls"].type_alias()
+            if resource_cls and hasattr(resource_cls, "type_alias"):
+                values["resource_type_alias"] = resource_cls.type_alias()
+            else:
+                values["resource_type_alias"] = ResourceType.Tool.value
         return values
 
     def get_parameter_class(

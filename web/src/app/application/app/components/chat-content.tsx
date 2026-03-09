@@ -1,6 +1,6 @@
 'use client';
 
-import { AppContext, ChatContentContext, SelectedSkill } from '@/contexts';
+import { AppContext, ChatContentContext, SelectedSkill, ContextMetricsProvider } from '@/contexts';
 import { ChartData, ChatHistoryResponse, UserChatContent} from '@/types/chat';
 import { useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { Layout } from 'antd';
@@ -203,49 +203,51 @@ function ChatContent() {
   }, [appInfo?.layout?.chat_in_layout]);
 
   return (
-    <ChatContentContext.Provider
-      value={{
-        history,
-        replyLoading,
-        scrollRef,
-        canAbort,
-        chartsData: chartsData || [],
-        agent,
-        currentDialogue,
-        appInfo,
-        temperatureValue,
-        maxNewTokensValue,
-        resourceValue,
-        modelValue,
-        selectedSkills,
-        setModelValue,
-        setResourceValue,
-        setSelectedSkills,
-        setTemperatureValue,
-        setMaxNewTokensValue,
-        setChatInParams,
-        chatInParams,
-        setAgent,
-        setCanAbort,
-        setReplyLoading,
-        handleChat,
-        refreshHistory,
-        refreshAppInfo: refreshAppInfo ?? (() => {}),
-        setHistory,
-        isShowDetail: collapsed,
-        isDebug: true,
-        setAppInfo: () => {},
-        refreshDialogList: () => {}
-      }}
-    >
-      <div className="flex-1 flex flex-col h-full relative bg-transparent">
-        <div className="flex-1 bg-transparent overflow-hidden">
-          <Content className='flex flex-col flex-1 h-full'>
-            <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
-          </Content>
+    <ContextMetricsProvider convId={chatId}>
+      <ChatContentContext.Provider
+        value={{
+          history,
+          replyLoading,
+          scrollRef,
+          canAbort,
+          chartsData: chartsData || [],
+          agent,
+          currentDialogue,
+          appInfo,
+          temperatureValue,
+          maxNewTokensValue,
+          resourceValue,
+          modelValue,
+          selectedSkills,
+          setModelValue,
+          setResourceValue,
+          setSelectedSkills,
+          setTemperatureValue,
+          setMaxNewTokensValue,
+          setChatInParams,
+          chatInParams,
+          setAgent,
+          setCanAbort,
+          setReplyLoading,
+          handleChat,
+          refreshHistory,
+          refreshAppInfo: refreshAppInfo ?? (() => {}),
+          setHistory,
+          isShowDetail: collapsed,
+          isDebug: true,
+          setAppInfo: () => {},
+          refreshDialogList: () => {}
+        }}
+      >
+        <div className="flex-1 flex flex-col h-full relative bg-transparent">
+          <div className="flex-1 bg-transparent overflow-hidden">
+            <Content className='flex flex-col flex-1 h-full'>
+              <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
+            </Content>
+          </div>
         </div>
-      </div>
-    </ChatContentContext.Provider>
+      </ChatContentContext.Provider>
+    </ContextMetricsProvider>
   );
 }
 
