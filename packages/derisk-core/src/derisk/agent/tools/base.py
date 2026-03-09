@@ -197,6 +197,30 @@ class ToolBase(ABC):
         """执行后钩子"""
         return result
 
+    async def async_execute(self, *args, **kwargs):
+        """
+        异步执行工具的统一入口
+
+        这是执行工具的推荐方法，内部会调用 execute 方法。
+        提供此方法是为了保持与旧版 FunctionTool 接口的兼容性。
+
+        Args:
+            *args: 位置参数
+            **kwargs: 关键字参数，可包含 'context' 用于传递执行上下文
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        context = kwargs.pop("context", None)
+        if args and len(args) >= 1:
+            if isinstance(args[0], dict):
+                merged_args = dict(args[0])
+                merged_args.update(kwargs)
+                return await self.execute(merged_args, context)
+            return await self.execute(*args, **kwargs, context=context)
+        else:
+            return await self.execute(kwargs, context)
+
     def validate_args(self, args: Dict[str, Any]) -> bool:
         """
         验证参数
