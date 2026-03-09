@@ -603,6 +603,57 @@ class BaseBuiltinAgent(ProductionAgent):
                 f"[{self.__class__.__name__}] Failed to inject history tools: {e}"
             )
 
+    # ==================== WorkLog Tool Messages Conversion ====================
+
+    async def _get_worklog_tool_messages(
+        self, max_entries: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
+
+        重写此方法以支持原生 Function Call 模式下的历史工具调用记录传递。
+
+        核心设计：压缩后的条目使用摘要替代原始内容，保证上下文管理有效。
+        - 历史 WorkLog 压缩后，用摘要替代原始结果
+        - 当前轮次保持原生 Function Call 模式
+
+        遵循 OpenAI Function Call 协议：
+        [
+            {"role": "assistant", "content": "", "tool_calls": [...]},
+            {"role": "tool", "tool_call_id": "...", "content": "..."},
+            ...
+        ]
+
+        Args:
+            max_entries: 最大获取的 WorkEntry 数量
+
+        Returns:
+            符合原生 Function Call 格式的消息列表
+        """
+        pipeline = await self._ensure_compaction_pipeline()
+        if not pipeline:
+            logger.debug(
+                f"[{self.__class__.__name__}] No compaction pipeline, returning empty tool messages"
+            )
+            return []
+
+        try:
+            # 使用压缩摘要，保证上下文连续性
+            tool_messages = await pipeline.get_tool_messages_from_worklog(
+                max_entries=max_entries,
+                use_compressed_summary=True,
+            )
+            if tool_messages:
+                logger.info(
+                    f"[{self.__class__.__name__}] Converted WorkLog to {len(tool_messages)} tool messages for LLM"
+                )
+            return tool_messages
+        except Exception as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] Failed to get worklog tool messages: {e}"
+            )
+            return []
+
     # ==================== Layer 4: Multi-Turn History ====================
 
     async def start_conversation_round(
