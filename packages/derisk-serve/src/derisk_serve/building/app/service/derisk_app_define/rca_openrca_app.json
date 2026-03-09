@@ -71,7 +71,7 @@
     "resource_tool": [
       {
         "type": "skill(derisk)",
-        "value": "{\"key\":\"open-rca-diagnosis\",\"name\":\"open_rca_diagnosis\",\"label\":\"open_rca_diagnosis\",\"skill_name\":\"open_rca_diagnosis\",\"description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"skill_description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"toolType\":\"skill(derisk)\",\"groupName\":\"skill\",\"isBuiltIn\":false,\"skillCode\":\"open-rca-diagnosis\",\"skill_path\":\"skills/open_rca_diagnosis\",\"skill_author\":\"derisk\",\"skill_branch\":\"main\",\"type\":\"skill\"}",
+        "value": "{\"key\":\"open-rca-diagnosis-2-0-derisk-c5b0e208\",\"name\":\"open_rca_diagnosis\",\"label\":\"open_rca_diagnosis\",\"skill_name\":\"open_rca_diagnosis\",\"description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"skill_description\":\"AI驱动的微服务故障根因分析技能，提供分析指导和场景化工具脚本\",\"toolType\":\"skill(derisk)\",\"groupName\":\"skill\",\"isBuiltIn\":false,\"skillCode\":\"open-rca-diagnosis-2-0-derisk-c5b0e208\",\"skill_path\":\"skills/open_rca_diagnosis\",\"skill_author\":\"derisk\",\"skill_branch\":\"main\",\"type\":\"skill\"}",
         "name": "open_rca_diagnosis",
         "is_dynamic": false,
         "context": null,

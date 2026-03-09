@@ -14,6 +14,9 @@ from ..pack import Resource, ResourcePack
 from .base import DERISK_TOOL_IDENTIFIER, BaseTool, FunctionTool, ToolFunc
 from .exceptions import ToolExecutionException, ToolNotFoundException
 
+# Import ToolBase from new framework for isinstance checks
+from derisk.agent.tools.base import ToolBase as NewToolBase
+
 
 ToolResourceType = Union[Resource, BaseTool, List[BaseTool], ToolFunc, List[ToolFunc]]
 
@@ -27,12 +30,12 @@ def _is_function_tool(resources: Any) -> bool:
         and hasattr(resources, DERISK_TOOL_IDENTIFIER)
         and getattr(resources, DERISK_TOOL_IDENTIFIER)
         and hasattr(resources, "_tool")
-        and isinstance(getattr(resources, "_tool"), BaseTool)
+        and isinstance(getattr(resources, "_tool"), (BaseTool, NewToolBase))
     )
 
 
 def _is_tool(resources: Any) -> bool:
-    return isinstance(resources, BaseTool) or _is_function_tool(resources)
+    return isinstance(resources, (BaseTool, NewToolBase)) or _is_function_tool(resources)
 
 
 def _to_tool_list(

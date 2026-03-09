@@ -105,7 +105,12 @@ class ReActAgent(ManagerAgent):
         return None, None
 
     async def function_calling_params(self):
-        def _tool_to_function(tool: BaseTool) -> Dict:
+        def _tool_to_function(tool) -> Dict:
+            # 新框架 ToolBase: 使用 to_openai_tool() 方法
+            if hasattr(tool, "to_openai_tool"):
+                return tool.to_openai_tool()
+
+            # 旧框架 BaseTool: 使用 args 属性
             properties = {}
             required_list = []
             for key, value in tool.args.items():
@@ -386,17 +391,48 @@ class ReActAgent(ManagerAgent):
 
         @self._vm.register("memory", "记忆上下文")
         async def var_memory(instance, received_message=None, agent_context=None):
+            """获取Layer 4压缩的历史对话记录或fallback到传统memory
+
+            优先尝试使用Layer 4跨轮次历史压缩，如果不可用则降级到传统memory搜索
+            """
+            # 首先尝试Layer 4
+            try:
+                if hasattr(instance, "_ensure_compaction_pipeline"):
+                    pipeline = await instance._ensure_compaction_pipeline()
+                    if pipeline:
+                        history = await pipeline.get_layer4_history_for_prompt()
+                        if history:
+                            logger.info(
+                                f"Layer 4: Retrieved compressed history ({len(history)} chars)"
+                            )
+                            return history
+            except Exception as e:
+                logger.debug(
+                    f"Layer 4 not available, falling back to traditional memory: {e}"
+                )
+
+            # 降级到传统memory搜索
             import json
             from datetime import datetime, timedelta
             from derisk.agent.resource.memory import MemoryParameters
-            from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters, FilterOperator
+            from derisk.storage.vector_store.filters import (
+                MetadataFilter,
+                MetadataFilters,
+                FilterOperator,
+            )
 
             if not instance.memory:
                 return ""
 
             preference_memory_read: bool = False
-            if agent_context and agent_context.extra and "preference_memory_read" in agent_context.extra:
-                preference_memory_read = agent_context.extra.get("preference_memory_read")
+            if (
+                agent_context
+                and agent_context.extra
+                and "preference_memory_read" in agent_context.extra
+            ):
+                preference_memory_read = agent_context.extra.get(
+                    "preference_memory_read"
+                )
 
             MODEL_CONTEXT_LENGTH = {
                 "deepseek-v3": 64000,
@@ -406,7 +442,7 @@ class ReActAgent(ManagerAgent):
 
             def get_agent_llm_context_length() -> int:
                 default_length = 32000
-                if not hasattr(instance, 'llm_config') or not instance.llm_config:
+                if not hasattr(instance, "llm_config") or not instance.llm_config:
                     return default_length
                 model_list = instance.llm_config.strategy_context
                 if not model_list:
@@ -428,17 +464,27 @@ class ReActAgent(ManagerAgent):
                 return twenty_four_hours_ago.strftime("%Y-%m-%d %H:%M:%S")
 
             llm_token_limit = get_agent_llm_context_length() - 8000
-            memory_params = instance.get_memory_parameters() if hasattr(instance, 'get_memory_parameters') else None
+            memory_params = (
+                instance.get_memory_parameters()
+                if hasattr(instance, "get_memory_parameters")
+                else None
+            )
             if not memory_params:
                 return ""
 
             if preference_memory_read:
                 date = get_time_24h_ago()
-                metadata_filter = MetadataFilter(key="create_time", operator=FilterOperator.GT, value=date)
+                metadata_filter = MetadataFilter(
+                    key="create_time", operator=FilterOperator.GT, value=date
+                )
                 metadata_filters = MetadataFilters(filters=[metadata_filter])
                 memory_fragments = await instance.memory.preference_memory.search(
-                    observation=received_message.current_goal if received_message else "",
-                    session_id=session_id_from_conv_id(agent_context.conv_id) if agent_context else "",
+                    observation=received_message.current_goal
+                    if received_message
+                    else "",
+                    session_id=session_id_from_conv_id(agent_context.conv_id)
+                    if agent_context
+                    else "",
                     enable_global_session=memory_params.enable_global_session,
                     retrieve_strategy="exact",
                     discard_strategy="fifo",
@@ -452,8 +498,12 @@ class ReActAgent(ManagerAgent):
                 )
             else:
                 memory_fragments = await instance.memory.search(
-                    observation=received_message.current_goal if received_message else "",
-                    session_id=session_id_from_conv_id(agent_context.conv_id) if agent_context else "",
+                    observation=received_message.current_goal
+                    if received_message
+                    else "",
+                    session_id=session_id_from_conv_id(agent_context.conv_id)
+                    if agent_context
+                    else "",
                     agent_id=agent_context.agent_app_code if agent_context else None,
                     enable_global_session=memory_params.enable_global_session,
                     retrieve_strategy=memory_params.retrieve_strategy,
@@ -468,7 +518,8 @@ class ReActAgent(ManagerAgent):
             recent_messages = [
                 f"\nRound:{m.rounds if m.rounds else m.metadata.get('rounds')}\n"
                 f"Role:{m.role if m.role else m.metadata.get('role')}\n"
-                f"{m.raw_observation}" for m in memory_fragments
+                f"{m.raw_observation}"
+                for m in memory_fragments
             ]
             return "\n".join(recent_messages)
 

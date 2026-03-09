@@ -157,7 +157,7 @@ class FunctionCallOutputParser(AgentParser):
                     logger.warning(
                         f"Failed to parse args as JSON: {e}, raw_args={func_args}"
                     )
-                    parsed_args = func_args
+                    parsed_args = None
                 steps.append(
                     ToolCall(
                         tool_call_id=tool_call_id, name=str(function_name), args=parsed_args
