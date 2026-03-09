@@ -79,15 +79,35 @@ openderisk-server
 
 ### 从源码安装（开发环境）
 
-安装 uv（必需）：
-```shell
+#### 安装 uv（必需）
 
+**macOS/Linux:**
+```shell
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Windows:**
+```shell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+#### 克隆项目并安装依赖
+
+```shell
 git clone https://github.com/derisk-ai/OpenDerisk.git
 
 cd OpenDerisk
 
-# 安装依赖
-sh scripts/prepare_release.sh
+# 使用 uv 安装依赖
+uv sync --all-packages --frozen \
+    --extra "base" \
+    --extra "proxy_openai" \
+    --extra "rag" \
+    --extra "storage_chromadb" \
+    --extra "derisks" \
+    --extra "storage_oss2" \
+    --extra "client" \
+    --extra "ext_base"
 ```
 
 #### 启动服务

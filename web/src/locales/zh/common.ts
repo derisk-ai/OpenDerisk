@@ -556,6 +556,8 @@ export const CommonZh: Resources['translation'] = {
   Create_Skill: '创建技能',
   delete_skill: '删除技能',
   delete_skill_confirm: '你确定要删除该技能吗?',
+  delete_mcp: '删除 MCP',
+  delete_mcp_confirm: '你确定要删除该 MCP 吗?',
   status_updated: '状态已更新',
   skill_deleted: '技能删除成功',
   skill_created: '技能创建成功',
