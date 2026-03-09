@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-02-28 17:45:47
+-- Generated: 2026-03-09 11:54:17
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -428,11 +428,12 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
   `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
-  `llm_config` VARCHAR(1000) NULL COMMENT '当前版本配置的模型配置',
-  `resource_knowledge` VARCHAR(2000) NULL COMMENT '当前版本配置的知识配置',
-  `resource_tool` VARCHAR(2000) NULL COMMENT '当前版本配置的工具配置',
-  `resource_agent` VARCHAR(2000) NULL COMMENT '当前版本配置的agent配置',
+  `llm_config` TEXT NULL COMMENT '当前版本配置的模型配置',
+  `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
+  `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',
+  `resource_agent` TEXT NULL COMMENT '当前版本配置的agent配置',
   `context_config` VARCHAR(2000) NULL COMMENT '上下文工程配置',
+  `agent_version` VARCHAR(32) NULL COMMENT 'agent version: v1 or v2',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
@@ -756,6 +757,20 @@ CREATE TABLE IF NOT EXISTS `knowledge_yuque` (
   `read_count` INT NULL,
   `comments_count` INT NULL,
   PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: scene_strategy
+-- Source Model: SceneStrategyEntity
+CREATE TABLE IF NOT EXISTS `scene_strategy` (
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: app_scene_binding
+-- Source Model: AppSceneBindingEntity
+CREATE TABLE IF NOT EXISTS `app_scene_binding` (
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: skill_sync_task

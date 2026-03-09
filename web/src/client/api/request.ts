@@ -449,6 +449,11 @@ export const addMCP = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/create', data);
 };
 
+/** MCP Update*/
+export const updateMCP = (data: Record<string, string>) => {
+  return POST<Record<string, string>, []>('/api/v1/serve/mcp/update', data);
+};
+
 /** MCP Start*/
 export const startMCP = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/serve/mcp/start', data);
