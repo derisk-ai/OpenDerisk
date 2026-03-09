@@ -147,6 +147,16 @@ class ToolManager:
         "skill",  # 技能调用
     ]
 
+    # 系统内置动态注入工具（运行时根据条件动态注入的系统工具）
+    # 这类工具属于系统核心功能，但只在特定条件下才会被注入（如首次压缩后）
+    SYSTEM_DYNAMIC_TOOLS: List[str] = [
+        # Layer4 历史回顾工具（首次 compaction 完成后注入）
+        "read_history_chapter",  # 读取历史章节
+        "search_history",  # 搜索历史
+        "get_tool_call_history",  # 获取工具调用历史
+        "get_history_overview",  # 获取历史概览
+    ]
+
     # 分组显示配置
     GROUP_CONFIG: Dict[ToolBindingType, Dict[str, Any]] = {
         ToolBindingType.BUILTIN_REQUIRED: {
@@ -245,7 +255,7 @@ class ToolManager:
             if agent_config:
                 binding = agent_config.get_binding(tool_id)
                 if binding:
-                    tool_info["binding"] = binding.model_dump()
+                    tool_info["binding"] = binding.model_dump(mode="json")
                     tool_info["is_bound"] = binding.is_bound
                     tool_info["is_default"] = binding.is_default
                     tool_info["can_unbind"] = binding.can_unbind
@@ -263,6 +273,38 @@ class ToolManager:
                 tool_info["is_bound"] = is_bound
                 tool_info["is_default"] = is_bound
                 tool_info["can_unbind"] = group_type == ToolBindingType.BUILTIN_REQUIRED
+
+            groups[group_type].append(tool_info)
+
+        # 添加系统动态注入工具（这些工具在运行时动态注入，不在 tool_registry 中）
+        for tool_id in self.SYSTEM_DYNAMIC_TOOLS:
+            # 检查是否已经在列表中（可能已被注册）
+            if any(t.get("tool_id") == tool_id for g in groups.values() for t in g):
+                continue
+
+            tool_info = self._create_dynamic_tool_info(tool_id, lang)
+
+            # 系统动态工具归为可选内置工具
+            group_type = ToolBindingType.BUILTIN_OPTIONAL
+
+            # 添加绑定状态信息
+            if agent_config:
+                binding = agent_config.get_binding(tool_id)
+                if binding:
+                    tool_info["binding"] = binding.model_dump(mode="json")
+                    tool_info["is_bound"] = binding.is_bound
+                    tool_info["is_default"] = binding.is_default
+                    tool_info["can_unbind"] = binding.can_unbind
+                else:
+                    # 动态工具默认不绑定，需要时再启用
+                    tool_info["is_bound"] = False
+                    tool_info["is_default"] = False
+                    tool_info["can_unbind"] = True
+            else:
+                # 动态工具默认不绑定
+                tool_info["is_bound"] = False
+                tool_info["is_default"] = False
+                tool_info["can_unbind"] = True
 
             groups[group_type].append(tool_info)
 
@@ -305,9 +347,19 @@ class ToolManager:
         if tool_id in self.BUILTIN_OPTIONAL_TOOLS:
             return ToolBindingType.BUILTIN_OPTIONAL
 
+        # 检查是否是系统动态注入工具
+        if tool_id in self.SYSTEM_DYNAMIC_TOOLS:
+            return ToolBindingType.BUILTIN_OPTIONAL
+
         # 根据来源判断
         if metadata.source in [ToolSource.CORE, ToolSource.SYSTEM]:
             # 核心/系统来源但不是默认或可选的，归为可选
+            # 但 sandbox 类别的工具是执行层核心工具，应默认绑定
+            category_val = metadata.category
+            if hasattr(category_val, "value"):
+                category_val = category_val.value
+            if category_val == "sandbox":
+                return ToolBindingType.BUILTIN_REQUIRED
             return ToolBindingType.BUILTIN_OPTIONAL
 
         if metadata.source in [ToolSource.MCP, ToolSource.API]:
@@ -329,17 +381,37 @@ class ToolManager:
     def _tool_to_dict(self, tool: ToolBase, lang: str = "zh") -> Dict[str, Any]:
         """将工具转换为字典格式"""
         metadata = tool.metadata
+
+        # Handle enum or string values (Pydantic's use_enum_values may convert to string)
+        category_val = metadata.category
+        if hasattr(category_val, "value"):
+            category_val = category_val.value
+        elif category_val is None:
+            category_val = ""
+
+        source_val = metadata.source
+        if hasattr(source_val, "value"):
+            source_val = source_val.value
+        elif source_val is None:
+            source_val = ""
+
+        risk_level_val = metadata.risk_level
+        if hasattr(risk_level_val, "value"):
+            risk_level_val = risk_level_val.value
+        elif risk_level_val is None:
+            risk_level_val = "low"
+
         return {
             "tool_id": metadata.name,
             "name": metadata.name,
             "display_name": metadata.display_name or metadata.name,
             "description": metadata.description,
             "version": metadata.version,
-            "category": metadata.category.value if metadata.category else "",
+            "category": category_val,
             "subcategory": metadata.subcategory,
-            "source": metadata.source.value if metadata.source else "",
+            "source": source_val,
             "tags": metadata.tags,
-            "risk_level": metadata.risk_level.value if metadata.risk_level else "low",
+            "risk_level": risk_level_val,
             "requires_permission": metadata.requires_permission,
             "input_schema": metadata.input_schema,
             "output_schema": metadata.output_schema,
@@ -349,6 +421,116 @@ class ToolManager:
             "timeout": metadata.timeout,
             "author": metadata.author,
             "doc_url": metadata.doc_url,
+        }
+
+    def _create_dynamic_tool_info(
+        self, tool_id: str, lang: str = "zh"
+    ) -> Dict[str, Any]:
+        """
+        为动态注入的系统工具创建工具信息
+
+        这些工具不在 tool_registry 中注册，而是运行时动态注入到 agent 中。
+        需要手动创建它们的元数据信息。
+
+        Args:
+            tool_id: 工具ID
+            lang: 语言
+
+        Returns:
+            工具信息字典
+        """
+        # 动态工具的元数据映射
+        DYNAMIC_TOOLS_METADATA: Dict[str, Dict[str, Any]] = {
+            "read_history_chapter": {
+                "display_name": "读取历史章节"
+                if lang == "zh"
+                else "Read History Chapter",
+                "description": (
+                    "读取指定历史章节的完整归档内容。"
+                    "当你需要回顾之前的操作细节或找回之前的发现时使用此工具。"
+                    "章节索引从 0 开始，可通过 get_history_overview 获取所有章节列表。"
+                    if lang == "zh"
+                    else "Read the full archived content of a specific history chapter. "
+                    "Use this when you need to review previous operation details or retrieve past findings. "
+                    "Chapter indices start from 0, use get_history_overview to see all chapters."
+                ),
+                "category": "memory",
+                "subcategory": "history",
+            },
+            "search_history": {
+                "display_name": "搜索历史" if lang == "zh" else "Search History",
+                "description": (
+                    "在所有已归档的历史章节中搜索信息。"
+                    "搜索范围包括章节总结、关键决策和工具调用记录。"
+                    "当你需要查找之前讨论过的特定主题或做出的决定时使用此工具。"
+                    if lang == "zh"
+                    else "Search for information across all archived history chapters. "
+                    "Search scope includes chapter summaries, key decisions, and tool call records. "
+                    "Use this when you need to find specific topics previously discussed or decisions made."
+                ),
+                "category": "memory",
+                "subcategory": "history",
+            },
+            "get_tool_call_history": {
+                "display_name": "获取工具调用历史"
+                if lang == "zh"
+                else "Get Tool Call History",
+                "description": (
+                    "获取工具调用历史记录。"
+                    "从 WorkLog 中检索工具调用记录，可按工具名称过滤。"
+                    if lang == "zh"
+                    else "Get tool call history records. "
+                    "Retrieve tool call records from WorkLog, can be filtered by tool name."
+                ),
+                "category": "memory",
+                "subcategory": "history",
+            },
+            "get_history_overview": {
+                "display_name": "获取历史概览"
+                if lang == "zh"
+                else "Get History Overview",
+                "description": (
+                    "获取历史章节目录概览。"
+                    "返回所有已归档章节的列表，包括时间范围、消息数、工具调用数和摘要。"
+                    if lang == "zh"
+                    else "Get an overview of the history chapter catalog. "
+                    "Returns a list of all archived chapters, including time range, message count, "
+                    "tool call count, and summary."
+                ),
+                "category": "memory",
+                "subcategory": "history",
+            },
+        }
+
+        metadata = DYNAMIC_TOOLS_METADATA.get(
+            tool_id,
+            {
+                "display_name": tool_id,
+                "description": f"System dynamic tool: {tool_id}",
+                "category": "system",
+                "subcategory": "dynamic",
+            },
+        )
+
+        return {
+            "tool_id": tool_id,
+            "name": tool_id,
+            "display_name": metadata["display_name"],
+            "description": metadata["description"],
+            "version": "1.0.0",
+            "category": metadata["category"],
+            "subcategory": metadata.get("subcategory", ""),
+            "source": "system",  # 系统内置动态工具
+            "tags": ["dynamic", "system", "memory"],
+            "risk_level": "low",
+            "requires_permission": False,
+            "input_schema": None,
+            "output_schema": None,
+            "examples": [],
+            "timeout": 30000,
+            "author": "system",
+            "doc_url": None,
+            "is_dynamic": True,  # 标记为动态工具
         }
 
     def get_agent_config(
@@ -442,10 +624,16 @@ class ToolManager:
         else:
             # 创建新配置
             tool = tool_registry.get(tool_id)
-            if not tool:
+
+            # 确定分组类型
+            if tool:
+                group_type = self._determine_tool_group(tool, tool_id)
+            elif tool_id in self.SYSTEM_DYNAMIC_TOOLS:
+                # 动态工具归为可选内置工具
+                group_type = ToolBindingType.BUILTIN_OPTIONAL
+            else:
                 return False
 
-            group_type = self._determine_tool_group(tool, tool_id)
             config.bindings[tool_id] = ToolBindingConfig(
                 tool_id=tool_id,
                 binding_type=group_type,
