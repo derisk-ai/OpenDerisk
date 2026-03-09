@@ -174,6 +174,10 @@ class ReActMasterAgent(ConversableAgent):
     _compaction_count: int = PrivateAttr(default=0)
     _prune_count: int = PrivateAttr(default=0)
 
+    # 工具失败追踪：记录每个工具的连续失败次数
+    _tool_failure_counts: Dict[str, int] = PrivateAttr(default_factory=lambda: {})
+    _max_tool_failure_count: int = PrivateAttr(default=3)  # 同一工具最大失败次数
+
     # Kanban 内部状态
     _kanban_manager: Optional[KanbanManager] = PrivateAttr(default=None)
     _kanban_initialized: bool = PrivateAttr(default=False)
@@ -1057,15 +1061,40 @@ class ReActMasterAgent(ConversableAgent):
 
             # 处理执行结果
             for (real_action, _), result in zip(tasks, results):
+                # 获取工具名称（用于失败追踪）
+                tool_name_for_tracking = None
+
                 if isinstance(result, Exception):
                     logger.exception(f"Action execution failed: {result}")
-                    act_outs.append(
-                        ActionOutput(
-                            content=str(result),
-                            name=real_action.name,
-                            is_exe_success=False,
-                        )
+                    # 从 action 中提取工具名称
+                    tool_name_for_tracking = getattr(real_action, "action_input", None)
+                    if tool_name_for_tracking and hasattr(
+                        tool_name_for_tracking, "tool_name"
+                    ):
+                        tool_name_for_tracking = tool_name_for_tracking.tool_name
+                    else:
+                        tool_name_for_tracking = real_action.name
+
+                    # 创建完整的失败 ActionOutput
+                    failed_output = ActionOutput(
+                        content=f"工具执行失败: {str(result)}",
+                        name=real_action.name,
+                        action=tool_name_for_tracking,
+                        action_name=tool_name_for_tracking,
+                        is_exe_success=False,
+                        state=Status.FAILED.value,
+                        have_retry=False,  # 标记不需要重试
                     )
+
+                    # 检查工具失败次数
+                    should_stop = self._check_and_record_tool_failure(
+                        tool_name_for_tracking
+                    )
+                    if should_stop:
+                        failed_output.content = f"工具 [{tool_name_for_tracking}] 连续失败超过 {self._max_tool_failure_count} 次，已终止执行。错误: {str(result)}"
+                        failed_output.view = f"❌ **工具执行失败**\n\n工具 `{tool_name_for_tracking}` 已连续失败多次，系统已自动终止该工具的执行。\n\n**错误信息**: {str(result)}\n\n请尝试使用其他工具或修改参数后重试。"
+
+                    act_outs.append(failed_output)
                 else:
                     if result:
                         # 提取工具信息
