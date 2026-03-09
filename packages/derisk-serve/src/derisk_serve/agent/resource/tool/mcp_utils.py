@@ -30,6 +30,28 @@ gpts_tool_dao = GptsToolDao()
 CFG = Config()
 
 
+def _make_json_serializable(obj: Any) -> Any:
+    """
+    递归地将对象转换为 JSON 可序列化的格式
+
+    Args:
+        obj: 任意对象
+
+    Returns:
+        JSON 可序列化的对象
+    """
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_serializable(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: _make_json_serializable(v) for k, v in obj.items()}
+    else:
+        # 对于不可序列化的对象，返回其字符串表示
+        # 这包括 AgentFileSystem, SandboxClient 等复杂对象
+        return str(obj)
+
+
 def switch_mcp_input_schema(input_schema: dict):
     args = {}
     try:
@@ -184,12 +206,15 @@ async def call_mcp_tool(
         tool_id = str(uuid.uuid4())
 
     async def call_tool(server: str, arguments: dict):
+        # 将 arguments 转换为 JSON 可序列化的格式
+        serializable_arguments = _make_json_serializable(arguments)
+
         gpts_tool_messages = GptsToolMessages(
             tool_id=tool_id,
             name=mcp_name,
             sub_name=tool_name,
             type="MCP",
-            input=json.dumps(arguments, ensure_ascii=False),
+            input=json.dumps(serializable_arguments, ensure_ascii=False),
             success=1,
             trace_id=trace_id,
         )
@@ -213,7 +238,10 @@ async def call_mcp_tool(
             ) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    result = await session.call_tool(tool_name, arguments=arguments)
+                    # 使用序列化后的参数调用 MCP 工具
+                    result = await session.call_tool(
+                        tool_name, arguments=serializable_arguments
+                    )
                     end_time = int(datetime.now().timestamp() * 1000)
                     LOGGER.info(
                         f"[DIGEST][tools/call]mcp_server=[{mcp_name}],sse=[{mcp_server}],success=[Y],err_msg=[],tool=[{tool_name}],costMs=[{end_time - start_time}],result_length=[{len(str(result.json()))}],headers=[{headers}],result:[{result.json()}]"

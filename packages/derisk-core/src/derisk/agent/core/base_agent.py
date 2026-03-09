@@ -818,13 +818,12 @@ class ConversableAgent(Role, Agent):
                     current_goal = received_message.current_goal
                     observation = received_message.observation
                     if self.current_retry_counter > 0:
-                        if self.run_mode != AgentRunMode.LOOP:
-                            if self.enable_function_call:
-                                ## 基于当前action的结果，构建history_dialogue 和 tool_message
-                                tool_messages = self.function_callning_reply_messages(
-                                    agent_llm_out, act_outs
-                                )
-                                all_tool_messages.extend(tool_messages)
+                        if self.enable_function_call:
+                            ## 基于当前action的结果，构建history_dialogue 和 tool_message
+                            tool_messages = self.function_callning_reply_messages(
+                                agent_llm_out, act_outs
+                            )
+                            all_tool_messages.extend(tool_messages)
 
                         observation = reply_message.observation
                         rounds = reply_message.rounds + 1
