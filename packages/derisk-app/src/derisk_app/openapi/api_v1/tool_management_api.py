@@ -15,9 +15,18 @@ from derisk.agent.tools.tool_manager import (
     ToolBindingConfig,
     AgentToolConfiguration,
 )
-from derisk.agent.tools.registry import tool_registry
+from derisk.agent.tools.registry import tool_registry, register_builtin_tools
 
 router = APIRouter(prefix="/tools", tags=["Tool Management"])
+
+
+# ========== 全局初始化 ==========
+
+
+def ensure_tools_initialized():
+    """确保工具已初始化"""
+    if not hasattr(tool_registry, "_initialized") or not tool_registry._initialized:
+        register_builtin_tools()
 
 
 # ========== 请求/响应模型 ==========
@@ -73,6 +82,9 @@ async def get_tool_groups(
     返回按分组类型组织的工具列表，包括绑定状态信息
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         groups = tool_manager.get_tool_groups(
             app_id=app_id, agent_name=agent_name, lang=lang
         )
@@ -95,6 +107,9 @@ async def get_agent_tool_config(
     返回指定 Agent 的完整工具绑定配置
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         config = tool_manager.get_agent_config(app_id, agent_name)
         if not config:
             return JSONResponse(
@@ -126,6 +141,9 @@ async def update_tool_binding(request: ToolBindingUpdateRequest):
     用于绑定或解绑工具
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         success = tool_manager.update_tool_binding(
             app_id=request.app_id,
             agent_name=request.agent_name,
@@ -155,6 +173,9 @@ async def batch_update_tool_bindings(request: BatchToolBindingUpdateRequest):
     用于一次性更新多个工具的绑定状态
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         results = []
         for binding in request.bindings:
             success = tool_manager.update_tool_binding(
@@ -188,6 +209,9 @@ async def get_runtime_tools(request: RuntimeToolsRequest):
     返回 Agent 实际可用的工具列表（已排除被禁用的工具）
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         tools = tool_manager.get_runtime_tools(
             app_id=request.app_id, agent_name=request.agent_name
         )
@@ -227,6 +251,9 @@ async def get_runtime_tool_schemas(request: RuntimeToolsRequest):
     返回用于 LLM 工具调用的 Schema 列表
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         schemas = tool_manager.get_runtime_tool_schemas(
             app_id=request.app_id,
             agent_name=request.agent_name,
@@ -259,6 +286,9 @@ async def list_all_tools(
     支持按类别、来源过滤和搜索
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         tools = tool_registry.list_all()
         result = []
 
@@ -315,6 +345,9 @@ async def get_tool_detail(tool_id: str):
     返回指定工具的完整信息
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         tool = tool_registry.get(tool_id)
         if not tool:
             raise HTTPException(status_code=404, detail=f"Tool '{tool_id}' not found")
@@ -380,6 +413,9 @@ async def clear_tool_cache(
     用于配置更新后刷新缓存
     """
     try:
+        # 确保工具已初始化
+        ensure_tools_initialized()
+
         tool_manager.clear_cache(app_id, agent_name)
         return JSONResponse(
             content={"success": True, "message": "Cache cleared successfully"}
