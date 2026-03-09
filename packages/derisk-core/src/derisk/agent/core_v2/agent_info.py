@@ -143,7 +143,7 @@ class AgentInfo(BaseModel):
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     max_tokens: Optional[int] = Field(default=None, gt=0)
 
-    max_steps: int = Field(default=20, gt=0, description="最大执行步骤数")
+    max_steps: int = Field(default=200, gt=0, description="最大执行步骤数")
     timeout: int = Field(default=300, gt=0, description="超时时间(秒)")
 
     permission: PermissionRuleset = Field(default_factory=PermissionRuleset)
