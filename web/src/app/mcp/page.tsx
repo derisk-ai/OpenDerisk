@@ -3,14 +3,12 @@ import { apiInterceptors, getMCPList, offlineMCP, startMCP, deleteMCP } from '@/
 import { InnerDropdown } from '@/components/blurred-card';
 import { ReloadOutlined, SearchOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Pagination, Spin, Button, message, PaginationProps, Modal } from 'antd';
+import { Pagination, Spin, Button, message, PaginationProps, Popconfirm } from 'antd';
 import { useRouter } from 'next/navigation';
 import React, { memo, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import CreatMcpModel from './CreatMcpModel';
 import './index.css';
-
-const { confirm: modalConfirm } = Modal;
 
 type FieldType = {
   name?: string;
@@ -74,28 +72,22 @@ const McpPage: React.FC = () => {
     },
   );
 
-  const confirm = (item: FieldType) => {
+  const handleDelete = async (item: FieldType) => {
     if (!item.name || !item.mcp_code) {
       message.error(t('missing_params'));
       return;
     }
-    modalConfirm({
-      title: t('delete_task'),
-      content: t('delete_task_confirm'),
-      okText: t('Yes'),
-      cancelText: t('No'),
-      okButtonProps: { danger: true },
-      onOk() {
-        const params: Record<string, string> = {
-          name: item.name || '',
-          mcp_code: item.mcp_code || '',
-        };
-        return apiInterceptors(deleteMCP(params)).then(() => {
-          message.success(t('delete_success'));
-          onSearch();
-        });
-      },
-    });
+    const params: Record<string, string> = {
+      name: item.name || '',
+      mcp_code: item.mcp_code || '',
+    };
+    const [err, , res] = await apiInterceptors(deleteMCP(params));
+    if (!err && res?.success) {
+      message.success(t('delete_success'));
+      onSearch();
+    } else {
+      message.error(res?.err_msg || t('delete_failed'));
+    }
   };
 
   const { run: runOfflineMCP } = useRequest(
@@ -125,11 +117,11 @@ const McpPage: React.FC = () => {
   };
 
   const onStopTheMCP = (item: any) => {
-    runOfflineMCP({ id: item?.id });
+    runOfflineMCP({ mcp_code: item?.mcp_code, name: item?.name });
   };
 
   const onStartTheMCP = (item: any) => {
-    runStartMCP({ name: item?.name, sse_headers: item?.sse_headers });
+    runStartMCP({ mcp_code: item?.mcp_code, name: item?.name, sse_headers: item?.sse_headers });
   };
 
   const onSearch = () => {
@@ -299,8 +291,18 @@ const McpPage: React.FC = () => {
                             { type: 'divider' as const },
                             {
                               key: 'delete',
-                              label: <span className='mcp-dropdown-danger'>{t('Delete')}</span>,
-                              onClick: () => confirm(item),
+                              label: (
+                                <Popconfirm
+                                  title={t('delete_mcp')}
+                                  description={t('delete_mcp_confirm')}
+                                  onConfirm={() => handleDelete(item)}
+                                  okText={t('Yes')}
+                                  cancelText={t('No')}
+                                  okButtonProps={{ danger: true }}
+                                >
+                                  <span className='mcp-dropdown-danger'>{t('Delete')}</span>
+                                </Popconfirm>
+                              ),
                             },
                           ].filter(Boolean) as any,
                         }}
