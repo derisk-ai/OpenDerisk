@@ -770,6 +770,25 @@ class AgentBase(ABC):
         """执行阶段"""
         pass
 
+    async def _get_worklog_tool_messages(
+        self, max_entries: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
+
+        子类可以重写此方法来提供具体的 WorkLog 转换逻辑。
+        例如 ReActReasoningAgent 可以从 compaction_pipeline 获取历史工具调用记录。
+
+        Returns:
+            符合原生 Function Call 格式的消息列表:
+            [
+                {"role": "assistant", "content": "", "tool_calls": [...]},
+                {"role": "tool", "tool_call_id": "...", "content": "..."},
+                ...
+            ]
+        """
+        return []
+
     async def run(self, message: str, stream: bool = True) -> AsyncIterator[str]:
         """主执行循环 - 支持四层压缩架构"""
         # Layer 4: 启动新的对话轮次
