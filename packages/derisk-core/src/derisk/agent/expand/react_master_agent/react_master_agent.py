@@ -996,6 +996,36 @@ class ReActMasterAgent(ConversableAgent):
                     logger.warning(
                         "⚠️ No tool call returned by LLM, will inject system reminder"
                     )
+
+                # 预检查：获取工具名称并检查是否被禁止
+                tool_name_to_check = None
+                if hasattr(real_action, "action_input") and hasattr(
+                    real_action.action_input, "tool_name"
+                ):
+                    tool_name_to_check = real_action.action_input.tool_name
+                elif hasattr(real_action, "name"):
+                    tool_name_to_check = real_action.name
+
+                if tool_name_to_check and self._is_tool_blocked(tool_name_to_check):
+                    logger.warning(
+                        f"🚫 Tool '{tool_name_to_check}' is blocked due to consecutive failures. Skipping execution."
+                    )
+                    # 直接创建失败结果，跳过执行
+                    blocked_output = ActionOutput(
+                        content=f"工具 [{tool_name_to_check}] 连续失败超过 {self._max_tool_failure_count} 次，已终止执行。请尝试使用其他工具或修改参数后重试。",
+                        name=real_action.name
+                        if hasattr(real_action, "name")
+                        else tool_name_to_check,
+                        action=tool_name_to_check,
+                        action_name=tool_name_to_check,
+                        is_exe_success=False,
+                        state=Status.FAILED.value,
+                        have_retry=False,
+                        view=f"❌ **工具执行被阻止**\n\n工具 `{tool_name_to_check}` 已连续失败多次，系统已自动终止该工具的执行。\n\n请尝试使用其他工具或修改参数后重试。",
+                    )
+                    act_outs.append(blocked_output)
+                    continue
+
                 if hasattr(real_action, "prepare_init_msg"):
                     init_report = await real_action.prepare_init_msg(
                         ai_message=message.content if message.content else "",
@@ -1111,6 +1141,16 @@ class ReActMasterAgent(ConversableAgent):
 
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
+
+                        # 工具执行成功或失败时，重置该工具的连续失败计数
+                        if result.is_exe_success:
+                            self._reset_tool_failure_count(tool_name)
+                        else:
+                            # 工具执行失败（非异常），也记录失败次数
+                            should_stop = self._check_and_record_tool_failure(tool_name)
+                            if should_stop:
+                                result.content = f"工具 [{tool_name}] 连续失败超过 {self._max_tool_failure_count} 次，已终止执行。\n\n{result.content or ''}"
+                                result.view = f"❌ **工具执行失败**\n\n工具 `{tool_name}` 已连续失败多次，系统已自动终止该工具的执行。\n\n{result.view or result.content or ''}"
 
                         # ========== 集成：记录到 WorkLog ==========
                         logger.info(
@@ -1278,12 +1318,73 @@ class ReActMasterAgent(ConversableAgent):
 
         return action_out
 
+    def _check_and_record_tool_failure(self, tool_name: str) -> bool:
+        """
+        记录工具失败并检查是否应停止执行
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            bool: 是否应该停止执行该工具（失败次数超过阈值）
+        """
+        if not tool_name:
+            return False
+
+        # 增加失败计数
+        self._tool_failure_counts[tool_name] = (
+            self._tool_failure_counts.get(tool_name, 0) + 1
+        )
+        failure_count = self._tool_failure_counts[tool_name]
+
+        logger.warning(
+            f"⚠️ Tool '{tool_name}' failed ({failure_count}/{self._max_tool_failure_count} consecutive failures)"
+        )
+
+        # 检查是否超过阈值
+        if failure_count >= self._max_tool_failure_count:
+            logger.error(
+                f"🚫 Tool '{tool_name}' has failed {failure_count} times consecutively. "
+                f"Blocking further execution of this tool."
+            )
+            return True
+
+        return False
+
+    def _is_tool_blocked(self, tool_name: str) -> bool:
+        """
+        检查工具是否已被禁止执行（失败次数超过阈值）
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            bool: 是否已被禁止
+        """
+        if not tool_name:
+            return False
+        failure_count = self._tool_failure_counts.get(tool_name, 0)
+        return failure_count >= self._max_tool_failure_count
+
+    def _reset_tool_failure_count(self, tool_name: str = None):
+        """
+        重置工具失败计数
+
+        Args:
+            tool_name: 工具名称，如果为 None 则重置所有工具
+        """
+        if tool_name:
+            self._tool_failure_counts[tool_name] = 0
+        else:
+            self._tool_failure_counts.clear()
+
     def get_stats(self) -> Dict[str, Any]:
         """获取 Agent 运行统计信息"""
         stats = {
             "tool_call_count": self._tool_call_count,
             "compaction_count": self._compaction_count,
             "prune_count": self._prune_count,
+            "tool_failure_counts": dict(self._tool_failure_counts),
         }
 
         if self._doom_loop_detector:
@@ -1302,6 +1403,7 @@ class ReActMasterAgent(ConversableAgent):
         self._tool_call_count = 0
         self._compaction_count = 0
         self._prune_count = 0
+        self._tool_failure_counts.clear()
 
         if self._doom_loop_detector:
             self._doom_loop_detector.reset()
