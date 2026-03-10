@@ -94,6 +94,13 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
 
     app.include_router(agent_app_router, prefix="/api", tags=["Agent App"])
 
+    # Tool Management API routes
+    from derisk_app.openapi.api_v1.tool_management_api import (
+        router as tool_management_router,
+    )
+
+    app.include_router(tool_management_router, prefix="/api", tags=["Tool Management"])
+
     # Core_v2 Agent API routes - V1/V2 共存
     from derisk_serve.agent.core_v2_api import router as core_v2_router
     from derisk_serve.agent.agent_selection_api import router as agent_selection_router
@@ -146,6 +153,7 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     # Migration db storage, so you db models must be imported before this
     # Import cron module to register CronJobEntity before create_all
     from derisk_serve.cron.models.models import CronJobEntity  # noqa: F401
+
     _migration_db_storage(
         param.service.web.database, web_config.disable_alembic_upgrade
     )

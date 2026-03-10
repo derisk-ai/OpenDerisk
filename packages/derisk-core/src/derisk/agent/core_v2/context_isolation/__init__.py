@@ -38,6 +38,7 @@ class ContextIsolationMode(str, Enum):
             Best for tasks that need initial context but should not be affected
             by parent's subsequent actions.
     """
+
     ISOLATED = "isolated"
     SHARED = "shared"
     FORK = "fork"
@@ -53,6 +54,7 @@ class ContextWindow:
     - Memory types that can be accessed
     - Resource bindings (file paths, databases, etc.)
     """
+
     messages: List[Dict[str, Any]] = field(default_factory=list)
     total_tokens: int = 0
     max_tokens: int = 128000
@@ -89,29 +91,27 @@ class MemoryScope(BaseModel):
     Defines which memory layers a subagent can access and how
     memory operations are handled.
     """
+
     accessible_layers: List[str] = Field(
         default_factory=lambda: ["working"],
-        description="Memory layers the subagent can read from"
+        description="Memory layers the subagent can read from",
     )
     inherit_parent: bool = Field(
-        default=True,
-        description="Whether to inherit parent's working memory"
+        default=True, description="Whether to inherit parent's working memory"
     )
     share_to_children: bool = Field(
         default=True,
-        description="Whether this agent's memory is visible to its children"
+        description="Whether this agent's memory is visible to its children",
     )
     write_policy: str = Field(
         default="append",
-        description="How to handle memory writes: append, replace, or merge"
+        description="How to handle memory writes: append, replace, or merge",
     )
     propagate_up: bool = Field(
-        default=False,
-        description="Whether to propagate results to parent agent"
+        default=False, description="Whether to propagate results to parent agent"
     )
     max_memory_items: int = Field(
-        default=100,
-        description="Maximum number of memory items to keep"
+        default=100, description="Maximum number of memory items to keep"
     )
 
     class Config:
@@ -127,6 +127,7 @@ class ResourceBinding(BaseModel):
     - API endpoints
     - Environment variables
     """
+
     name: str
     resource_type: str  # "file", "directory", "database", "api", etc.
     value: str
@@ -139,6 +140,7 @@ class ToolAccessRule(BaseModel):
 
     Tools can be allowed or denied based on regex patterns.
     """
+
     pattern: str  # Regex pattern to match tool names
     action: str  # "allow" or "deny"
     priority: int = 0  # Higher priority rules are evaluated first
@@ -151,41 +153,36 @@ class SubagentContextConfig(BaseModel):
     This configuration determines how a subagent's context is
     created and managed.
     """
+
     isolation_mode: ContextIsolationMode = ContextIsolationMode.ISOLATED
     memory_scope: MemoryScope = Field(default_factory=MemoryScope)
     resource_bindings: List[ResourceBinding] = Field(default_factory=list)
     allowed_tools: Optional[List[str]] = Field(
         default=None,
-        description="List of allowed tools (None means use tool_access_rules)"
+        description="List of allowed tools (None means use tool_access_rules)",
     )
     denied_tools: List[str] = Field(
-        default_factory=list,
-        description="List of explicitly denied tools"
+        default_factory=list, description="List of explicitly denied tools"
     )
     tool_access_rules: List[ToolAccessRule] = Field(default_factory=list)
     model_id: Optional[str] = Field(
-        default=None,
-        description="Model ID to use (None means inherit from parent)"
+        default=None, description="Model ID to use (None means inherit from parent)"
     )
     max_context_tokens: int = Field(
-        default=32000,
-        description="Maximum context tokens for this subagent"
+        default=32000, description="Maximum context tokens for this subagent"
     )
     timeout_seconds: int = Field(
-        default=300,
-        description="Timeout for subagent execution"
+        default=300, description="Timeout for subagent execution"
     )
     max_iterations: int = Field(
-        default=10,
-        description="Maximum number of iterations/steps"
+        default=300,
+        description="Maximum number of iterations/steps (increased from 10 for long-running tasks)",
     )
     system_prompt_override: Optional[str] = Field(
-        default=None,
-        description="Override the system prompt"
+        default=None, description="Override the system prompt"
     )
     additional_instructions: Optional[str] = Field(
-        default=None,
-        description="Additional instructions to append to system prompt"
+        default=None, description="Additional instructions to append to system prompt"
     )
 
     class Config:
@@ -231,6 +228,7 @@ class IsolatedContext(BaseModel):
     This contains all the information needed to run a subagent
     with proper isolation from its parent.
     """
+
     context_id: str
     parent_context_id: Optional[str] = None
     isolation_mode: ContextIsolationMode

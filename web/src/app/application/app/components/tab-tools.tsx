@@ -97,10 +97,11 @@ export default function TabToolsManagement() {
         agent_name: agentName,
         lang: t('language') || 'zh',
       });
-      if (res.success) {
+      // Axios 响应结构: { data: { success, data, err_code, err_msg } }
+      if (res.data?.success) {
         // 默认展开所有分组
-        setExpandedGroups(res.data.map((g) => g.group_id));
-        return res.data;
+        setExpandedGroups(res.data.data.map((g) => g.group_id));
+        return res.data.data;
       }
       return null;
     },
