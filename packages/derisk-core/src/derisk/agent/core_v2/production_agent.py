@@ -21,7 +21,9 @@ class AgentBuilder:
         self._model: Optional[str] = None
         self._tools: List[Any] = []
         self._resources: Dict[str, Any] = {}
-        self._max_iterations: int = 10
+        self._max_iterations: int = (
+            50  # Increased from 10 to support long-running tasks
+        )
         self._timeout: int = 300
 
     def with_name(self, name: str) -> "AgentBuilder":
