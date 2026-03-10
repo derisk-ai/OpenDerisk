@@ -110,19 +110,55 @@ const ChatContent: React.FC<{
   const { context, role, thinking } = content;
   const isRobot = useMemo(() => role === "view", [role]);
 
-  const { value, cachePluginContext } = useMemo<{
+  const { value, cachePluginContext, isVisJson, planningWindow } = useMemo<{
     relations: string[];
     value: string;
     cachePluginContext: DBGPTView[];
+    isVisJson: boolean;
+    planningWindow: string;
   }>(() => {
     if (typeof context !== "string") {
       return {
         relations: [],
         value: "",
         cachePluginContext: [],
+        isVisJson: false,
+        planningWindow: "",
       };
     }
-    const [value, relation] = context.split("\trelations:");
+    
+    // 检测是否是 VIS JSON 格式
+    // VIS JSON 格式: {"planning_window": "...", "running_window": "..."}
+    // 或者嵌套格式: {"vis": "{\"planning_window\": \"...\"}"}
+    let isVisJson = false;
+    let planningWindow = "";
+    let actualContext = context;
+    
+    try {
+      const parsed = JSON.parse(context);
+      // 检查是否是 VIS 格式
+      if (parsed.vis) {
+        // 嵌套格式
+        const visData = typeof parsed.vis === 'string' ? JSON.parse(parsed.vis) : parsed.vis;
+        if (visData.planning_window !== undefined || visData.running_window !== undefined) {
+          isVisJson = true;
+          planningWindow = visData.planning_window || "";
+        }
+      } else if (parsed.planning_window !== undefined || parsed.running_window !== undefined) {
+        // 直接格式
+        isVisJson = true;
+        planningWindow = parsed.planning_window || "";
+      }
+    } catch {
+      // 不是 JSON，继续正常处理
+    }
+    
+    // 如果是 VIS JSON，使用 planning_window 作为内容
+    if (isVisJson && planningWindow) {
+      actualContext = planningWindow;
+    }
+    
+    const [value, relation] = actualContext.split("\trelations:");
     const relations = relation ? relation.split(",") : [];
     const cachePluginContext: DBGPTView[] = [];
 
@@ -154,6 +190,8 @@ const ChatContent: React.FC<{
       relations,
       cachePluginContext,
       value: result,
+      isVisJson,
+      planningWindow,
     };
   }, [context]);
 
@@ -195,31 +233,9 @@ const ChatContent: React.FC<{
     [cachePluginContext]
   );
 
-  // 累积所有历史消息的 planning_window 内容
-  const accumulatedPlanningWindows: string[] = [];
-  const currentIndex = messages.findIndex(m => m === content);
-  
-  if (currentIndex >= 0 && isRobot) {
-    for (let i = 0; i <= currentIndex; i++) {
-      try {
-        const msg = messages[i];
-        if (msg.role === 'view') {
-          const msgContext = typeof msg.context === 'string' ? msg.context : '';
-          const msgRobotContext = getRobotContext(msgContext);
-          const pw = (msgRobotContext as any)?.planning_window;
-          if (pw) {
-            accumulatedPlanningWindows.push(pw);
-          }
-        }
-      } catch {
-        // Intentionally skip parsing errors
-      }
-    }
-  }
-  
-  const _context = accumulatedPlanningWindows.length > 0 
-    ? accumulatedPlanningWindows.join('\n\n---\n\n')
-    : value;
+  // VIS 协议通过 type=INCR/type=ALL 在后端处理增量更新
+  // 前端只需显示当前消息的 planning_window 内容，避免历史消息重复
+  const _context = value;
 
   return (
     <>

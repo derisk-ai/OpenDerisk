@@ -32,6 +32,18 @@ logger = logging.getLogger(__name__)
 CFG = Config()
 
 
+class MCPNotFoundError(ValueError):
+    """Raised when an MCP service cannot be found by its code.
+
+    This typically means the MCP was deleted and recreated (new code) but the
+    agent/app configuration still references the old code.  It is intentionally
+    a subclass of ValueError so existing callers that catch ValueError are
+    unaffected, while new code can catch this specific type to apply
+    graceful-degradation logic (e.g. skip the missing resource instead of
+    aborting the whole agent load).
+    """
+
+
 def get_mcp_list(**kwargs) -> List[Dict]:
     logger.info(f"get_mcp_list:{kwargs}")
     from derisk_serve.mcp.service.service import Service as McpService
@@ -161,7 +173,10 @@ class MCPResourceParameters(PackResourceParameters):
 
         mcp_info: Optional[MCPResponse] = get_mcp_info(mcp_code)
         if not mcp_info:
-            raise ValueError(f"无法找到当前mcp服务[{mcp_code}].")
+            raise MCPNotFoundError(
+                f"无法找到当前mcp服务[{mcp_code}]，该MCP可能已被删除或code已变更，"
+                f"请在应用配置中重新绑定MCP资源。"
+            )
 
         copied_data["mcp_servers"] = mcp_info.sse_url
         copied_data["headers"] = mcp_info.sse_headers

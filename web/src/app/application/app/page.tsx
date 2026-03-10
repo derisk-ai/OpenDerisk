@@ -115,6 +115,9 @@ export default function AgentBuilder() {
       const [, res] = await apiInterceptors(newDialogue({ app_code: appCode }), notification);
       if (res) {
         setChatId(res.conv_uid);
+        const url = new URL(window.location.href);
+        url.searchParams.set('conv_uid', res.conv_uid);
+        window.history.replaceState({}, '', url.toString());
       }
     },
     [notification],

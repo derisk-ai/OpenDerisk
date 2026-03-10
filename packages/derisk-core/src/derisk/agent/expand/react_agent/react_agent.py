@@ -57,7 +57,7 @@ For PDCA-style task planning:
 
 
 class ReActAgent(ManagerAgent):
-    max_retry_count: int = 25
+    max_retry_count: int = 300
     run_mode: AgentRunMode = AgentRunMode.LOOP
 
     profile: ProfileConfig = ProfileConfig(
