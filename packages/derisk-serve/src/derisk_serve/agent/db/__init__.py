@@ -18,3 +18,11 @@ from .database_storage import (  # noqa: F401
     DatabaseWorkLogStorage,
     DatabaseKanbanStorage,
 )
+from .authorization_audit_db import (  # noqa: F401
+    AuthorizationAuditLog,
+    AuthorizationAuditLogDao,
+    AuthorizationAuditLogEntity,
+    AuthorizationAuditStats,
+    AuthorizationDecision,
+    PermissionAction,
+)

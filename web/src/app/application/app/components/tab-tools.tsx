@@ -17,6 +17,7 @@ import {
   Space,
   Alert,
   Divider,
+  Card,
 } from 'antd';
 import {
   SearchOutlined,
@@ -29,6 +30,8 @@ import {
   MinusCircleFilled,
   PlusCircleFilled,
   InfoCircleOutlined,
+  SettingOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 
 import { AppContext } from '@/contexts';
@@ -41,6 +44,9 @@ import {
   type ToolWithBinding,
   type ToolBindingType,
 } from '@/client/api/tools/management';
+import { AgentAuthorizationConfig } from '@/components/config/AgentAuthorizationConfig';
+import type { AuthorizationConfig } from '@/types/authorization';
+import { AuthorizationMode, LLMJudgmentPolicy } from '@/types/authorization';
 
 const { Panel } = Collapse;
 
@@ -75,15 +81,13 @@ const RISK_COLORS: Record<string, string> = {
 
 export default function TabToolsManagement() {
   const { t } = useTranslation();
-  const { appInfo } = useContext(AppContext);
+  const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
   const [togglingTools, setTogglingTools] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
 
-  // 获取应用代码和Agent名称
   const appCode = appInfo?.app_code;
   const agentName = useMemo(() => {
-    // 从 appInfo 中获取第一个 Agent 的名称，或者使用默认值
     const firstAgent = appInfo?.details?.[0];
     return firstAgent?.agent_name || 'default';
   }, [appInfo]);
@@ -97,9 +101,7 @@ export default function TabToolsManagement() {
         agent_name: agentName,
         lang: t('language') || 'zh',
       });
-      // Axios 响应结构: { data: { success, data, err_code, err_msg } }
       if (res.data?.success) {
-        // 默认展开所有分组
         setExpandedGroups(res.data.data.map((g) => g.group_id));
         return res.data.data;
       }
@@ -110,6 +112,18 @@ export default function TabToolsManagement() {
       ready: !!appCode,
     }
   );
+
+  // 可用工具列表
+  const availableTools = useMemo(() => {
+    if (!toolGroupsData) return [];
+    const toolNames = new Set<string>();
+    toolGroupsData.forEach((group) => {
+      group.tools.forEach((tool) => {
+        toolNames.add(tool.name);
+      });
+    });
+    return Array.from(toolNames);
+  }, [toolGroupsData]);
 
   // 过滤工具
   const filteredGroups = useMemo(() => {
@@ -391,6 +405,44 @@ export default function TabToolsManagement() {
             )
           )}
         </Spin>
+      </div>
+
+      {/* 授权配置区域 */}
+      <div className="border-t border-gray-100 bg-gray-50/50">
+        <Collapse ghost>
+          <Panel
+            header={
+              <div className="flex items-center gap-2">
+                <LockOutlined className="text-blue-500" />
+                <span className="font-medium text-gray-700">
+                  {t('builder_authorization_config') || '授权配置'}
+                </span>
+                <Tooltip title={t('builder_authorization_config_tip') || '配置工具的授权策略和权限管理'}>
+                  <InfoCircleOutlined className="text-gray-400 text-sm" />
+                </Tooltip>
+              </div>
+            }
+            key="authorization"
+            className="bg-transparent"
+          >
+            <div className="bg-white rounded-lg border border-gray-100 p-4">
+              <AgentAuthorizationConfig
+                value={appInfo?.authorization_config as AuthorizationConfig}
+                onChange={(config) => {
+                  const updatedApp = {
+                    ...appInfo,
+                    authorization_config: config,
+                  };
+                  if (typeof fetchUpdateApp === 'function') {
+                    fetchUpdateApp(updatedApp);
+                  }
+                }}
+                availableTools={availableTools}
+                showAdvanced={true}
+              />
+            </div>
+          </Panel>
+        </Collapse>
       </div>
     </div>
   );

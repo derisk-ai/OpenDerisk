@@ -1,30 +1,51 @@
 'use client';
 import { getResourceV2, getAppList, apiInterceptors } from '@/client/api';
 import { AppContext } from '@/contexts';
-import { CheckCircleFilled, SearchOutlined, UsergroupAddOutlined, PlusOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, SearchOutlined, UsergroupAddOutlined, PlusOutlined, ReloadOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Input, Spin, Tag, Tooltip } from 'antd';
+import { Input, Spin, Tag, Tooltip, Modal, InputNumber, Checkbox, Button, Collapse } from 'antd';
 import Image from 'next/image';
 import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 type AgentSource = 'all' | 'built-in' | 'custom';
 
+interface SubagentDistributedConfig {
+  max_instances?: number;
+  timeout?: number;
+  retry_count?: number;
+  interactive?: boolean;
+}
+
+interface ResourceAgent {
+  type: string;
+  name: string;
+  value: string;
+  distributed_config?: SubagentDistributedConfig;
+}
+
+const DEFAULT_DISTRIBUTED_CONFIG: SubagentDistributedConfig = {
+  max_instances: 5,
+  timeout: 300,
+  retry_count: 3,
+  interactive: false,
+};
+
 export default function TabAgents() {
   const { t } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
   const [activeSource, setActiveSource] = useState<AgentSource>('all');
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configuringAgent, setConfiguringAgent] = useState<string | null>(null);
+  const [tempConfig, setTempConfig] = useState<SubagentDistributedConfig>(DEFAULT_DISTRIBUTED_CONFIG);
 
-  // Fetch built-in agents from resource API
   const { data: agentData, loading: loadingBuiltIn, refresh: refreshBuiltIn } = useRequest(async () => await getResourceV2({ type: 'app' }));
 
-  // Fetch user-created agents from app list API
   const { data: appListData, loading: loadingAppList, refresh: refreshAppList } = useRequest(
     async () => await apiInterceptors(getAppList({ page: 1, page_size: 200 })),
   );
 
-  // Extract built-in agents (filter by param_name === 'app_code')
   const builtInAgents = useMemo(() => {
     const agents: any[] = [];
     agentData?.data?.data?.forEach((group: any) => {
@@ -37,7 +58,6 @@ export default function TabAgents() {
     return agents;
   }, [agentData]);
 
-  // Extract user-created agents from app list, excluding current agent and already in built-in
   const customAgents = useMemo(() => {
     const [, res] = appListData || [];
     const appList = res?.app_list || [];
@@ -54,7 +74,6 @@ export default function TabAgents() {
       }));
   }, [appListData, appInfo?.app_code, builtInAgents]);
 
-  // Combine agents based on active filter
   const allAgents = useMemo(() => {
     switch (activeSource) {
       case 'built-in':
@@ -66,54 +85,94 @@ export default function TabAgents() {
     }
   }, [builtInAgents, customAgents, activeSource]);
 
-  // Get currently enabled agent keys
-  const enabledAgentKeys = useMemo(() => {
-    return (appInfo?.resource_agent || []).map((item: any) => {
-      return JSON.parse(item.value || '{}')?.key;
-    }).filter(Boolean);
+  const resourceAgents = useMemo(() => {
+    return appInfo?.resource_agent || [];
   }, [appInfo?.resource_agent]);
 
-  // Filter by search
+  const enabledAgentKeys = useMemo(() => {
+    return resourceAgents.map((item: ResourceAgent) => {
+      try {
+        return JSON.parse(item.value || '{}')?.key;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  }, [resourceAgents]);
+
+  const getAgentDistributedConfig = (agentKey: string): SubagentDistributedConfig => {
+    const agent = resourceAgents.find((item: ResourceAgent) => {
+      try {
+        return JSON.parse(item.value || '{}')?.key === agentKey;
+      } catch {
+        return false;
+      }
+    });
+    return agent?.distributed_config || DEFAULT_DISTRIBUTED_CONFIG;
+  };
+
   const filteredAgents = useMemo(() => {
     if (!searchValue) return allAgents;
     const lower = searchValue.toLowerCase();
     return allAgents.filter(a => (a.label || a.name || '').toLowerCase().includes(lower) || (a.key || '').toLowerCase().includes(lower));
   }, [allAgents, searchValue]);
 
-  // Counts
   const builtInCount = builtInAgents.length;
   const customCount = customAgents.length;
 
-  // Toggle an agent on/off
   const handleToggle = (agent: any) => {
     const key = agent.key || agent.name;
     const isEnabled = enabledAgentKeys.includes(key);
 
     if (isEnabled) {
-      // Remove
-      const updatedAgents = (appInfo.resource_agent || []).filter((item: any) => {
-        return JSON.parse(item.value || '{}')?.key !== key;
+      const updatedAgents = resourceAgents.filter((item: ResourceAgent) => {
+        try {
+          return JSON.parse(item.value || '{}')?.key !== key;
+        } catch {
+          return true;
+        }
       });
       fetchUpdateApp({ ...appInfo, resource_agent: updatedAgents });
     } else {
-      // Add
-      const newAgent = {
+      const newAgent: ResourceAgent = {
         type: 'app',
         name: agent.label || agent.name,
         value: JSON.stringify({ key: agent.key || agent.name, name: agent.label || agent.name, ...agent }),
+        distributed_config: DEFAULT_DISTRIBUTED_CONFIG,
       };
-      const existingAgents = appInfo.resource_agent || [];
-      fetchUpdateApp({ ...appInfo, resource_agent: [...existingAgents, newAgent] });
+      fetchUpdateApp({ ...appInfo, resource_agent: [...resourceAgents, newAgent] });
     }
   };
 
-  // Refresh all data
+  const handleOpenConfig = (agentKey: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfiguringAgent(agentKey);
+    setTempConfig(getAgentDistributedConfig(agentKey));
+    setConfigModalOpen(true);
+  };
+
+  const handleSaveConfig = () => {
+    if (!configuringAgent) return;
+    
+    const updatedAgents = resourceAgents.map((item: ResourceAgent) => {
+      try {
+        const parsed = JSON.parse(item.value || '{}');
+        if (parsed.key === configuringAgent) {
+          return { ...item, distributed_config: tempConfig };
+        }
+      } catch {}
+      return item;
+    });
+    
+    fetchUpdateApp({ ...appInfo, resource_agent: updatedAgents });
+    setConfigModalOpen(false);
+    setConfiguringAgent(null);
+  };
+
   const handleRefresh = () => {
     refreshBuiltIn();
     refreshAppList();
   };
 
-  // Navigate to create a new agent in a new tab
   const handleCreateAgent = () => {
     window.open('/application/app', '_blank');
   };
@@ -122,7 +181,6 @@ export default function TabAgents() {
 
   return (
     <div className="flex-1 overflow-hidden flex flex-col h-full">
-      {/* Search + Actions bar */}
       <div className="px-5 py-3 border-b border-gray-100/40 flex items-center gap-2">
         <Input
           prefix={<SearchOutlined className="text-gray-400" />}
@@ -149,7 +207,6 @@ export default function TabAgents() {
         </button>
       </div>
 
-      {/* Source filter tabs */}
       <div className="px-5 pt-2 pb-0 border-b border-gray-100/40">
         <div className="flex items-center gap-0">
           {([
@@ -177,7 +234,6 @@ export default function TabAgents() {
         </div>
       </div>
 
-      {/* Agent list */}
       <div className="flex-1 overflow-y-auto px-5 py-3 custom-scrollbar">
         <Spin spinning={loading}>
           {filteredAgents.length > 0 ? (
@@ -185,6 +241,7 @@ export default function TabAgents() {
               {filteredAgents.map((agent, idx) => {
                 const key = agent.key || agent.name;
                 const isEnabled = enabledAgentKeys.includes(key);
+                const distConfig = getAgentDistributedConfig(key);
                 return (
                   <div
                     key={`${key}-${idx}`}
@@ -210,6 +267,13 @@ export default function TabAgents() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[13px] font-medium text-gray-700 truncate">{agent.label || agent.name}</span>
+                          {isEnabled && (
+                            <Tooltip title={`Max: ${distConfig.max_instances}, Timeout: ${distConfig.timeout}s`}>
+                              <Tag className="text-[9px] rounded border-0 bg-blue-50 text-blue-600 px-1.5 py-0 m-0">
+                                {distConfig.max_instances} inst
+                              </Tag>
+                            </Tooltip>
+                          )}
                         </div>
                         <div className="text-[11px] text-gray-400 truncate mt-0.5">{agent.description || agent.key || '--'}</div>
                       </div>
@@ -217,9 +281,22 @@ export default function TabAgents() {
                         {agent.isBuiltIn ? 'Built-IN' : 'Custom'}
                       </Tag>
                     </div>
-                    {isEnabled && (
-                      <CheckCircleFilled className="text-emerald-500 text-base ml-2 flex-shrink-0" />
-                    )}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {isEnabled && (
+                        <Tooltip title={t('distributed_config_title', 'Distributed Config')}>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<SettingOutlined className="text-gray-400 hover:text-blue-500" />}
+                            onClick={(e) => handleOpenConfig(key, e)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          />
+                        </Tooltip>
+                      )}
+                      {isEnabled && (
+                        <CheckCircleFilled className="text-emerald-500 text-base" />
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -233,6 +310,64 @@ export default function TabAgents() {
           )}
         </Spin>
       </div>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <SettingOutlined className="text-blue-500" />
+            <span>{t('distributed_config_title', 'Distributed Config')}</span>
+          </div>
+        }
+        open={configModalOpen}
+        onCancel={() => setConfigModalOpen(false)}
+        onOk={handleSaveConfig}
+        okText={t('save', 'Save')}
+        cancelText={t('cancel', 'Cancel')}
+        width={480}
+      >
+        <div className="py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">{t('distributed_subagent_max_instances', 'Max Instances')}</label>
+              <InputNumber
+                min={1}
+                max={100}
+                value={tempConfig.max_instances}
+                onChange={(v) => setTempConfig({ ...tempConfig, max_instances: v || 5 })}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">{t('distributed_subagent_timeout', 'Timeout (s)')}</label>
+              <InputNumber
+                min={10}
+                max={3600}
+                value={tempConfig.timeout}
+                onChange={(v) => setTempConfig({ ...tempConfig, timeout: v || 300 })}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">{t('distributed_subagent_retry', 'Retry Count')}</label>
+              <InputNumber
+                min={0}
+                max={10}
+                value={tempConfig.retry_count}
+                onChange={(v) => setTempConfig({ ...tempConfig, retry_count: v || 3 })}
+                className="w-full"
+              />
+            </div>
+            <div className="flex items-end">
+              <Checkbox
+                checked={tempConfig.interactive}
+                onChange={(e) => setTempConfig({ ...tempConfig, interactive: e.target.checked })}
+              >
+                {t('distributed_subagent_interactive', 'Interactive Mode')}
+              </Checkbox>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
