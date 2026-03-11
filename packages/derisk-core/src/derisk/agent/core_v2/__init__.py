@@ -25,6 +25,19 @@ Enhanced (v3): User Interaction and Recovery System
 - RecoveryCoordinator: Interrupt recovery and Todo management
 - Full interaction protocol support
 - Checkpoint and resume capabilities
+
+Reliability Improvements (v4): Agent Loop Architecture
+- StateMachineAgent: Formal state machine pattern replacing while loops
+- SmartCheckpointManager: Adaptive checkpointing strategies
+- HierarchicalMemoryManager: Three-layer memory architecture
+- TaskOrchestrator: DAG-based task execution with compensation
+- AgentMetrics: Health monitoring and diagnostics
+
+Distributed Execution (v5): Extreme Scale Scenarios
+- DistributedTaskExecutor: Long-running tasks and 100+ subagent orchestration
+- AgentSleepManager: Main agent sleep/wakeup mechanism
+- SubagentConversationManager: Independent subagent conversations
+- StateStorage: Pluggable storage backends (Memory, File, Redis)
 """
 
 from .agent_info import (
@@ -906,6 +919,128 @@ __all__ = [
     "MemoryFileSync",
     "PromptFileManager",
     "register_project_memory_hooks",
+    # Reliability Improvements (v4) - Agent Loop Architecture
+    "AgentState",
+    "StateTransitionError",
+    "RecoverableError",
+    "FatalError",
+    "StateTransitionRecord",
+    "DefaultStateTransitionHandler",
+    "StateMachineResult",
+    "StateMachineAgent",
+    "create_state_machine_agent",
+    "CheckpointStrategy",
+    "CheckpointType",
+    "Checkpoint",
+    "CheckpointError",
+    "CheckpointNotFoundError",
+    "CheckpointCorruptedError",
+    "StateStore",
+    "FileStateStore",
+    "MemoryStateStore",
+    "RedisStateStore",
+    "CheckpointStats",
+    "SmartCheckpointManager",
+    "HierarchicalMemoryLayer",
+    "MemoryType",
+    "MemoryEntry",
+    "MemoryStats",
+    "MemoryCompressor",
+    "SimpleMemoryCompressor",
+    "HierarchicalMemoryManager",
+    "TaskPriority",
+    "OrchestratorTaskStatus",
+    "RetryPolicy",
+    "RetryConfig",
+    "OrchestratorTaskResult",
+    "Task",
+    "WorkflowResult",
+    "TaskOrchestrator",
+    "WorkflowBuilder",
+    "create_workflow",
+    "TaskError",
+    "TaskNotFoundError",
+    "DependencyNotMetError",
+    "CircularDependencyError",
+    "MaxRetriesExceededError",
+    "HealthStatus",
+    "StepMetric",
+    "StateTransitionMetric",
+    "CheckpointMetric",
+    "MemoryUsageMetric",
+    "AgentHealthReport",
+    "AgentMetrics",
+    # Reliability Integration (v4)
+    "ReliabilityConfig",
+    "ReliabilityAdapter",
+    "StateMachineAgentExecutor",
+    "make_reliable",
+    "with_state_machine",
+    # Core V1 Integration (v4)
+    "ReActMasterReliabilityMixin",
+    "ReliableGenerateReplyWrapper",
+    "StateMachineDrivenAgent",
+    "make_react_master_reliable",
+    "with_state_machine_execution",
+    # Distributed Execution (v5)
+    "StorageBackendType",
+    "StorageConfig",
+    "StateStorage",
+    "MemoryStateStorage",
+    "FileStateStorage",
+    "RedisStateStorage",
+    "StateStorageFactory",
+    "MainAgentState",
+    "SleepContext",
+    "WakeupSignal",
+    "AgentSleepManager",
+    "SubagentConversationStatus",
+    "SubagentConversation",
+    "ConversationLink",
+    "SubagentConversationManager",
+    "DistributedTaskExecutor",
+    # Agent Application (v6)
+    "SubagentBinding",
+    "AgentApplication",
+    "AgentRuntimeContext",
+    "SubagentCallRequest",
+    "SubagentCallResult",
+    "SubagentCaller",
+    "AgentApplicationRunner",
+    "create_agent_application",
+    # Database Storage (v7)
+    "DatabaseStateStorage",
+    "MySQLStateStorage",
+    "SQLiteStateStorage",
+    # Worker Process Pool (v7)
+    "WorkerStatus",
+    "WorkerTaskStatus",
+    "LoadBalanceStrategy",
+    "WorkerConfig",
+    "WorkerInfo",
+    "WorkerTask",
+    "WorkerPoolConfig",
+    "WorkerProcess",
+    "WorkerPool",
+    "create_worker_pool",
+    # Monitoring Dashboard (v7)
+    "DashboardEventType",
+    "DashboardEvent",
+    "TaskProgress",
+    "SubagentProgress",
+    "WorkerProgress",
+    "HealthAlert",
+    "MonitoringDashboard",
+    "get_dashboard",
+    "create_dashboard_routes",
+    # Interactive Subagent (v8)
+    "SessionStatus",
+    "MessageType",
+    "SessionMessage",
+    "InteractiveSessionConfig",
+    "InteractiveSubagentSession",
+    "InteractiveSessionManager",
+    "get_interactive_manager",
 ]
 
 # Enhanced Interaction System
@@ -1082,4 +1217,161 @@ from .enhanced_agent import (
     AutoCompactionManager,
     AgentBase as EnhancedAgentBase,
     ProductionAgent as EnhancedProductionAgent,
+)
+
+# Reliability Improvements (v4) - Agent Loop Architecture
+from .state_machine import (
+    AgentState,
+    StateTransitionError,
+    RecoverableError,
+    FatalError,
+    StateTransitionRecord,
+    DefaultStateTransitionHandler,
+    StateMachineResult,
+    StateMachineAgent,
+    create_state_machine_agent,
+)
+
+from .smart_checkpoint import (
+    CheckpointStrategy,
+    CheckpointType,
+    Checkpoint,
+    CheckpointError,
+    CheckpointNotFoundError,
+    CheckpointCorruptedError,
+    StateStore,
+    FileStateStore,
+    MemoryStateStore,
+    RedisStateStore,
+    CheckpointStats,
+    SmartCheckpointManager,
+)
+
+from .hierarchical_memory import (
+    MemoryLayer as HierarchicalMemoryLayer,
+    MemoryType,
+    MemoryEntry,
+    MemoryStats,
+    MemoryCompressor,
+    SimpleMemoryCompressor,
+    HierarchicalMemoryManager,
+)
+
+from .task_orchestrator import (
+    TaskPriority,
+    TaskStatus as OrchestratorTaskStatus,
+    RetryPolicy,
+    RetryConfig,
+    TaskResult as OrchestratorTaskResult,
+    Task,
+    WorkflowResult,
+    TaskOrchestrator,
+    WorkflowBuilder,
+    create_workflow,
+    TaskError,
+    TaskNotFoundError,
+    DependencyNotMetError,
+    CircularDependencyError,
+    MaxRetriesExceededError,
+)
+
+from .agent_metrics import (
+    HealthStatus,
+    StepMetric,
+    StateTransitionMetric,
+    CheckpointMetric,
+    MemoryUsageMetric,
+    AgentHealthReport,
+    AgentMetrics,
+)
+
+from .reliability_adapter import (
+    ReliabilityConfig,
+    ReliabilityAdapter,
+    StateMachineAgentExecutor,
+    make_reliable,
+    with_state_machine,
+)
+
+from .reliability_integration import (
+    ReActMasterReliabilityMixin,
+    ReliableGenerateReplyWrapper,
+    StateMachineDrivenAgent,
+    make_react_master_reliable,
+    with_state_machine_execution,
+)
+
+from .distributed_execution import (
+    StorageBackendType,
+    StorageConfig,
+    StateStorage,
+    MemoryStateStorage,
+    FileStateStorage,
+    RedisStateStorage,
+    StateStorageFactory,
+    MainAgentState,
+    SleepContext,
+    WakeupSignal,
+    AgentSleepManager,
+    SubagentConversationStatus,
+    SubagentConversation,
+    ConversationLink,
+    SubagentConversationManager,
+    DistributedTaskExecutor,
+)
+
+from .agent_application import (
+    SubagentBinding,
+    AgentApplication,
+    AgentRuntimeContext,
+    SubagentCallRequest,
+    SubagentCallResult,
+    SubagentCaller,
+    AgentApplicationRunner,
+    create_agent_application,
+)
+
+# Database Storage (v7)
+from .database_storage import (
+    DatabaseStateStorage,
+    MySQLStateStorage,
+    SQLiteStateStorage,
+)
+
+# Worker Process Pool (v7)
+from .worker_pool import (
+    WorkerStatus,
+    TaskStatus as WorkerTaskStatus,
+    LoadBalanceStrategy,
+    WorkerConfig,
+    WorkerInfo,
+    WorkerTask,
+    WorkerPoolConfig,
+    WorkerProcess,
+    WorkerPool,
+    create_worker_pool,
+)
+
+# Monitoring Dashboard (v7)
+from .monitoring_dashboard import (
+    DashboardEventType,
+    DashboardEvent,
+    TaskProgress,
+    SubagentProgress,
+    WorkerProgress,
+    HealthAlert,
+    MonitoringDashboard,
+    get_dashboard,
+    create_dashboard_routes,
+)
+
+# Interactive Subagent (v8)
+from .interactive_subagent import (
+    SessionStatus,
+    MessageType,
+    SessionMessage,
+    InteractiveSessionConfig,
+    InteractiveSubagentSession,
+    InteractiveSessionManager,
+    get_interactive_manager,
 )
