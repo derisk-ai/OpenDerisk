@@ -10,12 +10,14 @@ import { useTranslation } from 'react-i18next';
 import AgentList from './components/agent-list';
 import AgentHeader from './components/agent-header';
 import TabOverview from './components/tab-overview';
+import TabDistributed from './components/tab-distributed';
 import TabPrompts from './components/tab-prompts';
 import TabSkills from './components/tab-skills';
 import TabTools from './components/tab-tools';
 import TabAgents from './components/tab-agents';
 import TabKnowledge from './components/tab-knowledge';
 import TabScenes from './components/tab-scenes';
+import TabRuntime from './components/tab-runtime';
 import ChatContent from './components/chat-content';
 import { AppstoreOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons';
 
@@ -154,6 +156,8 @@ export default function AgentBuilder() {
     switch (activeTab) {
       case 'overview':
         return <TabOverview />;
+      case 'distributed':
+        return <TabDistributed />;
       case 'prompts':
         return <TabPrompts />;
       case 'tools':
@@ -166,6 +170,8 @@ export default function AgentBuilder() {
         return <TabKnowledge />;
       case 'scenes':
         return <TabScenes />;
+      case 'runtime':
+        return <TabRuntime />;
       default:
         return <TabOverview />;
     }
