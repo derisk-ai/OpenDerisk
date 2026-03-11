@@ -2625,4 +2625,349 @@ api = context.get_resource("api_client")
 3. **层次执行** - 复杂任务使用HIERARCHICAL策略
 4. **监控集成** - 使用TeamMonitor跟踪执行状态
 5. **资源绑定** - 在产品级别绑定共享资源
+
+---
+
+## 13. Agent Loop 架构可靠性改进 (v4)
+
+### 13.1 概述
+
+Core V2 引入了形式化的状态机模式和智能检查点机制，显著提升了长程任务下的可靠性：
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Reliability Improvements (v4)                        │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                    StateMachineAgent                                │ │
+│  │  - 形式化状态定义 (IDLE → THINKING → ACTING → VERIFYING → ...)     │ │
+│  │  - 有效状态转换验证                                                 │ │
+│  │  - 状态历史追踪                                                     │ │
+│  │  - 检查点友好设计                                                   │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                    SmartCheckpointManager                           │ │
+│  │  - 自适应检查点策略 (时间/步数/里程碑/自适应)                        │ │
+│  │  - 失败率动态调整                                                   │ │
+│  │  - 分布式存储支持 (Redis)                                           │ │
+│  │  - 校验和验证                                                       │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                    HierarchicalMemoryManager                        │ │
+│  │  - 三层记忆架构 (工作/情景/语义)                                     │ │
+│  │  - 自动记忆降级与压缩                                               │ │
+│  │  - 相关性检索                                                       │ │
+│  │  - Token 预算管理                                                   │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                    TaskOrchestrator                                 │ │
+│  │  - DAG 任务编排                                                     │ │
+│  │  - 依赖解析                                                         │ │
+│  │  - 重试策略 (固定/线性/指数退避)                                     │ │
+│  │  - 补偿机制                                                         │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │                    AgentMetrics                                     │ │
+│  │  - 步骤耗时追踪                                                     │ │
+│  │  - 状态转换监控                                                     │ │
+│  │  - 健康分数计算                                                     │ │
+│  │  - 问题诊断与建议                                                   │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 核心模块
+
+| 模块 | 文件 | 功能描述 |
+|------|------|----------|
+| **StateMachineAgent** | `state_machine.py` | 形式化状态机执行 |
+| **SmartCheckpointManager** | `smart_checkpoint.py` | 智能检查点管理 |
+| **HierarchicalMemoryManager** | `hierarchical_memory.py` | 分层记忆系统 |
+| **TaskOrchestrator** | `task_orchestrator.py` | DAG任务编排 |
+| **AgentMetrics** | `agent_metrics.py` | 健康监控与诊断 |
+
+### 13.3 StateMachineAgent 使用
+
+```python
+from derisk.agent.core_v2 import (
+    StateMachineAgent,
+    AgentState,
+    SmartCheckpointManager,
+    CheckpointStrategy,
+)
+
+async def think(input):
+    return await llm.generate(input)
+
+async def act(thinking):
+    return await execute_tool(thinking)
+
+async def verify(result):
+    return (True, "verified")
+
+agent = StateMachineAgent(
+    think_func=think,
+    act_func=act,
+    verify_func=verify,
+    checkpoint_manager=SmartCheckpointManager(
+        strategy=CheckpointStrategy.ADAPTIVE,
+    ),
+    max_steps=100,
+)
+
+result = await agent.execute("Analyze the system logs")
+
+if not result.success:
+    checkpoint_id = result.checkpoint_id
+    await agent.restore_from_checkpoint(checkpoint_id)
+```
+
+### 13.4 状态定义与转换
+
+```
+IDLE ─────────────► INITIALIZING
+                           │
+                           ▼
+                       THINKING ◄────────────┐
+                           │                 │
+                           ▼                 │
+                        ACTING               │
+                           │                 │
+                           ▼                 │
+                       VERIFYING ────────────┘
+                           │
+                    ┌──────┴──────┐
+                    ▼             ▼
+               COMPLETED       COMPACTING
+                                   │
+                                   ▼
+                              THINKING
+
+特殊状态:
+- PAUSED: 暂停执行
+- RECOVERING: 从检查点恢复
+- FAILED: 失败终止
+```
+
+### 13.5 SmartCheckpointManager 使用
+
+```python
+from derisk.agent.core_v2 import (
+    SmartCheckpointManager,
+    CheckpointStrategy,
+    RedisStateStore,
+)
+
+manager = SmartCheckpointManager(
+    strategy=CheckpointStrategy.ADAPTIVE,
+    checkpoint_store=RedisStateStore(
+        redis_url="redis://localhost:6379/0",
+    ),
+    checkpoint_interval=10,
+    max_checkpoints=20,
+)
+
+if await manager.should_checkpoint(step, state, context):
+    checkpoint = await manager.create_checkpoint(
+        execution_id="exec-1",
+        checkpoint_type=CheckpointType.AUTOMATIC,
+        state=current_state,
+        step_index=step,
+    )
+
+restored = await manager.restore_checkpoint(checkpoint_id)
+```
+
+### 13.6 HierarchicalMemoryManager 使用
+
+```python
+from derisk.agent.core_v2 import (
+    HierarchicalMemoryManager,
+    MemoryLayer,
+    MemoryType,
+)
+
+manager = HierarchicalMemoryManager(
+    working_memory_tokens=8000,
+    episodic_memory_tokens=32000,
+    semantic_memory_tokens=128000,
+)
+
+await manager.add_memory(
+    content="User requested log analysis",
+    memory_type=MemoryType.CONVERSATION,
+    importance=0.8,
+    layer=MemoryLayer.WORKING,
+)
+
+relevant = await manager.retrieve_relevant(
+    query="log analysis",
+    max_tokens=4000,
+)
+
+usage = manager.get_layer_usage()
+```
+
+### 13.7 TaskOrchestrator 使用
+
+```python
+from derisk.agent.core_v2 import (
+    TaskOrchestrator,
+    Task,
+    RetryConfig,
+    RetryPolicy,
+    TaskPriority,
+)
+
+orchestrator = TaskOrchestrator(max_concurrent=5)
+
+orchestrator.add_task(Task(
+    task_id="fetch",
+    name="Fetch Data",
+    execute_func=fetch_data,
+    priority=TaskPriority.HIGH,
+))
+
+orchestrator.add_task(Task(
+    task_id="process",
+    name="Process Data",
+    execute_func=process_data,
+    dependencies=["fetch"],
+    retry_config=RetryConfig(
+        policy=RetryPolicy.EXPONENTIAL,
+        max_retries=3,
+    ),
+    compensation_handler=rollback_changes,
+))
+
+result = await orchestrator.execute()
+```
+
+### 13.8 AgentMetrics 使用
+
+```python
+from derisk.agent.core_v2 import AgentMetrics, HealthStatus
+
+metrics = AgentMetrics()
+
+metrics.record_step(
+    step_index=0,
+    state="THINKING",
+    duration_ms=150.5,
+    success=True,
+    tokens_used=100,
+)
+
+metrics.record_transition(
+    from_state="THINKING",
+    to_state="ACTING",
+    duration_ms=10.5,
+)
+
+health_score = metrics.calculate_health_score()
+health_status = metrics.get_health_status(health_score)
+
+report = metrics.get_health_report()
+print(f"Health: {report.health_score} - {report.health_status.value}")
+print(f"Issues: {report.issues}")
+print(f"Recommendations: {report.recommendations}")
+```
+
+### 13.9 与 Core V1/V2 对比
+
+| 特性 | Core V1 | Core V2 (v3) | Core V2 (v4) |
+|------|---------|--------------|---------------|
+| **执行模式** | while 循环 | while 循环 + Harness | 形式化状态机 |
+| **状态管理** | ExecutionStatus | ExecutionState | AgentState + 转换验证 |
+| **检查点** | 基础 | CheckpointManager | SmartCheckpointManager |
+| **检查点策略** | 固定步数 | 固定步数 | 自适应 (4种策略) |
+| **记忆系统** | 扁平 | 压缩 | 三层分层 |
+| **任务编排** | 无 | 无 | DAG + 补偿 |
+| **健康监控** | 无 | 基础统计 | 完整健康报告 |
+| **分布式支持** | 无 | 无 | Redis 状态存储 |
+
+### 13.10 最佳实践
+
+1. **使用状态机模式** - 替代简单的 while 循环
+2. **配置自适应检查点** - 根据失败率动态调整
+3. **启用分层记忆** - 防止上下文爆炸
+4. **定义补偿处理器** - 确保任务失败可回滚
+5. **监控健康分数** - 及时发现问题
+
+### 13.11 现有 Agent 集成
+
+#### Core V1 Agent 集成 (ReActMasterAgent)
+
+```python
+from derisk.agent.expand.react_master_agent import ReActMasterAgent
+from derisk.agent.core_v2 import make_reliable, with_state_machine
+
+# 方式 1: 简单包装
+agent = ReActMasterAgent()
+reliable = make_reliable(agent)
+result = await reliable.run("分析日志")
+
+# 方式 2: 完整状态机模式
+agent = ReActMasterAgent()
+executor = with_state_machine(agent)
+result = await executor.execute("分析日志")
+print(f"健康分数: {executor.get_health_score()}")
+```
+
+#### Core V2 Agent 集成 (ReActReasoningAgent)
+
+```python
+from derisk.agent.core_v2 import ReActReasoningAgent, make_reliable
+
+agent = ReActReasoningAgent.create(name="analyst")
+reliable = make_reliable(agent)
+result = await reliable.run("分析代码库")
+```
+
+#### 产品层集成
+
+```python
+from derisk.agent.core_v2 import (
+    ReliableConversationService,
+    CheckpointStrategy,
+    RedisStateStore,
+)
+
+# 创建服务
+service = ReliableConversationService(redis_url="redis://localhost:6379/0")
+
+# 创建会话
+session_id = await service.create_session("session-001")
+
+# 对话
+result = await service.chat(session_id, "分析日志")
+
+# 暂停/恢复
+checkpoint_id = await service.pause_session(session_id)
+await service.resume_session(session_id)
+```
+
+#### 检查点恢复
+
+```python
+# 保存检查点
+checkpoint_id = await reliable.save_checkpoint("任务中断点")
+
+# 从检查点恢复
+result = await reliable.run("继续执行", resume_checkpoint=checkpoint_id)
+```
+
+---
+
+**文档版本**: v2.4  
+**最后更新**: 2026-03-09  
+**参考资料**: 
+- DERISK Core V1 架构文档
+- OpenCode/OpenClaw 设计模式
+- Agent Capability Framework 设计
+- Agent Loop 可靠性改进分析报告
 - Shared Infrastructure 设计文档
