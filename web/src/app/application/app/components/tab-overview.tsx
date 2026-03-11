@@ -38,12 +38,9 @@ const layoutConfigValueChangeList = [
 ];
 
 const V2_AGENT_ICONS: Record<string, string> = {
+  react_reasoning: '🧠',
+  coding: '💻',
   simple_chat: '💬',
-  planner: '📋',
-  code_assistant: '💻',
-  data_analyst: '📊',
-  researcher: '🔍',
-  writer: '✍️',
 };
 
 export default function TabOverview() {

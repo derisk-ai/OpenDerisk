@@ -10,41 +10,28 @@ const { Title, Text } = Typography;
 
 const AGENT_OPTIONS = [
   { 
+    value: 'react_reasoning', 
+    label: '智能推理Agent（推荐）', 
+    description: '通用智能Agent，支持复杂任务推理、末日循环检测',
+    type: 'basic',
+    recommended: true
+  },
+  { 
+    value: 'coding', 
+    label: '编程开发Agent', 
+    description: '专注代码开发，支持代码库探索、智能定位',
+    type: 'basic'
+  },
+  { 
     value: 'simple_chat', 
-    label: 'Simple Chat Agent', 
-    description: 'Basic conversation agent',
+    label: '简单对话Agent', 
+    description: '基础对话Agent，无工具调用',
     type: 'basic'
-  },
-  { 
-    value: 'tool_agent', 
-    label: 'Tool Agent', 
-    description: 'Agent with bash tool support',
-    type: 'basic'
-  },
-  { 
-    value: 'pdca_agent', 
-    label: 'PDCA Agent', 
-    description: 'Planning and execution agent',
-    type: 'basic'
-  },
-  { 
-    value: 'sre_diagnostic', 
-    label: 'SRE Diagnostic Agent', 
-    description: 'System reliability engineering diagnostic agent with scene awareness',
-    type: 'scene_aware',
-    scenes: ['fault_diagnosis', 'performance_analysis', 'capacity_planning', 'incident_response']
-  },
-  { 
-    value: 'code_assistant', 
-    label: 'Code Assistant Agent', 
-    description: 'Code writing and review assistant with scene awareness',
-    type: 'scene_aware',
-    scenes: ['code_writing', 'code_review', 'code_refactoring', 'code_documentation']
   },
 ];
 
 export default function V2AgentPage() {
-  const [selectedAgent, setSelectedAgent] = useState('simple_chat');
+  const [selectedAgent, setSelectedAgent] = useState('react_reasoning');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [availableScenes, setAvailableScenes] = useState<SceneDefinition[]>([]);
