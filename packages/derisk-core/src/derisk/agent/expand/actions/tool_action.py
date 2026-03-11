@@ -757,28 +757,16 @@ class ToolAction(Action[ToolInput]):
                 # Filter arguments based on tool definition to avoid passing
                 # unexpected parameters that cause validation errors
                 # (especially for MCP tools with strict Pydantic validation)
-                # Build context with sandbox_manager for sandbox tools
-                tool_context = None
-                if (
-                    agent
-                    and hasattr(agent, "sandbox_manager")
-                    and agent.sandbox_manager
-                ):
-                    tool_context = {"sandbox_manager": agent.sandbox_manager}
-
                 if hasattr(tool_info, "args") and tool_info.args:
                     # Get valid parameter names from tool definition
                     valid_keys = set(tool_info.args.keys())
 
                     # Preserve special parameters that tools may need
+                    # - 'context': Used by some tools for additional context (sandbox_manager, etc.)
                     # - 'client': Used by sandbox tools
-                    # - 'context': Only add if tool explicitly accepts it
-                    special_params = {"client"}
+                    # Note: 'agent_file_system' is handled separately in run() for system tools only
+                    special_params = {"context", "client"}
                     valid_keys.update(special_params)
-
-                    # Only add 'context' to valid_keys if the tool accepts it
-                    if "context" in tool_info.args:
-                        valid_keys.add("context")
 
                     # Log filtering if any parameters will be removed
                     original_keys = set(arguments.keys())
@@ -792,21 +780,21 @@ class ToolAction(Action[ToolInput]):
                     # Filter to only include valid parameters
                     arguments = {k: v for k, v in arguments.items() if k in valid_keys}
 
-                # Execute tool - only pass context if tool accepts it
+                # Build context with sandbox_manager for sandbox tools
+                tool_context = None
+                if (
+                    agent
+                    and hasattr(agent, "sandbox_manager")
+                    and agent.sandbox_manager
+                ):
+                    tool_context = {"sandbox_manager": agent.sandbox_manager}
+
                 if tool_info.is_async:
-                    if tool_context and "context" in tool_info.args:
-                        raw_content = await tool_info.async_execute(
-                            **arguments, context=tool_context
-                        )
-                    else:
-                        raw_content = await tool_info.async_execute(**arguments)
+                    raw_content = await tool_info.async_execute(
+                        **arguments, context=tool_context
+                    )
                 else:
-                    if tool_context and "context" in tool_info.args:
-                        raw_content = tool_info.execute(
-                            **arguments, context=tool_context
-                        )
-                    else:
-                        raw_content = tool_info.execute(**arguments)
+                    raw_content = tool_info.execute(**arguments, context=tool_context)
 
                 normalized_content, is_success, error_msg = self._normalize_content(
                     raw_content
