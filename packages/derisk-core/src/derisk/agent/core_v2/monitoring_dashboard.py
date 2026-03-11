@@ -760,7 +760,7 @@ def create_dashboard_routes(dashboard: MonitoringDashboard = None):
         return await dashboard.get_stats()
 
     @router.get("/dashboard")
-    async def get_dashboard():
+    async def get_dashboard_data_route():
         """获取仪表盘数据"""
         return await dashboard.get_dashboard_data()
 

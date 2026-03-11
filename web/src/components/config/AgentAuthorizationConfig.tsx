@@ -1,17 +1,7 @@
-/**
- * AgentAuthorizationConfig - Authorization Configuration Panel
- *
- * Provides UI for configuring authorization settings for agents:
- * - Authorization mode selection (strict, moderate, permissive, unrestricted)
- * - LLM judgment policy configuration
- * - Tool whitelist/blacklist management
- * - Permission rule management
- * - Session cache settings
- */
-
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Card,
   Form,
@@ -23,7 +13,6 @@ import {
   Space,
   Tag,
   Table,
-  Modal,
   Tooltip,
   Typography,
   Divider,
@@ -35,7 +24,6 @@ import {
 import {
   PlusOutlined,
   DeleteOutlined,
-  EditOutlined,
   LockOutlined,
   UnlockOutlined,
   SafetyOutlined,
@@ -44,13 +32,11 @@ import {
   SettingOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import type {
   AuthorizationConfig,
   AuthorizationMode,
   LLMJudgmentPolicy,
-  PermissionRule,
   PermissionAction,
 } from '@/types/authorization';
 import {
@@ -62,88 +48,17 @@ import {
   UNRESTRICTED_CONFIG,
 } from '@/types/authorization';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 const { Panel } = Collapse;
 
-// ========== Types ==========
-
 export interface AgentAuthorizationConfigProps {
-  /** Current configuration */
   value?: AuthorizationConfig;
-  /** Callback when configuration changes */
   onChange?: (config: AuthorizationConfig) => void;
-  /** Whether the form is disabled */
   disabled?: boolean;
-  /** Available tools for whitelist/blacklist selection */
   availableTools?: string[];
-  /** Show advanced options */
   showAdvanced?: boolean;
 }
-
-// ========== Constants ==========
-
-const MODE_OPTIONS = [
-  {
-    value: AuthModeEnum.STRICT,
-    label: 'Strict',
-    description: 'Follow tool definitions strictly. All risk operations require authorization.',
-    icon: <LockOutlined />,
-    color: 'error',
-  },
-  {
-    value: AuthModeEnum.MODERATE,
-    label: 'Moderate',
-    description: 'Balance between security and convenience. Medium risk and above require authorization.',
-    icon: <SafetyOutlined />,
-    color: 'warning',
-  },
-  {
-    value: AuthModeEnum.PERMISSIVE,
-    label: 'Permissive',
-    description: 'Default allow most operations. Only high risk operations require authorization.',
-    icon: <UnlockOutlined />,
-    color: 'success',
-  },
-  {
-    value: AuthModeEnum.UNRESTRICTED,
-    label: 'Unrestricted',
-    description: 'Skip all authorization checks. Use with caution!',
-    icon: <WarningOutlined />,
-    color: 'default',
-  },
-];
-
-const LLM_POLICY_OPTIONS = [
-  {
-    value: LLMPolicyEnum.DISABLED,
-    label: 'Disabled',
-    description: 'No LLM judgment. Use rule-based authorization only.',
-  },
-  {
-    value: LLMPolicyEnum.CONSERVATIVE,
-    label: 'Conservative',
-    description: 'LLM tends to request user confirmation when uncertain.',
-  },
-  {
-    value: LLMPolicyEnum.BALANCED,
-    label: 'Balanced',
-    description: 'LLM makes neutral judgment based on context.',
-  },
-  {
-    value: LLMPolicyEnum.AGGRESSIVE,
-    label: 'Aggressive',
-    description: 'LLM tends to allow operations when reasonably safe.',
-  },
-];
-
-const ACTION_OPTIONS = [
-  { value: PermActionEnum.ALLOW, label: 'Allow', color: 'success' },
-  { value: PermActionEnum.DENY, label: 'Deny', color: 'error' },
-  { value: PermActionEnum.ASK, label: 'Ask', color: 'warning' },
-];
-
-// ========== Default Config ==========
 
 const DEFAULT_CONFIG: AuthorizationConfig = {
   mode: AuthModeEnum.STRICT,
@@ -156,23 +71,20 @@ const DEFAULT_CONFIG: AuthorizationConfig = {
   authorization_timeout: 300,
 };
 
-// ========== Sub-Components ==========
-
-/**
- * Tool List Input Component
- */
 function ToolListInput({
   value = [],
   onChange,
   availableTools = [],
   placeholder,
   disabled,
+  t,
 }: {
   value?: string[];
   onChange?: (tools: string[]) => void;
   availableTools?: string[];
   placeholder?: string;
   disabled?: boolean;
+  t: (key: string, fallback?: string) => string;
 }) {
   const [inputValue, setInputValue] = useState('');
 
@@ -217,7 +129,7 @@ function ToolListInput({
               ))}
           </Select>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            Add
+            {t('auth_add', '添加')}
           </Button>
         </Space.Compact>
       )}
@@ -225,19 +137,18 @@ function ToolListInput({
   );
 }
 
-/**
- * Tool Override Editor Component
- */
 function ToolOverrideEditor({
   value = {},
   onChange,
   availableTools = [],
   disabled,
+  t,
 }: {
   value?: Record<string, PermissionAction>;
   onChange?: (overrides: Record<string, PermissionAction>) => void;
   availableTools?: string[];
   disabled?: boolean;
+  t: (key: string, fallback?: string) => string;
 }) {
   const [newTool, setNewTool] = useState('');
   const [newAction, setNewAction] = useState<PermissionAction>(PermActionEnum.ASK);
@@ -261,14 +172,20 @@ function ToolOverrideEditor({
     onChange?.({ ...value, [tool]: action });
   }, [value, onChange]);
 
+  const ACTION_OPTIONS = [
+    { value: PermActionEnum.ALLOW, label: t('auth_action_allow', '允许'), color: 'success' },
+    { value: PermActionEnum.DENY, label: t('auth_action_deny', '拒绝'), color: 'error' },
+    { value: PermActionEnum.ASK, label: t('auth_action_ask', '询问'), color: 'warning' },
+  ];
+
   const columns = [
     {
-      title: 'Tool',
+      title: t('auth_tool', '工具'),
       dataIndex: 'tool',
       key: 'tool',
     },
     {
-      title: 'Action',
+      title: t('auth_action', '动作'),
       dataIndex: 'action',
       key: 'action',
       render: (action: PermissionAction, record: { tool: string }) => (
@@ -287,7 +204,7 @@ function ToolOverrideEditor({
       ),
     },
     {
-      title: 'Actions',
+      title: t('Operation', '操作'),
       key: 'actions',
       width: 80,
       render: (_: any, record: { tool: string }) => (
@@ -321,7 +238,7 @@ function ToolOverrideEditor({
         <Space.Compact style={{ width: '100%' }}>
           <Select
             style={{ flex: 1 }}
-            placeholder="Select tool"
+            placeholder={t('auth_select_tool', '选择工具')}
             value={newTool || undefined}
             onChange={setNewTool}
             showSearch
@@ -343,15 +260,13 @@ function ToolOverrideEditor({
             ))}
           </Select>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            Add
+            {t('auth_add', '添加')}
           </Button>
         </Space.Compact>
       )}
     </div>
   );
 }
-
-// ========== Main Component ==========
 
 export function AgentAuthorizationConfig({
   value,
@@ -360,6 +275,7 @@ export function AgentAuthorizationConfig({
   availableTools = [],
   showAdvanced = true,
 }: AgentAuthorizationConfigProps) {
+  const { t } = useTranslation();
   const config = value ?? DEFAULT_CONFIG;
 
   const handleChange = useCallback((field: keyof AuthorizationConfig, fieldValue: any) => {
@@ -383,21 +299,74 @@ export function AgentAuthorizationConfig({
     }
   }, [onChange]);
 
+  const MODE_OPTIONS = [
+    {
+      value: AuthModeEnum.STRICT,
+      label: t('auth_mode_strict', '严格'),
+      description: t('auth_mode_strict_desc', '严格遵循工具定义，所有风险操作都需要授权'),
+      icon: <LockOutlined />,
+      color: 'error',
+    },
+    {
+      value: AuthModeEnum.MODERATE,
+      label: t('auth_mode_moderate', '适度'),
+      description: t('auth_mode_moderate_desc', '安全与便利平衡，中风险及以上需要授权'),
+      icon: <SafetyOutlined />,
+      color: 'warning',
+    },
+    {
+      value: AuthModeEnum.PERMISSIVE,
+      label: t('auth_mode_permissive', '宽松'),
+      description: t('auth_mode_permissive_desc', '默认允许大多数操作，仅高风险需要授权'),
+      icon: <UnlockOutlined />,
+      color: 'success',
+    },
+    {
+      value: AuthModeEnum.UNRESTRICTED,
+      label: t('auth_mode_unrestricted', '无限制'),
+      description: t('auth_mode_unrestricted_desc', '跳过所有授权检查，请谨慎使用！'),
+      icon: <WarningOutlined />,
+      color: 'default',
+    },
+  ];
+
+  const LLM_POLICY_OPTIONS = [
+    {
+      value: LLMPolicyEnum.DISABLED,
+      label: t('auth_llm_disabled', '禁用'),
+      description: t('auth_llm_disabled_desc', '不使用LLM判断，仅基于规则授权'),
+    },
+    {
+      value: LLMPolicyEnum.CONSERVATIVE,
+      label: t('auth_llm_conservative', '保守'),
+      description: t('auth_llm_conservative_desc', 'LLM不确定时倾向于请求用户确认'),
+    },
+    {
+      value: LLMPolicyEnum.BALANCED,
+      label: t('auth_llm_balanced', '平衡'),
+      description: t('auth_llm_balanced_desc', 'LLM根据上下文做出中性判断'),
+    },
+    {
+      value: LLMPolicyEnum.AGGRESSIVE,
+      label: t('auth_llm_aggressive', '激进'),
+      description: t('auth_llm_aggressive_desc', 'LLM在合理安全时倾向于允许操作'),
+    },
+  ];
+
   const selectedMode = MODE_OPTIONS.find(m => m.value === config.mode);
 
   return (
     <div className="agent-authorization-config">
-      {/* Preset Buttons */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space>
-          <Text strong>Quick Presets:</Text>
+          <Text strong>{t('auth_quick_presets', '快速预设')}:</Text>
           <Button
             size="small"
             type={config.mode === AuthModeEnum.STRICT ? 'primary' : 'default'}
             onClick={() => handlePresetChange('strict')}
             disabled={disabled}
           >
-            Strict
+            {t('auth_mode_strict', '严格')}
           </Button>
           <Button
             size="small"
@@ -405,7 +374,7 @@ export function AgentAuthorizationConfig({
             onClick={() => handlePresetChange('permissive')}
             disabled={disabled}
           >
-            Permissive
+            {t('auth_mode_permissive', '宽松')}
           </Button>
           <Button
             size="small"
@@ -414,18 +383,17 @@ export function AgentAuthorizationConfig({
             onClick={() => handlePresetChange('unrestricted')}
             disabled={disabled}
           >
-            Unrestricted
+            {t('auth_mode_unrestricted', '无限制')}
           </Button>
         </Space>
       </Card>
 
       <Form layout="vertical" disabled={disabled}>
-        {/* Authorization Mode */}
         <Form.Item
           label={
             <Space>
               <SafetyOutlined />
-              <span>Authorization Mode</span>
+              <span>{t('auth_authorization_mode', '授权模式')}</span>
             </Space>
           }
         >
@@ -459,13 +427,12 @@ export function AgentAuthorizationConfig({
           )}
         </Form.Item>
 
-        {/* LLM Judgment Policy */}
         <Form.Item
           label={
             <Space>
               <SettingOutlined />
-              <span>LLM Judgment Policy</span>
-              <Tooltip title="Configure how LLM assists in authorization decisions">
+              <span>{t('auth_llm_policy', 'LLM判断策略')}</span>
+              <Tooltip title={t('auth_llm_policy_tip', '配置LLM如何辅助授权决策')}>
                 <InfoCircleOutlined />
               </Tooltip>
             </Space>
@@ -489,15 +456,14 @@ export function AgentAuthorizationConfig({
           </Select>
         </Form.Item>
 
-        {/* Custom LLM Prompt */}
         {config.llm_policy !== LLMPolicyEnum.DISABLED && (
           <Form.Item
-            label="Custom LLM Prompt (Optional)"
+            label={t('auth_custom_llm_prompt', '自定义LLM提示词（可选）')}
           >
             <Input.TextArea
               value={config.llm_prompt}
               onChange={(e) => handleChange('llm_prompt', e.target.value)}
-              placeholder="Enter custom prompt for LLM judgment..."
+              placeholder={t('auth_custom_llm_prompt_placeholder', '输入自定义的LLM判断提示词...')}
               rows={3}
             />
           </Form.Item>
@@ -505,15 +471,14 @@ export function AgentAuthorizationConfig({
 
         <Divider />
 
-        {/* Whitelist/Blacklist */}
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
               label={
                 <Space>
                   <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                  <span>Whitelist Tools</span>
-                  <Tooltip title="Tools that skip authorization checks">
+                  <span>{t('auth_whitelist_tools', '白名单工具')}</span>
+                  <Tooltip title={t('auth_whitelist_tip', '跳过授权检查的工具')}>
                     <InfoCircleOutlined />
                   </Tooltip>
                 </Space>
@@ -523,8 +488,9 @@ export function AgentAuthorizationConfig({
                 value={config.whitelist_tools}
                 onChange={(v) => handleChange('whitelist_tools', v)}
                 availableTools={availableTools}
-                placeholder="Select tool to whitelist"
+                placeholder={t('auth_select_whitelist', '选择白名单工具')}
                 disabled={disabled}
+                t={t}
               />
             </Form.Item>
           </Col>
@@ -533,8 +499,8 @@ export function AgentAuthorizationConfig({
               label={
                 <Space>
                   <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-                  <span>Blacklist Tools</span>
-                  <Tooltip title="Tools that are always denied">
+                  <span>{t('auth_blacklist_tools', '黑名单工具')}</span>
+                  <Tooltip title={t('auth_blacklist_tip', '始终拒绝的工具')}>
                     <InfoCircleOutlined />
                   </Tooltip>
                 </Space>
@@ -544,21 +510,21 @@ export function AgentAuthorizationConfig({
                 value={config.blacklist_tools}
                 onChange={(v) => handleChange('blacklist_tools', v)}
                 availableTools={availableTools}
-                placeholder="Select tool to blacklist"
+                placeholder={t('auth_select_blacklist', '选择黑名单工具')}
                 disabled={disabled}
+                t={t}
               />
             </Form.Item>
           </Col>
         </Row>
 
-        {/* Tool Overrides */}
         {showAdvanced && (
           <Collapse ghost style={{ marginBottom: 16 }}>
             <Panel
               header={
                 <Space>
                   <SettingOutlined />
-                  <span>Tool-Level Overrides</span>
+                  <span>{t('auth_tool_overrides', '工具级别覆盖')}</span>
                 </Space>
               }
               key="overrides"
@@ -568,6 +534,7 @@ export function AgentAuthorizationConfig({
                 onChange={(v) => handleChange('tool_overrides', v)}
                 availableTools={availableTools}
                 disabled={disabled}
+                t={t}
               />
             </Panel>
           </Collapse>
@@ -575,14 +542,13 @@ export function AgentAuthorizationConfig({
 
         <Divider />
 
-        {/* Session Cache Settings */}
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item
               label={
                 <Space>
-                  <span>Session Cache</span>
-                  <Tooltip title="Cache authorization decisions within a session">
+                  <span>{t('auth_session_cache', '会话缓存')}</span>
+                  <Tooltip title={t('auth_session_cache_tip', '在会话内缓存授权决策')}>
                     <InfoCircleOutlined />
                   </Tooltip>
                 </Space>
@@ -595,7 +561,7 @@ export function AgentAuthorizationConfig({
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="Cache TTL (seconds)">
+            <Form.Item label={t('auth_cache_ttl', '缓存TTL (秒)')}>
               <InputNumber
                 value={config.session_cache_ttl}
                 onChange={(v) => handleChange('session_cache_ttl', v ?? 3600)}
@@ -607,7 +573,7 @@ export function AgentAuthorizationConfig({
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="Authorization Timeout (seconds)">
+            <Form.Item label={t('auth_timeout', '授权超时 (秒)')}>
               <InputNumber
                 value={config.authorization_timeout}
                 onChange={(v) => handleChange('authorization_timeout', v ?? 300)}
