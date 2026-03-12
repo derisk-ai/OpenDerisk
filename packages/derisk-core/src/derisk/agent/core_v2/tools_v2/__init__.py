@@ -55,7 +55,6 @@ from derisk.agent.tools.builtin.interaction import (
     ConfirmTool,
     NotifyTool,
     ProgressTool,
-    AskHumanTool,
     FileSelectTool,
     register_interaction_tools,
 )
@@ -198,7 +197,6 @@ __all__ = [
     "ConfirmTool",
     "NotifyTool",
     "ProgressTool",
-    "AskHumanTool",
     "FileSelectTool",
     "register_interaction_tools",
     "WebFetchTool",

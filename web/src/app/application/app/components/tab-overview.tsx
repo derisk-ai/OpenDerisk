@@ -3,13 +3,13 @@ import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, 
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { useRequest } from 'ahooks';
-import { Checkbox, Form, Input, Select, Tag, Modal, Radio, Space, Typography, Card } from 'antd';
+import { Checkbox, Form, Input, Select, Tag, Modal, Radio, Space, Typography, Card, Switch, Tooltip } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatLayoutConfig from './chat-layout-config';
-import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined } from '@ant-design/icons';
+import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined, CloudServerOutlined } from '@ant-design/icons';
 
 const { Text, Paragraph } = Typography;
 
@@ -77,6 +77,8 @@ export default function TabOverview() {
 
       const currentAgentVersion = appInfo.agent_version || 'v1';
       const v2TemplateName = appInfo?.team_context?.agent_name || 'simple_chat';
+      const teamContext = appInfo?.team_context;
+      const parsedTeamContext = typeof teamContext === 'string' ? safeJsonParse(teamContext, {}) : teamContext;
       
       form.setFieldsValue({
         app_name: appInfo.app_name,
@@ -89,6 +91,7 @@ export default function TabOverview() {
         chat_layout: layout?.chat_layout?.name || '',
         chat_in_layout: chat_in_layout_list || [],
         reasoning_engine: engineItemValue?.key ?? engineItemValue?.name,
+        use_sandbox: parsedTeamContext?.use_sandbox ?? false,
         ...chat_in_layout_obj,
       });
       
@@ -257,6 +260,14 @@ export default function TabOverview() {
       }
     } else if (layoutConfigChangeList.includes(fieldName)) {
       layoutConfigChange();
+    } else if (fieldName === 'use_sandbox') {
+      const currentTeamContext = appInfo?.team_context || {};
+      const parsedContext = typeof currentTeamContext === 'string' ? safeJsonParse(currentTeamContext, {}) : currentTeamContext;
+      const newTeamContext = {
+        ...parsedContext,
+        use_sandbox: fieldValue as boolean,
+      };
+      fetchUpdateApp({ ...appInfo, team_context: newTeamContext });
     }
   };
 
@@ -387,6 +398,17 @@ export default function TabOverview() {
               <Form.Item label={t('baseinfo_llm_strategy_value')} name="llm_strategy_value" rules={[{ required: true, message: t('baseinfo_select_llm_model') }]} className="mb-0">
                 <Select mode="multiple" allowClear options={llmOptions} placeholder={t('baseinfo_select_llm_model')} className="w-full [&_.ant-select-selector]:!rounded-lg" maxTagCount="responsive"
                   maxTagPlaceholder={(omittedValues) => (<Tag className="rounded-md text-[10px] font-medium">+{omittedValues.length} ...</Tag>)} />
+              </Form.Item>
+              <Form.Item label={
+                <span className="flex items-center gap-1.5">
+                  <CloudServerOutlined className="text-violet-500" />
+                  <span>启用沙箱环境</span>
+                  <Tooltip title="启用后，Agent 将在隔离的沙箱环境中执行代码和命令，提供更安全的运行环境">
+                    <span className="text-gray-400 cursor-help text-xs">?</span>
+                  </Tooltip>
+                </span>
+              } name="use_sandbox" valuePropName="checked" className="mb-0">
+                <Switch checkedChildren="开启" unCheckedChildren="关闭" />
               </Form.Item>
             </div>
           </div>
