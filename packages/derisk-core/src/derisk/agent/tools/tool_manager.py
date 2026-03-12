@@ -126,13 +126,29 @@ class ToolManager:
     4. 内置工具默认绑定策略
     """
 
-    # 内置默认工具列表（Agent 默认就有的工具）
-    BUILTIN_REQUIRED_TOOLS: List[str] = [
-        "read",  # 文件读取
-        "bash",  # Shell执行
+    # 核心必选工具（无论有无沙箱都需要）
+    BUILTIN_CORE_TOOLS: List[str] = [
         "question",  # 询问用户
         "terminate",  # 终止会话
     ]
+
+    # 本地环境工具（无沙箱时使用，与 SANDBOX_TOOLS 互斥）
+    LOCAL_TOOLS: List[str] = [
+        "read",  # 本地文件读取
+        "bash",  # 本地 Shell 执行
+    ]
+
+    # 沙箱环境工具（有沙箱时使用，与 LOCAL_TOOLS 互斥）
+    SANDBOX_TOOLS: List[str] = [
+        "shell_exec",  # 沙箱 Shell 执行
+        "view",  # 沙箱文件查看
+        "create_file",  # 沙箱创建文件
+        "edit_file",  # 沙箱编辑文件
+        "download_file",  # 沙箱下载文件
+    ]
+
+    # 兼容旧代码的别名
+    BUILTIN_REQUIRED_TOOLS = BUILTIN_CORE_TOOLS
 
     # 可选内置工具列表（Agent 可以选择绑定的工具）
     BUILTIN_OPTIONAL_TOOLS: List[str] = [
@@ -140,11 +156,38 @@ class ToolManager:
         "edit",  # 文件编辑
         "glob",  # 文件搜索
         "grep",  # 文本搜索
+        "list_files",  # 列出文件
+        "search",  # 文件搜索
         "webfetch",  # 网页获取
         "websearch",  # 网络搜索
         "python",  # Python执行
-        "browser",  # 浏览器工具
         "skill",  # 技能调用
+        "think",  # 推理思考
+        "confirm",  # 确认
+        "notify",  # 通知
+        "progress",  # 进度
+        "file_select",  # 文件选择
+        "sandbox",  # 沙箱工具入口
+        "knowledge_search",  # 知识库搜索
+        "kanban",  # 看板工具
+        "todo",  # 待办工具
+    ]
+
+    # 浏览器工具列表（可选绑定，默认不注入）
+    BROWSER_TOOLS: List[str] = [
+        "browser",  # 浏览器工具入口
+        "browser_navigate",  # 浏览器导航
+        "browser_save_screenshot",  # 浏览器截图
+        "browser_click_element",  # 浏览器点击元素
+        "browser_input_text",  # 浏览器输入文本
+        "browser_get_dropdown_options",  # 浏览器获取下拉菜单
+        "browser_select_dropdown_option",  # 浏览器选择下拉菜单
+        "browser_mouse_wheel",  # 浏览器鼠标滚轮
+        "browser_page_content",  # 浏览器获取页面内容
+        "browser_mouse_move",  # 浏览器鼠标移动
+        "browser_hover_element",  # 浏览器鼠标悬停
+        "browser_save_image",  # 浏览器保存图片
+        "browser_open_tab",  # 浏览器打开新标签页
     ]
 
     # 系统内置动态注入工具（运行时根据条件动态注入的系统工具）
@@ -216,6 +259,7 @@ class ToolManager:
         app_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         lang: str = "zh",
+        sandbox_enabled: bool = False,
     ) -> List[ToolGroup]:
         """
         获取工具分组列表
@@ -224,6 +268,7 @@ class ToolManager:
             app_id: 应用ID（用于获取绑定状态）
             agent_name: Agent名称（用于获取绑定状态）
             lang: 语言（zh/en）
+            sandbox_enabled: 是否启用沙箱环境（影响 LOCAL_TOOLS 和 SANDBOX_TOOLS 的绑定状态）
 
         Returns:
             工具分组列表
@@ -234,7 +279,9 @@ class ToolManager:
         # 获取 Agent 的绑定配置（如果提供了 app_id 和 agent_name）
         agent_config = None
         if app_id and agent_name:
-            agent_config = self.get_agent_config(app_id, agent_name)
+            agent_config = self.get_agent_config(
+                app_id, agent_name, sandbox_enabled=sandbox_enabled
+            )
 
         # 按分组类型组织工具
         groups: Dict[ToolBindingType, List[Dict[str, Any]]] = {
@@ -336,12 +383,25 @@ class ToolManager:
         return result
 
     def _determine_tool_group(self, tool: ToolBase, tool_id: str) -> ToolBindingType:
-        """确定工具属于哪个分组"""
+        """确定工具属于哪个分组
+
+        注意：LOCAL_TOOLS 和 SANDBOX_TOOLS 在展示时都归为 BUILTIN_REQUIRED，
+        实际注入时在 _create_default_config 中根据 sandbox_enabled 参数互斥注入
+        """
         metadata = tool.metadata
 
-        # 检查是否是内置默认工具
-        if tool_id in self.BUILTIN_REQUIRED_TOOLS:
+        # 检查是否是核心必选工具
+        if tool_id in self.BUILTIN_CORE_TOOLS:
             return ToolBindingType.BUILTIN_REQUIRED
+
+        # 本地工具和沙箱工具在展示时都归为默认绑定
+        # 实际注入时根据 sandbox_enabled 参数决定注入哪一组
+        if tool_id in self.LOCAL_TOOLS or tool_id in self.SANDBOX_TOOLS:
+            return ToolBindingType.BUILTIN_REQUIRED
+
+        # 检查是否是浏览器工具 - 浏览器工具归为可选，默认不绑定
+        if tool_id in self.BROWSER_TOOLS:
+            return ToolBindingType.BUILTIN_OPTIONAL
 
         # 检查是否是可选内置工具
         if tool_id in self.BUILTIN_OPTIONAL_TOOLS:
@@ -353,13 +413,6 @@ class ToolManager:
 
         # 根据来源判断
         if metadata.source in [ToolSource.CORE, ToolSource.SYSTEM]:
-            # 核心/系统来源但不是默认或可选的，归为可选
-            # 但 sandbox 类别的工具是执行层核心工具，应默认绑定
-            category_val = metadata.category
-            if hasattr(category_val, "value"):
-                category_val = category_val.value
-            if category_val == "sandbox":
-                return ToolBindingType.BUILTIN_REQUIRED
             return ToolBindingType.BUILTIN_OPTIONAL
 
         if metadata.source in [ToolSource.MCP, ToolSource.API]:
@@ -534,7 +587,11 @@ class ToolManager:
         }
 
     def get_agent_config(
-        self, app_id: str, agent_name: str, create_if_missing: bool = True
+        self,
+        app_id: str,
+        agent_name: str,
+        create_if_missing: bool = True,
+        sandbox_enabled: bool = False,
     ) -> Optional[AgentToolConfiguration]:
         """
         获取 Agent 的工具配置
@@ -543,6 +600,7 @@ class ToolManager:
             app_id: 应用ID
             agent_name: Agent名称
             create_if_missing: 如果不存在是否创建默认配置
+            sandbox_enabled: 是否启用沙箱环境（决定注入本地工具还是沙箱工具）
 
         Returns:
             Agent 工具配置
@@ -556,20 +614,29 @@ class ToolManager:
         # TODO: 从数据库加载配置
         # 这里先创建默认配置
         if create_if_missing:
-            config = self._create_default_config(app_id, agent_name)
+            config = self._create_default_config(app_id, agent_name, sandbox_enabled)
             self._config_cache[cache_key] = config
             return config
 
         return None
 
     def _create_default_config(
-        self, app_id: str, agent_name: str
+        self, app_id: str, agent_name: str, sandbox_enabled: bool = False
     ) -> AgentToolConfiguration:
-        """创建默认的 Agent 工具配置"""
+        """
+        创建默认的 Agent 工具配置
+
+        Args:
+            app_id: 应用ID
+            agent_name: Agent名称
+            sandbox_enabled: 是否启用沙箱环境
+                - True: 注入沙箱工具 (shell_exec, view, create_file, edit_file, download_file)
+                - False: 注入本地工具 (read, bash)
+        """
         bindings: Dict[str, ToolBindingConfig] = {}
 
-        # 为内置默认工具创建绑定配置
-        for tool_id in self.BUILTIN_REQUIRED_TOOLS:
+        # 1. 核心必选工具（无论有无沙箱都需要）
+        for tool_id in self.BUILTIN_CORE_TOOLS:
             tool = tool_registry.get(tool_id)
             if tool:
                 bindings[tool_id] = ToolBindingConfig(
@@ -577,10 +644,40 @@ class ToolManager:
                     binding_type=ToolBindingType.BUILTIN_REQUIRED,
                     is_bound=True,
                     is_default=True,
-                    can_unbind=True,  # 允许反向解绑
+                    can_unbind=True,
                     disabled_at_runtime=False,
                     bound_at=datetime.now(),
                 )
+
+        # 2. 根据沙箱状态注入互斥工具
+        if sandbox_enabled:
+            # 有沙箱 → 注入沙箱工具
+            for tool_id in self.SANDBOX_TOOLS:
+                tool = tool_registry.get(tool_id)
+                if tool:
+                    bindings[tool_id] = ToolBindingConfig(
+                        tool_id=tool_id,
+                        binding_type=ToolBindingType.BUILTIN_REQUIRED,
+                        is_bound=True,
+                        is_default=True,
+                        can_unbind=True,
+                        disabled_at_runtime=False,
+                        bound_at=datetime.now(),
+                    )
+        else:
+            # 无沙箱 → 注入本地工具
+            for tool_id in self.LOCAL_TOOLS:
+                tool = tool_registry.get(tool_id)
+                if tool:
+                    bindings[tool_id] = ToolBindingConfig(
+                        tool_id=tool_id,
+                        binding_type=ToolBindingType.BUILTIN_REQUIRED,
+                        is_bound=True,
+                        is_default=True,
+                        can_unbind=True,
+                        disabled_at_runtime=False,
+                        bound_at=datetime.now(),
+                    )
 
         return AgentToolConfiguration(
             app_id=app_id,
