@@ -48,6 +48,7 @@ class SkillEntity(Model):
     repo_url = Column(Text, nullable=True, comment="git repository url")
     branch = Column(String(255), nullable=True, comment="git branch")
     commit_id = Column(String(255), nullable=True, comment="git commit id")
+    auto_sync = Column(Boolean, nullable=True, default=True, comment="whether to auto-sync this skill on startup")
 
     gmt_created = Column(DateTime, name='gmt_create', default=datetime.now, comment="Record creation time")
     gmt_modified = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="Record update time")
@@ -97,6 +98,7 @@ class SkillDao(BaseDao[SkillEntity, SkillRequest, SkillResponse]):
             repo_url=entity.repo_url,
             branch=entity.branch,
             commit_id=entity.commit_id,
+            auto_sync=entity.auto_sync,
         )
 
     def to_response(self, entity: SkillEntity) -> SkillResponse:
@@ -117,6 +119,7 @@ class SkillDao(BaseDao[SkillEntity, SkillRequest, SkillResponse]):
             repo_url=entity.repo_url,
             branch=entity.branch,
             commit_id=entity.commit_id,
+            auto_sync=entity.auto_sync,
             gmt_created=entity.gmt_created.isoformat() if entity.gmt_created else None,
             gmt_modified=entity.gmt_modified.isoformat() if entity.gmt_modified else None,
         )

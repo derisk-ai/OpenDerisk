@@ -250,12 +250,17 @@ class BaseDao(Generic[T, REQ, RES]):
                 if isinstance(update_request, dict)
                 else model_to_dict(update_request)
             )
+            logger.info(f"BaseDao.update called with data: {update_request}")
             for key, value in update_request.items():  # type: ignore
                 if force_update:
+                    logger.info(f"Setting {key} = {value} (force_update=True)")
                     setattr(entry, key, value)
                 else:
                     if value is not None:
+                        logger.info(f"Setting {key} = {value}")
                         setattr(entry, key, value)
+                    else:
+                        logger.info(f"Skipping {key} because value is None")
             session.merge(entry)
             # res = self.get_one(self.to_request(entry))
             # if not res:

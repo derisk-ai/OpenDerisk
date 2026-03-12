@@ -108,3 +108,8 @@ export const batchUploadSkillFiles = (skill_code: string, files: { file_path: st
     overwrite,
   });
 };
+
+// Update skill auto_sync setting
+export const updateSkillAutoSync = (skill_code: string, auto_sync: boolean) => {
+  return POST(`/api/v1/serve_skill_service/${skill_code}/auto_sync?auto_sync=${auto_sync}`);
+};

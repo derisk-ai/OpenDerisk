@@ -28,6 +28,7 @@ class SkillRequest(BaseModel):
     repo_url: Optional[str] = Field(None, description="git repository url")
     branch: Optional[str] = Field(None, description="git branch")
     commit_id: Optional[str] = Field(None, description="git commit id")
+    auto_sync: Optional[bool] = Field(True, description="whether to auto-sync this skill on startup")
 
     model_config = ConfigDict(
         title=f"SkillRequest for {SERVE_APP_NAME_HUMP}",
@@ -68,6 +69,7 @@ class SkillResponse(BaseModel):
     repo_url: Optional[str] = Field(None, description="git repository url")
     branch: Optional[str] = Field(None, description="git branch")
     commit_id: Optional[str] = Field(None, description="git commit id")
+    auto_sync: Optional[bool] = Field(True, description="whether to auto-sync this skill on startup")
 
     gmt_created: str = Field(..., description="ISO format creation time")
     gmt_modified: str = Field(..., description="ISO format modification time")
