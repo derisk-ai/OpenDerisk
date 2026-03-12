@@ -25,7 +25,6 @@ class AgentPlanItem(DrskVisBase):
     title: Optional[str] = Field(None, description="当前工作项标题")
     agent_name: Optional[str] = Field(None, description="当前工作项所属Agent")
     agent_avatar: Optional[str] = Field(None, description="当前工作项所属Agent logo")
-    agent_role: Optional[str] = Field(None, description="当前工作项所属Agent角色")
     description: Optional[str] = Field(None, description="当前工作项内容描述")
     task_type: Optional[str] = Field(
         None, description="当前工作项任务类型，report、tool、agent、knoledge"

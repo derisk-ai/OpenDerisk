@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-09 22:38:05
+-- Generated: 2026-03-11 09:51:58
 -- ============================================================
 
 SET NAMES utf8mb4;

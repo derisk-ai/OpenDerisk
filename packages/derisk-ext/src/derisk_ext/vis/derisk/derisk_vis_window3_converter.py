@@ -346,7 +346,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             report_content = DrskTextContent(
                 dynamic=False,
                 markdown=step_thought,
-                uid=f"{message_id}_step_thought",
+                uid=f"{message_id}_'step_thought'",
                 type=update_type,
             )
             plan_tasks_vis.append(
@@ -363,7 +363,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                         text_content = DrskTextContent(
                             dynamic=False,
                             markdown=action_out.content,
-                            uid=f"{message_id}_step_thought",
+                            uid=f"{message_id}_'step_thought'",
                             type=UpdateType.ALL.value,
                         )
                         plan_tasks_vis.append(
@@ -562,11 +562,8 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 parent_task = task_manager.get_node(parent_id)
                 parent_item = AgentPlanItem(
                     uid=parent_task.node_id,
-                    parent_uid=parent_task.parent_id,
                     type=UpdateType.INCR.value,
-                    item_type=parent_task.content.task_type
-                    if parent_task.content
-                    else AgentTaskType.PLAN.value,
+                    item_type=parent_task.content.task_type,
                     status=parent_task.state,
                     start_time=parent_task.created_at,
                     cost=parent_task.content.cost if parent_task.content else 0,
@@ -730,7 +727,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     uid=root_node.node_id,
                     parent_uid=root_node.parent_id,
                     type=UpdateType.INCR.value,
-                    item_type=AgentTaskType.PLAN.value,
                     # title="Task Board",
                     # description="Mission deliverables and status",
                     markdown=kanban_todolist_content,
@@ -1489,7 +1485,6 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             status=task_space.state,
             agent_name=agent.name if agent else None,
             agent_avatar=agent.avatar if agent else None,
-            agent_role=agent.role if agent else None,
             start_time=task_space.created_at,
             layer_count=task_space.layer_count,
             cost=task_space.content.cost if task_space.content else 0,

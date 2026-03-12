@@ -2,22 +2,19 @@
 Core_v2 适配器 - 在现有服务中集成 Core_v2
 
 架构说明：
-===========
+==========
 
 1. 统一配置模型 (UnifiedTeamContext):
    - agent_version: "v1" | "v2"  ← 选择架构版本
    - team_mode: "single_agent" | "multi_agent"  ← 工作模式
    - agent_name: 主Agent名称
      - v1: AgentManager 中预注册的 Agent
-     - v2: V2 预定义模板 (simple_chat, planner, etc.)
+     - v2: V2 预定义模板 (react_reasoning, coding, simple_chat)
 
-2. V2 Agent 模板:
-   - simple_chat: 简单对话Agent
-   - planner: 规划执行Agent (PDCA)
-   - code_assistant: 代码助手
-   - data_analyst: 数据分析师
-   - researcher: 研究助手
-   - writer: 写作助手
+2. V2 Agent 模板（简化版，仅保留核心3个）:
+   - react_reasoning: 智能推理Agent（推荐），通用场景
+   - coding: 编程开发Agent，代码专用
+   - simple_chat: 简单对话Agent，无工具调用
 
 3. API:
    - GET /api/agent/list?version=v2  获取V2可用Agent列表
@@ -32,7 +29,7 @@ Core_v2 适配器 - 在现有服务中集成 Core_v2
     "agent_version": "v2",
     "team_mode": "single_agent",
     "team_context": {
-        "agent_name": "planner",
+        "agent_name": "react_reasoning",
         "tools": ["bash", "python"]
     }
 }
@@ -211,7 +208,7 @@ class CoreV2Component(BaseComponent):
         """
 
         def create_from_template(agent_name: str, context, **kwargs):
-            """根据模板名称创建 Agent"""
+            """根据模板名称创建 Agent（简化版：仅支持核心3个）"""
             from derisk.agent.core.plan.unified_context import (
                 V2_AGENT_TEMPLATES,
                 V2AgentTemplate,
@@ -221,21 +218,17 @@ class CoreV2Component(BaseComponent):
             if template:
                 logger.info(f"[CoreV2Component] 使用模板创建 Agent: {agent_name}")
 
-                # 新增：支持三种内置Agent
+                # 内置Agent：react_reasoning 和 coding 有独立实现
                 if agent_name == "react_reasoning":
                     from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
 
                     return ReActReasoningAgent.create(name=agent_name, **kwargs)
-                elif agent_name == "file_explorer":
-                    from derisk.agent.core_v2.builtin_agents import FileExplorerAgent
-
-                    return FileExplorerAgent.create(name=agent_name, **kwargs)
                 elif agent_name == "coding":
                     from derisk.agent.core_v2.builtin_agents import CodingAgent
 
                     return CodingAgent.create(name=agent_name, **kwargs)
 
-                # 原有模板
+                # simple_chat 使用通用创建
                 return create_v2_agent(
                     name=agent_name,
                     mode=template.get("mode", "primary"),
@@ -318,17 +311,11 @@ class CoreV2Component(BaseComponent):
         self.runtime.register_agent_factory("default", fallback_factory)
         self._dynamic_agent_factory = dynamic_agent_factory
 
-        # 注册所有Agent模板工厂（包括新增的3种内置Agent）
+        # 注册所有Agent模板工厂（简化版：核心3个Agent）
         for template_name in [
-            "simple_chat",
-            "planner",
-            "code_assistant",
-            "data_analyst",
-            "researcher",
-            "writer",
             "react_reasoning",
-            "file_explorer",
             "coding",
+            "simple_chat",
         ]:
             self.runtime.register_agent_factory(
                 template_name,
@@ -337,7 +324,9 @@ class CoreV2Component(BaseComponent):
                 ),
             )
 
-        logger.info("[CoreV2Component] Agent 工厂已注册（包含3种新增内置Agent）")
+        logger.info(
+            "[CoreV2Component] Agent 工厂已注册（简化版：react_reasoning, coding, simple_chat）"
+        )
 
     async def _get_or_create_sandbox_manager(self, context, gpt_app) -> Optional[Any]:
         """
@@ -555,6 +544,11 @@ class CoreV2Component(BaseComponent):
 
         model_provider = await self._build_model_provider(gpt_app)
 
+        # 获取运行时配置
+        runtime_config = getattr(gpt_app, "runtime_config", None)
+        if runtime_config:
+            logger.info(f"[CoreV2Component] 加载运行时配置: {runtime_config}")
+
         # 获取或创建沙箱管理器（同一会话内共享）
         sandbox_manager = await self._get_or_create_sandbox_manager(context, gpt_app)
 
@@ -628,49 +622,55 @@ class CoreV2Component(BaseComponent):
                 name=agent_name,
                 model=model_name,
                 api_key=None,  # 不传api_key，让Agent使用默认配置
-                max_steps=30,
+                max_steps=runtime_config.get("loop", {}).get("max_iterations", 30)
+                if runtime_config
+                else 30,
                 sandbox_manager=sandbox_manager,  # 传递沙箱管理器
-                enable_doom_loop_detection=True,
-                enable_output_truncation=True,
-                enable_context_compaction=True,
-                enable_history_pruning=True,
+                enable_doom_loop_detection=runtime_config.get("doom_loop", {}).get(
+                    "enabled", True
+                )
+                if runtime_config
+                else True,
+                doom_loop_threshold=runtime_config.get("doom_loop", {}).get(
+                    "threshold", 3
+                )
+                if runtime_config
+                else 3,
+                enable_output_truncation=runtime_config.get(
+                    "work_log_compression", {}
+                ).get("enabled", True)
+                if runtime_config
+                else True,
+                enable_context_compaction=runtime_config.get(
+                    "work_log_compression", {}
+                ).get("enabled", True)
+                if runtime_config
+                else True,
+                enable_history_pruning=runtime_config.get("work_log_compression", {})
+                .get("pruning", {})
+                .get("enable_adaptive_pruning", True)
+                if runtime_config
+                else True,
+                max_output_lines=runtime_config.get("work_log_compression", {})
+                .get("truncation", {})
+                .get("max_output_lines", 2000)
+                if runtime_config
+                else 2000,
+                max_output_bytes=runtime_config.get("work_log_compression", {})
+                .get("truncation", {})
+                .get("max_output_bytes", 50000)
+                if runtime_config
+                else 50000,
+                context_window=runtime_config.get("work_log_compression", {})
+                .get("compaction", {})
+                .get("context_window", 128000)
+                if runtime_config
+                else 128000,
             )
             # 注意：不要覆盖agent.llm，内置Agent已经有完整的LLMAdapter实现
             # 如果需要使用model_provider的llm_client，应该通过其他方式注入
             logger.info(
                 f"[CoreV2Component] ReActReasoningAgent创建完成，使用模型: {model_name}, "
-                f"sandbox={sandbox_manager is not None}"
-            )
-        elif agent_name == "file_explorer":
-            from derisk.agent.core_v2.builtin_agents import FileExplorerAgent
-
-            logger.info(f"[CoreV2Component] 创建 FileExplorerAgent")
-
-            # 获取模型名称
-            model_name = "gpt-4"
-            if (
-                model_provider
-                and hasattr(model_provider, "strategy_context")
-                and model_provider.strategy_context
-            ):
-                if (
-                    isinstance(model_provider.strategy_context, list)
-                    and len(model_provider.strategy_context) > 0
-                ):
-                    model_name = model_provider.strategy_context[0]
-                elif isinstance(model_provider.strategy_context, str):
-                    model_name = model_provider.strategy_context
-
-            agent = FileExplorerAgent.create(
-                name=agent_name,
-                model=model_name,
-                api_key=None,
-                sandbox_manager=sandbox_manager,  # 传递沙箱管理器
-                project_path="./",
-                enable_auto_exploration=True,
-            )
-            logger.info(
-                f"[CoreV2Component] FileExplorerAgent创建完成，使用模型: {model_name}, "
                 f"sandbox={sandbox_manager is not None}"
             )
         elif agent_name == "coding":
@@ -697,10 +697,38 @@ class CoreV2Component(BaseComponent):
                 name=agent_name,
                 model=model_name,
                 api_key=None,
-                sandbox_manager=sandbox_manager,  # 传递沙箱管理器
+                max_steps=runtime_config.get("loop", {}).get("max_iterations", 30)
+                if runtime_config
+                else 30,
+                sandbox_manager=sandbox_manager,
                 workspace_path="./",
                 enable_auto_exploration=True,
                 enable_code_quality_check=True,
+                enable_doom_loop_detection=runtime_config.get("doom_loop", {}).get(
+                    "enabled", True
+                )
+                if runtime_config
+                else True,
+                doom_loop_threshold=runtime_config.get("doom_loop", {}).get(
+                    "threshold", 3
+                )
+                if runtime_config
+                else 3,
+                enable_output_truncation=runtime_config.get(
+                    "work_log_compression", {}
+                ).get("enabled", True)
+                if runtime_config
+                else True,
+                max_output_lines=runtime_config.get("work_log_compression", {})
+                .get("truncation", {})
+                .get("max_output_lines", 2000)
+                if runtime_config
+                else 2000,
+                max_output_bytes=runtime_config.get("work_log_compression", {})
+                .get("truncation", {})
+                .get("max_output_bytes", 50000)
+                if runtime_config
+                else 50000,
             )
             logger.info(
                 f"[CoreV2Component] CodingAgent创建完成，使用模型: {model_name}, "
