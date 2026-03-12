@@ -259,6 +259,7 @@ class ToolManager:
         app_id: Optional[str] = None,
         agent_name: Optional[str] = None,
         lang: str = "zh",
+        sandbox_enabled: bool = False,
     ) -> List[ToolGroup]:
         """
         获取工具分组列表
@@ -267,6 +268,7 @@ class ToolManager:
             app_id: 应用ID（用于获取绑定状态）
             agent_name: Agent名称（用于获取绑定状态）
             lang: 语言（zh/en）
+            sandbox_enabled: 是否启用沙箱环境（影响 LOCAL_TOOLS 和 SANDBOX_TOOLS 的绑定状态）
 
         Returns:
             工具分组列表
@@ -277,7 +279,9 @@ class ToolManager:
         # 获取 Agent 的绑定配置（如果提供了 app_id 和 agent_name）
         agent_config = None
         if app_id and agent_name:
-            agent_config = self.get_agent_config(app_id, agent_name)
+            agent_config = self.get_agent_config(
+                app_id, agent_name, sandbox_enabled=sandbox_enabled
+            )
 
         # 按分组类型组织工具
         groups: Dict[ToolBindingType, List[Dict[str, Any]]] = {
@@ -379,11 +383,20 @@ class ToolManager:
         return result
 
     def _determine_tool_group(self, tool: ToolBase, tool_id: str) -> ToolBindingType:
-        """确定工具属于哪个分组"""
+        """确定工具属于哪个分组
+
+        注意：LOCAL_TOOLS 和 SANDBOX_TOOLS 在展示时都归为 BUILTIN_REQUIRED，
+        实际注入时在 _create_default_config 中根据 sandbox_enabled 参数互斥注入
+        """
         metadata = tool.metadata
 
         # 检查是否是核心必选工具
         if tool_id in self.BUILTIN_CORE_TOOLS:
+            return ToolBindingType.BUILTIN_REQUIRED
+
+        # 本地工具和沙箱工具在展示时都归为默认绑定
+        # 实际注入时根据 sandbox_enabled 参数决定注入哪一组
+        if tool_id in self.LOCAL_TOOLS or tool_id in self.SANDBOX_TOOLS:
             return ToolBindingType.BUILTIN_REQUIRED
 
         # 检查是否是浏览器工具 - 浏览器工具归为可选，默认不绑定
@@ -392,10 +405,6 @@ class ToolManager:
 
         # 检查是否是可选内置工具
         if tool_id in self.BUILTIN_OPTIONAL_TOOLS:
-            return ToolBindingType.BUILTIN_OPTIONAL
-
-        # 本地工具和沙箱工具归为可选（实际绑定由 sandbox_enabled 参数决定）
-        if tool_id in self.LOCAL_TOOLS or tool_id in self.SANDBOX_TOOLS:
             return ToolBindingType.BUILTIN_OPTIONAL
 
         # 检查是否是系统动态注入工具

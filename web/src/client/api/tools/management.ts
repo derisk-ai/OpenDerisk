@@ -112,11 +112,13 @@ export const getToolGroups = (params?: {
   app_id?: string;
   agent_name?: string;
   lang?: string;
+  sandbox_enabled?: boolean;
 }) => {
   const query = new URLSearchParams();
   if (params?.app_id) query.set('app_id', params.app_id);
   if (params?.agent_name) query.set('agent_name', params.agent_name);
   if (params?.lang) query.set('lang', params.lang);
+  if (params?.sandbox_enabled !== undefined) query.set('sandbox_enabled', String(params.sandbox_enabled));
   
   return GET<null, { success: boolean; data: ToolGroup[] }>(
     `${TOOLS_BASE}/groups?${query.toString()}`
