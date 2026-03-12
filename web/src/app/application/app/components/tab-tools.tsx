@@ -92,6 +92,13 @@ export default function TabToolsManagement() {
     return firstAgent?.agent_name || 'default';
   }, [appInfo]);
 
+  const sandboxEnabled = useMemo(() => {
+    const teamContext = appInfo?.team_context;
+    if (!teamContext) return false;
+    const context = typeof teamContext === 'string' ? JSON.parse(teamContext) : teamContext;
+    return context?.use_sandbox ?? false;
+  }, [appInfo?.team_context]);
+
   // 获取工具分组列表
   const { data: toolGroupsData, loading, refresh } = useRequest(
     async () => {
@@ -100,6 +107,7 @@ export default function TabToolsManagement() {
         app_id: appCode,
         agent_name: agentName,
         lang: t('language') || 'zh',
+        sandbox_enabled: sandboxEnabled,
       });
       if (res.data?.success) {
         setExpandedGroups(res.data.data.map((g) => g.group_id));
@@ -108,7 +116,7 @@ export default function TabToolsManagement() {
       return null;
     },
     {
-      refreshDeps: [appCode, agentName, t],
+      refreshDeps: [appCode, agentName, t, sandboxEnabled],
       ready: !!appCode,
     }
   );

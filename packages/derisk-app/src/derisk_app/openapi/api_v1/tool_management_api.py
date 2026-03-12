@@ -29,6 +29,60 @@ def ensure_tools_initialized():
         register_builtin_tools()
 
 
+def get_sandbox_enabled_from_app(app_id: Optional[str]) -> bool:
+    """
+    从应用配置中获取沙箱是否启用
+
+    Args:
+        app_id: 应用ID
+
+    Returns:
+        是否启用沙箱环境
+    """
+    if not app_id:
+        return False
+
+    try:
+        from derisk_serve.building.config.models.models import ServeEntity
+        from derisk.storage.metadata import get_storage
+        import json
+
+        storage = get_storage()
+        with storage.session() as session:
+            config = (
+                session.query(ServeEntity)
+                .filter(
+                    ServeEntity.app_code == app_id, ServeEntity.is_published == True
+                )
+                .first()
+            )
+
+            if config and config.param_need:
+                param_need = config.param_need
+                if isinstance(param_need, str):
+                    param_need = json.loads(param_need)
+
+                for item in param_need:
+                    if isinstance(item, dict) and item.get("key") == "sandbox":
+                        sandbox_value = item.get("value", {})
+                        if isinstance(sandbox_value, str):
+                            sandbox_value = json.loads(sandbox_value)
+                        sandbox_type = (
+                            sandbox_value.get("type", "local")
+                            if isinstance(sandbox_value, dict)
+                            else "local"
+                        )
+                        return sandbox_type and sandbox_type != "local"
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            f"Could not get sandbox config for app {app_id}: {e}"
+        )
+
+    return False
+
+
 # ========== 请求/响应模型 ==========
 
 
@@ -79,14 +133,22 @@ async def get_tool_groups(
     """
     获取工具分组列表
 
-    返回按分组类型组织的工具列表，包括绑定状态信息
+    返回按分组类型组织的工具列表，包括绑定状态信息。
+    沙箱状态自动从应用配置中获取：
+    - 如果应用配置了沙箱且 type != "local": 沙箱工具显示为默认绑定
+    - 否则: 本地工具 (read, bash) 显示为默认绑定
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
+        # 自动从应用配置中获取沙箱状态
+        sandbox_enabled = get_sandbox_enabled_from_app(app_id)
+
         groups = tool_manager.get_tool_groups(
-            app_id=app_id, agent_name=agent_name, lang=lang
+            app_id=app_id,
+            agent_name=agent_name,
+            lang=lang,
+            sandbox_enabled=sandbox_enabled,
         )
 
         return JSONResponse(
@@ -107,10 +169,12 @@ async def get_agent_tool_config(
     返回指定 Agent 的完整工具绑定配置
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
-        config = tool_manager.get_agent_config(app_id, agent_name)
+        sandbox_enabled = get_sandbox_enabled_from_app(app_id)
+        config = tool_manager.get_agent_config(
+            app_id, agent_name, sandbox_enabled=sandbox_enabled
+        )
         if not config:
             return JSONResponse(
                 content={"success": False, "message": "Configuration not found"}
@@ -141,7 +205,6 @@ async def update_tool_binding(request: ToolBindingUpdateRequest):
     用于绑定或解绑工具
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
         success = tool_manager.update_tool_binding(
@@ -173,7 +236,6 @@ async def batch_update_tool_bindings(request: BatchToolBindingUpdateRequest):
     用于一次性更新多个工具的绑定状态
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
         results = []
@@ -209,11 +271,13 @@ async def get_runtime_tools(request: RuntimeToolsRequest):
     返回 Agent 实际可用的工具列表（已排除被禁用的工具）
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
+        sandbox_enabled = get_sandbox_enabled_from_app(request.app_id)
         tools = tool_manager.get_runtime_tools(
-            app_id=request.app_id, agent_name=request.agent_name
+            app_id=request.app_id,
+            agent_name=request.agent_name,
+            sandbox_enabled=sandbox_enabled,
         )
 
         tool_list = []
@@ -251,13 +315,14 @@ async def get_runtime_tool_schemas(request: RuntimeToolsRequest):
     返回用于 LLM 工具调用的 Schema 列表
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
+        sandbox_enabled = get_sandbox_enabled_from_app(request.app_id)
         schemas = tool_manager.get_runtime_tool_schemas(
             app_id=request.app_id,
             agent_name=request.agent_name,
             format_type=request.format_type,
+            sandbox_enabled=sandbox_enabled,
         )
 
         return JSONResponse(
@@ -286,7 +351,6 @@ async def list_all_tools(
     支持按类别、来源过滤和搜索
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
         tools = tool_registry.list_all()
@@ -295,15 +359,12 @@ async def list_all_tools(
         for tool in tools:
             metadata = tool.metadata
 
-            # 类别过滤
             if category and metadata.category and metadata.category.value != category:
                 continue
 
-            # 来源过滤
             if source and metadata.source and metadata.source.value != source:
                 continue
 
-            # 搜索过滤
             if query:
                 query_lower = query.lower()
                 if (
@@ -345,7 +406,6 @@ async def get_tool_detail(tool_id: str):
     返回指定工具的完整信息
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
         tool = tool_registry.get(tool_id)
@@ -413,7 +473,6 @@ async def clear_tool_cache(
     用于配置更新后刷新缓存
     """
     try:
-        # 确保工具已初始化
         ensure_tools_initialized()
 
         tool_manager.clear_cache(app_id, agent_name)
