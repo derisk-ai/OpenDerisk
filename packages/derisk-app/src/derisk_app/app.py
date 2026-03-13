@@ -115,6 +115,12 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(create_dashboard_routes(), prefix="/api/v1", tags=["Monitoring"])
     logger.info("[Monitoring] Dashboard API routes registered at /api/v1/monitoring")
 
+    # Streaming Configuration API routes
+    from derisk_serve.streaming.api import router as streaming_config_router
+
+    app.include_router(streaming_config_router, tags=["Streaming Config"])
+    logger.info("[Streaming] Config API routes registered at /api/v1/streaming-config")
+
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
     if param.service.web.new_web_ui:
