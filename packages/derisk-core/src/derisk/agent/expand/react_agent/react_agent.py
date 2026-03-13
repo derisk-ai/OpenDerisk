@@ -62,7 +62,7 @@ class ReActAgent(ManagerAgent):
 
     profile: ProfileConfig = ProfileConfig(
         name="derisk",
-        role="ReActMaster",
+        role=" ReActMaster",
         goal=_REACT_DEFAULT_GOAL,
         system_prompt_template=REACT_SYSTEM_TEMPLATE,
         user_prompt_template=REACT_USER_TEMPLATE,

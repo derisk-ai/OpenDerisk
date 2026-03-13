@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useContext } from 'react';
+import { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRequest } from 'ahooks';
 import {
@@ -18,6 +18,11 @@ import {
   Alert,
   Divider,
   Card,
+  Modal,
+  Form,
+  Select,
+  InputNumber,
+  Table,
 } from 'antd';
 import {
   SearchOutlined,
@@ -32,6 +37,9 @@ import {
   InfoCircleOutlined,
   SettingOutlined,
   LockOutlined,
+  ThunderboltOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 
 import { AppContext } from '@/contexts';
@@ -79,12 +87,55 @@ const RISK_COLORS: Record<string, string> = {
   critical: 'red',
 };
 
+// 流式配置策略选项
+const STRATEGY_OPTIONS = [
+  { value: 'adaptive', label: '自适应 (推荐)' },
+  { value: 'line_based', label: '按行分片' },
+  { value: 'semantic', label: '语义分片' },
+  { value: 'fixed_size', label: '固定大小' },
+];
+
+const RENDERER_OPTIONS = [
+  { value: 'code', label: '代码渲染器' },
+  { value: 'text', label: '文本渲染器' },
+  { value: 'default', label: '默认渲染器' },
+];
+
+// 流式配置类型
+interface ParamStreamingConfig {
+  param_name: string;
+  threshold: number;
+  strategy: string;
+  chunk_size: number;
+  chunk_by_line: boolean;
+  renderer: string;
+  enabled: boolean;
+  description?: string;
+}
+
+interface ToolStreamingConfig {
+  tool_name: string;
+  app_code: string;
+  param_configs: ParamStreamingConfig[];
+  global_threshold: number;
+  global_strategy: string;
+  global_renderer: string;
+  enabled: boolean;
+  priority: number;
+}
+
 export default function TabToolsManagement() {
   const { t } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
   const [togglingTools, setTogglingTools] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  
+  // 流式配置相关状态
+  const [streamingModalVisible, setStreamingModalVisible] = useState(false);
+  const [currentStreamingTool, setCurrentStreamingTool] = useState<ToolWithBinding | null>(null);
+  const [streamingConfigs, setStreamingConfigs] = useState<Record<string, ToolStreamingConfig>>({});
+  const [currentStreamingConfig, setCurrentStreamingConfig] = useState<ToolStreamingConfig | null>(null);
 
   const appCode = appInfo?.app_code;
   const agentName = useMemo(() => {
@@ -246,6 +297,77 @@ export default function TabToolsManagement() {
     setExpandedGroups(Array.isArray(keys) ? keys : [keys]);
   }, []);
 
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
+
+  // 加载流式配置
+  const loadStreamingConfigs = useCallback(async () => {
+    if (!appCode) return;
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/v1/streaming-config/apps/${appCode}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.configs) {
+          const configMap: Record<string, ToolStreamingConfig> = {};
+          data.configs.forEach((cfg: ToolStreamingConfig) => {
+            configMap[cfg.tool_name] = cfg;
+          });
+          setStreamingConfigs(configMap);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load streaming configs:', error);
+    }
+  }, [appCode, apiBaseUrl]);
+
+  useEffect(() => {
+    loadStreamingConfigs();
+  }, [loadStreamingConfigs]);
+
+  // 打开流式配置弹窗
+  const openStreamingModal = useCallback((tool: ToolWithBinding) => {
+    setCurrentStreamingTool(tool);
+    const existingConfig = streamingConfigs[tool.name];
+    if (existingConfig) {
+      setCurrentStreamingConfig(existingConfig);
+    } else {
+      setCurrentStreamingConfig({
+        tool_name: tool.name,
+        app_code: appCode || '',
+        param_configs: [],
+        global_threshold: 256,
+        global_strategy: 'adaptive',
+        global_renderer: 'default',
+        enabled: true,
+        priority: 0,
+      });
+    }
+    setStreamingModalVisible(true);
+  }, [streamingConfigs, appCode]);
+
+  // 保存流式配置
+  const saveStreamingConfig = useCallback(async (config: ToolStreamingConfig) => {
+    if (!appCode || !currentStreamingTool) return;
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/v1/streaming-config/apps/${appCode}/tools/${currentStreamingTool.name}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        }
+      );
+      if (response.ok) {
+        message.success(t('streaming_save_success') || '配置已保存');
+        setStreamingConfigs(prev => ({ ...prev, [currentStreamingTool.name]: config }));
+        setStreamingModalVisible(false);
+      } else {
+        message.error(t('streaming_save_failed') || '保存失败');
+      }
+    } catch (error) {
+      message.error(t('streaming_save_failed') || '保存失败');
+    }
+  }, [appCode, currentStreamingTool, t, apiBaseUrl]);
+
   if (!appCode) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -397,6 +519,8 @@ export default function TabToolsManagement() {
                         groupType={group.group_type}
                         isToggling={togglingTools.has(tool.tool_id)}
                         onToggle={() => handleToggleBinding(tool, group.group_type)}
+                        onOpenStreamingConfig={() => openStreamingModal(tool)}
+                        hasStreamingConfig={!!streamingConfigs[tool.name]}
                         t={t}
                       />
                     ))}
@@ -452,6 +576,245 @@ export default function TabToolsManagement() {
           </Panel>
         </Collapse>
       </div>
+
+      {/* 流式配置弹窗 */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <ThunderboltOutlined className="text-yellow-500" />
+            <span>{t('streaming_config_title') || '流式参数配置'} - {currentStreamingTool?.display_name || currentStreamingTool?.name}</span>
+          </div>
+        }
+        open={streamingModalVisible}
+        onCancel={() => setStreamingModalVisible(false)}
+        width={800}
+        footer={[
+          <Button key="cancel" onClick={() => setStreamingModalVisible(false)}>
+            {t('cancel') || '取消'}
+          </Button>,
+          <Button
+            key="save"
+            type="primary"
+            onClick={() => {
+              if (currentStreamingConfig) {
+                saveStreamingConfig(currentStreamingConfig);
+              }
+            }}
+          >
+            {t('save') || '保存'}
+          </Button>,
+        ]}
+      >
+        {currentStreamingConfig && (
+          <div>
+            <Alert
+              message={t('streaming_config_info') || '配置工具参数的流式传输行为'}
+              description={t('streaming_config_desc') || '当参数值超过阈值时，将以流式方式传输到前端，实现实时预览效果'}
+              type="info"
+              showIcon
+              className="mb-4"
+            />
+
+            <Form layout="vertical">
+              <Card size="small" title={t('streaming_global_settings') || '全局设置'} className="mb-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Form.Item label={t('streaming_enabled') || '启用流式传输'} className="mb-2">
+                    <Switch
+                      checked={currentStreamingConfig.enabled}
+                      onChange={(checked) =>
+                        setCurrentStreamingConfig({ ...currentStreamingConfig, enabled: checked })
+                      }
+                    />
+                  </Form.Item>
+
+                  <Form.Item label={t('streaming_global_threshold') || '全局阈值 (字符)'} className="mb-2">
+                    <InputNumber
+                      min={0}
+                      max={100000}
+                      value={currentStreamingConfig.global_threshold}
+                      onChange={(value) =>
+                        setCurrentStreamingConfig({
+                          ...currentStreamingConfig,
+                          global_threshold: value || 256,
+                        })
+                      }
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label={t('streaming_global_strategy') || '分片策略'} className="mb-2">
+                    <Select
+                      value={currentStreamingConfig.global_strategy}
+                      onChange={(value) =>
+                        setCurrentStreamingConfig({ ...currentStreamingConfig, global_strategy: value })
+                      }
+                      options={STRATEGY_OPTIONS}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label={t('streaming_global_renderer') || '渲染器'} className="mb-2">
+                    <Select
+                      value={currentStreamingConfig.global_renderer}
+                      onChange={(value) =>
+                        setCurrentStreamingConfig({ ...currentStreamingConfig, global_renderer: value })
+                      }
+                      options={RENDERER_OPTIONS}
+                    />
+                  </Form.Item>
+                </div>
+              </Card>
+
+              <Card 
+                size="small" 
+                title={t('streaming_param_configs') || '参数配置'}
+                extra={
+                  <Button 
+                    type="link" 
+                    size="small"
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                      const newParam: ParamStreamingConfig = {
+                        param_name: '',
+                        threshold: 256,
+                        strategy: 'adaptive',
+                        chunk_size: 100,
+                        chunk_by_line: true,
+                        renderer: 'default',
+                        enabled: true,
+                      };
+                      setCurrentStreamingConfig({
+                        ...currentStreamingConfig,
+                        param_configs: [...currentStreamingConfig.param_configs, newParam],
+                      });
+                    }}
+                  >
+                    {t('streaming_add_param') || '添加参数'}
+                  </Button>
+                }
+              >
+                {currentStreamingConfig.param_configs.length > 0 ? (
+                  <Table
+                    size="small"
+                    dataSource={currentStreamingConfig.param_configs}
+                    rowKey="param_name"
+                    pagination={false}
+                    columns={[
+                      {
+                        title: t('streaming_param_name') || '参数名',
+                        dataIndex: 'param_name',
+                        key: 'param_name',
+                        width: 120,
+                        render: (value, record, index) => (
+                          <Input
+                            value={value}
+                            onChange={(e) => {
+                              const newConfigs = [...currentStreamingConfig.param_configs];
+                              newConfigs[index] = { ...record, param_name: e.target.value };
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                            placeholder="content / code / command"
+                          />
+                        ),
+                      },
+                      {
+                        title: t('streaming_threshold') || '阈值',
+                        dataIndex: 'threshold',
+                        key: 'threshold',
+                        width: 100,
+                        render: (value, record, index) => (
+                          <InputNumber
+                            min={0}
+                            max={100000}
+                            value={value}
+                            onChange={(v) => {
+                              const newConfigs = [...currentStreamingConfig.param_configs];
+                              newConfigs[index] = { ...record, threshold: v || 256 };
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                            size="small"
+                          />
+                        ),
+                      },
+                      {
+                        title: t('streaming_strategy') || '策略',
+                        dataIndex: 'strategy',
+                        key: 'strategy',
+                        width: 120,
+                        render: (value, record, index) => (
+                          <Select
+                            value={value}
+                            size="small"
+                            onChange={(v) => {
+                              const newConfigs = [...currentStreamingConfig.param_configs];
+                              newConfigs[index] = { ...record, strategy: v };
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                            options={STRATEGY_OPTIONS}
+                          />
+                        ),
+                      },
+                      {
+                        title: t('streaming_renderer') || '渲染器',
+                        dataIndex: 'renderer',
+                        key: 'renderer',
+                        width: 120,
+                        render: (value, record, index) => (
+                          <Select
+                            value={value}
+                            size="small"
+                            onChange={(v) => {
+                              const newConfigs = [...currentStreamingConfig.param_configs];
+                              newConfigs[index] = { ...record, renderer: v };
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                            options={RENDERER_OPTIONS}
+                          />
+                        ),
+                      },
+                      {
+                        title: t('streaming_enabled') || '启用',
+                        dataIndex: 'enabled',
+                        key: 'enabled',
+                        width: 60,
+                        render: (value, record, index) => (
+                          <Switch
+                            size="small"
+                            checked={value}
+                            onChange={(checked) => {
+                              const newConfigs = [...currentStreamingConfig.param_configs];
+                              newConfigs[index] = { ...record, enabled: checked };
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                          />
+                        ),
+                      },
+                      {
+                        title: '',
+                        key: 'action',
+                        width: 40,
+                        render: (_, record, index) => (
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={() => {
+                              const newConfigs = currentStreamingConfig.param_configs.filter((_, i) => i !== index);
+                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                            }}
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Empty description={t('streaming_no_params') || '暂无参数配置，使用全局设置'} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Card>
+            </Form>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -462,10 +825,12 @@ interface ToolItemProps {
   groupType: ToolBindingType;
   isToggling: boolean;
   onToggle: () => void;
+  onOpenStreamingConfig: () => void;
+  hasStreamingConfig: boolean;
   t: (key: string) => string;
 }
 
-function ToolItem({ tool, groupType, isToggling, onToggle, t }: ToolItemProps) {
+function ToolItem({ tool, groupType, isToggling, onToggle, onOpenStreamingConfig, hasStreamingConfig, t }: ToolItemProps) {
   const isBuiltinRequired = groupType === 'builtin_required';
   const isBound = tool.is_bound;
   const isDefault = tool.is_default;
@@ -547,6 +912,21 @@ function ToolItem({ tool, groupType, isToggling, onToggle, t }: ToolItemProps) {
 
       {/* 绑定/解绑开关 */}
       <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+        {/* 流式配置按钮 - 只在已绑定时显示 */}
+        {isBound && (
+          <Tooltip title={hasStreamingConfig ? (t('streaming_edit_config') || '编辑流式配置') : (t('streaming_add_tool') || '添加流式配置')}>
+            <Button
+              type={hasStreamingConfig ? 'primary' : 'default'}
+              size="small"
+              icon={<ThunderboltOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenStreamingConfig();
+              }}
+              className={hasStreamingConfig ? 'bg-yellow-500 border-yellow-500 hover:bg-yellow-600' : ''}
+            />
+          </Tooltip>
+        )}
         <span className="text-xs text-gray-400">
           {isBound
             ? t('tool_action_unbind') || '点击解绑'

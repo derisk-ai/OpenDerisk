@@ -1,1 +1,0 @@
-(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[547],{65070:(e,n,s)=>{Promise.resolve().then(s.bind(s,68441))},68441:(e,n,s)=>{"use strict";s.r(n),s.d(n,{default:()=>c});var t=s(95155),r=s(91218);function c(){let{t:e}=(0,r.Bd)();return(0,t.jsx)("div",{children:e("application_construct_page")})}}},e=>{e.O(0,[1218,8441,5964,7358],()=>e(e.s=65070)),_N_E=e.O()}]);
