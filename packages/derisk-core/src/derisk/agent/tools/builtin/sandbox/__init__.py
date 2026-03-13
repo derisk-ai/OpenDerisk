@@ -7,6 +7,7 @@ Sandbox 工具模块
 - create_file: 沙箱内创建文件
 - edit_file: 沙箱内编辑文件
 - download_file: 从沙箱下载文件
+- deliver_file: 沙箱文件交付（标记为交付物并生成下载链接）
 - browser_*: 浏览器自动化工具
 
 这些工具需要在沙箱环境中运行，通过 ToolContext 获取 SandboxClient。
@@ -25,6 +26,7 @@ def register_sandbox_tools(registry: "ToolRegistry") -> None:
     from .create_file import CreateFileTool
     from .edit_file import EditFileTool
     from .download_file import DownloadFileTool
+    from .deliver_file import DeliverFileTool
     from .browser import register_browser_tools
 
     # 核心沙箱工具
@@ -33,6 +35,7 @@ def register_sandbox_tools(registry: "ToolRegistry") -> None:
     registry.register(CreateFileTool())
     registry.register(EditFileTool())
     registry.register(DownloadFileTool())
+    registry.register(DeliverFileTool())
 
     # 浏览器工具
     register_browser_tools(registry)
@@ -45,4 +48,5 @@ __all__ = [
     "CreateFileTool",
     "EditFileTool",
     "DownloadFileTool",
+    "DeliverFileTool",
 ]
