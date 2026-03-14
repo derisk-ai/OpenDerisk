@@ -1226,10 +1226,14 @@ class ReActMasterAgent(ConversableAgent):
                     await self.task_id_by_received_message(received_message),
                 )
 
+            # 只在BlankAction不终止时才注入提醒（避免简单对话进入死循环）
             if has_blank_action and act_outs:
-                await self._inject_no_tool_call_reminder(
-                    act_outs[0], message.message_id
-                )
+                # 检查BlankAction是否应该终止（terminate=True表示应该结束任务）
+                blank_action_output = act_outs[0]
+                if not blank_action_output.terminate:
+                    await self._inject_no_tool_call_reminder(
+                        blank_action_output, message.message_id
+                    )
 
         return act_outs
 

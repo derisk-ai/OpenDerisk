@@ -312,7 +312,7 @@ export default function AgentBuilder() {
 
             {/* Column 3: Chat Preview */}
             <div
-              className={`flex-shrink-0 p-3 pl-0 transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+              className={`flex-shrink-0 p-3 px-0 transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] ${
                 collapsed ? 'flex-1' : ''
               }`}
               style={{ width: collapsed ? undefined : (screenSize === 'medium' ? '360px' : '480px') }}

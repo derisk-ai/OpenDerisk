@@ -8,35 +8,30 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from derisk.component import SystemApp
-from derisk.storage.metadata.db_storage import SQLAlchemyStorage
-
-from derisk.model.streaming.config_manager import (
-    StreamingConfigManager,
-    ToolStreamingConfig,
-    ParamStreamingConfig,
-)
-from derisk.model.streaming.db_models import (
-    StreamingToolConfig,
-    StreamingToolConfigInput,
-    StreamingToolConfigResponse,
-    AvailableToolResponse,
-    StreamingConfigListResponse,
-)
 
 logger = logging.getLogger(__name__)
 
-_storage: Optional[SQLAlchemyStorage] = None
+_storage = None
 _service: Optional["StreamingConfigService"] = None
 
 
 class StreamingConfigService:
     """Service for managing streaming configurations"""
 
-    def __init__(self, storage: SQLAlchemyStorage):
+    def __init__(self, storage=None):
         self._storage = storage
 
-    async def get_app_configs(self, app_code: str) -> Dict[str, ToolStreamingConfig]:
+    async def get_app_configs(self, app_code: str) -> Dict[str, Any]:
         """Get all streaming configs for an app"""
+        if not self._storage:
+            return {}
+
+        from derisk.model.streaming.config_manager import (
+            ToolStreamingConfig,
+            ParamStreamingConfig,
+        )
+        from derisk.model.streaming.db_models import StreamingToolConfig
+
         with self._storage.session() as session:
             configs = (
                 session.query(StreamingToolConfig)
@@ -63,10 +58,17 @@ class StreamingConfigService:
 
             return result
 
-    async def get_tool_config(
-        self, app_code: str, tool_name: str
-    ) -> Optional[ToolStreamingConfig]:
+    async def get_tool_config(self, app_code: str, tool_name: str) -> Optional[Any]:
         """Get streaming config for a specific tool"""
+        if not self._storage:
+            return None
+
+        from derisk.model.streaming.config_manager import (
+            ToolStreamingConfig,
+            ParamStreamingConfig,
+        )
+        from derisk.model.streaming.db_models import StreamingToolConfig
+
         with self._storage.session() as session:
             config = (
                 session.query(StreamingToolConfig)
@@ -95,9 +97,15 @@ class StreamingConfigService:
             )
 
     async def save_tool_config(
-        self, app_code: str, tool_name: str, config: ToolStreamingConfig
+        self, app_code: str, tool_name: str, config: Any
     ) -> bool:
         """Save streaming config for a tool"""
+        if not self._storage:
+            logger.warning("Storage not available, skipping save")
+            return False
+
+        from derisk.model.streaming.db_models import StreamingToolConfig
+
         with self._storage.session() as session:
             existing = (
                 session.query(StreamingToolConfig)
@@ -137,6 +145,11 @@ class StreamingConfigService:
 
     async def delete_tool_config(self, app_code: str, tool_name: str) -> bool:
         """Delete streaming config for a tool"""
+        if not self._storage:
+            return False
+
+        from derisk.model.streaming.db_models import StreamingToolConfig
+
         with self._storage.session() as session:
             deleted = (
                 session.query(StreamingToolConfig)
@@ -151,9 +164,56 @@ class StreamingConfigService:
 
     async def get_available_tools(self, app_code: Optional[str] = None) -> List[Dict]:
         """Get list of available tools with their parameters"""
+        from derisk.agent.tools import tool_registry
+
         tools = []
 
-        default_tools = [
+        try:
+            all_tools = tool_registry.get_all_tools()
+
+            for tool in all_tools:
+                params = tool.parameters if hasattr(tool, "parameters") else {}
+                properties = params.get("properties", {})
+
+                parameters_list = []
+                for param_name, param_info in properties.items():
+                    parameters_list.append(
+                        {
+                            "name": param_name,
+                            "type": param_info.get("type", "string"),
+                            "description": param_info.get("description", ""),
+                        }
+                    )
+
+                tools.append(
+                    {
+                        "tool_name": tool.name,
+                        "tool_display_name": tool.metadata.display_name
+                        if hasattr(tool, "metadata")
+                        else tool.name,
+                        "description": tool.metadata.description
+                        if hasattr(tool, "metadata")
+                        else "",
+                        "parameters": parameters_list,
+                        "has_streaming_config": False,
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Failed to get tools from registry: {e}")
+
+            if not tools:
+                tools = self._get_default_tools()
+
+        if app_code:
+            configs = await self.get_app_configs(app_code)
+            for tool in tools:
+                tool["has_streaming_config"] = tool["tool_name"] in configs
+
+        return tools
+
+    def _get_default_tools(self) -> List[Dict]:
+        """Get default tool list as fallback"""
+        return [
             {
                 "tool_name": "write",
                 "tool_display_name": "Write Tool",
@@ -164,8 +224,9 @@ class StreamingConfigService:
                         "type": "string",
                         "description": "File content",
                     },
-                    {"name": "file_path", "type": "string", "description": "File path"},
+                    {"name": "path", "type": "string", "description": "File path"},
                 ],
+                "has_streaming_config": False,
             },
             {
                 "tool_name": "edit",
@@ -183,6 +244,7 @@ class StreamingConfigService:
                         "description": "Old content",
                     },
                 ],
+                "has_streaming_config": False,
             },
             {
                 "tool_name": "bash",
@@ -195,42 +257,38 @@ class StreamingConfigService:
                         "description": "Command content",
                     },
                 ],
+                "has_streaming_config": False,
             },
             {
-                "tool_name": "execute_code",
-                "tool_display_name": "Execute Code",
-                "description": "Execute code",
+                "tool_name": "read",
+                "tool_display_name": "Read File",
+                "description": "Read file content",
                 "parameters": [
-                    {"name": "code", "type": "string", "description": "Code content"},
+                    {"name": "file_path", "type": "string", "description": "File path"},
                 ],
+                "has_streaming_config": False,
             },
         ]
-
-        if app_code:
-            configs = await self.get_app_configs(app_code)
-            for tool in default_tools:
-                tool["has_streaming_config"] = tool["tool_name"] in configs
-                tools.append(tool)
-        else:
-            for tool in default_tools:
-                tool["has_streaming_config"] = False
-                tools.append(tool)
-
-        return tools
 
 
 def get_streaming_config_service() -> StreamingConfigService:
     """Get or create the streaming config service singleton"""
-    global _service, _storage
+    global _service
 
     if _service is not None:
         return _service
 
-    system_app = SystemApp.get_instance()
-    _storage = system_app.get_component(SQLAlchemyStorage)
+    try:
+        from derisk.storage.metadata.db_storage import SQLAlchemyStorage
 
-    if _storage is None:
-        raise RuntimeError("SQLAlchemyStorage not found in SystemApp")
+        system_app = SystemApp.get_instance()
+        storage = system_app.get_component(SQLAlchemyStorage)
 
-    _service = StreamingConfigService(_storage)
+        _service = StreamingConfigService(storage)
+    except Exception as e:
+        logger.warning(
+            f"Failed to get SQLAlchemyStorage, using memory-only service: {e}"
+        )
+        _service = StreamingConfigService(None)
+
     return _service

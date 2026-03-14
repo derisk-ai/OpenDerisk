@@ -124,6 +124,25 @@ interface ToolStreamingConfig {
   priority: number;
 }
 
+/**
+ * 从 input_schema 中提取参数名列表
+ * input_schema 格式:
+ * {
+ *   "type": "object",
+ *   "properties": {
+ *     "param1": { "type": "string", "description": "..." },
+ *     "param2": { "type": "number", "description": "..." }
+ *   },
+ *   "required": ["param1"]
+ * }
+ */
+function getParamsFromSchema(inputSchema: { properties?: Record<string, unknown> } | undefined): string[] {
+  if (!inputSchema || !inputSchema.properties) {
+    return [];
+  }
+  return Object.keys(inputSchema.properties);
+}
+
 export default function TabToolsManagement() {
   const { t } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
@@ -325,6 +344,7 @@ export default function TabToolsManagement() {
 
   // 打开流式配置弹窗
   const openStreamingModal = useCallback((tool: ToolWithBinding) => {
+    console.log('[ToolStreaming] Opening modal for tool:', tool.name, 'input_schema:', tool.input_schema);
     setCurrentStreamingTool(tool);
     const existingConfig = streamingConfigs[tool.name];
     if (existingConfig) {
@@ -703,18 +723,50 @@ export default function TabToolsManagement() {
                         title: t('streaming_param_name') || '参数名',
                         dataIndex: 'param_name',
                         key: 'param_name',
-                        width: 120,
-                        render: (value, record, index) => (
-                          <Input
-                            value={value}
-                            onChange={(e) => {
-                              const newConfigs = [...currentStreamingConfig.param_configs];
-                              newConfigs[index] = { ...record, param_name: e.target.value };
-                              setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
-                            }}
-                            placeholder="content / code / command"
-                          />
-                        ),
+                        width: 140,
+                        render: (value, record, index) => {
+                          const availableParams = getParamsFromSchema(currentStreamingTool?.input_schema);
+                          console.log('[ToolStreaming] currentStreamingTool:', currentStreamingTool?.name, 'input_schema:', currentStreamingTool?.input_schema, 'availableParams:', availableParams);
+                          const existingParams = currentStreamingConfig.param_configs
+                            .map((p, i) => i !== index ? p.param_name : null)
+                            .filter(Boolean);
+                          const selectableParams = availableParams.filter(p => !existingParams.includes(p));
+                          
+                          if (availableParams.length > 0) {
+                            return (
+                              <Select
+                                value={value}
+                                size="small"
+                                style={{ width: '100%' }}
+                                placeholder={t('streaming_select_param') || '选择参数'}
+                                onChange={(v) => {
+                                  const newConfigs = [...currentStreamingConfig.param_configs];
+                                  newConfigs[index] = { ...record, param_name: v };
+                                  setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                                }}
+                              >
+                                {selectableParams.map((param) => (
+                                  <Select.Option key={param} value={param}>
+                                    {param}
+                                  </Select.Option>
+                                ))}
+                              </Select>
+                            );
+                          }
+                          
+                          return (
+                            <Input
+                              value={value}
+                              size="small"
+                              onChange={(e) => {
+                                const newConfigs = [...currentStreamingConfig.param_configs];
+                                newConfigs[index] = { ...record, param_name: e.target.value };
+                                setCurrentStreamingConfig({ ...currentStreamingConfig, param_configs: newConfigs });
+                              }}
+                              placeholder="content / code / command"
+                            />
+                          );
+                        },
                       },
                       {
                         title: t('streaming_threshold') || '阈值',

@@ -373,7 +373,7 @@ class AgentChat(BaseComponent, ABC):
 
             # Deliver to channel if configured (handles cron job message delivery)
             if not err_msg:
-                content = final_report # 只看final_report 不看final_message
+                content = final_report  # 只看final_report 不看final_message
                 content = content.lstrip() if content else None
                 if content:
                     await self._deliver_to_channel_if_configured(
@@ -1774,7 +1774,7 @@ class AgentChat(BaseComponent, ABC):
 
             self.gpts_conversations.update(conv_uid, gpts_status)
         except Exception as e:
-            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}", e)
+            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}")
             self.gpts_conversations.update(conv_uid, Status.FAILED.value)
             raise ValueError(f"The conversation is abnormal!{str(e)}")
         finally:

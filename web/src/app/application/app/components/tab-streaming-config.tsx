@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useContext, useMemo } from 'react';
+import { useState, useEffect, useCallback, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRequest } from 'ahooks';
 import {
@@ -20,27 +20,28 @@ import {
   Tag,
   Divider,
   Alert,
-  Spin,
   Empty,
-  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
   EditOutlined,
-  SettingOutlined,
   CodeOutlined,
-  InfoCircleOutlined,
   ThunderboltOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 
 import { AppContext } from '@/contexts';
 import {
-  apiInterceptors,
-} from '@/client/api';
+  getToolsByCategory,
+} from '@/client/api/tools/v2';
 
-const { Panel } = Collapse;
+function getParamsFromSchema(inputSchema: { properties?: Record<string, unknown> } | undefined): string[] {
+  if (!inputSchema || !inputSchema.properties) {
+    return [];
+  }
+  return Object.keys(inputSchema.properties);
+}
 
 // ============================================================
 // Types
@@ -301,65 +302,43 @@ export default function TabStreamingConfig() {
   // 加载可用工具
   const { run: loadAvailableTools } = useRequest(
     async () => {
-      if (!appCode) return;
-      
-      // Default fallback tools - always available
-      const fallbackTools: AvailableTool[] = [
-        {
-          tool_name: 'write',
-          tool_display_name: t('tool_write') || 'Write Tool',
-          description: t('tool_write_desc') || 'Create or overwrite files',
-          parameters: [
-            { name: 'content', type: 'string', description: t('tool_write_param_content') || 'File content' },
-            { name: 'file_path', type: 'string', description: t('tool_write_param_path') || 'File path' },
-          ],
-          has_streaming_config: configs.some(c => c.tool_name === 'write'),
-        },
-        {
-          tool_name: 'edit',
-          tool_display_name: t('tool_edit') || 'Edit Tool',
-          description: t('tool_edit_desc') || 'Edit file content',
-          parameters: [
-            { name: 'newString', type: 'string', description: t('tool_edit_param_new') || 'New content' },
-            { name: 'oldString', type: 'string', description: t('tool_edit_param_old') || 'Old content' },
-          ],
-          has_streaming_config: configs.some(c => c.tool_name === 'edit'),
-        },
-        {
-          tool_name: 'bash',
-          tool_display_name: t('tool_bash') || 'Bash Tool',
-          description: t('tool_bash_desc') || 'Execute commands',
-          parameters: [
-            { name: 'command', type: 'string', description: t('tool_bash_param') || 'Command content' },
-          ],
-          has_streaming_config: configs.some(c => c.tool_name === 'bash'),
-        },
-        {
-          tool_name: 'execute_code',
-          tool_display_name: t('tool_execute_code') || 'Execute Code',
-          description: t('tool_execute_code_desc') || 'Execute code',
-          parameters: [
-            { name: 'code', type: 'string', description: t('tool_execute_code_param') || 'Code content' },
-          ],
-          has_streaming_config: configs.some(c => c.tool_name === 'execute_code'),
-        },
-      ];
-      
       try {
-        const response = await fetch(`/api/v1/streaming-config/tools/available?app_code=${appCode}`);
+        const res = await getToolsByCategory({ include_empty: false });
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data.tools && data.tools.length > 0) {
-            setAvailableTools(data.tools);
-            return;
-          }
+        if (res.success && res.categories) {
+          const tools: AvailableTool[] = [];
+          res.categories.forEach(category => {
+            category.tools.forEach(tool => {
+              const inputSchema = tool.input_schema as { properties?: Record<string, unknown> } | undefined;
+              const paramNames = getParamsFromSchema(inputSchema);
+              
+              const parameters = paramNames.length > 0 
+                ? paramNames.map(name => ({
+                    name,
+                    type: (inputSchema?.properties as Record<string, { type?: string }>)?.[name]?.type || 'string',
+                    description: (inputSchema?.properties as Record<string, { description?: string }>)?.[name]?.description,
+                  }))
+                : [];
+              
+              tools.push({
+                tool_name: tool.name,
+                tool_display_name: tool.display_name,
+                description: tool.description,
+                parameters,
+                has_streaming_config: false,
+              });
+            });
+          });
+          
+          console.log('[StreamingConfig] Loaded tools with parameters:', tools.map(t => ({ name: t.tool_name, params: t.parameters.map(p => p.name) })));
+          setAvailableTools(tools);
+          return;
         }
       } catch (error) {
-        console.error('Failed to load available tools from API, using fallback:', error);
+        console.error('Failed to load tools:', error);
       }
       
-      setAvailableTools(fallbackTools);
+      setAvailableTools([]);
     },
     {
       manual: true,
@@ -373,10 +352,17 @@ export default function TabStreamingConfig() {
       setLoading(true);
       try {
         const response = await fetch(`/api/v1/streaming-config/apps/${appCode}`);
-        const data = await response.json();
+        
+        if (!response.ok) {
+          console.warn('[StreamingConfig] API returned', response.status);
+          setConfigs([]);
+          return;
+        }
+        
+        const data: { configs?: ToolConfig[] } = await response.json();
         
         if (data.configs) {
-          setConfigs(data.configs.map((cfg: any) => ({
+          setConfigs(data.configs.map((cfg) => ({
             ...cfg,
             param_configs: cfg.param_configs || [],
           })));
@@ -400,7 +386,7 @@ export default function TabStreamingConfig() {
       loadAvailableTools();
       loadConfigs();
     }
-  }, [appCode]);
+  }, [appCode, loadAvailableTools, loadConfigs]);
 
   // 保存配置
   const handleSaveConfig = useCallback(async (toolName: string, config: ToolConfig) => {
@@ -501,7 +487,7 @@ export default function TabStreamingConfig() {
       title: t('actions') || '操作',
       key: 'actions',
       width: 100,
-      render: (_: any, record: ParamConfig) => (
+      render: (_: unknown, record: ParamConfig) => (
         <Space>
           <Button
             type="link"
@@ -556,7 +542,7 @@ export default function TabStreamingConfig() {
     {
       title: t('streaming_param_count') || '参数数量',
       key: 'param_count',
-      render: (_: any, record: ToolConfig) => record.param_configs?.length || 0,
+      render: (_: unknown, record: ToolConfig) => record.param_configs?.length || 0,
     },
     {
       title: t('status') || '状态',
@@ -569,7 +555,7 @@ export default function TabStreamingConfig() {
     {
       title: t('actions') || '操作',
       key: 'actions',
-      render: (_: any, record: ToolConfig) => (
+      render: (_: unknown, record: ToolConfig) => (
         <Space>
           <Button
             type="link"
@@ -600,7 +586,9 @@ export default function TabStreamingConfig() {
 
   const getAvailableParams = (): string[] => {
     const tool = availableTools.find((t) => t.tool_name === selectedTool);
-    return tool?.parameters?.map((p) => p.name) || [];
+    const params = tool?.parameters?.map((p) => p.name) || [];
+    console.log('[StreamingConfig] getAvailableParams for', selectedTool, ':', params, 'tool found:', !!tool);
+    return params;
   };
 
   if (!appCode) {

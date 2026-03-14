@@ -100,8 +100,8 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
         
         <div className="flex-1 overflow-y-auto" ref={scrollRef}>
           {hasMessages ? (
-            <div className="w-full px-4 py-3">
-              <div className="max-w-3xl mx-auto space-y-2">
+            <div className="w-full px-3 py-3">
+              <div className="w-full space-y-2">
                 {showMessages.map((content, index) => (
                   <div key={index}>
                     <ChatContent content={content} messages={showMessages} />
@@ -127,8 +127,8 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
           )}
         </div>
 
-        <div className="flex-shrink-0 pb-3 pt-1 px-4">
-          <div className="max-w-3xl mx-auto">
+        <div className="flex-shrink-0 pb-3 pt-1 px-3">
+          <div className="w-full">
             <UnifiedChatInput ctrl={ctrl} showFloatingActions={hasMessages} />
           </div>
         </div>
