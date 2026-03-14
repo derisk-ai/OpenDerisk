@@ -414,6 +414,87 @@ async def get_recent_sync_tasks(
         return Result.failed(str(e))
 
 
+@router.post(
+    "/{skill_code}/auto_sync",
+    response_model=Result[SkillResponse],
+    dependencies=[Depends(check_api_key)],
+)
+async def update_auto_sync(
+    skill_code: str,
+    auto_sync: bool = Query(..., description="whether to auto-sync this skill on startup"),
+    service: Service = Depends(get_service),
+) -> Result[SkillResponse]:
+    """Update skill auto_sync setting"""
+    logger.info(f"update_auto_sync called: skill_code={skill_code}, auto_sync={auto_sync}")
+    try:
+        # Get existing skill using dict query to avoid including default values
+        existing_skill = service.get_by_skill_code(skill_code)
+
+        if not existing_skill:
+            logger.warning(f"Skill {skill_code} not found")
+            return Result.failed(f"Skill {skill_code} not found")
+
+        logger.info(f"Existing skill {skill_code} auto_sync={existing_skill.auto_sync}")
+
+        # Build update dict with only the fields we want to update
+        # Use existing values as fallback for required fields
+        update_dict = {
+            "skill_code": skill_code,
+            "auto_sync": auto_sync,
+        }
+
+        # Add existing fields if they have values
+        if existing_skill.name:
+            update_dict["name"] = existing_skill.name
+        if existing_skill.description:
+            update_dict["description"] = existing_skill.description
+        if existing_skill.type:
+            update_dict["type"] = existing_skill.type
+        if existing_skill.author:
+            update_dict["author"] = existing_skill.author
+        if existing_skill.email:
+            update_dict["email"] = existing_skill.email
+        if existing_skill.version:
+            update_dict["version"] = existing_skill.version
+        if existing_skill.path:
+            update_dict["path"] = existing_skill.path
+        if existing_skill.content:
+            update_dict["content"] = existing_skill.content
+        if existing_skill.icon:
+            update_dict["icon"] = existing_skill.icon
+        if existing_skill.category:
+            update_dict["category"] = existing_skill.category
+        if existing_skill.installed is not None:
+            update_dict["installed"] = existing_skill.installed
+        if existing_skill.available is not None:
+            update_dict["available"] = existing_skill.available
+        if existing_skill.repo_url:
+            update_dict["repo_url"] = existing_skill.repo_url
+        if existing_skill.branch:
+            update_dict["branch"] = existing_skill.branch
+        if existing_skill.commit_id:
+            update_dict["commit_id"] = existing_skill.commit_id
+
+        # Create SkillRequest, handling potential validation issues gracefully
+        try:
+            update_request = SkillRequest(**update_dict)
+        except Exception as validation_error:
+            # If validation fails, try to set required fields with default values
+            logger.warning(f"SkillRequest validation failed, trying with defaults: {validation_error}")
+            # Force set required fields with valid values
+            update_dict["name"] = existing_skill.name or skill_code
+            update_dict["description"] = existing_skill.description or "Skill description"
+            update_dict["type"] = existing_skill.type or "tool"
+            update_request = SkillRequest(**update_dict)
+
+        result = service.update(update_request)
+        logger.info(f"Updated skill {skill_code} auto_sync to {auto_sync}")
+        return Result.succ(result)
+    except Exception as e:
+        logger.exception(f"Failed to update skill {skill_code} auto_sync setting")
+        return Result.failed(str(e))
+
+
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     """Initialize the endpoints"""
     global global_system_app

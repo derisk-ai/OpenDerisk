@@ -122,7 +122,12 @@ class Serve(BaseServe):
     async def _load_default_skills(self):
         """Load default skills from git repository on startup (non-blocking)."""
         from .service.service import Service
-        
+
+        # Check if auto-sync is enabled
+        if not getattr(self._config, 'enable_default_skill_sync', True):
+            logger.info("Default skill sync is disabled, skipping")
+            return
+
         try:
             service: Service = self._system_app.get_component(
                 Service.name, Service
@@ -130,10 +135,10 @@ class Serve(BaseServe):
             if not service:
                 logger.info("Skill service not available, skipping default skill loading")
                 return
-            
+
             default_repo_url = self._config.get_default_skill_repo_url()
             default_branch = self._config.get_default_skill_repo_branch()
-            
+
             if not default_repo_url:
                 logger.info("No default skill repository URL configured, skipping")
                 return

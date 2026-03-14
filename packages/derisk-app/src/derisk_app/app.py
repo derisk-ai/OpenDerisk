@@ -109,6 +109,12 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(agent_selection_router, tags=["Agent Selection"])
     logger.info("[Core_v2] API routes registered at /api/v2")
 
+    # Monitoring Dashboard API routes
+    from derisk.agent.core_v2.monitoring_dashboard import create_dashboard_routes
+
+    app.include_router(create_dashboard_routes(), prefix="/api/v1", tags=["Monitoring"])
+    logger.info("[Monitoring] Dashboard API routes registered at /api/v1/monitoring")
+
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
     if param.service.web.new_web_ui:

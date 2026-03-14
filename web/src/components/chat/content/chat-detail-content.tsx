@@ -3,12 +3,10 @@ import markdownComponents, {
   markdownPlugins,
 } from "@/components/chat/chat-content-components/config";
 import { GPTVis } from "@antv/gpt-vis";
-import React, { memo, useState, useEffect, useRef } from "react";
-import { VisBaseParser } from "@/utils/parse-vis";
+import React, { memo, useState, useEffect } from "react";
 
 export interface RunningWindowData {
   running_window?: string;
-  planning_window?: string;
   explorer?: string;
   items?: any[];
   [key: string]: any;
@@ -20,33 +18,11 @@ export function useDetailPanel(chatList: any[]): {
 } {
   const [runningWindowData, setRunningWindowData] = useState<RunningWindowData>({});
   const [runningWindowMarkdown, setRunningWindowMarkdown] = useState<string>("");
-  
-  // 使用 ref 持久化 VisBaseParser 实例，避免每次渲染重建
-  const runningWindowParserRef = useRef<VisBaseParser | null>(null);
-  const planningWindowParserRef = useRef<VisBaseParser | null>(null);
-  const explorerParserRef = useRef<VisBaseParser | null>(null);
-  
-  // 初始化解析器
-  useEffect(() => {
-    runningWindowParserRef.current = new VisBaseParser();
-    planningWindowParserRef.current = new VisBaseParser();
-    explorerParserRef.current = new VisBaseParser();
-    
-    return () => {
-      runningWindowParserRef.current?.destroy();
-      planningWindowParserRef.current?.destroy();
-      explorerParserRef.current?.destroy();
-    };
-  }, []);
 
   useEffect(() => {
     if (!Array.isArray(chatList)) {
       setRunningWindowData({});
       setRunningWindowMarkdown("");
-      // 重置解析器
-      runningWindowParserRef.current = new VisBaseParser();
-      planningWindowParserRef.current = new VisBaseParser();
-      explorerParserRef.current = new VisBaseParser();
       return;
     }
 
@@ -65,64 +41,40 @@ export function useDetailPanel(chatList: any[]): {
           ? JSON.parse(item.context) 
           : item.context;
         
-        // 尝试从多个可能的位置获取数据
+        // 尝试从多个可能的位置获取running_window
         let runningWindowContent = "";
-        let planningWindowContent = "";
         let explorerContent = "";
         let itemsData = [];
         
-        // 情况2a: 直接包含数据字段
+        // 情况2a: 直接包含 running_window
         if (context.running_window) {
           runningWindowContent = context.running_window;
         }
-        if (context.planning_window) {
-          planningWindowContent = context.planning_window;
-        }
-        
-        // 情况2b: 包含 vis 字段
-        if (context.vis) {
+        // 情况2b: 包含 vis 字段，vis 中包含 running_window
+        else if (context.vis) {
           const visData = typeof context.vis === 'string' 
             ? JSON.parse(context.vis) 
             : context.vis;
-          
-          // 使用 VisBaseParser 处理 running_window
-          if (visData.running_window && runningWindowParserRef.current) {
-            runningWindowContent = runningWindowParserRef.current.updateCurrentMarkdown(visData.running_window);
-          }
-          
-          // 使用 VisBaseParser 处理 planning_window
-          if (visData.planning_window && planningWindowParserRef.current) {
-            planningWindowContent = planningWindowParserRef.current.updateCurrentMarkdown(visData.planning_window);
-          }
-          
-          // 处理 explorer
-          if (visData.explorer && explorerParserRef.current) {
-            explorerContent = explorerParserRef.current.updateCurrentMarkdown(visData.explorer);
-          } else if (visData.explorer) {
-            explorerContent = visData.explorer;
-          }
-          
+          runningWindowContent = visData.running_window || "";
+          explorerContent = visData.explorer || mergedData.explorer || "";
           itemsData = visData.items || [];
         }
 
-        // 合并数据
-        if (runningWindowContent) {
-          mergedData.running_window = runningWindowContent;
-          markdownContent = runningWindowContent;
-        }
-        
-        if (planningWindowContent) {
-          mergedData.planning_window = planningWindowContent;
-        }
-        
+        // 合并数据：保留 explorer（如果新的没有，保留旧的）
         if (explorerContent) {
           mergedData.explorer = explorerContent;
         }
-        
         if (itemsData.length > 0) {
-          mergedData.items = itemsData;
+          mergedData.items = [...(mergedData.items || []), ...itemsData];
         }
-        
+        if (runningWindowContent) {
+          // 🔧 FIX: 累积 running_window 内容，而不是覆盖
+          const prevContent = mergedData.running_window || "";
+          mergedData.running_window = prevContent 
+            ? `${prevContent}\n\n${runningWindowContent}` 
+            : runningWindowContent;
+          markdownContent = mergedData.running_window;
+        }
       } catch (error) {
         console.debug("Skipping invalid chat item context:", {
           error: error instanceof Error ? error.message : String(error),

@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-09 22:38:05
+-- Generated: 2026-03-12 14:20:36
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -91,6 +91,35 @@ CREATE TABLE IF NOT EXISTS `user` (
 CREATE TABLE IF NOT EXISTS `recommend_question` (
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: authorization_audit_log
+-- Source Model: AuthorizationAuditLogEntity
+CREATE TABLE IF NOT EXISTS `authorization_audit_log` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `session_id` VARCHAR(255) NOT NULL COMMENT 'Session identifier',
+  `user_id` VARCHAR(255) NULL COMMENT 'User identifier',
+  `agent_name` VARCHAR(255) NULL COMMENT 'Agent name',
+  `tool_name` VARCHAR(255) NOT NULL COMMENT 'Tool name',
+  `arguments` TEXT NULL COMMENT 'Tool arguments (JSON)',
+  `decision` VARCHAR(32) NOT NULL COMMENT 'Authorization decision',
+  `action` VARCHAR(16) NOT NULL COMMENT 'Permission action',
+  `reason` TEXT NULL COMMENT 'Reason for the decision',
+  `risk_level` VARCHAR(16) NULL COMMENT 'Risk level',
+  `risk_score` INT NULL COMMENT 'Risk score (0-100)',
+  `risk_factors` TEXT NULL COMMENT 'Risk factors (JSON array)',
+  `cached` INT NOT NULL DEFAULT 0 COMMENT 'Whether from cache',
+  `duration_ms` FLOAT NOT NULL COMMENT 'Duration in milliseconds',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'When the audit log was created',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_audit_session` (`session_id`),
+  KEY `idx_audit_tool` (`tool_name`),
+  KEY `idx_audit_decision` (`decision`),
+  KEY `idx_audit_risk_level` (`risk_level`),
+  KEY `idx_audit_created_at` (`created_at`),
+  KEY `idx_audit_user` (`user_id`),
+  KEY `idx_audit_agent` (`agent_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: user_recent_apps
@@ -414,7 +443,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `app_code` VARCHAR(100) NOT NULL COMMENT '应用代码',
   `team_mode` VARCHAR(255) NOT NULL COMMENT '当前版本配置的对话模式',
   `team_context` TEXT NULL COMMENT '应用当前版本的TeamContext信息',
-  `resources` TEXT NULL COMMENT '应用当前版本的Resources信息',
+  `resources` LONGTEXT NULL COMMENT '应用当前版本的Resources信息',
   `details` VARCHAR(2000) NULL COMMENT '应用当前版本的小弟details信息',
   `recommend_questions` TEXT NULL COMMENT '当前版本配置设定的推进问题信息',
   `version_info` VARCHAR(1000) NOT NULL COMMENT '版本信息',
@@ -423,7 +452,8 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `is_published` SMALLINT NULL DEFAULT 0 COMMENT '当前版本配置的备注描述',
   `gmt_last_edit` DATETIME NULL COMMENT '当前版本配置最后一次内容编辑时间',
   `editor` VARCHAR(255) NULL COMMENT '当前版本配置最后修改者',
-  `ext_config` TEXT NULL COMMENT '当前版本配置的扩展配置，各自动态扩展的内容',
+  `ext_config` LONGTEXT NULL COMMENT '当前版本配置的扩展配置，各自动态扩展的内容',
+  `runtime_config` LONGTEXT NULL COMMENT 'Agent运行时配置，包含DoomLoop检测、Loop执行、WorkLog压缩等',
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',

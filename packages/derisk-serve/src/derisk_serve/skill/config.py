@@ -57,6 +57,14 @@ class ServeConfig(BaseServeConfig):
         metadata={"help": "Default git branch for skill repository"},
     )
 
+    # Whether to enable automatic skill sync on startup
+    enable_default_skill_sync: bool = field(
+        default=True,
+        metadata={"help": "Whether to sync skills from git repository on startup. "
+                          "Set to false to skip auto-sync (useful for slow network or "
+                          "when using local skills only)"},
+    )
+
     def get_type_value(self):
         return self.__type__
 
