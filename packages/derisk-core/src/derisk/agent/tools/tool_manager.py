@@ -466,7 +466,7 @@ class ToolManager:
             "tags": metadata.tags,
             "risk_level": risk_level_val,
             "requires_permission": metadata.requires_permission,
-            "input_schema": metadata.input_schema,
+            "input_schema": tool.parameters,
             "output_schema": metadata.output_schema,
             "examples": [ex.model_dump() for ex in metadata.examples]
             if metadata.examples
