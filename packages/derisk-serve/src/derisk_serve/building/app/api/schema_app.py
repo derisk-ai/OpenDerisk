@@ -148,6 +148,7 @@ class GptsApp(BaseModel):
     recommend_questions: Optional[List[RecommendQuestion]] = []
     admins: List[str] = Field(default_factory=list)
     ext_config: Optional[Dict] = None
+    runtime_config: Optional[Dict] = None
 
     ## 其他资源
     all_resources: Optional[List[AgentResource]] = None

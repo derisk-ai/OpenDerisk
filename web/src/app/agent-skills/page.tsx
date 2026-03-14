@@ -1,8 +1,8 @@
 "use client"
 import { apiInterceptors } from '@/client/api';
-import { getSkillList, createSkill, updateSkill, deleteSkill, createSyncTask, getSyncTaskStatus, getRecentSyncTasks } from '@/client/api/skill';
+import { getSkillList, createSkill, updateSkill, deleteSkill, createSyncTask, getSyncTaskStatus, getRecentSyncTasks, updateSkillAutoSync } from '@/client/api/skill';
 import { InnerDropdown } from '@/components/blurred-card';
-import { FolderOpenFilled, ReloadOutlined, PlusOutlined, GithubOutlined, SyncOutlined, CloseOutlined, HistoryOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { FolderOpenFilled, ReloadOutlined, PlusOutlined, GithubOutlined, SyncOutlined, CloseOutlined, HistoryOutlined, ClockCircleOutlined, CloudSyncOutlined, CloudOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { Form, Pagination, Result, Spin, Tooltip, Button, message, Tag, Popconfirm, Input, Modal, Select, Switch, PaginationProps, Progress, Row, Col, Drawer, List, Typography, Space } from 'antd';
 import { useRouter } from 'next/navigation';
@@ -131,6 +131,28 @@ const SkillPage: React.FC = () => {
       runGetSkillList(queryParams, paginationParams);
     } catch (error) {
       message.error('Failed to delete skill');
+    }
+  };
+
+  // Handle auto_sync toggle
+  const handleAutoSyncChange = async (item: any, checked: boolean) => {
+    try {
+      const [err, res] = await apiInterceptors(updateSkillAutoSync(item.skill_code, checked));
+      if (err) {
+        message.error('Failed to update auto sync setting');
+        return;
+      }
+      message.success(`Auto sync ${checked ? 'enabled' : 'disabled'} for ${item.name}`);
+      // Update local state
+      setSkillList((prev: any[]) =>
+        prev.map((skill: any) =>
+          skill.skill_code === item.skill_code
+            ? { ...skill, auto_sync: checked }
+            : skill
+        )
+      );
+    } catch (error) {
+      message.error('Failed to update auto sync setting');
     }
   };
 
@@ -307,12 +329,23 @@ const SkillPage: React.FC = () => {
                       </div>
                       <div>
                         <h3 className='font-medium text-base line-clamp-1'>{item.name}</h3>
-                        <Tag
-                  color={item.repo_url ? "green" : "default"}
-                  className="mr-0 scale-90 origin-left"
-                >
-                  {item.repo_url ? "Git" : "Local"}
-                </Tag>
+                        <div className="flex items-center gap-1">
+                          <Tag
+                            color={item.repo_url ? "green" : "default"}
+                            className="mr-0 scale-90 origin-left"
+                          >
+                            {item.repo_url ? "Git" : "Local"}
+                          </Tag>
+                          {item.repo_url && (
+                            <Tooltip title={item.auto_sync !== false ? "Auto sync enabled" : "Auto sync disabled"}>
+                              {item.auto_sync !== false ? (
+                                <CloudSyncOutlined className="text-blue-500 text-xs" />
+                              ) : (
+                                <CloudOutlined className="text-gray-400 text-xs" />
+                              )}
+                            </Tooltip>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div onClick={e => e.stopPropagation()}>
@@ -341,7 +374,22 @@ const SkillPage: React.FC = () => {
 
                   <div className='flex justify-between items-center text-xs text-gray-400 border-t border-gray-100 dark:border-gray-800 pt-3'>
                     <span>{item.author || 'Unknown Author'}</span>
-                    <span>{item.version || 'v1.0.0'}</span>
+                    <div className="flex items-center gap-2">
+                      {item.repo_url && (
+                        <div
+                          className="flex items-center gap-1"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <span className="text-[10px] text-gray-400">Auto Sync</span>
+                          <Switch
+                            size="small"
+                            checked={item.auto_sync !== false}
+                            onChange={(checked) => handleAutoSyncChange(item, checked)}
+                          />
+                        </div>
+                      )}
+                      <span>{item.version || 'v1.0.0'}</span>
+                    </div>
                   </div>
                 </div>
               ))}

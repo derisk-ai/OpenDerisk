@@ -18,15 +18,6 @@ from ...util.executor_utils import execute_to_thread, t
 logger = logging.getLogger(__name__)
 
 
-def _get_mcp_not_found_error():
-    """Return MCPNotFoundError class, or None when the package is unavailable."""
-    try:
-        from derisk_serve.agent.resource.tool.mcp_collect import MCPNotFoundError
-        return MCPNotFoundError
-    except ImportError:
-        return None
-
-
 def _is_valid_resource_instance(obj: Any) -> bool:
     """Check if object is a valid resource instance (Resource or ToolBase)."""
     if isinstance(obj, Resource):
@@ -276,40 +267,10 @@ class ResourceManager(BaseComponent):
                         if return_resource
                         else {"name": real_resource_name}
                     )
-            # Not found in registered instances, try to create dynamically
-            # This handles cases like MCP rebind where old instance exists
-            # but code/name has changed
-            single_item = item[0]
-            try:
-                parameter_cls = single_item.get_parameter_class()
-                param = parameter_cls.from_dict(
-                    resource_value if v2_resource else agent_resource.to_dict(),
-                    ignore_extra_fields=True,
-                )
-                param_dict = param.to_dict()
-                if not return_resource:
-                    return param_dict
-                param_dict["system_app"] = self.system_app
-                resource_inst = single_item.resource_cls(**param_dict)
-                return resource_inst
-            except ValueError as e:
-                # Check if this is an MCPNotFoundError (MCP deleted/recreated).
-                mcp_not_found_cls = _get_mcp_not_found_error()
-                if mcp_not_found_cls and isinstance(e, mcp_not_found_cls):
-                    logger.warning(
-                        f"Skipping unavailable MCP resource [{single_item.key}]: {e}. "
-                        f"Please re-bind the MCP in the application configuration."
-                    )
-                    return None
-                logger.warning(f"Failed to build resource {single_item.key}: {str(e)}")
-                raise ValueError(
-                    f"Failed to build resource {single_item.key}: {str(e)}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to build resource {single_item.key}: {str(e)}")
-                raise ValueError(
-                    f"Failed to build resource {single_item.key}: {str(e)}"
-                )
+            raise ValueError(
+                f"Resource {real_resource_name} not found in {type_unique_key}"
+            )
+            # return cast(Resource, inst_items[0].resource_instance)
         elif len(inst_items) > 1:
             raise ValueError(
                 f"Multiple instances of resource {type_unique_key} found, "
@@ -329,21 +290,6 @@ class ResourceManager(BaseComponent):
                 param_dict["system_app"] = self.system_app
                 resource_inst = single_item.resource_cls(**param_dict)
                 return resource_inst
-            except ValueError as e:
-                # Check if this is an MCPNotFoundError (MCP deleted/recreated).
-                # Catch it here before the generic re-raise so the rest of the
-                # agent resources can still load.
-                mcp_not_found_cls = _get_mcp_not_found_error()
-                if mcp_not_found_cls and isinstance(e, mcp_not_found_cls):
-                    logger.warning(
-                        f"Skipping unavailable MCP resource [{single_item.key}]: {e}. "
-                        f"Please re-bind the MCP in the application configuration."
-                    )
-                    return None
-                logger.warning(f"Failed to build resource {single_item.key}: {str(e)}")
-                raise ValueError(
-                    f"Failed to build resource {single_item.key}: {str(e)}"
-                )
             except Exception as e:
                 logger.warning(f"Failed to build resource {single_item.key}: {str(e)}")
                 raise ValueError(
@@ -374,8 +320,6 @@ class ResourceManager(BaseComponent):
                 for resource in agent_resources
             ]
         )
-        # Filter out None entries (e.g. MCPs that were deleted/recreated)
-        dependencies = [d for d in dependencies if d is not None]
         # dependencies: List[Resource] = execute_parallel_sync([(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
         # dependencies: List[Resource] = []
         # for resource in agent_resources:
@@ -383,8 +327,6 @@ class ResourceManager(BaseComponent):
         #         Resource, self.build_resource_by_type(resource.type, resource)
         #     )
         #     dependencies.append(resource_inst)
-        if not dependencies:
-            return None
         if len(dependencies) == 1:
             return dependencies[0]
         else:
@@ -414,17 +356,13 @@ class ResourceManager(BaseComponent):
                 for resource in agent_resources
             ]
         )
-        # Filter out None entries (e.g. MCPs that were deleted/recreated)
-        # and Summary Agents that should not be included in the resource pack
+        # Summary Agent不放入resource中
         dependencies = [
             dependency
             for dependency in dependencies
-            if dependency is not None
-            and not await is_summary_agent_resource(dependency)
+            if not await is_summary_agent_resource(dependency)
         ]
 
-        if not dependencies:
-            return None
         if len(dependencies) == 1:
             return dependencies[0]
         else:

@@ -2,25 +2,26 @@ import asyncio
 import functools
 import inspect
 import logging
-from typing import get_origin, get_args, Any, Annotated, Callable, Optional, Union, Dict
+from typing import get_origin, get_args, Any, Annotated, Callable
 
-from derisk.agent.resource.tool.base import ToolFunc, FunctionTool, ToolParameter
+from derisk.agent.resource.tool.base import ToolFunc, FunctionTool
 
 logger = logging.getLogger(__name__)
-DERISK_TOOL_IDENTIFIER = "system_tool"
+DERISK_TOOL_IDENTIFIER = 'system_tool'
 
 # 工具函数映射
-system_tool_dict: [str, FunctionTool] = {}
+system_tool_dict:[str, FunctionTool] = {}
+
 
 
 def system_tool(
-    name=None,
-    description=None,
-    owner=None,
-    input_schema=None,
-    ask_user=False,
-    stream=False,
-    concurrency="parallel",
+        name=None,
+        description=None,
+        owner=None,
+        input_schema=None,
+        ask_user=False,
+        stream=False,
+        concurrency="parallel",
 ) -> Callable[..., Any]:
     """
     Decorator to register a function with a name and description.
@@ -28,28 +29,16 @@ def system_tool(
 
     def decorator(func: ToolFunc):
         tool_name = name if name is not None else func.__name__
-        tool_args = generate_tool_args(func)
-        ft = FunctionTool(
-            tool_name,
-            func,
-            description,
-            tool_args,
-            None,
-            input_schema=input_schema,
-            ask_user=ask_user,
-            concurrency=concurrency,
-        )
+        ft = FunctionTool(tool_name, func, description, None, None, input_schema=input_schema, ask_user=ask_user, concurrency=concurrency)
 
         func._to_register = {
-            "name": tool_name,
-            "description": description,
-            "owner": owner if owner is not None else "derisk",
-            "input_schema": input_schema
-            if input_schema is not None
-            else generate_function_schema(func),
-            "ask_user": ask_user,
-            "stream": stream,
-            "concurrency": concurrency,
+            'name': tool_name,
+            'description': description,
+            'owner': owner if owner is not None else 'derisk',
+            'input_schema': input_schema if input_schema is not None else generate_function_schema(func),
+            'ask_user': ask_user,
+            'stream': stream,
+            'concurrency': concurrency,
         }  # Attribute indicates it should be registered
         func.__ant_tool__ = True
         # 更新全局映射 poc_function_map
@@ -75,7 +64,6 @@ def system_tool(
 
         # 检查函数类型
         import inspect
-
         if inspect.isasyncgenfunction(func) or asyncio.iscoroutinefunction(func):
             wrapper = async_wrapper
         else:
@@ -93,60 +81,23 @@ def generate_function_schema(func):
     从函数中提取参数类型注解，生成符合 JSON schema 格式的字典。
     """
     sig = inspect.signature(func)
-    schema = {"type": "object", "properties": {}}
+    schema = {
+        "type": "object",
+        "properties": {}
+    }
 
     for name, param in sig.parameters.items():
         if name == "self":
             continue
         annotation = param.annotation
         if annotation is inspect.Parameter.empty:
-            raise TypeError(
-                f"Missing type annotation for parameter '{name}' in function {func.__name__}."
-            )
+            raise TypeError(f"Missing type annotation for parameter '{name}' in function {func.__name__}.")
 
-        schema["properties"][name] = {"type": _convert_type(annotation)}
+        schema["properties"][name] = {
+            "type": _convert_type(annotation)
+        }
 
     return schema
-
-
-def generate_tool_args(func) -> Dict[str, ToolParameter]:
-    """
-    从函数签名自动生成 ToolParameter 字典。
-    用于参数过滤，确保系统工具只接收预期的参数。
-    """
-    sig = inspect.signature(func)
-    args: Dict[str, ToolParameter] = {}
-
-    for param_name, param in sig.parameters.items():
-        if param_name == "self":
-            continue
-
-        annotation = param.annotation
-        if annotation is inspect.Parameter.empty:
-            continue
-
-        param_type = _convert_type(annotation)
-
-        description = param_name
-        if get_origin(annotation) is Annotated:
-            args_tuple = get_args(annotation)
-            if len(args_tuple) > 1 and isinstance(args_tuple[1], str):
-                description = args_tuple[1]
-
-        has_default = param.default is not inspect.Parameter.empty
-        required = not has_default
-        default = param.default if has_default else None
-
-        args[param_name] = ToolParameter(
-            name=param_name,
-            title=param_name.replace("_", " ").title(),
-            type=param_type,
-            description=description,
-            required=required,
-            default=default,
-        )
-
-    return args
 
 
 def _convert_type(t: Any) -> str:
@@ -170,3 +121,4 @@ def _convert_type(t: Any) -> str:
         return "array"
     else:
         return "object"
+

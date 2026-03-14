@@ -7,6 +7,7 @@ import Icon, {
   ApiOutlined,
   ClockCircleOutlined,
   ConsoleSqlOutlined,
+  DashboardOutlined,
   DeleteOutlined,
   GlobalOutlined,
   MenuFoldOutlined,
@@ -18,7 +19,8 @@ import Icon, {
   AppstoreOutlined,
   SearchOutlined,
   RobotOutlined,
-  ExperimentOutlined
+  ExperimentOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { App, Flex, Input, Popover, Spin, Tooltip, Typography } from 'antd';
@@ -480,8 +482,22 @@ function SideBar() {
             icon: <SettingOutlined className='w-5 h-5 text-gray-500' />,
             path: '/settings/config',
           },
+          {
+            key: 'audit_logs',
+            name: t('audit_logs_title'),
+            isActive: pathname.startsWith('/audit-logs'),
+            icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/audit-logs',
+          },
+          {
+            key: 'monitoring',
+            name: t('monitoring_page_title'),
+            isActive: pathname.startsWith('/monitoring'),
+            icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/monitoring',
+          },
         ],
-isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config'),
+isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring'),
       },
     ];
     return items;

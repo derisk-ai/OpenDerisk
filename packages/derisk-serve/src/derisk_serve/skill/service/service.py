@@ -112,29 +112,26 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         """
         # Build the query request from the request
         query_request = {"skill_code": request.skill_code}
-        request_dict = request.dict() if isinstance(request, SkillRequest) else request
-
-        # Filter out read-only fields
-        request_dict.pop("skill_code", None)
-        request_dict.pop("gmt_created", None)
-        request_dict.pop("gmt_modified", None)
 
         # Set default path if not provided
-        if not request_dict.get("path"):
+        if not request.path:
             existing = self.dao.get_one({"skill_code": request.skill_code})
             if existing and existing.path:
-                request_dict["path"] = existing.path
+                request.path = existing.path
             else:
                 project_skill_dir = self._serve_config.get_project_skill_dir()
-                request_dict["path"] = os.path.join(
+                request.path = os.path.join(
                     project_skill_dir, request.skill_code
                 )
                 logger.info(
                     f"Skill '{request.skill_code}' update path is empty, "
-                    f"using default path '{request_dict['path']}'"
+                    f"using default path '{request.path}'"
                 )
 
-        return self.dao.update(query_request, request_dict)
+        logger.info(f"Updating skill {request.skill_code} with auto_sync={request.auto_sync}")
+
+        # Pass the Pydantic model directly to dao.update, which will use model_to_dict
+        return self.dao.update(query_request, update_request=request)
 
     def get(self, request: SkillRequest) -> Optional[SkillResponse]:
         """Get a Skill entity
@@ -148,6 +145,18 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         # Build the query request from the request
         query_request = request
         return self.dao.get_one(query_request)
+
+    def get_by_skill_code(self, skill_code: str) -> Optional[SkillResponse]:
+        """Get a Skill entity by skill_code only
+
+        Args:
+            skill_code (str): The skill code
+
+        Returns:
+            SkillResponse: The response or None if not found
+        """
+        # Use dict query to avoid including default values from SkillRequest
+        return self.dao.get_one({"skill_code": skill_code})
 
     def delete(self, request: SkillRequest) -> None:
         """Delete a Skill entity
@@ -291,6 +300,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     existing_skill_request = SkillRequest(skill_code=skill_code)
                     existing_skill = self.get(existing_skill_request)
 
+                    # Check auto_sync setting - skip if auto_sync is disabled
+                    # unless force_update is explicitly set
+                    if existing_skill and existing_skill.auto_sync is False and not force_update:
+                        logger.info(
+                            f"Skill {skill_name} has auto_sync disabled, skipping"
+                        )
+                        synced_skills.append(existing_skill)
+                        continue
+
                     # Determine if we should update
                     should_update = force_update or (
                         existing_skill and existing_skill.commit_id != commit_id
@@ -311,6 +329,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     rel_path = os.path.relpath(skill_path, repo_path)
 
                     # Build skill request
+                    # Preserve existing auto_sync setting if skill already exists
+                    auto_sync = existing_skill.auto_sync if existing_skill else True
+
                     skill_request = SkillRequest(
                         skill_code=skill_code,
                         name=skill_name,
@@ -328,6 +349,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         repo_url=repo_url,
                         branch=branch,
                         commit_id=commit_id,
+                        auto_sync=auto_sync,
                     )
 
                     # Create or update skill

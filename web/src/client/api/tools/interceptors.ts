@@ -29,6 +29,7 @@ export const apiInterceptors = <T = any, D = any>(
             message: `Request error`,
             description: data?.err_msg ?? 'The interface is abnormal. Please try again later',
           });
+          return [{ message: data?.err_msg || 'Request failed' } as Error, null, data, response];
         }
       }
       return [null, data.data, data, response];
