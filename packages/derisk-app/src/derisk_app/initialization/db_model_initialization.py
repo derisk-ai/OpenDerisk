@@ -25,6 +25,7 @@ from derisk_serve.building.app.models.models import ServeEntity as AppServeEntit
 from derisk_serve.building.app.models.models_details import AppDetailServeEntity
 from derisk_serve.building.config.models.models import ServeEntity as AppConfigServeEntity
 from derisk_serve.mcp.models.models import ServeEntity as MCPServeEntity
+from derisk_serve.channel.models.models import ChannelEntity
 
 _MODELS = [
     FileServeEntity,

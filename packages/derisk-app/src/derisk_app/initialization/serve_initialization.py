@@ -38,6 +38,7 @@ def scan_serve_configs():
         "derisk_serve.asset",
         "derisk_serve.config",
         "derisk_serve.version",
+        "derisk_serve.channel",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
