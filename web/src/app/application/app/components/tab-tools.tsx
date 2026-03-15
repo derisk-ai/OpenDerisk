@@ -52,6 +52,7 @@ import {
   type ToolWithBinding,
   type ToolBindingType,
 } from '@/client/api/tools/management';
+import { GET, POST, PUT } from '@/client/api';
 import { AgentAuthorizationConfig } from '@/components/config/AgentAuthorizationConfig';
 import type { AuthorizationConfig } from '@/types/authorization';
 import { AuthorizationMode, LLMJudgmentPolicy } from '@/types/authorization';
@@ -316,27 +317,27 @@ export default function TabToolsManagement() {
     setExpandedGroups(Array.isArray(keys) ? keys : [keys]);
   }, []);
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-
   // 加载流式配置
   const loadStreamingConfigs = useCallback(async () => {
     if (!appCode) return;
     try {
-      const response = await fetch(`${apiBaseUrl}/api/v1/streaming-config/apps/${appCode}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.configs) {
-          const configMap: Record<string, ToolStreamingConfig> = {};
-          data.configs.forEach((cfg: ToolStreamingConfig) => {
-            configMap[cfg.tool_name] = cfg;
-          });
-          setStreamingConfigs(configMap);
-        }
+      const response = await GET<null, { app_code: string; configs: ToolStreamingConfig[]; total: number }>(
+        `/api/v1/streaming-config/apps/${appCode}`
+      );
+      const data = response.data;
+      if (data?.configs && Array.isArray(data.configs)) {
+        const configMap: Record<string, ToolStreamingConfig> = {};
+        data.configs.forEach((cfg: ToolStreamingConfig) => {
+          configMap[cfg.tool_name] = cfg;
+        });
+        setStreamingConfigs(configMap);
+        console.log('[ToolStreaming] Loaded configs:', Object.keys(configMap));
       }
     } catch (error) {
       console.error('Failed to load streaming configs:', error);
+      message.warning(t('streaming_load_failed') || '加载流式配置失败');
     }
-  }, [appCode, apiBaseUrl]);
+  }, [appCode, t]);
 
   useEffect(() => {
     loadStreamingConfigs();
@@ -366,27 +367,50 @@ export default function TabToolsManagement() {
 
   // 保存流式配置
   const saveStreamingConfig = useCallback(async (config: ToolStreamingConfig) => {
-    if (!appCode || !currentStreamingTool) return;
+    console.log('[ToolStreaming] saveStreamingConfig called with config:', config);
+    console.log('[ToolStreaming] appCode:', appCode, 'currentStreamingTool:', currentStreamingTool?.name);
+    
+    if (!appCode) {
+      console.error('[ToolStreaming] No appCode');
+      message.error(t('builder_no_app_selected') || '未选择应用');
+      return;
+    }
+    if (!currentStreamingTool) {
+      console.error('[ToolStreaming] No currentStreamingTool');
+      message.error(t('streaming_no_tool_selected') || '未选择工具');
+      return;
+    }
+    
+    const invalidParams = config.param_configs.filter(p => !p.param_name);
+    if (invalidParams.length > 0) {
+      console.error('[ToolStreaming] Invalid params:', invalidParams);
+      message.error(t('streaming_param_name_required') || '请填写所有参数名称');
+      return;
+    }
+    
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/v1/streaming-config/apps/${appCode}/tools/${currentStreamingTool.name}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config),
-        }
+      const url = `/api/v1/streaming-config/apps/${appCode}/tools/${currentStreamingTool.name}`;
+      console.log('[ToolStreaming] Sending PUT to:', url, 'with data:', JSON.stringify(config, null, 2));
+      
+      const response = await PUT<ToolStreamingConfig, { success: boolean; config: ToolStreamingConfig }>(
+        url,
+        config
       );
-      if (response.ok) {
+      console.log('[ToolStreaming] Save response:', response);
+      if (response.data?.success) {
         message.success(t('streaming_save_success') || '配置已保存');
         setStreamingConfigs(prev => ({ ...prev, [currentStreamingTool.name]: config }));
         setStreamingModalVisible(false);
       } else {
-        message.error(t('streaming_save_failed') || '保存失败');
+        const errorMsg = (response.data as any)?.error || t('streaming_save_failed') || '保存失败';
+        console.error('[ToolStreaming] Save failed:', errorMsg);
+        message.error(errorMsg);
       }
     } catch (error) {
+      console.error('[ToolStreaming] Failed to save streaming config:', error);
       message.error(t('streaming_save_failed') || '保存失败');
     }
-  }, [appCode, currentStreamingTool, t, apiBaseUrl]);
+  }, [appCode, currentStreamingTool, t]);
 
   if (!appCode) {
     return (
@@ -618,6 +642,8 @@ export default function TabToolsManagement() {
             onClick={() => {
               if (currentStreamingConfig) {
                 saveStreamingConfig(currentStreamingConfig);
+              } else {
+                message.error(t('streaming_config_not_found') || '配置不存在，请重试');
               }
             }}
           >

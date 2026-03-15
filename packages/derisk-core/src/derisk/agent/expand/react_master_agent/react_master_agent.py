@@ -1153,12 +1153,23 @@ class ReActMasterAgent(ConversableAgent):
                                 result.view = f"❌ **工具执行失败**\n\n工具 `{tool_name}` 已连续失败多次，系统已自动终止该工具的执行。\n\n{result.view or result.content or ''}"
 
                         # ========== 集成：记录到 WorkLog ==========
-                        logger.info(
-                            f"📝 Calling _record_action_to_work_log for {tool_name}..."
-                        )
-                        await self._record_action_to_work_log(
-                            tool_name, tool_args, result
-                        )
+                        # 重要：只有真正的工具调用才应该记录到 WorkLog
+                        # 真正的工具包括两类：
+                        # 1. FunctionTool 的 Action 子类：Terminate, AgentStart, KnowledgeSearch 等
+                        # 2. ToolAction 的子类：执行外部工具的基础 Action
+                        # BlankAction 不是工具，它只是 LLM 返回纯文本时的占位 Action
+                        # 记录非工具会导致生成假的 tool_calls 消息，引发 OpenAI API 错误
+                        if isinstance(real_action, (FunctionTool, ToolAction)):
+                            logger.info(
+                                f"📝 Calling _record_action_to_work_log for {tool_name}..."
+                            )
+                            await self._record_action_to_work_log(
+                                tool_name, tool_args, result
+                            )
+                        else:
+                            logger.info(
+                                f"📝 Skipping WorkLog record for {real_action.__class__.__name__} (not a tool)"
+                            )
 
                         # ========== 集成：判断是否需要自动生成报告 ==========
                         # 如果是 terminate action 且启用了自动报告

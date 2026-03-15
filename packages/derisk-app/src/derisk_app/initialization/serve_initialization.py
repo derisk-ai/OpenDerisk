@@ -457,3 +457,18 @@ def register_serve_apps(
     )
 
     # ################################ Scene Serve Register End   ################
+
+    # ################################ Streaming Config Serve Register Begin ################
+    from derisk_serve.streaming.serve import Serve as StreamingConfigServe
+
+    system_app.register(
+        StreamingConfigServe,
+        config=get_config(
+            serve_configs,
+            StreamingConfigServe.name,
+            derisk_serve.streaming.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Streaming Config Serve Register End   ################

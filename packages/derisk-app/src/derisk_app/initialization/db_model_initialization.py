@@ -1,6 +1,7 @@
 """Import all models to make sure they are registered with SQLAlchemy."""
 
 from derisk.model.cluster.registry_impl.db_storage import ModelInstanceEntity
+from derisk.model.streaming.db_models import StreamingToolConfig
 from derisk.storage.chat_history.chat_history_db import (
     ChatHistoryEntity,
     ChatHistoryMessageEntity,
@@ -23,7 +24,9 @@ from derisk_serve.model.models.models import ServeEntity as ModelManageentity
 from derisk_serve.config.models.models import ServeEntity as ConfigServeEntity
 from derisk_serve.building.app.models.models import ServeEntity as AppServeEntity
 from derisk_serve.building.app.models.models_details import AppDetailServeEntity
-from derisk_serve.building.config.models.models import ServeEntity as AppConfigServeEntity
+from derisk_serve.building.config.models.models import (
+    ServeEntity as AppConfigServeEntity,
+)
 from derisk_serve.mcp.models.models import ServeEntity as MCPServeEntity
 
 _MODELS = [
@@ -47,4 +50,5 @@ _MODELS = [
     AppConfigServeEntity,
     MCPServeEntity,
     ChannelEntity,
+    StreamingToolConfig,
 ]
