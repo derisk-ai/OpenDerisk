@@ -94,7 +94,7 @@ export default function TabOverview() {
         chat_layout: layout?.chat_layout?.name || '',
         chat_in_layout: chat_in_layout_list || [],
         reasoning_engine: engineItemValue?.key ?? engineItemValue?.name,
-        use_sandbox: parsedTeamContext?.use_sandbox ?? true,
+        use_sandbox: parsedTeamContext?.use_sandbox ?? false,
         ...chat_in_layout_obj,
       });
       
@@ -242,13 +242,13 @@ export default function TabOverview() {
         fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext });
       }
     } else if (fieldName === 'v2_agent_template') {
-      // V2 Agent 模板选择
       const currentTeamContext = appInfo?.team_context || {};
       const newTeamContext = {
         ...currentTeamContext,
         agent_name: fieldValue,
       };
-      fetchUpdateApp({ ...appInfo, team_context: newTeamContext });
+      const agentVersion = appInfo?.agent_version || currentTeamContext?.agent_version || 'v2';
+      fetchUpdateApp({ ...appInfo, agent_version: agentVersion, team_context: newTeamContext });
     } else if (fieldName === 'llm_strategy') {
       fetchUpdateApp({ ...appInfo, llm_config: { llm_strategy: fieldValue as string, llm_strategy_value: appInfo.llm_config?.llm_strategy_value || [] } });
     } else if (fieldName === 'llm_strategy_value') {
@@ -266,14 +266,21 @@ export default function TabOverview() {
     } else if (fieldName === 'use_sandbox') {
       // 确保 team_context 正确解析（可能是字符串或对象）
       const rawTeamContext = appInfo?.team_context;
+      console.log('[SandboxToggle] rawTeamContext:', rawTeamContext, 'type:', typeof rawTeamContext);
       const currentTeamContext = typeof rawTeamContext === 'string' 
         ? safeJsonParse(rawTeamContext, {}) 
         : (rawTeamContext || {});
+      console.log('[SandboxToggle] currentTeamContext:', currentTeamContext);
+      const agentVersion = appInfo?.agent_version || currentTeamContext?.agent_version || 'v1';
       const newTeamContext = {
         ...currentTeamContext,
+        agent_version: agentVersion,
         use_sandbox: fieldValue as boolean,
       };
-      fetchUpdateApp({ ...appInfo, team_context: newTeamContext });
+      console.log('[SandboxToggle] newTeamContext:', newTeamContext);
+      console.log('[SandboxToggle] Calling fetchUpdateApp with team_context');
+      // 确保顶层 agent_version 也正确设置，后端需要根据这个字段决定如何解析 team_context
+      fetchUpdateApp({ ...appInfo, agent_version: agentVersion, team_context: newTeamContext });
     }
   };
 
@@ -336,26 +343,28 @@ export default function TabOverview() {
 
             {/* Sandbox Toggle - Moved to Basic Info */}
             <div className="mt-5 pt-5 border-t border-gray-100">
-              <Form.Item name="use_sandbox" valuePropName="checked" className="mb-0">
-                <div className="flex items-center justify-between group">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 flex items-center justify-center">
-                      <CloudServerOutlined className="text-violet-500 text-lg" />
-                    </div>
-                    <div>
-                      <div className="text-[13px] font-medium text-gray-800">启用沙箱环境</div>
-                      <div className="text-[11px] text-gray-500">Agent 将在隔离的沙箱环境中运行</div>
-                    </div>
+              <div className="flex items-center justify-between group">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 flex items-center justify-center">
+                    <CloudServerOutlined className="text-violet-500 text-lg" />
                   </div>
-                  <Tooltip title="启用后，Agent 将在隔离的沙箱环境中执行代码和命令，提供更安全的运行环境" placement="left">
-                    <Switch
-                      checkedChildren="已开启"
-                      unCheckedChildren="已关闭"
-                      className="scale-110"
-                    />
-                  </Tooltip>
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">启用沙箱环境</div>
+                    <div className="text-[11px] text-gray-500">Agent 将在隔离的沙箱环境中运行</div>
+                  </div>
                 </div>
-              </Form.Item>
+                <Tooltip title="启用后，Agent 将在隔离的沙箱环境中执行代码和命令，提供更安全的运行环境" placement="left">
+                  <div>
+                    <Form.Item name="use_sandbox" valuePropName="checked" className="mb-0" noStyle>
+                      <Switch
+                        checkedChildren="已开启"
+                        unCheckedChildren="已关闭"
+                        className="scale-110"
+                      />
+                    </Form.Item>
+                  </div>
+                </Tooltip>
+              </div>
             </div>
           </div>
 

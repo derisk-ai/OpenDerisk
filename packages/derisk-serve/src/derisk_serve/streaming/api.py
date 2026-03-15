@@ -128,6 +128,9 @@ async def save_tool_config(
         Saved configuration
     """
     try:
+        logger.info(
+            f"[StreamingConfig] Saving config for app={app_code}, tool={tool_name}"
+        )
         service = get_streaming_config_service()
 
         param_configs = {}
@@ -156,8 +159,19 @@ async def save_tool_config(
 
         success = await service.save_tool_config(app_code, tool_name, config)
 
+        if not success:
+            logger.error(
+                f"[StreamingConfig] Failed to save config: storage not available"
+            )
+            return {
+                "success": False,
+                "error": "Storage not available. Please check database configuration.",
+                "config": None,
+            }
+
+        logger.info(f"[StreamingConfig] Config saved successfully for tool={tool_name}")
         return {
-            "success": success,
+            "success": True,
             "config": {
                 "tool_name": config.tool_name,
                 "app_code": config.app_code,
@@ -170,7 +184,7 @@ async def save_tool_config(
             },
         }
     except Exception as e:
-        logger.error(f"Failed to save tool config: {e}")
+        logger.error(f"Failed to save tool config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -197,7 +211,7 @@ async def delete_tool_config(app_code: str, tool_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete tool config: {e}")
+        logger.error(f"Failed to delete tool config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

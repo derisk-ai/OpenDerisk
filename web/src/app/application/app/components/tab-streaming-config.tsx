@@ -390,6 +390,14 @@ export default function TabStreamingConfig() {
 
   // 保存配置
   const handleSaveConfig = useCallback(async (toolName: string, config: ToolConfig) => {
+    if (!appCode) {
+      message.error(t('builder_no_app_selected') || '未选择应用');
+      return;
+    }
+    if (!toolName) {
+      message.error(t('streaming_no_tool_selected') || '未选择工具');
+      return;
+    }
     try {
       const response = await fetch(`/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`, {
         method: 'PUT',
@@ -399,6 +407,7 @@ export default function TabStreamingConfig() {
       
       if (response.ok) {
         const data = await response.json();
+        console.log('[StreamingConfig] Save response:', data);
         setConfigs(prev => {
           const existing = prev.findIndex(c => c.tool_name === toolName);
           if (existing >= 0) {
@@ -410,9 +419,12 @@ export default function TabStreamingConfig() {
         });
         message.success(t('streaming_save_success') || 'Configuration saved');
       } else {
+        const errorText = await response.text();
+        console.error('[StreamingConfig] Save failed:', response.status, errorText);
         message.error(t('streaming_save_failed') || 'Save failed');
       }
     } catch (error) {
+      console.error('Failed to save config:', error);
       message.error(t('streaming_save_failed') || 'Save failed');
     }
   }, [appCode, t]);
@@ -776,9 +788,15 @@ export default function TabStreamingConfig() {
                     <Button
                       type="primary"
                       onClick={() => {
+                        if (!selectedTool) {
+                          message.error(t('streaming_no_tool_selected') || '未选择工具');
+                          return;
+                        }
                         const config = configs.find((c) => c.tool_name === selectedTool);
                         if (config) {
                           handleSaveConfig(selectedTool, config);
+                        } else {
+                          message.error(t('streaming_config_not_found') || '配置不存在，请重新选择工具');
                         }
                       }}
                     >

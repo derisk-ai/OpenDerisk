@@ -199,7 +199,7 @@ class StreamingConfigService:
                     }
                 )
         except Exception as e:
-            logger.error(f"Failed to get tools from registry: {e}")
+            logger.error(f"Failed to get tools from registry: {e}", exc_info=True)
 
             if not tools:
                 tools = self._get_default_tools()
@@ -275,19 +275,90 @@ def get_streaming_config_service() -> StreamingConfigService:
     """Get or create the streaming config service singleton"""
     global _service
 
-    if _service is not None:
+    # If service exists and has valid storage, return it
+    if _service is not None and _service._storage is not None:
         return _service
 
+    # Try to get the service from the Serve component if it's registered
     try:
-        from derisk.storage.metadata.db_storage import SQLAlchemyStorage
+        from derisk.component import SystemApp
 
         system_app = SystemApp.get_instance()
-        storage = system_app.get_component(SQLAlchemyStorage)
+        from .serve import Serve
 
+        serve = Serve.get_current_serve(system_app)
+        if serve and serve._service and serve._service._storage:
+            _service = serve._service
+            logger.info("[StreamingConfig] Got service from Serve component")
+            return _service
+    except Exception as e:
+        logger.debug(f"[StreamingConfig] Could not get service from Serve: {e}")
+
+    # If service exists but has no storage, log and try to reinitialize
+    if _service is not None and _service._storage is None:
+        logger.warning(
+            "[StreamingConfig] Service exists but storage is None, reinitializing..."
+        )
+
+    try:
+        from derisk.storage.metadata import DatabaseManager, Model, db
+        from derisk.storage.metadata.db_storage import SQLAlchemyStorage
+        from derisk.util.serialization.json_serialization import JsonSerializer
+        from derisk.component import SystemApp
+
+        system_app = SystemApp.get_instance()
+        logger.info(f"[StreamingConfig] SystemApp instance: {system_app}")
+
+        db_manager = None
+        if system_app is not None:
+            # Try to get DatabaseManager from SystemApp first
+            from derisk.component import ComponentType
+            from derisk.storage.metadata import UnifiedDBManagerFactory
+
+            db_manager_factory: UnifiedDBManagerFactory = system_app.get_component(
+                ComponentType.UNIFIED_METADATA_DB_MANAGER_FACTORY,
+                UnifiedDBManagerFactory,
+                default_component=None,
+            )
+
+            logger.info(f"[StreamingConfig] db_manager_factory: {db_manager_factory}")
+
+            if db_manager_factory is not None and db_manager_factory.create():
+                db_manager = db_manager_factory.create()
+                logger.info(
+                    f"[StreamingConfig] Got db_manager from factory: {db_manager}"
+                )
+
+        if db_manager is None:
+            db_manager = DatabaseManager.build_from(db, base=Model)
+            logger.info(f"[StreamingConfig] Built db_manager from db: {db_manager}")
+
+        # Create a simple adapter for StreamingToolConfig
+        class StreamingConfigAdapter:
+            def to_storage_format(self, obj):
+                return obj
+
+            def from_storage_format(self, data):
+                return data
+
+        StreamingToolConfig = __import__(
+            "derisk.model.streaming.db_models", fromlist=["StreamingToolConfig"]
+        ).StreamingToolConfig
+
+        storage = SQLAlchemyStorage(
+            db_manager,
+            StreamingToolConfig,
+            StreamingConfigAdapter(),
+            JsonSerializer(),
+        )
+
+        logger.info(
+            f"[StreamingConfig] SQLAlchemyStorage initialized successfully: {storage}"
+        )
         _service = StreamingConfigService(storage)
     except Exception as e:
-        logger.warning(
-            f"Failed to get SQLAlchemyStorage, using memory-only service: {e}"
+        logger.error(
+            f"[StreamingConfig] Failed to initialize storage: {e}", exc_info=True
         )
         _service = StreamingConfigService(None)
 

@@ -109,6 +109,7 @@ class ComponentType(str, Enum):
     PERFERMANCE = "perfermance"
     SANDBOX_MANAGER = "sandbox_manager"
 
+
 _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"
 
 
@@ -177,6 +178,8 @@ class SystemApp(LifeCycle):
     """Main System Application class that manages the lifecycle and registration of
     components."""
 
+    _instance: Optional["SystemApp"] = None
+
     def __init__(
         self,
         asgi_app: Optional["FastAPI"] = None,
@@ -190,6 +193,17 @@ class SystemApp(LifeCycle):
         self._stop_event = threading.Event()
         self._stop_event.clear()
         self._build()
+        # Store instance for singleton access
+        SystemApp._instance = self
+
+    @classmethod
+    def get_instance(cls) -> Optional["SystemApp"]:
+        """Get the singleton instance of SystemApp.
+
+        Returns:
+            Optional[SystemApp]: The SystemApp instance if initialized, None otherwise.
+        """
+        return cls._instance
 
     @property
     def app(self) -> Optional["FastAPI"]:
@@ -337,15 +351,19 @@ class SystemApp(LifeCycle):
 
     def _build(self):
         import sys
+
         print(f"[_build] Called, self.app={self.app}", file=sys.stderr, flush=True)
         if not self.app:
-            print("[_build] No app, registering exit handler", file=sys.stderr, flush=True)
+            print(
+                "[_build] No app, registering exit handler", file=sys.stderr, flush=True
+            )
             self._register_exit_handler()
             return
         from derisk.util.fastapi import register_event_handler
 
         async def startup_event():
             import sys
+
             print("[startup_event] Called", file=sys.stderr, flush=True)
             try:
                 await self.async_after_start()

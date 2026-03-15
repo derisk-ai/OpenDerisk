@@ -249,8 +249,16 @@ class AgentChat(BaseComponent, ABC):
             SandboxManager 实例或 None
         """
         # 检查是否需要沙箱
+        # 处理 team_context 可能是字典或对象的情况
+        use_sandbox_flag = False
+        if app.team_context:
+            if hasattr(app.team_context, "use_sandbox"):
+                use_sandbox_flag = app.team_context.use_sandbox
+            elif isinstance(app.team_context, dict):
+                use_sandbox_flag = app.team_context.get("use_sandbox", False)
+
         if not (
-            (need_sandbox and app.team_context.use_sandbox)
+            (need_sandbox and use_sandbox_flag)
             or await self._have_agent_skill(
                 app, context.extra.get("dynamic_resources", [])
             )

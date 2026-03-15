@@ -163,6 +163,14 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         agent_version = getattr(request, "agent_version", "v1") or "v1"
         is_v2 = agent_version == "v2"
 
+        logger.info(
+            f"[app_info_to_config] agent_version={agent_version}, is_v2={is_v2}"
+        )
+        logger.info(
+            f"[app_info_to_config] team_context type: {type(request.team_context)}"
+        )
+        logger.info(f"[app_info_to_config] team_context: {request.team_context}")
+
         if is_v2:
             from derisk.agent.core.plan.unified_context import UnifiedTeamContext
 
@@ -171,13 +179,23 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     team_context = request.team_context
                 elif isinstance(request.team_context, dict):
                     team_context = UnifiedTeamContext.from_dict(request.team_context)
+                    logger.info(
+                        f"[app_info_to_config] Created UnifiedTeamContext from dict: use_sandbox={team_context.use_sandbox}"
+                    )
                 else:
+                    # 尝试从对象中提取数据
+                    tc_dict = (
+                        request.team_context.to_dict()
+                        if hasattr(request.team_context, "to_dict")
+                        else {}
+                    )
                     team_context = UnifiedTeamContext(
                         agent_version="v2",
                         team_mode="single_agent",
-                        agent_name=getattr(request.team_context, "agent_name", None)
+                        agent_name=tc_dict.get("agent_name")
                         or request.agent
                         or "simple_chat",
+                        use_sandbox=tc_dict.get("use_sandbox", False),
                     )
             else:
                 team_context = UnifiedTeamContext(
@@ -195,16 +213,24 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     if not request.team_context:
                         team_context = AutoTeamContext(teamleader=request.agent)
                     else:
-                        team_context = AutoTeamContext(**request.team_context.to_dict())
+                        tc_dict = (
+                            request.team_context
+                            if isinstance(request.team_context, dict)
+                            else request.team_context.to_dict()
+                        )
+                        team_context = AutoTeamContext(**tc_dict)
                         team_context.teamleader = request.agent
                 else:
                     request.team_mode = TeamMode.SINGLE_AGENT.value
                     if not request.team_context:
                         team_context = SingleAgentContext(agent_name=request.agent)
                     else:
-                        team_context = SingleAgentContext(
-                            **request.team_context.to_dict()
+                        tc_dict = (
+                            request.team_context
+                            if isinstance(request.team_context, dict)
+                            else request.team_context.to_dict()
                         )
+                        team_context = SingleAgentContext(**tc_dict)
                         team_context.agent_name = request.agent
             else:
                 request.team_mode = TeamMode.SINGLE_AGENT.value
@@ -213,12 +239,22 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         agent_name=request.agent or "default"
                     )
                 else:
-                    team_context = SingleAgentContext(**request.team_context.to_dict())
+                    tc_dict = (
+                        request.team_context
+                        if isinstance(request.team_context, dict)
+                        else request.team_context.to_dict()
+                    )
+                    team_context = SingleAgentContext(**tc_dict)
         else:
             if not request.team_context:
                 team_context = NativeTeamContext()
             else:
-                team_context = NativeTeamContext(**request.team_context.to_dict())
+                tc_dict = (
+                    request.team_context
+                    if isinstance(request.team_context, dict)
+                    else request.team_context.to_dict()
+                )
+                team_context = NativeTeamContext(**tc_dict)
             if request.agent:
                 team_context.agent_name = request.agent
 
@@ -658,16 +694,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 ## 如果配置存在resource_agent资源，转换为detail消费使用
                 self._resource_to_app_detail(app_resp, app_config.resource_agent)
 
-            app_resp.team_context = app_config.team_context
+            # 确保 team_context 被正确序列化为字典，包含 use_sandbox 等字段
+            if app_config.team_context and hasattr(app_config.team_context, "to_dict"):
+                app_resp.team_context = app_config.team_context.to_dict()
+            else:
+                app_resp.team_context = app_config.team_context
             app_resp.team_mode = app_config.team_mode
 
             logger.info(f"[APP_DETAIL] 加载配置后:")
             logger.info(f"  - team_mode: {app_resp.team_mode}")
             logger.info(f"  - team_context: {app_resp.team_context}")
             logger.info(f"  - team_context type: {type(app_resp.team_context)}")
-            if app_resp.team_context and hasattr(app_resp.team_context, "__dict__"):
+            if app_resp.team_context and isinstance(app_resp.team_context, dict):
                 logger.info(
-                    f"  - team_context.__dict__: {app_resp.team_context.__dict__}"
+                    f"  - team_context.use_sandbox: {app_resp.team_context.get('use_sandbox')}"
                 )
 
             # app_resp.language =
