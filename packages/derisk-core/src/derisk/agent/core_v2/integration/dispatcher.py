@@ -17,6 +17,7 @@ from .runtime import SessionContext, V2AgentRuntime, RuntimeConfig
 
 logger = logging.getLogger(__name__)
 
+
 # 用于同步会话到 chat_history 表
 async def sync_session_to_chat_history(
     conv_id: str,
@@ -26,7 +27,11 @@ async def sync_session_to_chat_history(
 ):
     """将会话信息同步到 chat_history 表"""
     try:
-        from derisk.storage.chat_history.chat_history_db import ChatHistoryDao, ChatHistoryEntity
+        from derisk.storage.chat_history.chat_history_db import (
+            ChatHistoryDao,
+            ChatHistoryEntity,
+        )
+
         chat_history_dao = ChatHistoryDao()
         entity = ChatHistoryEntity(
             conv_uid=conv_id,
@@ -58,6 +63,8 @@ class DispatchTask:
     created_at: datetime = field(default_factory=datetime.now)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    multimodal_contents: Optional[List[Dict[str, Any]]] = None
+    sandbox_file_refs: Optional[List[Any]] = None
 
 
 class V2AgentDispatcher:
@@ -139,6 +146,8 @@ class V2AgentDispatcher:
         priority: DispatchPriority = DispatchPriority.NORMAL,
         metadata: Optional[Dict[str, Any]] = None,
         result_queue: Optional[asyncio.Queue] = None,
+        multimodal_contents: Optional[List[Dict[str, Any]]] = None,
+        sandbox_file_refs: Optional[List[Any]] = None,
     ) -> str:
         new_session_created = False
         if session_id:
@@ -163,7 +172,6 @@ class V2AgentDispatcher:
             session_id = session_context.session_id
             new_session_created = True
 
-        # 如果是新创建的 session，同步到 chat_history 表
         if new_session_created:
             await sync_session_to_chat_history(
                 conv_id=conv_id or session_id,
@@ -178,6 +186,8 @@ class V2AgentDispatcher:
             message=message,
             priority=priority,
             metadata=metadata or {},
+            multimodal_contents=multimodal_contents,
+            sandbox_file_refs=sandbox_file_refs,
         )
 
         if result_queue:
@@ -195,28 +205,42 @@ class V2AgentDispatcher:
         **kwargs,
     ) -> AsyncIterator[V2StreamChunk]:
         import sys
+
         result_queue = asyncio.Queue()
-        
+
         task_id = await self.dispatch(
-            message=message, 
-            session_id=session_id, 
-            result_queue=result_queue,
-            **kwargs
+            message=message, session_id=session_id, result_queue=result_queue, **kwargs
         )
-        print(f"[dispatch_and_wait] task_id={task_id[:8]}, queue registered", file=sys.stderr, flush=True)
+        print(
+            f"[dispatch_and_wait] task_id={task_id[:8]}, queue registered",
+            file=sys.stderr,
+            flush=True,
+        )
 
         print(f"[dispatch_and_wait] waiting for chunks...", file=sys.stderr, flush=True)
         chunk_count = 0
         while True:
             chunk = await result_queue.get()
             if chunk is None:
-                print(f"[dispatch_and_wait] got None, breaking. Total chunks: {chunk_count}", file=sys.stderr, flush=True)
+                print(
+                    f"[dispatch_and_wait] got None, breaking. Total chunks: {chunk_count}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 break
             chunk_count += 1
-            print(f"[dispatch_and_wait] yielding chunk #{chunk_count}: type={chunk.type}", file=sys.stderr, flush=True)
+            print(
+                f"[dispatch_and_wait] yielding chunk #{chunk_count}: type={chunk.type}",
+                file=sys.stderr,
+                flush=True,
+            )
             yield chunk
             if chunk.is_final:
-                print(f"[dispatch_and_wait] chunk is final, breaking", file=sys.stderr, flush=True)
+                print(
+                    f"[dispatch_and_wait] chunk is final, breaking",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 break
 
     async def _worker_loop(self, worker_id: int):
@@ -231,28 +255,58 @@ class V2AgentDispatcher:
 
                 logger.info(f"[Worker-{worker_id}] 收到任务: {task.task_id[:8]}")
                 task.started_at = datetime.now()
-                
+
                 import sys
-                print(f"[Worker-{worker_id}] task_id={task.task_id[:8]}, in _task_results: {task.task_id in self._task_results}", file=sys.stderr, flush=True)
-                print(f"[Worker-{worker_id}] _task_results keys: {[k[:8] for k in self._task_results.keys()]}", file=sys.stderr, flush=True)
+
+                print(
+                    f"[Worker-{worker_id}] task_id={task.task_id[:8]}, in _task_results: {task.task_id in self._task_results}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                print(
+                    f"[Worker-{worker_id}] _task_results keys: {[k[:8] for k in self._task_results.keys()]}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
                 if self._on_task_start:
                     await self._safe_call(self._on_task_start, task)
 
                 chunk_count = 0
-                async for chunk in self.runtime.execute(task.session_id, task.message):
+                async for chunk in self.runtime.execute(
+                    task.session_id,
+                    task.message,
+                    multimodal_contents=task.multimodal_contents,
+                    sandbox_file_refs=task.sandbox_file_refs,
+                ):
                     chunk_count += 1
-                    print(f"[Worker-{worker_id}] chunk #{chunk_count}: type={chunk.type}, content={chunk.content[:50] if chunk.content else 'N/A'}", file=sys.stderr, flush=True)
+                    print(
+                        f"[Worker-{worker_id}] chunk #{chunk_count}: type={chunk.type}, content={chunk.content[:50] if chunk.content else 'N/A'}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     if task.task_id in self._task_results:
                         await self._task_results[task.task_id].put(chunk)
-                        print(f"[Worker-{worker_id}] put chunk to queue", file=sys.stderr, flush=True)
+                        print(
+                            f"[Worker-{worker_id}] put chunk to queue",
+                            file=sys.stderr,
+                            flush=True,
+                        )
                     else:
-                        print(f"[Worker-{worker_id}] WARNING: task_id not in _task_results!", file=sys.stderr, flush=True)
+                        print(
+                            f"[Worker-{worker_id}] WARNING: task_id not in _task_results!",
+                            file=sys.stderr,
+                            flush=True,
+                        )
 
                     if self._on_stream_chunk:
                         await self._safe_call(self._on_stream_chunk, task, chunk)
-                
-                print(f"[Worker-{worker_id}] Total chunks: {chunk_count}", file=sys.stderr, flush=True)
+
+                print(
+                    f"[Worker-{worker_id}] Total chunks: {chunk_count}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
                 task.completed_at = datetime.now()
                 logger.info(f"[Worker-{worker_id}] 任务完成: {task.task_id[:8]}")

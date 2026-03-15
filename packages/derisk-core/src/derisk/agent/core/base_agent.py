@@ -2736,51 +2736,125 @@ def _new_system_message(content):
 
 
 def _sanitize_tool_messages(messages: List[dict]) -> List[dict]:
-    """Remove orphaned 'tool' role messages that have no matching preceding
-    assistant message with 'tool_calls'.
+    """Sanitize message sequence to ensure proper tool_calls/tool response pairing.
 
-    OpenAI-compatible APIs require that every message with role='tool' is
-    immediately preceded (in the message sequence) by an assistant message
-    that contains a non-empty 'tool_calls' list.  Sending orphaned tool
-    messages causes a 400 error:
-      "messages with role 'tool' must be a response to a preceeding message
-       with 'tool_calls'."
+    OpenAI-compatible APIs have strict requirements:
+    1. Every message with role='tool' must be preceded by an assistant message
+       with a matching 'tool_calls' entry (same tool_call_id)
+    2. Every tool_call in an assistant message must have a corresponding tool
+       response message with matching tool_call_id
 
-    This helper scans the list in one pass and drops any tool message whose
-    preceding assistant message has no tool_calls.
+    Sending invalid sequences causes 400 errors like:
+      - "messages with role 'tool' must be a response to a preceeding message
+         with 'tool_calls'"
+      - "An assistant message with 'tool_calls' must be followed by tool
+         messages responding to each 'tool_call_id'"
+
+    This function performs two passes:
+    1. Remove orphaned tool response messages (tool responses without matching tool_calls)
+    2. Strip tool_calls from assistant messages that don't have corresponding tool responses
+
+    Returns:
+        Sanitized message list that conforms to OpenAI API requirements
     """
     if not messages:
         return messages
 
+    # First pass: identify all tool_call_ids from tool responses
+    tool_response_ids: set = set()
+    for msg in messages:
+        if msg.get("role") == ModelMessageRoleType.TOOL:
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id:
+                tool_response_ids.add(tool_call_id)
+
+    # Second pass: build sanitized list
     sanitized: List[dict] = []
-    orphan_count = 0
+    orphan_tool_response_count = 0
+    orphan_tool_call_count = 0
 
     for msg in messages:
         role = msg.get("role", "")
-        if role == ModelMessageRoleType.TOOL:
-            # Check that the last assistant message has tool_calls
+
+        if role == ModelMessageRoleType.TOOL or role == "tool":
+            tool_call_id = msg.get("tool_call_id")
+            # Check that the last assistant message has matching tool_calls
             prev_assistant = None
             for m in reversed(sanitized):
-                if m.get("role") == ModelMessageRoleType.AI:
+                if m.get("role") in (ModelMessageRoleType.AI, "assistant"):
                     prev_assistant = m
                     break
-                # Stop if we hit any non-assistant message after the last AI msg
+
             if prev_assistant and prev_assistant.get("tool_calls"):
-                sanitized.append(msg)
+                prev_tool_call_ids = {
+                    tc.get("id")
+                    for tc in prev_assistant.get("tool_calls", [])
+                    if tc.get("id")
+                }
+                if tool_call_id in prev_tool_call_ids:
+                    sanitized.append(msg)
+                else:
+                    orphan_tool_response_count += 1
+                    logger.warning(
+                        f"[_sanitize_tool_messages] Dropped orphaned tool message "
+                        f"(tool_call_id={tool_call_id!r}) — "
+                        f"no matching tool_call in preceding assistant message."
+                    )
             else:
-                orphan_count += 1
+                orphan_tool_response_count += 1
                 logger.warning(
                     f"[_sanitize_tool_messages] Dropped orphaned tool message "
-                    f"(tool_call_id={msg.get('tool_call_id')!r}) — "
+                    f"(tool_call_id={tool_call_id!r}) — "
                     f"no preceding assistant message with tool_calls."
                 )
+
+        elif role in (ModelMessageRoleType.AI, "assistant"):
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                # Filter tool_calls to only include those with matching responses
+                valid_tool_calls = [
+                    tc for tc in tool_calls if tc.get("id") in tool_response_ids
+                ]
+
+                if len(valid_tool_calls) < len(tool_calls):
+                    dropped_ids = [
+                        tc.get("id")
+                        for tc in tool_calls
+                        if tc.get("id") not in tool_response_ids
+                    ]
+                    orphan_tool_call_count += len(dropped_ids)
+                    logger.warning(
+                        f"[_sanitize_tool_messages] Stripped {len(dropped_ids)} tool_call(s) "
+                        f"from assistant message with no matching tool response: {dropped_ids}"
+                    )
+
+                if valid_tool_calls:
+                    # Create a copy with filtered tool_calls
+                    msg_copy = dict(msg)
+                    msg_copy["tool_calls"] = valid_tool_calls
+                    sanitized.append(msg_copy)
+                elif msg.get("content"):
+                    # If no valid tool_calls but has content, keep message without tool_calls
+                    msg_copy = dict(msg)
+                    msg_copy.pop("tool_calls", None)
+                    sanitized.append(msg_copy)
+                else:
+                    # Empty assistant message with only invalid tool_calls, skip it
+                    logger.warning(
+                        f"[_sanitize_tool_messages] Dropped empty assistant message "
+                        f"with only orphaned tool_calls."
+                    )
+            else:
+                sanitized.append(msg)
+
         else:
             sanitized.append(msg)
 
-    if orphan_count:
+    if orphan_tool_response_count or orphan_tool_call_count:
         logger.warning(
-            f"[_sanitize_tool_messages] Removed {orphan_count} orphaned tool "
-            f"message(s) from LLM input to prevent API 400 errors."
+            f"[_sanitize_tool_messages] Sanitization complete: "
+            f"removed {orphan_tool_response_count} orphaned tool response(s), "
+            f"stripped {orphan_tool_call_count} orphaned tool_call(s)."
         )
 
     return sanitized
