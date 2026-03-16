@@ -107,8 +107,11 @@ uv sync --all-packages --frozen \
     --extra "derisks" \
     --extra "storage_oss2" \
     --extra "client" \
-    --extra "ext_base"
+    --extra "ext_base" \
+    --extra "channel_dingtalk"
 ```
+
+> 注意：`channel_dingtalk` 为可选依赖，若不需要钉钉渠道支持可移除此行。
 
 #### 启动服务
 

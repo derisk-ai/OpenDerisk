@@ -260,7 +260,12 @@ class DingTalkClient:
 
         if self._stream_client:
             try:
-                self._stream_client.stop()
+                # Try graceful_stop first, then stop, otherwise just cleanup
+                if hasattr(self._stream_client, 'graceful_stop'):
+                    self._stream_client.graceful_stop()
+                elif hasattr(self._stream_client, 'stop'):
+                    self._stream_client.stop()
+                # If no stop method, the daemon thread will terminate on its own
             except Exception as e:
                 logger.error(f"Error stopping Stream client: {e}")
 
