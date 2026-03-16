@@ -1,3 +1,3 @@
-from .service.service import MultimodalService
+from .service import MultimodalService
 
 __all__ = ["MultimodalService"]

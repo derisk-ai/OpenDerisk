@@ -367,8 +367,8 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         file_memory: AgentFileMemory = None,
         file_metadata_db_storage: Optional[Any] = None,  # 数据库文件元数据存储后端
         work_log_db_storage: Optional[Any] = None,  # 数据库 WorkLog 存储后端
-        kanban_db_storage: Optional[Any] = None,   # 数据库 Kanban 存储后端
-        todo_db_storage: Optional[Any] = None,     # 数据库 Todo 存储后端
+        kanban_db_storage: Optional[Any] = None,  # 数据库 Kanban 存储后端
+        todo_db_storage: Optional[Any] = None,  # 数据库 Todo 存储后端
     ):
         if hasattr(self, "_initialized"):
             return
@@ -1031,6 +1031,26 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             self._executor, self.message_memory.get_by_session_id, conv_session_id
         )
 
+    async def stop(self, conv_id: str):
+        """停止会话的消息推送和消费者.
+
+        设置停止标志并通知队列消费者退出，但不清理会话数据。
+
+        Args:
+            conv_id: 会话ID
+        """
+        logger.info(f"Stopping memory for {conv_id}")
+        cache = await self._get_cache(conv_id)
+        if cache:
+            # 设置停止标志，阻止新的消息推送
+            cache.stop_flag = True
+            # 通知队列消费者退出
+            try:
+                cache.channel.put_nowait("[DONE]")
+            except asyncio.QueueFull:
+                pass  # 队列满，忽略
+            logger.info(f"Stopped conversation: {conv_id}")
+
     async def clear(self, conv_id: str):
         """主动清理会话资源"""
         logger.info(f"Clearing memory for {conv_id}")
@@ -1068,8 +1088,12 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         if save_db:
             if self._file_metadata_db_storage:
                 try:
-                    await self._file_metadata_db_storage.save_file_metadata(file_metadata)
-                    logger.debug(f"Saved file metadata to DB storage: {file_metadata.file_id}")
+                    await self._file_metadata_db_storage.save_file_metadata(
+                        file_metadata
+                    )
+                    logger.debug(
+                        f"Saved file metadata to DB storage: {file_metadata.file_id}"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to save file metadata to DB storage: {e}")
             else:
@@ -1077,7 +1101,9 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
                     await blocking_func_to_async(
                         self._executor, self._file_memory.append, file_metadata
                     )
-                    logger.debug(f"Saved file metadata to file memory: {file_metadata.file_id}")
+                    logger.debug(
+                        f"Saved file metadata to file memory: {file_metadata.file_id}"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to save file metadata to file memory: {e}")
 
@@ -1098,7 +1124,9 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         if self._file_metadata_db_storage:
             try:
                 await self._file_metadata_db_storage.update_file_metadata(file_metadata)
-                logger.debug(f"Updated file metadata in DB storage: {file_metadata.file_id}")
+                logger.debug(
+                    f"Updated file metadata in DB storage: {file_metadata.file_id}"
+                )
             except Exception as e:
                 logger.error(f"Failed to update file metadata in DB storage: {e}")
         else:
@@ -1176,11 +1204,15 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             return cache.files.get(file_id)
         if self._file_metadata_db_storage:
             try:
-                file_metadata = await self._file_metadata_db_storage.get_file_by_key(conv_id, file_key)
+                file_metadata = await self._file_metadata_db_storage.get_file_by_key(
+                    conv_id, file_key
+                )
                 if file_metadata and cache:
                     async with await self._get_conv_lock(conv_id):
                         cache.files[file_metadata.file_id] = file_metadata
-                        cache.file_key_index[file_metadata.file_key] = file_metadata.file_id
+                        cache.file_key_index[file_metadata.file_key] = (
+                            file_metadata.file_id
+                        )
                 return file_metadata
             except Exception as e:
                 logger.error(f"Failed to get file by key from DB storage: {e}")
@@ -1228,7 +1260,9 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         if self._file_metadata_db_storage:
             try:
                 for file_key, file_id in cache.file_key_index.items():
-                    await self._file_metadata_db_storage.save_catalog(conv_id, file_key, file_id)
+                    await self._file_metadata_db_storage.save_catalog(
+                        conv_id, file_key, file_id
+                    )
                 logger.debug(f"Saved file catalog to DB storage for {conv_id}")
             except Exception as e:
                 logger.error(f"Failed to save file catalog to DB storage: {e}")
@@ -1320,7 +1354,10 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         else:
             try:
                 await blocking_func_to_async(
-                    self._executor, self._file_memory.delete_by_file_key, conv_id, file_key
+                    self._executor,
+                    self._file_memory.delete_by_file_key,
+                    conv_id,
+                    file_key,
                 )
                 return True
             except Exception as e:

@@ -249,8 +249,16 @@ class AgentChat(BaseComponent, ABC):
             SandboxManager 实例或 None
         """
         # 检查是否需要沙箱
+        # 处理 team_context 可能是字典或对象的情况
+        use_sandbox_flag = False
+        if app.team_context:
+            if hasattr(app.team_context, "use_sandbox"):
+                use_sandbox_flag = app.team_context.use_sandbox
+            elif isinstance(app.team_context, dict):
+                use_sandbox_flag = app.team_context.get("use_sandbox", False)
+
         if not (
-            (need_sandbox and app.team_context.use_sandbox)
+            (need_sandbox and use_sandbox_flag)
             or await self._have_agent_skill(
                 app, context.extra.get("dynamic_resources", [])
             )
@@ -373,7 +381,7 @@ class AgentChat(BaseComponent, ABC):
 
             # Deliver to channel if configured (handles cron job message delivery)
             if not err_msg:
-                content = final_report # 只看final_report 不看final_message
+                content = final_report  # 只看final_report 不看final_message
                 content = content.lstrip() if content else None
                 if content:
                     await self._deliver_to_channel_if_configured(
@@ -1774,7 +1782,7 @@ class AgentChat(BaseComponent, ABC):
 
             self.gpts_conversations.update(conv_uid, gpts_status)
         except Exception as e:
-            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}", e)
+            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}")
             self.gpts_conversations.update(conv_uid, Status.FAILED.value)
             raise ValueError(f"The conversation is abnormal!{str(e)}")
         finally:

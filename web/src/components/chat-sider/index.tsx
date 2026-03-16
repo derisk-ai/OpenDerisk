@@ -1,15 +1,16 @@
 import { ChatContext } from '@/contexts';
 import { apiInterceptors, delDialogue } from '@/client/api';
 import { IChatDialogueSchema } from '@/types/chat';
-import { CaretLeftOutlined, CaretRightOutlined, DeleteOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { CaretLeftOutlined, CaretRightOutlined, DeleteOutlined, ShareAltOutlined, SyncOutlined, CheckCircleOutlined, ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
-import {App, Flex, Layout, Spin, Tooltip, Typography, message } from 'antd';
+import {App, Flex, Layout, Spin, Tooltip, Typography, message, Badge } from 'antd';
 import copy from 'copy-to-clipboard';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import AppDefaultIcon from '../icons/app-default-icon';
+import { queryChatStatus } from '@/client/api/chat';
 
 const { Sider } = Layout;
 
@@ -25,6 +26,38 @@ const zeroWidthTriggerDefaultStyle: React.CSSProperties = {
   border: '1px solid #d6d8da',
   borderRadius: 8,
   right: -8,
+};
+
+const StatusIcon: React.FC<{ state?: string }> = ({ state }) => {
+  if (!state || state === 'COMPLETE') {
+    return null;
+  }
+  
+  if (state === 'RUNNING') {
+    return (
+      <Tooltip title="运行中">
+        <LoadingOutlined className="text-blue-500 animate-spin" style={{ fontSize: 14 }} />
+      </Tooltip>
+    );
+  }
+  
+  if (state === 'FAILED') {
+    return (
+      <Tooltip title="失败">
+        <ExclamationCircleOutlined className="text-red-500" style={{ fontSize: 14 }} />
+      </Tooltip>
+    );
+  }
+  
+  if (state === 'WAITING') {
+    return (
+      <Tooltip title="等待输入">
+        <SyncOutlined className="text-orange-500" style={{ fontSize: 14 }} />
+      </Tooltip>
+    );
+  }
+  
+  return null;
 };
 
 /**
@@ -111,6 +144,7 @@ const MenuItem: React.FC<{
           {item.label}
         </Typography.Text>
       </div>
+      <StatusIcon state={item.state} />
       {!item.default && (
         <div className='flex gap-1 ml-1'>
           <div

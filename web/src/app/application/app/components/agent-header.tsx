@@ -7,6 +7,7 @@ import { App, Dropdown, Modal, Button, Tag } from 'antd';
 import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Image from 'next/image';
+import { SmartPluginIcon } from '@/components/icons/smart-plugin-icon';
 
 interface AgentHeaderProps {
   activeTab: string;
@@ -91,14 +92,18 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
       {/* Top bar: agent info + actions */}
       <div className="flex items-center justify-between px-5 py-3 gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-10 h-10 rounded-xl overflow-hidden ring-2 ring-white shadow-lg shadow-gray-200/50 flex-shrink-0">
-            <Image
-              src={appInfo?.icon || '/agents/agent1.jpg'}
-              alt="Agent Icon"
-              width={40}
-              height={40}
-              className="object-cover"
-            />
+          <div className="w-10 h-10 rounded-xl overflow-hidden ring-2 ring-white shadow-lg shadow-gray-200/50 flex-shrink-0 bg-gradient-to-br from-indigo-50 to-purple-50 flex items-center justify-center">
+            {appInfo?.icon && appInfo.icon !== 'smart-plugin' ? (
+              <Image
+                src={appInfo.icon}
+                alt="Agent Icon"
+                width={40}
+                height={40}
+                className="object-cover w-full h-full"
+              />
+            ) : (
+              <SmartPluginIcon size={36} />
+            )}
           </div>
           <div className="flex flex-col min-w-0">
             <div className="font-semibold text-gray-800 text-[15px] leading-tight tracking-[-0.01em] truncate">
