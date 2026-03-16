@@ -34,6 +34,7 @@ import {
   CodeOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
+import { GET, PUT, DELETE } from '@/client/api';
 
 // ============================================================
 // Types
@@ -299,9 +300,10 @@ export const StreamingConfigEditor: React.FC<StreamingConfigEditorProps> = ({
 
   const loadAvailableTools = async () => {
     try {
-      const response = await fetch(`/api/v1/streaming-config/tools/available?app_code=${appCode}`);
-      const data = await response.json();
-      setAvailableTools(data.tools || []);
+      const response = await GET<null, { tools?: AvailableTool[] }>(
+        `/api/v1/streaming-config/tools/available?app_code=${appCode}`
+      );
+      setAvailableTools(response.data?.tools || []);
     } catch (error) {
       console.error('Failed to load available tools:', error);
       // 使用内置工具列表作为后备
@@ -342,9 +344,10 @@ export const StreamingConfigEditor: React.FC<StreamingConfigEditorProps> = ({
   const loadConfigs = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/v1/streaming-config/apps/${appCode}`);
-      const data = await response.json();
-      setConfigs(data.configs || []);
+      const response = await GET<null, { configs?: ToolConfig[] }>(
+        `/api/v1/streaming-config/apps/${appCode}`
+      );
+      setConfigs(response.data?.configs || []);
     } catch (error) {
       console.error('Failed to load configs:', error);
     } finally {
@@ -354,13 +357,12 @@ export const StreamingConfigEditor: React.FC<StreamingConfigEditorProps> = ({
 
   const handleSaveConfig = async (toolName: string, config: ToolConfig) => {
     try {
-      const response = await fetch(`/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
+      const response = await PUT<ToolConfig, { success: boolean; config?: ToolConfig }>(
+        `/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`,
+        config
+      );
 
-      if (response.ok) {
+      if (response.data?.success) {
         message.success('配置已保存');
         loadConfigs();
         onConfigChange?.(config);
@@ -378,11 +380,15 @@ export const StreamingConfigEditor: React.FC<StreamingConfigEditorProps> = ({
       content: `确定要删除工具 "${toolName}" 的流式配置吗？`,
       onOk: async () => {
         try {
-          await fetch(`/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`, {
-            method: 'DELETE',
-          });
-          message.success('配置已删除');
-          loadConfigs();
+          const response = await DELETE<null, { success: boolean }>(
+            `/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`
+          );
+          if (response.data?.success) {
+            message.success('配置已删除');
+            loadConfigs();
+          } else {
+            message.error('删除失败');
+          }
         } catch (error) {
           message.error('删除失败');
         }
