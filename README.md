@@ -107,8 +107,11 @@ uv sync --all-packages --frozen \
     --extra "derisks" \
     --extra "storage_oss2" \
     --extra "client" \
-    --extra "ext_base"
+    --extra "ext_base" \
+    --extra "channel_dingtalk"
 ```
+
+> Note: `channel_dingtalk` is optional. Skip it if you don't need DingTalk channel support.
 
 #### Start Server
 

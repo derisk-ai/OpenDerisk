@@ -176,7 +176,7 @@ derisk:
 
 **URL 格式:**
 - OSS: `https://bucket.oss-region.aliyuncs.com/object?signature=xxx`
-- 本地: `http://localhost:5670/api/v2/serve/file/files/{bucket}/{file_id}`
+- 本地: `http://localhost:7777/api/v2/serve/file/files/{bucket}/{file_id}`
 
 ### 2. OSS 客户端（兼容模式）
 
