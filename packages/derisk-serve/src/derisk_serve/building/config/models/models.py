@@ -179,9 +179,17 @@ def _load_layout(layout: Optional[str] = None):
     if layout:
         layout_obj = json.loads(layout)
         layout = Layout(**layout_obj)
-        vis_manager = get_vis_manager()
-        vis_convert = vis_manager.get(layout.chat_layout.name)
-        layout.chat_layout.reuse_name = vis_convert.reuse_name
+        try:
+            vis_manager = get_vis_manager()
+            vis_convert = vis_manager.get(layout.chat_layout.name)
+            layout.chat_layout.reuse_name = vis_convert.reuse_name
+        except ValueError as e:
+            # Vis converter not registered yet (startup order issue)
+            logger.warning(
+                f"VisConvert:{layout.chat_layout.name} not registered yet, "
+                f"will use default layout. Error: {e}"
+            )
+            # Keep layout without reuse_name, it will be resolved later
         return layout
     else:
         return None
