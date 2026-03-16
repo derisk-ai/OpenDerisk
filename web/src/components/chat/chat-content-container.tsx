@@ -31,9 +31,11 @@ const ChatContentContainer = (props: { ctrl: AbortController; }, ref: React.Forw
     return containerRef.current;
   });
 
-  // 布局
   const isDoubleVis = useMemo(()=>{
-    return  appInfo?.layout?.chat_layout?.reuse_name === 'derisk_vis_window'|| appInfo?.layout?.chat_layout?.name === 'derisk_vis_window' || false;
+    const layoutName = appInfo?.layout?.chat_layout?.name;
+    const reuseName = appInfo?.layout?.chat_layout?.reuse_name;
+    return ['vis_window3', 'derisk_vis_window'].includes(layoutName) || 
+           ['vis_window3', 'derisk_vis_window'].includes(reuseName);
   },[appInfo?.layout?.chat_layout?.name, appInfo?.layout?.chat_layout?.reuse_name]);
 
   return (

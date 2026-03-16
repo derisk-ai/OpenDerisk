@@ -352,7 +352,6 @@ async def chat_completions(
     # Adapt OpenAI messages format to user_input
     if not dialogue.user_input and dialogue.messages:
         try:
-            # Extract the last user message content
             last_message = next(
                 (
                     msg
@@ -394,6 +393,75 @@ async def chat_completions(
         in_message = HumanMessage.parse_chat_completion_message(
             dialogue.user_input, ignore_unknown_media=True
         )
+
+        # 处理文件输入：提取文件引用并增强消息
+        sandbox_file_refs = []
+        if in_message.has_media:
+            try:
+                from derisk_serve.agent.file_io import (
+                    process_chat_input_files,
+                    build_enhanced_query_with_files,
+                    SandboxFileRef,
+                )
+
+                user_inputs = []
+                if isinstance(in_message.content, list):
+                    for media in in_message.content:
+                        if hasattr(media, "type") and hasattr(media, "object"):
+                            if media.type == "image" and media.object.format.startswith(
+                                "url"
+                            ):
+                                user_inputs.append(
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": str(media.object.data)},
+                                    }
+                                )
+                            elif (
+                                media.type == "file"
+                                and media.object.format.startswith("url")
+                            ):
+                                user_inputs.append(
+                                    {
+                                        "type": "file_url",
+                                        "file_url": {"url": str(media.object.data)},
+                                    }
+                                )
+
+                if user_inputs:
+                    result = await process_chat_input_files(
+                        user_inputs=user_inputs,
+                        sandbox=None,
+                        conv_id=dialogue.conv_uid,
+                    )
+                    sandbox_file_refs = result.sandbox_file_refs
+                    logger.info(
+                        f"[v1/chat] Processed {len(sandbox_file_refs)} files from user input"
+                    )
+
+                    if sandbox_file_refs and not result.multimodal_contents:
+                        text_content = (
+                            in_message.last_text
+                            if hasattr(in_message, "last_text")
+                            else str(in_message.content)
+                        )
+                        enhanced_text = build_enhanced_query_with_files(
+                            text_content, sandbox_file_refs
+                        )
+                        in_message = HumanMessage(content=enhanced_text)
+                        logger.info("[v1/chat] Enhanced message with file references")
+
+            except ImportError:
+                logger.warning("[v1/chat] file_io module not available")
+            except Exception as e:
+                logger.warning(f"[v1/chat] Failed to process files: {e}")
+
+        # 将 sandbox_file_refs 传递到 ext_info
+        if sandbox_file_refs:
+            dialogue.ext_info["sandbox_file_refs"] = [
+                ref.to_dict() if hasattr(ref, "to_dict") else ref
+                for ref in sandbox_file_refs
+            ]
 
         work_mode = dialogue.work_mode or WorkMode.ASYNC
 
@@ -449,7 +517,6 @@ async def chat_completions(
                 chat_in_params=dialogue.chat_in_params,
                 **dialogue.ext_info,
             )
-            # result 是 (None, agent_conv_id) 元组，提取会话ID
             agent_conv_id = result[1] if result else None
             return Result.succ(data={"conv_id": agent_conv_id})
         else:
@@ -485,7 +552,6 @@ async def chat_completions(
             media_type="text/plain",
         )
     finally:
-        # write to recent usage app.
         if dialogue.user_name is not None and dialogue.app_code is not None:
             user_recent_app_dao.upsert(
                 user_code=dialogue.user_name,
