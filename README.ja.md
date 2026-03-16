@@ -109,8 +109,11 @@ uv sync --all-packages --frozen \
     --extra "derisks" \
     --extra "storage_oss2" \
     --extra "client" \
-    --extra "ext_base"
+    --extra "ext_base" \
+    --extra "channel_dingtalk"
 ```
+
+> 注意：`channel_dingtalk` はオプションです。DingTalk チャネルのサポートが不要な場合は削除してください。
 
 #### サーバーの起動
 
