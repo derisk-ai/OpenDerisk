@@ -1,0 +1,117 @@
+{
+  "name": "OpenDeRisk",
+  "version": "0.1.0",
+  "default_model": {
+    "provider": "openai",
+    "model_id": "gpt-4",
+    "api_key": "sk-s6bVede3eiCFhJ35WHUa4WSDj8Z4nXutLPUrOxg7Swcl0JkV",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "agents": {
+    "primary": {
+      "name": "primary",
+      "description": "主Agent",
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 20,
+      "color": "#4A90E2"
+    }
+  },
+  "sandbox": {
+    "enabled": false,
+    "image": "python:3.11-slim",
+    "memory_limit": "512m",
+    "timeout": 300,
+    "network_enabled": false
+  },
+  "oauth2": {
+    "enabled": true,
+    "providers": [
+      {
+        "id": "alibaba-inc",
+        "type": "alibaba-inc",
+        "client_id": "ob-openderisk",
+        "client_secret": "c57a3d0ada764ec5b4f8bc5e954c9986"
+      },
+      {
+        "id": "github",
+        "type": "github",
+        "client_id": "Ov23linwErHF4WETKO1p",
+        "client_secret": "884f58de436d6b10b83c79d9f174e5376ca8e556"
+      }
+    ],
+    "admin_users": []
+  },
+  "workspace": "/Users/tuyang/.derisk/workspace",
+  "log_level": "INFO",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 7777
+  },
+  "system": {
+    "language": "zh",
+    "log_level": "INFO",
+    "api_keys": [],
+    "encrypt_key_ref": "master_encrypt_key",
+    "distributed": {
+      "enabled": false,
+      "redis_url": "redis://localhost:6379/0",
+      "execution_ttl": 3600,
+      "heartbeat_interval": 10
+    }
+  },
+  "web": {
+    "host": "0.0.0.0",
+    "port": 7777,
+    "model_storage": "database",
+    "web_url": "http://localhost:7777",
+    "database": {
+      "type": "sqlite",
+      "path": "pilot/meta_data/derisk.db",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password_ref": "",
+      "name": "derisk"
+    }
+  },
+  "agent_llm": {
+    "temperature": 0.5,
+    "providers": []
+  },
+  "sse": {
+    "input_check_interval": 100,
+    "notify_step_complete": true,
+    "max_wait_input_time": 0
+  },
+  "file_service": {
+    "enabled": true,
+    "default_backend": "local",
+    "backends": [
+      {
+        "type": "local",
+        "storage_path": "./data/files",
+        "access_key_ref": "",
+        "access_secret_ref": "",
+        "bucket": "derisk-files"
+      }
+    ]
+  },
+  "secrets": {
+    "references": {
+      "openai_api_key": "${secrets.openai_api_key}",
+      "dashscope_api_key": "${secrets.dashscope_api_key}",
+      "anthropic_api_key": "${secrets.anthropic_api_key}",
+      "oss_access_key_id": "${secrets.oss_access_key_id}",
+      "oss_access_key_secret": "${secrets.oss_access_key_secret}",
+      "db_password": "${secrets.db_password}"
+    }
+  }
+}
