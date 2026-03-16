@@ -761,6 +761,10 @@ def message2Vo(message: dict, order, model_name) -> MessageVo:
 
 from .config_api import router as config_router
 from .tools_api import router as tools_router
+from .auth_api import router as auth_router
+from .users_api import router as users_router
 
 router.include_router(config_router, prefix="/v1", tags=["Config"])
 router.include_router(tools_router, prefix="/v1", tags=["Tools"])
+router.include_router(auth_router, prefix="/v1", tags=["Auth"])
+router.include_router(users_router, prefix="/v1", tags=["Users"])
