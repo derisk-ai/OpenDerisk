@@ -1139,15 +1139,38 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         """获取当前可用的 LLM 模型列表
 
         使用系统中已注册的 ModelConfigCache 获取用户配置的模型列表。
+        如果 ModelConfigCache 为空，会尝试从配置中主动加载。
 
         Returns:
             List[str]: 可用的 LLM 模型名称列表
         """
         try:
-            from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+            from derisk.agent.util.llm.model_config_cache import (
+                ModelConfigCache,
+                parse_provider_configs,
+            )
 
             # 从 ModelConfigCache 获取所有已注册的模型
             all_models = ModelConfigCache.get_all_models()
+
+            # 如果 ModelConfigCache 为空，尝试从配置中加载
+            if not all_models and CFG.SYSTEM_APP and CFG.SYSTEM_APP.config:
+                logger.info("ModelConfigCache 为空，尝试从配置中加载模型...")
+                agent_llm_conf = CFG.SYSTEM_APP.config.get("agent.llm")
+                if not agent_llm_conf:
+                    agent_conf = CFG.SYSTEM_APP.config.get("agent")
+                    if isinstance(agent_conf, dict):
+                        agent_llm_conf = agent_conf.get("llm")
+
+                if agent_llm_conf:
+                    model_configs = parse_provider_configs(agent_llm_conf)
+                    if model_configs:
+                        ModelConfigCache.register_configs(model_configs)
+                        logger.info(
+                            f"已从配置加载 {len(model_configs)} 个模型到 ModelConfigCache"
+                        )
+                        all_models = ModelConfigCache.get_all_models()
+
             if all_models:
                 logger.info(f"从 ModelConfigCache 获取到可用的 LLM 模型: {all_models}")
                 return all_models
