@@ -21,6 +21,7 @@ from derisk.core import LLMClient
 
 from .improved_compaction import ImprovedSessionCompaction, CompactionConfig
 from .llm_utils import call_llm, LLMCaller
+from .tools_v2 import ToolRegistry, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -152,88 +153,6 @@ class PermissionChecker:
         import fnmatch
 
         return fnmatch.fnmatch(tool_name, pattern)
-
-
-class ToolRegistry:
-    """工具注册表"""
-
-    def __init__(self):
-        self._tools: Dict[str, Any] = {}
-
-    def register(self, tool: Any) -> "ToolRegistry":
-        # 优先使用 metadata.name，其次使用 name 属性
-        if hasattr(tool, "metadata") and hasattr(tool.metadata, "name"):
-            name = tool.metadata.name
-        elif hasattr(tool, "name"):
-            name = tool.name
-        else:
-            name = str(tool)
-        self._tools[name] = tool
-        logger.debug(f"[ToolRegistry] 注册工具: {name}")
-        return self
-
-    def get(self, name: str) -> Optional[Any]:
-        return self._tools.get(name)
-
-    async def execute(
-        self, name: str, args: Dict[str, Any], context: Optional[Dict[str, Any]] = None
-    ) -> "ToolResult":
-        """执行工具"""
-        from .tools_v2 import ToolResult
-
-        tool = self._tools.get(name)
-        if not tool:
-            return ToolResult(success=False, output="", error=f"工具不存在: {name}")
-
-        try:
-            if hasattr(tool, "execute"):
-                result = await tool.execute(args, context)
-                return result
-            elif callable(tool):
-                result = tool(**args)
-                if hasattr(result, "__await__"):
-                    result = await result
-                if isinstance(result, ToolResult):
-                    return result
-                return ToolResult(
-                    success=True,
-                    output=str(result) if result else "",
-                )
-            else:
-                return ToolResult(
-                    success=False, output="", error=f"工具不可执行: {name}"
-                )
-        except Exception as e:
-            logger.exception(f"[ToolRegistry] 工具执行异常: {name}")
-            return ToolResult(success=False, output="", error=str(e))
-
-    def list_tools(self) -> List[str]:
-        return list(self._tools.keys())
-
-    def list_all(self) -> List[Any]:
-        """列出所有工具对象"""
-        return list(self._tools.values())
-
-    def list_names(self) -> List[str]:
-        """列出所有工具名称"""
-        return list(self._tools.keys())
-
-    def get_openai_tools(self) -> List[Dict[str, Any]]:
-        result = []
-        for name, tool in self._tools.items():
-            if hasattr(tool, "get_openai_spec"):
-                result.append(tool.get_openai_spec())
-            else:
-                result.append(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "description": getattr(tool, "description", ""),
-                        },
-                    }
-                )
-        return result
 
 
 @dataclass
@@ -1119,8 +1038,9 @@ class ProductionAgent(AgentBase):
             else:
                 messages.append(SystemMessage(content=msg.content))
 
-        if self.tools.list_tools():
-            tools_desc = "Available tools: " + ", ".join(self.tools.list_tools())
+        if self.tools.list_all():
+            tool_names = [t.metadata.name for t in self.tools.list_all()]
+            tools_desc = "Available tools: " + ", ".join(tool_names)
             messages.append(SystemMessage(content=tools_desc))
 
         return messages

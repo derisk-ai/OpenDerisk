@@ -35,8 +35,20 @@ from derisk.agent.tools.result import ToolResult
 from derisk.agent.tools.registry import (
     ToolRegistry,
     tool_registry,
-    register_builtin_tools,
 )
+
+
+def register_builtin_tools(registry: ToolRegistry) -> None:
+    """
+    注册内置工具到注册表（兼容层）
+
+    此函数接受 registry 参数，以兼容旧版 API。
+    内部调用 derisk.agent.tools.builtin.register_all
+    """
+    from derisk.agent.tools.builtin import register_all
+
+    register_all(registry)
+
 
 from derisk.agent.tools.decorators import tool
 
@@ -167,7 +179,7 @@ def register_all_tools(
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.info(f"[Tools] 已注册所有工具，共 {len(registry.list_names())} 个")
+    logger.info(f"[Tools] 已注册所有工具，共 {len(registry.list_all())} 个")
 
     return registry
 
