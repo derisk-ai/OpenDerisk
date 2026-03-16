@@ -56,23 +56,89 @@ logger = logging.getLogger(__name__)
 # 消息通道迭代器
 # --------------------------
 class QueueIterator:
-    def __init__(self, queue: asyncio.Queue):
+    """异步队列迭代器，支持超时机制防止无限等待。
+
+    当队列长时间没有新消息时，会定期检查是否有错误发生，
+    避免因后台任务卡死或异常导致的无限等待。
+    """
+
+    DEFAULT_TIMEOUT = 30.0
+    MAX_TIMEOUT_COUNT = 3  # 最大连续超时次数，超过后抛出异常
+
+    def __init__(self, queue: asyncio.Queue, timeout: Optional[float] = None):
         self.queue = queue
+        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+        self._error: Optional[Exception] = None
+        self._stopped = False
+        self._timeout_count = 0  # 连续超时计数器
+
+    def set_error(self, error: Exception):
+        """设置错误状态，将在下次迭代时抛出。"""
+        self._error = error
+        try:
+            self.queue.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
+
+    def stop(self):
+        """停止迭代器。"""
+        self._stopped = True
+        try:
+            self.queue.put_nowait("[DONE]")
+        except asyncio.QueueFull:
+            pass
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
         start = time.perf_counter()
-        item = await self.queue.get()
-        if item == "[DONE]":
-            self.queue.task_done()
-            raise StopAsyncIteration
-        logger.debug(f"Queue wait: {(time.perf_counter() - start) * 1000:.2f}ms")
-        try:
-            return item
-        finally:
-            self.queue.task_done()
+
+        while True:
+            if self._error:
+                raise self._error
+
+            if self._stopped:
+                raise StopAsyncIteration
+
+            try:
+                item = await asyncio.wait_for(self.queue.get(), timeout=self.timeout)
+                self._timeout_count = 0  # 成功获取消息，重置超时计数
+            except asyncio.TimeoutError:
+                self._timeout_count += 1
+                wait_time = time.perf_counter() - start
+
+                if self._timeout_count >= self.MAX_TIMEOUT_COUNT:
+                    logger.error(
+                        f"Queue timeout exceeded max retries ({self.MAX_TIMEOUT_COUNT}), "
+                        f"total wait: {wait_time:.2f}s. Terminating to prevent infinite wait."
+                    )
+                    raise TimeoutError(
+                        f"对话响应超时，已等待 {wait_time:.1f} 秒。"
+                        f"请检查后端服务状态或稍后重试。"
+                    )
+
+                logger.warning(
+                    f"Queue wait timeout ({self._timeout_count}/{self.MAX_TIMEOUT_COUNT}) "
+                    f"after {wait_time:.2f}s, continuing to wait... (queue size: {self.queue.qsize()})"
+                )
+                continue
+
+            if item == "[DONE]":
+                self.queue.task_done()
+                raise StopAsyncIteration
+
+            if item is None:
+                if self._error:
+                    raise self._error
+                self.queue.task_done()
+                continue
+
+            logger.debug(f"Queue wait: {(time.perf_counter() - start) * 1000:.2f}ms")
+            try:
+                return item
+            finally:
+                self.queue.task_done()
 
 
 class AgentTaskType(Enum):
@@ -616,9 +682,11 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
     # --------------------------
     # 外部核心方法区
     # --------------------------
-    async def queue_iterator(self, conv_id: str) -> Optional[QueueIterator]:
+    async def queue_iterator(
+        self, conv_id: str, timeout: Optional[float] = None
+    ) -> Optional[QueueIterator]:
         cache = await self._get_cache(conv_id)
-        return QueueIterator(cache.channel) if cache else None
+        return QueueIterator(cache.channel, timeout=timeout) if cache else None
 
     async def init(
         self,

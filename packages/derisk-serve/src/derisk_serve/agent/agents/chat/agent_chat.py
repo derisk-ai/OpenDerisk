@@ -750,7 +750,16 @@ class AgentChat(BaseComponent, ABC):
                 )
                 file_handle = open(filename, "w", encoding="utf-8")
             if stream == True:
-                async for chunk in self._chat_messages(agent_conv_id):
+                stream_complete = False
+
+                # Check if task failed immediately
+                await asyncio.sleep(0.1)  # Give task a moment to start
+                if task.done() and task.exception():
+                    exc = task.exception()
+                    logger.error(f"Task failed immediately: {exc}")
+                    raise exc
+
+                async for chunk in self._chat_messages(agent_conv_id, task):
                     if chunk and len(chunk) > 0:
                         try:
                             content = orjson.dumps({"vis": chunk}).decode("utf-8")
@@ -765,19 +774,17 @@ class AgentChat(BaseComponent, ABC):
                                 f"get messages {gpts_name} Exception!" + str(e)
                             )
                             yield task, f"data: {str(e)}\n\n", agent_conv_id
+                    stream_complete = True
 
-                # 5. 最终处理
-                if task.done() and task.exception():
-                    # 如果任务有异常，返回错误
+                if not stream_complete and task.done() and task.exception():
                     logger.exception(f"agent chat exception!{conv_id}")
                     raise task.exception()
                 else:
-                    # 正常结束
                     yield task, _format_vis_msg("[DONE]"), agent_conv_id
             else:
                 logger.info("非流式消息输出!")
                 last_chunk = None, None, None
-                async for chunk in self._chat_messages(agent_conv_id):
+                async for chunk in self._chat_messages(agent_conv_id, task):
                     if chunk and len(chunk) > 0:
                         if not first_chunk_time:
                             yield task, "", agent_conv_id
@@ -801,13 +808,31 @@ class AgentChat(BaseComponent, ABC):
                 yield last_chunk
             succeed = True
         except asyncio.CancelledError:
-            # 取消时不立即回调
             logger.info("Generator cancelled, delaying callback")
+            yield task, _format_vis_msg("[DONE]"), agent_conv_id
             raise
         except Exception as e:
-            logger.exception(f"Agent chat have error!{str(e)}")
-            raise e
-            # yield task, str(e), agent_conv_id
+            import traceback
+
+            error_trace = traceback.format_exc()
+            logger.error(f"Agent chat have error! {str(e)}\n{error_trace}")
+
+            try:
+                if task and not task.done():
+                    task.cancel()
+            except Exception:
+                pass
+
+            error_content = orjson.dumps(
+                {
+                    "vis": {
+                        "type": "error",
+                        "content": f"对话发生错误: {str(e)}",
+                    }
+                }
+            ).decode("utf-8")
+            yield task, f"data:{error_content}\n\n", agent_conv_id
+            yield task, _format_vis_msg("[DONE]"), agent_conv_id
         finally:
             digest(
                 CHAT_LOGGER,
@@ -1782,24 +1807,67 @@ class AgentChat(BaseComponent, ABC):
 
             self.gpts_conversations.update(conv_uid, gpts_status)
         except Exception as e:
-            logger.error(f"chat abnormal termination！{conv_uid},{str(e)}")
-            self.gpts_conversations.update(conv_uid, Status.FAILED.value)
-            raise ValueError(f"The conversation is abnormal!{str(e)}")
+            import traceback
+
+            error_trace = traceback.format_exc()
+            logger.error(
+                f"chat abnormal termination！{conv_uid}, error: {str(e)}\n{error_trace}"
+            )
+            gpts_status = Status.FAILED.value
+            self.gpts_conversations.update(conv_uid, gpts_status)
+
+            try:
+                error_msg = {
+                    "type": "error",
+                    "content": f"对话发生错误: {str(e)}",
+                    "error_detail": error_trace,
+                }
+                await self.memory.gpts_memory.push_message(
+                    conv_id=conv_uid,
+                    stream_msg=error_msg,
+                )
+            except Exception as push_error:
+                logger.error(f"Failed to push error message: {push_error}")
+
+            raise ValueError(f"The conversation is abnormal! {str(e)}")
         finally:
             logger.info(f"inner chat final!{conv_uid}")
-            await self.memory.complete(conv_uid)
-            # 清理全局缓存中的沙箱管理器记录
+            try:
+                await self.memory.complete(conv_uid)
+            except Exception as complete_error:
+                logger.error(f"Failed to complete memory: {complete_error}")
             await self._cleanup_sandbox_manager(conv_uid, staff_no)
         return conv_uid
 
-    async def _chat_messages(self, conv_id: str):
+    async def _chat_messages(self, conv_id: str, task: Optional[asyncio.Task] = None):
+        """Yield chat messages from the queue with task monitoring.
+
+        If a task is provided and it fails during iteration, the error will be raised.
+        Also handles timeout cases to prevent infinite waiting.
+        """
         if not (iterator := await self.memory.queue_iterator(conv_id)):
             return
 
-        async for item in iterator:
-            # 可选：记录调试信息
-            yield item
-            await asyncio.sleep(0)
+        try:
+            async for item in iterator:
+                if task and task.done():
+                    exc = task.exception()
+                    if exc:
+                        import traceback
+
+                        logger.error(
+                            f"Background task failed: {exc}\n{traceback.format_exception(type(exc), exc, exc.__traceback__)}"
+                        )
+                        raise exc
+                yield item
+                await asyncio.sleep(0)
+        except Exception as e:
+            import traceback
+
+            logger.error(
+                f"Chat message iteration failed: {e}\n{traceback.format_exc()}"
+            )
+            raise
 
     async def stop_chat(self, conv_session_id: str, user_id: Optional[str] = None):
         """停止对话.

@@ -745,18 +745,28 @@ class V2AgentRuntime:
 
         # 保存到 GptsMemory (gpts_messages 表)
         if self.gpts_memory:
-            user_msg = type(
-                "GptsMessage",
-                (),
-                {
-                    "message_id": str(uuid.uuid4().hex),
-                    "conv_id": conv_id,
-                    "sender": "user",
-                    "receiver": "assistant",
-                    "content": message,
-                    "rounds": 0,
-                },
-            )()
+            # Find the session to get additional info
+            session = None
+            for s in self._sessions.values():
+                if s.conv_id == conv_id:
+                    session = s
+                    break
+
+            # Create a proper GptsMessage with all required attributes
+            user_msg = GptsMessage(
+                conv_id=conv_id,
+                conv_session_id=session.session_id if session else conv_id,
+                message_id=str(uuid.uuid4().hex),
+                sender="user",
+                sender_name="user",
+                receiver="assistant",
+                receiver_name="assistant",
+                role="user",
+                content=message,
+                rounds=0,
+                app_code=session.agent_name if session else None,
+                app_name=session.agent_name if session else None,
+            )
             await self.gpts_memory.append_message(conv_id, user_msg, save_db=True)
 
         # 同时保存到 StorageConversation (ChatHistoryMessageEntity 表)
@@ -865,19 +875,21 @@ class V2AgentRuntime:
 
             # 保存到 GptsMemory (gpts_messages 表)
             if self.gpts_memory and session.accumulated_content:
-                assistant_msg = type(
-                    "GptsMessage",
-                    (),
-                    {
-                        "message_id": session.current_message_id
-                        or str(uuid.uuid4().hex),
-                        "conv_id": conv_id,
-                        "sender": session.agent_name,
-                        "receiver": "user",
-                        "content": vis_final_content,
-                        "rounds": 0,
-                    },
-                )()
+                # Create a proper GptsMessage with all required attributes
+                assistant_msg = GptsMessage(
+                    conv_id=conv_id,
+                    conv_session_id=session.session_id,
+                    message_id=session.current_message_id or str(uuid.uuid4().hex),
+                    sender=session.agent_name,
+                    sender_name=session.agent_name,
+                    receiver="user",
+                    receiver_name="user",
+                    role="assistant",
+                    content=vis_final_content,
+                    rounds=0,
+                    app_code=session.agent_name,
+                    app_name=session.agent_name,
+                )
                 await self.gpts_memory.append_message(
                     conv_id, assistant_msg, save_db=True
                 )
