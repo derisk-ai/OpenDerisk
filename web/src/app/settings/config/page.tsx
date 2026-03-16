@@ -8,38 +8,55 @@ import {
   Switch,
   Input,
   Select,
-  Slider,
   Form,
   message,
   Spin,
   Space,
   Modal,
-  Tooltip,
   Tag,
   Table,
   Popconfirm,
   Divider,
   Alert,
   Typography,
+  Segmented,
+  Collapse,
+  InputNumber,
+  Descriptions,
+  Slider,
 } from 'antd';
 import {
   SettingOutlined,
-  CodeOutlined,
   PlusOutlined,
   DeleteOutlined,
   ReloadOutlined,
   DownloadOutlined,
   UploadOutlined,
   CheckCircleOutlined,
-  WarningOutlined,
-  ToolOutlined,
   SafetyOutlined,
   CloudServerOutlined,
   LoginOutlined,
+  EyeOutlined,
+  EditOutlined,
+  DatabaseOutlined,
+  GlobalOutlined,
+  ApiOutlined,
+  FolderOutlined,
+  KeyOutlined,
+  TeamOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
-import { configService, toolsService, AppConfig, AgentConfig, ToolInfo } from '@/services/config';
+import {
+  configService,
+  toolsService,
+  AppConfig,
+  AgentConfig,
+  ToolInfo,
+  SecretConfig,
+  FileServiceConfig,
+} from '@/services/config';
 import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
 import ToolManagementPanel from '@/components/config/ToolManagementPanel';
 import OAuth2ConfigSection from '@/components/config/OAuth2ConfigSection';
@@ -47,19 +64,14 @@ import type { AuthorizationConfig } from '@/types/authorization';
 import type { ToolMetadata } from '@/types/tool';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [activeTab, setActiveTab] = useState('visual');
+  const [activeTab, setActiveTab] = useState('system');
+  const [editMode, setEditMode] = useState<'visual' | 'json'>('visual');
   const [jsonValue, setJsonValue] = useState('');
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [currentAgent, setCurrentAgent] = useState<AgentConfig | null>(null);
-  const [form] = Form.useForm();
-  const [sandboxStatus, setSandboxStatus] = useState<{ docker_available: boolean; recommended: string } | null>(null);
   const [authorizationConfig, setAuthorizationConfig] = useState<AuthorizationConfig | undefined>(undefined);
   const [toolMetadata, setToolMetadata] = useState<ToolMetadata[]>([]);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
@@ -67,7 +79,6 @@ export default function ConfigPage() {
   useEffect(() => {
     loadConfig();
     loadTools();
-    loadSandboxStatus();
     loadAuthorizationConfig();
     loadToolMetadata();
   }, []);
@@ -78,8 +89,6 @@ export default function ConfigPage() {
       const data = await configService.getConfig();
       setConfig(data);
       setJsonValue(JSON.stringify(data, null, 2));
-      const agentsData = await configService.getAgents();
-      setAgents(agentsData);
     } catch (error: any) {
       message.error('加载配置失败: ' + error.message);
     } finally {
@@ -96,20 +105,11 @@ export default function ConfigPage() {
     }
   };
 
-  const loadSandboxStatus = async () => {
-    try {
-      const status = await toolsService.getSandboxStatus();
-      setSandboxStatus(status);
-    } catch (error) {
-      console.error('加载沙箱状态失败', error);
-    }
-  };
-
   const loadAuthorizationConfig = async () => {
     try {
       const data = await configService.getConfig();
-      if (data.authorization) {
-        setAuthorizationConfig(data.authorization);
+      if ((data as any).authorization) {
+        setAuthorizationConfig((data as any).authorization);
       }
     } catch (error) {
       console.error('加载授权配置失败', error);
@@ -143,7 +143,7 @@ export default function ConfigPage() {
   const handleAuthorizationConfigChange = async (newConfig: AuthorizationConfig) => {
     setAuthorizationConfig(newConfig);
     try {
-      await configService.importConfig({ ...config, authorization: newConfig });
+      await configService.importConfig({ ...config, authorization: newConfig } as any);
       message.success('授权配置已保存');
     } catch (error: any) {
       message.error('保存授权配置失败: ' + error.message);
@@ -225,100 +225,6 @@ export default function ConfigPage() {
     input.click();
   };
 
-  // Agent 相关操作
-  const handleEditAgent = (agent: AgentConfig) => {
-    setCurrentAgent(agent);
-    form.setFieldsValue(agent);
-    setEditModalVisible(true);
-  };
-
-  const handleCreateAgent = () => {
-    setCurrentAgent(null);
-    form.resetFields();
-    form.setFieldsValue({
-      name: '',
-      description: '',
-      max_steps: 20,
-      color: '#4A90E2',
-    });
-    setEditModalVisible(true);
-  };
-
-  const handleSaveAgent = async (values: any) => {
-    try {
-      if (currentAgent) {
-        await configService.updateAgent(currentAgent.name, values);
-        message.success('Agent 已更新');
-      } else {
-        await configService.createAgent(values);
-        message.success('Agent 已创建');
-      }
-      setEditModalVisible(false);
-      loadConfig();
-    } catch (error: any) {
-      message.error('保存失败: ' + error.message);
-    }
-  };
-
-  const handleDeleteAgent = async (name: string) => {
-    try {
-      await configService.deleteAgent(name);
-      message.success('Agent 已删除');
-      loadConfig();
-    } catch (error: any) {
-      message.error('删除失败: ' + error.message);
-    }
-  };
-
-  // 工具表格列定义
-  const toolColumns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string) => <Tag color="blue">{name}</Tag>,
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-    },
-    {
-      title: '类别',
-      dataIndex: 'category',
-      key: 'category',
-      render: (cat: string) => {
-        const colors: Record<string, string> = {
-          code: 'green',
-          file: 'cyan',
-          system: 'red',
-          network: 'purple',
-          search: 'orange',
-        };
-        return <Tag color={colors[cat] || 'default'}>{cat}</Tag>;
-      },
-    },
-    {
-      title: '风险等级',
-      dataIndex: 'risk',
-      key: 'risk',
-      render: (risk: string) => {
-        const colors: Record<string, string> = {
-          low: 'success',
-          medium: 'warning',
-          high: 'error',
-        };
-        return <Tag color={colors[risk] || 'default'}>{risk}</Tag>;
-      },
-    },
-    {
-      title: '需要权限',
-      dataIndex: 'requires_permission',
-      key: 'requires_permission',
-      render: (v: boolean) => v ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : <WarningOutlined style={{ color: '#faad14' }} />,
-    },
-  ];
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -330,193 +236,161 @@ export default function ConfigPage() {
   return (
     <div className="p-6 h-full overflow-auto">
       <Title level={3}>系统配置管理</Title>
-      <Text type="secondary">管理系统配置、Agent、权限和工具</Text>
-      
-      <div className="mt-4">
-        <Space>
-          <Button icon={<CheckCircleOutlined />} onClick={handleValidateConfig}>
-            验证配置
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={handleReloadConfig}>
-            重新加载
-          </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleExportConfig}>
-            导出配置
-          </Button>
-          <Button icon={<UploadOutlined />} onClick={handleImportConfig}>
-            导入配置
-          </Button>
-        </Space>
-      </div>
+      <Text type="secondary">管理系统配置、Agent、密钥和工具</Text>
 
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
         className="mt-4"
         size="large"
-      >
-        <TabPane
-          tab={<span><SettingOutlined /> 可视化配置</span>}
-          key="visual"
-        >
-          <VisualConfig
-            config={config}
-            onConfigChange={loadConfig}
-            agents={agents}
-            onEditAgent={handleEditAgent}
-            onCreateAgent={handleCreateAgent}
-            onDeleteAgent={handleDeleteAgent}
-            sandboxStatus={sandboxStatus}
-          />
-        </TabPane>
+        items={[
+          {
+            key: 'system',
+            label: <span><SettingOutlined /> 系统配置</span>,
+            children: (
+              <>
+                <div className="mb-4 flex justify-between items-center">
+                  <Segmented
+                    value={editMode}
+                    onChange={(value) => setEditMode(value as 'visual' | 'json')}
+                    options={[
+                      {
+                        value: 'visual',
+                        label: <span><EyeOutlined style={{ marginRight: 4 }} />可视化模式</span>,
+                      },
+                      {
+                        value: 'json',
+                        label: <span><EditOutlined style={{ marginRight: 4 }} />JSON模式</span>,
+                      },
+                    ]}
+                  />
+                  <Space>
+                    <Button icon={<CheckCircleOutlined />} onClick={handleValidateConfig}>验证配置</Button>
+                    <Button icon={<ReloadOutlined />} onClick={handleReloadConfig}>重新加载</Button>
+                    <Button icon={<DownloadOutlined />} onClick={handleExportConfig}>导出配置</Button>
+                    <Button icon={<UploadOutlined />} onClick={handleImportConfig}>导入配置</Button>
+                  </Space>
+                </div>
 
-        <TabPane
-          tab={<span><CodeOutlined /> JSON 编辑</span>}
-          key="json"
-        >
-          <Card>
-            <div className="mb-2 flex justify-between">
-              <Text>直接编辑 JSON 配置文件</Text>
-              <Button type="primary" onClick={handleSaveConfig}>
-                保存配置
-              </Button>
-            </div>
-            <CodeMirror
-              value={jsonValue}
-              height="500px"
-              extensions={[json()]}
-              onChange={(value) => setJsonValue(value)}
-              theme="light"
-            />
-          </Card>
-        </TabPane>
-
-        <TabPane
-          tab={<span><SafetyOutlined /> 授权配置</span>}
-          key="authorization"
-        >
-          <AgentAuthorizationConfig
-            value={authorizationConfig}
-            onChange={handleAuthorizationConfigChange}
-            availableTools={tools.map(t => t.name)}
-            showAdvanced={true}
-          />
-        </TabPane>
-
-        <TabPane
-          tab={<span><ToolOutlined /> 工具管理</span>}
-          key="tools"
-        >
-          <ToolManagementPanel
-            tools={toolMetadata}
-            enabledTools={enabledTools}
-            onToolToggle={handleToolToggle}
-            allowToggle={true}
-            showDetailModal={true}
-            loading={loading}
-          />
-        </TabPane>
-
-        <TabPane
-          tab={<span><LoginOutlined /> OAuth2 登录</span>}
-          key="oauth2"
-        >
-          <OAuth2ConfigSection onChange={loadConfig} />
-        </TabPane>
-      </Tabs>
-
-      {/* Agent 编辑模态框 */}
-      <Modal
-        title={currentAgent ? '编辑 Agent' : '创建 Agent'}
-        open={editModalVisible}
-        onCancel={() => setEditModalVisible(false)}
-        onOk={() => form.submit()}
-        width={600}
-      >
-        <Form form={form} layout="vertical" onFinish={handleSaveAgent}>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input disabled={!!currentAgent} placeholder="agent-name" />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="max_steps" label="最大执行步骤">
-            <Slider min={1} max={50} />
-          </Form.Item>
-          <Form.Item name="color" label="标识颜色">
-            <Input type="color" />
-          </Form.Item>
-          <Divider>权限配置</Divider>
-          <Form.Item name={['permission', 'default_action']} label="默认行为">
-            <Select>
-              <Select.Option value="allow">允许</Select.Option>
-              <Select.Option value="deny">拒绝</Select.Option>
-              <Select.Option value="ask">询问</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Modal>
+                {editMode === 'visual' ? (
+                  <VisualConfig config={config} onConfigChange={loadConfig} />
+                ) : (
+                  <Card>
+                    <div className="mb-2 flex justify-between">
+                      <Text>直接编辑 JSON 配置文件</Text>
+                      <Button type="primary" onClick={handleSaveConfig}>保存配置</Button>
+                    </div>
+                    <CodeMirror
+                      value={jsonValue}
+                      height="500px"
+                      extensions={[json()]}
+                      onChange={(value) => setJsonValue(value)}
+                      theme="light"
+                    />
+                  </Card>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'agents',
+            label: <span><TeamOutlined /> Agent配置</span>,
+            children: <AgentsConfigSection config={config} onChange={loadConfig} />,
+          },
+          {
+            key: 'secrets',
+            label: <span><KeyOutlined /> 密钥管理</span>,
+            children: <SecretsConfigSection onChange={loadConfig} />,
+          },
+          {
+            key: 'authorization',
+            label: <span><SafetyOutlined /> 授权配置</span>,
+            children: (
+              <AgentAuthorizationConfig
+                value={authorizationConfig}
+                onChange={handleAuthorizationConfigChange}
+                availableTools={tools.map(t => t.name)}
+                showAdvanced={true}
+              />
+            ),
+          },
+          {
+            key: 'tools',
+            label: <span><SettingOutlined /> 工具管理</span>,
+            children: (
+              <ToolManagementPanel
+                tools={toolMetadata}
+                enabledTools={enabledTools}
+                onToolToggle={handleToolToggle}
+                allowToggle={true}
+                showDetailModal={true}
+                loading={loading}
+              />
+            ),
+          },
+          {
+            key: 'oauth2',
+            label: <span><LoginOutlined /> OAuth2 登录</span>,
+            children: <OAuth2ConfigSection onChange={loadConfig} />,
+          },
+        ]}
+      />
     </div>
   );
 }
 
-// 可视化配置组件
 function VisualConfig({
   config,
   onConfigChange,
-  agents,
-  onEditAgent,
-  onCreateAgent,
-  onDeleteAgent,
-  sandboxStatus,
 }: {
   config: AppConfig | null;
   onConfigChange: () => void;
-  agents: AgentConfig[];
-  onEditAgent: (agent: AgentConfig) => void;
-  onCreateAgent: () => void;
-  onDeleteAgent: (name: string) => void;
-  sandboxStatus: { docker_available: boolean; recommended: string } | null;
 }) {
   if (!config) return null;
 
   return (
     <div className="space-y-4">
-      {/* 模型配置 */}
-      <Card title={<span><CloudServerOutlined /> 模型配置</span>} size="small">
-        <ModelConfigSection config={config} onChange={onConfigChange} />
-      </Card>
-
-      {/* Agent 配置 */}
-      <Card
-        title={<span><SafetyOutlined /> Agent 配置</span>}
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateAgent}>
-            新建 Agent
-          </Button>
-        }
-        size="small"
-      >
-        <AgentConfigSection
-          agents={agents}
-          onEdit={onEditAgent}
-          onDelete={onDeleteAgent}
-        />
-      </Card>
-
-      {/* 沙箱配置 */}
-      <Card title={<span><SafetyOutlined /> 沙箱配置</span>} size="small">
-        <SandboxConfigSection
-          config={config}
-          onChange={onConfigChange}
-          sandboxStatus={sandboxStatus}
-        />
-      </Card>
+      <Collapse 
+        defaultActiveKey={['system', 'web', 'model', 'agents', 'file-service', 'sandbox']} 
+        ghost
+        items={[
+          {
+            key: 'system',
+            label: <span className="font-semibold"><GlobalOutlined /> 系统设置</span>,
+            children: <SystemConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'web',
+            label: <span className="font-semibold"><CloudServerOutlined /> Web服务配置</span>,
+            children: <WebServiceConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'model',
+            label: <span className="font-semibold"><ApiOutlined /> 默认模型配置</span>,
+            children: <DefaultModelConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'agents',
+            label: <span className="font-semibold"><TeamOutlined /> Agent配置</span>,
+            children: <VisualAgentsSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'file-service',
+            label: <span className="font-semibold"><FolderOutlined /> 文件服务配置</span>,
+            children: <FileServiceConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'sandbox',
+            label: <span className="font-semibold"><SafetyOutlined /> 沙箱配置</span>,
+            children: <SandboxConfigSection config={config} onChange={onConfigChange} />,
+          },
+        ]}
+      />
     </div>
   );
 }
 
-function ModelConfigSection({
+function SystemConfigSection({
   config,
   onChange,
 }: {
@@ -526,13 +400,15 @@ function ModelConfigSection({
   const [form] = Form.useForm();
 
   useEffect(() => {
-    form.setFieldsValue(config.default_model);
-  }, [config.default_model]);
+    if (config.system) {
+      form.setFieldsValue(config.system);
+    }
+  }, [config.system]);
 
   const handleSave = async (values: any) => {
     try {
-      await configService.updateModelConfig(values);
-      message.success('模型配置已保存');
+      await configService.updateSystemConfig(values);
+      message.success('系统配置已保存');
       onChange();
     } catch (error: any) {
       message.error('保存失败: ' + error.message);
@@ -540,42 +416,193 @@ function ModelConfigSection({
   };
 
   return (
-    <Form form={form} layout="inline" onFinish={handleSave}>
-      <Form.Item name="provider" label="提供商">
-        <Select style={{ width: 120 }}>
-          <Select.Option value="openai">OpenAI</Select.Option>
-          <Select.Option value="anthropic">Anthropic</Select.Option>
-          <Select.Option value="alibaba">Alibaba</Select.Option>
-          <Select.Option value="custom">自定义</Select.Option>
-        </Select>
-      </Form.Item>
-      <Form.Item name="model_id" label="模型">
-        <Input style={{ width: 150 }} />
-      </Form.Item>
-      <Form.Item name="temperature" label="温度">
-        <Slider min={0} max={2} step={0.1} style={{ width: 100 }} />
-      </Form.Item>
-      <Form.Item name="max_tokens" label="最大Token">
-        <InputNumber style={{ width: 100 }} />
-      </Form.Item>
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="language" label="语言">
+          <Select>
+            <Select.Option value="zh">中文</Select.Option>
+            <Select.Option value="en">English</Select.Option>
+          </Select>
+        </Form.Item>
+        <Form.Item name="log_level" label="日志级别">
+          <Select>
+            <Select.Option value="DEBUG">DEBUG</Select.Option>
+            <Select.Option value="INFO">INFO</Select.Option>
+            <Select.Option value="WARNING">WARNING</Select.Option>
+            <Select.Option value="ERROR">ERROR</Select.Option>
+          </Select>
+        </Form.Item>
+      </div>
       <Form.Item>
-        <Button type="primary" htmlType="submit">
-          保存
-        </Button>
+        <Button type="primary" htmlType="submit">保存</Button>
       </Form.Item>
     </Form>
   );
 }
 
-function AgentConfigSection({
-  agents,
-  onEdit,
-  onDelete,
+function WebServiceConfigSection({
+  config,
+  onChange,
 }: {
-  agents: AgentConfig[];
-  onEdit: (agent: AgentConfig) => void;
-  onDelete: (name: string) => void;
+  config: AppConfig;
+  onChange: () => void;
 }) {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (config.web) {
+      form.setFieldsValue({
+        host: config.web.host,
+        port: config.web.port,
+        model_storage: config.web.model_storage,
+        web_url: config.web.web_url,
+        db_type: config.web.database?.type,
+        db_path: config.web.database?.path,
+      });
+    }
+  }, [config.web]);
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateWebConfig({
+        host: values.host,
+        port: values.port,
+        model_storage: values.model_storage,
+        web_url: values.web_url,
+      });
+      message.success('Web服务配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <Divider orientation="left" plain>服务设置</Divider>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="host" label="主机地址">
+          <Input placeholder="0.0.0.0" />
+        </Form.Item>
+        <Form.Item name="port" label="端口">
+          <InputNumber style={{ width: '100%' }} min={1} max={65535} />
+        </Form.Item>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="model_storage" label="模型存储">
+          <Select>
+            <Select.Option value="database">Database</Select.Option>
+            <Select.Option value="file">File</Select.Option>
+          </Select>
+        </Form.Item>
+        <Form.Item name="web_url" label="Web URL">
+          <Input placeholder="http://localhost:7777" />
+        </Form.Item>
+      </div>
+
+      <Divider orientation="left" plain>数据库设置</Divider>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="db_type" label="数据库类型">
+          <Select>
+            <Select.Option value="sqlite">SQLite</Select.Option>
+            <Select.Option value="mysql">MySQL</Select.Option>
+            <Select.Option value="postgresql">PostgreSQL</Select.Option>
+          </Select>
+        </Form.Item>
+        <Form.Item name="db_path" label="数据库路径">
+          <Input placeholder="pilot/meta_data/derisk.db" />
+        </Form.Item>
+      </div>
+
+      <Form.Item>
+        <Button type="primary" htmlType="submit">保存</Button>
+      </Form.Item>
+    </Form>
+  );
+}
+
+function DefaultModelConfigSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig;
+  onChange: () => void;
+}) {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (config.default_model) {
+      form.setFieldsValue(config.default_model);
+    }
+  }, [config.default_model]);
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateModelConfig(values);
+      message.success('默认模型配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="provider" label="Provider">
+          <Select>
+            <Select.Option value="openai">OpenAI</Select.Option>
+            <Select.Option value="anthropic">Anthropic</Select.Option>
+            <Select.Option value="alibaba">Alibaba/DashScope</Select.Option>
+            <Select.Option value="custom">自定义</Select.Option>
+          </Select>
+        </Form.Item>
+        <Form.Item name="model_id" label="模型ID">
+          <Input placeholder="gpt-4" />
+        </Form.Item>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="base_url" label="API Base URL">
+          <Input placeholder="https://api.openai.com/v1" />
+        </Form.Item>
+        <Form.Item name="api_key" label="API Key">
+          <Input.Password placeholder="sk-..." />
+        </Form.Item>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="temperature" label="Temperature">
+          <Slider min={0} max={2} step={0.1} />
+        </Form.Item>
+        <Form.Item name="max_tokens" label="Max Tokens">
+          <InputNumber style={{ width: '100%' }} min={1} max={128000} />
+        </Form.Item>
+      </div>
+      <Form.Item>
+        <Button type="primary" htmlType="submit">保存</Button>
+      </Form.Item>
+    </Form>
+  );
+}
+
+function VisualAgentsSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig;
+  onChange: () => void;
+}) {
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
+
+  useEffect(() => {
+    if (config.agents) {
+      setAgents(Object.values(config.agents));
+    }
+  }, [config.agents]);
+
+  const handleEditAgent = (name: string) => {
+    message.info(`编辑 Agent: ${name}`);
+  };
+
   const columns = [
     {
       title: '名称',
@@ -589,35 +616,286 @@ function AgentConfigSection({
       title: '描述',
       dataIndex: 'description',
       key: 'description',
+      ellipsis: true,
     },
     {
-      title: '最大步骤',
+      title: '最大步数',
       dataIndex: 'max_steps',
       key: 'max_steps',
     },
     {
-      title: '默认权限',
-      dataIndex: ['permission', 'default_action'],
-      key: 'default_action',
-      render: (action: string) => {
-        const colors: Record<string, string> = {
-          allow: 'success',
-          deny: 'error',
-          ask: 'warning',
-        };
-        return <Tag color={colors[action]}>{action}</Tag>;
-      },
+      title: '工具',
+      dataIndex: 'tools',
+      key: 'tools',
+      render: (tools: string[]) => (
+        <div className="flex flex-wrap gap-1">
+          {tools?.slice(0, 3).map((t, i) => <Tag key={i}>{t}</Tag>)}
+          {tools?.length > 3 && <Tag>+{tools.length - 3}</Tag>}
+        </div>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: any, record: AgentConfig) => (
+        <Button size="small" onClick={() => handleEditAgent(record.name)}>编辑</Button>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <div className="mb-4">
+        <Text type="secondary">
+          系统预设的 Agent 配置。可在 "Agent配置" 标签页进行详细管理。
+        </Text>
+      </div>
+      <Table
+        dataSource={agents}
+        columns={columns}
+        rowKey="name"
+        pagination={false}
+        size="small"
+      />
+    </div>
+  );
+}
+
+function FileServiceConfigSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig;
+  onChange: () => void;
+}) {
+  const [form] = Form.useForm();
+  const [fileService, setFileService] = useState<FileServiceConfig | null>(null);
+
+  useEffect(() => {
+    if (config.file_service) {
+      setFileService(config.file_service);
+      form.setFieldsValue({
+        enabled: config.file_service.enabled,
+        default_backend: config.file_service.default_backend,
+      });
+    }
+  }, [config.file_service]);
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateFileServiceConfig({
+        enabled: values.enabled,
+        default_backend: values.default_backend,
+      });
+      message.success('文件服务配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  if (!fileService) return null;
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="enabled" label="启用文件服务" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="default_backend" label="默认后端">
+          <Select>
+            <Select.Option value="local">本地存储</Select.Option>
+            <Select.Option value="oss">阿里云OSS</Select.Option>
+            <Select.Option value="s3">AWS S3</Select.Option>
+          </Select>
+        </Form.Item>
+      </div>
+
+      <Divider orientation="left" plain>存储后端配置</Divider>
+      {fileService.backends?.map((backend, index) => (
+        <Card key={index} size="small" className="mb-2" title={`后端 #${index + 1}: ${backend.type}`}>
+          <Descriptions column={2} size="small">
+            <Descriptions.Item label="类型">{backend.type}</Descriptions.Item>
+            <Descriptions.Item label="Bucket">{backend.bucket}</Descriptions.Item>
+            {backend.type !== 'local' && (
+              <>
+                <Descriptions.Item label="Endpoint">{backend.endpoint}</Descriptions.Item>
+                <Descriptions.Item label="Region">{backend.region}</Descriptions.Item>
+              </>
+            )}
+            {backend.type === 'local' && (
+              <Descriptions.Item label="存储路径">{backend.storage_path}</Descriptions.Item>
+            )}
+          </Descriptions>
+        </Card>
+      ))}
+
+      <Form.Item>
+        <Button type="primary" htmlType="submit">保存</Button>
+      </Form.Item>
+    </Form>
+  );
+}
+
+function SandboxConfigSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig;
+  onChange: () => void;
+}) {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (config.sandbox) {
+      form.setFieldsValue(config.sandbox);
+    }
+  }, [config.sandbox]);
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateSandboxConfig(values);
+      message.success('沙箱配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <Divider orientation="left" plain>基础设置</Divider>
+      <div className="grid grid-cols-3 gap-4">
+        <Form.Item name="enabled" label="启用沙箱" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="type" label="沙箱类型">
+          <Select>
+            <Select.Option value="local">Local</Select.Option>
+            <Select.Option value="docker">Docker</Select.Option>
+          </Select>
+        </Form.Item>
+        <Form.Item name="timeout" label="超时时间(秒)">
+          <InputNumber style={{ width: '100%' }} min={10} max={3600} />
+        </Form.Item>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="work_dir" label="工作目录">
+          <Input placeholder="/home/user/workspace" />
+        </Form.Item>
+        <Form.Item name="memory_limit" label="内存限制">
+          <Input placeholder="512m" />
+        </Form.Item>
+      </div>
+
+      <Form.Item>
+        <Button type="primary" htmlType="submit">保存</Button>
+      </Form.Item>
+    </Form>
+  );
+}
+
+function AgentsConfigSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig | null;
+  onChange: () => void;
+}) {
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<string | null>(null);
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (config?.agents) {
+      setAgents(Object.values(config.agents));
+    }
+  }, [config?.agents]);
+
+  const handleAddAgent = () => {
+    setEditingAgent(null);
+    form.resetFields();
+    form.setFieldsValue({
+      max_steps: 30,
+      color: '#4A90E2',
+      tools: [],
+    });
+    setModalVisible(true);
+  };
+
+  const handleEditAgent = (agent: AgentConfig) => {
+    setEditingAgent(agent.name);
+    form.setFieldsValue(agent);
+    setModalVisible(true);
+  };
+
+  const handleDeleteAgent = async (name: string) => {
+    try {
+      await configService.deleteAgent(name);
+      message.success('Agent已删除');
+      onChange();
+    } catch (error: any) {
+      message.error('删除失败: ' + error.message);
+    }
+  };
+
+  const handleSaveAgent = async (values: any) => {
+    try {
+      if (editingAgent) {
+        await configService.updateAgent(editingAgent, values);
+        message.success('Agent已更新');
+      } else {
+        await configService.createAgent(values);
+        message.success('Agent已创建');
+      }
+      setModalVisible(false);
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  const columns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, record: AgentConfig) => (
+        <Tag color={record.color}>{name}</Tag>
+      ),
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+    },
+    {
+      title: '最大步数',
+      dataIndex: 'max_steps',
+      key: 'max_steps',
+    },
+    {
+      title: '工具',
+      dataIndex: 'tools',
+      key: 'tools',
+      render: (tools: string[]) => (
+        <div className="flex flex-wrap gap-1">
+          {tools?.slice(0, 3).map((t, i) => <Tag key={i}>{t}</Tag>)}
+          {tools?.length > 3 && <Tag>+{tools.length - 3}</Tag>}
+        </div>
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: any, record: AgentConfig) => (
         <Space>
-          <Button size="small" onClick={() => onEdit(record)}>
-            编辑
-          </Button>
+          <Button size="small" onClick={() => handleEditAgent(record)}>编辑</Button>
           {record.name !== 'primary' && (
-            <Popconfirm title="确定删除?" onConfirm={() => onDelete(record.name)}>
+            <Popconfirm title="确定删除?" onConfirm={() => handleDeleteAgent(record.name)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
           )}
@@ -627,94 +905,191 @@ function AgentConfigSection({
   ];
 
   return (
-    <Table
-      dataSource={agents}
-      columns={columns}
-      rowKey="name"
-      pagination={false}
-      size="small"
-    />
-  );
-}
-
-function SandboxConfigSection({
-  config,
-  onChange,
-  sandboxStatus,
-}: {
-  config: AppConfig;
-  onChange: () => void;
-  sandboxStatus: { docker_available: boolean; recommended: string } | null;
-}) {
-  const [sandboxConfig, setSandboxConfig] = useState(config.sandbox);
-
-  const handleUpdate = async (key: string, value: any) => {
-    try {
-      await configService.updateSandboxConfig({ [key]: value });
-      message.success('沙箱配置已更新');
-      onChange();
-    } catch (error: any) {
-      message.error('更新失败: ' + error.message);
-    }
-  };
-
-  return (
     <div>
-      {sandboxStatus && (
-        <Alert
-          type={sandboxStatus.docker_available ? 'success' : 'warning'}
-          message={sandboxStatus.docker_available ? 'Docker 可用，建议启用沙箱模式' : 'Docker 不可用，将使用本地沙箱'}
-          className="mb-4"
-        />
-      )}
-      
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Text>启用沙箱</Text>
-          <Switch
-            checked={sandboxConfig.enabled}
-            onChange={(checked) => {
-              setSandboxConfig({ ...sandboxConfig, enabled: checked });
-              handleUpdate('enabled', checked);
-            }}
-          />
-        </div>
-        
-        <div>
-          <Text>Docker 镜像</Text>
-          <Input
-            value={sandboxConfig.image}
-            onChange={(e) => setSandboxConfig({ ...sandboxConfig, image: e.target.value })}
-            onBlur={() => handleUpdate('image', sandboxConfig.image)}
-            placeholder="python:3.11-slim"
-            className="mt-1"
-          />
-        </div>
-        
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <Text>内存限制</Text>
-            <Input
-              value={sandboxConfig.memory_limit}
-              onChange={(e) => setSandboxConfig({ ...sandboxConfig, memory_limit: e.target.value })}
-              onBlur={() => handleUpdate('memory_limit', sandboxConfig.memory_limit)}
-              className="mt-1"
-            />
-          </div>
-          <div className="flex-1">
-            <Text>超时时间 (秒)</Text>
-            <Input
-              type="number"
-              value={sandboxConfig.timeout}
-              onChange={(e) => setSandboxConfig({ ...sandboxConfig, timeout: parseInt(e.target.value) })}
-              onBlur={() => handleUpdate('timeout', sandboxConfig.timeout)}
-              className="mt-1"
-            />
-          </div>
-        </div>
+      <div className="mb-4">
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAgent}>
+          添加 Agent
+        </Button>
       </div>
+      <Table
+        dataSource={agents}
+        columns={columns}
+        rowKey="name"
+        pagination={false}
+        size="small"
+      />
+
+      <Modal
+        title={editingAgent ? '编辑 Agent' : '添加 Agent'}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        onOk={() => form.submit()}
+        width={600}
+      >
+        <Form form={form} layout="vertical">
+          <div className="grid grid-cols-2 gap-4">
+            <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+              <Input disabled={!!editingAgent} />
+            </Form.Item>
+            <Form.Item name="color" label="颜色">
+              <Input type="color" />
+            </Form.Item>
+          </div>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <div className="grid grid-cols-2 gap-4">
+            <Form.Item name="max_steps" label="最大步数">
+              <InputNumber style={{ width: '100%' }} min={1} max={100} />
+            </Form.Item>
+            <Form.Item name="tools" label="工具列表">
+              <Select mode="tags" placeholder="输入工具名称" />
+            </Form.Item>
+          </div>
+          <Form.Item name="system_prompt" label="系统提示词">
+            <Input.TextArea rows={3} placeholder="Agent的系统提示词..." />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
 
-import { InputNumber } from 'antd';
+function SecretsConfigSection({
+  onChange,
+}: {
+  onChange: () => void;
+}) {
+  const [secrets, setSecrets] = useState<Array<{ name: string; description: string; has_value: boolean }>>([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingSecret, setEditingSecret] = useState<string | null>(null);
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    loadSecrets();
+  }, []);
+
+  const loadSecrets = async () => {
+    try {
+      const data = await configService.listSecrets();
+      setSecrets(data);
+    } catch (error: any) {
+      message.error('加载密钥列表失败: ' + error.message);
+    }
+  };
+
+  const handleEditSecret = (name: string) => {
+    setEditingSecret(name);
+    const secret = secrets.find(s => s.name === name);
+    form.setFieldsValue({
+      name,
+      description: secret?.description || '',
+      value: '',
+    });
+    setModalVisible(true);
+  };
+
+  const handleSaveSecret = async (values: any) => {
+    try {
+      await configService.setSecret(values.name, values.value, values.description);
+      message.success('密钥已保存');
+      setModalVisible(false);
+      loadSecrets();
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  const handleDeleteSecret = async (name: string) => {
+    try {
+      await configService.deleteSecret(name);
+      message.success('密钥已删除');
+      loadSecrets();
+    } catch (error: any) {
+      message.error('删除失败: ' + error.message);
+    }
+  };
+
+  const columns = [
+    {
+      title: '密钥名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string) => <Text code>{name}</Text>,
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+    },
+    {
+      title: '状态',
+      dataIndex: 'has_value',
+      key: 'has_value',
+      render: (hasValue: boolean) => (
+        <Tag color={hasValue ? 'green' : 'orange'}>
+          {hasValue ? '已设置' : '未设置'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: any, record: any) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => handleEditSecret(record.name)}>
+            {record.has_value ? '更新' : '设置'}
+          </Button>
+          <Popconfirm title="确定删除此密钥?" onConfirm={() => handleDeleteSecret(record.name)}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        message="密钥安全说明"
+        description="密钥值在导出JSON时会被隐藏。请在可视化模式下设置敏感信息，不要在JSON模式下直接编辑密钥值。"
+        className="mb-4"
+      />
+      <Table
+        dataSource={secrets}
+        columns={columns}
+        rowKey="name"
+        pagination={false}
+        size="small"
+      />
+
+      <Modal
+        title={<span><LockOutlined /> {editingSecret ? '更新密钥' : '设置密钥'}</span>}
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        onOk={() => form.submit()}
+      >
+        <Alert
+          type="warning"
+          message="安全提示"
+          description="请确保在安全环境下输入密钥值。密钥将被加密存储。"
+          className="mb-4"
+        />
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="密钥名称">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="value" label="密钥值" rules={[{ required: true }]}>
+            <Input.Password placeholder="输入密钥值" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input placeholder="密钥用途说明" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  );
+}

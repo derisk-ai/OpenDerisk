@@ -1,78 +1,139 @@
 """配置管理 API"""
+
+import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
-import json
-from pathlib import Path
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
-# 配置模型
+logger = logging.getLogger(__name__)
+
+
 class ConfigUpdateRequest(BaseModel):
     updates: Dict[str, Any]
+
 
 class AgentConfigRequest(BaseModel):
     name: str
     description: Optional[str] = None
     max_steps: Optional[int] = 200
     permission: Optional[Dict[str, Any]] = None
+    tools: Optional[List[str]] = None
+    system_prompt: Optional[str] = None
+    color: Optional[str] = None
+
 
 class SandboxConfigRequest(BaseModel):
     enabled: Optional[bool] = None
     image: Optional[str] = None
     memory_limit: Optional[str] = None
     timeout: Optional[int] = None
+    type: Optional[str] = None
+    work_dir: Optional[str] = None
 
-# 全局配置管理器
+
+class FileBackendRequest(BaseModel):
+    type: str = "local"
+    storage_path: Optional[str] = None
+    endpoint: Optional[str] = None
+    region: Optional[str] = None
+    access_key_ref: Optional[str] = None
+    access_secret_ref: Optional[str] = None
+    bucket: Optional[str] = None
+
+
+class FileServiceRequest(BaseModel):
+    enabled: Optional[bool] = None
+    default_backend: Optional[str] = None
+    backends: Optional[List[FileBackendRequest]] = None
+
+
+class SecretRequest(BaseModel):
+    name: str
+    value: str
+    description: Optional[str] = None
+
+
 _config_manager = None
+
 
 def get_config_manager():
     global _config_manager
     if _config_manager is None:
         from derisk_core.config import ConfigManager
+
         _config_manager = ConfigManager
     return _config_manager
 
+
+def save_config_with_error_handling(manager, config_name: str = "配置") -> bool:
+    try:
+        manager.save()
+        logger.info(f"{config_name}已保存到文件: {manager.get_config_path()}")
+        return True
+    except Exception as e:
+        logger.warning(f"保存{config_name}到文件失败: {e}")
+        return False
+
+
 @router.get("/current")
 async def get_current_config():
-    """获取当前完整配置"""
     try:
         manager = get_config_manager()
         config = manager.get()
-        return JSONResponse(content={
-            "success": True,
-            "data": config.model_dump(mode="json")
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "data": config.model_dump_safe(mode="json"),
+                "config_path": manager.get_config_path(),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/path")
+async def get_config_path():
+    """获取当前配置文件路径"""
+    manager = get_config_manager()
+    path = manager.get_config_path()
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "config_path": path,
+                "default_path": manager.get_default_config_path(),
+            },
+        }
+    )
+
 
 @router.get("/schema")
 async def get_config_schema():
     """获取配置 Schema（用于前端表单生成）"""
     from derisk_core.config import AppConfig, AgentConfig, ModelConfig, SandboxConfig
-    
+
     schema = {
         "app": AppConfig.model_json_schema(),
         "agent": AgentConfig.model_json_schema(),
         "model": ModelConfig.model_json_schema(),
-        "sandbox": SandboxConfig.model_json_schema()
+        "sandbox": SandboxConfig.model_json_schema(),
     }
-    
-    return JSONResponse(content={
-        "success": True,
-        "data": schema
-    })
+
+    return JSONResponse(content={"success": True, "data": schema})
+
 
 @router.get("/model")
 async def get_model_config():
     """获取模型配置"""
     manager = get_config_manager()
     config = manager.get()
-    return JSONResponse(content={
-        "success": True,
-        "data": config.default_model.model_dump()
-    })
+    return JSONResponse(
+        content={"success": True, "data": config.default_model.model_dump()}
+    )
+
 
 @router.post("/model")
 async def update_model_config(request: Dict[str, Any]):
@@ -80,55 +141,62 @@ async def update_model_config(request: Dict[str, Any]):
     try:
         manager = get_config_manager()
         config = manager.get()
-        
-        # 更新模型配置
+
         for key, value in request.items():
             if hasattr(config.default_model, key):
                 setattr(config.default_model, key, value)
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": "模型配置已更新",
-            "data": config.default_model.model_dump()
-        })
+
+        saved = save_config_with_error_handling(manager, "模型配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "模型配置已更新" + ("并保存" if saved else "（保存失败）"),
+                "data": config.default_model.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/agents")
 async def list_agents():
     """列出所有 Agent 配置"""
     manager = get_config_manager()
     config = manager.get()
-    
+
     agents = []
     for name, agent in config.agents.items():
-        agents.append({
-            "name": agent.name,
-            "description": agent.description,
-            "max_steps": agent.max_steps,
-            "color": agent.color,
-            "permission": agent.permission.model_dump() if agent.permission else None
-        })
-    
-    return JSONResponse(content={
-        "success": True,
-        "data": agents
-    })
+        agents.append(
+            {
+                "name": agent.name,
+                "description": agent.description,
+                "max_steps": agent.max_steps,
+                "color": agent.color,
+                "tools": agent.tools,
+                "system_prompt": agent.system_prompt,
+                "permission": agent.permission.model_dump()
+                if agent.permission
+                else None,
+            }
+        )
+
+    return JSONResponse(content={"success": True, "data": agents})
+
 
 @router.get("/agents/{agent_name}")
 async def get_agent_config(agent_name: str):
     """获取指定 Agent 配置"""
     manager = get_config_manager()
     config = manager.get()
-    
+
     if agent_name not in config.agents:
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-    
+
     agent = config.agents[agent_name]
-    return JSONResponse(content={
-        "success": True,
-        "data": agent.model_dump()
-    })
+    return JSONResponse(content={"success": True, "data": agent.model_dump()})
+
 
 @router.post("/agents")
 async def create_agent(request: AgentConfigRequest):
@@ -136,25 +204,37 @@ async def create_agent(request: AgentConfigRequest):
     try:
         manager = get_config_manager()
         config = manager.get()
-        
+
         from derisk_core.config import AgentConfig, PermissionConfig
-        
+
         agent = AgentConfig(
             name=request.name,
             description=request.description or "",
             max_steps=request.max_steps or 200,
-            permission=PermissionConfig(**request.permission) if request.permission else PermissionConfig()
+            permission=PermissionConfig(**request.permission)
+            if request.permission
+            else PermissionConfig(),
+            tools=request.tools or [],
+            system_prompt=request.system_prompt,
+            color=request.color or "#4A90E2",
         )
-        
+
         config.agents[request.name] = agent
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": f"Agent '{request.name}' created",
-            "data": agent.model_dump()
-        })
+
+        saved = save_config_with_error_handling(manager, "Agent配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"Agent '{request.name}' created"
+                + ("并保存" if saved else "（保存失败）"),
+                "data": agent.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.put("/agents/{agent_name}")
 async def update_agent(agent_name: str, request: Dict[str, Any]):
@@ -162,23 +242,34 @@ async def update_agent(agent_name: str, request: Dict[str, Any]):
     try:
         manager = get_config_manager()
         config = manager.get()
-        
+
         if agent_name not in config.agents:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_name}' not found"
+            )
+
         agent = config.agents[agent_name]
-        
+
         for key, value in request.items():
             if hasattr(agent, key):
                 setattr(agent, key, value)
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": f"Agent '{agent_name}' updated",
-            "data": agent.model_dump()
-        })
+
+        saved = save_config_with_error_handling(manager, "Agent配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"Agent '{agent_name}' updated"
+                + ("并保存" if saved else "（保存失败）"),
+                "data": agent.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.delete("/agents/{agent_name}")
 async def delete_agent(agent_name: str):
@@ -186,33 +277,40 @@ async def delete_agent(agent_name: str):
     try:
         manager = get_config_manager()
         config = manager.get()
-        
+
         if agent_name not in config.agents:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
-        
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_name}' not found"
+            )
+
         if agent_name == "primary":
             raise HTTPException(status_code=400, detail="Cannot delete primary agent")
-        
+
         del config.agents[agent_name]
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": f"Agent '{agent_name}' deleted"
-        })
+
+        saved = save_config_with_error_handling(manager, "Agent配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"Agent '{agent_name}' deleted"
+                + ("并保存" if saved else "（保存失败）"),
+                "saved_to_file": saved,
+            }
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/sandbox")
 async def get_sandbox_config():
     """获取沙箱配置"""
     manager = get_config_manager()
     config = manager.get()
-    return JSONResponse(content={
-        "success": True,
-        "data": config.sandbox.model_dump()
-    })
+    return JSONResponse(content={"success": True, "data": config.sandbox.model_dump()})
+
 
 @router.post("/sandbox")
 async def update_sandbox_config(request: SandboxConfigRequest):
@@ -220,7 +318,7 @@ async def update_sandbox_config(request: SandboxConfigRequest):
     try:
         manager = get_config_manager()
         config = manager.get()
-        
+
         if request.enabled is not None:
             config.sandbox.enabled = request.enabled
         if request.image:
@@ -229,14 +327,20 @@ async def update_sandbox_config(request: SandboxConfigRequest):
             config.sandbox.memory_limit = request.memory_limit
         if request.timeout:
             config.sandbox.timeout = request.timeout
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": "沙箱配置已更新",
-            "data": config.sandbox.model_dump()
-        })
+
+        saved = save_config_with_error_handling(manager, "沙箱配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "沙箱配置已更新" + ("并保存" if saved else "（保存失败）"),
+                "data": config.sandbox.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.post("/validate")
 async def validate_config():
@@ -244,47 +348,60 @@ async def validate_config():
     try:
         manager = get_config_manager()
         config = manager.get()
-        
+
         from derisk_core.config import ConfigValidator
+
         warnings = ConfigValidator.validate(config)
-        
-        return JSONResponse(content={
-            "success": True,
-            "data": {
-                "valid": len([w for w in warnings if w[0] == "error"]) == 0,
-                "warnings": [{"level": w[0], "message": w[1]} for w in warnings]
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "data": {
+                    "valid": len([w for w in warnings if w[0] == "error"]) == 0,
+                    "warnings": [{"level": w[0], "message": w[1]} for w in warnings],
+                },
             }
-        })
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/reload")
 async def reload_config():
-    """重新加载配置"""
+    """重新加载配置（从文件重新读取）"""
     try:
         manager = get_config_manager()
         config = manager.reload()
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": "配置已重新加载",
-            "data": config.model_dump(mode="json")
-        })
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "配置已从文件重新加载",
+                "data": config.model_dump(mode="json"),
+                "config_path": manager.get_config_path(),
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/export")
-async def export_config():
-    """导出配置为 JSON"""
-    manager = get_config_manager()
-    config = manager.get()
-    
-    return JSONResponse(
-        content={
-            "success": True,
-            "data": config.model_dump(mode="json", exclude_none=True)
-        }
-    )
+
+@router.post("/save")
+async def save_config():
+    """手动保存当前配置到文件"""
+    try:
+        manager = get_config_manager()
+        manager.save()
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "配置已保存到文件",
+                "config_path": manager.get_config_path(),
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/oauth2")
 async def get_oauth2_config():
@@ -293,14 +410,12 @@ async def get_oauth2_config():
     config = manager.get()
     oauth2 = getattr(config, "oauth2", None)
     if oauth2 is None:
-        return JSONResponse(content={
-            "success": True,
-            "data": {"enabled": False, "providers": []}
-        })
-    return JSONResponse(content={
-        "success": True,
-        "data": oauth2.model_dump(mode="json")
-    })
+        return JSONResponse(
+            content={"success": True, "data": {"enabled": False, "providers": []}}
+        )
+    return JSONResponse(
+        content={"success": True, "data": oauth2.model_dump(mode="json")}
+    )
 
 
 @router.post("/oauth2")
@@ -316,38 +431,353 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         config = AppConfig(**config_dict)
         manager._config = config
 
-        # 保存到配置文件
-        try:
-            manager.save()
-        except Exception as save_err:
-            # 保存失败但仍然返回成功（内存中已更新）
-            import logging
-            logging.getLogger(__name__).warning(f"Failed to save config to file: {save_err}")
+        saved = save_config_with_error_handling(manager, "OAuth2配置")
 
-        return JSONResponse(content={
-            "success": True,
-            "message": "OAuth2 配置已更新",
-            "data": config.oauth2.model_dump(mode="json")
-        })
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "OAuth2 配置已更新"
+                + ("并保存" if saved else "（保存失败）"),
+                "data": config.oauth2.model_dump(mode="json"),
+                "saved_to_file": saved,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/import")
 async def import_config(config_data: Dict[str, Any]):
-    """导入配置"""
+    """导入配置并保存到文件"""
     try:
         from derisk_core.config import AppConfig
-        
+
         config = AppConfig(**config_data)
-        
+
         manager = get_config_manager()
         manager._config = config
-        
-        return JSONResponse(content={
+
+        saved = save_config_with_error_handling(manager, "配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "配置已导入" + ("并保存" if saved else "（保存失败）"),
+                "data": config.model_dump(mode="json"),
+                "saved_to_file": saved,
+                "config_path": manager.get_config_path(),
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/reset")
+async def reset_config():
+    """重置为默认配置"""
+    try:
+        from derisk_core.config import AppConfig
+
+        manager = get_config_manager()
+        config = AppConfig()
+        manager._config = config
+
+        saved = save_config_with_error_handling(manager, "默认配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "配置已重置为默认值",
+                "data": config.model_dump(mode="json"),
+                "saved_to_file": saved,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status")
+async def get_config_status():
+    """获取配置状态信息"""
+    manager = get_config_manager()
+    config_path = manager.get_config_path()
+
+    return JSONResponse(
+        content={
             "success": True,
-            "message": "配置已导入",
-            "data": config.model_dump(mode="json")
-        })
+            "data": {
+                "config_path": config_path,
+                "default_config_path": manager.get_default_config_path(),
+                "config_type": "json",
+                "hot_reload_capable": True,
+                "requires_restart_for": [
+                    "OAuth2 provider changes (需要重启生效)",
+                    "Sandbox configuration changes (需要重启生效)",
+                    "Model provider changes (需要重启生效)",
+                ],
+                "instant_effect": [
+                    "Agent configuration (立即生效)",
+                    "Permission rules (立即生效)",
+                ],
+            },
+        }
+    )
+
+
+@router.get("/system/reload-info")
+async def get_reload_info():
+    manager = get_config_manager()
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "json_config": {
+                    "path": manager.get_config_path(),
+                    "reloadable": True,
+                    "description": "应用配置（Agent、权限、OAuth2等）可通过 /api/config/reload 热重载",
+                },
+                "toml_config": {
+                    "description": "服务基础设施配置（数据库、模型服务、Workers等）修改后需要重启服务",
+                    "restart_command": "重启服务以应用TOML配置更改",
+                },
+                "note": "JSON配置修改后自动保存到文件，调用 /api/config/reload 可从文件重新加载",
+            },
+        }
+    )
+
+
+@router.get("/file-service")
+async def get_file_service_config():
+    manager = get_config_manager()
+    config = manager.get()
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": config.file_service.model_dump(),
+        }
+    )
+
+
+@router.post("/file-service")
+async def update_file_service_config(request: FileServiceRequest):
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        if request.enabled is not None:
+            config.file_service.enabled = request.enabled
+        if request.default_backend:
+            config.file_service.default_backend = request.default_backend
+        if request.backends:
+            from derisk_core.config import FileBackendConfig
+
+            config.file_service.backends = [
+                FileBackendConfig(**b.model_dump()) for b in request.backends
+            ]
+
+        saved = save_config_with_error_handling(manager, "文件服务配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "文件服务配置已更新"
+                + ("并保存" if saved else "（保存失败）"),
+                "data": config.file_service.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/secrets")
+async def list_secrets():
+    from derisk_core.config.encryption import list_secrets as get_secrets_status
+
+    secrets_status = get_secrets_status()
+
+    default_secrets = {
+        "master_encrypt_key": "主加密密钥，用于加密其他敏感数据",
+        "openai_api_key": "OpenAI API Key",
+        "dashscope_api_key": "阿里云 DashScope API Key",
+        "anthropic_api_key": "Anthropic API Key",
+        "oss_access_key_id": "阿里云 OSS Access Key ID",
+        "oss_access_key_secret": "阿里云 OSS Access Key Secret",
+        "db_password": "数据库密码",
+    }
+
+    secrets_list = []
+    for name, description in default_secrets.items():
+        secrets_list.append(
+            {
+                "name": name,
+                "description": description,
+                "has_value": secrets_status.get(name, False),
+            }
+        )
+
+    for name, has_value in secrets_status.items():
+        if name not in default_secrets:
+            secrets_list.append(
+                {
+                    "name": name,
+                    "description": "",
+                    "has_value": has_value,
+                }
+            )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": secrets_list,
+        }
+    )
+
+
+@router.get("/secrets/{secret_name}")
+async def get_secret_info(secret_name: str):
+    from derisk_core.config.encryption import get_secret as get_secret_value
+
+    value = get_secret_value(secret_name)
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "name": secret_name,
+                "has_value": bool(value),
+            },
+        }
+    )
+
+
+@router.post("/secrets")
+async def set_secret(request: SecretRequest):
+    from derisk_core.config.encryption import set_secret as save_secret_value
+
+    try:
+        success = save_secret_value(request.name, request.value)
+
+        if success:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"密钥 '{request.name}' 已加密存储",
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="保存密钥失败")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/secrets/{secret_name}")
+async def delete_secret(secret_name: str):
+    from derisk_core.config.encryption import delete_secret as delete_secret_value
+
+    try:
+        success = delete_secret_value(secret_name)
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"密钥 '{secret_name}' 已删除",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/export")
+async def export_config_safe():
+    from derisk_core.config.encryption import mask_secrets_in_json
+
+    manager = get_config_manager()
+    config = manager.get()
+    config_dict = config.model_dump(mode="json", exclude_none=True)
+
+    masked_config = mask_secrets_in_json(config_dict)
+    masked_config.pop("secrets", None)
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": masked_config,
+            "config_path": manager.get_config_path(),
+            "note": "密钥值已替换为引用格式，secrets 部分已移除",
+        }
+    )
+
+
+@router.get("/system")
+async def get_system_config():
+    manager = get_config_manager()
+    config = manager.get()
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": config.system.model_dump(),
+        }
+    )
+
+
+@router.post("/system")
+async def update_system_config(request: Dict[str, Any]):
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        for key, value in request.items():
+            if hasattr(config.system, key):
+                setattr(config.system, key, value)
+
+        saved = save_config_with_error_handling(manager, "系统配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "系统配置已更新" + ("并保存" if saved else "（保存失败）"),
+                "data": config.system.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/web")
+async def get_web_config():
+    manager = get_config_manager()
+    config = manager.get()
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": config.web.model_dump(),
+        }
+    )
+
+
+@router.post("/web")
+async def update_web_config(request: Dict[str, Any]):
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        for key, value in request.items():
+            if hasattr(config.web, key):
+                setattr(config.web, key, value)
+
+        saved = save_config_with_error_handling(manager, "Web服务配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Web服务配置已更新"
+                + ("并保存" if saved else "（保存失败）"),
+                "data": config.web.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

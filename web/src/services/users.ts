@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { ins as axios } from '@/client/api';
 
 const API_BASE = '/api/v1';
 
