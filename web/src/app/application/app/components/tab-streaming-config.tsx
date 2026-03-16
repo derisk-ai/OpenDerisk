@@ -35,6 +35,7 @@ import { AppContext } from '@/contexts';
 import {
   getToolsByCategory,
 } from '@/client/api/tools/v2';
+import { GET, PUT, DELETE } from '@/client/api';
 
 function getParamsFromSchema(inputSchema: { properties?: Record<string, unknown> } | undefined): string[] {
   if (!inputSchema || !inputSchema.properties) {
@@ -351,17 +352,13 @@ export default function TabStreamingConfig() {
       if (!appCode) return;
       setLoading(true);
       try {
-        const response = await fetch(`/api/v1/streaming-config/apps/${appCode}`);
+        const response = await GET<null, { configs?: ToolConfig[] }>(
+          `/api/v1/streaming-config/apps/${appCode}`
+        );
         
-        if (!response.ok) {
-          console.warn('[StreamingConfig] API returned', response.status);
-          setConfigs([]);
-          return;
-        }
+        const data = response.data;
         
-        const data: { configs?: ToolConfig[] } = await response.json();
-        
-        if (data.configs) {
+        if (data?.configs) {
           setConfigs(data.configs.map((cfg) => ({
             ...cfg,
             param_configs: cfg.param_configs || [],
@@ -399,15 +396,13 @@ export default function TabStreamingConfig() {
       return;
     }
     try {
-      const response = await fetch(`/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
+      const response = await PUT<ToolConfig, { success: boolean; config?: ToolConfig; error?: string }>(
+        `/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`,
+        config
+      );
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[StreamingConfig] Save response:', data);
+      if (response.data?.success) {
+        console.log('[StreamingConfig] Save response:', response.data);
         setConfigs(prev => {
           const existing = prev.findIndex(c => c.tool_name === toolName);
           if (existing >= 0) {
@@ -419,9 +414,9 @@ export default function TabStreamingConfig() {
         });
         message.success(t('streaming_save_success') || 'Configuration saved');
       } else {
-        const errorText = await response.text();
-        console.error('[StreamingConfig] Save failed:', response.status, errorText);
-        message.error(t('streaming_save_failed') || 'Save failed');
+        const errorMsg = response.data?.error || t('streaming_save_failed') || 'Save failed';
+        console.error('[StreamingConfig] Save failed:', errorMsg);
+        message.error(errorMsg);
       }
     } catch (error) {
       console.error('Failed to save config:', error);
@@ -438,11 +433,11 @@ export default function TabStreamingConfig() {
       cancelText: t('cancel') || 'Cancel',
       onOk: async () => {
         try {
-          const response = await fetch(`/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`, {
-            method: 'DELETE',
-          });
+          const response = await DELETE<null, { success: boolean }>(
+            `/api/v1/streaming-config/apps/${appCode}/tools/${toolName}`
+          );
           
-          if (response.ok) {
+          if (response.data?.success) {
             setConfigs(prev => prev.filter(c => c.tool_name !== toolName));
             message.success(t('streaming_delete_success') || 'Configuration deleted');
           } else {

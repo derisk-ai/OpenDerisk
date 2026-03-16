@@ -999,6 +999,7 @@ export const CommonZh: Resources['translation'] = {
   tool_execute_code_param: '代码内容',
   // Audit Logs (审计日志)
   audit_logs_title: '审计日志',
+  system_config: '系统配置',
   audit_logs_description: '工具授权审计追踪与安全监控',
   audit_total_checks: '总检查次数',
   audit_granted: '已授权',

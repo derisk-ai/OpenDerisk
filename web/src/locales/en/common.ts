@@ -932,6 +932,7 @@ export const CommonEn = {
 
   // Audit Logs
   audit_logs_title: 'Audit Logs',
+  system_config: 'System Config',
   audit_logs_description: 'Tool authorization audit trail and security monitoring',
   audit_total_checks: 'Total Checks',
   audit_granted: 'Granted',

@@ -1,0 +1,218 @@
+{
+  "name": "OpenDeRisk",
+  "version": "0.1.0",
+  "system": {
+    "language": "zh",
+    "log_level": "INFO",
+    "api_keys": [],
+    "encrypt_key_ref": "master_encrypt_key",
+    "distributed": {
+      "enabled": false,
+      "redis_url": "redis://localhost:6379/0",
+      "execution_ttl": 3600,
+      "heartbeat_interval": 10
+    }
+  },
+  "web": {
+    "host": "0.0.0.0",
+    "port": 7777,
+    "model_storage": "database",
+    "web_url": "http://localhost:7777",
+    "database": {
+      "type": "sqlite",
+      "path": "pilot/meta_data/derisk.db",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password_ref": "",
+      "name": "derisk"
+    }
+  },
+  "default_model": {
+    "provider": "openai",
+    "model_id": "gpt-4",
+    "api_key": null,
+    "base_url": null,
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "agent_llm": {
+    "temperature": 0.5,
+    "providers": []
+  },
+  "sse": {
+    "input_check_interval": 100,
+    "notify_step_complete": true,
+    "max_wait_input_time": 0
+  },
+  "agents": {
+    "primary": {
+      "name": "primary",
+      "description": "主Agent - 负责协调和管理其他Agent",
+      "model": null,
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 30,
+      "color": "#4A90E2",
+      "tools": ["bash", "python", "read_file", "write_file"],
+      "system_prompt": null
+    },
+    "sre_agent": {
+      "name": "sre_agent",
+      "description": "SRE-Agent - 站点可靠性工程Agent，负责系统监控、故障诊断和运维自动化",
+      "model": null,
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 50,
+      "color": "#52C41A",
+      "tools": ["bash", "python", "read_file", "http_request", "execute_sql"],
+      "system_prompt": "你是一个专业的SRE工程师，负责系统监控、故障诊断和运维自动化。"
+    },
+    "code_agent": {
+      "name": "code_agent",
+      "description": "Code-Agent - 代码分析与生成Agent，负责代码审查、重构和开发",
+      "model": null,
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 40,
+      "color": "#722ED1",
+      "tools": ["bash", "python", "read_file", "write_file", "execute_code"],
+      "system_prompt": "你是一个专业的软件工程师，负责代码分析、生成和重构。"
+    },
+    "data_agent": {
+      "name": "data_agent",
+      "description": "Data-Agent - 数据分析Agent，负责数据处理、分析和可视化",
+      "model": null,
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 35,
+      "color": "#FA8C16",
+      "tools": ["python", "execute_sql", "read_file", "write_file", "http_request"],
+      "system_prompt": "你是一个专业的数据分析师，负责数据处理、分析和可视化。"
+    },
+    "report_agent": {
+      "name": "report_agent",
+      "description": "ReportAgent - 报告生成Agent，负责分析结果汇总和报告撰写",
+      "model": null,
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 25,
+      "color": "#13C2C2",
+      "tools": ["read_file", "write_file", "python"],
+      "system_prompt": "你是一个专业的技术文档撰写者，负责生成分析报告和技术文档。"
+    }
+  },
+  "sandbox": {
+    "enabled": false,
+    "type": "local",
+    "image": "python:3.11-slim",
+    "memory_limit": "512m",
+    "timeout": 300,
+    "network_enabled": false,
+    "work_dir": "/home/user/workspace"
+  },
+  "file_service": {
+    "enabled": true,
+    "default_backend": "local",
+    "backends": [
+      {
+        "type": "local",
+        "storage_path": "./data/files",
+        "endpoint": null,
+        "region": null,
+        "access_key_ref": "",
+        "access_secret_ref": "",
+        "bucket": "derisk-files"
+      }
+    ]
+  },
+  "oauth2": {
+    "enabled": false,
+    "providers": [],
+    "admin_users": []
+  },
+  "secrets": {
+    "secrets": {
+      "master_encrypt_key": {
+        "name": "master_encrypt_key",
+        "value": "***HIDDEN***",
+        "description": "主加密密钥，用于加密其他敏感数据",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "openai_api_key": {
+        "name": "openai_api_key",
+        "value": "***HIDDEN***",
+        "description": "OpenAI API Key",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "dashscope_api_key": {
+        "name": "dashscope_api_key",
+        "value": "***HIDDEN***",
+        "description": "阿里云 DashScope API Key",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "anthropic_api_key": {
+        "name": "anthropic_api_key",
+        "value": "***HIDDEN***",
+        "description": "Anthropic API Key",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "oss_access_key_id": {
+        "name": "oss_access_key_id",
+        "value": "***HIDDEN***",
+        "description": "阿里云 OSS Access Key ID",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "oss_access_key_secret": {
+        "name": "oss_access_key_secret",
+        "value": "***HIDDEN***",
+        "description": "阿里云 OSS Access Key Secret",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      },
+      "db_password": {
+        "name": "db_password",
+        "value": "***HIDDEN***",
+        "description": "数据库密码",
+        "created_at": "2026-03-16T10:00:00",
+        "updated_at": "2026-03-16T10:00:00"
+      }
+    }
+  },
+  "workspace": "~/.derisk/workspace"
+}
