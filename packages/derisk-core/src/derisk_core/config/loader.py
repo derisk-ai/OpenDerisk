@@ -95,25 +95,46 @@ class ConfigLoader:
 
 class ConfigManager:
     """配置管理器 - 全局配置访问"""
-    
+
     _instance = None
     _config: Optional[AppConfig] = None
-    
+    _config_path: Optional[str] = None
+
     @classmethod
     def get(cls) -> AppConfig:
         """获取当前配置"""
         if cls._config is None:
-            cls._config = ConfigLoader.load()
+            # 尝试从默认位置加载，并记住路径
+            loaded_path = None
+            for location in ConfigLoader.DEFAULT_LOCATIONS:
+                if location.exists():
+                    cls._config_path = str(location)
+                    loaded_path = location
+                    break
+            cls._config = ConfigLoader.load(str(loaded_path) if loaded_path else None)
         return cls._config
-    
+
     @classmethod
     def init(cls, path: Optional[str] = None) -> AppConfig:
         """初始化配置"""
+        cls._config_path = path
         cls._config = ConfigLoader.load(path)
         return cls._config
-    
+
     @classmethod
     def reload(cls, path: Optional[str] = None) -> AppConfig:
         """重新加载配置"""
         cls._config = None
         return cls.get()
+
+    @classmethod
+    def save(cls, path: Optional[str] = None) -> None:
+        """保存当前配置到文件"""
+        if cls._config is None:
+            raise RuntimeError("No config to save")
+        save_path = path or cls._config_path
+        if save_path is None:
+            # 默认保存到当前目录
+            save_path = "derisk.json"
+        ConfigLoader.save(cls._config, save_path)
+        cls._config_path = save_path
