@@ -74,6 +74,7 @@ export type IChatDialogueSchema = {
   param_need?: ParamNeed[];
   team_model?: string; // 添加team_model字段
   icon?: string; // 添加icon字段
+  state?: 'RUNNING' | 'COMPLETE' | 'FAILED' | 'WAITING' | (string & {});
 };
 
 export type UserParam = {

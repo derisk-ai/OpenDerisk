@@ -57,22 +57,12 @@ def get_sandbox_enabled_from_app(app_id: Optional[str]) -> bool:
                 .first()
             )
 
-            if config and config.param_need:
-                param_need = config.param_need
-                if isinstance(param_need, str):
-                    param_need = json.loads(param_need)
-
-                for item in param_need:
-                    if isinstance(item, dict) and item.get("key") == "sandbox":
-                        sandbox_value = item.get("value", {})
-                        if isinstance(sandbox_value, str):
-                            sandbox_value = json.loads(sandbox_value)
-                        sandbox_type = (
-                            sandbox_value.get("type", "local")
-                            if isinstance(sandbox_value, dict)
-                            else "local"
-                        )
-                        return sandbox_type and sandbox_type != "local"
+            if config and config.team_context:
+                team_context = config.team_context
+                if isinstance(team_context, str):
+                    team_context = json.loads(team_context)
+                if isinstance(team_context, dict):
+                    return team_context.get("use_sandbox", False)
     except Exception as e:
         import logging
 
@@ -129,20 +119,21 @@ async def get_tool_groups(
     app_id: Optional[str] = Query(None, description="应用ID"),
     agent_name: Optional[str] = Query(None, description="Agent名称"),
     lang: str = Query("zh", description="语言(zh/en)"),
+    sandbox_enabled: Optional[bool] = Query(None, description="是否启用沙箱环境"),
 ):
     """
     获取工具分组列表
 
     返回按分组类型组织的工具列表，包括绑定状态信息。
-    沙箱状态自动从应用配置中获取：
-    - 如果应用配置了沙箱且 type != "local": 沙箱工具显示为默认绑定
+    沙箱状态优先使用前端传递的参数，否则从应用配置中获取：
+    - 如果启用沙箱: 沙箱工具显示为默认绑定
     - 否则: 本地工具 (read, bash) 显示为默认绑定
     """
     try:
         ensure_tools_initialized()
 
-        # 自动从应用配置中获取沙箱状态
-        sandbox_enabled = get_sandbox_enabled_from_app(app_id)
+        if sandbox_enabled is None:
+            sandbox_enabled = get_sandbox_enabled_from_app(app_id)
 
         groups = tool_manager.get_tool_groups(
             app_id=app_id,

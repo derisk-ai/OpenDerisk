@@ -1,5 +1,6 @@
 # Define your Pydantic schemas here
 from typing import Any, Dict, List, Optional
+from enum import Enum
 
 from derisk._private.pydantic import (
     BaseModel,
@@ -10,6 +11,24 @@ from derisk._private.pydantic import (
 )
 
 from ..config import SERVE_APP_NAME_HUMP
+
+
+class FileProcessMode(str, Enum):
+    """File processing mode enumeration."""
+
+    MODEL_DIRECT = "model_direct"
+    SANDBOX_TOOL = "sandbox_tool"
+
+
+class FileType(str, Enum):
+    """File type classification for delivery."""
+
+    DELIVERABLE = "deliverable"
+    REPORT = "report"
+    DATA = "data"
+    LOG = "log"
+    CONCLUSION = "conclusion"
+    OTHER = "other"
 
 
 class ServeRequest(BaseModel):

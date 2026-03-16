@@ -13,9 +13,10 @@ interface AgentListProps {
   selectedAppCode: string | null;
   onSelect: (app: IApp) => void;
   onListLoaded?: (apps: IApp[]) => void;
+  refreshTrigger?: number;
 }
 
-export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: AgentListProps) {
+export default function AgentList({ selectedAppCode, onSelect, onListLoaded, refreshTrigger }: AgentListProps) {
   const { t } = useTranslation();
   const { modal, notification } = App.useApp();
   const [apps, setApps] = useState<IApp[]>([]);
@@ -58,6 +59,12 @@ export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: A
   useEffect(() => {
     fetchList();
   }, []);
+
+  useEffect(() => {
+    if (refreshTrigger) {
+      fetchList();
+    }
+  }, [refreshTrigger]);
 
   const handleCreate = () => {
     setCreateModalOpen(true);
@@ -153,12 +160,16 @@ export default function AgentList({ selectedAppCode, onSelect, onListLoaded }: A
                   onClick={() => onSelect(app)}
                 >
                   <div className="w-9 h-9 rounded-xl overflow-hidden ring-1 ring-gray-200/60 shadow-sm flex-shrink-0">
-                    <Image
-                      src={app.icon || '/icons/colorful-plugin.png'}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={app.icon?.trim() && app.icon !== 'smart-plugin' ? app.icon : '/icons/colorful-plugin.png'}
                       alt={app.app_name || 'Agent'}
-                      width={36}
-                      height={36}
                       className="object-cover w-full h-full"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.onerror = null;
+                        target.src = '/icons/colorful-plugin.png';
+                      }}
                     />
                   </div>
                   <div className="flex-1 min-w-0">

@@ -2,6 +2,7 @@ import markdownComponents, {
   markdownPlugins,
   preprocessLaTeX,
 } from "@/components/chat/chat-content-components/config";
+import { ChatContentContext } from "@/contexts";
 import { IChatDialogueMessageSchema } from "@/types/chat";
 import { STORAGE_USERINFO_KEY } from "@/utils/constants/storage";
 import {
@@ -15,7 +16,7 @@ import { Avatar } from "antd";
 import classNames from "classnames";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import React, { memo, useMemo } from "react";
+import React, { memo, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 const UserIcon: React.FC = () => {
@@ -33,6 +34,20 @@ const UserIcon: React.FC = () => {
       size={32}
     >
       {user?.nick_name}
+    </Avatar>
+  );
+};
+
+const AgentIcon: React.FC = () => {
+  const { appInfo } = useContext(ChatContentContext);
+  
+  return (
+    <Avatar
+      src={appInfo?.icon}
+      className="bg-gradient-to-tr from-[#52c41a] to-[#389e0d] cursor-pointer shrink-0"
+      size={32}
+    >
+      {appInfo?.app_name?.charAt(0) || 'A'}
     </Avatar>
   );
 };
@@ -195,9 +210,24 @@ const ChatContent: React.FC<{
     [cachePluginContext]
   );
 
-  // VIS 协议通过 type=INCR/type=ALL 在后端处理增量更新
-  // 前端只需显示当前消息的 planning_window 内容，避免历史消息重复
-  const _context = value;
+  const _context = useMemo(() => {
+    if (typeof value === 'string' && value.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed?.planning_window) {
+          return parsed.planning_window;
+        }
+        if (parsed?.vis) {
+          const visData = typeof parsed.vis === 'string' ? JSON.parse(parsed.vis) : parsed.vis;
+          if (visData?.planning_window) {
+            return visData.planning_window;
+          }
+        }
+      } catch {
+      }
+    }
+    return value;
+  }, [value]);
 
   return (
     <>
@@ -206,7 +236,7 @@ const ChatContent: React.FC<{
           <span
             className='break-words'
             style={{
-              maxWidth: '80%',
+              maxWidth: '95%',
               minWidth: 0,
             }}
           >
@@ -248,27 +278,30 @@ const ChatContent: React.FC<{
         </div>
       )}
       {isRobot && (
-        <div className='flex flex-col pr-2 border-dashed border-r0 flex-1'>
-          {/* @ts-ignore */}
-          <GPTVis
-            components={{
-              ...markdownComponents,
-              ...extraMarkdownComponents,
-            }}
-            {...markdownPlugins}
-          >
-            {preprocessLaTeX(formatMarkdownValForAgent(_context))}
-          </GPTVis>
-          {thinking && !context && (
-            <div className='flex items-center gap-2'>
-              <span className='flex text-sm text-[#1c2533] dark:text-white'>{t('thinking')}</span>
-              <div className='flex'>
-                <div className='w-1 h-1 rounded-full mx-1 animate-pulse1'></div>
-                <div className='w-1 h-1 rounded-full mx-1 animate-pulse2'></div>
-                <div className='w-1 h-1 rounded-full mx-1 animate-pulse3'></div>
+        <div className='flex flex-1 justify-start items-start pb-4 pt-6' style={{ gap: 12 }}>
+          <AgentIcon />
+          <div className='flex flex-col flex-1 border-dashed border-r0'>
+            {/* @ts-ignore */}
+            <GPTVis
+              components={{
+                ...markdownComponents,
+                ...extraMarkdownComponents,
+              }}
+              {...markdownPlugins}
+            >
+              {preprocessLaTeX(formatMarkdownValForAgent(_context))}
+            </GPTVis>
+            {thinking && !context && (
+              <div className='flex items-center gap-2'>
+                <span className='flex text-sm text-[#1c2533] dark:text-white'>{t('thinking')}</span>
+                <div className='flex'>
+                  <div className='w-1 h-1 rounded-full mx-1 animate-pulse1'></div>
+                  <div className='w-1 h-1 rounded-full mx-1 animate-pulse2'></div>
+                  <div className='w-1 h-1 rounded-full mx-1 animate-pulse3'></div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </>

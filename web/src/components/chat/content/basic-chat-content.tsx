@@ -43,16 +43,15 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
       {/* 标题栏 */}
       <ChatHeader isProcessing={isProcessing} />
       
-      {/* 消息列表区域 */}
       <div 
         ref={scrollableRef}
         className="flex-1 overflow-y-auto"
       >
         {hasMessages && (
-          <div className="w-full px-4 sm:px-6 lg:px-8 py-6">
-            <div className="max-w-3xl mx-auto">
+          <div className="w-full px-3 py-4">
+            <div className="w-full">
               {showMessages.map((content, index) => (
-                <div key={index} className="mb-6">
+                <div key={index} className="mb-4">
                   <ChatContent
                     content={content}
                     onLinkClick={() => {
@@ -63,16 +62,14 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
                   />
                 </div>
               ))}
-              {/* 底部留白 */}
-              <div className="h-20" />
+              <div className="h-16" />
             </div>
           </div>
         )}
       </div>
 
-      {/* 输入框区域 - 居中且限制宽度 */}
-      <div className="flex-shrink-0 pb-6 pt-2 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl mx-auto">
+      <div className="flex-shrink-0 pb-4 pt-2 px-3">
+        <div className="w-full">
           <UnifiedChatInput ctrl={ctrl} showFloatingActions={hasMessages} />
         </div>
       </div>
