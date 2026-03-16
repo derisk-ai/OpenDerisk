@@ -90,6 +90,47 @@ def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
     )
 
 
+def _add_missing_columns_sqlite(db):
+    """Add missing columns to existing SQLite tables (ALTER TABLE ADD COLUMN).
+
+    SQLAlchemy's create_all() only creates new tables; it won't add columns to
+    existing ones. This function inspects the current schema and adds any column
+    that is defined in a mapped model but absent from the actual table.
+    """
+    from sqlalchemy import inspect as sa_inspect, text
+
+    engine = db.engine
+    inspector = sa_inspect(engine)
+    existing_tables = inspector.get_table_names()
+
+    with engine.connect() as conn:
+        for table in db.Model.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing_cols:
+                    continue
+                col_type = col.type.compile(dialect=engine.dialect)
+                nullable = "NULL" if col.nullable else "NOT NULL"
+                default_clause = ""
+                if col.default is not None and col.default.is_scalar:
+                    default_clause = f" DEFAULT '{col.default.arg}'"
+                try:
+                    stmt = text(
+                        f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type} {nullable}{default_clause}"
+                    )
+                    conn.execute(stmt)
+                    conn.commit()
+                    logger.info(
+                        f"[schema migration] Added column '{col.name}' to table '{table.name}'"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[schema migration] Failed to add column '{col.name}' to '{table.name}': {e}"
+                    )
+
+
 def _migration_db_storage(
     db_params: BaseDatasourceParameters, disable_alembic_upgrade: bool
 ):
@@ -118,6 +159,7 @@ def _migration_db_storage(
                     f"Create all tables stored in this metadata error: {str(e)}"
                 )
 
+            _add_missing_columns_sqlite(db)
             _ddl_init_and_upgrade(default_meta_data_path, disable_alembic_upgrade)
         else:
             warn_msg = """For safety considerations, MySQL Database not support DDL \

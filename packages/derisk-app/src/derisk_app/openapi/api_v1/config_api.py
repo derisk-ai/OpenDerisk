@@ -286,6 +286,53 @@ async def export_config():
         }
     )
 
+@router.get("/oauth2")
+async def get_oauth2_config():
+    """获取 OAuth2 配置"""
+    manager = get_config_manager()
+    config = manager.get()
+    oauth2 = getattr(config, "oauth2", None)
+    if oauth2 is None:
+        return JSONResponse(content={
+            "success": True,
+            "data": {"enabled": False, "providers": []}
+        })
+    return JSONResponse(content={
+        "success": True,
+        "data": oauth2.model_dump(mode="json")
+    })
+
+
+@router.post("/oauth2")
+async def update_oauth2_config(oauth2_data: Dict[str, Any]):
+    """更新 OAuth2 配置并保存到文件"""
+    try:
+        from derisk_core.config import AppConfig, OAuth2Config
+
+        manager = get_config_manager()
+        config = manager.get()
+        config_dict = config.model_dump(mode="json")
+        config_dict["oauth2"] = oauth2_data
+        config = AppConfig(**config_dict)
+        manager._config = config
+
+        # 保存到配置文件
+        try:
+            manager.save()
+        except Exception as save_err:
+            # 保存失败但仍然返回成功（内存中已更新）
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to save config to file: {save_err}")
+
+        return JSONResponse(content={
+            "success": True,
+            "message": "OAuth2 配置已更新",
+            "data": config.oauth2.model_dump(mode="json")
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/import")
 async def import_config(config_data: Dict[str, Any]):
     """导入配置"""

@@ -44,6 +44,36 @@ class AgentConfig(BaseModel):
     max_steps: int = 20
     color: str = "#4A90E2"
 
+
+class OAuth2ProviderType(str, Enum):
+    """OAuth2 提供商类型"""
+    GITHUB = "github"
+    CUSTOM = "custom"
+
+
+class OAuth2ProviderConfig(BaseModel):
+    """OAuth2 提供商配置"""
+    id: str = "github"
+    type: OAuth2ProviderType = OAuth2ProviderType.GITHUB
+    client_id: str = ""
+    client_secret: str = ""
+    # custom 类型必填
+    authorization_url: Optional[str] = None
+    token_url: Optional[str] = None
+    userinfo_url: Optional[str] = None
+    scope: Optional[str] = None
+
+
+class OAuth2Config(BaseModel):
+    """OAuth2 登录配置"""
+    enabled: bool = False
+    providers: List[OAuth2ProviderConfig] = Field(default_factory=list)
+    admin_users: List[str] = Field(
+        default_factory=list,
+        description="初始管理员列表，填写 OAuth 登录后的用户名（GitHub login）",
+    )
+
+
 class AppConfig(BaseModel):
     """应用主配置"""
     name: str = "OpenDeRisk"
@@ -56,6 +86,8 @@ class AppConfig(BaseModel):
     })
     
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    
+    oauth2: Optional[OAuth2Config] = Field(default_factory=OAuth2Config)
     
     workspace: str = str(Path.home() / ".derisk" / "workspace")
     

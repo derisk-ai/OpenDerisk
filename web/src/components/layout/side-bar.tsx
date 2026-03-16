@@ -21,8 +21,10 @@ import Icon, {
   RobotOutlined,
   ExperimentOutlined,
   SafetyOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
+import { authService } from '@/services/auth';
 import { App, Flex, Input, Popover, Spin, Tooltip, Typography } from 'antd';
 import cls from 'classnames';
 import moment from 'moment';
@@ -200,6 +202,11 @@ function SideBar() {
   const [appList, setAppList] = useState<IApp[]>([]);
   const [dialogueLists, setDialogueLists] = useState<DialogueListItem[]>([]);
   const [searchValue, setSearchValue] = useState<string>('');
+  const [oauthEnabled, setOauthEnabled] = useState(false);
+
+  useEffect(() => {
+    authService.getOAuthStatus().then((s) => setOauthEnabled(s.enabled));
+  }, []);
 
   const handleToggleMenu = useCallback(() => {
     setIsMenuExpand(!isMenuExpand);
@@ -382,7 +389,7 @@ function SideBar() {
   }, [dialogueList]);
 
   const functions = useMemo(() => {
-            const currentAppCode = searchParams?.get('app_code');
+    const currentAppCode = searchParams?.get('app_code');
     const items: RouteItem[] = [
       // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
       // ...appLists, // Remove appList from menu items since we have a new way to start chats
@@ -496,12 +503,19 @@ function SideBar() {
             icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
             path: '/monitoring',
           },
+          ...(oauthEnabled ? [{
+            key: 'user_management',
+            name: '用户管理',
+            isActive: pathname.startsWith('/users'),
+            icon: <TeamOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/users',
+          }] : []),
         ],
-isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring'),
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
       },
     ];
     return items;
-  }, [t, pathname, appLists]);
+  }, [t, pathname, appLists, oauthEnabled]);
 
   useEffect(() => {
     const language = i18n.language;

@@ -76,7 +76,12 @@ print_header "Step 2: Generate MySQL DDL Files"
 print_step "Running generate_mysql_ddl.py..."
 
 if [ -f "$SCRIPT_DIR/generate_mysql_ddl.py" ]; then
-    if python "$SCRIPT_DIR/generate_mysql_ddl.py"; then
+    PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+    if [ -z "$PYTHON_CMD" ]; then
+        print_error "Python not found. Please install Python 3."
+        exit 1
+    fi
+    if "$PYTHON_CMD" "$SCRIPT_DIR/generate_mysql_ddl.py"; then
         print_success "MySQL DDL files generated successfully"
         print_info "Full DDL: assets/schema/derisk.sql"
         print_info "Incremental DDL: assets/schema/upgrade_*_to_*.sql (if any changes)"

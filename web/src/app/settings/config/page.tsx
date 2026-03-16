@@ -35,12 +35,14 @@ import {
   ToolOutlined,
   SafetyOutlined,
   CloudServerOutlined,
+  LoginOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { configService, toolsService, AppConfig, AgentConfig, ToolInfo } from '@/services/config';
 import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
 import ToolManagementPanel from '@/components/config/ToolManagementPanel';
+import OAuth2ConfigSection from '@/components/config/OAuth2ConfigSection';
 import type { AuthorizationConfig } from '@/types/authorization';
 import type { ToolMetadata } from '@/types/tool';
 
@@ -413,6 +415,13 @@ export default function ConfigPage() {
             showDetailModal={true}
             loading={loading}
           />
+        </TabPane>
+
+        <TabPane
+          tab={<span><LoginOutlined /> OAuth2 登录</span>}
+          key="oauth2"
+        >
+          <OAuth2ConfigSection onChange={loadConfig} />
         </TabPane>
       </Tabs>
 

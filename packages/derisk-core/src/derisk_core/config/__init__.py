@@ -4,6 +4,9 @@ from .schema import (
     PermissionConfig,
     SandboxConfig,
     AgentConfig,
+    OAuth2ProviderType,
+    OAuth2ProviderConfig,
+    OAuth2Config,
     AppConfig,
 )
 from .loader import ConfigLoader, ConfigManager
@@ -15,6 +18,9 @@ __all__ = [
     "PermissionConfig",
     "SandboxConfig",
     "AgentConfig",
+    "OAuth2ProviderType",
+    "OAuth2ProviderConfig",
+    "OAuth2Config",
     "AppConfig",
     "ConfigLoader",
     "ConfigManager",

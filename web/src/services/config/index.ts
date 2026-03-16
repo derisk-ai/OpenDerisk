@@ -32,12 +32,30 @@ export interface SandboxConfig {
   network_enabled: boolean;
 }
 
+export interface OAuth2ProviderConfig {
+  id: string;
+  type: 'github' | 'custom';
+  client_id: string;
+  client_secret: string;
+  authorization_url?: string;
+  token_url?: string;
+  userinfo_url?: string;
+  scope?: string;
+}
+
+export interface OAuth2Config {
+  enabled: boolean;
+  providers: OAuth2ProviderConfig[];
+  admin_users?: string[];
+}
+
 export interface AppConfig {
   name: string;
   version: string;
   default_model: ModelConfig;
   agents: Record<string, AgentConfig>;
   sandbox: SandboxConfig;
+  oauth2?: OAuth2Config;
   workspace: string;
   log_level: string;
   server: {
@@ -122,6 +140,16 @@ class ConfigService {
 
   async importConfig(config: AppConfig): Promise<AppConfig> {
     const response = await axios.post(`${API_BASE}/config/import`, config);
+    return response.data.data;
+  }
+
+  async getOAuth2Config(): Promise<OAuth2Config> {
+    const response = await axios.get(`${API_BASE}/config/oauth2`);
+    return response.data.data;
+  }
+
+  async updateOAuth2Config(config: OAuth2Config): Promise<OAuth2Config> {
+    const response = await axios.post(`${API_BASE}/config/oauth2`, config);
     return response.data.data;
   }
 }
