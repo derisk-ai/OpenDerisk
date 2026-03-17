@@ -111,10 +111,10 @@ def upgrade_database(
         target_version: target version, default is head(latest version)
     """
     # 开启 SQL 输出 - 添加这行代码
-    alembic_cfg.set_main_option('show_sql', 'true')
+    alembic_cfg.set_main_option("show_sql", "true")
 
     # 提高日志级别（可选）
-    alembic_cfg.set_main_option('log_level', 'INFO')
+    alembic_cfg.set_main_option("log_level", "INFO")
 
     with engine.connect() as connection:
         alembic_cfg.attributes["connection"] = connection
@@ -192,6 +192,11 @@ def clean_alembic_migration(alembic_cfg: AlembicConfig, engine: Engine) -> None:
                 os.remove(filepath)
             else:
                 shutil.rmtree(filepath, ignore_errors=True)
+
+    # Recreate versions directory for future migrations
+    versions_dir = os.path.join(script_location, "versions")
+    os.makedirs(versions_dir, exist_ok=True)
+    print(f"Recreated versions directory: {versions_dir}")
 
     # Delete Alembic version table if exists
     version_table = alembic_cfg.get_main_option("version_table") or "alembic_version"
@@ -283,6 +288,20 @@ def _check_database_migration_status(alembic_cfg: AlembicConfig, engine: Engine)
     script_info_msg += f"\n{'=' * 90}"
 
     logger.info(script_info_msg)
+
+    # Auto-fix: if database has revision but no migration scripts exist
+    if head_rev is None and current_rev is not None:
+        logger.warning(
+            f"Database has revision '{current_rev}', but no migration scripts found. "
+            "This usually happens when migration scripts were deleted manually. "
+            "Auto-cleaning migration history to allow re-initialization..."
+        )
+        clean_alembic_migration(alembic_cfg, engine)
+        logger.info(
+            "Migration history cleaned successfully. The system will re-initialize "
+            "database metadata on next startup."
+        )
+        return
 
     if current_rev != head_rev:
         logger.error(

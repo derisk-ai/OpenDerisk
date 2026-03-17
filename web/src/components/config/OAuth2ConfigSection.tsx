@@ -22,7 +22,6 @@ import {
   PlusOutlined,
   QuestionCircleOutlined,
   SafetyOutlined,
-  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import { configService, OAuth2ProviderConfig } from '@/services/config';
@@ -37,14 +36,6 @@ const PROVIDER_TYPE_OPTIONS = [
     label: (
       <span className="flex items-center gap-2">
         <GithubOutlined /> GitHub
-      </span>
-    ),
-  },
-  {
-    value: 'alibaba-inc',
-    label: (
-      <span className="flex items-center gap-2">
-        <ThunderboltOutlined className="text-orange-500" /> alibaba-inc
       </span>
     ),
   },
@@ -108,8 +99,6 @@ function ProviderCard({
   const scope: string = Form.useWatch(['providers', name, 'scope'], form) || '';
 
   const isGitHub = providerType === 'github';
-  const isAlibabaInc = providerType === 'alibaba-inc';
-  const isBuiltIn = isGitHub || isAlibabaInc;
   const isConfigured = !!clientId && !!clientSecret;
 
   const handleDone = () => {
@@ -122,8 +111,6 @@ function ProviderCard({
 
   const cardLabel = isGitHub
     ? 'GitHub OAuth2'
-    : isAlibabaInc
-    ? 'alibaba-inc OAuth2'
     : `自定义 OAuth2${customId ? ` · ${customId}` : ''}`;
 
   return (
@@ -149,8 +136,6 @@ function ProviderCard({
         <div className="flex items-center gap-2">
           {isGitHub ? (
             <GithubOutlined className="text-gray-700" />
-          ) : isAlibabaInc ? (
-            <ThunderboltOutlined className="text-orange-500" />
           ) : (
             <SafetyOutlined className="text-blue-500" />
           )}
@@ -217,25 +202,21 @@ function ProviderCard({
                 <span className="flex items-center gap-1.5">
                   <GithubOutlined /> GitHub
                 </span>
-              ) : isAlibabaInc ? (
-                <span className="flex items-center gap-1.5">
-                  <ThunderboltOutlined className="text-orange-500" /> alibaba-inc
-                </span>
               ) : (
                 '自定义 OAuth2'
               )}
             </ReadRow>
-            {!isBuiltIn && customId && <ReadRow label="提供商 ID">{customId}</ReadRow>}
+            {!isGitHub && customId && <ReadRow label="提供商 ID">{customId}</ReadRow>}
             <ReadRow label="Client ID">
               <span className="font-mono text-sm">{clientId || <span className="text-gray-300 italic">未填写</span>}</span>
             </ReadRow>
             <ReadRow label="Client Secret">
               <MaskedValue value={clientSecret} />
             </ReadRow>
-            {!isBuiltIn && authUrl && <ReadRow label="Authorization URL">{authUrl}</ReadRow>}
-            {!isBuiltIn && tokenUrl && <ReadRow label="Token URL">{tokenUrl}</ReadRow>}
-            {!isBuiltIn && userinfoUrl && <ReadRow label="Userinfo URL">{userinfoUrl}</ReadRow>}
-            {!isBuiltIn && scope && <ReadRow label="Scope">{scope}</ReadRow>}
+            {!isGitHub && authUrl && <ReadRow label="Authorization URL">{authUrl}</ReadRow>}
+            {!isGitHub && tokenUrl && <ReadRow label="Token URL">{tokenUrl}</ReadRow>}
+            {!isGitHub && userinfoUrl && <ReadRow label="Userinfo URL">{userinfoUrl}</ReadRow>}
+            {!isGitHub && scope && <ReadRow label="Scope">{scope}</ReadRow>}
           </div>
         )}
 
@@ -252,7 +233,7 @@ function ProviderCard({
               <Select options={PROVIDER_TYPE_OPTIONS} />
             </Form.Item>
 
-            {!isBuiltIn && (
+            {!isGitHub && (
               <Form.Item
                 {...restField}
                 name={[name, 'custom_id']}
@@ -279,13 +260,7 @@ function ProviderCard({
               className="mb-3"
             >
               <Input
-                placeholder={
-                  isGitHub
-                    ? 'GitHub OAuth App Client ID'
-                    : isAlibabaInc
-                    ? 'MOZI 应用 Client ID'
-                    : 'OAuth2 Client ID'
-                }
+                placeholder={isGitHub ? 'GitHub OAuth App Client ID' : 'OAuth2 Client ID'}
               />
             </Form.Item>
 
@@ -293,20 +268,14 @@ function ProviderCard({
               {...restField}
               name={[name, 'client_secret']}
               label="Client Secret"
-              className={isBuiltIn ? 'mb-0' : 'mb-3'}
+              className={isGitHub ? 'mb-0' : 'mb-3'}
             >
               <Input.Password
-                placeholder={
-                  isGitHub
-                    ? 'GitHub OAuth App Client Secret'
-                    : isAlibabaInc
-                    ? 'MOZI 应用 Client Secret'
-                    : 'OAuth2 Client Secret'
-                }
+                placeholder={isGitHub ? 'GitHub OAuth App Client Secret' : 'OAuth2 Client Secret'}
               />
             </Form.Item>
 
-            {!isBuiltIn && (
+            {!isGitHub && (
               <>
                 <Divider orientation="left" className="my-3 text-xs text-gray-400">
                   端点配置
@@ -365,7 +334,6 @@ function ProviderCard({
                 }
               />
             )}
-
           </>
         )}
       </div>
@@ -398,12 +366,11 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     setLoading(true);
     try {
       const data = await configService.getOAuth2Config();
-      const isBuiltInType = (type: string) => type === 'github' || type === 'alibaba-inc';
       const providers =
         data.providers?.length
           ? data.providers.map((p) => ({
               provider_type: p.type || 'github',
-              custom_id: !isBuiltInType(p.type) ? p.id : undefined,
+              custom_id: p.type !== 'github' ? p.id : undefined,
               client_id: p.client_id,
               client_secret: p.client_secret,
               authorization_url: p.authorization_url,
@@ -436,30 +403,16 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     setSaving(true);
     try {
       const providers: OAuth2ProviderConfig[] = (values.providers || [])
-        .map((p: any) => {
-          const isBuiltIn = p.provider_type === 'github' || p.provider_type === 'alibaba-inc';
-          return {
-            id: p.provider_type === 'github'
-              ? 'github'
-              : p.provider_type === 'alibaba-inc'
-              ? 'alibaba-inc'
-              : (p.custom_id || 'custom'),
-            type: p.provider_type || 'github',
-            client_id: p.client_id || '',
-            client_secret: p.client_secret || '',
-            // Built-in providers don't need URL configuration
-            authorization_url: isBuiltIn
-              ? undefined
-              : p.authorization_url,
-            token_url: isBuiltIn
-              ? undefined
-              : p.token_url,
-            userinfo_url: isBuiltIn
-              ? undefined
-              : p.userinfo_url,
-            scope: p.scope,
-          };
-        })
+        .map((p: any) => ({
+          id: p.provider_type === 'github' ? 'github' : (p.custom_id || 'custom'),
+          type: p.provider_type || 'github',
+          client_id: p.client_id || '',
+          client_secret: p.client_secret || '',
+          authorization_url: p.authorization_url,
+          token_url: p.token_url,
+          userinfo_url: p.userinfo_url,
+          scope: p.scope,
+        }))
         .filter((p: OAuth2ProviderConfig) => p.client_id);
 
       const admin_users = (values.admin_users_text || '')
@@ -539,15 +492,7 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
                   icon={<PlusOutlined />}
                   onClick={() => {
                     const newIdx = fields.length;
-                    // Check if GitHub or Alibaba-inc already exists, suggest the other one
-                    const hasGitHub = fields.some((f) =>
-                      form.getFieldValue(['providers', f.name, 'provider_type']) === 'github'
-                    );
-                    const hasAlibaba = fields.some((f) =>
-                      form.getFieldValue(['providers', f.name, 'provider_type']) === 'alibaba-inc'
-                    );
-                    const defaultType = hasGitHub && !hasAlibaba ? 'alibaba-inc' : 'custom';
-                    add({ provider_type: defaultType, client_id: '', client_secret: '' });
+                    add({ provider_type: 'custom', client_id: '', client_secret: '' });
                     setEditing(newIdx, true);
                   }}
                   block

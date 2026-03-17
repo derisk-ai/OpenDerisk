@@ -88,3 +88,21 @@ export const disableChannel = (channelId: string) => {
     `${API_PREFIX}/channels/${channelId}/disable`
   );
 };
+
+/**
+ * Start a channel (connect stream)
+ */
+export const startChannel = (channelId: string) => {
+  return POST<{}, { started: boolean; channel_id: string }>(
+    `${API_PREFIX}/channels/${channelId}/start`
+  );
+};
+
+/**
+ * Stop a channel (disconnect stream)
+ */
+export const stopChannel = (channelId: string) => {
+  return POST<{}, { stopped: boolean; channel_id: string }>(
+    `${API_PREFIX}/channels/${channelId}/stop`
+  );
+};

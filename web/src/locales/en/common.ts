@@ -767,6 +767,13 @@ export const CommonEn = {
   channel_no_channels: 'No channels configured',
   channel_show_disabled: 'Show Disabled',
   channel_coming_soon: 'Coming Soon',
+  channel_start: 'Start',
+  channel_stop: 'Stop',
+  channel_start_success: 'Channel started',
+  channel_stop_success: 'Channel stopped',
+  channel_start_failed: 'Failed to start channel',
+  channel_stop_failed: 'Failed to stop channel',
+  channel_confirm_stop: 'Are you sure to stop this channel?',
   
   // Scene related
   scene_config_title: 'Scene Configuration',
@@ -925,6 +932,7 @@ export const CommonEn = {
 
   // Audit Logs
   audit_logs_title: 'Audit Logs',
+  system_config: 'System Config',
   audit_logs_description: 'Tool authorization audit trail and security monitoring',
   audit_total_checks: 'Total Checks',
   audit_granted: 'Granted',

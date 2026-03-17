@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Alert, Card, Button, Spin } from 'antd';
-import { GithubOutlined, LoginOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { GithubOutlined, LoginOutlined } from '@ant-design/icons';
 import { authService } from '@/services/auth';
 import { useSearchParams } from 'next/navigation';
 
@@ -85,30 +85,18 @@ export default function LoginPage() {
         )}
         <p className="mb-4 text-gray-600">请选择登录方式</p>
         <div className="space-y-3">
-          {providers.map((p) => {
-            const getIcon = () => {
-              if (p.type === 'github') return <GithubOutlined />;
-              if (p.type === 'alibaba-inc') return <ThunderboltOutlined className="text-orange-500" />;
-              return <LoginOutlined />;
-            };
-            const getLabel = () => {
-              if (p.type === 'github') return '使用 GitHub 登录';
-              if (p.type === 'alibaba-inc') return '使用 alibaba-inc 登录';
-              return `使用 ${p.id} 登录`;
-            };
-            return (
-              <Button
-                key={p.id}
-                type="primary"
-                block
-                size="large"
-                icon={getIcon()}
-                onClick={() => handleLogin(p.id)}
-              >
-                {getLabel()}
-              </Button>
-            );
-          })}
+          {providers.map((p) => (
+            <Button
+              key={p.id}
+              type="primary"
+              block
+              size="large"
+              icon={p.type === 'github' ? <GithubOutlined /> : <LoginOutlined />}
+              onClick={() => handleLogin(p.id)}
+            >
+              {p.type === 'github' ? '使用 GitHub 登录' : `使用 ${p.id} 登录`}
+            </Button>
+          ))}
         </div>
       </Card>
     </div>

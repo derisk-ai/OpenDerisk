@@ -120,7 +120,7 @@ PDCA Agent 文件存储流程:
             return f"https://bucket.oss-region.aliyuncs.com/object?download={file_name}"
         else:
             # 本地存储通过文件服务代理
-            return f"http://localhost:5670/api/v2/serve/file/files/{uri}"
+            return f"http://localhost:7777/api/v2/serve/file/files/{uri}"
 
     v1_url = generate_url_v1("oss://bucket/object", "test.txt")
     v3_oss_url = generate_url_v3("oss", "derisk-fs://bucket/file", "test.txt")

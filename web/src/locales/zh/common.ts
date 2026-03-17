@@ -773,6 +773,13 @@ export const CommonZh: Resources['translation'] = {
   channel_no_channels: '暂无配置渠道',
   channel_show_disabled: '显示已禁用',
   channel_coming_soon: '即将支持',
+  channel_start: '启动',
+  channel_stop: '停止',
+  channel_start_success: '渠道启动成功',
+  channel_stop_success: '渠道已停止',
+  channel_start_failed: '渠道启动失败',
+  channel_stop_failed: '停止渠道失败',
+  channel_confirm_stop: '确定要停止该渠道吗？',
   
   // 场景相关
   scene_config_title: '场景配置',
@@ -992,6 +999,7 @@ export const CommonZh: Resources['translation'] = {
   tool_execute_code_param: '代码内容',
   // Audit Logs (审计日志)
   audit_logs_title: '审计日志',
+  system_config: '系统配置',
   audit_logs_description: '工具授权审计追踪与安全监控',
   audit_total_checks: '总检查次数',
   audit_granted: '已授权',
