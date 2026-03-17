@@ -111,6 +111,7 @@ class OAuth2ProviderType(str, Enum):
     """OAuth2 提供商类型"""
 
     GITHUB = "github"
+    ALIBABA_INC = "alibaba-inc"
     CUSTOM = "custom"
 
 
