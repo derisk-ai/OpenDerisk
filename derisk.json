@@ -1,0 +1,45 @@
+{
+  "name": "OpenDeRisk",
+  "version": "0.1.0",
+  "default_model": {
+    "provider": "openai",
+    "model_id": "gpt-4",
+    "api_key": "",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "agents": {
+    "primary": {
+      "name": "primary",
+      "description": "主Agent",
+      "permission": {
+        "default_action": "ask",
+        "rules": {
+          "*": "allow",
+          "*.env": "ask",
+          "*.secret*": "ask"
+        }
+      },
+      "max_steps": 20,
+      "color": "#4A90E2"
+    }
+  },
+  "sandbox": {
+    "enabled": false,
+    "image": "python:3.11-slim",
+    "memory_limit": "512m",
+    "timeout": 300,
+    "network_enabled": false
+  },
+  "oauth2": {
+    "enabled": false,
+    "providers": [],
+    "admin_users": []
+  },
+  "workspace": "/Users/tuyang/.derisk/workspace",
+  "log_level": "INFO",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 7777
+  }
+}
