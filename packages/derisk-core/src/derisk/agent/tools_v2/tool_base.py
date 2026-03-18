@@ -247,6 +247,15 @@ class ToolRegistry:
         """
         return list(self._tools.values())
 
+    def list_names(self) -> List[str]:
+        """
+        列出所有工具名称
+
+        Returns:
+            List[str]: 工具名称列表
+        """
+        return list(self._tools.keys())
+
     def list_by_category(self, category: ToolCategory) -> List[ToolBase]:
         """
         按类别列出工具

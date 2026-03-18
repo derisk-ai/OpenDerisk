@@ -97,10 +97,20 @@ const CreateAppModal: React.FC<{
   const { notification } = App.useApp();
   const [selectedIcon, setSelectedIcon] = useState<string>('/icons/colorful-plugin.png');
   const { t, i18n } = useTranslation();
-  const appInfo = JSON.parse(localStorage.getItem('new_app_info') || '{}');
+  const [appInfo, setAppInfo] = useState<any>({});
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const router = useRouter();
+
+  // 在客户端加载 localStorage 数据
+  useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('new_app_info');
+      if (stored) {
+        setAppInfo(JSON.parse(stored));
+      }
+    }
+  });
 
   // 获取工作模式列表
   const { data, loading } = useRequest(async () => {

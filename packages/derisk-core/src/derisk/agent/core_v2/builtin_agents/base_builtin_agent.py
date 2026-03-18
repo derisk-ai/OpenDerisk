@@ -222,13 +222,13 @@ class BaseBuiltinAgent(ProductionAgent):
 
     def _tool_to_function(self, tool: Any) -> Dict[str, Any]:
         """
-        将工具转换为Function Call格式
+        将工具转换为 Function Call 格式
 
         Args:
             tool: 工具实例
 
         Returns:
-            Dict: Function定义
+            Dict: Function 定义
         """
         metadata = tool.metadata
 
@@ -237,7 +237,7 @@ class BaseBuiltinAgent(ProductionAgent):
             "function": {
                 "name": metadata.name,
                 "description": metadata.description,
-                "parameters": metadata.parameters,
+                "parameters": tool.parameters,
             },
         }
 

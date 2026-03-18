@@ -152,8 +152,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         <div className="transition-[width] duration-300 ease-in-out h-full flex flex-col">
           <SideBar />
         </div>
-        <div className="flex flex-col flex-1 relative overflow-hidden">
-          <TopHeader />
+        <div className="flex flex-col flex-1 overflow-hidden">
           {children}
         </div>
         <FloatHelper />
