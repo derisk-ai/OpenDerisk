@@ -293,6 +293,9 @@ class ConversationCache:
         ## Todo 缓存
         self.todos: List[TodoItem] = []  # 任务列表
 
+        ## 文件系统渲染追踪 (用于增量更新前端文件列表)
+        self.rendered_file_ids: set = set()  # 已渲染到前端的 file_id 集合
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -328,6 +331,9 @@ class ConversationCache:
 
         # 清理 Todo
         self.todos.clear()
+
+        # 清理文件系统渲染追踪
+        self.rendered_file_ids.clear()
 
         # 通知队列消费者退出
         try:

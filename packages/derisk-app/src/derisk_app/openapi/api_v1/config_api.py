@@ -86,7 +86,7 @@ async def get_current_config():
         return JSONResponse(
             content={
                 "success": True,
-                "data": config.model_dump_safe(mode="json"),
+                "data": config.model_dump(mode="json"),
                 "config_path": manager.get_config_path(),
             }
         )

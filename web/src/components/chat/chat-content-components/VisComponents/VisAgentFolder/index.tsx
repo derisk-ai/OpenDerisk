@@ -168,13 +168,31 @@ const VisAgentFolder: FC<{ data: VisAgentFolderData | AgentFolderItem }> = ({ da
 
   const fullItems = useMemo(() => {
     const newItems = JSON.parse(JSON.stringify(rootItem)) as AgentFolderItem;
+
+    const findNodeByUid = (node: AgentFolderItem, uid: string): AgentFolderItem | null => {
+      if (node.uid === uid) return node;
+      if (node.items) {
+        for (const child of node.items) {
+          const found = findNodeByUid(child, uid);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
     tasks.forEach((task) => {
       if (task.path === newItems.uid) {
         newItems.items = [...(newItems.items || []), task];
         return;
       }
-      const father = newItems.items?.find((item) => item.uid === task.path);
-      if (father) father.items = [...(father.items || []), task];
+      const father = findNodeByUid(newItems, task.path);
+      if (father) {
+        if (!father.items) father.items = [];
+        const exists = father.items.some((item) => item.uid === task.uid);
+        if (!exists) {
+          father.items.push(task);
+        }
+      }
     });
     return newItems;
   }, [rootItem, tasks]);
