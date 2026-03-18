@@ -12,6 +12,11 @@ GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USERINFO_URL = "https://api.github.com/user"
 
+# Alibaba-inc (MOZI) OAuth2 endpoints
+MOZI_AUTH_URL = "https://mozi-login.alibaba-inc.com/oauth2/auth.htm"
+MOZI_TOKEN_URL = "https://mozi-login.alibaba-inc.com/rpc/oauth2/access_token.json"
+MOZI_USERINFO_URL = "https://mozi-login.alibaba-inc.com/rpc/oauth2/user_info.json"
+
 
 class OAuth2Service:
     """OAuth2 flow service - handles login redirect, callback, userinfo fetch."""
@@ -40,6 +45,21 @@ class OAuth2Service:
             }
             qs = "&".join(f"{k}={v}" for k, v in params.items())
             return f"{GITHUB_AUTH_URL}?{qs}"
+        elif provider_config.get("type") == "alibaba-inc":
+            client_id = provider_config.get("client_id", "")
+            scope = provider_config.get("scope", "get_user_info")
+            if not client_id:
+                return None
+            params = {
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "response_type": "code",
+            }
+            if scope:
+                params["scope"] = scope
+            qs = "&".join(f"{k}={v}" for k, v in params.items())
+            return f"{MOZI_AUTH_URL}?{qs}"
         elif provider_config.get("type") == "custom":
             auth_url = provider_config.get("authorization_url", "")
             client_id = provider_config.get("client_id", "")
@@ -76,6 +96,16 @@ class OAuth2Service:
                 "redirect_uri": redirect_uri,
             }
             headers = {"Accept": "application/json"}
+        elif provider_config.get("type") == "alibaba-inc":
+            token_url = MOZI_TOKEN_URL
+            data = {
+                "client_id": provider_config.get("client_id", ""),
+                "client_secret": provider_config.get("client_secret", ""),
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            }
+            headers = {"Accept": "application/json"}
         elif provider_config.get("type") == "custom":
             token_url = provider_config.get("token_url", "")
             if not token_url:
@@ -108,6 +138,10 @@ class OAuth2Service:
         if provider_config.get("type") == "github":
             userinfo_url = GITHUB_USERINFO_URL
             headers = {"Authorization": f"Bearer {access_token}"}
+        elif provider_config.get("type") == "alibaba-inc":
+            userinfo_url = MOZI_USERINFO_URL
+            # MOZI format: POST with access_token in body
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
         elif provider_config.get("type") == "custom":
             userinfo_url = provider_config.get("userinfo_url", "")
             if not userinfo_url:
@@ -118,18 +152,22 @@ class OAuth2Service:
 
         try:
             async with httpx.AsyncClient() as client:
-                resp = await client.get(userinfo_url, headers=headers)
+                if provider_config.get("type") == "alibaba-inc":
+                    resp = await client.post(
+                        userinfo_url, data={"access_token": access_token}, headers=headers
+                    )
+                else:
+                    resp = await client.get(userinfo_url, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
-                # Normalize to common format
                 return {
-                    "id": str(data.get("id", "")),
-                    "login": data.get("login", ""),
-                    "username": data.get("username", data.get("login", "")),
-                    "name": data.get("name", ""),
+                    "id": str(data.get("openId") or data.get("id") or ""),
+                    "login": data.get("login", data.get("account", "")),
+                    "username": data.get("username", data.get("nickNameCn", "")),
+                    "name": data.get("name", data.get("realName", data.get("lastName", ""))),
                     "email": data.get("email", ""),
-                    "avatar_url": data.get("avatar_url", ""),
-                    "avatar": data.get("avatar", data.get("avatar_url", "")),
+                    "avatar_url": data.get("avatar_url", data.get("avatar", "")),
+                    "avatar": data.get("avatar", ""),
                     "picture": data.get("picture", ""),
                 }
         except Exception as e:
