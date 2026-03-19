@@ -56,6 +56,17 @@ class SecretRequest(BaseModel):
     description: Optional[str] = None
 
 
+class LLMKeyRequest(BaseModel):
+    provider: str
+    api_key: str
+
+
+class LLMKeyStatus(BaseModel):
+    provider: str
+    description: str
+    is_configured: bool
+
+
 _config_manager = None
 
 
@@ -599,9 +610,12 @@ async def list_secrets():
 
     default_secrets = {
         "master_encrypt_key": "主加密密钥，用于加密其他敏感数据",
-        "openai_api_key": "OpenAI API Key",
-        "dashscope_api_key": "阿里云 DashScope API Key",
-        "anthropic_api_key": "Anthropic API Key",
+        "openai_api_key": "OpenAI API Key (系统设置 - LLM)",
+        "dashscope_api_key": "阿里云 DashScope API Key (系统设置 - LLM)",
+        "alibaba_api_key": "阿里云 API Key (系统设置 - LLM)",
+        "anthropic_api_key": "Anthropic API Key (系统设置 - LLM)",
+        "claude_api_key": "Claude API Key (系统设置 - LLM)",
+        "llm_api_key": "通用 LLM API Key (系统设置 - LLM)",
         "oss_access_key_id": "阿里云 OSS Access Key ID",
         "oss_access_key_secret": "阿里云 OSS Access Key Secret",
         "db_password": "数据库密码",
@@ -708,6 +722,143 @@ async def export_config_safe():
             "note": "密钥值已替换为引用格式，secrets 部分已移除",
         }
     )
+
+
+@router.get("/llm-keys")
+async def list_llm_keys():
+    """获取 LLM Key 配置状态列表
+
+    只返回是否已配置的状态，不返回实际的 key 值
+    """
+    from derisk_core.config.encryption import list_secrets as get_secrets_status
+
+    secrets_status = get_secrets_status()
+
+    # 定义支持的 LLM Provider 及其默认描述（简化为最常用的两个）
+    llm_providers = {
+        "openai": "OpenAI API Key (GPT 系列模型)",
+        "alibaba": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
+    }
+
+    # 定义各个 provider 对应的 secrets key 名称
+    provider_secret_keys = {
+        "openai": ["openai_api_key"],
+        "alibaba": ["dashscope_api_key"],
+    }
+
+    llm_keys = []
+    for provider, description in llm_providers.items():
+        secret_keys = provider_secret_keys.get(provider, [])
+        # 检查该 provider 是否有任意一个对应的 secret key 已配置
+        is_configured = any(
+            secrets_status.get(key, False) for key in secret_keys
+        )
+
+        llm_keys.append({
+            "provider": provider,
+            "description": description,
+            "is_configured": is_configured,
+        })
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": llm_keys,
+            "note": "只返回配置状态，不返回实际的 key 值",
+        }
+    )
+
+
+@router.post("/llm-keys")
+async def set_llm_key(request: LLMKeyRequest):
+    """设置 LLM API Key
+
+    将 API Key 加密存储到 secrets 中，配置后立即生效
+    """
+    from derisk_core.config.encryption import set_secret
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # 根据 provider 确定存储的 key 名称（简化为只支持 openai 和 alibaba）
+        provider = request.provider.lower()
+
+        secret_key_mapping = {
+            "openai": "openai_api_key",
+            "alibaba": "dashscope_api_key",
+        }
+
+        if provider not in secret_key_mapping:
+            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
+
+        secret_name = secret_key_mapping.get(provider)
+
+        # 清理 API Key（去除前后空格）
+        api_key = request.api_key.strip() if request.api_key else ""
+
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API Key 不能为空")
+
+        # 记录调试信息（隐藏部分 key）
+        key_preview = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+        logger.info(f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}")
+
+        # 加密存储 API Key
+        success = set_secret(secret_name, api_key)
+
+        if success:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"{provider} API Key 已加密存储",
+                    "provider": provider,
+                    "secret_name": secret_name,
+                    "note": "配置已生效，新的请求将使用此 API Key",
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="保存 API Key 失败")
+    except Exception as e:
+        logger.error(f"Failed to save LLM key: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/llm-keys/{provider}")
+async def delete_llm_key(provider: str):
+    """删除 LLM API Key 配置
+
+    删除后，系统将回退到使用配置文件中的 API Key
+    """
+    from derisk_core.config.encryption import delete_secret
+
+    try:
+        provider = provider.lower()
+
+        secret_key_mapping = {
+            "openai": "openai_api_key",
+            "alibaba": "dashscope_api_key",
+        }
+
+        if provider not in secret_key_mapping:
+            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
+
+        secret_name = secret_key_mapping.get(provider)
+
+        success = delete_secret(secret_name)
+
+        if success:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"{provider} API Key 已删除",
+                    "note": "已删除系统设置中的 API Key，将回退到使用配置文件中的配置",
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="删除 API Key 失败")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/system")

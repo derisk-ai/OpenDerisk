@@ -127,9 +127,12 @@ class SecretsEncryption:
             key = self._derive_key(self.get_master_key())
             f = self._fernet(key)
             encrypted = ciphertext[4:].encode()
-            return f.decrypt(encrypted).decode()
+            decrypted = f.decrypt(encrypted).decode()
+            logger.debug(f"Successfully decrypted data, length={len(decrypted)}")
+            return decrypted
         except Exception as e:
-            logger.error(f"Decryption failed: {e}")
+            logger.error(f"Decryption failed: {e}, ciphertext_prefix={ciphertext[:20] if ciphertext else 'empty'}...")
+            # 返回空字符串表示解密失败
             return ""
 
 

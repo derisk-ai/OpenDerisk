@@ -266,6 +266,37 @@ class ConfigService {
   async deleteSecret(name: string): Promise<void> {
     await axios.delete(`${API_BASE}/config/secrets/${name}`);
   }
+
+  // LLM Key management
+  async listLLMKeys(): Promise<Array<{
+    provider: string;
+    description: string;
+    is_configured: boolean;
+  }>> {
+    const response = await axios.get(`${API_BASE}/config/llm-keys`);
+    return response.data.data;
+  }
+
+  async setLLMKey(provider: string, apiKey: string): Promise<{
+    success: boolean;
+    message: string;
+    provider: string;
+    secret_name: string;
+  }> {
+    const response = await axios.post(`${API_BASE}/config/llm-keys`, {
+      provider,
+      api_key: apiKey,
+    });
+    return response.data;
+  }
+
+  async deleteLLMKey(provider: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await axios.delete(`${API_BASE}/config/llm-keys/${provider}`);
+    return response.data;
+  }
 }
 
 class ToolsService {
