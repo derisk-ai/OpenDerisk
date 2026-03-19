@@ -45,6 +45,7 @@ import {
   KeyOutlined,
   TeamOutlined,
   LockOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
@@ -333,6 +334,11 @@ export default function ConfigPage() {
             label: <span><LoginOutlined /> OAuth2 登录</span>,
             children: <OAuth2ConfigSection onChange={loadConfig} />,
           },
+          {
+            key: 'llm-keys',
+            label: <span><RobotOutlined /> LLM Key 配置</span>,
+            children: <LLMKeyConfigSection onChange={loadConfig} />,
+          },
         ]}
       />
     </div>
@@ -350,8 +356,8 @@ function VisualConfig({
 
   return (
     <div className="space-y-4">
-      <Collapse 
-        defaultActiveKey={['system', 'web', 'model', 'agents', 'file-service', 'sandbox']} 
+      <Collapse
+        defaultActiveKey={['system', 'web', 'model', 'agents', 'file-service', 'sandbox']}
         ghost
         items={[
           {
@@ -1087,6 +1093,243 @@ function SecretsConfigSection({
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input placeholder="密钥用途说明" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  );
+}
+
+function LLMKeyConfigSection({
+  onChange,
+}: {
+  onChange: () => void;
+}) {
+  const [llmKeys, setLLMKeys] = useState<Array<{
+    provider: string;
+    description: string;
+    is_configured: boolean;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    loadLLMKeys();
+  }, []);
+
+  const loadLLMKeys = async () => {
+    setLoading(true);
+    try {
+      const data = await configService.listLLMKeys();
+      setLLMKeys(data);
+    } catch (error: any) {
+      message.error('加载 LLM Key 配置失败: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSetKey = (provider: string) => {
+    setEditingProvider(provider);
+    form.resetFields();
+    form.setFieldsValue({
+      provider,
+      api_key: '',
+    });
+    setModalVisible(true);
+  };
+
+  const handleSaveKey = async (values: any) => {
+    try {
+      await configService.setLLMKey(values.provider, values.api_key);
+      message.success(`${values.provider} API Key 已保存`);
+      setModalVisible(false);
+      loadLLMKeys();
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  const handleDeleteKey = async (provider: string) => {
+    try {
+      await configService.deleteLLMKey(provider);
+      message.success(`${provider} API Key 已删除`);
+      loadLLMKeys();
+      onChange();
+    } catch (error: any) {
+      message.error('删除失败: ' + error.message);
+    }
+  };
+
+  const getProviderLabel = (provider: string) => {
+    const labels: Record<string, string> = {
+      'openai': 'OpenAI',
+      'alibaba': '阿里云 DashScope',
+      'anthropic': 'Anthropic',
+      'dashscope': 'DashScope',
+      'custom': '自定义模型',
+    };
+    return labels[provider] || provider;
+  };
+
+  const getProviderIcon = (provider: string) => {
+    const icons: Record<string, string> = {
+      'openai': '🤖',
+      'alibaba': '🇨🇳',
+      'anthropic': '🧠',
+      'dashscope': '☁️',
+      'custom': '🔧',
+    };
+    return icons[provider] || '🔑';
+  };
+
+  const columns = [
+    {
+      title: 'Provider',
+      dataIndex: 'provider',
+      key: 'provider',
+      render: (provider: string) => (
+        <Space>
+          <span style={{ fontSize: '1.2em' }}>{getProviderIcon(provider)}</span>
+          <Text strong>{getProviderLabel(provider)}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '说明',
+      dataIndex: 'description',
+      key: 'description',
+    },
+    {
+      title: '状态',
+      dataIndex: 'is_configured',
+      key: 'is_configured',
+      render: (isConfigured: boolean, record: any) => (
+        <Tag color={isConfigured ? 'green' : 'orange'}>
+          {isConfigured ? '已配置' : '未配置'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      render: (_: any, record: any) => (
+        <Space>
+          <Button
+            size="small"
+            type={record.is_configured ? 'default' : 'primary'}
+            icon={<KeyOutlined />}
+            onClick={() => handleSetKey(record.provider)}
+          >
+            {record.is_configured ? '更新' : '配置'}
+          </Button>
+          {record.is_configured && (
+            <Popconfirm
+              title="确定删除此 API Key?"
+              description="删除后将使用配置文件中的 API Key"
+              onConfirm={() => handleDeleteKey(record.provider)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <Alert
+        type="info"
+        showIcon
+        message="LLM API Key 配置说明"
+        description={
+          <div>
+            <p>1. 在此配置的 API Key 将被加密存储，配置后立即生效</p>
+            <p>2. 优先级：系统设置 {'>'} 配置文件 {'>'} 环境变量</p>
+            <p>3. 配置后无法查看已保存的 Key，只能更新或删除</p>
+          </div>
+        }
+        className="mb-4"
+      />
+
+      <Card className="mb-4" size="small">
+        <div className="flex justify-between items-center">
+          <div>
+            <Title level={5} style={{ margin: 0 }}>快速配置</Title>
+            <Text type="secondary">选择 LLM Provider 配置 API Key</Text>
+          </div>
+          <Space>
+            <Button
+              icon={<CloudServerOutlined />}
+              type="primary"
+              onClick={() => handleSetKey('alibaba')}
+            >
+              配置阿里云 DashScope
+            </Button>
+            <Button
+              icon={<RobotOutlined />}
+              onClick={() => handleSetKey('openai')}
+            >
+              配置 OpenAI
+            </Button>
+          </Space>
+        </div>
+      </Card>
+
+      <Table
+        dataSource={llmKeys}
+        columns={columns}
+        rowKey="provider"
+        loading={loading}
+        pagination={false}
+        size="middle"
+      />
+
+      <Modal
+        title={
+          <span>
+            <RobotOutlined /> {editingProvider ? `配置 ${getProviderLabel(editingProvider)} API Key` : '配置 API Key'}
+          </span>
+        }
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        onOk={() => form.submit()}
+        width={500}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="安全提示"
+          description="API Key 将被加密存储。出于安全考虑，保存后无法查看，只能更新。"
+          className="mb-4"
+        />
+        <Form form={form} layout="vertical" onFinish={handleSaveKey}>
+          <Form.Item name="provider" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item
+            name="api_key"
+            label="API Key"
+            rules={[
+              { required: true, message: '请输入 API Key' },
+              { min: 10, message: 'API Key 长度不能少于 10 个字符' },
+            ]}
+          >
+            <Input.Password
+              placeholder="sk-..."
+              size="large"
+            />
+          </Form.Item>
+          <Form.Item>
+            <Text type="secondary">
+              支持的格式：sk-xxx (OpenAI)、sk-xxx (DashScope) 等
+            </Text>
           </Form.Item>
         </Form>
       </Modal>
