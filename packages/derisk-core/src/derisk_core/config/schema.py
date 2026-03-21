@@ -264,6 +264,13 @@ class SSEConfig(BaseModel):
     max_wait_input_time: int = 0
 
 
+class FeaturePluginEntry(BaseModel):
+    """Per-plugin state persisted in derisk.json (builtin marketplace)."""
+
+    enabled: bool = False
+    settings: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AppConfig(BaseModel):
     name: str = "OpenDeRisk"
     version: str = "0.1.0"
@@ -281,6 +288,8 @@ class AppConfig(BaseModel):
     file_service: FileServiceConfig = Field(default_factory=FileServiceConfig)
 
     oauth2: Optional[OAuth2Config] = Field(default_factory=OAuth2Config)
+
+    feature_plugins: Dict[str, FeaturePluginEntry] = Field(default_factory=dict)
 
     secrets: SecretsConfig = Field(default_factory=_get_default_secrets_config)
 

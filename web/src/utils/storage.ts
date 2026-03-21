@@ -22,8 +22,13 @@ export function getInitMessage(): InitMessage | null {
 
 export function getUserId(): string | undefined {
   try {
-    const id = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? '')['user_id'];
-    return id;
+    const raw = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? '') as Record<
+      string,
+      unknown
+    >;
+    // OAuth /auth/me stores numeric id as user_no; legacy mock used user_id
+    const id = raw['user_no'] ?? raw['user_id'];
+    return id != null && id !== '' ? String(id) : undefined;
   } catch {
     return undefined;
   }

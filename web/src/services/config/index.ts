@@ -139,6 +139,23 @@ export interface SecretsConfig {
   secrets: Record<string, SecretConfig>;
 }
 
+export interface FeaturePluginEntry {
+  enabled: boolean;
+  settings: Record<string, unknown>;
+}
+
+export interface FeaturePluginCatalogItem {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  requires_restart: boolean;
+  settings_schema: Record<string, unknown> | null;
+  suggest_oauth2_admin: boolean;
+  enabled: boolean;
+  settings: Record<string, unknown>;
+}
+
 export interface AppConfig {
   name: string;
   version: string;
@@ -151,6 +168,7 @@ export interface AppConfig {
   sandbox: SandboxConfig;
   file_service: FileServiceConfig;
   oauth2: OAuth2Config;
+  feature_plugins?: Record<string, FeaturePluginEntry>;
   secrets: SecretsConfig;
   workspace: string;
 }
@@ -227,6 +245,25 @@ class ConfigService {
 
   async updateOAuth2Config(config: OAuth2Config): Promise<OAuth2Config> {
     const response = await axios.post(`${API_BASE}/config/oauth2`, config);
+    return response.data.data;
+  }
+
+  async getFeaturePluginsCatalog(): Promise<FeaturePluginCatalogItem[]> {
+    const response = await axios.get(`${API_BASE}/config/feature-plugins/catalog`);
+    return response.data.data.items;
+  }
+
+  async getFeaturePluginsState(): Promise<Record<string, FeaturePluginEntry>> {
+    const response = await axios.get(`${API_BASE}/config/feature-plugins`);
+    return response.data.data;
+  }
+
+  async updateFeaturePlugin(body: {
+    plugin_id: string;
+    enabled?: boolean;
+    settings?: Record<string, unknown>;
+  }): Promise<FeaturePluginEntry> {
+    const response = await axios.post(`${API_BASE}/config/feature-plugins`, body);
     return response.data.data;
   }
 
