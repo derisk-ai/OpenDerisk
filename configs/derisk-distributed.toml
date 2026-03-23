@@ -46,7 +46,7 @@ path = "pilot/meta_data/derisk.db"
 # port = "${env:LOCAL_DB_PORT:-3306}"
 # user = "${env:LOCAL_DB_USER:-root}"
 # password = "${env:LOCAL_DB_PASSWORD:-aa123456}"
-# name = "${env:LOCAL_DB_NAME:-derisk}"
+# database = "${env:LOCAL_DB_NAME:-derisk}"
 
 [service.web.trace]
 file = "${env:TRACE_FILE_DIR:-logs}/derisk_webserver_tracer.jsonl"
