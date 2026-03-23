@@ -7,6 +7,7 @@ from .schema import (
     OAuth2ProviderType,
     OAuth2ProviderConfig,
     OAuth2Config,
+    FeaturePluginEntry,
     AppConfig,
 )
 from .loader import ConfigLoader, ConfigManager
@@ -21,6 +22,7 @@ __all__ = [
     "OAuth2ProviderType",
     "OAuth2ProviderConfig",
     "OAuth2Config",
+    "FeaturePluginEntry",
     "AppConfig",
     "ConfigLoader",
     "ConfigManager",

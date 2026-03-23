@@ -1,10 +1,12 @@
 """配置管理 API"""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+
+from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
@@ -67,7 +69,61 @@ class LLMKeyStatus(BaseModel):
     is_configured: bool
 
 
+class FeaturePluginUpdateRequest(BaseModel):
+    plugin_id: str
+    enabled: Optional[bool] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
 _config_manager = None
+
+
+def _user_has_app_admin_role(user: UserRequest) -> bool:
+    """True if this principal maps to a DB user with role=admin (User Management)."""
+    for raw in (user.user_no, user.user_id):
+        if raw is None or raw == "":
+            continue
+        try:
+            uid = int(str(raw).strip())
+        except ValueError:
+            continue
+        try:
+            from derisk_app.auth.user_service import UserService
+
+            row = UserService().get_user(uid)
+            if row and (row.get("role") or "").strip() == "admin":
+                return True
+        except Exception:
+            logger.debug("feature_plugins admin check: get_user failed for uid=%s", uid, exc_info=True)
+    return False
+
+
+def _ensure_can_write_feature_plugins(user: UserRequest) -> None:
+    """When OAuth2 is on and admin_users is non-empty, restrict writes to admins.
+
+    Allows either:
+    - login in oauth2.admin_users (initial OAuth bootstrap list), or
+    - user id with role=admin in the ``user`` table (User Management 管理员).
+    """
+    manager = get_config_manager()
+    config = manager.get()
+    oauth2 = getattr(config, "oauth2", None)
+    if oauth2 is None or not oauth2.enabled or not oauth2.admin_users:
+        return
+    if _user_has_app_admin_role(user):
+        return
+    login = (
+        user.user_name
+        or user.email
+        or user.real_name
+        or user.user_id
+        or ""
+    )
+    if login not in oauth2.admin_users:
+        raise HTTPException(
+            status_code=403,
+            detail="Only users listed in oauth2.admin_users may update feature plugins",
+        )
 
 
 def get_config_manager():
@@ -97,7 +153,7 @@ async def get_current_config():
         return JSONResponse(
             content={
                 "success": True,
-                "data": config.model_dump_safe(mode="json"),
+                "data": config.model_dump(mode="json"),
                 "config_path": manager.get_config_path(),
             }
         )
@@ -457,6 +513,72 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/feature-plugins/catalog")
+async def get_feature_plugins_catalog():
+    """Builtin plugin catalog merged with current enabled/settings from derisk.json."""
+    from derisk_app.feature_plugins.catalog import merge_catalog_with_state
+
+    manager = get_config_manager()
+    config = manager.get()
+    raw = getattr(config, "feature_plugins", None) or {}
+    normalized: Dict[str, Any] = {}
+    for k, v in raw.items():
+        if hasattr(v, "model_dump"):
+            normalized[k] = v.model_dump(mode="json")
+        elif isinstance(v, dict):
+            normalized[k] = v
+    items = merge_catalog_with_state(normalized)
+    return JSONResponse(content={"success": True, "data": {"items": items}})
+
+
+@router.get("/feature-plugins")
+async def get_feature_plugins_state():
+    manager = get_config_manager()
+    config = manager.get()
+    fp = getattr(config, "feature_plugins", None) or {}
+    out = {
+        k: v.model_dump(mode="json") if hasattr(v, "model_dump") else dict(v)
+        for k, v in fp.items()
+    }
+    return JSONResponse(content={"success": True, "data": out})
+
+
+@router.post("/feature-plugins")
+async def update_feature_plugins(
+    body: FeaturePluginUpdateRequest,
+    user: UserRequest = Depends(get_user_from_headers),
+):
+    from derisk_app.feature_plugins.catalog import is_known_plugin
+    from derisk_core.config import AppConfig, FeaturePluginEntry
+
+    _ensure_can_write_feature_plugins(user)
+    if not is_known_plugin(body.plugin_id):
+        raise HTTPException(status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}")
+
+    manager = get_config_manager()
+    config = manager.get()
+    config_dict = config.model_dump(mode="json")
+    fp = dict(config_dict.get("feature_plugins") or {})
+    cur = fp.get(body.plugin_id) or {}
+    entry = FeaturePluginEntry(**cur) if cur else FeaturePluginEntry()
+    new_enabled = body.enabled if body.enabled is not None else entry.enabled
+    new_settings = body.settings if body.settings is not None else entry.settings
+    entry = FeaturePluginEntry(enabled=new_enabled, settings=new_settings)
+    fp[body.plugin_id] = entry.model_dump(mode="json")
+    config_dict["feature_plugins"] = fp
+    new_cfg = AppConfig(**config_dict)
+    manager._config = new_cfg
+    saved = save_config_with_error_handling(manager, "Feature plugins")
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "功能插件配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "data": entry.model_dump(mode="json"),
+            "saved_to_file": saved,
+        }
+    )
+
+
 @router.post("/import")
 async def import_config(config_data: Dict[str, Any]):
     """导入配置并保存到文件"""
@@ -525,6 +647,7 @@ async def get_config_status():
                     "OAuth2 provider changes (需要重启生效)",
                     "Sandbox configuration changes (需要重启生效)",
                     "Model provider changes (需要重启生效)",
+                    "Builtin feature plugins enable/disable (需要重启生效)",
                 ],
                 "instant_effect": [
                     "Agent configuration (立即生效)",
