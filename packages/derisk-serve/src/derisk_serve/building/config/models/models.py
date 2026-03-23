@@ -81,7 +81,7 @@ class ServeEntity(Model):
 
     layout = Column(String(255), nullable=True, comment="当前版本配置的布局配置")
     custom_variables = Column(
-        String(2000), nullable=True, comment="当前版本配置自定义参数配置"
+        Text, nullable=True, comment="当前版本配置自定义参数配置"
     )
     llm_config = Column(Text, nullable=True, comment="当前版本配置的模型配置")
     resource_knowledge = Column(Text, nullable=True, comment="当前版本配置的知识配置")

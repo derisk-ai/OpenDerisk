@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
-  `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
+  `custom_variables` TEXT NULL COMMENT '当前版本配置自定义参数配置',
   `llm_config` VARCHAR(1000) NULL COMMENT '当前版本配置的模型配置',
   `resource_knowledge` VARCHAR(2000) NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` VARCHAR(2000) NULL COMMENT '当前版本配置的工具配置',
