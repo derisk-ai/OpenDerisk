@@ -192,7 +192,7 @@ class UnifiedContextMiddleware:
         }
         
         current_phase = TaskPhase.EXPLORATION
-        exploration_tools = {"read", "glob", "grep", "search", "think"}
+        exploration_tools = {"read", "glob", "grep", "search"}
         development_tools = {"write", "edit", "bash", "execute", "run"}
         refinement_keywords = {"refactor", "optimize", "improve", "enhance"}
         delivery_keywords = {"summary", "document", "conclusion", "report"}

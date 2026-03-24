@@ -126,69 +126,49 @@ class ToolManager:
     4. 内置工具默认绑定策略
     """
 
-    # 核心必选工具（无论有无沙箱都需要）
+    # 核心必选工具（无论是否沙箱都注入）
     BUILTIN_CORE_TOOLS: List[str] = [
-        "question",  # 询问用户
-        "terminate",  # 终止会话
+        "ask_user",  # 用户交互（HIL）
     ]
 
-    # 本地环境工具（无沙箱时使用，与 SANDBOX_TOOLS 互斥）
-    LOCAL_TOOLS: List[str] = [
-        "read",  # 本地文件读取
-        "bash",  # 本地 Shell 执行
+    # 基础文件和Shell工具（沙箱和本地共享，默认绑定）
+    # 这些工具根据沙箱状态自动切换执行环境
+    BASIC_TOOLS: List[str] = [
+        "bash",  # Shell执行（沙箱时委托给 shell_exec）
+        "read",  # 文件读取（沙箱时委托给 view）
+        "write",  # 文件写入（沙箱时委托给 create_file）
+        "edit",  # 文件编辑（沙箱时委托给 edit_file）
+        "deliver_file",  # 文件交付（标记为交付物并上传到 OSS）
     ]
 
-    # 沙箱环境工具（有沙箱时使用，与 LOCAL_TOOLS 互斥）
-    SANDBOX_TOOLS: List[str] = [
-        "shell_exec",  # 沙箱 Shell 执行
-        "view",  # 沙箱文件查看
-        "create_file",  # 沙箱创建文件
-        "edit_file",  # 沙箱编辑文件
-        "download_file",  # 沙箱下载文件
+    # 沙箱专属工具（仅沙箱环境可用，需手动绑定）
+    SANDBOX_ONLY_TOOLS: List[str] = [
+        "download_file",  # 从沙箱下载文件
     ]
+
+    # 向后兼容
+    LOCAL_TOOLS: List[str] = ["bash", "read"]
+    SANDBOX_TOOLS: List[str] = BASIC_TOOLS + SANDBOX_ONLY_TOOLS
+    UNIFIED_TOOLS: List[str] = BASIC_TOOLS
 
     # 兼容旧代码的别名
     BUILTIN_REQUIRED_TOOLS = BUILTIN_CORE_TOOLS
 
     # 可选内置工具列表（Agent 可以选择绑定的工具）
     BUILTIN_OPTIONAL_TOOLS: List[str] = [
-        "write",  # 文件写入
-        "edit",  # 文件编辑
         "glob",  # 文件搜索
         "grep",  # 文本搜索
         "list_files",  # 列出文件
-        "search",  # 文件搜索
         "webfetch",  # 网页获取
         "websearch",  # 网络搜索
         "python",  # Python执行
         "skill",  # 技能调用
-        "think",  # 推理思考
-        "confirm",  # 确认
-        "notify",  # 通知
-        "progress",  # 进度
-        "file_select",  # 文件选择
-        "sandbox",  # 沙箱工具入口
         "knowledge_search",  # 知识库搜索
-        "kanban",  # 看板工具
-        "todo",  # 待办工具
+        "download_file",  # 沙箱下载文件（手动绑定）
     ]
 
-    # 浏览器工具列表（可选绑定，默认不注入）
-    BROWSER_TOOLS: List[str] = [
-        "browser",  # 浏览器工具入口
-        "browser_navigate",  # 浏览器导航
-        "browser_save_screenshot",  # 浏览器截图
-        "browser_click_element",  # 浏览器点击元素
-        "browser_input_text",  # 浏览器输入文本
-        "browser_get_dropdown_options",  # 浏览器获取下拉菜单
-        "browser_select_dropdown_option",  # 浏览器选择下拉菜单
-        "browser_mouse_wheel",  # 浏览器鼠标滚轮
-        "browser_page_content",  # 浏览器获取页面内容
-        "browser_mouse_move",  # 浏览器鼠标移动
-        "browser_hover_element",  # 浏览器鼠标悬停
-        "browser_save_image",  # 浏览器保存图片
-        "browser_open_tab",  # 浏览器打开新标签页
-    ]
+    # 浏览器工具列表（暂不注册，后续按需启用）
+    BROWSER_TOOLS: List[str] = []
 
     # 系统内置动态注入工具（运行时根据条件动态注入的系统工具）
     # 这类工具属于系统核心功能，但只在特定条件下才会被注入（如首次压缩后）
@@ -245,10 +225,20 @@ class ToolManager:
         self._persist_callback: Optional[Callable[[AgentToolConfiguration], bool]] = (
             None
         )
+        self._load_callback: Optional[Callable[[str, str], Optional[List[str]]]] = None
 
     def set_persist_callback(self, callback: Callable[[AgentToolConfiguration], bool]):
         """设置配置持久化回调函数"""
         self._persist_callback = callback
+
+    def set_load_callback(self, callback: Callable[[str, str], Optional[List[str]]]):
+        """
+        设置配置加载回调函数
+
+        回调签名: (app_id, agent_name) -> Optional[List[str]]
+        返回持久化的已绑定工具ID列表，或 None 表示无持久化数据
+        """
+        self._load_callback = callback
 
     def _get_cache_key(self, app_id: str, agent_name: str) -> str:
         """生成缓存键"""
@@ -385,8 +375,8 @@ class ToolManager:
     def _determine_tool_group(self, tool: ToolBase, tool_id: str) -> ToolBindingType:
         """确定工具属于哪个分组
 
-        注意：LOCAL_TOOLS 和 SANDBOX_TOOLS 在展示时都归为 BUILTIN_REQUIRED，
-        实际注入时在 _create_default_config 中根据 sandbox_enabled 参数互斥注入
+        基础工具（bash, read, write, edit）归为 BUILTIN_REQUIRED
+        沙箱额外功能（download_file, deliver_file）归为 BUILTIN_OPTIONAL
         """
         metadata = tool.metadata
 
@@ -394,12 +384,11 @@ class ToolManager:
         if tool_id in self.BUILTIN_CORE_TOOLS:
             return ToolBindingType.BUILTIN_REQUIRED
 
-        # 本地工具和沙箱工具在展示时都归为默认绑定
-        # 实际注入时根据 sandbox_enabled 参数决定注入哪一组
-        if tool_id in self.LOCAL_TOOLS or tool_id in self.SANDBOX_TOOLS:
+        # 检查是否是基础文件和Shell工具（默认绑定）
+        if tool_id in self.BASIC_TOOLS:
             return ToolBindingType.BUILTIN_REQUIRED
 
-        # 检查是否是浏览器工具 - 浏览器工具归为可选，默认不绑定
+        # 检查是否是浏览器工具
         if tool_id in self.BROWSER_TOOLS:
             return ToolBindingType.BUILTIN_OPTIONAL
 
@@ -611,8 +600,24 @@ class ToolManager:
         if cache_key in self._config_cache:
             return self._config_cache[cache_key]
 
-        # TODO: 从数据库加载配置
-        # 这里先创建默认配置
+        # 从数据库加载配置（通过回调）
+        if self._load_callback:
+            try:
+                persisted_tool_ids = self._load_callback(app_id, agent_name)
+                if persisted_tool_ids is not None:
+                    config = self._create_config_from_persisted(
+                        app_id, agent_name, persisted_tool_ids, sandbox_enabled
+                    )
+                    self._config_cache[cache_key] = config
+                    logger.info(
+                        f"[ToolManager] Loaded persisted config for {app_id}:{agent_name}, "
+                        f"tools={persisted_tool_ids}"
+                    )
+                    return config
+            except Exception as e:
+                logger.warning(f"[ToolManager] Failed to load persisted config: {e}")
+
+        # 创建默认配置
         if create_if_missing:
             config = self._create_default_config(app_id, agent_name, sandbox_enabled)
             self._config_cache[cache_key] = config
@@ -630,12 +635,12 @@ class ToolManager:
             app_id: 应用ID
             agent_name: Agent名称
             sandbox_enabled: 是否启用沙箱环境
-                - True: 注入沙箱工具 (shell_exec, view, create_file, edit_file, download_file)
-                - False: 注入本地工具 (read, bash)
+                基础工具（bash, read, write, edit）无论是否沙箱都默认绑定
+                沙箱额外功能（download_file, deliver_file）需要手动绑定
         """
         bindings: Dict[str, ToolBindingConfig] = {}
 
-        # 1. 核心必选工具（无论有无沙箱都需要）
+        # 1. 核心必选工具（无论是否沙箱都注入）
         for tool_id in self.BUILTIN_CORE_TOOLS:
             tool = tool_registry.get(tool_id)
             if tool:
@@ -649,35 +654,86 @@ class ToolManager:
                     bound_at=datetime.now(),
                 )
 
-        # 2. 根据沙箱状态注入互斥工具
-        if sandbox_enabled:
-            # 有沙箱 → 注入沙箱工具
-            for tool_id in self.SANDBOX_TOOLS:
-                tool = tool_registry.get(tool_id)
-                if tool:
-                    bindings[tool_id] = ToolBindingConfig(
-                        tool_id=tool_id,
-                        binding_type=ToolBindingType.BUILTIN_REQUIRED,
-                        is_bound=True,
-                        is_default=True,
-                        can_unbind=True,
-                        disabled_at_runtime=False,
-                        bound_at=datetime.now(),
-                    )
-        else:
-            # 无沙箱 → 注入本地工具
-            for tool_id in self.LOCAL_TOOLS:
-                tool = tool_registry.get(tool_id)
-                if tool:
-                    bindings[tool_id] = ToolBindingConfig(
-                        tool_id=tool_id,
-                        binding_type=ToolBindingType.BUILTIN_REQUIRED,
-                        is_bound=True,
-                        is_default=True,
-                        can_unbind=True,
-                        disabled_at_runtime=False,
-                        bound_at=datetime.now(),
-                    )
+        # 2. 基础文件和Shell工具（沙箱和本地共享，默认绑定）
+        for tool_id in self.BASIC_TOOLS:
+            tool = tool_registry.get(tool_id)
+            if tool:
+                bindings[tool_id] = ToolBindingConfig(
+                    tool_id=tool_id,
+                    binding_type=ToolBindingType.BUILTIN_REQUIRED,
+                    is_bound=True,
+                    is_default=True,
+                    can_unbind=True,
+                    disabled_at_runtime=False,
+                    bound_at=datetime.now(),
+                )
+
+        return AgentToolConfiguration(
+            app_id=app_id,
+            agent_name=agent_name,
+            bindings=bindings,
+        )
+
+    def _create_config_from_persisted(
+        self,
+        app_id: str,
+        agent_name: str,
+        persisted_tool_ids: List[str],
+        sandbox_enabled: bool = False,
+    ) -> AgentToolConfiguration:
+        """
+        从持久化的工具ID列表创建配置
+
+        resource_tool 是工具绑定的完整清单（全量数据源）：
+        - 在 resource_tool 中的工具 → 已绑定
+        - 不在 resource_tool 中的工具 → 未绑定（包括默认工具）
+
+        resource_tool 有数据时完全以它为准，不再叠加默认工具。
+        这样默认工具的反向解绑才能被持久化。
+
+        Args:
+            app_id: 应用ID
+            agent_name: Agent名称
+            persisted_tool_ids: 持久化的已绑定工具ID列表（完整清单）
+            sandbox_enabled: 是否启用沙箱环境
+        """
+        bindings: Dict[str, ToolBindingConfig] = {}
+        persisted_set = set(persisted_tool_ids)
+
+        # 1. 处理所有已注册的工具
+        all_tools = tool_registry.list_all()
+        for tool in all_tools:
+            tool_id = tool.metadata.name
+            group_type = self._determine_tool_group(tool, tool_id)
+
+            is_default_required = group_type == ToolBindingType.BUILTIN_REQUIRED
+
+            # resource_tool 是完整绑定清单，只有在列表中的才绑定
+            is_bound = tool_id in persisted_set
+
+            bindings[tool_id] = ToolBindingConfig(
+                tool_id=tool_id,
+                binding_type=group_type,
+                is_bound=is_bound,
+                is_default=is_default_required,
+                can_unbind=True,
+                disabled_at_runtime=False,
+                bound_at=datetime.now() if is_bound else None,
+            )
+
+        # 2. 处理动态工具（可能不在 registry 中）
+        for tool_id in self.SYSTEM_DYNAMIC_TOOLS:
+            if tool_id not in bindings:
+                is_bound = tool_id in persisted_set
+                bindings[tool_id] = ToolBindingConfig(
+                    tool_id=tool_id,
+                    binding_type=ToolBindingType.BUILTIN_OPTIONAL,
+                    is_bound=is_bound,
+                    is_default=False,
+                    can_unbind=True,
+                    disabled_at_runtime=False,
+                    bound_at=datetime.now() if is_bound else None,
+                )
 
         return AgentToolConfiguration(
             app_id=app_id,

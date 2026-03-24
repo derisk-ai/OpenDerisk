@@ -1,0 +1,22 @@
+<available_skills>
+以下是你可以加载的技能：
+
+{% for skill in skills %}
+- <skill>
+  <name>{{ skill.name }}</name>
+  <description>{{ skill.description }}</description>
+  <path>{{ skill.path }}</path>
+</skill>
+{% endfor %}
+</available_skills>
+
+**消费方式**: 使用 `view` 工具读取 SKILL.md 内容，提取方法论、工具链和推荐资源
+
+**使用场景**: 在任务分析阶段，作为规划和执行的指导框架
+
+**优先级**: 技能优先原则 (见行为准则)
+
+**执行顺序**:
+1. 先判断匹配度：阅读技能描述，判断是否与当前任务相关
+2. 再选择技能：若有多个匹配，按优先级选择
+3. 最后加载：仅对已选择且匹配的技能，使用 `view` 读取内容

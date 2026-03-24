@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from .core_v2_adapter import get_core_v2
 from .core_v2_api import router as core_v2_router
 from .agent_selection_api import router as agent_selection_router
+from .interaction_api import router as interaction_router
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +20,10 @@ def register_core_v2_routes(app: FastAPI):
     """注册 Core_v2 API 路由"""
     app.include_router(core_v2_router)
     app.include_router(agent_selection_router)
+    app.include_router(interaction_router)
     logger.info("[Core_v2] API routes registered at /api/v2")
     logger.info("[Core_v2] Agent selection routes registered at /api/agent")
+    logger.info("[Core_v2] Interaction routes registered at /api/v1/interaction")
 
 
 @asynccontextmanager

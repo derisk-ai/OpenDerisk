@@ -66,6 +66,8 @@ class CoreV2Component(BaseComponent):
         self._dynamic_agent_factory = None
         # 沙箱管理器缓存，同一会话内共享
         self._sandbox_managers: Dict[str, Any] = {}
+        # app_code → app_name 显示名称缓存
+        self._app_name_cache: Dict[str, str] = {}
 
     async def async_after_start(self):
         """组件启动后自动启动 Core_v2"""
@@ -292,6 +294,9 @@ class CoreV2Component(BaseComponent):
                 )
 
                 if gpt_app:
+                    # 缓存 app_code → app_name 映射
+                    if gpt_app.app_name:
+                        self._app_name_cache[agent_name] = gpt_app.app_name
                     return await self._build_v2_agent_from_gpts_app(
                         gpt_app, context, **kwargs
                     )
@@ -325,6 +330,9 @@ class CoreV2Component(BaseComponent):
                 )
 
                 if gpt_app:
+                    # 缓存 app_code → app_name 映射
+                    if gpt_app.app_name:
+                        self._app_name_cache[app_code] = gpt_app.app_name
                     return await self._build_v2_agent_from_gpts_app(
                         gpt_app, context, **kwargs
                     )
@@ -542,8 +550,12 @@ class CoreV2Component(BaseComponent):
         logger.info(f"  - agent_name: {unified_ctx.agent_name}")
         logger.info(f"  - team_mode: {unified_ctx.team_mode}")
 
-        tools = await self._build_tools_from_resources(gpt_app.resources)
-        resources = await self._build_resources_dict(gpt_app.resources)
+        # 合并 resources 和 resource_tool，确保工具绑定数据被加载
+        all_resources = list(gpt_app.resources or [])
+        if getattr(gpt_app, "resource_tool", None):
+            all_resources.extend(gpt_app.resource_tool)
+        tools = await self._build_tools_from_resources(all_resources)
+        resources = await self._build_resources_dict(all_resources)
 
         # 获取 V2 Agent 模板配置
         from derisk.agent.core.plan.unified_context import (
@@ -769,6 +781,21 @@ class CoreV2Component(BaseComponent):
                 model_provider=model_provider,
             )
 
+        # 设置 Agent 的 app_id，确保 AgentRuntimeToolLoader 使用正确的应用代码
+        if agent and app_code:
+            if hasattr(agent, "_app_id"):
+                agent._app_id = app_code
+            if hasattr(agent, "_agent_name"):
+                agent._agent_name = agent_name or app_code
+            if hasattr(agent, "_tool_loader") and agent._tool_loader:
+                agent._tool_loader.app_id = app_code
+                agent._tool_loader.agent_name = agent_name or app_code
+                agent._tool_loader.invalidate_cache()
+                logger.info(
+                    f"[CoreV2Component] Updated agent tool loader: "
+                    f"app_id={app_code}, agent_name={agent_name}"
+                )
+
         # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
         if agent and gpt_app.scenes and len(gpt_app.scenes) > 0 and sandbox_manager:
             try:
@@ -894,12 +921,16 @@ class CoreV2Component(BaseComponent):
             raise
 
     async def _build_tools_from_resources(self, resources) -> Dict[str, Any]:
-        """从资源列表构建工具字典"""
+        """从资源列表构建工具字典
+
+        资源类型可能是 "tool" 或 "tool(source)" 格式（如 "tool(system)"、"tool(core)"）
+        """
         tools = {}
         if not resources:
             return tools
         for resource in resources:
-            if resource and getattr(resource, "type", None) == "tool":
+            res_type = getattr(resource, "type", None) or ""
+            if resource and (res_type == "tool" or res_type.startswith("tool(")):
                 tool_name = getattr(resource, "name", None)
                 if tool_name:
                     tools[tool_name] = resource
@@ -913,7 +944,10 @@ class CoreV2Component(BaseComponent):
         for resource in resources:
             if not resource:
                 continue
-            res_type = getattr(resource, "type", None)
+            res_type = getattr(resource, "type", None) or ""
+            # 处理 "tool(source)" 格式的类型
+            if res_type.startswith("tool("):
+                res_type = "tools"
             if res_type in result:
                 result[res_type].append(resource)
         return result
@@ -974,6 +1008,33 @@ class CoreV2Component(BaseComponent):
         except Exception as e:
             logger.exception(f"[CoreV2Component] 创建 LLM provider 失败: {e}")
             return None
+
+    def get_app_display_name(self, app_code: str) -> str:
+        """获取应用的显示名称（从缓存中查找，未命中则返回 app_code）"""
+        return self._app_name_cache.get(app_code, app_code)
+
+    async def resolve_app_display_name(self, app_code: str) -> str:
+        """解析应用的显示名称，未缓存时从数据库查询"""
+        if app_code in self._app_name_cache:
+            return self._app_name_cache[app_code]
+
+        try:
+            from derisk_serve.building.app.config import SERVE_SERVICE_COMPONENT_NAME
+            from derisk_serve.building.app.service.service import Service
+
+            app_service = self.system_app.get_component(
+                SERVE_SERVICE_COMPONENT_NAME, Service
+            )
+            gpt_app = await app_service.app_detail(
+                app_code, specify_config_code=None, building_mode=False
+            )
+            if gpt_app and gpt_app.app_name:
+                self._app_name_cache[app_code] = gpt_app.app_name
+                return gpt_app.app_name
+        except Exception as e:
+            logger.debug(f"[CoreV2Component] Failed to resolve app name for {app_code}: {e}")
+
+        return app_code
 
     async def get_or_create_agent(self, app_code: str, context=None):
         """获取或创建 Agent 实例"""

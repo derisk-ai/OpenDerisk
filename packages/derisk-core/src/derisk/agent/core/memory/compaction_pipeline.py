@@ -1382,6 +1382,153 @@ class UnifiedCompactionPipeline:
             )
         return ""
 
+    async def get_layer4_history_as_message_list(
+        self,
+        max_rounds: Optional[int] = None,
+        max_tokens: int = 30000,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get Layer 4 history as native Message List format.
+
+        This is the new recommended way to pass history to LLM, replacing
+        text-based prompt injection with native Message List format.
+
+        Returns messages in OpenAI-compatible format:
+        [
+            {"role": "system", "content": "[历史对话摘要] ..."},
+            {"role": "user", "content": "Previous question"},
+            {"role": "assistant", "content": "...", "tool_calls": [...]},
+            {"role": "tool", "tool_call_id": "...", "content": "..."},
+        ]
+        """
+        manager = await self.get_or_create_history_manager()
+        if not manager:
+            return []
+
+        try:
+            rounds = await manager.get_history_rounds(
+                max_rounds=max_rounds,
+                include_current=False,
+            )
+            if not rounds:
+                return []
+
+            messages: List[Dict[str, Any]] = []
+            total_tokens = 0
+            chars_per_token = self.config.layer4_chars_per_token
+
+            for round_data in rounds:
+                round_messages, round_tokens = self._convert_round_to_messages(
+                    round_data, chars_per_token
+                )
+
+                if total_tokens + round_tokens > max_tokens:
+                    break
+
+                messages.extend(round_messages)
+                total_tokens += round_tokens
+
+            if messages:
+                logger.info(
+                    f"[HistoryMessageBuilder] Layer4: {len(messages)} messages from {len(rounds)} rounds, ~{total_tokens} tokens"
+                )
+
+            return messages
+
+        except Exception as e:
+            logger.warning(f"Layer 4: Failed to build message list: {e}")
+            return []
+
+    def _convert_round_to_messages(
+        self,
+        round_data: Dict[str, Any],
+        chars_per_token: int = 4,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Convert a conversation round to Message List format.
+
+        Args:
+            round_data: Dict containing round info (user_question, ai_response,
+                       work_log_entries, summary, etc.)
+            chars_per_token: Characters per token for estimation
+
+        Returns:
+            Tuple of (messages list, estimated tokens)
+        """
+        messages: List[Dict[str, Any]] = []
+        total_tokens = 0
+
+        is_compressed = round_data.get("status") == "compressed"
+
+        if is_compressed:
+            summary = round_data.get("summary", "")
+            if summary:
+                summary_msg = {
+                    "role": "system",
+                    "content": f"[历史对话摘要]\n{summary}",
+                    "is_history_summary": True,
+                }
+                messages.append(summary_msg)
+                total_tokens += len(summary) // chars_per_token
+        else:
+            user_question = round_data.get("user_question", "")
+            if user_question:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": user_question,
+                    }
+                )
+                total_tokens += len(user_question) // chars_per_token
+
+            work_log_entries = round_data.get("work_log_entries", [])
+            for entry in work_log_entries:
+                tool_name = entry.get("tool", "unknown")
+                tool_args = entry.get("args", {})
+                tool_result = entry.get("result", "") or entry.get("summary", "")
+                tool_call_id = (
+                    entry.get("tool_call_id")
+                    or f"tc_{tool_name}_{uuid.uuid4().hex[:8]}"
+                )
+
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": json.dumps(tool_args, ensure_ascii=False),
+                            },
+                        }
+                    ],
+                }
+                messages.append(assistant_msg)
+
+                tool_msg = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": tool_result,
+                }
+                messages.append(tool_msg)
+                total_tokens += (
+                    len(tool_result) + len(json.dumps(tool_args))
+                ) // chars_per_token
+
+            ai_response = round_data.get("ai_response", "")
+            if ai_response and not work_log_entries:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": ai_response,
+                    }
+                )
+                total_tokens += len(ai_response) // chars_per_token
+
+        return messages, total_tokens
+
     async def update_current_round_worklog(
         self, worklog_entries: List[Dict], summary: Optional[Dict] = None
     ):

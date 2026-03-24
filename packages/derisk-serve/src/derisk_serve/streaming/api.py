@@ -67,8 +67,12 @@ async def get_app_configs(app_code: str):
             total=len(config_responses),
         )
     except Exception as e:
-        logger.error(f"Failed to get app configs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning(f"Failed to get app configs (returning empty): {e}")
+        return StreamingConfigListResponse(
+            app_code=app_code,
+            configs=[],
+            total=0,
+        )
 
 
 @router.get("/apps/{app_code}/tools/{tool_name}")

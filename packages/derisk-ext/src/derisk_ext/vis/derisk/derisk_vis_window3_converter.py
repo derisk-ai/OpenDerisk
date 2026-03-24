@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from enum import Enum
-from typing import List, Optional, Dict, Union, Tuple
+from typing import List, Optional, Dict, Union, Tuple, Any
 
 from derisk.agent import ActionOutput, ConversableAgent, BlankAction
 from derisk.agent.core.action.report_action import ReportAction
@@ -997,7 +997,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             from derisk.agent.core.memory.gpts import GptsMemory
             from derisk.agent.core.memory.gpts.file_base import FileType
 
-            memory = main_agent.agent_context.memory
+            memory = main_agent.memory
             if not memory or not hasattr(memory, "gpts_memory"):
                 return file_system_folder
 
@@ -1082,7 +1082,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             from derisk.agent.core.memory.gpts import GptsMemory
             from derisk.agent.core.memory.gpts.file_base import FileType
 
-            memory = main_agent.agent_context.memory
+            memory = main_agent.memory
             if not memory or not hasattr(memory, "gpts_memory"):
                 return incremental_nodes
 
@@ -1171,9 +1171,12 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         file_system_folder = None
         incremental_file_items: List[FolderNode] = []
 
+        # 🔧 修复：每次都构建 agent folder，确保 explorer 始终存在
+        # 这样追问时也能正确更新 AgentFolder 数据
+        main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+
         if is_first_push:
             logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
-            main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
             file_system_folder = await self._build_file_system_folder(
                 main_agent=main_agent
             )
@@ -1674,26 +1677,20 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         messages: List["GptsMessage"],
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ) -> Optional[str]:
-        """渲染terminate时交付的文件列表.
+        """渲染交付的文件列表.
 
-        从messages中查找terminate action，并提取其中的文件信息，
+        从messages中查找包含output_files的action，并提取其中的文件信息，
         使用d-attach-list组件渲染文件列表。
 
         Returns:
             d-attach-list组件的vis字符串，如果没有文件则返回None
         """
-        from derisk.agent.expand.actions.terminate_action import Terminate
-
         file_contents = []
 
         for msg in messages:
             if not msg.action_report:
                 continue
             for action_out in msg.action_report:
-                # 检查是否是terminate action
-                if action_out.name != Terminate.name:
-                    continue
-
                 # 从output_files获取文件信息
                 output_files = action_out.output_files or []
                 if not output_files:

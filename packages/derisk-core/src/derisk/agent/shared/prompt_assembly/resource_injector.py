@@ -1,0 +1,782 @@
+"""
+ResourceInjector - 资源注入器
+
+提供统一的资源注入接口，支持 core_v1 和 core_v2 两种架构。
+
+资源类型：
+1. Sandbox - 沙箱环境
+2. Agents - 子 Agent
+3. Knowledge - 知识库
+4. Skills - 技能
+5. Tools - 工具
+6. Custom - 自定义资源
+
+设计原则：
+- 架构无关：通过 ResourceContext 抽象不同架构的差异
+- 可扩展：支持自定义资源类型和注入逻辑
+- 异步优先：所有注入操作都是异步的
+"""
+
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING, runtime_checkable
+
+from .prompt_registry import get_registry, PromptTemplate
+
+if TYPE_CHECKING:
+    from derisk.agent.resource import (
+        AppResource,
+        RetrieverResource,
+        AgentSkillResource,
+    )
+
+logger = logging.getLogger(__name__)
+
+
+class ResourceType(str, Enum):
+    """资源类型
+
+    对应 derisk.agent.resource.base.ResourceType:
+    - SANDBOX: 沙箱环境（特殊资源，不在 base.ResourceType 中）
+    - AGENTS: 子 Agent (App)
+    - KNOWLEDGE: 知识库 (Knowledge)
+    - SKILLS: 技能 (AgentSkill)
+    - TOOLS: 工具 (Tool, Plugin)
+    - DATABASE: 数据库 (DB)
+    - INTERNET: 互联网搜索
+    - WORKFLOW: 工作流
+    - REASONING_ENGINE: 推理引擎
+    - MEMORY: 记忆
+    - DOCUMENT: 文档
+    - CUSTOM: 自定义资源
+    """
+
+    SANDBOX = "sandbox"
+    AGENTS = "agents"
+    KNOWLEDGE = "knowledge"
+    SKILLS = "skills"
+    TOOLS = "tools"
+    DATABASE = "database"
+    INTERNET = "internet"
+    WORKFLOW = "workflow"
+    REASONING_ENGINE = "reasoning_engine"
+    MEMORY = "memory"
+    DOCUMENT = "document"
+    CUSTOM = "custom"
+
+
+@dataclass
+class ResourceInfo:
+    """资源信息"""
+
+    resource_type: ResourceType
+    code: str  # 唯一标识
+    name: str
+    description: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": self.resource_type.value,
+            "code": self.code,
+            "name": self.name,
+            "description": self.description,
+            **self.metadata,
+        }
+
+
+@dataclass
+class ResourceContext:
+    """
+    资源上下文 - 抽象不同架构的资源获取方式
+
+    支持两种架构：
+    1. core_v1 (expand/react_master_agent): 使用 resource_map, sandbox_manager 等
+    2. core_v2: 使用 resource, resource_map, sandbox_manager 等
+
+    使用方式：
+        # core_v1 架构
+        ctx = ResourceContext.from_v1_agent(agent)
+
+        # core_v2 架构
+        ctx = ResourceContext.from_v2_agent(agent)
+    """
+
+    # 资源映射
+    resource_map: Dict[str, List[Any]] = field(default_factory=dict)
+
+    # 沙箱管理器
+    sandbox_manager: Optional[Any] = None
+
+    # Agent 引用（用于注入工具等）
+    agent: Optional[Any] = None
+
+    # 架构版本
+    architecture: str = "v1"  # "v1" or "v2"
+
+    # 缓存的资源信息
+    _cached_resources: Dict[ResourceType, List[ResourceInfo]] = field(
+        default_factory=dict
+    )
+
+    @classmethod
+    def from_v1_agent(cls, agent: Any) -> "ResourceContext":
+        """从 core_v1 Agent 创建上下文"""
+        resource_map = getattr(agent, "resource_map", {}) or {}
+        sandbox_manager = getattr(agent, "sandbox_manager", None)
+        logger.info(
+            f"ResourceContext.from_v1_agent: sandbox_manager={sandbox_manager is not None}, "
+            f"resource_map_keys={list(resource_map.keys()) if resource_map else []}"
+        )
+        return cls(
+            resource_map=resource_map,
+            sandbox_manager=sandbox_manager,
+            agent=agent,
+            architecture="v1",
+        )
+
+    @classmethod
+    def from_v2_agent(cls, agent: Any) -> "ResourceContext":
+        """从 core_v2 Agent 创建上下文"""
+        resource_map = getattr(agent, "resource_map", {}) or {}
+        sandbox_manager = getattr(agent, "sandbox_manager", None)
+
+        # core_v2 可能还有 resource 属性
+        if not resource_map and hasattr(agent, "resource"):
+            resource = getattr(agent, "resource", None)
+            if resource:
+                resource_map = {"default": [resource]}
+
+        return cls(
+            resource_map=resource_map,
+            sandbox_manager=sandbox_manager,
+            agent=agent,
+            architecture="v2",
+        )
+
+    def get_resources(self, resource_type: ResourceType) -> List[ResourceInfo]:
+        """获取指定类型的资源信息"""
+        if resource_type in self._cached_resources:
+            return self._cached_resources[resource_type]
+
+        resources = self._extract_resources(resource_type)
+        self._cached_resources[resource_type] = resources
+        return resources
+
+    def _extract_resources(self, resource_type: ResourceType) -> List[ResourceInfo]:
+        """提取资源信息"""
+        if resource_type == ResourceType.SANDBOX:
+            return self._extract_sandbox()
+        elif resource_type == ResourceType.AGENTS:
+            return self._extract_agents()
+        elif resource_type == ResourceType.KNOWLEDGE:
+            return self._extract_knowledge()
+        elif resource_type == ResourceType.SKILLS:
+            return self._extract_skills()
+        elif resource_type == ResourceType.CUSTOM:
+            return self._extract_custom()
+        else:
+            return []
+
+    def _extract_sandbox(self) -> List[ResourceInfo]:
+        """提取沙箱资源"""
+        logger.info(
+            f"_extract_sandbox: sandbox_manager={self.sandbox_manager is not None}"
+        )
+        if not self.sandbox_manager:
+            return []
+
+        sandbox_prompt = ""
+        if hasattr(self.sandbox_manager, "prompt"):
+            sandbox_prompt = getattr(self.sandbox_manager, "prompt", "") or ""
+
+        work_dir = "/workspace"
+        if hasattr(self.sandbox_manager, "work_dir"):
+            work_dir = getattr(self.sandbox_manager, "work_dir", work_dir)
+        elif hasattr(self.sandbox_manager, "client") and self.sandbox_manager.client:
+            client = self.sandbox_manager.client
+            if hasattr(client, "work_dir"):
+                work_dir = getattr(client, "work_dir", work_dir)
+
+        skill_dir = ""
+        if hasattr(self.sandbox_manager, "client") and self.sandbox_manager.client:
+            client = self.sandbox_manager.client
+            if hasattr(client, "skill_dir"):
+                skill_dir = getattr(client, "skill_dir", "")
+
+        agent_skill_dir = "/home/ubuntu/.derisk/skills"
+        if hasattr(self.sandbox_manager, "agent_skill_dir"):
+            agent_skill_dir = getattr(
+                self.sandbox_manager, "agent_skill_dir", agent_skill_dir
+            )
+
+        logger.info(
+            f"_extract_sandbox: extracted work_dir={work_dir}, "
+            f"skill_dir={skill_dir}, agent_skill_dir={agent_skill_dir}, "
+            f"prompt_length={len(sandbox_prompt)}"
+        )
+
+        return [
+            ResourceInfo(
+                resource_type=ResourceType.SANDBOX,
+                code="default_sandbox",
+                name="Sandbox Environment",
+                description=sandbox_prompt[:200]
+                if sandbox_prompt
+                else "Sandbox execution environment",
+                metadata={
+                    "prompt": sandbox_prompt,
+                    "work_dir": work_dir,
+                    "skill_dir": skill_dir,
+                    "agent_skill_dir": agent_skill_dir,
+                },
+            )
+        ]
+
+    def _extract_agents(self) -> List[ResourceInfo]:
+        """提取子 Agent 资源"""
+        resources = []
+
+        for key, value_list in self.resource_map.items():
+            for item in value_list or []:
+                # 检查是否是 AppResource
+                if self._is_app_resource(item):
+                    info = self._extract_agent_info(item)
+                    if info:
+                        resources.append(info)
+
+        return resources
+
+    def _extract_knowledge(self) -> List[ResourceInfo]:
+        """提取知识库资源"""
+        resources = []
+
+        for key, value_list in self.resource_map.items():
+            for item in value_list or []:
+                if self._is_retriever_resource(item):
+                    infos = self._extract_knowledge_infos(item)
+                    resources.extend(infos)
+
+        return resources
+
+    def _extract_skills(self) -> List[ResourceInfo]:
+        """提取技能资源"""
+        resources = []
+
+        for key, value_list in self.resource_map.items():
+            for item in value_list or []:
+                if self._is_skill_resource(item):
+                    info = self._extract_skill_info(item)
+                    if info:
+                        resources.append(info)
+
+        return resources
+
+    def _extract_custom(self) -> List[ResourceInfo]:
+        """提取自定义资源（如 open_rca_scene 等用户选择的场景资源）
+
+        自定义资源是指通过 chat_in_params 传入的、不属于 SANDBOX/AGENTS/KNOWLEDGE/SKILLS
+        的资源类型。这些资源会被注入到 system prompt 的 other_resources 部分。
+        """
+        resources = []
+
+        # 排除已处理的资源类型
+        excluded_types = (
+            "AppResource",
+            "AgentSkillResource",
+            "RetrieverResource",
+            "KnowledgeResource",
+            "SkillResource",
+            "BaseTool",
+            "MCPToolPack",
+            "ToolResource",
+        )
+
+        for key, value_list in self.resource_map.items():
+            for item in value_list or []:
+                # 检查是否是已排除的资源类型
+                class_name = item.__class__.__name__ if item else ""
+                is_excluded = any(excluded in class_name for excluded in excluded_types)
+
+                # 检查是否是已知的特殊资源类型
+                is_app = self._is_app_resource(item)
+                is_skill = self._is_skill_resource(item)
+                is_knowledge = self._is_retriever_resource(item)
+
+                # 如果不是已排除或已知类型，则作为自定义资源处理
+                if not is_excluded and not is_app and not is_skill and not is_knowledge:
+                    info = self._extract_custom_info(item, key)
+                    if info:
+                        resources.append(info)
+
+        return resources
+
+    # ==================== 资源类型检测 ====================
+
+    def _is_app_resource(self, item: Any) -> bool:
+        """检查是否是 AppResource"""
+        # 尝试多种方式检测
+        if hasattr(item, "app_code") and hasattr(item, "app_name"):
+            return True
+        # 检查类名
+        class_name = item.__class__.__name__ if item else ""
+        return "AppResource" in class_name or "AgentResource" in class_name
+
+    def _is_retriever_resource(self, item: Any) -> bool:
+        """检查是否是 RetrieverResource"""
+        if hasattr(item, "knowledge_spaces"):
+            return True
+        class_name = item.__class__.__name__ if item else ""
+        return "RetrieverResource" in class_name or "KnowledgeResource" in class_name
+
+    def _is_skill_resource(self, item: Any) -> bool:
+        """检查是否是 SkillResource"""
+        if hasattr(item, "skill_meta"):
+            return True
+        class_name = item.__class__.__name__ if item else ""
+        return "SkillResource" in class_name or "AgentSkillResource" in class_name
+
+    # ==================== 资源信息提取 ====================
+
+    def _extract_agent_info(self, item: Any) -> Optional[ResourceInfo]:
+        """提取 Agent 信息"""
+        try:
+            return ResourceInfo(
+                resource_type=ResourceType.AGENTS,
+                code=getattr(item, "app_code", "") or "",
+                name=getattr(item, "app_name", "") or "",
+                description=getattr(item, "app_desc", "") or "",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to extract agent info: {e}")
+            return None
+
+    def _extract_knowledge_infos(self, item: Any) -> List[ResourceInfo]:
+        """提取知识库信息列表"""
+        infos = []
+        try:
+            knowledge_spaces = getattr(item, "knowledge_spaces", []) or []
+            for space in knowledge_spaces:
+                infos.append(
+                    ResourceInfo(
+                        resource_type=ResourceType.KNOWLEDGE,
+                        code=getattr(space, "knowledge_id", "") or "",
+                        name=getattr(space, "name", "") or "",
+                        description=getattr(space, "desc", "") or "",
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"Failed to extract knowledge info: {e}")
+        return infos
+
+    def _extract_skill_info(self, item: Any) -> Optional[ResourceInfo]:
+        """提取技能信息"""
+        try:
+            # 获取模式和分支
+            mode, branch = "release", "master"
+            debug_info = getattr(item, "debug_info", None)
+            if debug_info and isinstance(debug_info, dict):
+                if debug_info.get("is_debug"):
+                    mode, branch = "debug", debug_info.get("branch", "master")
+
+            # 获取元数据
+            meta = item.skill_meta(mode) if hasattr(item, "skill_meta") else None
+            if not meta:
+                return None
+
+            return ResourceInfo(
+                resource_type=ResourceType.SKILLS,
+                code=getattr(meta, "name", "") or "",
+                name=getattr(meta, "name", "") or "",
+                description=getattr(meta, "description", "") or "",
+                metadata={
+                    "path": getattr(meta, "path", "") or "",
+                    "branch": branch,
+                    "mode": mode,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to extract skill info: {e}")
+            return None
+
+    def _extract_custom_info(self, item: Any, key: str) -> Optional[ResourceInfo]:
+        """提取自定义资源信息"""
+        try:
+            resource_type_str = key
+            if hasattr(item, "type"):
+                r_type = item.type()
+                if isinstance(r_type, str):
+                    resource_type_str = r_type
+                elif hasattr(r_type, "value"):
+                    resource_type_str = r_type.value
+
+            name = getattr(item, "name", "") or key
+            description = (
+                getattr(item, "scene_description", "")
+                or getattr(item, "description", "")
+                or ""
+            )
+
+            metadata = {"resource_type": resource_type_str}
+            for attr in ["scene", "scene_name", "data_path", "scene_schema"]:
+                if hasattr(item, attr):
+                    val = getattr(item, attr, None)
+                    if val:
+                        metadata[attr] = val
+
+            return ResourceInfo(
+                resource_type=ResourceType.CUSTOM,
+                code=key,
+                name=name,
+                description=description,
+                metadata=metadata,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to extract custom resource info for {key}: {e}")
+            return None
+
+
+@runtime_checkable
+class ResourceInjectorProtocol(Protocol):
+    """资源注入器协议"""
+
+    async def inject_sandbox(self, ctx: ResourceContext) -> Optional[str]:
+        """注入沙箱资源"""
+        ...
+
+    async def inject_agents(self, ctx: ResourceContext) -> Optional[str]:
+        """注入 Agent 资源"""
+        ...
+
+    async def inject_knowledge(self, ctx: ResourceContext) -> Optional[str]:
+        """注入知识库资源"""
+        ...
+
+    async def inject_skills(self, ctx: ResourceContext) -> Optional[str]:
+        """注入技能资源"""
+        ...
+
+    async def inject_all(self, ctx: ResourceContext) -> str:
+        """注入所有资源"""
+        ...
+
+
+class ResourceInjector:
+    """
+    资源注入器
+
+    负责从 ResourceContext 提取资源信息并生成对应的 Prompt 内容。
+
+    用法：
+        injector = ResourceInjector()
+        ctx = ResourceContext.from_v1_agent(agent)
+
+        # 注入单个资源
+        sandbox_prompt = await injector.inject_sandbox(ctx)
+
+        # 注入所有资源
+        all_resources = await injector.inject_all(ctx)
+    """
+
+    def __init__(
+        self,
+        use_templates: bool = True,
+        custom_templates: Optional[Dict[ResourceType, str]] = None,
+    ):
+        """
+        初始化
+
+        Args:
+            use_templates: 是否使用模板注册表中的模板
+            custom_templates: 自定义模板映射 {资源类型: 模板内容}
+        """
+        self.use_templates = use_templates
+        self.custom_templates = custom_templates or {}
+        self.registry = get_registry()
+
+    async def inject_sandbox(self, ctx: ResourceContext) -> Optional[str]:
+        """注入沙箱资源"""
+        resources = ctx.get_resources(ResourceType.SANDBOX)
+        logger.info(f"inject_sandbox: resources_count={len(resources)}")
+        if not resources:
+            return None
+
+        resource = resources[0]
+        sandbox_prompt = resource.metadata.get("prompt", "")
+        work_dir = resource.metadata.get("work_dir", "/workspace")
+        skill_dir = resource.metadata.get("skill_dir", "")
+        agent_skill_dir = resource.metadata.get(
+            "agent_skill_dir", "/home/ubuntu/.derisk/skills"
+        )
+        use_agent_skill = len(ctx.get_resources(ResourceType.SKILLS)) > 0
+
+        system_info = self._get_system_info(work_dir)
+
+        logger.info(
+            f"inject_sandbox: rendering template with "
+            f"sandbox_enable=True, work_dir={work_dir}, "
+            f"skill_dir={skill_dir}, system_info={system_info}, "
+            f"use_agent_skill={use_agent_skill}, agent_skill_dir={agent_skill_dir}"
+        )
+
+        template = self._get_template(ResourceType.SANDBOX)
+        if template:
+            result = template.render(
+                sandbox_enable=True,
+                work_dir=work_dir,
+                skill_dir=skill_dir,
+                system_info=system_info,
+                agent_skill_dir=agent_skill_dir,
+                use_agent_skill=use_agent_skill,
+                sandbox_prompt=sandbox_prompt,
+                sandbox=resource.to_dict(),
+            )
+            logger.info(
+                f"inject_sandbox: template rendered, result_length={len(result) if result else 0}"
+            )
+            return result
+
+        return self._format_sandbox_default(resource)
+
+    def _get_system_info(self, work_dir: str) -> str:
+        """Get system info based on work_dir pattern to detect sandbox type."""
+        import platform
+
+        if not work_dir:
+            return (
+                "Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）"
+            )
+
+        work_dir_lower = work_dir.lower()
+        if "/pilot/data/" in work_dir_lower or "derisk" in work_dir_lower:
+            system = platform.system()
+            if system == "Darwin":
+                return (
+                    f"macOS ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+                )
+            elif system == "Linux":
+                return (
+                    f"Linux ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+                )
+            elif system == "Windows":
+                return f"Windows, 本地沙箱环境，路径映射到项目目录"
+            else:
+                return f"{system}, 本地沙箱环境，路径映射到项目目录"
+
+        return "Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）"
+
+    async def inject_agents(self, ctx: ResourceContext) -> Optional[str]:
+        """注入 Agent 资源"""
+        resources = ctx.get_resources(ResourceType.AGENTS)
+        if not resources:
+            return None
+
+        template = self._get_template(ResourceType.AGENTS)
+        if template:
+            agents = [r.to_dict() for r in resources]
+            return template.render(agents=agents)
+
+        return self._format_agents_default(resources)
+
+    async def inject_knowledge(self, ctx: ResourceContext) -> Optional[str]:
+        """注入知识库资源"""
+        resources = ctx.get_resources(ResourceType.KNOWLEDGE)
+        if not resources:
+            return None
+
+        template = self._get_template(ResourceType.KNOWLEDGE)
+        if template:
+            knowledges = [r.to_dict() for r in resources]
+            return template.render(knowledges=knowledges)
+
+        return self._format_knowledge_default(resources)
+
+    async def inject_skills(self, ctx: ResourceContext) -> Optional[str]:
+        """注入技能资源"""
+        resources = ctx.get_resources(ResourceType.SKILLS)
+        if not resources:
+            return None
+
+        template = self._get_template(ResourceType.SKILLS)
+        if template:
+            skills = [r.to_dict() for r in resources]
+            return template.render(skills=skills)
+
+        return self._format_skills_default(resources)
+
+    async def inject_custom(self, ctx: ResourceContext) -> Optional[str]:
+        """注入自定义资源"""
+        resources = ctx.get_resources(ResourceType.CUSTOM)
+        logger.info(f"inject_custom: resources_count={len(resources)}")
+        if not resources:
+            return None
+
+        template = self._get_template(ResourceType.CUSTOM)
+        if template:
+            custom_resources = []
+            for r in resources:
+                actual_type = r.metadata.get("resource_type", r.code)
+                resource_dict = {
+                    "type": actual_type,
+                    "code": r.code,
+                    "name": r.name,
+                    "description": r.description,
+                    "metadata": {
+                        k: v for k, v in r.metadata.items() if k != "resource_type"
+                    }
+                    if r.metadata
+                    else {},
+                }
+                custom_resources.append(resource_dict)
+            return template.render(resources=custom_resources)
+
+        return self._format_custom_default(resources)
+
+    async def inject_all(self, ctx: ResourceContext) -> str:
+        """注入所有资源"""
+        sections = []
+        logger.info("inject_all: starting resource injection")
+
+        sandbox = await self.inject_sandbox(ctx)
+        if sandbox:
+            sections.append(sandbox)
+            logger.info(f"inject_all: sandbox injected, length={len(sandbox)}")
+        else:
+            logger.info("inject_all: no sandbox injected")
+
+        agents = await self.inject_agents(ctx)
+        if agents:
+            sections.append(agents)
+
+        knowledge = await self.inject_knowledge(ctx)
+        if knowledge:
+            sections.append(knowledge)
+
+        skills = await self.inject_skills(ctx)
+        if skills:
+            sections.append(skills)
+
+        custom = await self.inject_custom(ctx)
+        if custom:
+            sections.append(custom)
+            logger.info(f"inject_all: custom resources injected, length={len(custom)}")
+
+        result = "\n\n".join(sections)
+        logger.info(
+            f"inject_all: total sections={len(sections)}, result_length={len(result)}"
+        )
+        return result
+
+    def _get_template(self, resource_type: ResourceType) -> Optional[PromptTemplate]:
+        """获取资源类型的模板"""
+        if resource_type in self.custom_templates:
+            return PromptTemplate(
+                category="resources",
+                name=resource_type.value,
+                content=self.custom_templates[resource_type],
+                is_jinja2=True,
+            )
+
+        if self.use_templates:
+            template_name = resource_type.value
+            if resource_type == ResourceType.CUSTOM:
+                template_name = "other"
+            return self.registry.get("resources", template_name)
+
+        return None
+
+    # ==================== 默认格式化方法 ====================
+
+    def _format_sandbox_default(self, resource: ResourceInfo) -> str:
+        """默认沙箱格式"""
+        prompt = resource.metadata.get("prompt", "")
+        return f"""### 环境信息
+
+{prompt}
+
+<important>
+沙箱环境是临时的，会话结束后会被销毁。如需持久化文件，请使用 write_file 工具。
+</important>"""
+
+    def _format_agents_default(self, resources: List[ResourceInfo]) -> str:
+        """默认 Agent 格式"""
+        lines = ["<available_agents>", "以下是你可以调用的子代理：", ""]
+
+        for r in resources:
+            lines.append(f"- <agent>")
+            lines.append(f"  <code>{r.code}</code>")
+            lines.append(f"  <name>{r.name}</name>")
+            lines.append(f"  <description>{r.description}</description>")
+            lines.append(f"</agent>")
+
+        lines.append("</available_agents>")
+        lines.append("")
+        lines.append("**调用方式：** 使用 `agent_start` 工具启动子代理。")
+
+        return "\n".join(lines)
+
+    def _format_knowledge_default(self, resources: List[ResourceInfo]) -> str:
+        """默认知识库格式"""
+        lines = ["<available_knowledges>", "以下是你可以使用的知识库：", ""]
+
+        for r in resources:
+            lines.append(f"- <knowledge>")
+            lines.append(f"  <id>{r.code}</id>")
+            lines.append(f"  <name>{r.name}</name>")
+            lines.append(f"  <description>{r.description}</description>")
+            lines.append(f"</knowledge>")
+
+        lines.append("</available_knowledges>")
+        lines.append("")
+        lines.append("**使用方式：** 使用 `knowledge_search` 工具检索知识。")
+
+        return "\n".join(lines)
+
+    def _format_skills_default(self, resources: List[ResourceInfo]) -> str:
+        """默认技能格式"""
+        lines = ["<available_skills>", "以下是你可以加载的技能：", ""]
+
+        for r in resources:
+            path = r.metadata.get("path", "")
+            branch = r.metadata.get("branch", "master")
+            lines.append(f"- <skill>")
+            lines.append(f"  <name>{r.name}</name>")
+            lines.append(f"  <description>{r.description}</description>")
+            if path:
+                lines.append(f"  <path>{path}</path>")
+            lines.append(f"  <branch>{branch}</branch>")
+            lines.append(f"</skill>")
+
+        lines.append("</available_skills>")
+        lines.append("")
+        lines.append("**使用方式：** 使用 `skill_load` 工具加载技能。")
+
+        return "\n".join(lines)
+
+    def _format_custom_default(self, resources: List[ResourceInfo]) -> str:
+        lines = ["<other_resources>", "以下是其他可用资源：", ""]
+
+        for r in resources:
+            actual_type = r.metadata.get("resource_type", r.code)
+            lines.append(f"- <{actual_type}>")
+            lines.append(f"  <name>{r.name}</name>")
+            lines.append(f"  <description>{r.description}</description>")
+            for key, value in r.metadata.items():
+                if key not in ("resource_type", "scene") and value:
+                    lines.append(f"  <{key}>{value}</{key}>")
+            lines.append(f"</{actual_type}>")
+
+        lines.append("</other_resources>")
+
+        return "\n".join(lines)
+
+
+def create_resource_injector(
+    use_templates: bool = True,
+    custom_templates: Optional[Dict[ResourceType, str]] = None,
+) -> ResourceInjector:
+    """创建资源注入器的便捷函数"""
+    return ResourceInjector(
+        use_templates=use_templates, custom_templates=custom_templates
+    )

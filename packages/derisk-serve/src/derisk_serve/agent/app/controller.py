@@ -312,7 +312,9 @@ async def get_agent_default_prompt(
     """
     try:
         agent_manager = get_agent_manager()
-        agent = agent_manager.get_agent(agent_name)
+        agent = agent_manager.get(
+            agent_name
+        )  # Use get() instead of get_agent() to return None for missing agents
 
         if agent is None:
             from derisk_serve.building.app.service.service import (
@@ -321,29 +323,41 @@ async def get_agent_default_prompt(
                 _get_default_system_prompt,
                 _get_default_user_prompt,
             )
-            
-            if agent_name and ('v2' in agent_name.lower() or 'core_v2' in agent_name.lower()):
-                logger.info(f"Agent '{agent_name}' not found in AgentManager, returning Core_v2 default prompts")
+
+            if agent_name and (
+                "v2" in agent_name.lower() or "core_v2" in agent_name.lower()
+            ):
+                logger.info(
+                    f"Agent '{agent_name}' not found in AgentManager, returning Core_v2 default prompts"
+                )
                 result = {
                     "system_prompt_template": _get_v2_agent_system_prompt(None),
                     "user_prompt_template": _get_v2_agent_user_prompt(None),
                 }
             else:
-                logger.warning(f"Agent '{agent_name}' not found, returning generic default prompts")
+                logger.warning(
+                    f"Agent '{agent_name}' not found, returning generic default prompts"
+                )
                 result = {
                     "system_prompt_template": _get_default_system_prompt(),
                     "user_prompt_template": _get_default_user_prompt(),
                 }
-            
+
             return Result.succ(result)
 
+        system_template = _get_prompt_template(
+            agent.profile.system_prompt_template, language
+        )
+        user_template = _get_prompt_template(
+            agent.profile.user_prompt_template, language
+        )
+
+        if not system_template:
+            system_template = _get_layered_identity_prompt(agent, language)
+
         result = {
-            "system_prompt_template": _get_prompt_template(
-                agent.profile.system_prompt_template, language
-            ),
-            "user_prompt_template": _get_prompt_template(
-                agent.profile.user_prompt_template, language
-            ),
+            "system_prompt_template": system_template,
+            "user_prompt_template": user_template,
         }
 
         return Result.succ(result)
@@ -378,6 +392,54 @@ def _get_prompt_template(template, language: str) -> str:
         return str(template)
 
     return ""
+
+
+def _get_layered_identity_prompt(agent, language: str) -> str:
+    """
+    Get the layered identity prompt for agents using PromptAssembler.
+
+    When agent.profile.system_prompt_template is None or empty,
+    load the default identity template from the agent's prompts directory.
+
+    Args:
+        agent: The agent instance
+        language: The language preference
+
+    Returns:
+        The identity template content
+    """
+    try:
+        from derisk.agent.shared.prompt_assembly import get_registry, PromptRegistry
+        from pathlib import Path
+        import inspect
+
+        agent_class = type(agent)
+        agent_module_path = Path(inspect.getfile(agent_class))
+        agent_prompts_dir = agent_module_path.parent / "prompts"
+
+        if not agent_prompts_dir.exists():
+            logger.warning(
+                f"No prompts directory found for agent {agent_class.__name__}"
+            )
+            return ""
+
+        new_registry = PromptRegistry()
+        new_registry.initialize(agent_prompts_dir)
+
+        template_name = f"default_{language}" if language != "zh" else "default"
+        template = new_registry.get("identity", template_name)
+
+        if template:
+            return template.content
+
+        logger.warning(
+            f"No identity template found for agent {agent.profile.name if hasattr(agent, 'profile') else 'unknown'}"
+        )
+        return ""
+
+    except Exception as e:
+        logger.warning(f"Failed to load layered identity prompt: {e}")
+        return ""
 
 
 @router.delete("/v1/tool/{tool_id}")
@@ -509,8 +571,6 @@ async def get_thinking_detail(
             )
             if isinstance(metrics_dict, dict):
                 model_params.update(metrics_dict)
-        if message.tool_calls:
-            model_params["tool_calls"] = message.tool_calls
 
         if model_params:
             items.append(
@@ -518,6 +578,33 @@ async def get_thinking_detail(
                     "title": "模型参数",
                     "outputType": "json",
                     "content": json.dumps(model_params, ensure_ascii=False, indent=2),
+                }
+            )
+
+        if message.input_tools:
+            tool_names = [
+                t.get("function", {}).get("name", "unknown")
+                for t in message.input_tools
+                if isinstance(t, dict)
+            ]
+            items.append(
+                {
+                    "title": f"输入工具列表 ({len(message.input_tools)} 个)",
+                    "outputType": "json",
+                    "content": json.dumps(
+                        message.input_tools, ensure_ascii=False, indent=2
+                    ),
+                }
+            )
+
+        if message.tool_calls:
+            items.append(
+                {
+                    "title": f"LLM工具调用输出 ({len(message.tool_calls)} 个) - 模型决定调用的工具",
+                    "outputType": "json",
+                    "content": json.dumps(
+                        message.tool_calls, ensure_ascii=False, indent=2
+                    ),
                 }
             )
 

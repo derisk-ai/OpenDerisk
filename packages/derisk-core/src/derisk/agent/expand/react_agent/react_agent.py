@@ -30,7 +30,6 @@ from .prompt_v3 import (
     REACT_USER_TEMPLATE,
     REACT_WRITE_MEMORY_TEMPLATE,
 )
-from ..actions.terminate_action import Terminate
 from ...core.base_team import ManagerAgent
 from ...core.schema import DynamicParam, DynamicParamType
 
@@ -85,12 +84,11 @@ class ReActAgent(ManagerAgent):
         """Init indicator AssistantAgent."""
         warnings.warn(_DEPRECATION_MESSAGE, DeprecationWarning, stacklevel=2)
         super().__init__(**kwargs)
-        ## 注意顺序，如果AgentStart，KnowledgeSearch， Terminate 需要在ToolAction之前 TODO待方案优化
+        ## 注意顺序，AgentStart, KnowledgeSearch 需要在 ToolAction 之前
         self._init_actions(
             [
                 AgentStart,
                 KnowledgeSearch,
-                Terminate,
                 ToolAction,
             ]
         )

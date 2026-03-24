@@ -40,6 +40,7 @@ class ToolCategory(str, Enum):
     ANALYSIS = "analysis"
     REASONING = "reasoning"
     UTILITY = "utility"
+    MEDIA_GEN = "media_gen"
     PLUGIN = "plugin"
     CUSTOM = "custom"
 

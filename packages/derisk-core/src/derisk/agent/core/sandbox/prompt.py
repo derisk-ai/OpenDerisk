@@ -1,6 +1,7 @@
 SANDBOX_ENV_PROMPT = """<execution_environment>
-- 系统环境：Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）
+- 系统环境：{{sandbox.system_info}}
 - 工作目录：{{sandbox.work_dir}}（用于所有临时工作）
+- 技能目录：{{sandbox.skill_dir}}（用于存储和读取 Skill 知识包）
 - Python 环境：版本：3.12.0，命令：python3, pip3（不支持 python, pip）
 - Node.js 环境：版本：18.19.1，命令：node, pnpm（预装 pnpm, yarn）
 - 沙箱启动即可用，无需检查。建议使用 sudo 执行需要权限的操作。

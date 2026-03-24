@@ -26,6 +26,7 @@ from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
 from derisk.agent.core.base_parser import SchemaType
 from derisk.agent.core.role import AgentRunMode
 from derisk.agent.core.schema import Status
+from derisk.core.interface.message import ModelMessageRoleType
 from derisk.agent.util.llm.llm_client import AgentLLMOut
 from derisk.sandbox.base import SandboxBase
 from derisk.util.template_utils import render
@@ -72,14 +73,42 @@ from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
 from ..actions.agent_action import AgentStart
 from ..actions.knowledge_action import KnowledgeSearch
-from ..actions.terminate_action import Terminate
 from ..actions.tool_action import ToolAction
 from ...core.action.blank_action import BlankAction
 
 # 导入 read_file 工具使其注册到 system_tool_dict
 from ...core.tools.read_file_tool import read_file  # noqa: F401
 
+# 导入 PromptAssembler（通用 Prompt 组装模块）
+from ...shared.prompt_assembly import (
+    PromptAssembler,
+    PromptAssemblyConfig,
+    ResourceContext,
+    create_prompt_assembler,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _get_sandbox_system_info(sandbox_client: SandboxBase) -> str:
+    """Get system info description based on sandbox provider type."""
+    provider = getattr(sandbox_client, "provider", lambda: "unknown")()
+
+    if provider == "local":
+        import platform
+        import os
+
+        system = platform.system()
+        if system == "Darwin":
+            return f"macOS ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+        elif system == "Linux":
+            return f"Linux ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+        elif system == "Windows":
+            return f"Windows, 本地沙箱环境，路径映射到项目目录"
+        else:
+            return f"{system}, 本地沙箱环境，路径映射到项目目录"
+    else:
+        return "Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）"
 
 
 class ReActMasterAgent(ConversableAgent):
@@ -118,8 +147,8 @@ class ReActMasterAgent(ConversableAgent):
             name="ReActMasterV2",
             role="ReActMasterV2",
             goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
-            system_prompt_template=REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
-            user_prompt_template=REACT_MASTER_FC_USER_TEMPLATE_CN,
+            system_prompt_template=None,
+            user_prompt_template=None,
             write_memory_template=REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
         )
     )
@@ -138,6 +167,14 @@ class ReActMasterAgent(ConversableAgent):
     enable_output_truncation: bool = True
     enable_history_pruning: bool = True
     prune_protect_tokens: int = 4000
+
+    # Prompt 组装模式配置
+    use_layered_prompt_assembly: bool = False
+    force_layered_assembly: bool = False
+
+    # Message List 历史模式（原生格式 vs 文本注入）
+    use_message_list_history: bool = True
+    message_list_history_max_tokens: int = 30000
 
     # 新功能配置 -> WorkLog、Phase、ReportGenerator 集成配置
     enable_work_log: bool = True
@@ -182,6 +219,12 @@ class ReActMasterAgent(ConversableAgent):
     _kanban_manager: Optional[KanbanManager] = PrivateAttr(default=None)
     _kanban_initialized: bool = PrivateAttr(default=False)
 
+    # PromptAssembler 状态（通用 Prompt 组装器）
+    _prompt_assembler: Optional[PromptAssembler] = PrivateAttr(default=None)
+
+    # AsyncTaskManager 异步任务管理器（在 preload_resource 中按需初始化）
+    _async_task_manager: Optional[Any] = PrivateAttr(default=None)
+
     available_system_tools: Dict[str, FunctionTool] = Field(
         default_factory=dict, description="available system tools"
     )
@@ -190,36 +233,347 @@ class ReActMasterAgent(ConversableAgent):
     def __init__(self, **kwargs):
         """Initialize ReActMaster Agent."""
         super().__init__(**kwargs)
-        self._init_actions([AgentStart, KnowledgeSearch, Terminate, ToolAction])
+        self._init_actions([AgentStart, KnowledgeSearch, ToolAction])
         self._initialize_components()
 
         # 初始化交互能力
         self._interaction_extension = None
 
     async def preload_resource(self) -> None:
-        """Preload resources and inject system tools."""
+        """Preload resources and inject system tools.
+
+        工具注入现在通过统一工具框架进行：
+        1. base_agent.system_tool_injection() 从 tool_manager 获取绑定工具
+        2. 工具绑定配置来自编辑页面保存的 resource_tool
+        3. 无配置时使用默认工具
+        """
         await super().preload_resource()
         await self.system_tool_injection()
         await self.sandbox_tool_injection()
 
-        # 注入 read_file 工具
-        from ...core.system_tool_registry import system_tool_dict
-
-        if "read_file" in system_tool_dict:
-            self.available_system_tools["read_file"] = system_tool_dict["read_file"]
-            logger.info("read_file 工具已注入")
-
-        # 注入 Todo 工具 (todowrite, todoread)
-        from .todo_tools import get_todo_tools
-
-        todo_tools = get_todo_tools()
-        for tool_name, tool in todo_tools.items():
-            if tool_name not in self.available_system_tools:
-                self.available_system_tools[tool_name] = tool
-                logger.info(f"{tool_name} 工具已注入")
+        # NOTE: read_file, todowrite, todoread 等工具现在通过统一工具框架注入
+        # 不再在此处直接注入，见 base_agent.system_tool_injection()
 
         # NOTE: 历史回顾工具（read_history_chapter, search_history 等）不在此处注入。
         # 它们只在首次 compaction 完成后才动态注入，见 _inject_history_tools_if_needed()。
+
+        # 注入异步任务工具（当检测到多 Agent 场景时）
+        await self._inject_async_task_tools()
+
+    async def _inject_async_task_tools(self) -> None:
+        """
+        注入异步任务工具到 available_system_tools。
+
+        条件：存在 AppResource（表示有可委派的子 Agent）且有 agents 属性。
+        创建 AsyncTaskManager 并注册 4 个 FunctionTool 包装。
+        """
+        try:
+            # 检查是否有子 Agent 可委派
+            if not hasattr(self, "agents") or not self.agents:
+                return
+
+            # 检查 resource_map 是否有 AppResource
+            has_app_resource = False
+            for k, v in (self.resource_map or {}).items():
+                if v and isinstance(v[0], AppResource):
+                    has_app_resource = True
+                    break
+
+            if not has_app_resource:
+                return
+
+            from ...core_v2.async_task_manager import AsyncTaskManager, AsyncTaskSpec
+            from ...core_v2.subagent_manager import SubagentManager as V2SubagentManager
+
+            # 创建一个轻量级 SubagentManager 适配器，包装 core v1 的 agent delegation
+            class CoreV1SubagentAdapter:
+                """适配 Core V1 的 agent delegation 为 SubagentManager.delegate 接口"""
+
+                def __init__(self, master_agent):
+                    self._master = master_agent
+
+                async def delegate(
+                    self,
+                    subagent_name: str,
+                    task: str,
+                    parent_session_id: str = "",
+                    context: Optional[Dict] = None,
+                    sync: bool = True,
+                    **kwargs,
+                ):
+                    """通过 Core V1 的 send/receive 机制委派任务"""
+                    from derisk.agent import AgentMessage
+
+                    # 找到目标子 Agent
+                    recipient = next(
+                        (
+                            agent
+                            for agent in self._master.agents
+                            if agent.name == subagent_name
+                            or getattr(agent, "agent_context", None)
+                            and getattr(agent.agent_context, "agent_app_code", None)
+                            == subagent_name
+                        ),
+                        None,
+                    )
+
+                    if not recipient:
+                        # 返回失败结果
+                        result = type(
+                            "SubagentResult",
+                            (),
+                            {
+                                "success": False,
+                                "output": None,
+                                "error": f"子 Agent '{subagent_name}' 不存在",
+                                "artifacts": {},
+                            },
+                        )()
+                        return result
+
+                    # 构建消息
+                    message = AgentMessage.init_new(
+                        content=task,
+                        context=context or {},
+                        show_message=False,
+                        observation=task,
+                        current_goal=task,
+                    )
+
+                    try:
+                        answer = await self._master.send(
+                            message=message,
+                            recipient=recipient,
+                            request_reply=True,
+                            request_sender_reply=False,
+                        )
+
+                        result = type(
+                            "SubagentResult",
+                            (),
+                            {
+                                "success": True,
+                                "output": answer.content if answer else "",
+                                "error": None,
+                                "artifacts": {},
+                            },
+                        )()
+                        return result
+                    except Exception as e:
+                        result = type(
+                            "SubagentResult",
+                            (),
+                            {
+                                "success": False,
+                                "output": None,
+                                "error": str(e),
+                                "artifacts": {},
+                            },
+                        )()
+                        return result
+
+            # 创建适配器和 AsyncTaskManager
+            adapter = CoreV1SubagentAdapter(self)
+            session_id = (
+                getattr(self.agent_context, "conv_id", "") if self.agent_context else ""
+            )
+
+            self._async_task_manager = AsyncTaskManager(
+                subagent_manager=adapter,
+                max_concurrent=5,
+                parent_session_id=session_id,
+            )
+
+            # 获取可用子 Agent 名称列表
+            agent_names = []
+            for agent in self.agents:
+                name = agent.name or getattr(
+                    getattr(agent, "agent_context", None), "agent_app_code", None
+                )
+                if name:
+                    agent_names.append(name)
+
+            # 创建 FunctionTool 包装
+            atm = self._async_task_manager
+
+            async def _spawn_agent_task(
+                agent_name: str, task: str, timeout: int = 300, depend_on: str = ""
+            ) -> str:
+                spec = AsyncTaskSpec(
+                    agent_name=agent_name,
+                    task_description=task,
+                    timeout=timeout,
+                    depend_on=[d.strip() for d in depend_on.split(",") if d.strip()]
+                    if depend_on
+                    else [],
+                )
+                task_id = await atm.spawn(spec)
+                deps_info = f"\n依赖: {spec.depend_on}" if spec.depend_on else ""
+                return (
+                    f"任务已提交到后台执行。\n"
+                    f"- Task ID: {task_id}\n"
+                    f"- Agent: {agent_name}\n"
+                    f"- 描述: {task[:100]}\n"
+                    f"- 超时: {timeout}s{deps_info}\n\n"
+                    f"你可以继续其他工作，稍后用 check_tasks 查看状态或 wait_tasks 获取结果。"
+                )
+
+            async def _check_tasks(task_ids: str = "") -> str:
+                ids = (
+                    [t.strip() for t in task_ids.split(",") if t.strip()]
+                    if task_ids
+                    else None
+                )
+                return atm.format_status_table(ids)
+
+            async def _wait_tasks(task_ids: str = "", timeout: int = 60) -> str:
+                ids = (
+                    [t.strip() for t in task_ids.split(",") if t.strip()]
+                    if task_ids
+                    else []
+                )
+                if ids:
+                    results = await atm.wait_all(ids, timeout=timeout)
+                else:
+                    results = await atm.wait_any(timeout=timeout)
+                if not results:
+                    return "等待超时，暂无任务完成。你可以继续其他工作后再检查。"
+                return atm.format_results(results)
+
+            async def _cancel_task(task_id: str) -> str:
+                success = await atm.cancel(task_id)
+                return (
+                    f"任务 {task_id} 已取消。"
+                    if success
+                    else f"无法取消任务 {task_id}（任务可能已完成或不存在）。"
+                )
+
+            # 注册为 FunctionTool
+            spawn_tool = FunctionTool(
+                name="spawn_agent_task",
+                func=_spawn_agent_task,
+                description=(
+                    "启动一个后台 Agent 异步任务。任务在后台执行，你可以继续其他工作。"
+                    f"可用 Agent: {', '.join(agent_names)}"
+                ),
+                args={
+                    "agent_name": ToolParameter(
+                        name="agent_name",
+                        type="string",
+                        required=True,
+                        description=f"目标子 Agent 名称。可选: {', '.join(agent_names)}",
+                    ),
+                    "task": ToolParameter(
+                        name="task",
+                        type="string",
+                        required=True,
+                        description="任务描述，请提供清晰具体的说明。",
+                    ),
+                    "timeout": ToolParameter(
+                        name="timeout",
+                        type="integer",
+                        required=False,
+                        description="超时秒数（默认300）",
+                        default=300,
+                    ),
+                    "depend_on": ToolParameter(
+                        name="depend_on",
+                        type="string",
+                        required=False,
+                        description="依赖的 task_id 列表，逗号分隔（可选）。这些任务完成后才开始。",
+                        default="",
+                    ),
+                },
+            )
+
+            check_tool = FunctionTool(
+                name="check_tasks",
+                func=_check_tasks,
+                description="查看后台任务的当前状态，不阻塞。",
+                args={
+                    "task_ids": ToolParameter(
+                        name="task_ids",
+                        type="string",
+                        required=False,
+                        description="要查询的 task_id 列表，逗号分隔。为空则查询全部。",
+                        default="",
+                    ),
+                },
+            )
+
+            wait_tool = FunctionTool(
+                name="wait_tasks",
+                func=_wait_tasks,
+                description="等待后台任务完成并获取结果。指定 task_ids 等待全部完成，为空则等待任意一个完成。",
+                args={
+                    "task_ids": ToolParameter(
+                        name="task_ids",
+                        type="string",
+                        required=False,
+                        description="等待的 task_id 列表，逗号分隔。为空则等待任意一个完成。",
+                        default="",
+                    ),
+                    "timeout": ToolParameter(
+                        name="timeout",
+                        type="integer",
+                        required=False,
+                        description="最大等待秒数（默认60）",
+                        default=60,
+                    ),
+                },
+            )
+
+            cancel_tool = FunctionTool(
+                name="cancel_task",
+                func=_cancel_task,
+                description="取消一个正在执行或等待中的后台任务。",
+                args={
+                    "task_id": ToolParameter(
+                        name="task_id",
+                        type="string",
+                        required=True,
+                        description="要取消的任务 ID",
+                    ),
+                },
+            )
+
+            self.available_system_tools["spawn_agent_task"] = spawn_tool
+            self.available_system_tools["check_tasks"] = check_tool
+            self.available_system_tools["wait_tasks"] = wait_tool
+            self.available_system_tools["cancel_task"] = cancel_tool
+
+            logger.info(
+                f"[ReActMasterAgent] 异步任务工具已注入，可用子 Agent: {agent_names}"
+            )
+
+        except ImportError as e:
+            logger.debug(f"[ReActMasterAgent] 异步任务模块未找到: {e}")
+        except Exception as e:
+            logger.warning(f"[ReActMasterAgent] 注入异步任务工具失败: {e}")
+
+    async def _collect_async_task_notifications(self) -> Optional[str]:
+        """
+        收集已完成的异步任务通知。
+
+        在 thinking() 中调用，将后台完成的任务结果注入到 LLM 上下文。
+
+        Returns:
+            格式化的通知文本，没有通知则返回 None
+        """
+        if not self._async_task_manager:
+            return None
+
+        try:
+            completed = self._async_task_manager.get_completed_results(consume=True)
+            if not completed:
+                return None
+
+            notification = self._async_task_manager.format_notifications(completed)
+            return notification if notification else None
+
+        except Exception as e:
+            logger.warning(f"[ReActMasterAgent] 收集异步任务通知失败: {e}")
+            return None
 
     async def load_resource(self, question: str, is_retry_chat: bool = False):
         """Load agent bind resource."""
@@ -372,6 +726,32 @@ class ReActMasterAgent(ConversableAgent):
             self._interaction_extension = create_interaction_extension(self)
         return self._interaction_extension
 
+    def _get_prompt_assembler(self) -> PromptAssembler:
+        """获取 Prompt 组装器（懒加载）- 使用 Agent 级别的模板目录"""
+        if self._prompt_assembler is None:
+            from pathlib import Path
+
+            # 获取 Agent 级别的 prompts 目录
+            agent_prompts_dir = Path(__file__).parent / "prompts"
+
+            config = PromptAssemblyConfig(
+                architecture="v1",
+                language=getattr(self.profile, "language", "zh")
+                if hasattr(self, "profile")
+                else "zh",
+            )
+            self._prompt_assembler = PromptAssembler(config)
+
+            # 设置 Agent 级别的模板目录
+            self._prompt_assembler.registry.set_agent_prompts_dir(agent_prompts_dir)
+            self._prompt_assembler.registry.initialize(agent_prompts_dir)
+
+            logger.info(
+                f"PromptAssembler initialized with agent prompts: {agent_prompts_dir}"
+            )
+
+        return self._prompt_assembler
+
     @property
     def interaction(self):
         """交互能力访问入口"""
@@ -509,16 +889,27 @@ class ReActMasterAgent(ConversableAgent):
             except Exception:
                 pass  # FileStorageClient 不可用
 
+            # 获取 sandbox 客户端
+            sandbox = None
+            if self.sandbox_manager and self.sandbox_manager.client:
+                sandbox = self.sandbox_manager.client
+
             # 创建AgentFileSystem实例（V3 集成在默认版本中）
             self._agent_file_system = AgentFileSystem(
                 conv_id=conv_id,
                 session_id=session_id,
                 metadata_storage=self.memory.gpts_memory if self.memory else None,
                 file_storage_client=file_storage_client,
+                sandbox=sandbox,
             )
 
             # 同步工作区（恢复文件）
             await self._agent_file_system.sync_workspace()
+
+            # 注入 AgentFileSystem 到 sandbox 客户端
+            if sandbox:
+                sandbox.agent_file_system = self._agent_file_system
+                logger.info("Injected AgentFileSystem into Sandbox client")
 
             # 更新截断器的AFS引用
             if self._truncator:
@@ -740,6 +1131,8 @@ class ReActMasterAgent(ConversableAgent):
         """
         加载思考消息，包含四层上下文压缩
 
+        改造：使用 PromptAssembler 分层组装 prompt，替代旧的模板变量替换
+
         四层架构：
         - Layer 1: 工具输出截断
         - Layer 2: 历史修剪
@@ -749,8 +1142,13 @@ class ReActMasterAgent(ConversableAgent):
         Returns:
             Tuple: (消息列表, 上下文, 系统提示, 用户提示)
         """
-        # Layer 4: 启动新的对话轮次（跨轮次历史管理）
+        # Layer 4: 跨轮次历史管理
         user_question = received_message.content if received_message else ""
+
+        # 开始/复用对话轮次，获取历史记录
+        memory_content = None
+        history_messages: List[Dict[str, Any]] = []
+
         try:
             pipeline = await self._ensure_compaction_pipeline()
             if pipeline:
@@ -758,24 +1156,34 @@ class ReActMasterAgent(ConversableAgent):
                     user_question=user_question,
                     user_context=received_message.context if received_message else None,
                 )
-                logger.info(
-                    f"Layer 4: Started new conversation round with question: {user_question[:100] if user_question else ''}..."
-                )
-        except Exception as e:
-            logger.warning(f"Layer 4: Failed to start conversation round: {e}")
 
-        # 获取基础消息列表
+                if self.use_message_list_history:
+                    history_messages = (
+                        await pipeline.get_layer4_history_as_message_list(
+                            max_tokens=self.message_list_history_max_tokens,
+                        )
+                    )
+                else:
+                    memory_content = await pipeline.get_layer4_history_for_prompt()
+                    if memory_content:
+                        logger.info(
+                            f"[HistoryMessageBuilder] Text mode: {len(memory_content)} chars"
+                        )
+        except Exception as e:
+            logger.warning(f"Layer 4: Failed to get history: {e}")
+
+        # 获取基础消息列表（从基类获取消息组装逻辑，但我们会重新构建 prompt）
         (
             messages,
             context,
-            system_prompt,
-            user_prompt,
+            _,  # 忽略基类的 system_prompt
+            _,  # 忽略基类的 user_prompt
         ) = await super().load_thinking_messages(
             received_message, sender, rely_messages, **kwargs
         )
 
         if not messages:
-            return messages, context, system_prompt, user_prompt
+            return messages, context, "", ""
 
         # 尝试使用统一压缩管道（Layer 2 + Layer 3）
         pipeline = await self._ensure_compaction_pipeline()
@@ -803,21 +1211,6 @@ class ReActMasterAgent(ConversableAgent):
                 if pipeline.has_compacted:
                     await self._inject_history_tools_if_needed()
 
-            # ========== 新增：Layer 4 历史注入 ==========
-            # 将压缩后的跨轮次历史注入到 system_prompt，让 LLM 能看到历史上下文
-            try:
-                layer4_history = await pipeline.get_layer4_history_for_prompt()
-                if layer4_history:
-                    if system_prompt:
-                        system_prompt = f"{system_prompt}\n\n{layer4_history}"
-                    else:
-                        system_prompt = layer4_history
-                    logger.info(
-                        f"Layer 4: Injected {len(layer4_history)} chars of compressed history into prompt"
-                    )
-            except Exception as e:
-                logger.warning(f"Layer 4: Failed to inject history into prompt: {e}")
-
         else:
             # 降级到传统的修剪 + 压缩
             messages = await self._prune_history(messages)
@@ -826,7 +1219,188 @@ class ReActMasterAgent(ConversableAgent):
         # 确保AgentFileSystem已初始化（用于文件管理）
         await self._ensure_agent_file_system()
 
-        return messages, context, system_prompt, user_prompt
+        # ========== 使用 PromptAssembler 分层组装 Prompt ==========
+        # 配置说明：
+        # - force_layered_assembly=True: 强制使用分层组装，忽略旧模式检测
+        # - use_layered_prompt_assembly=True: 默认使用分层组装
+        # - 默认=False: 按旧模式检测决定（包含流程标记→旧模式，否则→分层组装）
+        system_prompt = ""
+        user_prompt = ""
+
+        try:
+            assembler = self._get_prompt_assembler()
+            resource_ctx = ResourceContext.from_v1_agent(self)
+            logger.info(
+                f"ReActMasterAgent: sandbox_manager={getattr(self, 'sandbox_manager', None) is not None}, "
+                f"resource_ctx.sandbox_manager={resource_ctx.sandbox_manager is not None}"
+            )
+
+            # 获取用户配置的身份内容
+            user_identity = None
+            user_prompt_prefix = None
+
+            if hasattr(self, "profile"):
+                user_identity = getattr(self.profile, "system_prompt_template", None)
+                user_prompt_prefix = getattr(self.profile, "user_prompt_template", None)
+
+            # 判断是否使用分层组装
+            use_layered = False
+
+            if self.force_layered_assembly:
+                # 强制使用分层组装
+                use_layered = True
+                logger.info(
+                    "PromptAssembler: force_layered_assembly=True，强制分层组装"
+                )
+            elif self.use_layered_prompt_assembly:
+                # 用户配置启用分层组装
+                use_layered = True
+                logger.info(
+                    "PromptAssembler: use_layered_prompt_assembly=True，使用分层组装"
+                )
+            elif user_identity and assembler._is_legacy_mode(user_identity):
+                # 旧模式兼容：检测到流程控制标记，直接渲染完整模板
+                use_layered = False
+                logger.info("PromptAssembler: 检测到旧模式标记，使用兼容渲染")
+            else:
+                # 默认：对新内容使用分层组装
+                use_layered = True
+
+            # 构建模板变量
+            template_vars = getattr(self.profile, "template_vars", None) or {}
+            base_vars = {
+                "role": getattr(self.profile, "role", "")
+                if hasattr(self, "profile")
+                else "",
+                "name": getattr(self.profile, "name", "")
+                if hasattr(self, "profile")
+                else "",
+                "goal": getattr(self.profile, "goal", "")
+                if hasattr(self, "profile")
+                else "",
+                "language": getattr(self.profile, "language", "zh")
+                if hasattr(self, "profile")
+                else "zh",
+            }
+            render_vars = {**base_vars, **template_vars}
+
+            # 根据 mode 选择组装方式
+            if use_layered:
+                # 新模式：分层组装
+                # - 身份层：用户输入的 system_prompt_template（或默认身份模板）
+                # - 资源层：通过 ResourceInjector 动态注入
+                # - 控制层：从 prompts/ 目录加载（workflow/exceptions/delivery）
+                system_prompt = await assembler.assemble_system_prompt(
+                    user_system_prompt=user_identity,
+                    resource_context=resource_ctx,
+                    **render_vars,
+                )
+                logger.info("PromptAssembler: 分层组装完成（身份层 + 资源层 + 控制层）")
+            else:
+                # 旧模式兼容：直接渲染完整模板
+                system_prompt = await assembler.assemble_system_prompt(
+                    user_system_prompt=user_identity,
+                    resource_context=resource_ctx,
+                    **render_vars,
+                )
+                logger.info("PromptAssembler: 旧模式兼容渲染完成")
+
+            user_prompt = await assembler.assemble_user_prompt(
+                user_prompt_prefix=user_prompt_prefix,
+                memory_content=None
+                if self.use_message_list_history
+                else memory_content,
+                question=user_question,
+                **render_vars,
+            )
+
+        except Exception as e:
+            logger.warning(f"PromptAssembler: 组装失败，回退到默认 prompt: {e}")
+            import traceback
+
+            traceback.print_exc()
+            try:
+                from derisk.util.template_utils import render
+
+                system_prompt = render(
+                    REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+                    {
+                        "agent_name": getattr(self.profile, "name", "Assistant")
+                        if hasattr(self, "profile")
+                        else "Assistant",
+                        "max_steps": "20",
+                        "resource_prompt": "",
+                        "sandbox_prompt": "",
+                        "sandbox": {"enable": False, "prompt": ""},
+                        "available_agents": "",
+                        "available_knowledges": "",
+                        "available_skills": "",
+                    },
+                )
+            except Exception as render_error:
+                logger.error(f"回退渲染也失败: {render_error}")
+                system_prompt = "你是一个 AI 助手，请帮助用户完成任务。"
+            user_prompt = user_question
+
+        filtered_messages = [
+            msg
+            for msg in messages
+            if not (hasattr(msg, "role") and msg.role == ModelMessageRoleType.SYSTEM)
+            and not (isinstance(msg, dict) and msg.get("role") == "system")
+        ]
+
+        if filtered_messages:
+            last_idx = len(filtered_messages) - 1
+            last_msg = filtered_messages[last_idx]
+            is_human = (
+                hasattr(last_msg, "role")
+                and last_msg.role == ModelMessageRoleType.HUMAN
+            ) or (isinstance(last_msg, dict) and last_msg.get("role") == "human")
+            if is_human:
+                filtered_messages.pop()
+
+        if system_prompt:
+            from derisk.agent.core.types import AgentMessage
+
+            filtered_messages.insert(
+                0,
+                AgentMessage(
+                    content=system_prompt,
+                    role=ModelMessageRoleType.SYSTEM,
+                ),
+            )
+
+        # Message List 模式：插入历史消息到消息列表
+        if self.use_message_list_history and history_messages:
+            from derisk.agent.core.types import AgentMessage
+
+            for hist_msg in history_messages:
+                filtered_messages.append(
+                    AgentMessage(
+                        content=hist_msg.get("content", ""),
+                        role=hist_msg.get("role", "user"),
+                        context=hist_msg,
+                    )
+                )
+            logger.info(
+                f"[HistoryMessageBuilder] Injected {len(history_messages)} history messages"
+            )
+
+        if user_prompt:
+            from derisk.agent.core.types import AgentMessage
+
+            filtered_messages.append(
+                AgentMessage(
+                    content=user_prompt,
+                    role=ModelMessageRoleType.HUMAN,
+                    context=received_message.context if received_message else None,
+                    content_types=received_message.content_types
+                    if received_message
+                    else None,
+                ),
+            )
+
+        return filtered_messages, context, system_prompt, user_prompt
 
     async def _get_worklog_tool_messages(
         self, max_entries: int = 30
@@ -919,6 +1493,15 @@ class ReActMasterAgent(ConversableAgent):
                     kwargs["tool_messages"] = compacted_tool_messages
                 except Exception as e:
                     logger.warning(f"Failed to compact tool messages: {e}")
+
+        # 异步任务完成通知注入
+        async_notification = await self._collect_async_task_notifications()
+        if async_notification:
+            notification_msg = {"role": "user", "content": async_notification}
+            tool_msgs = kwargs.get("tool_messages") or []
+            tool_msgs.append(notification_msg)
+            kwargs["tool_messages"] = tool_msgs
+            logger.info("[ReActMasterAgent] 注入异步任务完成通知到 thinking 上下文")
 
         return await super().thinking(
             messages,
@@ -1105,6 +1688,11 @@ class ReActMasterAgent(ConversableAgent):
                     else:
                         tool_name_for_tracking = real_action.name
 
+                    # 检查工具失败次数
+                    should_stop = self._check_and_record_tool_failure(
+                        tool_name_for_tracking
+                    )
+
                     # 创建完整的失败 ActionOutput
                     failed_output = ActionOutput(
                         content=f"工具执行失败: {str(result)}",
@@ -1113,13 +1701,9 @@ class ReActMasterAgent(ConversableAgent):
                         action_name=tool_name_for_tracking,
                         is_exe_success=False,
                         state=Status.FAILED.value,
-                        have_retry=False,  # 标记不需要重试
+                        have_retry=not should_stop,
                     )
 
-                    # 检查工具失败次数
-                    should_stop = self._check_and_record_tool_failure(
-                        tool_name_for_tracking
-                    )
                     if should_stop:
                         failed_output.content = f"工具 [{tool_name_for_tracking}] 连续失败超过 {self._max_tool_failure_count} 次，已终止执行。错误: {str(result)}"
                         failed_output.view = f"❌ **工具执行失败**\n\n工具 `{tool_name_for_tracking}` 已连续失败多次，系统已自动终止该工具的执行。\n\n**错误信息**: {str(result)}\n\n请尝试使用其他工具或修改参数后重试。"
@@ -1155,7 +1739,7 @@ class ReActMasterAgent(ConversableAgent):
                         # ========== 集成：记录到 WorkLog ==========
                         # 重要：只有真正的工具调用才应该记录到 WorkLog
                         # 真正的工具包括两类：
-                        # 1. FunctionTool 的 Action 子类：Terminate, AgentStart, KnowledgeSearch 等
+                        # 1. FunctionTool 的 Action 子类：AgentStart, KnowledgeSearch 等
                         # 2. ToolAction 的子类：执行外部工具的基础 Action
                         # BlankAction 不是工具，它只是 LLM 返回纯文本时的占位 Action
                         # 记录非工具会导致生成假的 tool_calls 消息，引发 OpenAI API 错误
@@ -1303,16 +1887,11 @@ class ReActMasterAgent(ConversableAgent):
     async def _attach_delivery_files(
         self, action_out: "ActionOutput"
     ) -> "ActionOutput":
-        """为terminate action附加交付文件.
+        """为 action 附加交付文件.
 
         从AgentFileSystem收集所有结论文件和交付物文件，
         附加到ActionOutput的output_files字段中。
         """
-        from derisk.agent.expand.actions.terminate_action import Terminate
-
-        if action_out.name != Terminate.name:
-            return action_out
-
         try:
             # 确保AgentFileSystem已初始化
             afs = await self._ensure_agent_file_system()
@@ -1729,7 +2308,13 @@ class ReActMasterAgent(ConversableAgent):
                     sandbox_prompt,
                 )
 
-                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
+                env_param = {
+                    "sandbox": {
+                        "work_dir": sandbox_client.work_dir,
+                        "skill_dir": sandbox_client.skill_dir,
+                        "system_info": _get_sandbox_system_info(sandbox_client),
+                    }
+                }
                 skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
 
                 param = {

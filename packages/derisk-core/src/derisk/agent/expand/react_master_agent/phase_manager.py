@@ -133,7 +133,7 @@ class PhaseContext:
 
     PHASE_PRIORITIZED_TOOLS = {
         TaskPhase.EXPLORATION: ["search", "browse", "read", "grep"],
-        TaskPhase.PLANNING: ["think", "analyze", "list"],
+        TaskPhase.PLANNING: ["analyze", "list"],
         TaskPhase.EXECUTION: ["execute", "run", "process", "write"],
         TaskPhase.REFINEMENT: ["review", "optimize", "polish"],
         TaskPhase.VERIFICATION: ["test", "validate", "check"],

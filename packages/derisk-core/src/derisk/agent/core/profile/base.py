@@ -140,7 +140,6 @@ _DEFAULT_WRITE_MEMORY_TEMPLATE_ZH = """\
 """
 
 
-
 class Profile(ABC):
     """Profile interface."""
 
@@ -188,11 +187,11 @@ class Profile(ABC):
         return None
 
     @abstractmethod
-    def get_system_prompt_template(self) -> str:
+    def get_system_prompt_template(self) -> Optional[str]:
         """Return the prompt template of current agent."""
 
     @abstractmethod
-    def get_user_prompt_template(self) -> str:
+    def get_user_prompt_template(self) -> Optional[str]:
         """Return the user prompt template of current agent."""
 
     @abstractmethod
@@ -217,8 +216,11 @@ class Profile(ABC):
         Returns:
             str: The formatted system prompt.
         """
+        template = self.get_system_prompt_template()
+        if not template:
+            return ""
         return self._format_prompt(
-            self.get_system_prompt_template(),
+            template,
             template_env=template_env,
             language=language,
             resource_vars=resource_vars,
@@ -243,8 +245,11 @@ class Profile(ABC):
         Returns:
             str: The formatted user prompt.
         """
+        template = self.get_user_prompt_template()
+        if not template:
+            return ""
         return self._format_prompt(
-            self.get_user_prompt_template(),
+            template,
             template_env=template_env,
             language=language,
             resource_vars=resource_vars,
@@ -348,11 +353,11 @@ class DefaultProfile(BaseModel, Profile):
         None, description="The examples of the agent prompt."
     )
 
-    system_prompt_template: str = Field(
-        _DEFAULT_SYSTEM_TEMPLATE, description="The system prompt template of the agent."
+    system_prompt_template: Optional[str] = Field(
+        None, description="The system prompt template of the agent."
     )
-    user_prompt_template: str = Field(
-        _DEFAULT_USER_TEMPLATE, description="The user prompt template of the agent."
+    user_prompt_template: Optional[str] = Field(
+        None, description="The user prompt template of the agent."
     )
 
     write_memory_template: str = Field(
@@ -403,11 +408,11 @@ class DefaultProfile(BaseModel, Profile):
         """Return the examples of current agent."""
         return self.examples
 
-    def get_system_prompt_template(self) -> str:
+    def get_system_prompt_template(self) -> Optional[str]:
         """Return the prompt template of current agent."""
         return self.system_prompt_template
 
-    def get_user_prompt_template(self) -> str:
+    def get_user_prompt_template(self) -> Optional[str]:
         """Return the user prompt template of current agent."""
         return self.user_prompt_template
 
@@ -547,6 +552,9 @@ class ProfileConfig(BaseModel):
     )
     write_memory_template: str | ConfigInfo | None = DynConfig(
         _DEFAULT_WRITE_MEMORY_TEMPLATE, description="The save memory template."
+    )
+    template_vars: Dict[str, Any] | None = Field(
+        default=None, description="Custom variables for template rendering."
     )
     factory: ProfileFactory | None = Field(None, description="The profile factory.")
 

@@ -14,7 +14,13 @@ from ...core.schema.types import ChatCompletionUserMessageParam
 from ...util.annotations import PublicAPI
 
 
-MEDIA_PARAMS: List[str] = ["image_url", "audio_url", "input_audio", "video_url", "file_url"]
+MEDIA_PARAMS: List[str] = [
+    "image_url",
+    "audio_url",
+    "input_audio",
+    "video_url",
+    "file_url",
+]
 
 ENV_CONTEXT_KEY = "derisk_context_env"
 LLM_CONTEXT_KEY = "derisk_context_llm"
@@ -25,12 +31,10 @@ ResourceReferType = Dict[str, Any]
 
 
 class MediaMessageContent:
-
     def __init__(
         self,
         param_name: str,
         content_type: MediaContentType,
-
     ):
         self.content_type: MediaContentType = content_type
         self.param_name = param_name
@@ -80,12 +84,11 @@ class MessageType(str, Enum):
     RouterMessage = "router_message"  # 消息路由
 
 
-
-
 @dataclasses.dataclass
 @PublicAPI(stability="beta")
 class AgentMessage:
     """Message object for agent communication."""
+
     message_id: Optional[str] = None
     content: Optional[Union[str, ChatCompletionUserMessageParam]] = None
     content_types: Optional[List[str]] = None
@@ -111,6 +114,7 @@ class AgentMessage:
     observation: Optional[str] = None
     metrics: Optional[MessageMetrics] = None
     tool_calls: Optional[List[Dict]] = None
+    input_tools: Optional[List[Dict]] = None
     """当前消息的性能指标数据(模型和action)"""
 
     def to_dict(self) -> Dict:
@@ -118,7 +122,9 @@ class AgentMessage:
         result = dataclasses.asdict(self)
 
         if self.action_report:
-            result["action_report"] = ([item.to_dict() for item in self.action_report])  # 将 action_report 转换为字典
+            result["action_report"] = [
+                item.to_dict() for item in self.action_report
+            ]  # 将 action_report 转换为字典
         if self.metrics:
             result["metrics"] = self.metrics.to_dict()
         return result
@@ -138,16 +144,28 @@ class AgentMessage:
                 if media_type.content_type == MediaContentType.TEXT:
                     have_text_content = True
                     media_contents.append(
-                        MediaContent(type=media_type.content_type.value,
-                                     object=MediaObject(format="text", data=self.content)))
+                        MediaContent(
+                            type=media_type.content_type.value,
+                            object=MediaObject(format="text", data=self.content),
+                        )
+                    )
                 else:
                     if content_type in self.context:
                         media_contents.append(
-                            MediaContent(type=media_type.content_type.value,
-                                         object=MediaObject(format="url", data=self.context[content_type])))
+                            MediaContent(
+                                type=media_type.content_type.value,
+                                object=MediaObject(
+                                    format="url", data=self.context[content_type]
+                                ),
+                            )
+                        )
             if not have_text_content:
-                media_contents.append(MediaContent(type=MediaContentType.TEXT.value,
-                                                   object=MediaObject(format="text", data=content)))
+                media_contents.append(
+                    MediaContent(
+                        type=MediaContentType.TEXT.value,
+                        object=MediaObject(format="text", data=content),
+                    )
+                )
             return {
                 "content": media_contents,
                 "context": self.context,
@@ -217,8 +235,13 @@ class AgentMessage:
         return results
 
     @classmethod
-    def from_media_messages(cls, message: Union[str, HumanMessage], current_goal: Optional[str] = None,
-                            rounds: int = 0, context: Optional[Any] = None) -> AgentMessage:
+    def from_media_messages(
+        cls,
+        message: Union[str, HumanMessage],
+        current_goal: Optional[str] = None,
+        rounds: int = 0,
+        context: Optional[Any] = None,
+    ) -> AgentMessage:
         """Create a  AgentMessage objects from a media message."""
 
         if not message:
