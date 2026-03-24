@@ -120,15 +120,7 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 {{ question }}
 """
 
-REACT_MASTER_FC_USER_TEMPLATE_CN = """{% if memory %}
-## 历史对话记录
-
-{{ memory }}
-
-*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*
-{% endif %}
-
-请思考下一步计划直到完成任务目标。
+REACT_MASTER_FC_USER_TEMPLATE_CN = """请思考下一步计划直到完成任务目标。
 """
 
 REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN = """## 任务执行摘要
@@ -265,15 +257,7 @@ You cannot access file system. All operations must be done through tools.
 {{ question }}
 """
 
-REACT_MASTER_FC_USER_TEMPLATE = """{% if memory %}
-## Conversation History
-
-{{ memory }}
-
-*Note: Above is the compressed history of previous conversation rounds. Current round tool executions are passed via native Function Call.*
-{% endif %}
-
-Think about the next step until the task goal is achieved.
+REACT_MASTER_FC_USER_TEMPLATE = """Think about the next step until the task goal is achieved.
 """
 
 REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE = """## Task Execution Summary

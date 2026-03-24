@@ -153,7 +153,6 @@ class ToolInjector:
             "glob",
             "bash",
             "webfetch",
-            "think",
             "search",
         }
         return tool_name in basic_tools

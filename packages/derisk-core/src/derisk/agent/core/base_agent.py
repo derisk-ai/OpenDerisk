@@ -41,7 +41,7 @@ from .memory.gpts.agent_system_message import SystemMessageType, AgentPhase
 from .memory.gpts.base import GptsMessage
 from .memory.gpts.gpts_memory import GptsMemory, AgentTaskContent, AgentTaskType
 from .profile.base import ProfileConfig
-
+from .reasoning.reasoning_arg_supplier import ReasoningArgSupplier
 from .role import AgentRunMode, Role
 from .sandbox_manager import SandboxManager
 from .schema import (
@@ -615,15 +615,211 @@ class ConversableAgent(Role, Agent):
             logger.info("注入沙箱工具！")
             from derisk.agent.core.sandbox.sandbox_tool_registry import (
                 sandbox_tool_dict,
-                register_sandbox_tools_to_unified,
             )
 
-            # 确保工具已注册到统一框架，然后同步到 sandbox_tool_dict
-            register_sandbox_tools_to_unified()
             self.available_system_tools.update(sandbox_tool_dict)
 
     async def system_tool_injection(self):
-        ## 根据绑定资源注入知识和Agent系统工具
+        """
+        注入系统工具 - 使用统一工具管理框架
+
+        根据 Agent 的工具绑定配置（来自编辑页面保存的 resource_tool），
+        通过 tool_manager 获取已绑定的工具列表并注入。
+        """
+        from ..tools.registry import tool_registry, register_builtin_tools
+        from ..tools.tool_manager import tool_manager
+        from ..tools.base import ToolCategory
+
+        # 确保工具已注册
+        if not tool_registry._initialized:
+            register_builtin_tools()
+            logger.info(
+                f"[system_tool_injection] Registered {len(tool_registry)} builtin tools"
+            )
+
+        # 获取 app_id 用于查询绑定配置
+        app_id = None
+        agent_name = self.name
+        sandbox_enabled = False
+
+        if self.agent_context:
+            app_id = self.agent_context.gpts_app_code
+            if hasattr(self, "sandbox_manager") and self.sandbox_manager:
+                sandbox_enabled = True
+
+        # 尝试从 tool_manager 获取绑定工具
+        injected_from_config = False
+        if app_id and agent_name:
+            try:
+                # 设置加载回调
+                self._setup_tool_manager_load_callback(tool_manager)
+
+                # 获取运行时工具
+                runtime_tools = tool_manager.get_runtime_tools(
+                    app_id=app_id,
+                    agent_name=agent_name,
+                )
+
+                if runtime_tools:
+                    for tool in runtime_tools:
+                        tool_name = tool.metadata.name
+                        if tool_name not in self.available_system_tools:
+                            self.available_system_tools[tool_name] = tool
+                    logger.info(
+                        f"[system_tool_injection] Injected {len(runtime_tools)} tools from binding config"
+                    )
+                    injected_from_config = True
+
+            except Exception as e:
+                logger.warning(
+                    f"[system_tool_injection] Failed to get tools from tool_manager: {e}"
+                )
+
+        # 无绑定配置时，注入默认工具
+        if not injected_from_config:
+            await self._inject_default_tools(sandbox_enabled)
+            logger.info("[system_tool_injection] Using default tools")
+
+        # 根据绑定资源注入知识和 Agent 系统工具
+        await self._inject_resource_based_tools()
+
+        logger.info(
+            f"[system_tool_injection] Total tools injected: {len(self.available_system_tools)}"
+        )
+
+    def _setup_tool_manager_load_callback(self, tool_manager):
+        """设置 tool_manager 的加载回调"""
+
+        def _load_tool_bindings_from_db(app_id: str, agent_name: str):
+            """从数据库 ServeEntity.resource_tool 加载工具绑定配置"""
+            try:
+                from derisk_serve.building.config.models.models import ServeEntity
+                from derisk.storage.metadata import UnifiedDBManagerFactory
+                from derisk.component import ComponentType
+                from derisk._private.config import Config as DeriskConfig
+                import json
+
+                CFG = DeriskConfig()
+                system_app = CFG.SYSTEM_APP
+                if not system_app:
+                    return None
+
+                db_manager_factory = system_app.get_component(
+                    ComponentType.UNIFIED_METADATA_DB_MANAGER_FACTORY,
+                    UnifiedDBManagerFactory,
+                    default_component=None,
+                )
+                if not db_manager_factory:
+                    return None
+
+                db_manager = db_manager_factory.create()
+
+                with db_manager.session() as session:
+                    # 优先查 temp 配置
+                    entity = (
+                        session.query(ServeEntity)
+                        .filter(
+                            ServeEntity.app_code == app_id,
+                            ServeEntity.is_published == False,
+                        )
+                        .order_by(ServeEntity.gmt_modified.desc())
+                        .first()
+                    )
+
+                    if entity and entity.resource_tool:
+                        tool_ids = self._parse_resource_tool_ids(entity.resource_tool)
+                        if tool_ids:
+                            return tool_ids
+
+                    # 查 published 配置
+                    entity = (
+                        session.query(ServeEntity)
+                        .filter(
+                            ServeEntity.app_code == app_id,
+                            ServeEntity.is_published == True,
+                        )
+                        .order_by(ServeEntity.gmt_modified.desc())
+                        .first()
+                    )
+
+                    if entity and entity.resource_tool:
+                        return self._parse_resource_tool_ids(entity.resource_tool)
+
+                return None
+            except Exception as e:
+                logger.debug(f"Failed to load tool bindings from db: {e}")
+                return None
+
+        tool_manager.set_load_callback(_load_tool_bindings_from_db)
+
+    def _parse_resource_tool_ids(self, resource_tool_raw) -> list:
+        """解析 resource_tool 字段中的工具ID列表"""
+        import json
+
+        if not resource_tool_raw:
+            return None
+
+        resource_tool = resource_tool_raw
+        if isinstance(resource_tool, str):
+            try:
+                resource_tool = json.loads(resource_tool)
+            except json.JSONDecodeError:
+                return None
+
+        if not isinstance(resource_tool, list) or len(resource_tool) == 0:
+            return None
+
+        tool_ids = []
+        for item in resource_tool:
+            try:
+                value = item.get("value", "{}")
+                if isinstance(value, str):
+                    parsed = json.loads(value)
+                else:
+                    parsed = value
+                tool_id = parsed.get("tool_id") or parsed.get("key")
+                if tool_id:
+                    tool_ids.append(tool_id)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+
+        return tool_ids if tool_ids else None
+
+    async def _inject_default_tools(self, sandbox_enabled: bool = False):
+        """注入默认工具（当无绑定配置时）"""
+        from ..tools.registry import tool_registry
+        from ..tools.base import ToolCategory
+
+        # 文件系统工具
+        file_tools = tool_registry.get_by_category(ToolCategory.FILE_SYSTEM)
+        for tool in file_tools:
+            if tool.metadata.name not in self.available_system_tools:
+                self.available_system_tools[tool.metadata.name] = tool
+        logger.info(
+            f"[system_tool_injection] Injected {len(file_tools)} FILE_SYSTEM tools (default)"
+        )
+
+        # Shell 工具
+        shell_tools = tool_registry.get_by_category(ToolCategory.SHELL)
+        for tool in shell_tools:
+            if tool.metadata.name not in self.available_system_tools:
+                self.available_system_tools[tool.metadata.name] = tool
+        logger.info(
+            f"[system_tool_injection] Injected {len(shell_tools)} SHELL tools (default)"
+        )
+
+        # 网络工具
+        network_tools = tool_registry.get_by_category(ToolCategory.NETWORK)
+        for tool in network_tools:
+            if tool.metadata.name not in self.available_system_tools:
+                self.available_system_tools[tool.metadata.name] = tool
+        if network_tools:
+            logger.info(
+                f"[system_tool_injection] Injected {len(network_tools)} NETWORK tools (default)"
+            )
+
+    async def _inject_resource_based_tools(self):
+        """根据绑定资源注入知识和 Agent 系统工具"""
         from ..expand.actions.knowledge_action import KnowledgeSearch
         from ..resource import RetrieverResource
         from ..resource.app import AppResource
@@ -638,18 +834,6 @@ class ConversableAgent(Role, Agent):
             logger.info("注入知识工具！")
             knowledge_tool = KnowledgeSearch()
             self.available_system_tools[knowledge_tool.name] = knowledge_tool
-
-        from derisk.agent.core.system_tool_registry import system_tool_dict
-
-        if "create_cron_job" in system_tool_dict:
-            self.available_system_tools["create_cron_job"] = system_tool_dict.get(
-                "create_cron_job"
-            )
-
-        from ..expand.actions.terminate_action import Terminate
-
-        terminate_tool = Terminate()
-        self.available_system_tools[terminate_tool.name] = terminate_tool
 
     async def agent_state(self):
         if len(self.received_message_state) > 0:
@@ -666,7 +850,6 @@ class ConversableAgent(Role, Agent):
         from derisk.core import ModelMessageRoleType
 
         ## 历史消息
-        has_tool_calls = llm_out and llm_out.tool_calls
         if llm_out:
             llm_content = llm_out.content or ""
             if llm_out.thinking_content:
@@ -682,11 +865,7 @@ class ConversableAgent(Role, Agent):
                 }
             )
 
-        # 只有当 assistant 消息中含有 tool_calls 时，才追加 tool 结果消息。
-        # 若 tool_calls 为 None/空，说明 LLM 未发起工具调用，此时追加 tool 消息会
-        # 导致 API 报错：messages with role "tool" must be a response to a
-        # preceeding message with "tool_calls"
-        if action_outs and has_tool_calls:
+        if action_outs:
             ## 准备当前轮次的ToolMessage
             for action_out in action_outs:
                 function_call_reply_messages.append(
@@ -696,33 +875,8 @@ class ConversableAgent(Role, Agent):
                         "content": action_out.content,
                     }
                 )
-        elif action_outs and not has_tool_calls:
-            logger.warning(
-                f"[function_callning_reply_messages] Skipping {len(action_outs)} tool result(s) "
-                f"because the preceding assistant message has no tool_calls. "
-                f"This prevents invalid message sequences being sent to the LLM."
-            )
 
         return function_call_reply_messages
-
-    async def _get_worklog_tool_messages(
-        self, max_entries: int = 30
-    ) -> List[Dict[str, Any]]:
-        """
-        将 WorkLog 历史转换为原生 Function Call 格式的工具消息列表。
-
-        子类可以重写此方法来提供具体的 WorkLog 转换逻辑。
-        例如 ReActMasterAgent 可以从 compaction_pipeline 获取历史工具调用记录。
-
-        Returns:
-            符合原生 Function Call 格式的消息列表:
-            [
-                {"role": "assistant", "content": "", "tool_calls": [...]},
-                {"role": "tool", "tool_call_id": "...", "content": "..."},
-                ...
-            ]
-        """
-        return []
 
     async def generate_reply(
         self,
@@ -805,15 +959,6 @@ class ConversableAgent(Role, Agent):
             )
 
             all_tool_messages: List[Dict] = []
-
-            if self.enable_function_call and self.current_retry_counter == 0:
-                worklog_messages = await self._get_worklog_tool_messages()
-                if worklog_messages:
-                    all_tool_messages.extend(worklog_messages)
-                    logger.info(
-                        f"Injected {len(worklog_messages)} worklog tool messages for function call mode"
-                    )
-
             while not done and self.current_retry_counter < self.max_retry_count:
                 with root_tracer.start_span(
                     "agent.generate_reply.loop",
@@ -829,15 +974,16 @@ class ConversableAgent(Role, Agent):
                     current_goal = received_message.current_goal
                     observation = received_message.observation
                     if self.current_retry_counter > 0:
+                        # Function Calling 模式下，必须构建 tool_messages 传递给 LLM
                         if self.enable_function_call:
-                            ## 基于当前action的结果，构建history_dialogue 和 tool_message
                             tool_messages = self.function_callning_reply_messages(
                                 agent_llm_out, act_outs
                             )
                             all_tool_messages.extend(tool_messages)
 
-                        observation = reply_message.observation
-                        rounds = reply_message.rounds + 1
+                        if self.run_mode != AgentRunMode.LOOP:
+                            observation = reply_message.observation
+                            rounds = reply_message.rounds + 1
                     self._update_recovering(is_retry_chat)
 
                     ### 0.生成当前轮次的新消息
@@ -1343,6 +1489,7 @@ class ConversableAgent(Role, Agent):
             reply_message.metrics.llm_metrics = llm_out.metrics
             reply_message.resource_info = resource_info
             reply_message.tool_calls = llm_out.tool_calls
+            reply_message.input_tools = llm_out.input_tools
 
             span.metadata["llm_reply"] = llm_out.content
             span.metadata["model_name"] = llm_out.llm_name
@@ -1413,11 +1560,6 @@ class ConversableAgent(Role, Agent):
                     tool_messages: Optional[List[dict]] = kwargs.get("tool_messages")
                     if tool_messages:
                         llm_messages.extend(tool_messages)
-
-                    # 过滤非法消息序列：移除没有匹配 tool_calls 的孤立 tool 角色消息
-                    # 否则 API 会报错：messages with role "tool" must be a response
-                    # to a preceeding message with "tool_calls"
-                    llm_messages = _sanitize_tool_messages(llm_messages)
 
                     if not self.llm_client:
                         raise ValueError("LLM client is not initialized!")
@@ -2031,26 +2173,21 @@ class ConversableAgent(Role, Agent):
                         f"沙箱尚未准备完成!({instance.sandbox_manager.client.provider}-{instance.sandbox_manager.client.sandbox_id})"
                     )
                 sandbox_client: SandboxBase = instance.sandbox_manager.client
-                from derisk.agent.core.sandbox.prompt import (
-                    AGENT_SKILL_SYSTEM_PROMPT,
-                    SANDBOX_ENV_PROMPT,
-                    SANDBOX_TOOL_BOUNDARIES,
-                    sandbox_prompt,
+                from derisk.agent.core.sandbox.sandbox_tool_registry import (
+                    sandbox_tool_dict,
                 )
+                from derisk.agent.core.sandbox.prompt import sandbox_prompt
 
-                env_param = {"sandbox": {"work_dir": sandbox_client.work_dir}}
-                skill_param = {"sandbox": {"agent_skill_dir": sandbox_client.skill_dir}}
-
+                sandbox_tool_prompts = []
+                for k, v in sandbox_tool_dict.items():
+                    prompt, _ = await v.get_prompt(lang=instance.agent_context.language)
+                    sandbox_tool_prompts.append(prompt)
                 param = {
                     "sandbox": {
-                        "tool_boundaries": render(SANDBOX_TOOL_BOUNDARIES, {}),
-                        "execution_env": render(SANDBOX_ENV_PROMPT, env_param),
-                        "agent_skill_system": render(
-                            AGENT_SKILL_SYSTEM_PROMPT, skill_param
-                        )
-                        if sandbox_client.enable_skill
-                        else "",
+                        "tools": "\n- ".join([item for item in sandbox_tool_prompts]),
+                        "work_dir": sandbox_client.work_dir,
                         "use_agent_skill": sandbox_client.enable_skill,
+                        "agent_skill_dir": sandbox_client.skill_dir,
                     }
                 }
 
@@ -2114,7 +2251,26 @@ class ConversableAgent(Role, Agent):
         return results
 
     async def get_all_custom_variables(self) -> List[DynamicParam]:
-        return []
+        from derisk.agent.core.reasoning.reasoning_arg_supplier import (
+            ReasoningArgSupplier,
+        )
+
+        arg_suppliers: Dict[str, ReasoningArgSupplier] = (
+            ReasoningArgSupplier.get_all_suppliers()
+        )
+        results: List[DynamicParam] = []
+        for k, v in arg_suppliers.items():
+            results.append(
+                DynamicParam(
+                    key=k,
+                    name=v.arg_key,
+                    type=DynamicParamType.CUSTOM.value,
+                    value=None,
+                    description=v.description,
+                    config=v.params,
+                )
+            )
+        return results
 
     async def variables_view(
         self, params: List[DynamicParam], **kwargs
@@ -2137,6 +2293,25 @@ class ConversableAgent(Role, Agent):
                         f"Agent[{self.role}]内置变量[{param.name}]无法可视化！{str(e)}"
                     )
                     view.can_render = False
+
+                param_view[param.key] = view
+
+            else:
+                arg_supplier: ReasoningArgSupplier = ReasoningArgSupplier.get_supplier(
+                    param.key
+                )
+                view = DynamicParamView(**param.to_dict())
+                try:
+                    prompt_param: dict[str, str] = {}
+                    await arg_supplier.supply(prompt_param, self, self.agent_context)
+                    view.render_content = prompt_param[param.key]
+                except Exception as e:
+                    logger.warning(
+                        f"Agent[{self.role}]自定义变量[{param.name}]无法可视化！{str(e)}"
+                    )
+                    view.can_render = False
+
+                view.render_mode = DynamicParamRenderType.VIS.value
 
                 param_view[param.key] = view
 
@@ -2179,196 +2354,24 @@ class ConversableAgent(Role, Agent):
                 continue
             elif param.type == DynamicParamType.AGENT.value:
                 continue
-            elif param.name == "history":
-                await self._supply_history_variable(
-                    variable_values,
-                    received_message=received_message,
-                    **kwargs,
+            else:
+                arg_supplier: ReasoningArgSupplier = ReasoningArgSupplier.get_supplier(
+                    param.name
                 )
+                if arg_supplier:
+                    await arg_supplier.supply(
+                        variable_values,
+                        agent=self,
+                        agent_context=self.not_null_agent_context,
+                        received_message=received_message,
+                        **kwargs,
+                    )
+                else:
+                    logger.warning(
+                        f"No supplier found for dynamic variable: {param.name}"
+                    )
 
         return variable_values
-
-    async def _supply_history_variable(
-        self,
-        prompt_param: dict,
-        received_message: Optional[AgentMessage] = None,
-        **kwargs,
-    ) -> None:
-        from .. import BlankAction
-        from .action.report_action import ReportAction
-        from derisk_serve.agent.db import GptsConversationsDao
-
-        _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
-
-        histories: list[str] = []
-        history_files: list[str] = []
-        prompt_param["resources"] = []
-        conversations = GptsConversationsDao().get_like_conv_id_asc(
-            self._session_id_from_conv_id(self.not_null_agent_context.conv_id)
-        )
-        for idx, conversation in enumerate(conversations):
-            messages: List[GptsMessage] = await self.memory.gpts_memory.get_messages(
-                conv_id=conversation.conv_id
-            )
-            messages = self._kick_message(messages, received_message)
-            if not messages:
-                return
-            is_current_conv = idx >= len(conversations) - 1
-            if len(conversations) > 1:
-                histories.append(
-                    "#### 当前轮次会话"
-                    if is_current_conv
-                    else f"#### 第{idx + 1}轮会话\n\n"
-                )
-            for message in messages:
-                if (
-                    message.sender_name == "User"
-                    and not is_current_conv
-                    and len(conversations) > 1
-                ):
-                    histories.append(
-                        f"sender: User\nreceiver: {message.receiver_name}\ncontent: {message.content}"
-                    )
-
-                action_reports = message.action_report or []
-
-                for action_report in action_reports:
-                    if not action_report.content:
-                        continue
-
-                    if action_report.name not in [BlankAction.name, ReportAction.name]:
-                        continue
-
-                    if self._custom_history_filter(
-                        received_message=received_message,
-                        message=message,
-                        action_report=action_report,
-                        sender_agent_name=message.sender_name,
-                        receiver_agent_name=message.receiver_name,
-                    ):
-                        continue
-                    if action_report.output_files:
-                        history_files.extend(action_report.output_files)
-
-                    action_report_prompt = self._format_action_report_prompt(
-                        message=message, action_report=action_report
-                    )
-                    if action_report.resource_value:
-                        resource_value = action_report.resource_value
-                        prompt_param["resources"].append(resource_value)
-                    if action_report_prompt:
-                        histories.append(action_report_prompt)
-
-        history: str = self._join_history(histories, history_files)
-        if history:
-            prompt_param["history"] = history
-        else:
-            prompt_param["history"] = ""
-
-    def _kick_message(
-        self,
-        messages: List[GptsMessage],
-        received_message: AgentMessage,
-    ) -> List[GptsMessage]:
-        return messages
-
-    def _kick_actions_prompts(self, histories: list[str]) -> tuple[int, list[str]]:
-        if not histories:
-            return 0, histories
-
-        length = self._get_agent_llm_context_length() - 8000
-        idx = len(histories) - 1
-        history_size = 0
-        for index in range(len(histories) - 1, -1, -1):
-            new_size = history_size + len(histories[index])
-            if new_size > length:
-                break
-            idx = index
-            history_size = new_size
-        return idx, histories[idx:]
-
-    def _custom_history_filter(
-        self,
-        received_message: AgentMessage,
-        message: GptsMessage,
-        action_report: ActionOutput,
-        sender_agent_name: str,
-        receiver_agent_name: str,
-    ) -> bool:
-        return False
-
-    def _format_action_report_prompt(
-        self, message: GptsMessage, action_report: ActionOutput
-    ) -> Optional[str]:
-        return "\n".join(
-            [
-                item
-                for item in [
-                    f"<!-- action|start -->\n",
-                    f"#### action_id: {action_report.action_id}"
-                    if action_report.action_id
-                    else None,
-                    f"message_id: {message.message_id}" if message.message_id else None,
-                    f"action_handler: {message.sender_name}"
-                    if message.sender_name
-                    else None,
-                    f"action_name: {action_report.action_name}"
-                    if action_report.action_name
-                    else None,
-                    f"action: {action_report.action}" if action_report.action else None,
-                    f"action_input: {action_report.action_input}"
-                    if action_report.action_input
-                    else None,
-                    f"action_output: {action_report.content}",
-                    f"<!-- action|end -->",
-                ]
-                if item
-            ]
-        )
-
-    def _join_history(self, histories: list, history_files: list[str]) -> Optional[str]:
-        size, kicked_histories = self._kick_actions_prompts(histories)
-        if size:
-            kicked_histories = [
-                f"由于长度限制, {size}条最早的历史数据被剔除"
-            ] + kicked_histories
-
-        history_prompt = (
-            "> 已执行动作包裹在<!-- action|start -->、<!-- action|end -->内:\n\n"
-            if kicked_histories and (kicked_histories[0].startswith("<!-- action"))
-            else ""
-        ) + ("\n\n".join(kicked_histories))
-
-        _FILE_DESC = "\n### 文件信息汇总\n 能力执行过程中产生的文件列表详细信息如下，其中字段含义：file_full_name(文件全路径名)、 file_type(文件类型)、structure(文件结构)、sample_data(文件示例数据，仅包含文件中很少一部分数据)、file_desc(文件描述)\n "
-        if history_files:
-            history_prompt += _FILE_DESC + ("\n".join(history_files))
-
-        return history_prompt
-
-    def _get_agent_llm_context_length(self) -> int:
-        default_length = 32000
-        if not hasattr(self, "llm_config") or not self.llm_config:
-            return default_length
-
-        model_list = self.llm_config.strategy_context
-        if not model_list:
-            return default_length
-        if isinstance(model_list, str):
-            try:
-                model_list = json.loads(model_list)
-            except Exception:
-                return default_length
-
-        MODEL_CONTEXT_LENGTH = {
-            "aistudio/DeepSeek-V3": 64000,
-            "aistudio/DeepSeek-R1": 64000,
-            "aistudio/QwQ-32B": 64000,
-        }
-        return MODEL_CONTEXT_LENGTH.get(model_list[0], default_length)
-
-    def _session_id_from_conv_id(self, conv_id: str) -> str:
-        idx = conv_id.rfind("_")
-        return conv_id[:idx] if idx else conv_id
 
     def _excluded_models(
         self,
@@ -2733,131 +2736,6 @@ class ConversableAgent(Role, Agent):
 def _new_system_message(content):
     """Return the system message."""
     return [{"content": content, "role": ModelMessageRoleType.SYSTEM}]
-
-
-def _sanitize_tool_messages(messages: List[dict]) -> List[dict]:
-    """Sanitize message sequence to ensure proper tool_calls/tool response pairing.
-
-    OpenAI-compatible APIs have strict requirements:
-    1. Every message with role='tool' must be preceded by an assistant message
-       with a matching 'tool_calls' entry (same tool_call_id)
-    2. Every tool_call in an assistant message must have a corresponding tool
-       response message with matching tool_call_id
-
-    Sending invalid sequences causes 400 errors like:
-      - "messages with role 'tool' must be a response to a preceeding message
-         with 'tool_calls'"
-      - "An assistant message with 'tool_calls' must be followed by tool
-         messages responding to each 'tool_call_id'"
-
-    This function performs two passes:
-    1. Remove orphaned tool response messages (tool responses without matching tool_calls)
-    2. Strip tool_calls from assistant messages that don't have corresponding tool responses
-
-    Returns:
-        Sanitized message list that conforms to OpenAI API requirements
-    """
-    if not messages:
-        return messages
-
-    # First pass: identify all tool_call_ids from tool responses
-    tool_response_ids: set = set()
-    for msg in messages:
-        if msg.get("role") == ModelMessageRoleType.TOOL:
-            tool_call_id = msg.get("tool_call_id")
-            if tool_call_id:
-                tool_response_ids.add(tool_call_id)
-
-    # Second pass: build sanitized list
-    sanitized: List[dict] = []
-    orphan_tool_response_count = 0
-    orphan_tool_call_count = 0
-
-    for msg in messages:
-        role = msg.get("role", "")
-
-        if role == ModelMessageRoleType.TOOL or role == "tool":
-            tool_call_id = msg.get("tool_call_id")
-            # Check that the last assistant message has matching tool_calls
-            prev_assistant = None
-            for m in reversed(sanitized):
-                if m.get("role") in (ModelMessageRoleType.AI, "assistant"):
-                    prev_assistant = m
-                    break
-
-            if prev_assistant and prev_assistant.get("tool_calls"):
-                prev_tool_call_ids = {
-                    tc.get("id")
-                    for tc in prev_assistant.get("tool_calls", [])
-                    if tc.get("id")
-                }
-                if tool_call_id in prev_tool_call_ids:
-                    sanitized.append(msg)
-                else:
-                    orphan_tool_response_count += 1
-                    logger.warning(
-                        f"[_sanitize_tool_messages] Dropped orphaned tool message "
-                        f"(tool_call_id={tool_call_id!r}) — "
-                        f"no matching tool_call in preceding assistant message."
-                    )
-            else:
-                orphan_tool_response_count += 1
-                logger.warning(
-                    f"[_sanitize_tool_messages] Dropped orphaned tool message "
-                    f"(tool_call_id={tool_call_id!r}) — "
-                    f"no preceding assistant message with tool_calls."
-                )
-
-        elif role in (ModelMessageRoleType.AI, "assistant"):
-            tool_calls = msg.get("tool_calls")
-            if tool_calls:
-                # Filter tool_calls to only include those with matching responses
-                valid_tool_calls = [
-                    tc for tc in tool_calls if tc.get("id") in tool_response_ids
-                ]
-
-                if len(valid_tool_calls) < len(tool_calls):
-                    dropped_ids = [
-                        tc.get("id")
-                        for tc in tool_calls
-                        if tc.get("id") not in tool_response_ids
-                    ]
-                    orphan_tool_call_count += len(dropped_ids)
-                    logger.warning(
-                        f"[_sanitize_tool_messages] Stripped {len(dropped_ids)} tool_call(s) "
-                        f"from assistant message with no matching tool response: {dropped_ids}"
-                    )
-
-                if valid_tool_calls:
-                    # Create a copy with filtered tool_calls
-                    msg_copy = dict(msg)
-                    msg_copy["tool_calls"] = valid_tool_calls
-                    sanitized.append(msg_copy)
-                elif msg.get("content"):
-                    # If no valid tool_calls but has content, keep message without tool_calls
-                    msg_copy = dict(msg)
-                    msg_copy.pop("tool_calls", None)
-                    sanitized.append(msg_copy)
-                else:
-                    # Empty assistant message with only invalid tool_calls, skip it
-                    logger.warning(
-                        f"[_sanitize_tool_messages] Dropped empty assistant message "
-                        f"with only orphaned tool_calls."
-                    )
-            else:
-                sanitized.append(msg)
-
-        else:
-            sanitized.append(msg)
-
-    if orphan_tool_response_count or orphan_tool_call_count:
-        logger.warning(
-            f"[_sanitize_tool_messages] Sanitization complete: "
-            f"removed {orphan_tool_response_count} orphaned tool response(s), "
-            f"stripped {orphan_tool_call_count} orphaned tool_call(s)."
-        )
-
-    return sanitized
 
 
 def _is_list_of_type(lst: List[Any], type_cls: type) -> bool:

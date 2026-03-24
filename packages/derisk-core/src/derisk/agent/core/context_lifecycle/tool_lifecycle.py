@@ -64,7 +64,7 @@ class ToolLifecycleManager:
     """
     
     DEFAULT_ALWAYS_LOADED = {
-        "think", "question", "confirm", "notify", "progress"
+        "ask_user"
     }
     
     def __init__(

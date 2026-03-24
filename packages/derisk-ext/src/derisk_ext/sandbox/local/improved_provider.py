@@ -39,8 +39,9 @@ from derisk_ext.sandbox.local.playwright_browser_client import (
 
 logger = logging.getLogger(__name__)
 
-# Default skill directory for local sandbox (uses DATA_DIR/skill)
+# Default directories for local sandbox (under DATA_DIR)
 DEFAULT_LOCAL_SANDBOX_SKILL_DIR = os.path.join(DATA_DIR, "skill")
+DEFAULT_LOCAL_SANDBOX_WORK_DIR = os.path.join(DATA_DIR, "workspace")
 
 
 @dataclass
@@ -48,7 +49,7 @@ class LocalSandboxConfig:
     """Configuration for local sandbox provider."""
 
     # Runtime settings
-    work_dir: str = "/workspace"
+    work_dir: str = DEFAULT_LOCAL_SANDBOX_WORK_DIR
     skill_dir: str = DEFAULT_LOCAL_SANDBOX_SKILL_DIR
     runtime_id: str = "improved_local_runtime"
 
@@ -71,6 +72,10 @@ class LocalSandboxConfig:
     max_sessions: int = 10
     session_idle_timeout: int = 3600  # 1 hour
 
+    # Git sync settings
+    enable_git_sync: bool = False
+    git_sync_timeout: int = 5  # seconds
+
     def __post_init__(self):
         if self.browser_viewport is None:
             self.browser_viewport = {"width": 1280, "height": 720}
@@ -79,7 +84,7 @@ class LocalSandboxConfig:
     def from_dict(cls, config_dict: Dict[str, Any]) -> "LocalSandboxConfig":
         """Create config from dictionary (e.g., from TOML)."""
         return cls(
-            work_dir=config_dict.get("work_dir", "/workspace"),
+            work_dir=config_dict.get("work_dir", DEFAULT_LOCAL_SANDBOX_WORK_DIR),
             skill_dir=config_dict.get("skill_dir", DEFAULT_LOCAL_SANDBOX_SKILL_DIR),
             runtime_id=config_dict.get("runtime_id", "improved_local_runtime"),
             default_timeout=config_dict.get("default_timeout", 300),
@@ -95,6 +100,8 @@ class LocalSandboxConfig:
             ),
             max_sessions=config_dict.get("max_sessions", 10),
             session_idle_timeout=config_dict.get("session_idle_timeout", 3600),
+            enable_git_sync=config_dict.get("enable_git_sync", False),
+            git_sync_timeout=config_dict.get("git_sync_timeout", 5),
         )
 
     def to_session_config(self) -> SessionConfig:
@@ -202,12 +209,12 @@ class ImprovedLocalSandbox(SandboxBase):
         kwargs.setdefault("local_sandbox_config", {})
         kwargs["local_sandbox_config"]["allow_network"] = allow_internet_access
 
-        # Set work_dir if provided (from kwargs)
-        if "work_dir" in kwargs:
+        # Set work_dir if provided and not None (from kwargs)
+        if "work_dir" in kwargs and kwargs["work_dir"] is not None:
             kwargs["local_sandbox_config"]["work_dir"] = kwargs["work_dir"]
 
-        # Set skill_dir if provided (from kwargs)
-        if "skill_dir" in kwargs:
+        # Set skill_dir if provided and not None (from kwargs)
+        if "skill_dir" in kwargs and kwargs["skill_dir"] is not None:
             kwargs["local_sandbox_config"]["skill_dir"] = kwargs["skill_dir"]
 
         # Create instance
@@ -317,6 +324,10 @@ class ImprovedLocalSandbox(SandboxBase):
         from their remote origins. It also tries to sync from database-tracked
         repos if available.
         """
+        if not self._config.enable_git_sync:
+            logger.debug("Git sync disabled, skipping")
+            return
+
         skill_dir = self._config.skill_dir
 
         if not skill_dir or not os.path.exists(skill_dir):
@@ -331,43 +342,55 @@ class ImprovedLocalSandbox(SandboxBase):
             logger.warning("GitPython not installed, skipping git sync")
             return
 
-        synced_count = 0
-        failed_count = 0
+        async def _do_sync():
+            synced_count = 0
+            failed_count = 0
+
+            try:
+                synced_from_db = await self._sync_from_database_tracked_repos()
+                synced_count += synced_from_db
+            except Exception as e:
+                logger.warning(f"Failed to sync from database-tracked repos: {e}")
+
+            try:
+                for entry in os.scandir(skill_dir):
+                    if entry.is_dir():
+                        git_dir = os.path.join(entry.path, ".git")
+                        if os.path.exists(git_dir):
+                            try:
+                                repo = Repo(entry.path)
+                                if repo.remotes.origin:
+                                    logger.info(
+                                        f"Pulling updates for skill: {entry.name}"
+                                    )
+                                    repo.remotes.origin.pull()
+                                    synced_count += 1
+                                    logger.info(
+                                        f"Successfully synced skill: {entry.name}"
+                                    )
+                            except GitCommandError as e:
+                                logger.warning(
+                                    f"Failed to pull updates for {entry.name}: {e}"
+                                )
+                                failed_count += 1
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error processing git repo {entry.name}: {e}"
+                                )
+                                failed_count += 1
+            except Exception as e:
+                logger.warning(f"Error scanning skill directory for git repos: {e}")
+
+            if synced_count > 0 or failed_count > 0:
+                logger.info(
+                    f"Skill sync completed: {synced_count} synced, {failed_count} failed"
+                )
 
         try:
-            synced_from_db = await self._sync_from_database_tracked_repos()
-            synced_count += synced_from_db
-        except Exception as e:
-            logger.warning(f"Failed to sync from database-tracked repos: {e}")
-
-        try:
-            for entry in os.scandir(skill_dir):
-                if entry.is_dir():
-                    git_dir = os.path.join(entry.path, ".git")
-                    if os.path.exists(git_dir):
-                        try:
-                            repo = Repo(entry.path)
-                            if repo.remotes.origin:
-                                logger.info(f"Pulling updates for skill: {entry.name}")
-                                repo.remotes.origin.pull()
-                                synced_count += 1
-                                logger.info(f"Successfully synced skill: {entry.name}")
-                        except GitCommandError as e:
-                            logger.warning(
-                                f"Failed to pull updates for {entry.name}: {e}"
-                            )
-                            failed_count += 1
-                        except Exception as e:
-                            logger.warning(
-                                f"Error processing git repo {entry.name}: {e}"
-                            )
-                            failed_count += 1
-        except Exception as e:
-            logger.warning(f"Error scanning skill directory for git repos: {e}")
-
-        if synced_count > 0 or failed_count > 0:
-            logger.info(
-                f"Skill sync completed: {synced_count} synced, {failed_count} failed"
+            await asyncio.wait_for(_do_sync(), timeout=self._config.git_sync_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Git sync timed out after {self._config.git_sync_timeout}s, skipping"
             )
 
     async def _sync_from_database_tracked_repos(self) -> int:
@@ -601,7 +624,7 @@ def get_local_sandbox_config_from_toml(toml_content: str) -> LocalSandboxConfig:
     Expected TOML format:
     ```toml
     [sandbox.local]
-    work_dir = "/workspace"
+    work_dir = "/path/to/workspace"  # Default: DATA_DIR/workspace
     skill_dir = "/path/to/data/skill"  # Default: DATA_DIR/skill
     default_timeout = 300
     max_memory = 268435456  # 256MB

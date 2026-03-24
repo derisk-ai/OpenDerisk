@@ -1,0 +1,18 @@
+<available_other_resources>
+以下是其他可用资源：
+
+{% for resource in resources %}
+- <resource>
+  <type>{{ resource.type }}</type>
+  <name>{{ resource.name }}</name>
+  <description>{{ resource.description }}</description>
+  {% if resource.metadata %}
+  <metadata>
+  {% for key, value in resource.metadata.items() %}
+    - {{ key }}: {{ value }}
+  {% endfor %}
+  </metadata>
+  {% endif %}
+</resource>
+{% endfor %}
+</available_other_resources>

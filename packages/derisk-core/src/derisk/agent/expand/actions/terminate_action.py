@@ -1,3 +1,14 @@
+"""
+Terminate Action - DEPRECATED
+
+This module is deprecated and will be removed in a future version.
+The terminate tool has been removed from the default tool injection.
+
+Reason: The terminate functionality is now handled differently in the agent loop.
+"""
+
+import warnings
+
 from typing import Optional
 
 from derisk.agent import BlankAction, Resource
@@ -45,8 +56,12 @@ Terminate
         If you want skip the action, return None.
         """
         if tool_call.name == cls.name:
-            final_anwser = tool_call.args.get('output') if tool_call.args else None
-            return cls(action_uid=tool_call.tool_call_id, action_input=final_anwser, terminate=True)
+            final_anwser = tool_call.args.get("output") if tool_call.args else None
+            return cls(
+                action_uid=tool_call.tool_call_id,
+                action_input=final_anwser,
+                terminate=True,
+            )
         else:
             return None
 
@@ -77,7 +92,6 @@ Terminate
         if "final_answer" in kwargs:
             return kwargs["final_answer"]
         return args[0] if args else "terminate unknown"
-
 
     async def async_execute(self, *args, **kwargs):
         return self.execute(*args, **kwargs)

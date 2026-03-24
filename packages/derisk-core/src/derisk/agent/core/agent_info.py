@@ -308,7 +308,7 @@ class AgentRegistry:
         """Register default built-in agents."""
         registry = cls.get_instance()
 
-        default_permission = {"*": "allow", "question": "deny"}
+        default_permission = {"*": "allow", "ask_user": "deny"}
 
         registry.register(
             AgentInfo(
@@ -317,7 +317,7 @@ class AgentRegistry:
                 mode=AgentMode.PRIMARY,
                 permission={
                     **default_permission,
-                    "question": "allow",
+                    "ask_user": "allow",
                 },
                 native=True,
             )

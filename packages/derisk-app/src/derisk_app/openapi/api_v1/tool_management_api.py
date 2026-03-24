@@ -4,6 +4,8 @@ Tool Management API - 工具管理API
 提供工具分组管理和Agent工具绑定配置的API端点
 """
 
+import json
+import logging
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -17,16 +19,167 @@ from derisk.agent.tools.tool_manager import (
 )
 from derisk.agent.tools.registry import tool_registry, register_builtin_tools
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/tools", tags=["Tool Management"])
 
 
 # ========== 全局初始化 ==========
+
+_load_callback_registered = False
 
 
 def ensure_tools_initialized():
     """确保工具已初始化"""
     if not hasattr(tool_registry, "_initialized") or not tool_registry._initialized:
         register_builtin_tools()
+
+    # 注册持久化加载回调（只注册一次）
+    global _load_callback_registered
+    if not _load_callback_registered:
+        tool_manager.set_load_callback(_load_tool_bindings_from_resource_tool)
+        _load_callback_registered = True
+
+
+def _parse_resource_tool_ids(resource_tool_raw) -> Optional[List[str]]:
+    """
+    解析 resource_tool 字段中的工具ID列表
+
+    Args:
+        resource_tool_raw: resource_tool 字段的原始值（JSON字符串或列表）
+
+    Returns:
+        工具ID列表，或 None
+    """
+    if not resource_tool_raw:
+        return None
+
+    resource_tool = resource_tool_raw
+    if isinstance(resource_tool, str):
+        try:
+            resource_tool = json.loads(resource_tool)
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(resource_tool, list) or len(resource_tool) == 0:
+        return None
+
+    tool_ids = []
+    for item in resource_tool:
+        try:
+            value = item.get("value", "{}")
+            if isinstance(value, str):
+                parsed = json.loads(value)
+            else:
+                parsed = value
+            tool_id = parsed.get("tool_id") or parsed.get("key")
+            if tool_id:
+                tool_ids.append(tool_id)
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+    return tool_ids if tool_ids else None
+
+
+def _load_tool_bindings_from_resource_tool(
+    app_id: str, agent_name: str
+) -> Optional[List[str]]:
+    """
+    从数据库 ServeEntity.resource_tool 字段加载持久化的工具绑定列表
+
+    Returns:
+        已绑定的工具ID列表，或 None 表示无持久化数据
+    """
+    try:
+        from derisk_serve.building.config.models.models import ServeEntity
+        from derisk.storage.metadata import UnifiedDBManagerFactory
+        from derisk.component import ComponentType
+        from derisk._private.config import Config as DeriskConfig
+
+        CFG = DeriskConfig()
+        system_app = CFG.SYSTEM_APP
+        if not system_app:
+            logger.warning(
+                f"[ToolMgmt] SYSTEM_APP not initialized, cannot load tool bindings"
+            )
+            return None
+
+        db_manager_factory: UnifiedDBManagerFactory = system_app.get_component(
+            ComponentType.UNIFIED_METADATA_DB_MANAGER_FACTORY,
+            UnifiedDBManagerFactory,
+            default_component=None,
+        )
+        if not db_manager_factory:
+            logger.warning(
+                f"[ToolMgmt] UnifiedDBManagerFactory not found, cannot load tool bindings"
+            )
+            return None
+
+        db_manager = db_manager_factory.create()
+
+        with db_manager.session() as session:
+            # 1. 优先查 temp 配置（编辑页面用的就是这个）
+            entity = (
+                session.query(ServeEntity)
+                .filter(
+                    ServeEntity.app_code == app_id,
+                    ServeEntity.is_published == False,
+                )
+                .order_by(ServeEntity.gmt_modified.desc())
+                .first()
+            )
+
+            logger.info(
+                f"[ToolMgmt] _load_tool_bindings: app_id={app_id}, temp_entity_found={entity is not None}"
+            )
+
+            if entity and entity.resource_tool:
+                logger.info(
+                    f"[ToolMgmt] _load_tool_bindings: raw resource_tool length={len(entity.resource_tool)}"
+                )
+                tool_ids = _parse_resource_tool_ids(entity.resource_tool)
+                if tool_ids:
+                    logger.info(
+                        f"[ToolMgmt] Loaded tools from temp config for {app_id}: {tool_ids}"
+                    )
+                    return tool_ids
+                else:
+                    logger.warning(
+                        f"[ToolMgmt] _parse_resource_tool_ids returned None for temp config"
+                    )
+
+            # 2. 查最新的 published 配置
+            entity = (
+                session.query(ServeEntity)
+                .filter(
+                    ServeEntity.app_code == app_id,
+                    ServeEntity.is_published == True,
+                )
+                .order_by(ServeEntity.gmt_modified.desc())
+                .first()
+            )
+
+            logger.info(
+                f"[ToolMgmt] _load_tool_bindings: app_id={app_id}, published_entity_found={entity is not None}"
+            )
+
+            if entity and entity.resource_tool:
+                logger.info(
+                    f"[ToolMgmt] _load_tool_bindings: published resource_tool length={len(entity.resource_tool)}"
+                )
+                tool_ids = _parse_resource_tool_ids(entity.resource_tool)
+                if tool_ids:
+                    logger.info(
+                        f"[ToolMgmt] Loaded tools from published config for {app_id}: {tool_ids}"
+                    )
+                    return tool_ids
+
+        return None
+    except Exception as e:
+        logger.warning(
+            f"[ToolMgmt] Failed to load tool bindings from resource_tool for {app_id}: {e}"
+        )
+        return None
 
 
 def get_sandbox_enabled_from_app(app_id: Optional[str]) -> bool:
@@ -44,11 +197,27 @@ def get_sandbox_enabled_from_app(app_id: Optional[str]) -> bool:
 
     try:
         from derisk_serve.building.config.models.models import ServeEntity
-        from derisk.storage.metadata import get_storage
+        from derisk.storage.metadata import UnifiedDBManagerFactory
+        from derisk.component import ComponentType
+        from derisk._private.config import Config as DeriskConfig
         import json
 
-        storage = get_storage()
-        with storage.session() as session:
+        CFG = DeriskConfig()
+        system_app = CFG.SYSTEM_APP
+        if not system_app:
+            return False
+
+        db_manager_factory: UnifiedDBManagerFactory = system_app.get_component(
+            ComponentType.UNIFIED_METADATA_DB_MANAGER_FACTORY,
+            UnifiedDBManagerFactory,
+            default_component=None,
+        )
+        if not db_manager_factory:
+            return False
+
+        db_manager = db_manager_factory.create()
+
+        with db_manager.session() as session:
             config = (
                 session.query(ServeEntity)
                 .filter(
