@@ -1,6 +1,6 @@
 'use client';
 
-import { apiInterceptors, getChannels, deleteChannel, testChannel } from '@/client/api';
+import { apiInterceptors, getChannels, deleteChannel, testChannel, startChannel, stopChannel } from '@/client/api';
 import { ChannelResponse } from '@/client/api/channel';
 import {
   ApiOutlined,
@@ -11,6 +11,8 @@ import {
   PlusOutlined,
   ReloadOutlined,
   ApiTwoTone,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { App, Button, Card, Space, Switch, Table, Tag, Typography, Popconfirm, Tooltip, Empty } from 'antd';
@@ -45,6 +47,7 @@ export default function ChannelPage() {
   const [includeDisabled, setIncludeDisabled] = useState(false);
   const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
+  const [operatingChannelId, setOperatingChannelId] = useState<string | null>(null);
 
   // Fetch channels
   const {
@@ -113,6 +116,64 @@ export default function ChannelPage() {
       },
       onError: () => {
         message.error(t('channel_test_failed'));
+      },
+    }
+  );
+
+  // Start channel
+  const { run: runStartChannel } = useRequest(
+    async (channelId: string) => {
+      setOperatingChannelId(channelId);
+      const [err, res] = await apiInterceptors(startChannel(channelId));
+      if (err) {
+        throw err;
+      }
+      return res;
+    },
+    {
+      manual: true,
+      onFinally: () => {
+        setOperatingChannelId(null);
+      },
+      onSuccess: (data) => {
+        if (data?.started) {
+          message.success(t('channel_start_success'));
+        } else {
+          message.error(t('channel_start_failed'));
+        }
+        refreshChannels();
+      },
+      onError: () => {
+        message.error(t('channel_start_failed'));
+      },
+    }
+  );
+
+  // Stop channel
+  const { run: runStopChannel } = useRequest(
+    async (channelId: string) => {
+      setOperatingChannelId(channelId);
+      const [err, res] = await apiInterceptors(stopChannel(channelId));
+      if (err) {
+        throw err;
+      }
+      return res;
+    },
+    {
+      manual: true,
+      onFinally: () => {
+        setOperatingChannelId(null);
+      },
+      onSuccess: (data) => {
+        if (data?.stopped) {
+          message.success(t('channel_stop_success'));
+        } else {
+          message.error(t('channel_stop_failed'));
+        }
+        refreshChannels();
+      },
+      onError: () => {
+        message.error(t('channel_stop_failed'));
       },
     }
   );
@@ -186,6 +247,31 @@ export default function ChannelPage() {
       key: 'action',
       render: (_: any, record: ChannelResponse) => (
         <Space size="small">
+          {record.status === 'connected' ? (
+            <Popconfirm
+              title={t('channel_confirm_stop')}
+              onConfirm={() => runStopChannel(record.id)}
+              okText={t('Yes')}
+              cancelText={t('No')}
+            >
+              <Tooltip title={t('channel_stop')}>
+                <Button
+                  type="text"
+                  icon={<PauseCircleOutlined />}
+                  loading={operatingChannelId === record.id}
+                />
+              </Tooltip>
+            </Popconfirm>
+          ) : (
+            <Tooltip title={t('channel_start')}>
+              <Button
+                type="text"
+                icon={<PlayCircleOutlined />}
+                loading={operatingChannelId === record.id}
+                onClick={() => runStartChannel(record.id)}
+              />
+            </Tooltip>
+          )}
           <Tooltip title={t('Edit')}>
             <Button
               type="text"

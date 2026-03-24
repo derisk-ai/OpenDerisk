@@ -38,6 +38,7 @@ def scan_serve_configs():
         "derisk_serve.asset",
         "derisk_serve.config",
         "derisk_serve.version",
+        "derisk_serve.channel",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
@@ -457,3 +458,18 @@ def register_serve_apps(
     )
 
     # ################################ Scene Serve Register End   ################
+
+    # ################################ Streaming Config Serve Register Begin ################
+    from derisk_serve.streaming.serve import Serve as StreamingConfigServe
+
+    system_app.register(
+        StreamingConfigServe,
+        config=get_config(
+            serve_configs,
+            StreamingConfigServe.name,
+            derisk_serve.streaming.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Streaming Config Serve Register End   ################

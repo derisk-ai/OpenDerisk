@@ -49,3 +49,16 @@ export const stopChat = (data: {conv_session_id: string}) => {
   );
 };
 
+export type ChatQueryResponse = {
+  conv_id: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED' | 'WAITING' | (string & {});
+  is_final: boolean;
+  vis_final: string;
+  user_answer: string;
+  vis_render: string;
+};
+
+export const queryChatStatus = (convId: string) => {
+  return GET<null, ChatQueryResponse>(`/api/v1/chat/query?conv_id=${convId}`);
+};
+

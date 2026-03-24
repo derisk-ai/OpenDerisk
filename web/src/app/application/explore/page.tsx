@@ -253,7 +253,15 @@ export default function ExplorePage() {
                       <div className='explore-card-identity' onClick={() => handleChat(item)}>
                         <div className='explore-card-avatar'>
                           {item.icon ? (
-                            <img src={item.icon} alt={item.app_name} />
+                            <img
+                              src={item.icon}
+                              alt={item.app_name}
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.onerror = null;
+                                target.src = '/icons/colorful-plugin.png';
+                              }}
+                            />
                           ) : (
                             <span className='explore-card-avatar-text'>
                               {(item.app_name || 'A').charAt(0).toUpperCase()}

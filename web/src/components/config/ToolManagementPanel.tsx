@@ -58,8 +58,6 @@ import {
 
 const { Text, Title, Paragraph } = Typography;
 const { Option } = Select;
-const { Panel } = Collapse;
-const { TabPane } = Tabs;
 
 // ========== Types ==========
 
@@ -221,163 +219,181 @@ function ToolDetailModal({
       footer={<Button onClick={onClose}>Close</Button>}
       width={700}
     >
-      <Tabs defaultActiveKey="overview">
-        <TabPane tab="Overview" key="overview">
-          <Descriptions column={2} size="small" bordered>
-            <Descriptions.Item label="Name" span={1}>
-              <Text strong>{tool.name}</Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="Version" span={1}>
-              {tool.version}
-            </Descriptions.Item>
-            <Descriptions.Item label="Description" span={2}>
-              {tool.description}
-            </Descriptions.Item>
-            <Descriptions.Item label="Category" span={1}>
-              <Tag color={getCategoryColor(tool.category)} icon={getCategoryIcon(tool.category)}>
-                {formatCategory(tool.category)}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Source" span={1}>
-              <Tag>{tool.source}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Author" span={1}>
-              {tool.author ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Timeout" span={1}>
-              {tool.timeout}s
-            </Descriptions.Item>
-          </Descriptions>
+      <Tabs 
+        defaultActiveKey="overview"
+        items={[
+          {
+            key: 'overview',
+            label: 'Overview',
+            children: (
+              <>
+                <Descriptions column={2} size="small" bordered>
+                  <Descriptions.Item label="Name" span={1}>
+                    <Text strong>{tool.name}</Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Version" span={1}>
+                    {tool.version}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Description" span={2}>
+                    {tool.description}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Category" span={1}>
+                    <Tag color={getCategoryColor(tool.category)} icon={getCategoryIcon(tool.category)}>
+                      {formatCategory(tool.category)}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Source" span={1}>
+                    <Tag>{tool.source}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Author" span={1}>
+                    {tool.author ?? '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Timeout" span={1}>
+                    {tool.timeout}s
+                  </Descriptions.Item>
+                </Descriptions>
 
-          {tool.tags.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <Text strong>Tags:</Text>
-              <div style={{ marginTop: 8 }}>
-                {tool.tags.map(tag => (
-                  <Tag key={tag}>{tag}</Tag>
-                ))}
-              </div>
-            </div>
-          )}
-        </TabPane>
+                {tool.tags.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong>Tags:</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {tool.tags.map(tag => (
+                        <Tag key={tag}>{tag}</Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'parameters',
+            label: 'Parameters',
+            children: tool.parameters.length === 0 ? (
+              <Empty description="No parameters" />
+            ) : (
+              <Table
+                dataSource={tool.parameters.map(p => ({ ...p, key: p.name }))}
+                columns={[
+                  {
+                    title: 'Name',
+                    dataIndex: 'name',
+                    key: 'name',
+                    render: (name: string, record: ToolParameter) => (
+                      <Space>
+                        <Text code>{name}</Text>
+                        {record.required && <Tag color="error">Required</Tag>}
+                        {record.sensitive && <Tag color="warning">Sensitive</Tag>}
+                      </Space>
+                    ),
+                  },
+                  {
+                    title: 'Type',
+                    dataIndex: 'type',
+                    key: 'type',
+                    render: (type: string) => <Tag>{type}</Tag>,
+                  },
+                  {
+                    title: 'Description',
+                    dataIndex: 'description',
+                    key: 'description',
+                    ellipsis: true,
+                  },
+                ]}
+                size="small"
+                pagination={false}
+              />
+            ),
+          },
+          {
+            key: 'authorization',
+            label: 'Authorization',
+            children: (
+              <>
+                <Descriptions column={2} size="small" bordered>
+                  <Descriptions.Item label="Requires Authorization" span={1}>
+                    {authorization.requires_authorization ? (
+                      <Tag color="warning" icon={<SafetyOutlined />}>Yes</Tag>
+                    ) : (
+                      <Tag color="success" icon={<CheckCircleOutlined />}>No</Tag>
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Risk Level" span={1}>
+                    <Tag color={getRiskLevelColor(authorization.risk_level)}>
+                      {authorization.risk_level.toUpperCase()}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Session Grant" span={1}>
+                    {authorization.support_session_grant ? (
+                      <Tag color="success">Supported</Tag>
+                    ) : (
+                      <Tag color="default">Not Supported</Tag>
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Grant TTL" span={1}>
+                    {authorization.grant_ttl ? `${authorization.grant_ttl}s` : 'Permanent'}
+                  </Descriptions.Item>
+                </Descriptions>
 
-        <TabPane tab="Parameters" key="parameters">
-          {tool.parameters.length === 0 ? (
-            <Empty description="No parameters" />
-          ) : (
-            <Table
-              dataSource={tool.parameters.map(p => ({ ...p, key: p.name }))}
-              columns={[
-                {
-                  title: 'Name',
-                  dataIndex: 'name',
-                  key: 'name',
-                  render: (name: string, record: ToolParameter) => (
-                    <Space>
-                      <Text code>{name}</Text>
-                      {record.required && <Tag color="error">Required</Tag>}
-                      {record.sensitive && <Tag color="warning">Sensitive</Tag>}
-                    </Space>
+                {authorization.risk_categories?.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong>Risk Categories:</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {authorization.risk_categories.map(cat => (
+                        <Tag key={cat} color="orange">{formatCategory(cat)}</Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {authorization.sensitive_parameters?.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong>Sensitive Parameters:</Text>
+                    <div style={{ marginTop: 8 }}>
+                      {authorization.sensitive_parameters.map(param => (
+                        <Tag key={param} color="red">{param}</Tag>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {authorization.authorization_prompt && (
+                  <div style={{ marginTop: 16 }}>
+                    <Text strong>Custom Authorization Prompt:</Text>
+                    <Paragraph
+                      style={{
+                        marginTop: 8,
+                        padding: 12,
+                        backgroundColor: '#f5f5f5',
+                        borderRadius: 4,
+                      }}
+                    >
+                      {authorization.authorization_prompt}
+                    </Paragraph>
+                  </div>
+                )}
+              </>
+            ),
+          },
+          ...(tool.examples.length > 0 ? [{
+            key: 'examples',
+            label: 'Examples',
+            children: (
+              <Collapse
+                items={tool.examples.map((example, index) => ({
+                  key: String(index),
+                  label: `Example ${index + 1}`,
+                  children: (
+                    <pre style={{ margin: 0, overflow: 'auto' }}>
+                      {JSON.stringify(example, null, 2)}
+                    </pre>
                   ),
-                },
-                {
-                  title: 'Type',
-                  dataIndex: 'type',
-                  key: 'type',
-                  render: (type: string) => <Tag>{type}</Tag>,
-                },
-                {
-                  title: 'Description',
-                  dataIndex: 'description',
-                  key: 'description',
-                  ellipsis: true,
-                },
-              ]}
-              size="small"
-              pagination={false}
-            />
-          )}
-        </TabPane>
-
-        <TabPane tab="Authorization" key="authorization">
-          <Descriptions column={2} size="small" bordered>
-            <Descriptions.Item label="Requires Authorization" span={1}>
-              {authorization.requires_authorization ? (
-                <Tag color="warning" icon={<SafetyOutlined />}>Yes</Tag>
-              ) : (
-                <Tag color="success" icon={<CheckCircleOutlined />}>No</Tag>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="Risk Level" span={1}>
-              <Tag color={getRiskLevelColor(authorization.risk_level)}>
-                {authorization.risk_level.toUpperCase()}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Session Grant" span={1}>
-              {authorization.support_session_grant ? (
-                <Tag color="success">Supported</Tag>
-              ) : (
-                <Tag color="default">Not Supported</Tag>
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="Grant TTL" span={1}>
-              {authorization.grant_ttl ? `${authorization.grant_ttl}s` : 'Permanent'}
-            </Descriptions.Item>
-          </Descriptions>
-
-          {authorization.risk_categories.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <Text strong>Risk Categories:</Text>
-              <div style={{ marginTop: 8 }}>
-                {authorization.risk_categories.map(cat => (
-                  <Tag key={cat} color="orange">{formatCategory(cat)}</Tag>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {authorization.sensitive_parameters.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <Text strong>Sensitive Parameters:</Text>
-              <div style={{ marginTop: 8 }}>
-                {authorization.sensitive_parameters.map(param => (
-                  <Tag key={param} color="red">{param}</Tag>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {authorization.authorization_prompt && (
-            <div style={{ marginTop: 16 }}>
-              <Text strong>Custom Authorization Prompt:</Text>
-              <Paragraph
-                style={{
-                  marginTop: 8,
-                  padding: 12,
-                  backgroundColor: '#f5f5f5',
-                  borderRadius: 4,
-                }}
-              >
-                {authorization.authorization_prompt}
-              </Paragraph>
-            </div>
-          )}
-        </TabPane>
-
-        {tool.examples.length > 0 && (
-          <TabPane tab="Examples" key="examples">
-            <Collapse>
-              {tool.examples.map((example, index) => (
-                <Panel header={`Example ${index + 1}`} key={index}>
-                  <pre style={{ margin: 0, overflow: 'auto' }}>
-                    {JSON.stringify(example, null, 2)}
-                  </pre>
-                </Panel>
-              ))}
-            </Collapse>
-          </TabPane>
-        )}
-      </Tabs>
+                }))}
+              />
+            ),
+          }] : []),
+        ]}
+      />
     </Modal>
   );
 }

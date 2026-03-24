@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SmartPluginIcon } from '@/components/icons/smart-plugin-icon';
 import './styles.css';
 
 interface WorkModeSelectProps {
@@ -19,7 +20,7 @@ interface WorkModeSelectProps {
 
 // 可选图标列表
 const iconOptions = [
-  { value: '/icons/colorful-plugin.png', label: 'agent0' },
+  { value: 'smart-plugin', label: '智能插件', isSvg: true },
   { value: '/agents/agent1.jpg', label: 'agent1' },
   { value: '/agents/agent2.jpg', label: 'agent2' },
   { value: '/agents/agent3.jpg', label: 'agent3' },
@@ -248,13 +249,19 @@ const CreateAppModal: React.FC<{
                 <div className="flex items-end gap-4">
                   {/* 左侧当前选中的图标 */}
                   <div className="flex flex-col items-center gap-2">
-                    <Image
-                      src={selectedIcon}
-                      width={48}
-                      height={48}
-                      alt="app icon"
-                      className="rounded-md border-2"
-                    />
+                    {selectedIcon === 'smart-plugin' ? (
+                      <div className="w-12 h-12 rounded-md border-2 border-gray-200 flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
+                        <SmartPluginIcon size={40} />
+                      </div>
+                    ) : (
+                      <Image
+                        src={selectedIcon}
+                        width={48}
+                        height={48}
+                        alt="app icon"
+                        className="rounded-md border-2"
+                      />
+                    )}
                   </div>
                   <div className="flex items-end h-12">
                     <div className="w-px h-7 bg-gray-300"></div>
@@ -275,13 +282,19 @@ const CreateAppModal: React.FC<{
                             form.setFieldValue("icon", icon.value);
                           }}
                         >
-                          <Image
-                            src={icon.value}
-                            width={28}
-                            height={28}
-                            alt={icon.label}
-                            className="rounded-md"
-                          />
+                          {icon.isSvg ? (
+                            <div className="w-7 h-7 rounded-md flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
+                              <SmartPluginIcon size={24} />
+                            </div>
+                          ) : (
+                            <Image
+                              src={icon.value}
+                              width={28}
+                              height={28}
+                              alt={icon.label}
+                              className="rounded-md"
+                            />
+                          )}
                         </div>
                       ))}
                     </div>

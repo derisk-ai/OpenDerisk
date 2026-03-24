@@ -107,11 +107,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ isScrollToTop = false, isProces
           <div className="relative flex-shrink-0">
             <div className={classNames(
               "w-11 h-11 rounded-xl flex items-center justify-center shadow-md transition-all duration-300",
-              icon ? "bg-white ring-1 ring-gray-100" : "bg-gradient-to-br from-indigo-500 to-purple-600"
+              icon && icon !== 'smart-plugin' ? "bg-white ring-1 ring-gray-100" : "bg-white ring-1 ring-gray-100"
             )}>
-              {icon ? (
+              {icon && icon !== 'smart-plugin' ? (
                 <img 
                   src={icon} 
+                  alt={appInfo?.app_name} 
+                  className="w-8 h-8 object-contain rounded-lg"
+                />
+              ) : icon === 'smart-plugin' ? (
+                <img 
+                  src="/icons/colorful-plugin.png" 
                   alt={appInfo?.app_name} 
                   className="w-8 h-8 object-contain rounded-lg"
                 />

@@ -140,7 +140,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                     if condition is not None and condition is not False:
                         query = query.filter(condition)
 
-            query = query.order_by(ServeEntity.id.desc())
+            query = query.order_by(ServeEntity.gmt_modified.desc())
             total_count = query.count()
             items = query.offset((page - 1) * page_size).limit(page_size)
             total_pages = (total_count + page_size - 1) // page_size

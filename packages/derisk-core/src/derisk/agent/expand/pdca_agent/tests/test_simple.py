@@ -57,7 +57,7 @@ def test_basic_functionality():
         if storage_type == "oss":
             return f"https://oss.example.com/{uri}?download={file_name}"
         else:
-            return f"http://localhost:5670/api/v2/serve/file/files/{uri}"
+            return f"http://localhost:7777/api/v2/serve/file/files/{uri}"
 
     oss_url = generate_url("oss", "test/file.txt", "file.txt")
     assert "oss.example.com" in oss_url

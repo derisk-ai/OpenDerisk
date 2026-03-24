@@ -7,6 +7,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.staticfiles import StaticFiles
 
+
+class WebSocketAwareStaticFiles(StaticFiles):
+    """StaticFiles that gracefully handles WebSocket connections."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            # WebSocket connections should not reach static files
+            # Let them fall through to 404 or other handlers
+            await send({"type": "websocket.close", "code": 1000})
+            return
+        await super().__call__(scope, receive, send)
+
+
 from derisk._version import version
 from derisk.component import SystemApp
 from derisk.configs.model_config import (
@@ -115,6 +128,16 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(create_dashboard_routes(), prefix="/api/v1", tags=["Monitoring"])
     logger.info("[Monitoring] Dashboard API routes registered at /api/v1/monitoring")
 
+    # Streaming Configuration API routes
+    from derisk_serve.streaming.api import router as streaming_config_router
+
+    app.include_router(streaming_config_router, tags=["Streaming Config"])
+    logger.info("[Streaming] Config API routes registered at /api/v1/streaming-config")
+
+    from derisk_app.feature_plugins.bootstrap import register_enabled_feature_plugin_routers
+
+    register_enabled_feature_plugin_routers(app)
+
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
     if param.service.web.new_web_ui:
@@ -125,14 +148,18 @@ def mount_static_files(app: FastAPI, param: ApplicationConfig):
     os.makedirs(STATIC_MESSAGE_IMG_PATH, exist_ok=True)
     app.mount(
         "/images",
-        StaticFiles(directory=STATIC_MESSAGE_IMG_PATH, html=True),
+        WebSocketAwareStaticFiles(directory=STATIC_MESSAGE_IMG_PATH, html=True),
         name="static2",
     )
-    app.mount("/", StaticFiles(directory=static_file_path, html=True), name="static")
+    app.mount(
+        "/",
+        WebSocketAwareStaticFiles(directory=static_file_path, html=True),
+        name="static",
+    )
 
     app.mount(
         "/swagger_static",
-        StaticFiles(directory=static_file_path),
+        WebSocketAwareStaticFiles(directory=static_file_path),
         name="swagger_static",
     )
 
