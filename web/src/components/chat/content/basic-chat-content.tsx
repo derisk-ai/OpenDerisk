@@ -45,7 +45,7 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
       
       <div 
         ref={scrollableRef}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto min-w-0"
       >
         {hasMessages && (
           <div className="w-full px-3 py-4">

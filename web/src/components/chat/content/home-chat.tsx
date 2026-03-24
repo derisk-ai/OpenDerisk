@@ -973,9 +973,9 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-5xl mx-auto px-4 mt-10">
+      <div className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto px-4 pt-[12vh]">
         {/* Title */}
-        <div className="text-center mb-8 -translate-y-[10px]">
+        <div className="text-center mb-8">
           <h1 className="text-4xl font-medium text-gray-900 dark:text-gray-100 tracking-tight mb-3">
             <span className="mr-2">🚀</span>
             You Command, We
@@ -1133,7 +1133,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         </div>
 
         {/* Quick Actions - SRE Domain Scenarios */}
-        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl translate-y-[10px]">
+        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl">
           <QuickActionButton 
             icon={<HeartOutlined />} 
             text="AI应用健康" 
