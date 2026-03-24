@@ -86,7 +86,7 @@ class FunctionCallOutputParser(AgentParser):
         actions: List[Action] = []
         react_out: ReActOut = self.parse(llm_out)
         if not react_out.steps:
-            actions.append(BlankAction(terminate=False))
+            actions.append(BlankAction(terminate=True))
         else:
             for item in react_out.steps:
                 for action_cls in action_cls_list:
