@@ -214,13 +214,15 @@ const ChatContent: React.FC<{
     if (typeof value === 'string' && value.trim().startsWith('{')) {
       try {
         const parsed = JSON.parse(value);
-        if (parsed?.planning_window) {
-          return parsed.planning_window;
+        // 检查 planning_window 字段是否存在（即使为空字符串也应该使用它，
+        // 因为这意味着这是一个多窗口布局的数据格式）
+        if ('planning_window' in parsed) {
+          return parsed.planning_window || '';
         }
         if (parsed?.vis) {
           const visData = typeof parsed.vis === 'string' ? JSON.parse(parsed.vis) : parsed.vis;
-          if (visData?.planning_window) {
-            return visData.planning_window;
+          if ('planning_window' in visData) {
+            return visData.planning_window || '';
           }
         }
       } catch {
@@ -234,7 +236,7 @@ const ChatContent: React.FC<{
       {!isRobot && (
         <div className='flex flex-1 justify-end items-start pb-4 pt-6' style={{ gap: 12 }}>
           <span
-            className='break-words'
+            className='break-words min-w-0'
             style={{
               maxWidth: '95%',
               minWidth: 0,
@@ -280,7 +282,7 @@ const ChatContent: React.FC<{
       {isRobot && (
         <div className='flex flex-1 justify-start items-start pb-4 pt-6' style={{ gap: 12 }}>
           <AgentIcon />
-          <div className='flex flex-col flex-1 border-dashed border-r0'>
+          <div className='flex flex-col flex-1 min-w-0 border-dashed border-r0 overflow-x-auto'>
             {/* @ts-ignore */}
             <GPTVis
               components={{

@@ -1,18 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Alert,
-  Button,
-  Divider,
-  Form,
-  Input,
-  Select,
-  Switch,
-  Tag,
-  Tooltip,
-  message,
-} from 'antd';
+import { configService, OAuth2ProviderConfig } from '@/services/config';
 import {
   CheckCircleFilled,
   DeleteOutlined,
@@ -22,9 +10,11 @@ import {
   PlusOutlined,
   QuestionCircleOutlined,
   SafetyOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { configService, OAuth2ProviderConfig } from '@/services/config';
+import { Alert, Button, Divider, Form, Input, message, Select, Switch, Tag, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
 
 interface OAuth2ConfigSectionProps {
   onChange?: () => void;
@@ -34,8 +24,16 @@ const PROVIDER_TYPE_OPTIONS = [
   {
     value: 'github',
     label: (
-      <span className="flex items-center gap-2">
+      <span className='flex items-center gap-2'>
         <GithubOutlined /> GitHub
+      </span>
+    ),
+  },
+  {
+    value: 'alibaba-inc',
+    label: (
+      <span className='flex items-center gap-2'>
+        <ThunderboltOutlined className='text-orange-500' /> alibaba-inc
       </span>
     ),
   },
@@ -44,11 +42,12 @@ const PROVIDER_TYPE_OPTIONS = [
 
 /** Masked display of a secret */
 function MaskedValue({ value }: { value?: string }) {
-  if (!value) return <span className="text-gray-300 italic text-sm">未填写</span>;
+  if (!value) return <span className='text-gray-300 italic text-sm'>未填写</span>;
   const head = value.slice(0, 4);
   return (
-    <span className="font-mono text-sm text-gray-600">
-      {head}{'•'.repeat(Math.min(value.length - 4, 20))}
+    <span className='font-mono text-sm text-gray-600'>
+      {head}
+      {'•'.repeat(Math.min(value.length - 4, 20))}
     </span>
   );
 }
@@ -56,10 +55,10 @@ function MaskedValue({ value }: { value?: string }) {
 /** Single read-only row */
 function ReadRow({ label, children }: { label: string; children?: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3 py-1.5">
-      <span className="text-xs text-gray-400 w-28 flex-shrink-0 pt-0.5">{label}</span>
-      <span className="flex-1 text-sm text-gray-700 break-all">
-        {children || <span className="text-gray-300">—</span>}
+    <div className='flex items-start gap-3 py-1.5'>
+      <span className='text-xs text-gray-400 w-28 flex-shrink-0 pt-0.5'>{label}</span>
+      <span className='flex-1 text-sm text-gray-700 break-all'>
+        {children || <span className='text-gray-300'>—</span>}
       </span>
     </div>
   );
@@ -77,19 +76,9 @@ interface ProviderCardProps {
   form: ReturnType<typeof Form.useForm>[0];
 }
 
-function ProviderCard({
-  name,
-  restField,
-  canRemove,
-  isEditing,
-  onEdit,
-  onDone,
-  onRemove,
-  form,
-}: ProviderCardProps) {
+function ProviderCard({ name, restField, canRemove, isEditing, onEdit, onDone, onRemove, form }: ProviderCardProps) {
   // Read current field values for the read-only view
-  const providerType: string =
-    Form.useWatch(['providers', name, 'provider_type'], form) || 'github';
+  const providerType: string = Form.useWatch(['providers', name, 'provider_type'], form) || 'github';
   const clientId: string = Form.useWatch(['providers', name, 'client_id'], form) || '';
   const clientSecret: string = Form.useWatch(['providers', name, 'client_secret'], form) || '';
   const customId: string = Form.useWatch(['providers', name, 'custom_id'], form) || '';
@@ -99,6 +88,8 @@ function ProviderCard({
   const scope: string = Form.useWatch(['providers', name, 'scope'], form) || '';
 
   const isGitHub = providerType === 'github';
+  const isAlibabaInc = providerType === 'alibaba-inc';
+  const isBuiltIn = isGitHub || isAlibabaInc;
   const isConfigured = !!clientId && !!clientSecret;
 
   const handleDone = () => {
@@ -111,7 +102,9 @@ function ProviderCard({
 
   const cardLabel = isGitHub
     ? 'GitHub OAuth2'
-    : `自定义 OAuth2${customId ? ` · ${customId}` : ''}`;
+    : isAlibabaInc
+      ? 'alibaba-inc OAuth2'
+      : `自定义 OAuth2${customId ? ` · ${customId}` : ''}`;
 
   return (
     <div
@@ -119,8 +112,8 @@ function ProviderCard({
         isEditing
           ? 'border-blue-300 shadow-sm bg-white'
           : isConfigured
-          ? 'border-gray-200 bg-gray-50'
-          : 'border-dashed border-orange-300 bg-orange-50/30'
+            ? 'border-gray-200 bg-gray-50'
+            : 'border-dashed border-orange-300 bg-orange-50/30'
       }`}
     >
       {/* ── Header ── */}
@@ -129,94 +122,88 @@ function ProviderCard({
           isEditing
             ? 'bg-blue-50 border-blue-100'
             : isConfigured
-            ? 'bg-white border-gray-100'
-            : 'bg-orange-50/50 border-orange-100'
+              ? 'bg-white border-gray-100'
+              : 'bg-orange-50/50 border-orange-100'
         }`}
       >
-        <div className="flex items-center gap-2">
+        <div className='flex items-center gap-2'>
           {isGitHub ? (
-            <GithubOutlined className="text-gray-700" />
+            <GithubOutlined className='text-gray-700' />
+          ) : isAlibabaInc ? (
+            <ThunderboltOutlined className='text-orange-500' />
           ) : (
-            <SafetyOutlined className="text-blue-500" />
+            <SafetyOutlined className='text-blue-500' />
           )}
-          <span className="text-sm font-medium text-gray-700">{cardLabel}</span>
+          <span className='text-sm font-medium text-gray-700'>{cardLabel}</span>
           {!isEditing && isConfigured && (
-            <Tag color="success" icon={<CheckCircleFilled />} className="text-xs ml-1">
+            <Tag color='success' icon={<CheckCircleFilled />} className='text-xs ml-1'>
               已配置
             </Tag>
           )}
           {!isEditing && !isConfigured && (
-            <Tag color="warning" icon={<WarningOutlined />} className="text-xs ml-1">
+            <Tag color='warning' icon={<WarningOutlined />} className='text-xs ml-1'>
               未完成
             </Tag>
           )}
           {isEditing && (
-            <Tag color="processing" className="text-xs ml-1">
+            <Tag color='processing' className='text-xs ml-1'>
               编辑中
             </Tag>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className='flex items-center gap-1'>
           {!isEditing && (
             <Button
-              size="small"
+              size='small'
               icon={<EditOutlined />}
-              type="text"
-              className="text-gray-500 hover:text-blue-500"
+              type='text'
+              className='text-gray-500 hover:text-blue-500'
               onClick={onEdit}
             >
               编辑
             </Button>
           )}
           {isEditing && (
-            <Button
-              size="small"
-              icon={<LockOutlined />}
-              type="text"
-              className="text-blue-500"
-              onClick={handleDone}
-            >
+            <Button size='small' icon={<LockOutlined />} type='text' className='text-blue-500' onClick={handleDone}>
               完成
             </Button>
           )}
-          {canRemove && (
-            <Button
-              size="small"
-              icon={<DeleteOutlined />}
-              type="text"
-              danger
-              onClick={onRemove}
-            />
-          )}
+          {canRemove && <Button size='small' icon={<DeleteOutlined />} type='text' danger onClick={onRemove} />}
         </div>
       </div>
 
       {/* ── Body ── */}
-      <div className="px-4 py-3">
+      <div className='px-4 py-3'>
         {/* Read-only view */}
         {!isEditing && (
-          <div className="divide-y divide-gray-100">
-            <ReadRow label="提供商类型">
+          <div className='divide-y divide-gray-100'>
+            <ReadRow label='提供商类型'>
               {isGitHub ? (
-                <span className="flex items-center gap-1.5">
+                <span className='flex items-center gap-1.5'>
                   <GithubOutlined /> GitHub
+                </span>
+              ) : isAlibabaInc ? (
+                <span className='flex items-center gap-1.5'>
+                  <ThunderboltOutlined className='text-orange-500' /> alibaba-inc
                 </span>
               ) : (
                 '自定义 OAuth2'
               )}
             </ReadRow>
-            {!isGitHub && customId && <ReadRow label="提供商 ID">{customId}</ReadRow>}
-            <ReadRow label="Client ID">
-              <span className="font-mono text-sm">{clientId || <span className="text-gray-300 italic">未填写</span>}</span>
+            {!isBuiltIn && customId && <ReadRow label='提供商 ID'>{customId}</ReadRow>}
+            <ReadRow label='Client ID'>
+              <span className='font-mono text-sm'>
+                {clientId || <span className='text-gray-300 italic'>未填写</span>}
+              </span>
             </ReadRow>
-            <ReadRow label="Client Secret">
+            <ReadRow label='Client Secret'>
               <MaskedValue value={clientSecret} />
             </ReadRow>
-            {!isGitHub && authUrl && <ReadRow label="Authorization URL">{authUrl}</ReadRow>}
-            {!isGitHub && tokenUrl && <ReadRow label="Token URL">{tokenUrl}</ReadRow>}
-            {!isGitHub && userinfoUrl && <ReadRow label="Userinfo URL">{userinfoUrl}</ReadRow>}
-            {!isGitHub && scope && <ReadRow label="Scope">{scope}</ReadRow>}
+            {!isBuiltIn && authUrl && <ReadRow label='Authorization URL'>{authUrl}</ReadRow>}
+            {!isBuiltIn && tokenUrl && <ReadRow label='Token URL'>{tokenUrl}</ReadRow>}
+            {!isBuiltIn && userinfoUrl && <ReadRow label='Userinfo URL'>{userinfoUrl}</ReadRow>}
+            {!isBuiltIn && scope && <ReadRow label='Scope'>{scope}</ReadRow>}
           </div>
         )}
 
@@ -226,108 +213,110 @@ function ProviderCard({
             <Form.Item
               {...restField}
               name={[name, 'provider_type']}
-              label="提供商类型"
+              label='提供商类型'
               rules={[{ required: true, message: '请选择提供商类型' }]}
-              className="mb-3"
+              className='mb-3'
             >
               <Select options={PROVIDER_TYPE_OPTIONS} />
             </Form.Item>
 
-            {!isGitHub && (
+            {!isBuiltIn && (
               <Form.Item
                 {...restField}
                 name={[name, 'custom_id']}
                 label={
                   <span>
                     提供商 ID{' '}
-                    <Tooltip title="内部标识，建议英文小写，如 gitlab、okta、keycloak">
-                      <QuestionCircleOutlined className="text-gray-400" />
+                    <Tooltip title='内部标识，建议英文小写，如 gitlab、okta、keycloak'>
+                      <QuestionCircleOutlined className='text-gray-400' />
                     </Tooltip>
                   </span>
                 }
                 rules={[{ required: true, message: '请填写提供商 ID' }]}
-                className="mb-3"
+                className='mb-3'
               >
-                <Input placeholder="gitlab / okta / keycloak" />
+                <Input placeholder='gitlab / okta / keycloak' />
               </Form.Item>
             )}
 
             <Form.Item
               {...restField}
               name={[name, 'client_id']}
-              label="Client ID"
+              label='Client ID'
               rules={[{ required: true, message: '请填写 Client ID' }]}
-              className="mb-3"
+              className='mb-3'
             >
               <Input
-                placeholder={isGitHub ? 'GitHub OAuth App Client ID' : 'OAuth2 Client ID'}
+                placeholder={
+                  isGitHub ? 'GitHub OAuth App Client ID' : isAlibabaInc ? 'MOZI 应用 Client ID' : 'OAuth2 Client ID'
+                }
               />
             </Form.Item>
 
             <Form.Item
               {...restField}
               name={[name, 'client_secret']}
-              label="Client Secret"
-              className={isGitHub ? 'mb-0' : 'mb-3'}
+              label='Client Secret'
+              className={isBuiltIn ? 'mb-0' : 'mb-3'}
             >
               <Input.Password
-                placeholder={isGitHub ? 'GitHub OAuth App Client Secret' : 'OAuth2 Client Secret'}
+                placeholder={
+                  isGitHub
+                    ? 'GitHub OAuth App Client Secret'
+                    : isAlibabaInc
+                      ? 'MOZI 应用 Client Secret'
+                      : 'OAuth2 Client Secret'
+                }
               />
             </Form.Item>
 
-            {!isGitHub && (
+            {!isBuiltIn && (
               <>
-                <Divider orientation="left" className="my-3 text-xs text-gray-400">
+                <Divider orientation='left' className='my-3 text-xs text-gray-400'>
                   端点配置
                 </Divider>
                 <Form.Item
                   {...restField}
                   name={[name, 'authorization_url']}
-                  label="Authorization URL"
+                  label='Authorization URL'
                   rules={[{ required: true, message: '请填写授权 URL' }]}
-                  className="mb-3"
+                  className='mb-3'
                 >
-                  <Input placeholder="https://provider.com/oauth/authorize" />
+                  <Input placeholder='https://provider.com/oauth/authorize' />
                 </Form.Item>
                 <Form.Item
                   {...restField}
                   name={[name, 'token_url']}
-                  label="Token URL"
+                  label='Token URL'
                   rules={[{ required: true, message: '请填写 Token URL' }]}
-                  className="mb-3"
+                  className='mb-3'
                 >
-                  <Input placeholder="https://provider.com/oauth/token" />
+                  <Input placeholder='https://provider.com/oauth/token' />
                 </Form.Item>
                 <Form.Item
                   {...restField}
                   name={[name, 'userinfo_url']}
-                  label="Userinfo URL"
+                  label='Userinfo URL'
                   rules={[{ required: true, message: '请填写 Userinfo URL' }]}
-                  className="mb-3"
+                  className='mb-3'
                 >
-                  <Input placeholder="https://provider.com/api/user" />
+                  <Input placeholder='https://provider.com/api/user' />
                 </Form.Item>
-                <Form.Item
-                  {...restField}
-                  name={[name, 'scope']}
-                  label="Scope"
-                  className="mb-0"
-                >
-                  <Input placeholder="openid profile email" />
+                <Form.Item {...restField} name={[name, 'scope']} label='Scope' className='mb-0'>
+                  <Input placeholder='openid profile email' />
                 </Form.Item>
               </>
             )}
 
             {isGitHub && (
               <Alert
-                type="info"
+                type='info'
                 showIcon
-                className="mt-3"
+                className='mt-3'
                 message={
-                  <span className="text-xs">
-                    在 GitHub → Settings → Developer settings → OAuth Apps 创建应用，
-                    Authorization callback URL 填写：
-                    <code className="bg-blue-50 px-1 mx-1 rounded text-xs">
+                  <span className='text-xs'>
+                    在 GitHub → Settings → Developer settings → OAuth Apps 创建应用， Authorization callback URL 填写：
+                    <code className='bg-blue-50 px-1 mx-1 rounded text-xs'>
                       http://your-host/api/v1/auth/oauth/callback
                     </code>
                   </span>
@@ -351,7 +340,7 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
   const oauthEnabled: boolean = Form.useWatch('enabled', form) ?? false;
 
   const setEditing = useCallback((idx: number, value: boolean) => {
-    setEditingSet((prev) => {
+    setEditingSet(prev => {
       const next = new Set(prev);
       value ? next.add(idx) : next.delete(idx);
       return next;
@@ -366,19 +355,19 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     setLoading(true);
     try {
       const data = await configService.getOAuth2Config();
-      const providers =
-        data.providers?.length
-          ? data.providers.map((p) => ({
-              provider_type: p.type || 'github',
-              custom_id: p.type !== 'github' ? p.id : undefined,
-              client_id: p.client_id,
-              client_secret: p.client_secret,
-              authorization_url: p.authorization_url,
-              token_url: p.token_url,
-              userinfo_url: p.userinfo_url,
-              scope: p.scope,
-            }))
-          : [{ provider_type: 'github', client_id: '', client_secret: '' }];
+      const isBuiltInType = (type: string) => type === 'github' || type === 'alibaba-inc';
+      const providers = data.providers?.length
+        ? data.providers.map(p => ({
+            provider_type: p.type || 'github',
+            custom_id: !isBuiltInType(p.type) ? p.id : undefined,
+            client_id: p.client_id,
+            client_secret: p.client_secret,
+            authorization_url: p.authorization_url,
+            token_url: p.token_url,
+            userinfo_url: p.userinfo_url,
+            scope: p.scope,
+          }))
+        : [{ provider_type: 'github', client_id: '', client_secret: '' }];
 
       form.setFieldsValue({
         enabled: data.enabled,
@@ -403,16 +392,25 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     setSaving(true);
     try {
       const providers: OAuth2ProviderConfig[] = (values.providers || [])
-        .map((p: any) => ({
-          id: p.provider_type === 'github' ? 'github' : (p.custom_id || 'custom'),
-          type: p.provider_type || 'github',
-          client_id: p.client_id || '',
-          client_secret: p.client_secret || '',
-          authorization_url: p.authorization_url,
-          token_url: p.token_url,
-          userinfo_url: p.userinfo_url,
-          scope: p.scope,
-        }))
+        .map((p: any) => {
+          const isBuiltIn = p.provider_type === 'github' || p.provider_type === 'alibaba-inc';
+          return {
+            id:
+              p.provider_type === 'github'
+                ? 'github'
+                : p.provider_type === 'alibaba-inc'
+                  ? 'alibaba-inc'
+                  : p.custom_id || 'custom',
+            type: p.provider_type || 'github',
+            client_id: p.client_id || '',
+            client_secret: p.client_secret || '',
+            // Built-in providers don't need URL configuration
+            authorization_url: isBuiltIn ? undefined : p.authorization_url,
+            token_url: isBuiltIn ? undefined : p.token_url,
+            userinfo_url: isBuiltIn ? undefined : p.userinfo_url,
+            scope: p.scope,
+          };
+        })
         .filter((p: OAuth2ProviderConfig) => p.client_id);
 
       const admin_users = (values.admin_users_text || '')
@@ -426,7 +424,11 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
         admin_users,
       });
       message.success('OAuth2 配置已保存');
-      try { await loadOAuth2Config(); } catch { /* ignore */ }
+      try {
+        await loadOAuth2Config();
+      } catch {
+        /* ignore */
+      }
       onChange?.();
     } catch (error: any) {
       message.error('保存失败: ' + error.message);
@@ -436,39 +438,37 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
   };
 
   return (
-    <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ enabled: false }}>
+    <Form form={form} layout='vertical' onFinish={handleSave} initialValues={{ enabled: false }}>
       {/* 总开关 */}
-      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 mb-5">
+      <div className='flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 mb-5'>
         <div>
-          <div className="font-medium text-gray-800 text-sm">启用 OAuth2 登录</div>
-          <div className="text-xs text-gray-500 mt-0.5">
-            开启后访问系统需要通过 OAuth2 登录鉴权，对整个平台生效
-          </div>
+          <div className='font-medium text-gray-800 text-sm'>启用 OAuth2 登录</div>
+          <div className='text-xs text-gray-500 mt-0.5'>开启后访问系统需要通过 OAuth2 登录鉴权，对整个平台生效</div>
         </div>
-        <Form.Item name="enabled" valuePropName="checked" className="mb-0">
-          <Switch checkedChildren="已开启" unCheckedChildren="已关闭" loading={loading} />
+        <Form.Item name='enabled' valuePropName='checked' className='mb-0'>
+          <Switch checkedChildren='已开启' unCheckedChildren='已关闭' loading={loading} />
         </Form.Item>
       </div>
 
       {oauthEnabled ? (
         <>
           <Form.Item
-            name="admin_users_text"
+            name='admin_users_text'
             label={
               <span>
                 初始管理员{' '}
-                <Tooltip title="填写 OAuth 登录后的用户名（如 GitHub login），首次登录自动获得管理员角色，已登录用户角色不变">
-                  <QuestionCircleOutlined className="text-gray-400" />
+                <Tooltip title='填写 OAuth 登录后的用户名（如 GitHub login），首次登录自动获得管理员角色，已登录用户角色不变'>
+                  <QuestionCircleOutlined className='text-gray-400' />
                 </Tooltip>
               </span>
             }
-            className="mb-5"
+            className='mb-5'
           >
-            <Input placeholder="user1, user2, user3（逗号分隔 GitHub 用户名）" />
+            <Input placeholder='user1, user2, user3（逗号分隔 GitHub 用户名）' />
           </Form.Item>
 
-          <div className="text-sm font-medium text-gray-700 mb-2">登录提供商</div>
-          <Form.List name="providers">
+          <div className='text-sm font-medium text-gray-700 mb-2'>登录提供商</div>
+          <Form.List name='providers'>
             {(fields, { add, remove }) => (
               <>
                 {fields.map(({ key, name, ...restField }) => (
@@ -488,15 +488,23 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
                   />
                 ))}
                 <Button
-                  type="dashed"
+                  type='dashed'
                   icon={<PlusOutlined />}
                   onClick={() => {
                     const newIdx = fields.length;
-                    add({ provider_type: 'custom', client_id: '', client_secret: '' });
+                    // Check if GitHub or Alibaba-inc already exists, suggest the other one
+                    const hasGitHub = fields.some(
+                      f => form.getFieldValue(['providers', f.name, 'provider_type']) === 'github',
+                    );
+                    const hasAlibaba = fields.some(
+                      f => form.getFieldValue(['providers', f.name, 'provider_type']) === 'alibaba-inc',
+                    );
+                    const defaultType = hasGitHub && !hasAlibaba ? 'alibaba-inc' : 'custom';
+                    add({ provider_type: defaultType, client_id: '', client_secret: '' });
                     setEditing(newIdx, true);
                   }}
                   block
-                  className="mb-5"
+                  className='mb-5'
                 >
                   添加提供商
                 </Button>
@@ -505,12 +513,10 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
           </Form.List>
         </>
       ) : (
-        <div className="text-sm text-gray-400 mb-5">
-          关闭时系统无需登录，使用默认匿名用户访问。
-        </div>
+        <div className='text-sm text-gray-400 mb-5'>关闭时系统无需登录，使用默认匿名用户访问。</div>
       )}
 
-      <Button type="primary" htmlType="submit" loading={saving}>
+      <Button type='primary' htmlType='submit' loading={saving}>
         保存配置
       </Button>
     </Form>

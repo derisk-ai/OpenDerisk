@@ -98,7 +98,7 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
       )}>
         <ChatHeader isProcessing={isProcessing} />
         
-        <div className="flex-1 overflow-y-auto" ref={scrollRef}>
+        <div className="flex-1 overflow-y-auto min-w-0" ref={scrollRef}>
           {hasMessages ? (
             <div className="w-full px-3 py-3">
               <div className="w-full space-y-2">

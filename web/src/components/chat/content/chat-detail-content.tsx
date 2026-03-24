@@ -20,60 +20,58 @@ export function useDetailPanel(chatList: any[]): {
   const [runningWindowMarkdown, setRunningWindowMarkdown] = useState<string>("");
 
   useEffect(() => {
-    if (!Array.isArray(chatList)) {
+    if (!Array.isArray(chatList) || chatList.length === 0) {
       setRunningWindowData({});
       setRunningWindowMarkdown("");
       return;
     }
 
-    let mergedData: RunningWindowData = {};
+    // 关键修复：VisParser 已经在 use-chat.ts 中完成了增量合并，
+    // history 中每条 view 消息的 context 已经是完整的合并结果（包含所有累积数据）。
+    // 因此这里只需要取最后一条 view 消息的 running_window，而不是跨消息累积拼接。
+    // 之前的跨消息拼接会导致 VIS 协议组件重复渲染和中间输出丢失。
+
+    let resultData: RunningWindowData = {};
     let markdownContent = "";
 
-    for (const item of chatList) {
+    // 从后往前查找最后一条包含 running_window 的 view 消息
+    for (let i = chatList.length - 1; i >= 0; i--) {
+      const item = chatList[i];
       try {
-        // 情况1：context是纯字符串（如"你好"）
-        if (typeof item.context === 'string' && !item.context.trim().startsWith('{')) {
-          continue; // 跳过非JSON内容
+        if (typeof item.context !== 'string' || !item.context.trim().startsWith('{')) {
+          continue;
         }
 
-        // 情况2：context是JSON字符串
-        const context = typeof item.context === 'string' 
-          ? JSON.parse(item.context) 
-          : item.context;
+        const context = JSON.parse(item.context);
         
-        // 尝试从多个可能的位置获取running_window
         let runningWindowContent = "";
         let explorerContent = "";
-        let itemsData = [];
-        
-        // 情况2a: 直接包含 running_window
+        let itemsData: any[] = [];
+
+        // 情况1: 直接包含 running_window（VisParser 合并后的完整结果）
         if (context.running_window) {
           runningWindowContent = context.running_window;
+          explorerContent = context.explorer || "";
+          itemsData = context.items || [];
         }
-        // 情况2b: 包含 vis 字段，vis 中包含 running_window
+        // 情况2: 包含 vis 字段
         else if (context.vis) {
           const visData = typeof context.vis === 'string' 
             ? JSON.parse(context.vis) 
             : context.vis;
           runningWindowContent = visData.running_window || "";
-          explorerContent = visData.explorer || mergedData.explorer || "";
+          explorerContent = visData.explorer || "";
           itemsData = visData.items || [];
         }
 
-        // 合并数据：保留 explorer（如果新的没有，保留旧的）
-        if (explorerContent) {
-          mergedData.explorer = explorerContent;
-        }
-        if (itemsData.length > 0) {
-          mergedData.items = [...(mergedData.items || []), ...itemsData];
-        }
         if (runningWindowContent) {
-          // 🔧 FIX: 累积 running_window 内容，而不是覆盖
-          const prevContent = mergedData.running_window || "";
-          mergedData.running_window = prevContent 
-            ? `${prevContent}\n\n${runningWindowContent}` 
-            : runningWindowContent;
-          markdownContent = mergedData.running_window;
+          resultData = {
+            running_window: runningWindowContent,
+            explorer: explorerContent || undefined,
+            items: itemsData.length > 0 ? itemsData : undefined,
+          };
+          markdownContent = runningWindowContent;
+          break; // 找到最新的包含 running_window 的消息即可
         }
       } catch (error) {
         console.debug("Skipping invalid chat item context:", {
@@ -86,7 +84,7 @@ export function useDetailPanel(chatList: any[]): {
       }
     }
 
-    setRunningWindowData(mergedData);
+    setRunningWindowData(resultData);
     setRunningWindowMarkdown(markdownContent);
   }, [chatList]);
 

@@ -4,7 +4,7 @@
   "default_model": {
     "provider": "openai",
     "model_id": "gpt-4",
-    "api_key": "sk-s6bVede3eiCFhJ35WHUa4WSDj8Z4nXutLPUrOxg7Swcl0JkV",
+    "api_key": "",
     "temperature": 0.7,
     "max_tokens": 4096
   },
