@@ -26,37 +26,41 @@ class StreamingConfigService:
         if not self._storage:
             return {}
 
-        from derisk.model.streaming.config_manager import (
-            ToolStreamingConfig,
-            ParamStreamingConfig,
-        )
-        from derisk.model.streaming.db_models import StreamingToolConfig
-
-        with self._storage.session() as session:
-            configs = (
-                session.query(StreamingToolConfig)
-                .filter(StreamingToolConfig.app_code == app_code)
-                .all()
+        try:
+            from derisk.model.streaming.config_manager import (
+                ToolStreamingConfig,
+                ParamStreamingConfig,
             )
+            from derisk.model.streaming.db_models import StreamingToolConfig
 
-            result = {}
-            for config in configs:
-                tool_config = ToolStreamingConfig(
-                    tool_name=config.tool_name,
-                    app_code=config.app_code,
-                    param_configs={
-                        name: ParamStreamingConfig.from_dict(data)
-                        for name, data in (config.param_configs or {}).items()
-                    },
-                    global_threshold=config.global_threshold or 256,
-                    global_strategy=config.global_strategy or "adaptive",
-                    global_renderer=config.global_renderer or "default",
-                    enabled=config.enabled,
-                    priority=config.priority or 0,
+            with self._storage.session() as session:
+                configs = (
+                    session.query(StreamingToolConfig)
+                    .filter(StreamingToolConfig.app_code == app_code)
+                    .all()
                 )
-                result[config.tool_name] = tool_config
 
-            return result
+                result = {}
+                for config in configs:
+                    tool_config = ToolStreamingConfig(
+                        tool_name=config.tool_name,
+                        app_code=config.app_code,
+                        param_configs={
+                            name: ParamStreamingConfig.from_dict(data)
+                            for name, data in (config.param_configs or {}).items()
+                        },
+                        global_threshold=config.global_threshold or 256,
+                        global_strategy=config.global_strategy or "adaptive",
+                        global_renderer=config.global_renderer or "default",
+                        enabled=config.enabled,
+                        priority=config.priority or 0,
+                    )
+                    result[config.tool_name] = tool_config
+
+                return result
+        except Exception as e:
+            logger.warning(f"Failed to query streaming configs for app {app_code}: {e}")
+            return {}
 
     async def get_tool_config(self, app_code: str, tool_name: str) -> Optional[Any]:
         """Get streaming config for a specific tool"""

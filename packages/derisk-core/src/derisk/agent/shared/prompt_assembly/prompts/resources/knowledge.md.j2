@@ -1,0 +1,17 @@
+<available_knowledges>
+以下是你可以使用的知识库：
+
+{% for knowledge in knowledges %}
+- <knowledge>
+  <id>{{ knowledge.id }}</id>
+  <name>{{ knowledge.name }}</name>
+  <description>{{ knowledge.description }}</description>
+</knowledge>
+{% endfor %}
+</available_knowledges>
+
+**消费方式**: 使用 `knowledge_search` 工具进行查询
+
+**使用场景**: 当需要查询领域知识、历史案例、最佳实践、配置规范等信息时
+
+**注意事项**: 必须通过工具调用，不能假设已知知识库内容

@@ -40,7 +40,7 @@ def test_agent_info_for_react():
             "read": "allow",
             "write": "allow",
             "bash": "allow",
-            "question": "deny",
+            "ask_user": "deny",
         },
         tools={"read": True, "write": True, "bash": True},
         max_steps=10,
@@ -55,7 +55,7 @@ def test_agent_info_for_react():
     # Verify permission system
     assert agent_info.check_permission("read") == PermissionAction.ALLOW
     assert agent_info.check_permission("write") == PermissionAction.ALLOW
-    assert agent_info.check_permission("question") == PermissionAction.DENY
+    assert agent_info.check_permission("ask_user") == PermissionAction.DENY
     logger.info("  Permission system working correctly")
 
     # Verify tool enablement

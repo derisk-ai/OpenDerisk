@@ -59,26 +59,14 @@ from derisk.agent.tools.builtin.file_system.edit import EditTool
 from derisk.agent.tools.builtin.file_system.glob import GlobTool
 from derisk.agent.tools.builtin.file_system.grep import GrepTool
 from derisk.agent.tools.builtin.file_system.list_files import ListFilesTool
-from derisk.agent.tools.builtin.file_system.search import SearchTool
 from derisk.agent.tools.builtin.shell.bash import BashTool
 from derisk.agent.tools.builtin.network import WebFetchTool, WebSearchTool
 from derisk.agent.tools.builtin.interaction import (
-    QuestionTool,
-    ConfirmTool,
-    NotifyTool,
-    ProgressTool,
-    FileSelectTool,
+    AskUserTool,
+    QuestionTool,  # 向后兼容别名，等同于 AskUserTool
     register_interaction_tools,
 )
-from derisk.agent.tools.builtin.reasoning import ThinkTool
 from derisk.agent.tools.builtin.analysis import (
-    AnalyzeDataTool,
-    AnalyzeLogTool,
-    AnalyzeCodeTool,
-    ShowChartTool,
-    ShowTableTool,
-    ShowMarkdownTool,
-    GenerateReportTool,
     register_analysis_tools,
 )
 from derisk.agent.tools.builtin.mcp import (
@@ -201,15 +189,10 @@ __all__ = [
     "EditTool",
     "GlobTool",
     "GrepTool",
-    "SearchTool",
     "ListFilesTool",
-    "ThinkTool",
     "register_builtin_tools",
-    "QuestionTool",
-    "ConfirmTool",
-    "NotifyTool",
-    "ProgressTool",
-    "FileSelectTool",
+    "AskUserTool",
+    "QuestionTool",  # 向后兼容别名
     "register_interaction_tools",
     "WebFetchTool",
     "WebSearchTool",
@@ -229,13 +212,6 @@ __all__ = [
     "create_action_tools_from_resources",
     "ActionTypeMapper",
     "default_action_mapper",
-    "AnalyzeDataTool",
-    "AnalyzeLogTool",
-    "AnalyzeCodeTool",
-    "ShowChartTool",
-    "ShowTableTool",
-    "ShowMarkdownTool",
-    "GenerateReportTool",
     "register_analysis_tools",
     "register_all_tools",
     "create_default_tool_registry",

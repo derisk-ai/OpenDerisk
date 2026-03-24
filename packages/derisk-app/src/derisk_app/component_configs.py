@@ -1,7 +1,5 @@
 import logging
-import asyncio
 from typing import Optional
-from derisk.agent.expand.resources.math_tool import add_two_numbers
 from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.workflow import WorkflowResource
 from derisk.component import SystemApp
@@ -107,9 +105,7 @@ def _initialize_agent(system_app: SystemApp):
 
 
 def _initialize_resource_manager(system_app: SystemApp):
-    from derisk.agent.expand.actions.terminate_action import Terminate
     from derisk.agent.expand.resources.derisk_tool import list_derisk_support_models
-    from derisk.agent.expand.resources.search_tool import baidu_search
     from derisk.agent.resource.base import ResourceType
     from derisk.agent.resource.manage import get_resource_manager, initialize_resource
     from derisk_serve.agent.resource.app import GptAppResource
@@ -125,13 +121,8 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(DatasourceResource)
     rm.register_resource(KnowledgeSpaceRetrieverResource)
     rm.register_resource(GptAppResource)
-    rm.register_resource(resource_instance=Terminate())
-    # Register a search tool
-    rm.register_resource(resource_instance=baidu_search)
     rm.register_resource(resource_instance=fetch)
     rm.register_resource(resource_instance=list_derisk_support_models)
-    # Register a math tool
-    rm.register_resource(resource_instance=add_two_numbers)
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(MCPCollectSSEToolPack, resource_type=ResourceType.Tool)

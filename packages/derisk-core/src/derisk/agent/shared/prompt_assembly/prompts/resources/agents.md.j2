@@ -1,0 +1,20 @@
+<available_agents>
+以下是你可以调用的子代理：
+
+{% for agent in agents %}
+- <agent>
+  <code>{{ agent.code }}</code>
+  <name>{{ agent.name }}</name>
+  <description>{{ agent.description }}</description>
+</agent>
+{% endfor %}
+</available_agents>
+
+**消费方式**: 使用 `agent_start` 工具委托任务给子 Agent
+
+**使用场景**: 当需要执行专业化任务 (如网络诊断、日志分析、性能测试等) 时
+
+**委托原则**: 
+- 明确定义委托任务的目标和上下文
+- 选择最匹配任务类型的子 Agent
+- 若已加载技能，优先使用技能推荐的 Agent 类型

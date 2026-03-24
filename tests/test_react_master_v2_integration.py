@@ -50,7 +50,7 @@ def test_agent_info_integration():
             "read": "allow",
             "write": "allow",
             "bash": "allow",
-            "question": "deny",
+            "ask_user": "deny",
         },
         tools={"read": True, "write": True, "bash": True},
         max_steps=5,
@@ -64,7 +64,7 @@ def test_agent_info_integration():
     assert agent_info.check_permission("read") == PermissionAction.ALLOW
     assert agent_info.check_permission("write") == PermissionAction.ALLOW
     assert agent_info.check_permission("bash") == PermissionAction.ALLOW
-    assert agent_info.check_permission("question") == PermissionAction.DENY
+    assert agent_info.check_permission("ask_user") == PermissionAction.DENY
     assert agent_info.check_permission("unknown") == PermissionAction.ASK
     logger.info("  Permission checks passed")
 

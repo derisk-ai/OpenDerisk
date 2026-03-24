@@ -241,15 +241,58 @@ class VisSelectContent(VisBase):
     )
 
 
+class VisConfirmQuestionOption(BaseModel):
+    """确认问题选项"""
+
+    label: str = Field(..., description="选项标签")
+    value: Optional[str] = Field(None, description="选项值（不填则使用label）")
+    description: Optional[str] = Field(None, description="选项描述")
+    requires_input: bool = Field(False, description="选择此选项时是否展开输入框")
+    input_placeholder: Optional[str] = Field(None, description="输入框占位符")
+    input_required: bool = Field(True, description="输入是否必填")
+
+
+class VisConfirmQuestion(BaseModel):
+    """确认问题"""
+
+    question: str = Field(..., description="问题内容")
+    header: Optional[str] = Field(None, description="问题标题（简短）")
+    options: Optional[List[VisConfirmQuestionOption]] = Field(
+        None, description="选项列表"
+    )
+    multiple: bool = Field(False, description="是否允许多选")
+
+
 class VisConfirm(VisBase):
-    markdown: str = Field(..., description="content of the message for user to confirm")
+    markdown: str = Field("", description="content of the message for user to confirm")
     disabled: bool = Field(
-        ..., description="Whether to disable the button, e.g., already confirmed, etc."
+        False, description="Whether to disable the button, e.g., already confirmed, etc."
     )
     extra: Optional[dict] = Field(
         None,
         description="When the user confirm this message, this extended information will be passed to the system.",
     )
+    # 结构化问题支持
+    questions: Optional[List[VisConfirmQuestion]] = Field(
+        None, description="结构化问题列表（优先于markdown）"
+    )
+    header: Optional[str] = Field(None, description="问题组标题")
+    request_id: Optional[str] = Field(None, description="交互请求ID，用于关联响应")
+    allow_custom_input: bool = Field(True, description="是否允许自定义输入")
+
+
+class VisConfirmResponse(VisBase):
+    """确认响应内容 - 用于展示用户的确认选择"""
+
+    confirm_type: str = Field("select", description="确认类型: select/input/confirm")
+    question: Optional[str] = Field(None, description="原始问题")
+    header: Optional[str] = Field(None, description="原始问题标题")
+    selected_option: Optional[Dict[str, Any]] = Field(
+        None, description="用户选择的选项"
+    )
+    input_content: Optional[str] = Field(None, description="用户输入内容")
+    is_custom_input: bool = Field(False, description="是否为自定义输入")
+    timestamp: Optional[str] = Field(None, description="响应时间")
 
 
 class VisInteract(VisBase):

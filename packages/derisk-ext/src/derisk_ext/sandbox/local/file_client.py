@@ -36,18 +36,16 @@ class LocalFileClient(FileClient):
     def __init__(
         self, sandbox_id: str, work_dir: str, runtime, skill_dir: str = None, **kwargs
     ):
-        # Pass None as connection_config since we don't use HTTP
         super().__init__(sandbox_id, work_dir, connection_config=None, **kwargs)
         self._runtime = runtime
         self._sandbox_id = sandbox_id
-        # The work_dir passed here is likely the logical work_dir (e.g. /workspace)
-        # We need the physical root from the runtime
         self._logical_work_dir = work_dir
-        # Whitelist paths that should be accessed directly on the host filesystem
         self._skill_dir = skill_dir
         self._whitelist_paths = {"/mnt"}
         if skill_dir:
             self._whitelist_paths.add(skill_dir)
+        if work_dir:
+            self._whitelist_paths.add(work_dir)
 
     def _get_physical_path(self, path: str) -> str:
         """Resolve logical path to physical path in local sandbox."""

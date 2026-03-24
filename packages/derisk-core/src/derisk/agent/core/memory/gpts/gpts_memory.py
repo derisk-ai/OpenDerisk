@@ -728,6 +728,15 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
 
     async def async_vis_converter(self, conv_id: str) -> Optional[VisProtocolConverter]:
         cache = await self._get_cache(conv_id)
+        if cache:
+            converter_type = type(cache.vis_converter).__name__
+            render_name = getattr(cache.vis_converter, "render_name", "unknown")
+            logger.info(
+                f"[async_vis_converter] conv_id={conv_id}, "
+                f"converter_type={converter_type}, render_name={render_name}"
+            )
+        else:
+            logger.warning(f"[async_vis_converter] conv_id={conv_id}, cache NOT FOUND!")
         return cache.vis_converter if cache else None
 
     # 保留同步版，但加注释

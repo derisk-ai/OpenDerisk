@@ -11,7 +11,14 @@ from typing import Any, Dict, List, Optional, Union
 from derisk.core.schema.types import ChatCompletionUserMessageParam
 from .agent_system_message import AgentSystemMessage
 from ...schema import Status, MessageMetrics
-from ...types import MessageContextType, ActionReportType, AgentReviewInfo, ResourceReferType, AgentMessage, MessageType
+from ...types import (
+    MessageContextType,
+    ActionReportType,
+    AgentReviewInfo,
+    ResourceReferType,
+    AgentMessage,
+    MessageType,
+)
 
 
 @dataclasses.dataclass
@@ -118,6 +125,7 @@ class GptsMessage:
     observation: Optional[str] = None
     metrics: Optional[MessageMetrics] = None
     tool_calls: Optional[List[Dict]] = None
+    input_tools: Optional[List[Dict]] = None  # 传给模型的工具列表（输入参数）
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsMessage":
@@ -153,6 +161,8 @@ class GptsMessage:
             updated_at=d["updated_at"],
             observation=d.get("observation"),
             metrics=d.get("metrics"),
+            tool_calls=d.get("tool_calls"),
+            input_tools=d.get("input_tools"),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -185,6 +195,7 @@ class GptsMessage:
             observation=self.observation,
             metrics=self.metrics,
             tool_calls=self.tool_calls,
+            input_tools=self.input_tools,
         )
 
     @classmethod
@@ -207,7 +218,6 @@ class GptsMessage:
             avatar=sender.avatar,
             app_code=sender.not_null_agent_context.agent_app_code or "",
             app_name=sender.name,
-
             ## 消息内容
             message_id=message.message_id if message.message_id else uuid.uuid4().hex,
             content=message.content,
@@ -231,14 +241,17 @@ class GptsMessage:
             observation=message.observation,
             metrics=message.metrics,
             tool_calls=message.tool_calls,
+            input_tools=message.input_tools,
         )
 
     def view(self) -> Optional[str]:
         """最终返回给User的结论view"""
 
-        views = [view for item in (self.action_report or []) if (
-            view := item.view or item.observations or item.content
-        )]
+        views = [
+            view
+            for item in (self.action_report or [])
+            if (view := item.view or item.observations or item.content)
+        ]
 
         # 有action_report view则取view 否则取content
         return "\n".join(views) or self.content
@@ -246,9 +259,11 @@ class GptsMessage:
     def answer(self) -> Optional[str]:
         """最终返回给User的结论content"""
 
-        views = [view for item in (self.action_report or []) if (
-            view := item.content or item.observations or item.view
-        )]
+        views = [
+            view
+            for item in (self.action_report or [])
+            if (view := item.content or item.observations or item.view)
+        ]
 
         # 有action_report view则取view 否则取content
         return "\n".join(views) or self.content
@@ -289,7 +304,9 @@ class GptsPlansMemory(ABC):
         """
 
     @abstractmethod
-    def get_by_planner_and_round(self, conv_id: str, planner: str, round_id: str) -> List[GptsPlan]:
+    def get_by_planner_and_round(
+        self, conv_id: str, planner: str, round_id: str
+    ) -> List[GptsPlan]:
         """Get plans by conv_id and planner.
 
         Args:

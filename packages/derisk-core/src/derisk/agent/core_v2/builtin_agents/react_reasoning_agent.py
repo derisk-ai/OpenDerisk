@@ -28,7 +28,34 @@ from .react_components import (
     HistoryPruner,
 )
 
+# 导入 PromptAssembler（通用 Prompt 组装模块）
+from ...shared.prompt_assembly import (
+    PromptAssembler,
+    PromptAssemblyConfig,
+    ResourceContext,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _get_sandbox_system_info(sandbox_client) -> str:
+    """Get system info description based on sandbox provider type."""
+    provider = getattr(sandbox_client, "provider", lambda: "unknown")()
+
+    if provider == "local":
+        import platform
+
+        system = platform.system()
+        if system == "Darwin":
+            return f"macOS ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+        elif system == "Linux":
+            return f"Linux ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
+        elif system == "Windows":
+            return f"Windows, 本地沙箱环境，路径映射到项目目录"
+        else:
+            return f"{system}, 本地沙箱环境，路径映射到项目目录"
+    else:
+        return "Ubuntu 24.04 linux/amd64（已联网），用户：ubuntu（拥有免密 sudo 权限）"
 
 
 REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范式的智能 AI 助手，用于解决复杂任务。
@@ -199,6 +226,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             except Exception:
                 pass
 
+        # PromptAssembler 状态（通用 Prompt 组装器）
+        self._prompt_assembler: Optional[PromptAssembler] = None
+
         logger.info(
             f"[ReActReasoningAgent] 初始化完成: "
             f"doom_loop={enable_doom_loop_detection}, "
@@ -213,7 +243,17 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["bash", "read", "write", "search", "list_files", "think"]
+        return ["bash", "read", "write", "search", "list_files"]
+
+    def _get_prompt_assembler(self) -> PromptAssembler:
+        """获取 Prompt 组装器（懒加载）"""
+        if self._prompt_assembler is None:
+            config = PromptAssemblyConfig(
+                architecture="v2",
+                language="zh",  # core_v2 默认使用中文
+            )
+            self._prompt_assembler = PromptAssembler(config)
+        return self._prompt_assembler
 
     # ==================== Compaction Pipeline Support ====================
 
@@ -323,6 +363,37 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             logger.warning(f"[ReActReasoningAgent] Failed to inject history tools: {e}")
 
     # ==================== End Compaction Pipeline Support ====================
+
+    # ==================== Async Task Notification Support ====================
+
+    async def _collect_async_task_notifications(self) -> str:
+        """
+        收集已完成的异步任务通知，用于注入到 LLM 上下文。
+
+        在每轮 think() 中调用，将后台完成的任务结果以通知形式注入，
+        使 LLM 能感知并利用这些结果。
+
+        Returns:
+            格式化的通知文本，如果没有通知则返回空字符串
+        """
+        async_task_manager = getattr(self, "_async_task_manager", None)
+        if not async_task_manager:
+            return ""
+
+        try:
+            completed = async_task_manager.get_completed_results(consume=True)
+            if not completed:
+                return ""
+
+            return async_task_manager.format_notifications(completed)
+
+        except Exception as e:
+            logger.warning(
+                f"[ReActReasoningAgent] Failed to collect async task notifications: {e}"
+            )
+            return ""
+
+    # ==================== End Async Task Notification Support ====================
 
     async def preload_resource(self) -> None:
         """
@@ -560,10 +631,19 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 return "## 沙箱环境\n沙箱环境已启用，可在沙箱中执行代码。"
 
             work_dir = getattr(sandbox_client, "work_dir", "/workspace")
-            skill_dir = getattr(sandbox_client, "skill_dir", "/skills")
+            skill_dir = getattr(sandbox_client, "skill_dir", None)
             enable_skill = getattr(sandbox_client, "enable_skill", False)
+            provider = getattr(sandbox_client, "provider", lambda: "unknown")()
 
-            env_param = {"sandbox": {"work_dir": work_dir}}
+            system_info = _get_sandbox_system_info(sandbox_client)
+
+            env_param = {
+                "sandbox": {
+                    "work_dir": work_dir,
+                    "skill_dir": skill_dir,
+                    "system_info": system_info,
+                }
+            }
             skill_param = {"sandbox": {"agent_skill_dir": skill_dir}}
 
             param = {
@@ -584,7 +664,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             return ""
 
     def _build_system_prompt(self) -> str:
-        """构建系统提示词"""
+        """构建系统提示词（同步版本，保持向后兼容）"""
         resource_prompt = self._resource_prompt_cache or ""
         sandbox_prompt = self._sandbox_prompt_cache or ""
 
@@ -594,6 +674,43 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             resource_prompt=resource_prompt,
             sandbox_prompt=sandbox_prompt,
         )
+
+    async def _build_system_prompt_with_assembler(self) -> str:
+        """
+        使用 PromptAssembler 构建系统提示词（异步版本）
+
+        支持：
+        1. 新旧模式兼容
+        2. 分层组装（身份层 + 资源层 + 控制层）
+        3. 资源注入
+        """
+        try:
+            assembler = self._get_prompt_assembler()
+
+            # 检查是否使用新模式
+            # core_v2 默认不提供用户模板，所以这里使用 None 让 assembler 使用默认模板
+            user_system_prompt = None  # core_v2 暂时不支持自定义模板
+
+            # 构建资源上下文
+            resource_ctx = ResourceContext.from_v2_agent(self)
+
+            # 使用 PromptAssembler 组装
+            system_prompt = await assembler.assemble_system_prompt(
+                user_system_prompt=user_system_prompt,
+                resource_context=resource_ctx,
+                agent_name=self.info.name,
+                max_steps=getattr(self.info, "max_steps", 20),
+                language="zh",
+            )
+
+            logger.info("[ReActReasoningAgent] 使用 PromptAssembler 分层组装")
+            return system_prompt
+
+        except Exception as e:
+            logger.warning(
+                f"[ReActReasoningAgent] PromptAssembler 失败，使用传统方式: {e}"
+            )
+            return self._build_system_prompt()
 
     async def think(self, message: str, **kwargs) -> AsyncIterator[str]:
         """思考阶段 - 调用LLM生成思考内容（支持Function Calling）
@@ -655,8 +772,8 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         f"[ReActReasoningAgent] Layer 4: Failed to get history: {e}"
                     )
 
-            # 构建系统提示词（包含 Layer 4 历史）
-            system_prompt = self._build_system_prompt()
+            # 构建系统提示词（使用 PromptAssembler）
+            system_prompt = await self._build_system_prompt_with_assembler()
             if layer4_history:
                 system_prompt += f"\n\n## 历史对话记录\n\n{layer4_history}\n\n*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*"
 
@@ -712,6 +829,14 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         )
                 logger.info(
                     f"[ReActReasoningAgent] Injected {len(worklog_tool_messages)} worklog tool messages"
+                )
+
+            # 异步任务完成结果注入
+            async_notification = await self._collect_async_task_notifications()
+            if async_notification:
+                messages.append(LLMMessage(role="user", content=async_notification))
+                logger.info(
+                    "[ReActReasoningAgent] Injected async task completion notifications"
                 )
 
             # 构建工具定义

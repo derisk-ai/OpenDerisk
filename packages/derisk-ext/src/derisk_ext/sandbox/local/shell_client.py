@@ -29,6 +29,8 @@ class LocalShellClient(ShellClient):
         self._whitelist_paths = {"/mnt"}
         if skill_dir:
             self._whitelist_paths.add(skill_dir)
+        if work_dir:
+            self._whitelist_paths.add(work_dir)
 
     async def exec_command(
         self,
