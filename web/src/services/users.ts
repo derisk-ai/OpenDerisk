@@ -35,6 +35,22 @@ class UsersService {
     return res.data.data as ListUsersResult;
   }
 
+  /** Paginate until all users loaded (API caps page_size at 100). */
+  async listAllUsers(keyword = '', maxPages = 50): Promise<User[]> {
+    const pageSize = 100;
+    const all: User[] = [];
+    let page = 1;
+    let total = Infinity;
+    while (all.length < total && page <= maxPages) {
+      const r = await this.listUsers(page, pageSize, keyword);
+      all.push(...r.list);
+      total = r.total;
+      if (r.list.length < pageSize) break;
+      page += 1;
+    }
+    return all;
+  }
+
   async getUser(id: number): Promise<User> {
     const res = await axios.get(`${API_BASE}/users/${id}`);
     return res.data.data as User;

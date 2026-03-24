@@ -401,6 +401,12 @@ class DatabaseManager:
         if async_url.startswith("mysql+ob://"):
             # 替换为asyncmy驱动
             async_url = async_url.replace("mysql+ob://", "mysql+asyncmy://")
+        elif async_url.startswith("mysql+pymysql://"):
+            # 替换为asyncmy驱动（标准MySQL异步驱动）
+            async_url = async_url.replace("mysql+pymysql://", "mysql+asyncmy://")
+        elif async_url.startswith("mysql://"):
+            # 纯mysql://也替换为asyncmy
+            async_url = async_url.replace("mysql://", "mysql+asyncmy://")
         if async_url.startswith("sqlite"):
             # Don't upgrade memory db to async sqlite in tests, it fails with sync engine
             # unless we know for sure it's not a test using sync engine

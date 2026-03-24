@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Alert, Card, Button, Spin } from 'antd';
-import { GithubOutlined, LoginOutlined } from '@ant-design/icons';
 import { authService } from '@/services/auth';
+import { GithubOutlined, LoginOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Spin } from 'antd';
 import { useSearchParams } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 
 const ERROR_MESSAGES: Record<string, string> = {
   user_disabled: '您的账号已被禁用，请联系管理员。',
@@ -22,7 +22,7 @@ export default function LoginPage() {
   const loadedRef = useRef(false);
   const searchParams = useSearchParams();
   const errorCode = searchParams?.get('error') || '';
-  const errorMsg = errorCode ? (ERROR_MESSAGES[errorCode] || `登录出错：${errorCode}`) : '';
+  const errorMsg = errorCode ? ERROR_MESSAGES[errorCode] || `登录出错：${errorCode}` : '';
 
   useEffect(() => {
     // 防止重复加载
@@ -54,49 +54,52 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Spin size="large" />
+      <div className='flex items-center justify-center min-h-screen bg-gray-50'>
+        <Spin size='large' />
       </div>
     );
   }
 
   if (!oauthEnabled || providers.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <Card title="登录" style={{ width: 400 }}>
-          <p className="text-gray-500">
-            OAuth2 登录未配置或未启用。请在 设置 → 系统配置 中配置 OAuth2 提供商。
-          </p>
+      <div className='flex items-center justify-center min-h-screen bg-gray-50'>
+        <Card title='登录' style={{ width: 400 }}>
+          <p className='text-gray-500'>OAuth2 登录未配置或未启用。请在 设置 → 系统配置 中配置 OAuth2 提供商。</p>
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <Card title="登录" style={{ width: 400 }}>
+    <div className='flex items-center justify-center min-h-screen bg-gray-50'>
+      <Card title='登录' style={{ width: 400 }}>
         {errorMsg && (
           <Alert
             type={errorCode === 'user_disabled' ? 'error' : 'warning'}
             message={errorMsg}
             showIcon
-            className="mb-4"
+            className='mb-4'
           />
         )}
-        <p className="mb-4 text-gray-600">请选择登录方式</p>
-        <div className="space-y-3">
-          {providers.map((p) => (
-            <Button
-              key={p.id}
-              type="primary"
-              block
-              size="large"
-              icon={p.type === 'github' ? <GithubOutlined /> : <LoginOutlined />}
-              onClick={() => handleLogin(p.id)}
-            >
-              {p.type === 'github' ? '使用 GitHub 登录' : `使用 ${p.id} 登录`}
-            </Button>
-          ))}
+        <p className='mb-4 text-gray-600'>请选择登录方式</p>
+        <div className='space-y-3'>
+          {providers.map(p => {
+            const getIcon = () => {
+              if (p.type === 'github') return <GithubOutlined />;
+              if (p.type === 'alibaba-inc') return <ThunderboltOutlined className='text-orange-500' />;
+              return <LoginOutlined />;
+            };
+            const getLabel = () => {
+              if (p.type === 'github') return '使用 GitHub 登录';
+              if (p.type === 'alibaba-inc') return '使用 alibaba-inc 登录';
+              return `使用 ${p.id} 登录`;
+            };
+            return (
+              <Button key={p.id} type='primary' block size='large' icon={getIcon()} onClick={() => handleLogin(p.id)}>
+                {getLabel()}
+              </Button>
+            );
+          })}
         </div>
       </Card>
     </div>

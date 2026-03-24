@@ -490,6 +490,13 @@ function SideBar() {
             path: '/settings/config',
           },
           {
+            key: 'plugin_market',
+            name: t('plugin_market'),
+            isActive: pathname.startsWith('/settings/plugin-market'),
+            icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
+            path: '/settings/plugin-market',
+          },
+          {
             key: 'audit_logs',
             name: t('audit_logs_title'),
             isActive: pathname.startsWith('/audit-logs'),
@@ -511,7 +518,7 @@ function SideBar() {
             path: '/users',
           }] : []),
         ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
       },
     ];
     return items;

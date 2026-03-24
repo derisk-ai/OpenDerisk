@@ -160,14 +160,14 @@ body {
 pre {
   width: 100%;
   overflow: auto;
-  white-space: pre-wrap;
+  white-space: pre;
   /* padding-left: 0.5rem; */
 }
 
 table {
   display: block;
   width: 100%;
-  table-layout: fixed;
+  overflow-x: auto;
 }
 
 .rc-md-editor {

@@ -1,13 +1,18 @@
 import { Rect } from '@codemirror/view';
 import { createTheme } from '@uiw/codemirror-themes';
 import CodeMirror, { EditorView } from '@uiw/react-codemirror';
-import { Button, Tooltip } from 'antd';
-import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
+import { Segmented, Tooltip } from 'antd';
+import { EditOutlined, EyeOutlined } from '@ant-design/icons';
 import type { FC } from 'react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeRaw from 'rehype-raw';
+import rehypeHighlight from 'rehype-highlight';
 import VariablePlugin from './components/VariablePlugin';
-import { PromptEditorWrapper } from './style';
+import { PromptEditorWrapper, MarkdownPreviewWrapper } from './style';
 import { getCursorPosition, getCursorSelection } from './utils';
 
 export type IPromptInputProps = {
@@ -32,6 +37,76 @@ interface Range {
   from: number;
   to: number;
 }
+
+/**
+ * Custom markdown components for premium rendering
+ */
+const markdownComponents: Partial<Components> = {
+  h1: ({ children, ...props }) => (
+    <div className="prompt-md-h1">
+      <h1 {...props}>{children}</h1>
+    </div>
+  ),
+  h2: ({ children, ...props }) => (
+    <div className="prompt-md-h2">
+      <h2 {...props}>{children}</h2>
+    </div>
+  ),
+  h3: ({ children, ...props }) => (
+    <h3 className="prompt-md-h3" {...props}>{children}</h3>
+  ),
+  h4: ({ children, ...props }) => (
+    <h4 className="prompt-md-h4" {...props}>{children}</h4>
+  ),
+  p: ({ children, ...props }) => (
+    <p className="prompt-md-p" {...props}>{children}</p>
+  ),
+  strong: ({ children, ...props }) => (
+    <strong className="prompt-md-strong" {...props}>{children}</strong>
+  ),
+  ul: ({ children, ...props }) => (
+    <ul className="prompt-md-ul" {...props}>{children}</ul>
+  ),
+  ol: ({ children, ...props }) => (
+    <ol className="prompt-md-ol" {...props}>{children}</ol>
+  ),
+  li: ({ children, ...props }) => (
+    <li className="prompt-md-li" {...props}>{children}</li>
+  ),
+  blockquote: ({ children, ...props }) => (
+    <blockquote className="prompt-md-blockquote" {...props}>{children}</blockquote>
+  ),
+  code: ({ className, children, ...props }) => {
+    const isInline = !className;
+    if (isInline) {
+      return <code className="prompt-md-inline-code" {...props}>{children}</code>;
+    }
+    return <code className={`prompt-md-block-code ${className || ''}`} {...props}>{children}</code>;
+  },
+  pre: ({ children, ...props }) => (
+    <pre className="prompt-md-pre" {...props}>{children}</pre>
+  ),
+  table: ({ children, ...props }) => (
+    <div className="prompt-md-table-wrap">
+      <table className="prompt-md-table" {...props}>{children}</table>
+    </div>
+  ),
+  thead: ({ children, ...props }) => (
+    <thead className="prompt-md-thead" {...props}>{children}</thead>
+  ),
+  th: ({ children, ...props }) => (
+    <th className="prompt-md-th" {...props}>{children}</th>
+  ),
+  td: ({ children, ...props }) => (
+    <td className="prompt-md-td" {...props}>{children}</td>
+  ),
+  hr: (props) => (
+    <hr className="prompt-md-hr" {...props} />
+  ),
+  a: ({ children, ...props }) => (
+    <a className="prompt-md-link" {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+  ),
+};
 
 const CommandPromptInput: FC<IPromptInputProps> = props => {
   const {
@@ -258,6 +333,10 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
     }
   };
 
+  const handleModeChange = useCallback((val: string | number) => {
+    setIsPreviewVisible(val === 'preview');
+  }, []);
+
   useEffect(() => {
     return () => {
       // 移除监听事件
@@ -267,25 +346,43 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
       }
     };
   }, []);
+
   return (
     <>
       <PromptEditorWrapper style={style} className={`${className} relative`}>
         {showPreview && (
-          <div className="absolute top-2 right-4 z-30">
-             <Tooltip title={isPreviewVisible ? "关闭预览 / Close Preview" : "开启预览 / Open Preview"}>
-                <Button 
-                    type="text" 
-                    icon={isPreviewVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />} 
-                    onClick={() => setIsPreviewVisible(!isPreviewVisible)}
-                    size="small"
-                    className="bg-white/90 backdrop-blur-sm shadow-md hover:bg-white border border-gray-200"
-                />
-             </Tooltip>
+          <div className="absolute top-3 right-5 z-30">
+            <Segmented
+              size="small"
+              value={isPreviewVisible ? 'preview' : 'edit'}
+              onChange={handleModeChange}
+              options={[
+                {
+                  label: (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 2px' }}>
+                      <EditOutlined style={{ fontSize: 12 }} />
+                      <span style={{ fontSize: 12 }}>编辑</span>
+                    </span>
+                  ),
+                  value: 'edit',
+                },
+                {
+                  label: (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 2px' }}>
+                      <EyeOutlined style={{ fontSize: 12 }} />
+                      <span style={{ fontSize: 12 }}>预览</span>
+                    </span>
+                  ),
+                  value: 'preview',
+                },
+              ]}
+              className="prompt-mode-segmented"
+            />
           </div>
         )}
         
         <div className="flex h-full w-full relative">
-            <div className="h-full w-full">
+            <div className={`h-full w-full transition-opacity duration-200 ${isPreviewVisible ? 'opacity-0 pointer-events-none absolute' : 'opacity-100'}`}>
                 <CodeMirror
                   theme={theme}
                   className={'InputCodeMirror'}
@@ -319,14 +416,17 @@ const CommandPromptInput: FC<IPromptInputProps> = props => {
             </div>
             
             {showPreview && isPreviewVisible && (
-              <div 
-                ref={previewRef}
-                className="absolute inset-0 z-20 overflow-y-auto px-5 py-4 pt-12 bg-gray-50/95 backdrop-blur-sm prose prose-sm max-w-none"
-              >
-                <ReactMarkdown>
-                  {value || ''}
-                </ReactMarkdown>
-              </div>
+              <MarkdownPreviewWrapper ref={previewRef}>
+                <div className="prompt-md-content">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
+                    rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                    components={markdownComponents}
+                  >
+                    {value || ''}
+                  </ReactMarkdown>
+                </div>
+              </MarkdownPreviewWrapper>
             )}
         </div>
       </PromptEditorWrapper>

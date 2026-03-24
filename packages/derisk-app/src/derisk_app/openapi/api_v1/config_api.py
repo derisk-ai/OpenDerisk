@@ -1,10 +1,12 @@
 """配置管理 API"""
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+
+from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
@@ -56,7 +58,72 @@ class SecretRequest(BaseModel):
     description: Optional[str] = None
 
 
+class LLMKeyRequest(BaseModel):
+    provider: str
+    api_key: str
+
+
+class LLMKeyStatus(BaseModel):
+    provider: str
+    description: str
+    is_configured: bool
+
+
+class FeaturePluginUpdateRequest(BaseModel):
+    plugin_id: str
+    enabled: Optional[bool] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
 _config_manager = None
+
+
+def _user_has_app_admin_role(user: UserRequest) -> bool:
+    """True if this principal maps to a DB user with role=admin (User Management)."""
+    for raw in (user.user_no, user.user_id):
+        if raw is None or raw == "":
+            continue
+        try:
+            uid = int(str(raw).strip())
+        except ValueError:
+            continue
+        try:
+            from derisk_app.auth.user_service import UserService
+
+            row = UserService().get_user(uid)
+            if row and (row.get("role") or "").strip() == "admin":
+                return True
+        except Exception:
+            logger.debug("feature_plugins admin check: get_user failed for uid=%s", uid, exc_info=True)
+    return False
+
+
+def _ensure_can_write_feature_plugins(user: UserRequest) -> None:
+    """When OAuth2 is on and admin_users is non-empty, restrict writes to admins.
+
+    Allows either:
+    - login in oauth2.admin_users (initial OAuth bootstrap list), or
+    - user id with role=admin in the ``user`` table (User Management 管理员).
+    """
+    manager = get_config_manager()
+    config = manager.get()
+    oauth2 = getattr(config, "oauth2", None)
+    if oauth2 is None or not oauth2.enabled or not oauth2.admin_users:
+        return
+    if _user_has_app_admin_role(user):
+        return
+    login = (
+        user.user_name
+        or user.email
+        or user.real_name
+        or user.user_id
+        or ""
+    )
+    if login not in oauth2.admin_users:
+        raise HTTPException(
+            status_code=403,
+            detail="Only users listed in oauth2.admin_users may update feature plugins",
+        )
 
 
 def get_config_manager():
@@ -405,25 +472,66 @@ async def save_config():
 
 @router.get("/oauth2")
 async def get_oauth2_config():
-    """获取 OAuth2 配置"""
+    """获取 OAuth2 配置（优先从数据库读取，client_secret 已打码）"""
+    from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
+
+    # Try database first (returns masked secrets by default)
+    try:
+        db_storage = get_oauth2_db_storage()
+        db_config = db_storage.load(mask_secrets=True)
+        if db_config is not None:
+            return JSONResponse(
+                content={"success": True, "data": db_config, "source": "database"}
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load OAuth2 from database: {e}")
+
+    # Fallback to file config (also mask secrets)
     manager = get_config_manager()
     config = manager.get()
     oauth2 = getattr(config, "oauth2", None)
     if oauth2 is None:
         return JSONResponse(
-            content={"success": True, "data": {"enabled": False, "providers": []}}
+            content={
+                "success": True,
+                "data": {"enabled": False, "providers": [], "admin_users": []},
+                "source": "file",
+            }
         )
+    
+    # Mask secrets in file config too
+    data = oauth2.model_dump(mode="json")
+    for provider in data.get("providers", []):
+        secret = provider.get("client_secret", "")
+        if secret and len(secret) > 4:
+            provider["client_secret"] = secret[:4] + "****"
+        elif secret:
+            provider["client_secret"] = "****"
+    
     return JSONResponse(
-        content={"success": True, "data": oauth2.model_dump(mode="json")}
+        content={"success": True, "data": data, "source": "file"}
     )
 
 
 @router.post("/oauth2")
 async def update_oauth2_config(oauth2_data: Dict[str, Any]):
-    """更新 OAuth2 配置并保存到文件"""
+    """更新 OAuth2 配置并保存到数据库（同时备份到文件）"""
+    from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
+
     try:
         from derisk_core.config import AppConfig, OAuth2Config
 
+        # Save to database (encrypted)
+        db_storage = get_oauth2_db_storage()
+        providers = oauth2_data.get("providers", [])
+        admin_users = oauth2_data.get("admin_users", [])
+        enabled = oauth2_data.get("enabled", False)
+
+        db_saved = db_storage.save(enabled, providers, admin_users)
+        if not db_saved:
+            logger.warning("Failed to save OAuth2 config to database")
+
+        # Also update in-memory config for runtime use
         manager = get_config_manager()
         config = manager.get()
         config_dict = config.model_dump(mode="json")
@@ -431,19 +539,91 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         config = AppConfig(**config_dict)
         manager._config = config
 
-        saved = save_config_with_error_handling(manager, "OAuth2配置")
+        # Try to save to file as backup (but don't fail if it doesn't work)
+        file_saved = False
+        try:
+            file_saved = save_config_with_error_handling(manager, "OAuth2配置")
+        except Exception as e:
+            logger.warning(f"Failed to save OAuth2 to file (non-critical): {e}")
 
         return JSONResponse(
             content={
                 "success": True,
-                "message": "OAuth2 配置已更新"
-                + ("并保存" if saved else "（保存失败）"),
+                "message": "OAuth2 配置已更新",
                 "data": config.oauth2.model_dump(mode="json"),
-                "saved_to_file": saved,
+                "saved_to_database": db_saved,
+                "saved_to_file": file_saved,
             }
         )
     except Exception as e:
+        logger.exception("Failed to update OAuth2 config")
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/feature-plugins/catalog")
+async def get_feature_plugins_catalog():
+    """Builtin plugin catalog merged with current enabled/settings from derisk.json."""
+    from derisk_app.feature_plugins.catalog import merge_catalog_with_state
+
+    manager = get_config_manager()
+    config = manager.get()
+    raw = getattr(config, "feature_plugins", None) or {}
+    normalized: Dict[str, Any] = {}
+    for k, v in raw.items():
+        if hasattr(v, "model_dump"):
+            normalized[k] = v.model_dump(mode="json")
+        elif isinstance(v, dict):
+            normalized[k] = v
+    items = merge_catalog_with_state(normalized)
+    return JSONResponse(content={"success": True, "data": {"items": items}})
+
+
+@router.get("/feature-plugins")
+async def get_feature_plugins_state():
+    manager = get_config_manager()
+    config = manager.get()
+    fp = getattr(config, "feature_plugins", None) or {}
+    out = {
+        k: v.model_dump(mode="json") if hasattr(v, "model_dump") else dict(v)
+        for k, v in fp.items()
+    }
+    return JSONResponse(content={"success": True, "data": out})
+
+
+@router.post("/feature-plugins")
+async def update_feature_plugins(
+    body: FeaturePluginUpdateRequest,
+    user: UserRequest = Depends(get_user_from_headers),
+):
+    from derisk_app.feature_plugins.catalog import is_known_plugin
+    from derisk_core.config import AppConfig, FeaturePluginEntry
+
+    _ensure_can_write_feature_plugins(user)
+    if not is_known_plugin(body.plugin_id):
+        raise HTTPException(status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}")
+
+    manager = get_config_manager()
+    config = manager.get()
+    config_dict = config.model_dump(mode="json")
+    fp = dict(config_dict.get("feature_plugins") or {})
+    cur = fp.get(body.plugin_id) or {}
+    entry = FeaturePluginEntry(**cur) if cur else FeaturePluginEntry()
+    new_enabled = body.enabled if body.enabled is not None else entry.enabled
+    new_settings = body.settings if body.settings is not None else entry.settings
+    entry = FeaturePluginEntry(enabled=new_enabled, settings=new_settings)
+    fp[body.plugin_id] = entry.model_dump(mode="json")
+    config_dict["feature_plugins"] = fp
+    new_cfg = AppConfig(**config_dict)
+    manager._config = new_cfg
+    saved = save_config_with_error_handling(manager, "Feature plugins")
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "功能插件配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "data": entry.model_dump(mode="json"),
+            "saved_to_file": saved,
+        }
+    )
 
 
 @router.post("/import")
@@ -514,6 +694,7 @@ async def get_config_status():
                     "OAuth2 provider changes (需要重启生效)",
                     "Sandbox configuration changes (需要重启生效)",
                     "Model provider changes (需要重启生效)",
+                    "Builtin feature plugins enable/disable (需要重启生效)",
                 ],
                 "instant_effect": [
                     "Agent configuration (立即生效)",
@@ -599,9 +780,12 @@ async def list_secrets():
 
     default_secrets = {
         "master_encrypt_key": "主加密密钥，用于加密其他敏感数据",
-        "openai_api_key": "OpenAI API Key",
-        "dashscope_api_key": "阿里云 DashScope API Key",
-        "anthropic_api_key": "Anthropic API Key",
+        "openai_api_key": "OpenAI API Key (系统设置 - LLM)",
+        "dashscope_api_key": "阿里云 DashScope API Key (系统设置 - LLM)",
+        "alibaba_api_key": "阿里云 API Key (系统设置 - LLM)",
+        "anthropic_api_key": "Anthropic API Key (系统设置 - LLM)",
+        "claude_api_key": "Claude API Key (系统设置 - LLM)",
+        "llm_api_key": "通用 LLM API Key (系统设置 - LLM)",
         "oss_access_key_id": "阿里云 OSS Access Key ID",
         "oss_access_key_secret": "阿里云 OSS Access Key Secret",
         "db_password": "数据库密码",
@@ -708,6 +892,143 @@ async def export_config_safe():
             "note": "密钥值已替换为引用格式，secrets 部分已移除",
         }
     )
+
+
+@router.get("/llm-keys")
+async def list_llm_keys():
+    """获取 LLM Key 配置状态列表
+
+    只返回是否已配置的状态，不返回实际的 key 值
+    """
+    from derisk_core.config.encryption import list_secrets as get_secrets_status
+
+    secrets_status = get_secrets_status()
+
+    # 定义支持的 LLM Provider 及其默认描述（简化为最常用的两个）
+    llm_providers = {
+        "openai": "OpenAI API Key (GPT 系列模型)",
+        "alibaba": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
+    }
+
+    # 定义各个 provider 对应的 secrets key 名称
+    provider_secret_keys = {
+        "openai": ["openai_api_key"],
+        "alibaba": ["dashscope_api_key"],
+    }
+
+    llm_keys = []
+    for provider, description in llm_providers.items():
+        secret_keys = provider_secret_keys.get(provider, [])
+        # 检查该 provider 是否有任意一个对应的 secret key 已配置
+        is_configured = any(
+            secrets_status.get(key, False) for key in secret_keys
+        )
+
+        llm_keys.append({
+            "provider": provider,
+            "description": description,
+            "is_configured": is_configured,
+        })
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": llm_keys,
+            "note": "只返回配置状态，不返回实际的 key 值",
+        }
+    )
+
+
+@router.post("/llm-keys")
+async def set_llm_key(request: LLMKeyRequest):
+    """设置 LLM API Key
+
+    将 API Key 加密存储到 secrets 中，配置后立即生效
+    """
+    from derisk_core.config.encryption import set_secret
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        # 根据 provider 确定存储的 key 名称（简化为只支持 openai 和 alibaba）
+        provider = request.provider.lower()
+
+        secret_key_mapping = {
+            "openai": "openai_api_key",
+            "alibaba": "dashscope_api_key",
+        }
+
+        if provider not in secret_key_mapping:
+            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
+
+        secret_name = secret_key_mapping.get(provider)
+
+        # 清理 API Key（去除前后空格）
+        api_key = request.api_key.strip() if request.api_key else ""
+
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API Key 不能为空")
+
+        # 记录调试信息（隐藏部分 key）
+        key_preview = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
+        logger.info(f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}")
+
+        # 加密存储 API Key
+        success = set_secret(secret_name, api_key)
+
+        if success:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"{provider} API Key 已加密存储",
+                    "provider": provider,
+                    "secret_name": secret_name,
+                    "note": "配置已生效，新的请求将使用此 API Key",
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="保存 API Key 失败")
+    except Exception as e:
+        logger.error(f"Failed to save LLM key: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/llm-keys/{provider}")
+async def delete_llm_key(provider: str):
+    """删除 LLM API Key 配置
+
+    删除后，系统将回退到使用配置文件中的 API Key
+    """
+    from derisk_core.config.encryption import delete_secret
+
+    try:
+        provider = provider.lower()
+
+        secret_key_mapping = {
+            "openai": "openai_api_key",
+            "alibaba": "dashscope_api_key",
+        }
+
+        if provider not in secret_key_mapping:
+            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
+
+        secret_name = secret_key_mapping.get(provider)
+
+        success = delete_secret(secret_name)
+
+        if success:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"{provider} API Key 已删除",
+                    "note": "已删除系统设置中的 API Key，将回退到使用配置文件中的配置",
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="删除 API Key 失败")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/system")
