@@ -12,6 +12,7 @@ from derisk._private.pydantic import (
 )
 from derisk.agent.core.plan.base import SingleAgentContext
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
+from derisk.agent.core.plan.unified_context import UnifiedTeamContext
 from derisk.agent.core.schema import DynamicParam
 from derisk.agent.resource.base import AgentResource
 from derisk.context.operator import GroupedConfigItem
@@ -20,6 +21,8 @@ from derisk_serve.agent.app.recommend_question.recommend_question import (
 )
 from derisk_serve.agent.model import NativeTeamContext
 from derisk_serve.building.config.api.schemas import Layout, LLMResource
+
+logger = logging.getLogger(__name__)
 
 
 class SceneStrategyRef(BaseModel):
@@ -130,7 +133,11 @@ class GptsApp(BaseModel):
     config_version: Optional[str] = None
     language: Optional[str] = "zh"
     agent_version: Optional[str] = "v1"  # v1 (经典) v2 (Core_v2)
-    team_context: Optional[Union[str, AutoTeamContext, SingleAgentContext]] = None
+    team_context: Optional[
+        Union[
+            str, Dict[str, Any], AutoTeamContext, SingleAgentContext, UnifiedTeamContext
+        ]
+    ] = None
     user_code: Optional[str] = None
     sys_code: Optional[str] = None
     is_collected: Optional[str] = None
@@ -251,6 +258,59 @@ class GptsApp(BaseModel):
             agent_version=d.get("agent_version", "v1"),
         )
 
+    @staticmethod
+    def _parse_team_context(
+        team_mode: Optional[str],
+        agent_version: Optional[str],
+        team_context: Optional[
+            Union[str, dict, AutoTeamContext, SingleAgentContext, UnifiedTeamContext]
+        ],
+    ) -> Optional[Union[AutoTeamContext, SingleAgentContext, UnifiedTeamContext]]:
+        """Parse team_context from string/dict to appropriate object type"""
+        if team_context is None:
+            return None
+
+        # Already an instance of the expected type
+        if isinstance(
+            team_context, (AutoTeamContext, SingleAgentContext, UnifiedTeamContext)
+        ):
+            return team_context
+
+        # Handle JSON string
+        if isinstance(team_context, str):
+            try:
+                context_dict = json.loads(team_context)
+            except json.JSONDecodeError:
+                # If it's not valid JSON, return None
+                logger.warning(
+                    f"Failed to parse team_context string: {team_context[:100]}..."
+                )
+                return None
+        elif isinstance(team_context, dict):
+            context_dict = team_context
+        else:
+            return None
+
+        # Determine which context type to use based on agent_version
+        # Prioritize team_context.agent_version if it's explicitly "v2"
+        context_version = context_dict.get("agent_version")
+        actual_version = (
+            context_version
+            if context_version == "v2"
+            else (agent_version or context_version or "v1")
+        )
+        if actual_version == "v2":
+            return UnifiedTeamContext.from_dict(context_dict)
+
+        # Parse based on team_mode for v1
+        from derisk_serve.agent.team.base import TeamMode
+
+        if team_mode == TeamMode.SINGLE_AGENT.value:
+            return SingleAgentContext(**context_dict)
+        elif team_mode == TeamMode.AUTO_PLAN.value:
+            return AutoTeamContext(**context_dict)
+        return SingleAgentContext(**context_dict)  # Default fallback
+
     @model_validator(mode="before")
     @classmethod
     def pre_fill(cls, values):
@@ -259,6 +319,16 @@ class GptsApp(BaseModel):
         is_collected = values.get("is_collected")
         if is_collected is not None and isinstance(is_collected, bool):
             values["is_collected"] = "true" if is_collected else "false"
+
+        # Parse team_context to appropriate object type
+        team_mode = values.get("team_mode")
+        agent_version = values.get("agent_version", "v1")
+        team_context = values.get("team_context")
+
+        parsed_context = cls._parse_team_context(team_mode, agent_version, team_context)
+        if parsed_context is not None:
+            values["team_context"] = parsed_context
+
         return values
 
 

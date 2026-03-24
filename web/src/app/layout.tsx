@@ -2,6 +2,7 @@
 import { ChatContext, ChatContextProvider } from "@/contexts";
 import { InteractionProvider } from "@/components/interaction";
 import SideBar from "@/components/layout/side-bar";
+import TopHeader from "@/components/layout/top-header";
 import FloatHelper from "@/components/layout/float-helper";
 import {
   STORAGE_LANG_KEY,
@@ -12,11 +13,13 @@ import { App, ConfigProvider, MappingAlgorithm, Spin, theme } from "antd";
 import enUS from "antd/locale/en_US";
 import zhCN from "antd/locale/zh_CN";
 import Head from "next/head";
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext, useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { usePathname } from "next/navigation";
 import "./i18n";
 import "../styles/globals.css";
 import { Suspense } from 'react'
+import { authService } from "@/services/auth";
 
 // Prevent SSR flash
 const EmptyLayout = ({ children }: { children: React.ReactNode }) => <>{children}</>;
@@ -66,36 +69,75 @@ function CssWrapper({ children }: { children: React.ReactElement }) {
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { mode } = useContext(ChatContext);
   const { i18n } = useTranslation();
-  const [isLogin, setIsLogin] = useState(false);
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
+  const authCheckInProgress = useRef(false);
+
+  const isPublicRoute = pathname?.startsWith("/login") || pathname?.startsWith("/auth/callback");
 
   useEffect(() => {
     setMounted(true);
-    handleAuth();
   }, []);
 
-  // 登录检测
-  const handleAuth = async () => {
-    // MOCK User info
-    const user = {
-      user_channel: `derisk`,
-      user_no: `001`,
-      nick_name: `derisk`,
+  // 非阻塞：后台校验 OAuth，若开启且未登录则跳转。OAuth 关闭时用 mock；OAuth 开启且未登录时再跳转
+  useEffect(() => {
+    if (!mounted || isPublicRoute || authCheckInProgress.current) return;
+
+    const checkAuth = async () => {
+      authCheckInProgress.current = true;
+      try {
+        const oauthStatus = await authService.getOAuthStatus();
+        if (!oauthStatus.enabled) {
+          const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
+          localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
+          localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+          return;
+        }
+        const me = await authService.getMe();
+        const user = {
+          user_channel: me.user_channel,
+          user_no: me.user_no,
+          nick_name: me.nick_name,
+          avatar_url: me.avatar_url || me.user?.avatar || '',
+          email: me.email || me.user?.email || '',
+          role: me.role || 'normal',
+        };
+        localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
+        localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+      } catch {
+        try {
+          const oauthStatus = await authService.getOAuthStatus();
+          if (oauthStatus.enabled) {
+            // 避免已经在登录页面时重复跳转
+            const currentPath = window.location.pathname;
+            if (!currentPath.startsWith("/login") && !currentPath.startsWith("/auth/callback")) {
+              window.location.href = "/login";
+            }
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+        const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
+        localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
+        localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+      } finally {
+        authCheckInProgress.current = false;
+      }
     };
-    if (user) {
-      localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
-      localStorage.setItem(
-        STORAGE_USERINFO_VALID_TIME_KEY,
-        Date.now().toString()
-      );
-      setIsLogin(true);
-    }
-  };
+    checkAuth();
+  }, [mounted]); // 只依赖 mounted，pathname 变化不重新检查
 
-  if (!mounted) return null;
-
-  if (!isLogin) {
-    return null;
+  // 公开页面：直接渲染（无侧边栏）
+  if (isPublicRoute) {
+    return (
+      <ConfigProvider
+        locale={i18n.language === "en" ? enUS : zhCN}
+        theme={{ token: { colorPrimary: "#0C75FC", borderRadius: 4 }, algorithm: undefined }}
+      >
+        <App>{children}</App>
+      </ConfigProvider>
+    );
   }
 
   const renderContent = () => {
@@ -111,6 +153,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
           <SideBar />
         </div>
         <div className="flex flex-col flex-1 relative overflow-hidden">
+          <TopHeader />
           {children}
         </div>
         <FloatHelper />

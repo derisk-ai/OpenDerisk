@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-12 14:20:36
+-- Generated: 2026-03-21 15:56:36
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -35,6 +35,27 @@ CREATE TABLE IF NOT EXISTS `derisk_cluster_registry_instance` (
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_model_instance` (`model_name`, `host`, `port`, `sys_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: streaming_tool_config
+-- Source Model: StreamingToolConfig
+CREATE TABLE IF NOT EXISTS `streaming_tool_config` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `app_code` VARCHAR(128) NOT NULL COMMENT '应用代码',
+  `tool_name` VARCHAR(128) NOT NULL COMMENT '工具名称',
+  `tool_display_name` VARCHAR(256) NULL COMMENT '工具显示名称',
+  `tool_description` TEXT NULL COMMENT '工具描述',
+  `param_configs` JSON NOT NULL COMMENT '参数配置',
+  `global_threshold` INT NULL DEFAULT 256 COMMENT '全局阈值',
+  `global_strategy` VARCHAR(32) NULL COMMENT '全局策略',
+  `global_renderer` VARCHAR(32) NULL COMMENT '全局渲染器',
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用流式',
+  `priority` INT NOT NULL DEFAULT 0 COMMENT '优先级',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间',
+  `created_by` VARCHAR(128) NULL COMMENT '创建人',
+  `updated_by` VARCHAR(128) NULL COMMENT '更新人',
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_history
@@ -457,7 +478,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
-  `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
+  `custom_variables` TEXT NULL COMMENT '当前版本配置自定义参数配置',
   `llm_config` TEXT NULL COMMENT '当前版本配置的模型配置',
   `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',

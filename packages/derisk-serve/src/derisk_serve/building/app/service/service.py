@@ -84,7 +84,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         Args:
             system_app (SystemApp): The system app
         """
-        await self.looad_define_app()
+        await self.load_define_app()
 
     @property
     def dao(self) -> BaseDao[ServeEntity, ServeRequest, ServerResponse]:
@@ -113,13 +113,43 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return self._serve_config
 
     async def new_define_app(self, request: ServeRequest):
-        logger.info("new_define_app")
+        """创建并发布新应用
+
+        流程：
+        1. 创建应用记录
+        2. 编辑应用配置（创建临时配置）
+        3. 发布应用（将临时配置转为正式配置）
+        """
+        logger.info(
+            f"new_define_app: app_code={request.app_code}, published={request.published}"
+        )
+
+        # 1. 创建应用记录
         self.create(request)
 
+        # 2. 编辑应用配置（这会创建临时配置）
         new_app = await self.edit(request)
-        await self.publish(
-            request.app_code, new_app.config_code, carefully_chosen=request.published
+
+        if not new_app or not new_app.config_code:
+            logger.error(f"应用 [{request.app_code}] 配置创建失败")
+            raise ValueError(f"应用配置创建失败: {request.app_code}")
+
+        logger.info(
+            f"应用 [{request.app_code}] 临时配置创建成功: config_code={new_app.config_code}"
         )
+
+        # 3. 发布应用（如果 request.published 为 True）
+        if request.published:
+            logger.info(f"正在发布应用 [{request.app_code}]...")
+            await self.publish(
+                request.app_code,
+                new_app.config_code,
+                operator=request.user_code or "system",
+                carefully_chosen=True,
+            )
+            logger.info(f"应用 [{request.app_code}] 发布成功")
+        else:
+            logger.info(f"应用 [{request.app_code}] 设置为未发布状态，跳过发布")
 
     def create(self, request: ServeRequest) -> Optional[ServerResponse]:
         """应用构建."""
@@ -163,6 +193,14 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         agent_version = getattr(request, "agent_version", "v1") or "v1"
         is_v2 = agent_version == "v2"
 
+        logger.info(
+            f"[app_info_to_config] agent_version={agent_version}, is_v2={is_v2}"
+        )
+        logger.info(
+            f"[app_info_to_config] team_context type: {type(request.team_context)}"
+        )
+        logger.info(f"[app_info_to_config] team_context: {request.team_context}")
+
         if is_v2:
             from derisk.agent.core.plan.unified_context import UnifiedTeamContext
 
@@ -171,13 +209,23 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     team_context = request.team_context
                 elif isinstance(request.team_context, dict):
                     team_context = UnifiedTeamContext.from_dict(request.team_context)
+                    logger.info(
+                        f"[app_info_to_config] Created UnifiedTeamContext from dict: use_sandbox={team_context.use_sandbox}"
+                    )
                 else:
+                    # 尝试从对象中提取数据
+                    tc_dict = (
+                        request.team_context.to_dict()
+                        if hasattr(request.team_context, "to_dict")
+                        else {}
+                    )
                     team_context = UnifiedTeamContext(
                         agent_version="v2",
                         team_mode="single_agent",
-                        agent_name=getattr(request.team_context, "agent_name", None)
+                        agent_name=tc_dict.get("agent_name")
                         or request.agent
                         or "simple_chat",
+                        use_sandbox=tc_dict.get("use_sandbox", False),
                     )
             else:
                 team_context = UnifiedTeamContext(
@@ -195,16 +243,24 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     if not request.team_context:
                         team_context = AutoTeamContext(teamleader=request.agent)
                     else:
-                        team_context = AutoTeamContext(**request.team_context.to_dict())
+                        tc_dict = (
+                            request.team_context
+                            if isinstance(request.team_context, dict)
+                            else request.team_context.to_dict()
+                        )
+                        team_context = AutoTeamContext(**tc_dict)
                         team_context.teamleader = request.agent
                 else:
                     request.team_mode = TeamMode.SINGLE_AGENT.value
                     if not request.team_context:
                         team_context = SingleAgentContext(agent_name=request.agent)
                     else:
-                        team_context = SingleAgentContext(
-                            **request.team_context.to_dict()
+                        tc_dict = (
+                            request.team_context
+                            if isinstance(request.team_context, dict)
+                            else request.team_context.to_dict()
                         )
+                        team_context = SingleAgentContext(**tc_dict)
                         team_context.agent_name = request.agent
             else:
                 request.team_mode = TeamMode.SINGLE_AGENT.value
@@ -213,12 +269,22 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         agent_name=request.agent or "default"
                     )
                 else:
-                    team_context = SingleAgentContext(**request.team_context.to_dict())
+                    tc_dict = (
+                        request.team_context
+                        if isinstance(request.team_context, dict)
+                        else request.team_context.to_dict()
+                    )
+                    team_context = SingleAgentContext(**tc_dict)
         else:
             if not request.team_context:
                 team_context = NativeTeamContext()
             else:
-                team_context = NativeTeamContext(**request.team_context.to_dict())
+                tc_dict = (
+                    request.team_context
+                    if isinstance(request.team_context, dict)
+                    else request.team_context.to_dict()
+                )
+                team_context = NativeTeamContext(**tc_dict)
             if request.agent:
                 team_context.agent_name = request.agent
 
@@ -658,16 +724,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 ## 如果配置存在resource_agent资源，转换为detail消费使用
                 self._resource_to_app_detail(app_resp, app_config.resource_agent)
 
-            app_resp.team_context = app_config.team_context
+            # 确保 team_context 被正确序列化为字典，包含 use_sandbox 等字段
+            if app_config.team_context and hasattr(app_config.team_context, "to_dict"):
+                app_resp.team_context = app_config.team_context.to_dict()
+            else:
+                app_resp.team_context = app_config.team_context
             app_resp.team_mode = app_config.team_mode
 
             logger.info(f"[APP_DETAIL] 加载配置后:")
             logger.info(f"  - team_mode: {app_resp.team_mode}")
             logger.info(f"  - team_context: {app_resp.team_context}")
             logger.info(f"  - team_context type: {type(app_resp.team_context)}")
-            if app_resp.team_context and hasattr(app_resp.team_context, "__dict__"):
+            if app_resp.team_context and isinstance(app_resp.team_context, dict):
                 logger.info(
-                    f"  - team_context.__dict__: {app_resp.team_context.__dict__}"
+                    f"  - team_context.use_sandbox: {app_resp.team_context.get('use_sandbox')}"
                 )
 
             # app_resp.language =
@@ -1065,19 +1135,126 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         return self.old_app_switch_new_app(app_resp, building_mode)
 
-    async def looad_define_app(self):
-        logger.info("加载本地定义的应用数据")
+    def _get_available_llm_models(self) -> List[str]:
+        """获取当前可用的 LLM 模型列表
+
+        使用系统中已注册的 ModelConfigCache 获取用户配置的模型列表。
+        如果 ModelConfigCache 为空，会尝试从配置中主动加载。
+
+        Returns:
+            List[str]: 可用的 LLM 模型名称列表
+        """
+        try:
+            from derisk.agent.util.llm.model_config_cache import (
+                ModelConfigCache,
+                parse_provider_configs,
+            )
+
+            # 从 ModelConfigCache 获取所有已注册的模型
+            all_models = ModelConfigCache.get_all_models()
+
+            # 如果 ModelConfigCache 为空，尝试从配置中加载
+            if not all_models and CFG.SYSTEM_APP and CFG.SYSTEM_APP.config:
+                logger.info("ModelConfigCache 为空，尝试从配置中加载模型...")
+                agent_llm_conf = CFG.SYSTEM_APP.config.get("agent.llm")
+                if not agent_llm_conf:
+                    agent_conf = CFG.SYSTEM_APP.config.get("agent")
+                    if isinstance(agent_conf, dict):
+                        agent_llm_conf = agent_conf.get("llm")
+
+                if agent_llm_conf:
+                    model_configs = parse_provider_configs(agent_llm_conf)
+                    if model_configs:
+                        ModelConfigCache.register_configs(model_configs)
+                        logger.info(
+                            f"已从配置加载 {len(model_configs)} 个模型到 ModelConfigCache"
+                        )
+                        all_models = ModelConfigCache.get_all_models()
+
+            if all_models:
+                logger.info(f"从 ModelConfigCache 获取到可用的 LLM 模型: {all_models}")
+                return all_models
+        except Exception as e:
+            logger.warning(f"从 ModelConfigCache 获取模型列表失败: {str(e)}")
+
+        # 兜底：返回默认模型
+        default_models = ["deepseek-v3", "deepseek-r1"]
+        logger.warning(f"无法获取可用模型，使用默认模型: {default_models}")
+        return default_models
+
+    def _update_llm_config(self, app_data: dict) -> dict:
+        """更新应用的 LLM 配置，使用当前可用的模型
+
+        Args:
+            app_data: 应用配置数据
+
+        Returns:
+            dict: 更新后的应用配置数据
+        """
+        if "llm_config" not in app_data:
+            return app_data
+
+        available_models = self._get_available_llm_models()
+
+        # 深拷贝以避免修改原始数据
+        app_data = deepcopy(app_data)
+        llm_config = app_data.get("llm_config", {})
+
+        # 更新 llm_strategy_value 为当前可用的模型
+        if llm_config:
+            original_strategy = llm_config.get("llm_strategy", "priority")
+            llm_config["llm_strategy_value"] = available_models
+            app_data["llm_config"] = llm_config
+            logger.info(
+                f"更新应用 [{app_data.get('app_name')}] 的模型配置: "
+                f"strategy={original_strategy}, models={available_models}"
+            )
+
+        return app_data
+
+    def _convert_llm_config_to_resource(self, request: ServeRequest) -> ServeRequest:
+        """将字典形式的 llm_config 转换为 LLMResource 对象
+
+        Args:
+            request: 应用请求对象
+
+        Returns:
+            ServeRequest: 转换后的请求对象
+        """
+        if request.llm_config and isinstance(request.llm_config, dict):
+            from derisk_serve.building.config.api.schemas import LLMResource
+
+            try:
+                request.llm_config = LLMResource(**request.llm_config)
+                logger.info(
+                    f"应用 [{request.app_code}] 的 llm_config 已转换为 LLMResource 对象: "
+                    f"strategy={request.llm_config.llm_strategy}, "
+                    f"value={request.llm_config.llm_strategy_value}"
+                )
+            except Exception as e:
+                logger.warning(f"转换 llm_config 失败: {str(e)}")
+        return request
+
+    async def load_define_app(self):
+        """加载并初始化内置的默认应用
+
+        系统启动时自动初始化 derisk_app_define 目录下的默认应用。
+        如果应用已存在则跳过，确保应用初始化后处于发布状态。
+        模型配置会动态从当前可用的 agent 模型配置中获取。
+        """
+        logger.info("开始加载内置默认应用数据")
         # 1. 获取当前脚本所在目录
         import os
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # 2. 构建目标文件夹路径（假设文件夹名为"json_data"）
+        # 2. 构建目标文件夹路径
         target_folder = os.path.join(current_dir, "derisk_app_define")
 
         # 3. 检查文件夹是否存在
         if not os.path.exists(target_folder):
-            raise FileNotFoundError(f"应用定义目录不存在: {target_folder}")
+            logger.warning(f"应用定义目录不存在: {target_folder}，跳过内置应用初始化")
+            return
 
         # 4. 获取所有JSON文件
         json_files = [
@@ -1087,6 +1264,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         ]
 
         # 5. 加载并解析所有JSON文件
+        initialized_count = 0
+        skipped_count = 0
+
         for file in json_files:
             file_path = os.path.join(target_folder, file)
             try:
@@ -1095,23 +1275,46 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     for item in json_data:
                         app_code = item.get("app_code")
                         app_name = item.get("app_name")
-                        if app_code:
-                            logger.info(f"更新应用[{app_name}:{app_code}]")
-                            # 冲突检测
-                            chek_app = self.get(
-                                ServeRequest(app_code=app_code, app_name=app_name)
+                        if not app_code:
+                            continue
+
+                        logger.info(f"检查应用 [{app_name}:{app_code}]")
+
+                        # 冲突检测 - 检查应用是否已存在
+                        existing_app = self.get(ServeRequest(app_code=app_code))
+                        if existing_app:
+                            logger.info(
+                                f"应用 [{app_code}-{app_name}] 已存在，跳过初始化"
                             )
-                            if chek_app:
-                                logger.info(
-                                    f"应用[{app_code}-{app_name}]已经存在，无需再初始化！"
-                                )
-                                continue
-                            await self.new_define_app(
-                                request=ServeRequest.from_dict(item)
-                            )
-                logger.info(f"应用成功加载: {file}")
+                            skipped_count += 1
+                            continue
+
+                        # 动态更新模型配置
+                        updated_item = self._update_llm_config(item)
+
+                        # 创建 ServeRequest 对象
+                        request = ServeRequest.from_dict(updated_item)
+
+                        # 转换 llm_config 为 LLMResource 对象（如果是字典）
+                        request = self._convert_llm_config_to_resource(request)
+
+                        # 创建并发布应用
+                        await self.new_define_app(request=request)
+                        initialized_count += 1
+                        logger.info(f"应用 [{app_name}] 初始化并发布成功")
+
+                logger.info(f"应用配置文件 {file} 加载完成")
             except Exception as e:
-                logger.warning(f"应用加载失败 {file}: {str(e)}", exc_info=True)
+                logger.error(f"应用加载失败 {file}: {str(e)}", exc_info=True)
+
+        logger.info(
+            f"内置应用初始化完成: 新初始化 {initialized_count} 个, 跳过 {skipped_count} 个"
+        )
+
+    # 保持向后兼容的别名
+    async def looad_define_app(self):
+        """已废弃：请使用 load_define_app"""
+        await self.load_define_app()
 
     def get(self, request: ServeRequest) -> Optional[ServerResponse]:
         """Get a App entity

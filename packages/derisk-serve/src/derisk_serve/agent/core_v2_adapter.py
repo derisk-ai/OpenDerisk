@@ -124,15 +124,40 @@ class CoreV2Component(BaseComponent):
         if self._started:
             return
 
+        # Initialize GptsMemory with database persistence (MetaDerisksMessageMemory)
+        # This ensures Core V2 messages are saved to gpts_messages table
         gpts_memory = None
         try:
             from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory
+            from derisk_serve.agent.agents.derisks_memory import (
+                MetaDerisksPlansMemory,
+                MetaDerisksMessageMemory,
+                MetaDerisksWorkLogStorage,
+                MetaDerisksKanbanStorage,
+                MetaDerisksTodoStorage,
+                MetaDerisksFileMetadataStorage,
+            )
 
+            # Try to get from system components first
             gpts_memory = self.system_app.get_component(
                 ComponentType.GPTS_MEMORY, GptsMemory
             )
-        except Exception:
-            logger.warning("GptsMemory not found")
+
+            # If not registered, create a new instance with database persistence
+            if gpts_memory is None:
+                gpts_memory = GptsMemory(
+                    plans_memory=MetaDerisksPlansMemory(),
+                    message_memory=MetaDerisksMessageMemory(),
+                    file_metadata_db_storage=MetaDerisksFileMetadataStorage(),
+                    work_log_db_storage=MetaDerisksWorkLogStorage(),
+                    kanban_db_storage=MetaDerisksKanbanStorage(),
+                    todo_db_storage=MetaDerisksTodoStorage(),
+                )
+                logger.info(
+                    "[CoreV2Component] Created GptsMemory with database persistence (MetaDerisksMessageMemory)"
+                )
+        except Exception as e:
+            logger.warning(f"GptsMemory initialization failed: {e}")
 
         # 获取 LLM 客户端用于分层上下文管理
         llm_client = None

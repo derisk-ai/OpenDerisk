@@ -233,11 +233,15 @@ class ResourceManager(BaseComponent):
         type_unique_key: str,
         agent_resource: AgentResource,
         return_resource: bool = True,
-    ) -> Union[Resource, Dict[str, Any]]:
+    ) -> Union[Resource, Dict[str, Any], None]:
         """Return the resource by type."""
         item = self._type_to_resources.get(type_unique_key)
         if not item:
-            raise ValueError(f"Resource type {type_unique_key} not found.")
+            # Resource type not registered, skip this resource (optional resource)
+            logger.warning(
+                f"Resource type {type_unique_key} not found, skipping this resource."
+            )
+            return None
         inst_items = [i for i in item if not i.is_class]
         resource_value: Union[str, Dict[str, Any]] = agent_resource.value
         v2_resource = False
@@ -356,6 +360,8 @@ class ResourceManager(BaseComponent):
                 for resource in agent_resources
             ]
         )
+        # Filter out None values (resources that failed to build or were skipped)
+        dependencies = [dep for dep in dependencies if dep is not None]
         # Summary Agent不放入resource中
         dependencies = [
             dependency

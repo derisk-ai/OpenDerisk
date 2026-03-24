@@ -139,7 +139,9 @@ class ServeRequest(BaseModel):
     code: Optional[str] = Field(None, description="当前配置代码")
     team_mode: Optional[str] = Field(None, description="当前版本配置的对话模式")
     team_context: Optional[
-        Union[str, AutoTeamContext, SingleAgentContext, UnifiedTeamContext]
+        Union[
+            str, Dict[str, Any], AutoTeamContext, SingleAgentContext, UnifiedTeamContext
+        ]
     ] = Field(None, description="应用的TeamContext信息")
     resources: Optional[List[AgentResource]] = Field(
         None, description="应用的Resources信息"

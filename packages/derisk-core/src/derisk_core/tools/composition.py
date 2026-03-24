@@ -5,8 +5,9 @@
 import asyncio
 from typing import Dict, Any, Optional, List, Callable, Awaitable
 from pydantic import BaseModel, Field
-from .base import ToolBase, ToolResult
-from .registry import tool_registry
+from derisk.agent.tools.base import ToolBase
+from derisk.agent.tools.result import ToolResult
+from derisk.agent.tools.registry import tool_registry
 
 
 class BatchResult(BaseModel):

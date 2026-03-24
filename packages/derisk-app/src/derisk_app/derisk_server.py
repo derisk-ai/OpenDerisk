@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 
 from derisk.util.logger import (
     logging_str_to_uvicorn_level,
@@ -13,6 +14,21 @@ from derisk_app.app import CustomAppCreator, AppCreator
 logger = logging.getLogger(__name__)
 ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ROOT_PATH)
+
+DEFAULT_JSON_CONFIG_PATH = Path.home() / ".derisk" / "derisk.json"
+
+
+def init_json_config_manager():
+    """Initialize the JSON config manager for UI configuration"""
+    try:
+        from derisk_core.config import ConfigManager
+
+        ConfigManager.init(str(DEFAULT_JSON_CONFIG_PATH))
+        logger.info(
+            f"JSON config manager initialized: {ConfigManager.get_config_path()}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to initialize JSON config manager: {e}")
 
 
 def run_uvicorn(creator: AppCreator):
@@ -27,6 +43,7 @@ def run_uvicorn(creator: AppCreator):
     loop = "auto"
     try:
         import uvloop
+
         loop = "uvloop"
     except ImportError:
         pass
@@ -34,6 +51,7 @@ def run_uvicorn(creator: AppCreator):
     http = "auto"
     try:
         import httptools
+
         http = "httptools"
     except ImportError:
         pass
@@ -51,7 +69,16 @@ def run_uvicorn(creator: AppCreator):
 
 
 def run_webserver(config_file: str):
-    creator = next((creator for creator in AppCreator.__subclasses__() if creator.config_file and creator.config_file.endswith(config_file)), CustomAppCreator)(config_file)
+    init_json_config_manager()
+
+    creator = next(
+        (
+            creator
+            for creator in AppCreator.__subclasses__()
+            if creator.config_file and creator.config_file.endswith(config_file)
+        ),
+        CustomAppCreator,
+    )(config_file)
     with root_tracer.start_span(
         "run_webserver",
         span_type=SpanType.RUN,
@@ -73,7 +100,9 @@ def parse_args():
         "--config",
         type=str,
         default=None,
-        help="Path to the configuration file. Default: configs/derisk-siliconflow.toml",
+        help=f"Path to the TOML configuration file for service infrastructure. "
+        f"Default: configs/derisk-proxy-aliyun.toml. "
+        f"Application settings (JSON) are stored in: {DEFAULT_JSON_CONFIG_PATH}",
     )
     return parser.parse_args()
 

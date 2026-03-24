@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import mimetypes
 from functools import cache
 from typing import List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse, Response
 
 from derisk.component import SystemApp
 from derisk_serve.core import Result, blocking_func_to_async
@@ -137,7 +138,6 @@ async def download_file(
         global_system_app, service.download_file, bucket, file_id
     )
 
-
     file_name_encoded = quote(file_metadata.file_name)
 
     def file_iterator(raw_iter):
@@ -154,8 +154,8 @@ async def download_file(
 
     # Test
     if file_metadata.file_name.endswith(".svg"):
-        response.headers['Content-Type'] = "image/svg+xml"
-        response.headers['Content-Disposition'] = "inline"
+        response.headers["Content-Type"] = "image/svg+xml"
+        response.headers["Content-Disposition"] = "inline"
 
     return response
 
@@ -169,6 +169,92 @@ async def delete_file(
         global_system_app, service.delete_file, bucket, file_id
     )
     return Result.succ(None)
+
+
+@router.get("/files/preview", dependencies=[Depends(check_api_key)])
+async def preview_file(
+    uri: Optional[str] = Query(None, description="File URI"),
+    bucket: Optional[str] = Query(None, description="Bucket name"),
+    file_id: Optional[str] = Query(None, description="File ID"),
+    service: Service = Depends(get_service),
+):
+    """Preview a file (returns content with appropriate Content-Type)."""
+    if not uri and not (bucket and file_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Either uri or (bucket and file_id) must be provided",
+        )
+
+    if uri:
+        from derisk.core.interface.file import FileStorageURI
+
+        parsed_uri = FileStorageURI.parse(uri)
+        bucket, file_id = parsed_uri.bucket, parsed_uri.file_id
+
+    file_data, file_metadata = await blocking_func_to_async(
+        global_system_app, service.download_file, bucket, file_id
+    )
+
+    mime_type, _ = mimetypes.guess_type(file_metadata.file_name)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+
+    previewable_types = [
+        "text/plain",
+        "text/html",
+        "text/markdown",
+        "text/csv",
+        "application/json",
+        "application/pdf",
+        "image/",
+        "application/javascript",
+    ]
+
+    is_previewable = any(
+        mime_type.startswith(t) if t.endswith("/") else mime_type == t
+        for t in previewable_types
+    )
+
+    def file_iterator(raw_iter):
+        with raw_iter:
+            while chunk := raw_iter.read(service.config.download_chunk_size):
+                yield chunk
+
+    response = StreamingResponse(
+        file_iterator(file_data),
+        media_type=mime_type,
+    )
+
+    if is_previewable:
+        response.headers["Content-Disposition"] = (
+            f"inline; filename={quote(file_metadata.file_name)}"
+        )
+    else:
+        response.headers["Content-Disposition"] = (
+            f"attachment; filename={quote(file_metadata.file_name)}"
+        )
+
+    return response
+
+
+@router.get(
+    "/files/public_url",
+    response_model=Result[str],
+    dependencies=[Depends(check_api_key)],
+)
+async def get_file_public_url(
+    uri: str = Query(..., description="File URI"),
+    expire: int = Query(3600, description="URL expiration time in seconds"),
+    service: Service = Depends(get_service),
+) -> Result[str]:
+    """Generate a public URL for a file."""
+    public_url = service.file_storage_client.get_public_url(uri, expire=expire)
+    if not public_url:
+        raise HTTPException(
+            status_code=404,
+            detail="Failed to generate public URL for file",
+        )
+    return Result.succ(public_url)
 
 
 @router.get(
