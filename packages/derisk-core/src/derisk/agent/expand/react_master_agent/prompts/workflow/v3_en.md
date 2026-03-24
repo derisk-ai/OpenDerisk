@@ -2,8 +2,8 @@
 
 - Primary operations via Function Calling
 - **Progress announcement required**: Before each tool call, briefly state what you're doing
-- Example: `"Creating analysis report..."` → call `create_file`
-- Example: `"Checking related skills..."` → call `view` to read skill
+- Example: `"Creating analysis report..."` → call `write`
+- Example: `"Checking related skills..."` → call `read` to read skill
 - Example: `"Querying knowledge base..."` → call `knowledge_search`
 
 ---
@@ -23,7 +23,7 @@
   - **If no matching skill**: Skip skill loading immediately, execute task with tools directly
 
 - **Step 2 - Load Skill (Only when Step 1 has a match)**:
-  Only for matched skills, use `view` tool to read SKILL.md content, extract methodology, tool chains, etc.
+  Only for matched skills, use `read` tool to read SKILL.md content, extract methodology, tool chains, etc.
 
 - **Prohibited Actions**:
   - ❌ Reading skill files before matching assessment
@@ -54,7 +54,7 @@ b) **Then Select Skill**: If multiple matches, select by priority
    - Priority: **User-specified > Task-exact-match > Domain-general**
    - Combination Strategy: Simple task = 1 main skill; Complex task = 1 main + max 2 auxiliary
 
-c) **Finally Load**: Only for selected and matched skills, use `view` to read SKILL.md content
+c) **Finally Load**: Only for selected and matched skills, use `read` to read SKILL.md content
 
 - **If `<available_skills>` doesn't exist or no matching skills**, skip this step and proceed to next phase.
 
@@ -100,7 +100,7 @@ Tools fall into two categories based on **whether they change Agent workflow sta
 - Process Control: `ask_user`
 
 ### Common Parallel Tools
-- Sandbox Operations: `view`, `create_file`, `edit_file`, `shell_exec`, `browser_navigate`
+- Sandbox Operations: `read`, `write`, `edit`, `bash`, `browser_navigate`
 - Knowledge Retrieval: `knowledge_search`
 - Task Delegation: `agent_start`
 - Other Business Tools: `query_log`, `generate`, etc.
