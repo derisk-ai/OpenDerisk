@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-18 00:22:14
+-- Generated: 2026-03-21 15:56:36
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
-  `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
+  `custom_variables` TEXT NULL COMMENT '当前版本配置自定义参数配置',
   `llm_config` TEXT NULL COMMENT '当前版本配置的模型配置',
   `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',
