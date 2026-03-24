@@ -164,6 +164,41 @@ def mount_static_files(app: FastAPI, param: ApplicationConfig):
     )
 
 
+def _sync_oauth2_config_from_db():
+    """Sync OAuth2 config from database to runtime config on startup.
+
+    This ensures that after deployment/restart, the OAuth2 configuration
+    stored in database (which survives redeployment) is loaded into
+    the in-memory config used by the application.
+    """
+    try:
+        from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
+        from derisk.configs.model_config import Config
+
+        db_storage = get_oauth2_db_storage()
+        # Load with actual secrets for runtime use
+        db_oauth2 = db_storage.load_with_secrets()
+
+        if db_oauth2 is not None:
+            # Update the runtime config with database values
+            cfg = Config()
+            if hasattr(cfg, "oauth2"):
+                from derisk_core.config import OAuth2Config
+
+                # Convert dict to OAuth2Config
+                oauth2_config = OAuth2Config(
+                    enabled=db_oauth2.get("enabled", False),
+                    providers=db_oauth2.get("providers", []),
+                    admin_users=db_oauth2.get("admin_users", []),
+                )
+                cfg.oauth2 = oauth2_config
+                logger.info("OAuth2 config loaded from database (secrets loaded for runtime)")
+        else:
+            logger.info("No OAuth2 config in database, using file config")
+    except Exception as e:
+        logger.warning(f"Failed to sync OAuth2 from database: {e}")
+
+
 def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp):
     """Initialize app
     If you use gunicorn as a process manager, initialize_app can be invoke in
@@ -190,6 +225,9 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     _migration_db_storage(
         param.service.web.database, web_config.disable_alembic_upgrade
     )
+
+    # Load OAuth2 config from database (if exists) to override file config
+    _sync_oauth2_config_from_db()
 
     from derisk_app.component_configs import initialize_components
 
