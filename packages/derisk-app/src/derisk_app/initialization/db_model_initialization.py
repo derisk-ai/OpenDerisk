@@ -30,6 +30,7 @@ from derisk_serve.building.config.models.models import (
 from derisk_serve.mcp.models.models import ServeEntity as MCPServeEntity
 from derisk_serve.channel.models.models import ChannelEntity
 from derisk_app.auth.user_service import UserEntity
+from derisk_app.config_storage.oauth2_db_storage import OAuth2ConfigEntity
 from derisk_app.feature_plugins.user_groups.models import (
     UserGroupEntity,
     UserGroupMemberEntity,
@@ -60,4 +61,5 @@ _MODELS = [
     UserEntity,
     UserGroupEntity,
     UserGroupMemberEntity,
+    OAuth2ConfigEntity,
 ]

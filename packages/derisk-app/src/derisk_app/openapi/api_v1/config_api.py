@@ -472,25 +472,66 @@ async def save_config():
 
 @router.get("/oauth2")
 async def get_oauth2_config():
-    """获取 OAuth2 配置"""
+    """获取 OAuth2 配置（优先从数据库读取，client_secret 已打码）"""
+    from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
+
+    # Try database first (returns masked secrets by default)
+    try:
+        db_storage = get_oauth2_db_storage()
+        db_config = db_storage.load(mask_secrets=True)
+        if db_config is not None:
+            return JSONResponse(
+                content={"success": True, "data": db_config, "source": "database"}
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load OAuth2 from database: {e}")
+
+    # Fallback to file config (also mask secrets)
     manager = get_config_manager()
     config = manager.get()
     oauth2 = getattr(config, "oauth2", None)
     if oauth2 is None:
         return JSONResponse(
-            content={"success": True, "data": {"enabled": False, "providers": []}}
+            content={
+                "success": True,
+                "data": {"enabled": False, "providers": [], "admin_users": []},
+                "source": "file",
+            }
         )
+    
+    # Mask secrets in file config too
+    data = oauth2.model_dump(mode="json")
+    for provider in data.get("providers", []):
+        secret = provider.get("client_secret", "")
+        if secret and len(secret) > 4:
+            provider["client_secret"] = secret[:4] + "****"
+        elif secret:
+            provider["client_secret"] = "****"
+    
     return JSONResponse(
-        content={"success": True, "data": oauth2.model_dump(mode="json")}
+        content={"success": True, "data": data, "source": "file"}
     )
 
 
 @router.post("/oauth2")
 async def update_oauth2_config(oauth2_data: Dict[str, Any]):
-    """更新 OAuth2 配置并保存到文件"""
+    """更新 OAuth2 配置并保存到数据库（同时备份到文件）"""
+    from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
+
     try:
         from derisk_core.config import AppConfig, OAuth2Config
 
+        # Save to database (encrypted)
+        db_storage = get_oauth2_db_storage()
+        providers = oauth2_data.get("providers", [])
+        admin_users = oauth2_data.get("admin_users", [])
+        enabled = oauth2_data.get("enabled", False)
+
+        db_saved = db_storage.save(enabled, providers, admin_users)
+        if not db_saved:
+            logger.warning("Failed to save OAuth2 config to database")
+
+        # Also update in-memory config for runtime use
         manager = get_config_manager()
         config = manager.get()
         config_dict = config.model_dump(mode="json")
@@ -498,18 +539,24 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         config = AppConfig(**config_dict)
         manager._config = config
 
-        saved = save_config_with_error_handling(manager, "OAuth2配置")
+        # Try to save to file as backup (but don't fail if it doesn't work)
+        file_saved = False
+        try:
+            file_saved = save_config_with_error_handling(manager, "OAuth2配置")
+        except Exception as e:
+            logger.warning(f"Failed to save OAuth2 to file (non-critical): {e}")
 
         return JSONResponse(
             content={
                 "success": True,
-                "message": "OAuth2 配置已更新"
-                + ("并保存" if saved else "（保存失败）"),
+                "message": "OAuth2 配置已更新",
                 "data": config.oauth2.model_dump(mode="json"),
-                "saved_to_file": saved,
+                "saved_to_database": db_saved,
+                "saved_to_file": file_saved,
             }
         )
     except Exception as e:
+        logger.exception("Failed to update OAuth2 config")
         raise HTTPException(status_code=400, detail=str(e))
 
 
