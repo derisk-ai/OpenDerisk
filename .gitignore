@@ -193,6 +193,8 @@ configs/local
 .specstory
 
 .cursorignore
+.cursor/
+.derisk/
 /pilot/datasets/
 /.claude/
 /pilot/dataset/
