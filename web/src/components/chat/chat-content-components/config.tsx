@@ -348,9 +348,11 @@ export const basicComponents: { [key: string]: (props: any) => React.ReactNode }
   },
   table({ children }) {
     return (
-      <table className='my-2 rounded-tl-md rounded-tr-md  bg-white dark:bg-gray-800 text-sm rounded-lg overflow-hidden'>
-        {children}
-      </table>
+      <div className='my-2 overflow-x-auto'>
+        <table className='rounded-tl-md rounded-tr-md bg-white dark:bg-gray-800 text-sm rounded-lg overflow-hidden'>
+          {children}
+        </table>
+      </div>
     );
   },
   thead({ children }) {

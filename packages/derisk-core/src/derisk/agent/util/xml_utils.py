@@ -17,7 +17,7 @@ def extract_valid_xmls(text) -> List[str]:
             # 尝试解析 XML
             xmltodict.parse(xml_str)
             valid_xmls.append(xml_str)
-        except:
+        except Exception:
             # 解析失败则跳过
             continue
     return valid_xmls

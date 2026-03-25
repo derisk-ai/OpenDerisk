@@ -16,6 +16,7 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Type, Uni
 from pydantic import BaseModel, Field
 
 from .adapter import V2Adapter, V2MessageConverter, V2StreamChunk
+from .action_report_builder import build_action_report_from_chunk
 from ..vis_converter import CoreV2VisWindow3Converter
 from ..visualization.progress import ProgressBroadcaster, ProgressEventType
 
@@ -58,6 +59,9 @@ class SessionContext:
     state: RuntimeState = RuntimeState.IDLE
     message_count: int = 0
 
+    # 应用显示名称（用于 VIS 渲染，避免显示 UUID）
+    app_name: Optional[str] = None
+
     current_message_id: Optional[str] = None
     accumulated_content: str = ""
     is_first_chunk: bool = True
@@ -89,6 +93,7 @@ class V2AgentRuntime:
         llm_client: Any = None,
         conv_storage: Any = None,
         message_storage: Any = None,
+        interaction_gateway: Any = None,
     ):
         """
         初始化运行时
@@ -102,11 +107,13 @@ class V2AgentRuntime:
             llm_client: LLM 客户端 (用于上下文压缩)
             conv_storage: 会话存储 (用于 StorageConversation)
             message_storage: 消息存储 (用于 ChatHistoryMessageEntity)
+            interaction_gateway: 交互网关 (用于 ask_user 暂停/恢复)
         """
         self.config = config or RuntimeConfig()
         self.gpts_memory = gpts_memory
         self.adapter = adapter or V2Adapter()
         self.progress_broadcaster = progress_broadcaster
+        self._interaction_gateway = interaction_gateway
 
         # Conversation 存储 (用于 ChatHistoryMessageEntity)
         self._conv_storage = conv_storage
@@ -132,6 +139,16 @@ class V2AgentRuntime:
     @property
     def state(self) -> RuntimeState:
         return self._state
+
+    def set_interaction_gateway(self, gateway: Any) -> None:
+        """设置交互网关 (用于 ask_user 暂停/恢复)"""
+        self._interaction_gateway = gateway
+        logger.info("[V2Runtime] 交互网关已设置")
+
+    @property
+    def interaction_gateway(self) -> Optional[Any]:
+        """获取交互网关"""
+        return self._interaction_gateway
 
     def register_agent_factory(self, agent_name: str, factory: Callable):
         self._agent_factories[agent_name] = factory
@@ -574,6 +591,11 @@ class V2AgentRuntime:
             if self.progress_broadcaster and hasattr(agent, "_progress_broadcaster"):
                 agent._progress_broadcaster = self.progress_broadcaster
 
+            # 注入交互网关 (用于 ask_user 暂停/恢复)
+            if self._interaction_gateway and hasattr(agent, "set_interaction_gateway"):
+                agent.set_interaction_gateway(self._interaction_gateway)
+                logger.info(f"[_execute_stream] Injected interaction gateway into agent")
+
             print(
                 f"[_execute_stream] Calling agent.run with message: {message[:50]}...",
                 file=sys.stderr,
@@ -683,7 +705,85 @@ class V2AgentRuntime:
     def _parse_agent_output(self, output: str) -> V2StreamChunk:
         is_final = False
 
-        if output.startswith("[THINKING]"):
+        if output.startswith("[TOOL_START:"):
+            # 格式: [TOOL_START:tool_name:action_id:json_args]
+            try:
+                inner = output.strip().lstrip("[TOOL_START:").rstrip("]")
+                parts = inner.split(":", 2)
+                tool_name = parts[0] if len(parts) > 0 else "unknown"
+                action_id = parts[1] if len(parts) > 1 else ""
+                tool_args = {}
+                if len(parts) > 2:
+                    import json as _json
+                    tool_args = _json.loads(parts[2])
+            except Exception:
+                tool_name = "unknown"
+                action_id = ""
+                tool_args = {}
+            return V2StreamChunk(
+                type="tool_start",
+                content=tool_name,
+                metadata={
+                    "tool_name": tool_name,
+                    "action_id": action_id,
+                    "tool_args": tool_args,
+                },
+            )
+        elif output.startswith("[TOOL_RESULT:"):
+            # 格式: [TOOL_RESULT:tool_name:action_id:json_meta]\ncontent
+            try:
+                first_line_end = output.find("]\n")
+                if first_line_end > 0:
+                    header = output[:first_line_end + 1]
+                    content = output[first_line_end + 2:]
+                else:
+                    header = output.strip()
+                    content = ""
+                inner = header.strip().lstrip("[TOOL_RESULT:").rstrip("]")
+                parts = inner.split(":", 2)
+                tool_name = parts[0] if len(parts) > 0 else "unknown"
+                action_id = parts[1] if len(parts) > 1 else ""
+                success = True
+                if len(parts) > 2:
+                    import json as _json
+                    meta = _json.loads(parts[2])
+                    success = meta.get("success", True)
+            except Exception:
+                tool_name = "unknown"
+                action_id = ""
+                success = True
+                content = output
+            return V2StreamChunk(
+                type="tool_result",
+                content=content,
+                metadata={
+                    "tool_name": tool_name,
+                    "action_id": action_id,
+                    "success": success,
+                },
+            )
+        elif output.startswith("[ASK_USER:"):
+            # 格式: [ASK_USER:request_id]
+            try:
+                request_id = output.strip().lstrip("[ASK_USER:").rstrip("]")
+            except Exception:
+                request_id = ""
+            return V2StreamChunk(
+                type="ask_user",
+                content="",
+                metadata={"request_id": request_id},
+            )
+        elif output.startswith("[ASK_USER_CANCELLED:"):
+            try:
+                request_id = output.strip().lstrip("[ASK_USER_CANCELLED:").rstrip("]")
+            except Exception:
+                request_id = ""
+            return V2StreamChunk(
+                type="ask_user_cancelled",
+                content="User interaction cancelled or timed out",
+                metadata={"request_id": request_id},
+            )
+        elif output.startswith("[THINKING]"):
             content = output.replace("[THINKING]", "").replace("[/THINKING]", "")
             return V2StreamChunk(type="thinking", content=content)
         elif output.startswith("[TOOL:"):
@@ -788,9 +888,6 @@ class V2AgentRuntime:
                 )
 
     async def _push_stream_chunk(self, conv_id: str, chunk: V2StreamChunk):
-        if not self.gpts_memory:
-            return
-
         session = None
         for s in self._sessions.values():
             if s.conv_id == conv_id:
@@ -809,32 +906,42 @@ class V2AgentRuntime:
         if chunk.type == "response":
             session.accumulated_content += chunk.content or ""
 
-        is_thinking = chunk.type == "thinking"
-        stream_msg = {
-            "uid": session.current_message_id,
-            "type": "incr",
-            "message_id": session.current_message_id,
-            "conv_id": conv_id,
-            "conv_session_uid": session.session_id,
-            "goal_id": session.current_message_id,
-            "task_goal_id": session.current_message_id,
-            "sender": session.agent_name,
-            "sender_name": session.agent_name,
-            "sender_role": "assistant",
-            "thinking": chunk.content if is_thinking else None,
-            "content": "" if is_thinking else (chunk.content or ""),
-            "prev_content": session.accumulated_content,
-            "start_time": datetime.now(),
-        }
+        # Push to GptsMemory streaming (only if available)
+        if self.gpts_memory:
+            is_thinking = chunk.type == "thinking"
+            is_tool = chunk.type in ("tool_start", "tool_result")
+            stream_msg = {
+                "uid": session.current_message_id,
+                "type": "incr",
+                "message_id": session.current_message_id,
+                "conv_id": conv_id,
+                "conv_session_uid": session.session_id,
+                "goal_id": session.current_message_id,
+                "task_goal_id": session.current_message_id,
+                "sender": session.agent_name,
+                "sender_name": session.app_name or session.agent_name,
+                "sender_role": "assistant",
+                "model": chunk.metadata.get("model") if chunk.metadata else None,
+                "thinking": chunk.content if is_thinking else None,
+                "content": "" if (is_thinking or is_tool) else (chunk.content or ""),
+                "prev_content": session.accumulated_content,
+                "start_time": datetime.now(),
+            }
 
-        await self.gpts_memory.push_message(
-            conv_id,
-            stream_msg=stream_msg,
-            is_first_chunk=session.is_first_chunk,
-        )
+            # 为工具类型的 chunk 构建 action_report
+            if is_tool:
+                action_report = build_action_report_from_chunk(chunk)
+                if action_report:
+                    stream_msg["action_report"] = action_report
 
-        if session.is_first_chunk:
-            session.is_first_chunk = False
+            await self.gpts_memory.push_message(
+                conv_id,
+                stream_msg=stream_msg,
+                is_first_chunk=session.is_first_chunk,
+            )
+
+            if session.is_first_chunk:
+                session.is_first_chunk = False
 
         if chunk.is_final:
             # 生成 vis_window3 最终视图用于持久化
@@ -852,7 +959,7 @@ class V2AgentRuntime:
                         conv_id=conv_id,
                         conv_session_id=session.session_id,
                         sender=session.agent_name,
-                        sender_name=session.agent_name,
+                        sender_name=session.app_name or session.agent_name,
                         message_id=session.current_message_id or str(uuid.uuid4().hex),
                         role="assistant",
                         content=session.accumulated_content,
@@ -881,14 +988,14 @@ class V2AgentRuntime:
                     conv_session_id=session.session_id,
                     message_id=session.current_message_id or str(uuid.uuid4().hex),
                     sender=session.agent_name,
-                    sender_name=session.agent_name,
+                    sender_name=session.app_name or session.agent_name,
                     receiver="user",
                     receiver_name="user",
                     role="assistant",
                     content=vis_final_content,
                     rounds=0,
                     app_code=session.agent_name,
-                    app_name=session.agent_name,
+                    app_name=session.app_name or session.agent_name,
                 )
                 await self.gpts_memory.append_message(
                     conv_id, assistant_msg, save_db=True

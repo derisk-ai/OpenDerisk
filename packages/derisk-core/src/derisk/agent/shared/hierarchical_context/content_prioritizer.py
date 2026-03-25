@@ -68,7 +68,6 @@ class ContentPrioritizer:
         "execute_code": ContentPriority.HIGH,
         "write_file": ContentPriority.HIGH,
         "make_decision": ContentPriority.CRITICAL,
-        "think": ContentPriority.CRITICAL,
         "analyze": ContentPriority.HIGH,
         
         "read_file": ContentPriority.MEDIUM,

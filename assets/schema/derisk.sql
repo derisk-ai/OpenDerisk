@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-21 15:56:36
+-- Generated: 2026-03-24 19:23:14
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -284,24 +284,25 @@ CREATE TABLE IF NOT EXISTS `gpts_messages` (
   `is_success` TINYINT(1) NULL DEFAULT 1 COMMENT 'is success',
   `app_code` VARCHAR(255) NOT NULL COMMENT 'The message in which app',
   `app_name` VARCHAR(255) NOT NULL COMMENT 'The message in which app name',
-  `thinking` TEXT NULL COMMENT 'Thinking of the speech',
-  `content` TEXT NULL COMMENT 'Content of the speech',
+  `thinking` LONGTEXT NULL COMMENT 'Thinking of the speech',
+  `content` LONGTEXT NULL COMMENT 'Content of the speech',
   `content_types` VARCHAR(1000) NULL COMMENT 'Content types of the speech',
   `message_type` VARCHAR(255) NULL COMMENT 'type of the message',
-  `system_prompt` TEXT NULL COMMENT 'this message system prompt',
-  `user_prompt` TEXT NULL COMMENT 'this message system prompt',
+  `system_prompt` LONGTEXT NULL COMMENT 'this message system prompt',
+  `user_prompt` LONGTEXT NULL COMMENT 'this message system prompt',
   `show_message` TINYINT(1) NULL COMMENT 'Whether the current message needs to be displayed to the user',
   `goal_id` VARCHAR(255) NULL COMMENT 'The target id to the current message',
   `current_goal` TEXT NULL COMMENT 'The target corresponding to the current message',
   `context` TEXT NULL COMMENT 'Current conversation context',
   `review_info` TEXT NULL COMMENT 'Current conversation review info',
-  `action_report` TEXT NULL COMMENT 'Current conversation action report',
+  `action_report` LONGTEXT NULL COMMENT 'Current conversation action report',
   `resource_info` TEXT NULL COMMENT 'Current conversation resource info',
   `role` VARCHAR(255) NULL COMMENT 'The role of the current message content',
   `avatar` VARCHAR(255) NULL COMMENT 'The avatar of the agent who send current message content',
   `metrics` VARCHAR(1000) NULL COMMENT 'The performance metrics of agent messages',
-  `tool_calls` TEXT NULL COMMENT 'The tool_calls of agent messages',
-  `observation` TEXT NULL COMMENT 'The  message observation',
+  `tool_calls` LONGTEXT NULL COMMENT 'The tool_calls of agent messages',
+  `input_tools` LONGTEXT NULL COMMENT 'The input tools passed to LLM',
+  `observation` LONGTEXT NULL COMMENT 'The  message observation',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
@@ -478,7 +479,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
-  `custom_variables` TEXT NULL COMMENT '当前版本配置自定义参数配置',
+  `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
   `llm_config` TEXT NULL COMMENT '当前版本配置的模型配置',
   `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',

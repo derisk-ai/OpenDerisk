@@ -1,39 +1,52 @@
 # Running Window 修复总结
 
+## 问题描述
+
+在 vis_window3 布局下，当用户在 running window 中进行追问（follow-up questions）时，AgentFolder 组件中的数据没有追加更新，用户看不到后续对话的内容。
+
 ## 问题分析
 
-### 1. 后端问题
-- `_running_vis_build` 只在 `is_first_push=True` 时构建 `explorer`
-- 后续更新只返回 `items`，导致前端目录结构消失
+### 1. 后端问题（根本原因）
+- `_running_vis_build` 方法只在 `is_first_push=True` 时构建 `main_agent_folder`
+- 追问时（`is_first_push=False`），`main_agent_folder` 为 `None`
+- 导致 `WorkSpaceContent` 的 `explorer` 字段为空
+- 前端没有收到 AgentFolder 的数据，无法显示目录结构
 
-### 2. 前端问题  
-- RunningWindowV2 使用 `data.explorer` 显示左侧目录
+### 2. 前端数据处理
+- RunningWindowV2 使用 `data.explorer` 显示左侧目录（AgentFolder）
 - 使用 `data.items` 显示右侧内容
-- 但两者没有正确关联，导致任务无法挂载到目录
+- VIS 协议支持增量更新（type=INCR）和全量更新（type=ALL）
 
 ## 修复内容
 
-### 1. 后端修复（已应用）
+### 后端修复（✅ 已应用）
 **文件**: `packages/derisk-ext/src/derisk_ext/vis/derisk/derisk_vis_window3_converter.py`
 
-**修改**: `_running_vis_build` 方法（约第 754-796 行）
+**修改**: `_running_vis_build` 方法（第 1164-1197 行）
 
 **变更**:
 ```python
 # 修改前
 main_agent_folder = None
 if is_first_push:
-    logger.info("构建vis_window2空间，进行首次资源管理器刷新!")
+    logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
     main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+    file_system_folder = await self._build_file_system_folder(...)
 
-# 修改后  
-# 每次都构建 agent folder，确保 explorer 始终存在
+# 修改后
+# 🔧 修复：每次都构建 agent folder，确保 explorer 始终存在
+# 这样追问时也能正确更新 AgentFolder 数据
 main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+
 if is_first_push:
-    logger.info("构建vis_window2空间，进行首次资源管理器刷新!")
+    logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
+    file_system_folder = await self._build_file_system_folder(...)
 ```
 
-**原因**: 前端需要 `explorer` 始终存在来显示目录结构，即使 items 没有更新
+**原因**: 
+- 前端需要 `explorer` 始终存在来显示目录结构
+- AgentFolder 使用增量更新模式（type=INCR），空 items 会保留原有数据
+- 确保追问时也能正确渲染目录树
 
 ### 2. 数据关联
 

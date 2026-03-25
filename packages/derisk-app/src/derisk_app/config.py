@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from derisk.configs.model_config import DATA_DIR
 from derisk.datasource.parameter import BaseDatasourceParameters
 from derisk.model.parameter import (
     ModelsDeployParameters,
@@ -310,25 +309,8 @@ class SandboxConfigParameters(BaseParameters):
     )
     skill_dir: Optional[str] = field(
         default=None,
-        metadata={
-            "help": _(
-                "The sandbox skill dir. Defaults to DATA_DIR/skill for local sandbox."
-            )
-        },
+        metadata={"help": _("The sandbox skill dir.")},
     )
-
-    def __post_init__(self):
-        """Set default work_dir and skill_dir based on sandbox type if not provided."""
-        if self.work_dir is None:
-            if self.type == "local":
-                self.work_dir = "/Users/tuyang.yhj/Code/python/derisk/pilot"
-            else:
-                self.work_dir = "/home/ubuntu"
-        if self.skill_dir is None:
-            if self.type == "local":
-                self.skill_dir = os.path.join(DATA_DIR, "skill")
-            else:
-                self.skill_dir = "/mnt/derisk/skills"
 
     oss_ak: Optional[str] = field(
         default=None,

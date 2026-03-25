@@ -21,6 +21,25 @@
 
 ## 修复方案
 
+### 设计原则：分层组装，职责分离
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         最终 System Prompt                        │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 1: 身份层（用户输入 system_prompt_template）               │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 2: 动态资源层（PromptAssembler 自动注入）                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 3: 系统控制层（workflow/exceptions/delivery）             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**关键设计**：
+- 默认模板（`_get_v2_agent_system_prompt()`）**只返回身份层**
+- 资源层（Knowledge、Skills、Tools 等）由 `PromptAssembler` 在**运行时动态注入**
+- 避免在默认模板中硬编码资源注入逻辑，防止冗余和不一致
+
 ### 1. 后端 Prompt 初始化修复 (`service.py`)
 
 **文件**: `packages/derisk-serve/src/derisk_serve/building/app/service/service.py`
@@ -29,29 +48,20 @@
 
 ```python
 def _get_v2_agent_system_prompt(app_config) -> str:
-    """获取 Core_v2 Agent 的默认 System Prompt"""
-    base_prompt = """You are an AI assistant powered by Core_v2 architecture.
+    """
+    获取 Core_v2 Agent 的默认 System Prompt（身份层）
+    
+    注意：此函数仅返回身份层内容。
+    资源层（Knowledge、Skills、Tools等）由 PromptAssembler 在运行时动态注入，
+    无需在此模板中手动编写资源注入逻辑。
+    """
+    return """You are an AI assistant powered by Core_v2 architecture.
 
 ## Your Capabilities
 - Execute multi-step tasks with planning and reasoning
 - Use available tools and resources effectively
 - Maintain context across conversation turns
 - Provide clear and actionable responses
-
-## Available Resources
-{% if knowledge_resources %}
-### Knowledge Bases
-{% for kb in knowledge_resources %}
-- **{{ kb.name }}**: {{ kb.description or 'Knowledge base for information retrieval' }}
-{% endfor %}
-{% endif %}
-
-{% if skills %}
-### Skills
-{% for skill in skills %}
-- **{{ skill.name }}**: {{ skill.description or 'Specialized skill for task execution' }}
-{% endfor %}
-{% endif %}
 
 ## Response Guidelines
 1. Break down complex tasks into clear steps
@@ -60,21 +70,18 @@ def _get_v2_agent_system_prompt(app_config) -> str:
 4. Ask for clarification when needed
 
 Always respond in a helpful, professional manner."""
-    
-    return base_prompt
 
 
 def _get_v2_agent_user_prompt(app_config) -> str:
-    """获取 Core_v2 Agent 的默认 User Prompt"""
-    user_prompt = """User request: {{user_input}}
-
-{% if context %}
-Context: {{context}}
-{% endif %}
+    """
+    获取 Core_v2 Agent 的默认 User Prompt
+    
+    注意：此模板使用的变量需要在运行时由 PromptAssembler 提供。
+    常见变量：user_input, context, now_time 等。
+    """
+    return """User request: {{user_input}}
 
 Please process this request using available tools and resources."""
-    
-    return user_prompt
 ```
 
 #### 1.2 修改 `sync_app_detail` 方法
@@ -181,6 +188,52 @@ async def get_agent_default_prompt(
 - 当 Agent 不在 AgentManager 中时，不再返回错误
 - 根据 Agent 类型返回合适的默认 prompt
 - 保证前端始终能获取到 prompt 内容
+
+### 4. 职责分离：资源动态注入（重要）
+
+**为什么移除了 `{% if knowledge_resources %}` 等模板代码？**
+
+旧设计中，`_get_v2_agent_system_prompt()` 包含了资源注入的 Jinja2 模板：
+
+```python
+# ❌ 旧设计（已移除）
+## Available Resources
+{% if knowledge_resources %}
+### Knowledge Bases
+{% for kb in knowledge_resources %}
+- **{{ kb.name }}**: ...
+{% endfor %}
+{% endif %}
+```
+
+**问题**：
+1. **冗余**：`PromptAssembler` 已有完整的资源注入逻辑（`ResourceInjector`）
+2. **不一致**：两套资源注入机制，容易产生混淆
+3. **维护困难**：需要同时维护模板变量和 `ResourceContext`
+
+**新设计**：
+- 默认模板**只返回身份层**（用户可见、可编辑的部分）
+- 资源层由 `PromptAssembler._assemble_resources()` 在**运行时动态注入**
+- 单一职责，逻辑清晰
+
+```
+用户编辑的模板（身份层）     系统自动注入（资源层）
+        ↓                        ↓
+┌─────────────────┐    ┌─────────────────────────┐
+│ "You are an AI  │    │ ## Available Resources  │
+│  assistant..."  │ +  │ - Knowledge: xxx        │
+│                 │    │ - Skills: yyy           │
+└─────────────────┘    └─────────────────────────┘
+        ↓                        ↓
+        └────────────┬───────────┘
+                     ↓
+           最终 System Prompt
+```
+
+**相关代码**：
+- `prompt_assembler.py`: `PromptAssembler.assemble_system_prompt()`
+- `resource_injector.py`: `ResourceInjector.inject_all()`
+- `service.py`: `_get_v2_agent_system_prompt()` 只返回身份层
 
 ## 效果验证
 

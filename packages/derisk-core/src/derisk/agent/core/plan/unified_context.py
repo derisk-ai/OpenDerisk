@@ -282,7 +282,7 @@ V2_AGENT_TEMPLATES = {
         "display_name": "智能推理Agent",
         "description": "通用智能Agent，支持复杂任务推理、末日循环检测、上下文压缩、历史修剪，适用于各类任务场景",
         "mode": "primary",
-        "tools": ["bash", "read", "write", "grep", "glob", "think"],
+        "tools": ["bash", "read", "write", "grep", "glob"],
         "capabilities": [
             "ReAct推理框架",
             "末日循环检测",
@@ -299,7 +299,7 @@ V2_AGENT_TEMPLATES = {
         "display_name": "编程开发Agent",
         "description": "专注代码开发的Agent，支持代码库探索、智能定位、质量检查，适用于功能开发和代码重构",
         "mode": "primary",
-        "tools": ["read", "write", "bash", "grep", "glob", "think"],
+        "tools": ["read", "write", "bash", "grep", "glob"],
         "capabilities": ["自主探索代码库", "智能代码定位", "功能开发", "代码质量检查"],
     },
     # ============ 简单对话 Agent ============

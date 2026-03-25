@@ -15,13 +15,13 @@ interface AttachItem {
   link?: string;
   ref_name?: string;
   ref_link?: string;
-  // 新增字段支持
   file_name?: string;
   file_size?: number;
   mime_type?: string;
   preview_url?: string;
   download_url?: string;
   oss_url?: string;
+  object_path?: string;
   [key: string]: unknown;
 }
 
@@ -38,81 +38,131 @@ const VisDAttach: FC<IProps> = ({ data }) => {
     return null;
   }
 
-  const handlePreview = (item: AttachItem) => {
-    const previewUrl =
-      (item as any).preview_url ??
-      (item as any).oss_url ??
+  const buildPreviewUrl = (item: AttachItem): string | null => {
+    if (item.object_path) {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+      return `${apiBaseUrl}/api/oss/getFileByFileName?fileName=${encodeURIComponent(item.object_path)}`;
+    }
+    return null;
+  };
+
+  const handlePreview = async (item: AttachItem) => {
+    // Try API proxy URL first (for object_path based files)
+    const apiPreviewUrl = buildPreviewUrl(item);
+    if (apiPreviewUrl) {
+      try {
+        const response = await fetch(apiPreviewUrl, { method: 'HEAD' });
+        if (response.ok) {
+          window.open(apiPreviewUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
+      } catch {
+        // Fallback to direct URLs
+      }
+    }
+
+    const fallbackUrl =
+      item.preview_url ??
+      item.oss_url ??
       item?.url ??
       item?.link ??
       item?.ref_link;
-    if (previewUrl) {
-      window.open(previewUrl, '_blank');
+    if (fallbackUrl) {
+      window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
   const handleDownload = (item: AttachItem) => {
     const downloadUrl =
-      (item as any).download_url ??
-      (item as any).oss_url ??
+      item.download_url ??
+      item.oss_url ??
       item?.url ??
       item?.link ??
       item?.ref_link;
-    if (downloadUrl) {
-      window.open(downloadUrl, '_blank');
+
+    if (!downloadUrl) {
+      console.warn('No download URL available');
+      return;
     }
+
+    const fileName = item.file_name ?? item.name ?? item.ref_name ?? 'download';
+
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const hasPreviewUrl = (item: AttachItem): boolean => {
+    return !!(item.object_path ?? item.preview_url ?? item.oss_url ?? item?.url ?? item?.link ?? item?.ref_link);
+  };
+
+  const hasDownloadUrl = (item: AttachItem): boolean => {
+    return !!(item.download_url ?? item.oss_url ?? item?.url ?? item?.link ?? item?.ref_link);
+  };
+
+  const getFileSizeDisplay = (size?: number): string | null => {
+    if (size === undefined || size === null || size <= 0) return null;
+    return formatFileSize(size);
   };
 
   return (
     <AttachWrap>
       <Space wrap style={{ width: '100%' }}>
-        <span>附件：</span>
+        <span className="attachLabel">Attachments:</span>
         {items.map((item: AttachItem, index: number) => {
           const fileName =
-            item.file_name ?? item.name ?? item.ref_name ?? `附件 ${index + 1}`;
-          const href = item?.url ?? item?.link ?? item?.ref_link;
-          const Icon = getFileIcon(
-            fileName,
-            (item as any).mime_type
-          );
-          const showPreview = canPreview((item as any).mime_type);
-          const fileSize = (item as any).file_size;
-          const canShowActions = fileSize !== undefined || (item as any).download_url || (item as any).preview_url;
+            item.file_name ?? item.name ?? item.ref_name ?? `Attachment ${index + 1}`;
+          const Icon = getFileIcon(fileName, item.mime_type);
+          const sizeDisplay = getFileSizeDisplay(item.file_size);
+          const canShowPreview = hasPreviewUrl(item);
+          const canShowDownload = hasDownloadUrl(item);
 
-          if (canShowActions) {
-            // 显示增强版附件项（带图标和操作按钮）
+          if (item.file_size !== undefined || item.download_url || item.preview_url || item.oss_url || item.object_path) {
             return (
-              <AttachItemWrap key={href ?? index}>
-                <Space size={4}>
+              <AttachItemWrap key={index}>
+                <div className="attachItemContent">
                   <Icon className="attachIcon" />
-                  <Text className="attachName">{fileName}</Text>
-                  {fileSize && (
+                  <Text className="attachName" ellipsis={{ tooltip: fileName }}>
+                    {fileName}
+                  </Text>
+                  {sizeDisplay && (
                     <Text type="secondary" className="attachSize">
-                      {formatFileSize(fileSize)}
+                      {sizeDisplay}
                     </Text>
                   )}
-                  {showPreview && ((item as any).preview_url || (item as any).oss_url || href) && (
-                    <Tooltip title="预览">
-                      <span className="attachAction" onClick={() => handlePreview(item)}>
+                </div>
+                <div className="attachActions">
+                  {canShowPreview && (
+                    <Tooltip title="Preview">
+                      <span className="attachAction previewAction" onClick={() => handlePreview(item)}>
                         <EyeOutlined />
                       </span>
                     </Tooltip>
                   )}
-                  <Tooltip title="下载">
-                    <span className="attachAction" onClick={() => handleDownload(item)}>
-                      <DownloadOutlined />
-                    </span>
-                  </Tooltip>
-                </Space>
+                  {canShowDownload && (
+                    <Tooltip title="Download">
+                      <span className="attachAction downloadAction" onClick={() => handleDownload(item)}>
+                        <DownloadOutlined />
+                      </span>
+                    </Tooltip>
+                  )}
+                </div>
               </AttachItemWrap>
             );
           }
 
-          // 显示原版 Tag 样式
+          const href = item?.url ?? item?.link ?? item?.ref_link;
           return (
             <Tag
-              key={href ?? index}
+              key={index}
               className="attachItem"
-              onClick={() => href && window.open(href)}
+              onClick={() => {
+                if (href) window.open(href, '_blank', 'noopener,noreferrer');
+              }}
             >
               <Space size={4}>
                 <Icon className="attachIcon" />

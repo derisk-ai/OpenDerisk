@@ -425,6 +425,23 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 logger.info(
                     f"[PUBLISH] app_config_entry.team_mode={app_config_entry.team_mode}"
                 )
+                logger.info(
+                    f"[PUBLISH] app_config_entry.resource_tool type={type(app_config_entry.resource_tool)}"
+                )
+                if app_config_entry.resource_tool:
+                    import json
+
+                    try:
+                        resource_tool_parsed = (
+                            json.loads(app_config_entry.resource_tool)
+                            if isinstance(app_config_entry.resource_tool, str)
+                            else app_config_entry.resource_tool
+                        )
+                        logger.info(
+                            f"[PUBLISH] app_config_entry.resource_tool count={len(resource_tool_parsed) if isinstance(resource_tool_parsed, list) else 'not a list'}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[PUBLISH] Failed to parse resource_tool: {e}")
 
                 app_entry.config_code = new_config_code
                 app_entry.config_version = release_config_version
@@ -767,9 +784,19 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 app_resp.resource_knowledge = app_config.resource_knowledge
                 all_resources.extend(app_config.resource_knowledge)
             ## 资源-工具
+            logger.info(
+                f"[APP_DETAIL] app_config.resource_tool is None: {app_config.resource_tool is None}"
+            )
             if app_config.resource_tool:
+                logger.info(
+                    f"[APP_DETAIL] app_config.resource_tool count: {len(app_config.resource_tool)}"
+                )
                 app_resp.resource_tool = app_config.resource_tool
                 all_resources.extend(app_config.resource_tool)
+            else:
+                logger.warning(
+                    f"[APP_DETAIL] app_config.resource_tool is None or empty!"
+                )
             ## 资源-agent app
             if app_config.resource_agent:
                 app_resp.resource_agent = app_config.resource_agent
@@ -1465,69 +1492,39 @@ def _get_v2_agent_system_prompt(app_config) -> str:
     """
     获取 Core_v2 Agent 的默认 System Prompt
 
-    基于应用配置生成适合 Core_v2 架构的提示词模板
+    返回空字符串，让用户编辑的内容作为身份层注入。
+    完整的 system prompt 由 PromptAssembler 在运行时动态组装：
+    - Layer 1: 身份层（用户编辑的内容）
+    - Layer 2: 动态资源层（PromptAssembler 自动注入）
+    - Layer 3: 系统控制层（workflow/exceptions/delivery）
     """
-    base_prompt = """You are an AI assistant powered by Core_v2 architecture.
-
-## Your Capabilities
-- Execute multi-step tasks with planning and reasoning
-- Use available tools and resources effectively
-- Maintain context across conversation turns
-- Provide clear and actionable responses
-
-## Available Resources
-{% if knowledge_resources %}
-### Knowledge Bases
-{% for kb in knowledge_resources %}
-- **{{ kb.name }}**: {{ kb.description or 'Knowledge base for information retrieval' }}
-{% endfor %}
-{% endif %}
-
-{% if skills %}
-### Skills
-{% for skill in skills %}
-- **{{ skill.name }}**: {{ skill.description or 'Specialized skill for task execution' }}
-{% endfor %}
-{% endif %}
-
-## Response Guidelines
-1. Break down complex tasks into clear steps
-2. Use tools when necessary to accomplish tasks
-3. Provide explanations for your reasoning
-4. Ask for clarification when needed
-
-Always respond in a helpful, professional manner."""
-
-    return base_prompt
+    return ""
 
 
 def _get_v2_agent_user_prompt(app_config) -> str:
     """
     获取 Core_v2 Agent 的默认 User Prompt
+
+    返回空字符串，让用户编辑的内容作为前缀注入。
+    完整的 user prompt 由 PromptAssembler 在运行时动态组装：
+    - 用户编辑的自定义内容
+    - 历史对话（动态注入）
+    - 用户问题（动态注入）
     """
-    user_prompt = """User request: {{user_input}}
-
-{% if context %}
-Context: {{context}}
-{% endif %}
-
-Please process this request using available tools and resources."""
-
-    return user_prompt
+    return ""
 
 
 def _get_default_system_prompt() -> str:
-    """获取默认的 System Prompt（当 Agent 未在 AgentManager 中注册时）"""
-    return """You are an AI assistant.
+    """获取默认的 System Prompt（当 Agent 未在 AgentManager 中注册时）
 
-Please help users with their questions and tasks to the best of your ability.
-- Be helpful, accurate, and concise
-- Ask for clarification when needed
-- Provide actionable suggestions when appropriate"""
+    返回空字符串，让用户编辑的内容作为身份层注入。
+    """
+    return ""
 
 
 def _get_default_user_prompt() -> str:
-    """获取默认的 User Prompt"""
-    return """User input: {{user_input}}
+    """获取默认的 User Prompt
 
-Please respond appropriately."""
+    返回空字符串，让用户编辑的内容作为前缀注入。
+    """
+    return ""

@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .core_v2_adapter import get_core_v2
 from derisk.agent.core_v2.vis_converter import CoreV2VisWindow3Converter
+from derisk.agent.core_v2.integration.action_report_builder import build_action_report_from_chunk
 from derisk.storage.chat_history.chat_history_db import (
     ChatHistoryDao,
     ChatHistoryEntity,
@@ -131,6 +132,9 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
 
     user_id = request.user_id or http_request.headers.get("user-id")
 
+    # 解析应用显示名称（用于 VIS 渲染，避免显示 UUID）
+    display_name = await core_v2.resolve_app_display_name(app_code)
+
     multimodal_contents = []
     sandbox_file_refs = []
 
@@ -225,6 +229,17 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
                 if chunk.type == "response":
                     accumulated_content += chunk.content or ""
 
+                # Emit ask_user event for interaction requests
+                if chunk.type == "ask_user":
+                    ask_user_event = {
+                        "type": "interaction_request",
+                        "request_id": chunk.metadata.get("request_id", ""),
+                        "conv_id": session_id or "",
+                    }
+                    yield f"data: {json.dumps(ask_user_event, ensure_ascii=False)}\n\n"
+                    continue
+
+                is_tool = chunk.type in ("tool_start", "tool_result")
                 stream_msg = {
                     "uid": message_id,
                     "type": "incr",
@@ -234,13 +249,20 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
                     "goal_id": message_id,
                     "task_goal_id": message_id,
                     "sender": app_code,
-                    "sender_name": app_code,
+                    "sender_name": display_name,
                     "sender_role": "assistant",
+                    "model": chunk.metadata.get("model") if chunk.metadata else None,
                     "thinking": chunk.content if is_thinking else None,
-                    "content": "" if is_thinking else (chunk.content or ""),
+                    "content": "" if (is_thinking or is_tool) else (chunk.content or ""),
                     "prev_content": accumulated_content,
                     "start_time": datetime.now(),
                 }
+
+                # 为工具类型的 chunk 构建 action_report
+                if is_tool:
+                    action_report = build_action_report_from_chunk(chunk)
+                    if action_report:
+                        stream_msg["action_report"] = action_report
 
                 vis_content = await _vis_converter.visualization(
                     messages=[],

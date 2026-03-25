@@ -257,13 +257,32 @@ class AgentChat(BaseComponent, ABC):
             elif isinstance(app.team_context, dict):
                 use_sandbox_flag = app.team_context.get("use_sandbox", False)
 
+        # 检查系统级 sandbox 配置
+        # 当系统配置了 sandbox type 时，即使应用级 use_sandbox_flag 为 False，
+        # 也应该创建 sandbox_manager，确保 sandbox 配置能正确注入到 system prompt
+        app_config = self.system_app.config.configs.get("app_config")
+        sandbox_config: Optional[SandboxConfigParameters] = (
+            app_config.sandbox if app_config else None
+        )
+        system_sandbox_enabled = bool(sandbox_config and sandbox_config.type)
+
         if not (
-            (need_sandbox and use_sandbox_flag)
+            (need_sandbox and (use_sandbox_flag or system_sandbox_enabled))
             or await self._have_agent_skill(
                 app, context.extra.get("dynamic_resources", [])
             )
         ):
+            logger.debug(
+                f"[Sandbox] Skip sandbox creation: need_sandbox={need_sandbox}, "
+                f"use_sandbox_flag={use_sandbox_flag}, system_sandbox_enabled={system_sandbox_enabled}, "
+                f"has_agent_skill={await self._have_agent_skill(app, context.extra.get('dynamic_resources', []))}"
+            )
             return None
+
+        logger.info(
+            f"[Sandbox] Creating sandbox_manager: need_sandbox={need_sandbox}, "
+            f"use_sandbox_flag={use_sandbox_flag}, system_sandbox_enabled={system_sandbox_enabled}"
+        )
 
         # 检查缓存中是否已有该会话的 sandbox_manager
         sandbox_key = f"{context.conv_id}_{context.staff_no}"
@@ -634,13 +653,6 @@ class AgentChat(BaseComponent, ABC):
         )
         ext_info["incremental"] = vis_protocol.incremental
 
-        await self.memory.init(
-            agent_conv_id,
-            app_code=gpts_name,
-            history_messages=history_messages,
-            start_round=history_message_count,
-            vis_converter=vis_protocol,
-        )
         #########################################################
 
         with root_tracer.start_span("agent.conversation.state_check"):
@@ -662,62 +674,72 @@ class AgentChat(BaseComponent, ABC):
                     message_round = last_message.rounds + 1
                     last_speaker_name = last_message.sender_name
 
-                    # 恢复起来的会话，需要加载历史消息到记忆中
-                    await self.memory.load_persistent_memory(agent_conv_id)
+        await self.memory.init(
+            agent_conv_id,
+            app_code=gpts_name,
+            history_messages=history_messages,
+            start_round=history_message_count,
+            vis_converter=vis_protocol,
+        )
 
-            historical_dialogues: List[GptsMessage] = []
-            if not is_retry_chat:
-                # Create a new gpts conversation record
+        historical_dialogues: List[GptsMessage] = []
+        if is_retry_chat:
+            # 恢复起来的会话，需要加载历史消息到记忆中
+            await self.memory.load_persistent_memory(agent_conv_id)
 
-                ## When creating a new gpts conversation record, determine whether to
-                # include the history of previous topics according to the application
-                # definition.
-                if gpt_app.keep_start_rounds > 0 or gpt_app.keep_end_rounds > 0:
-                    if gpts_conversations and len(gpts_conversations) > 0:
-                        rely_conversations = []
-                        if gpt_app.keep_start_rounds + gpt_app.keep_end_rounds < len(
-                            gpts_conversations
-                        ):
-                            if gpt_app.keep_start_rounds > 0:
-                                front = gpts_conversations[gpt_app.keep_start_rounds :]
-                                rely_conversations.extend(front)
-                            if gpt_app.keep_end_rounds > 0:
-                                back = gpts_conversations[-gpt_app.keep_end_rounds :]
-                                rely_conversations.extend(back)
-                        else:
-                            rely_conversations = gpts_conversations
-                        for gpts_conversation in rely_conversations:
-                            temps: List[GptsMessage] = await self.memory.get_messages(
-                                gpts_conversation.conv_id
-                            )
-                            if temps and len(temps) > 1:
-                                historical_dialogues.append(temps[0])
-                                historical_dialogues.append(temps[-1])
+        if not is_retry_chat:
+            # Create a new gpts conversation record
 
-                user_goal = json.dumps(user_query.to_dict(), ensure_ascii=False)
-                user_goal = user_goal[: min(len(user_goal), 6500)] if user_goal else ""
-                await self.gpts_conversations.a_add(
-                    GptsConversationsEntity(
-                        conv_id=agent_conv_id,
-                        conv_session_id=conv_id,
-                        user_goal=user_goal,
-                        gpts_name=gpts_name,
-                        team_mode=gpt_app.team_mode,
-                        state=Status.RUNNING.value,
-                        max_auto_reply_round=0,
-                        auto_reply_count=0,
-                        user_code=user_code,
-                        sys_code=sys_code,
-                        vis_render=vis_render,
-                        extra=orjson.dumps(ext_info).decode(),
-                    )
+            ## When creating a new gpts conversation record, determine whether to
+            # include the history of previous topics according to the application
+            # definition.
+            if gpt_app.keep_start_rounds > 0 or gpt_app.keep_end_rounds > 0:
+                if gpts_conversations and len(gpts_conversations) > 0:
+                    rely_conversations = []
+                    if gpt_app.keep_start_rounds + gpt_app.keep_end_rounds < len(
+                        gpts_conversations
+                    ):
+                        if gpt_app.keep_start_rounds > 0:
+                            front = gpts_conversations[gpt_app.keep_start_rounds :]
+                            rely_conversations.extend(front)
+                        if gpt_app.keep_end_rounds > 0:
+                            back = gpts_conversations[-gpt_app.keep_end_rounds :]
+                            rely_conversations.extend(back)
+                    else:
+                        rely_conversations = gpts_conversations
+                    for gpts_conversation in rely_conversations:
+                        temps: List[GptsMessage] = await self.memory.get_messages(
+                            gpts_conversation.conv_id
+                        )
+                        if temps and len(temps) > 1:
+                            historical_dialogues.append(temps[0])
+                            historical_dialogues.append(temps[-1])
+
+            user_goal = json.dumps(user_query.to_dict(), ensure_ascii=False)
+            user_goal = user_goal[: min(len(user_goal), 6500)] if user_goal else ""
+            await self.gpts_conversations.a_add(
+                GptsConversationsEntity(
+                    conv_id=agent_conv_id,
+                    conv_session_id=conv_id,
+                    user_goal=user_goal,
+                    gpts_name=gpts_name,
+                    team_mode=gpt_app.team_mode,
+                    state=Status.RUNNING.value,
+                    max_auto_reply_round=0,
+                    auto_reply_count=0,
+                    user_code=user_code,
+                    sys_code=sys_code,
+                    vis_render=vis_render,
+                    extra=orjson.dumps(ext_info).decode(),
                 )
+            )
 
         # init agent memory
         agent_memory = self.get_or_build_derisk_memory(
             conv_id, gpt_app.app_code, user_code, gpt_app.team_context
         )
         file_handle = None
+        task = None
         try:
             task = asyncio.create_task(
                 self._inner_chat(

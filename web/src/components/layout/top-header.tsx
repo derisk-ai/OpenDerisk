@@ -68,7 +68,7 @@ function TopHeader() {
     window.location.href = '/login';
   };
 
-  if (!ready) return <div className="h-12 border-b border-gray-100 dark:border-gray-800 flex-shrink-0" />;
+  if (!ready) return null;
 
   const displayName = userInfo?.nick_name || '用户';
   const avatarSrc = oauthEnabled ? (userInfo?.avatar_url || undefined) : undefined;
@@ -100,7 +100,18 @@ function TopHeader() {
   );
 
   return (
-    <div className="h-12 border-b border-gray-100 dark:border-gray-800 flex items-center justify-end px-4 bg-white dark:bg-[#111] flex-shrink-0 z-10">
+    <div className="fixed top-4 right-4 h-11 flex items-center justify-end px-1.5 
+                    bg-white/98 dark:bg-[#1a1a1a]/98 
+                    backdrop-blur-xl 
+                    border border-gray-200/60 dark:border-gray-700/60 
+                    rounded-2xl 
+                    shadow-[0_8px_32px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] 
+                    dark:shadow-[0_8px_32px_rgba(0,0,0,0.3),0_2px_8px_rgba(0,0,0,0.15)]
+                    flex-shrink-0 
+                    z-50
+                    transition-all duration-300 ease-out
+                    hover:shadow-[0_12px_40px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.06)]
+                    dark:hover:shadow-[0_12px_40px_rgba(0,0,0,0.4),0_4px_12px_rgba(0,0,0,0.2)]">
       {oauthEnabled && menuItems.length > 0 ? (
         <Dropdown menu={{ items: menuItems }} placement="bottomRight" trigger={['click']}>
           {avatarEl}

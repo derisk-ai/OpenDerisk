@@ -293,6 +293,9 @@ class ConversationCache:
         ## Todo 缓存
         self.todos: List[TodoItem] = []  # 任务列表
 
+        ## 文件系统渲染追踪 (用于增量更新前端文件列表)
+        self.rendered_file_ids: set = set()  # 已渲染到前端的 file_id 集合
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -328,6 +331,9 @@ class ConversationCache:
 
         # 清理 Todo
         self.todos.clear()
+
+        # 清理文件系统渲染追踪
+        self.rendered_file_ids.clear()
 
         # 通知队列消费者退出
         try:
@@ -722,6 +728,15 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
 
     async def async_vis_converter(self, conv_id: str) -> Optional[VisProtocolConverter]:
         cache = await self._get_cache(conv_id)
+        if cache:
+            converter_type = type(cache.vis_converter).__name__
+            render_name = getattr(cache.vis_converter, "render_name", "unknown")
+            logger.info(
+                f"[async_vis_converter] conv_id={conv_id}, "
+                f"converter_type={converter_type}, render_name={render_name}"
+            )
+        else:
+            logger.warning(f"[async_vis_converter] conv_id={conv_id}, cache NOT FOUND!")
         return cache.vis_converter if cache else None
 
     # 保留同步版，但加注释

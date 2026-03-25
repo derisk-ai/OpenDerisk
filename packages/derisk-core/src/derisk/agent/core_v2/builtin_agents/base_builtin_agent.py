@@ -148,7 +148,7 @@ class BaseBuiltinAgent(ProductionAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表 - 子类实现"""
-        return ["bash", "read", "write", "think"]
+        return ["bash", "read", "write"]
 
     def _setup_default_tools(self):
         """设置默认工具"""
@@ -222,13 +222,13 @@ class BaseBuiltinAgent(ProductionAgent):
 
     def _tool_to_function(self, tool: Any) -> Dict[str, Any]:
         """
-        将工具转换为Function Call格式
+        将工具转换为 Function Call 格式
 
         Args:
             tool: 工具实例
 
         Returns:
-            Dict: Function定义
+            Dict: Function 定义
         """
         metadata = tool.metadata
 
@@ -237,7 +237,7 @@ class BaseBuiltinAgent(ProductionAgent):
             "function": {
                 "name": metadata.name,
                 "description": metadata.description,
-                "parameters": metadata.parameters,
+                "parameters": tool.parameters,
             },
         }
 
@@ -290,6 +290,55 @@ class BaseBuiltinAgent(ProductionAgent):
         await self._inject_knowledge_tools()
         await self._inject_agent_tools()
         await self._inject_sandbox_tools()
+        await self._inject_async_task_tools()
+
+    async def _inject_async_task_tools(self) -> None:
+        """
+        注入异步任务工具（当检测到多 Agent 场景时）
+
+        条件：存在 AppResource（表示有子 Agent 可委派）
+        功能：注册 spawn_agent_task, check_tasks, wait_tasks, cancel_task 4 个工具
+        """
+        try:
+            from ...resource.app import AppResource
+
+            if not self._check_have_resource(AppResource):
+                return
+
+            # 需要 SubagentManager 支持
+            subagent_manager = getattr(self, "_subagent_manager", None)
+            if not subagent_manager:
+                logger.debug(
+                    f"[{self.__class__.__name__}] AppResource 存在但无 SubagentManager，跳过异步任务工具注入"
+                )
+                return
+
+            from ..async_task_manager import AsyncTaskManager
+            from ...tools.builtin.async_task import register_async_task_tools
+
+            session_id = getattr(self, "_session_id", "") or ""
+            async_task_manager = AsyncTaskManager(
+                subagent_manager=subagent_manager,
+                max_concurrent=5,
+                parent_session_id=session_id,
+            )
+
+            # 保存到实例上，供 ReActReasoningAgent 访问
+            self._async_task_manager = async_task_manager
+
+            register_async_task_tools(
+                registry=self.tools,
+                async_task_manager=async_task_manager,
+            )
+
+            logger.info(
+                f"[{self.__class__.__name__}] 检测到多 Agent 场景，已注入异步任务工具"
+            )
+
+        except ImportError as e:
+            logger.debug(f"异步任务工具模块未找到: {e}")
+        except Exception as e:
+            logger.warning(f"注入异步任务工具失败: {e}")
 
     async def _inject_knowledge_tools(self) -> None:
         """注入知识检索工具"""
@@ -453,7 +502,7 @@ class BaseBuiltinAgent(ProductionAgent):
             context = dict(kwargs)
             if self.sandbox_manager is not None:
                 context["sandbox_manager"] = self.sandbox_manager
-            result = await self.tools.execute(tool_name, tool_args, context)
+            result = await tool.execute(tool_args, context)
             return result
         except Exception as e:
             logger.exception(f"[{self.__class__.__name__}] 工具执行异常: {tool_name}")

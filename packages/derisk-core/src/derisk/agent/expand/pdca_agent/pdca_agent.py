@@ -28,7 +28,6 @@ from derisk.agent.expand.actions.kanban_action import KanbanAction
 from derisk.agent.expand.actions.knowledge_action import KnowledgeSearch
 from derisk.agent.expand.actions.sandbox_action import SandboxAction
 from derisk.agent.expand.actions.system_action import SystemAction
-from derisk.agent.expand.actions.terminate_action import Terminate
 from derisk.agent.expand.actions.tool_action import ToolAction
 from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
 from derisk.agent.expand.pdca_agent.plan_models import Stage
@@ -107,7 +106,6 @@ class PDCAAgent(ReActAgent):
                 KanbanAction,
                 SandboxAction,
                 SystemAction,
-                Terminate,
                 ToolAction,
                 BlankAction,
             ]

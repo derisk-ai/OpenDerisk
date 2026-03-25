@@ -1,0 +1,10 @@
+<other_resources>
+其他可用资源：
+
+{% for resource in resources %}
+- <{{ resource.type }}>
+  <name>{{ resource.name }}</name>
+  <prompt>{{ resource.prompt }}</prompt>
+</{{ resource.type }}>
+{% endfor %}
+</other_resources>

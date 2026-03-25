@@ -92,7 +92,7 @@ class FileExplorerAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["glob", "grep", "read", "bash", "think"]
+        return ["glob", "grep", "read", "bash"]
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""

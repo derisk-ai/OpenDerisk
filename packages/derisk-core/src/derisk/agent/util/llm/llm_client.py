@@ -96,6 +96,7 @@ class AgentLLMOut(BaseModel):
     thinking_content: Optional[str] = None
     content: Optional[str] = None
     tool_calls: Optional[Union[str, List[Dict[str, Any]]]] = None
+    input_tools: Optional[List[Dict[str, Any]]] = None
     metrics: Optional[ModelInferenceMetrics] = None
     extra: Optional[Dict[str, Any]] = None
     ttft: int = 0
@@ -371,13 +372,37 @@ class AIWrapper:
         if request.messages:
             messages_summary = []
             for msg in request.messages:
-                content = msg.content if hasattr(msg, "content") else str(msg)
+                if isinstance(msg, dict):
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                else:
+                    role = getattr(msg, "role", "unknown")
+                    content = getattr(msg, "content", str(msg))
+
                 if isinstance(content, list):
-                    content_str = (
-                            "["
-                            + ", ".join([f"{c.get('type', 'unknown')}" for c in content])
-                            + "]"
-                    )
+                    text_parts = []
+                    for c in content:
+                        if isinstance(c, dict):
+                            if c.get("type") == "text" and "text" in c:
+                                text_parts.append(c["text"])
+                        else:
+                            c_type = getattr(c, "type", None)
+                            if c_type == "text":
+                                obj = getattr(c, "object", None)
+                                if obj:
+                                    text_parts.append(str(getattr(obj, "data", "")))
+                    if text_parts:
+                        content_str = " ".join(text_parts)
+                        if len(content_str) > 500:
+                            content_str = content_str[:500] + "..."
+                    else:
+                        type_list = []
+                        for c in content:
+                            if isinstance(c, dict):
+                                type_list.append(c.get("type", "unknown"))
+                            else:
+                                type_list.append(getattr(c, "type", "unknown"))
+                        content_str = "[" + ", ".join(type_list) + "]"
                 else:
                     content_str = (
                         str(content)[:500] + "..."
@@ -386,7 +411,7 @@ class AIWrapper:
                     )
                 messages_summary.append(
                     {
-                        "role": msg.role if hasattr(msg, "role") else "unknown",
+                        "role": role,
                         "content": content_str,
                     }
                 )
@@ -449,6 +474,9 @@ class AIWrapper:
             )
         else:
             logger.warning("No function_calling_context provided to LLM call!")
+            tools = None
+
+        input_tools_list = tools if tools else None
 
         try:
             # Choose client: self._provider or self._llm_client (legacy)
@@ -519,6 +547,7 @@ class AIWrapper:
                         llm_name=llm_model,
                         llm_context=llm_context,
                         tool_calls=model_output.tool_calls,
+                        input_tools=input_tools_list,
                         in_messages=params["messages"],
                     )
             else:
@@ -556,6 +585,7 @@ class AIWrapper:
                     llm_name=llm_model,
                     llm_context=llm_context,
                     tool_calls=model_output.tool_calls,
+                    input_tools=input_tools_list,
                     in_messages=params["messages"],
                 )
         except LLMChatError as e:

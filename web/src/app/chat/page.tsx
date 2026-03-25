@@ -402,7 +402,7 @@ if (initMessage.model) {
           <HomeChat />
         </Content>
       ) : (
-        <Spin spinning={appInfoLoading}  wrapperClassName='w-full h-screen'>
+        <Spin spinning={appInfoLoading}  wrapperClassName='w-full h-full'>
           <Content className='flex flex-col h-full'>
             <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
           </Content>
@@ -447,7 +447,7 @@ return (
           chatInParams,
         }}
       >
-        <Flex flex={1} className='h-screen'>
+        <Flex flex={1} className='min-h-0 overflow-hidden'>
           <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
             <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
           </Layout>

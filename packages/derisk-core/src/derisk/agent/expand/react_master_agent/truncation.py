@@ -8,6 +8,7 @@
 """
 
 import hashlib
+import json
 import logging
 import os
 import tempfile
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TruncationResult:
     """截断结果"""
+
     content: str
     is_truncated: bool
     original_lines: int
@@ -42,27 +44,58 @@ class TruncationResult:
 
 class TruncationConfig:
     """截断配置"""
-    # 默认截断限制
-    DEFAULT_MAX_LINES = 50
-    DEFAULT_MAX_BYTES = 5 * 1024  # 50KB
 
-    # 建议模板 - 使用 file_key 来引用文件
+    DEFAULT_MAX_LINES = 50
+    DEFAULT_MAX_BYTES = 5 * 1024
+
     TRUNCATION_SUGGESTION_TEMPLATE = """
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
-完整输出已保存至文件: {file_key}
+完整输出已保存至: {file_path}
 
-使用 read_file 工具读取完整内容:
-  read_file(file_key="{file_key}", offset=1, limit=500)  # 读取前 500 行
-  read_file(file_key="{file_key}", offset=501, limit=500)  # 读取后续内容
+**使用 read 工具读取完整内容：**
+{{"path": "{file_path}"}}
+
+如需分页读取（内容较大时）：
+{{"path": "{file_path}", "offset": 1, "limit": 500}}
+{{"path": "{file_path}", "offset": 501, "limit": 500}}
 """
 
-    # 备选建议模板（当没有 AFS 时使用路径）
     TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS = """
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
 完整输出已保存至: {file_path}
 """
+
+    @staticmethod
+    def generate_dattach_tag(
+        file_name: str,
+        file_path: str,
+        file_size: int,
+        file_key: Optional[str] = None,
+        tool_name: str = "unknown",
+    ) -> str:
+        """生成 d-attach 组件标签"""
+        try:
+            attach_data = {
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_type": "truncated_output",
+                "oss_url": file_path,
+                "preview_url": file_path,
+                "download_url": file_path,
+                "mime_type": "text/plain",
+                "description": f"工具 {tool_name} 的完整输出（已截断）",
+            }
+
+            if file_key:
+                attach_data["file_id"] = file_key
+
+            content = json.dumps([attach_data], ensure_ascii=False)
+            return f"\n\n```d-attach\n{content}\n```\n"
+        except Exception as e:
+            logger.warning(f"Failed to generate d-attach tag: {e}")
+            return f"\n\n完整输出文件: {file_path}"
 
 
 class Truncator:
@@ -72,7 +105,7 @@ class Truncator:
         self,
         max_lines: int = TruncationConfig.DEFAULT_MAX_LINES,
         max_bytes: int = TruncationConfig.DEFAULT_MAX_BYTES,
-        agent_file_system: Optional['AgentFileSystem'] = None,
+        agent_file_system: Optional["AgentFileSystem"] = None,
         use_legacy_mode: bool = False,
     ):
         """
@@ -105,7 +138,9 @@ class Truncator:
         """生成唯一的文件 key"""
         self._file_count += 1
         content_hash = hashlib.md5(content.encode("utf-8")).hexdigest()[:8]
-        clean_tool_name = tool_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+        clean_tool_name = (
+            tool_name.replace("/", "_").replace("\\", "_").replace(" ", "_")
+        )
         return f"tool_output_{clean_tool_name}_{content_hash}_{self._file_count}"
 
     def _generate_temp_file_path(self, content: str, tool_name: str) -> str:
@@ -114,17 +149,25 @@ class Truncator:
         filename = f"{tool_name}_{content_hash}_{self._file_count}.txt"
         return os.path.join(self.legacy_output_dir, filename)
 
-    async def _save_via_agent_file_system(self, content: str, tool_name: str) -> Tuple[str, str]:
+    async def _save_via_agent_file_system(
+        self, content: str, tool_name: str
+    ) -> Tuple[str, str, Optional[str]]:
         """
         使用 AgentFileSystem 保存文件（异步版本）
 
         Returns:
-            Tuple[file_key, local_path]: 文件 key 和本地路径
+            Tuple[file_key, local_path, sandbox_path]: 文件 key、本地路径和 sandbox 路径
         """
         if self.agent_file_system is None or self.use_legacy_mode:
             raise RuntimeError("AgentFileSystem not available or in legacy mode")
 
         file_key = self._generate_file_key(tool_name, content)
+
+        logger.info(
+            f"[AFS] Saving truncated output: key={file_key}, "
+            f"afs_id={id(self.agent_file_system)}, "
+            f"conv_id={getattr(self.agent_file_system, 'conv_id', 'N/A')}"
+        )
 
         # 使用 AgentFileSystem 异步保存文件
         file_metadata = await self.agent_file_system.save_file(
@@ -135,25 +178,38 @@ class Truncator:
             tool_name=tool_name,
         )
 
+        # 构建 sandbox 路径（如果有 sandbox）
+        sandbox_path = None
+        sandbox = getattr(self.agent_file_system, "sandbox", None)
+        if sandbox:
+            goal_id = getattr(self.agent_file_system, "goal_id", "default")
+            work_dir = getattr(sandbox, "work_dir", "/home/ubuntu")
+            safe_key = self.agent_file_system._sanitize_filename(file_key)
+            if "." not in safe_key:
+                safe_key = f"{safe_key}.txt"
+            sandbox_path = f"{work_dir}/{goal_id}/{safe_key}"
+
         logger.info(
             f"[AFS] Saved truncated output via AgentFileSystem: "
-            f"key={file_key}, path={file_metadata.local_path}"
+            f"key={file_key}, path={file_metadata.local_path}, sandbox_path={sandbox_path}"
         )
 
-        return file_key, file_metadata.local_path
+        return file_key, file_metadata.local_path, sandbox_path
 
-    def _save_via_agent_file_system_sync(self, content: str, tool_name: str) -> Tuple[str, str]:
+    def _save_via_agent_file_system_sync(
+        self, content: str, tool_name: str
+    ) -> Tuple[str, str, Optional[str]]:
         """
         使用 AgentFileSystem 保存文件（同步版本）
 
         Returns:
-            Tuple[file_key, local_path]: 文件 key 和本地路径
+            Tuple[file_key, local_path, sandbox_path]: 文件 key、本地路径和 sandbox 路径
         """
         import concurrent.futures
-        
+
         async def _save():
             return await self._save_via_agent_file_system(content, tool_name)
-        
+
         try:
             loop = asyncio.get_running_loop()
             # 已经在异步上下文中，使用 run_in_executor 在新线程中运行
@@ -262,24 +318,41 @@ class Truncator:
 
         try:
             if self.agent_file_system and not self.use_legacy_mode:
-                # 使用 AgentFileSystem 管理文件（真正的异步调用）
-                file_key, temp_file_path = await self._save_via_agent_file_system(content, tool_name)
+                (
+                    file_key,
+                    temp_file_path,
+                    sandbox_path,
+                ) = await self._save_via_agent_file_system(content, tool_name)
+                file_path = sandbox_path or temp_file_path
                 suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE.format(
                     original_lines=original_lines,
                     original_bytes=original_bytes,
+                    file_path=file_path,
+                )
+                dattach_tag = TruncationConfig.generate_dattach_tag(
+                    file_name=f"{tool_name}_output.txt",
+                    file_path=temp_file_path or "",
+                    file_size=original_bytes,
                     file_key=file_key,
+                    tool_name=tool_name,
                 )
             else:
-                # 使用传统模式
                 temp_file_path = self._save_to_legacy_temp_file(content, tool_name)
-                suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS.format(
-                    original_lines=original_lines,
-                    original_bytes=original_bytes,
-                    file_path=temp_file_path or "unknown",
+                suggestion = (
+                    TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS.format(
+                        original_lines=original_lines,
+                        original_bytes=original_bytes,
+                        file_path=temp_file_path or "unknown",
+                    )
+                )
+                dattach_tag = TruncationConfig.generate_dattach_tag(
+                    file_name=f"{tool_name}_output.txt",
+                    file_path=temp_file_path or "",
+                    file_size=original_bytes,
+                    tool_name=tool_name,
                 )
         except Exception as e:
-            logger.error(f"Failed to save truncated output: {e}")
-            # 生成提示但不包含文件路径
+            logger.error(f"[Layer1-Truncation] ERROR saving '{tool_name}': {e}")
             suggestion = f"""
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
@@ -289,8 +362,9 @@ class Truncator:
 1. 重新执行工具操作
 2. 检查文件系统状态
 """
+            dattach_tag = ""
 
-        final_content = truncated_content + suggestion
+        final_content = truncated_content + suggestion + dattach_tag
 
         return TruncationResult(
             content=final_content,
@@ -384,24 +458,39 @@ class Truncator:
 
         try:
             if self.agent_file_system and not self.use_legacy_mode:
-                # 使用 AgentFileSystem 管理文件（异步方法的同步包装）
-                file_key, temp_file_path = self._save_via_agent_file_system_sync(content, tool_name)
+                file_key, temp_file_path, sandbox_path = (
+                    self._save_via_agent_file_system_sync(content, tool_name)
+                )
+                file_path = sandbox_path or temp_file_path
                 suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE.format(
                     original_lines=original_lines,
                     original_bytes=original_bytes,
+                    file_path=file_path,
+                )
+                dattach_tag = TruncationConfig.generate_dattach_tag(
+                    file_name=f"{tool_name}_output.txt",
+                    file_path=temp_file_path or "",
+                    file_size=original_bytes,
                     file_key=file_key,
+                    tool_name=tool_name,
                 )
             else:
-                # 使用传统模式
                 temp_file_path = self._save_to_legacy_temp_file(content, tool_name)
-                suggestion = TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS.format(
-                    original_lines=original_lines,
-                    original_bytes=original_bytes,
-                    file_path=temp_file_path or "unknown",
+                suggestion = (
+                    TruncationConfig.TRUNCATION_SUGGESTION_TEMPLATE_NO_AFS.format(
+                        original_lines=original_lines,
+                        original_bytes=original_bytes,
+                        file_path=temp_file_path or "unknown",
+                    )
+                )
+                dattach_tag = TruncationConfig.generate_dattach_tag(
+                    file_name=f"{tool_name}_output.txt",
+                    file_path=temp_file_path or "",
+                    file_size=original_bytes,
+                    tool_name=tool_name,
                 )
         except Exception as e:
             logger.error(f"Failed to save truncated output: {e}")
-            # 生成提示但不包含文件路径
             suggestion = f"""
 [输出已截断]
 原始输出包含 {original_lines} 行 ({original_bytes} 字节)，已超过限制。
@@ -411,8 +500,9 @@ class Truncator:
 1. 重新执行工具操作
 2. 检查文件系统状态
 """
+            dattach_tag = ""
 
-        final_content = truncated_content + suggestion
+        final_content = truncated_content + suggestion + dattach_tag
 
         return TruncationResult(
             content=final_content,
@@ -452,6 +542,7 @@ class Truncator:
         else:
             # 传统模式：从文件路径读取
             import re
+
             try:
                 pattern = re.compile(rf"{file_key}_\d+\.txt")
                 for filename in os.listdir(self.legacy_output_dir):
@@ -555,8 +646,8 @@ async def create_truncator_with_fs(
     session_id: Optional[str] = None,
     max_lines: int = TruncationConfig.DEFAULT_MAX_LINES,
     max_bytes: int = TruncationConfig.DEFAULT_MAX_BYTES,
-    gpts_memory = None,
-    oss_client = None,
+    gpts_memory=None,
+    oss_client=None,
 ) -> Truncator:
     """
     创建使用 AgentFileSystem 的截断器（异步版本）
@@ -602,8 +693,8 @@ def create_truncator_with_fs_sync(
     session_id: Optional[str] = None,
     max_lines: int = TruncationConfig.DEFAULT_MAX_LINES,
     max_bytes: int = TruncationConfig.DEFAULT_MAX_BYTES,
-    gpts_memory = None,
-    oss_client = None,
+    gpts_memory=None,
+    oss_client=None,
 ) -> Truncator:
     """
     创建使用 AgentFileSystem 的截断器（同步版本）
@@ -624,6 +715,7 @@ def create_truncator_with_fs_sync(
         if loop.is_running():
             # 如果在异步环境中，创建一个task
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(
                     asyncio.run,
@@ -634,7 +726,7 @@ def create_truncator_with_fs_sync(
                         max_bytes=max_bytes,
                         gpts_memory=gpts_memory,
                         oss_client=oss_client,
-                    )
+                    ),
                 )
                 return future.result(timeout=60)
         else:

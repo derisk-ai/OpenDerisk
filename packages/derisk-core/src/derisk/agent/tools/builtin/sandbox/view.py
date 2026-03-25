@@ -1,10 +1,11 @@
 """
 ViewTool - 沙箱文件/目录查看工具
 
-用于列出目录结构、读取文件内容或渲染图片资源
+用于列出目录结构、读取文件内容或渲染图片资源，支持交付物标记
 """
 
 from typing import Dict, Any, Optional, List, Tuple, Union
+import os
 import posixpath
 import re
 import shlex
@@ -26,17 +27,33 @@ _RANGE_SPLIT_RE = re.compile(r"[\s,\-~:]+")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _PROMPT_LINE_RE = re.compile(r"^[\w.-]+@[\w.-]+:[^\n]*\$\s?.*$")
 
-_VIEW_PROMPT = """沙箱文件系统交互接口。用于列出目录结构、读取文件内容或渲染图片资源。
+_VIEW_PROMPT = """沙箱文件系统探索器。
 
-使用说明:
-- SKILL.md 加载互斥锁：当访问技能目录路径时，单次交互严格禁止读取超过 1 个 markdown 文件。
-- 大文件熔断保护：对于未知大小的业务文件（日志、数据、代码），禁止在无 view_range 限制下全量读取。
-- 只读安全边界：此工具仅用于被动获取信息，严禁产生任何副作用（如创建、修改文件）。
+**核心能力：**
+- 目录探索：列出工作空间文件树（最多2层）
+- 文件读取：读取文本文件，支持行范围切片
+- 图片预览：读取图片返回 base64
+- 交付标记：查看文件时可将其标记为交付物
 
-推荐用法:
-- 侦查先行：优先对目录使用 view 以建立文件树心理模型，而不是盲目猜测文件路径。
-- 切片分析：利用 view_range 模拟 head (如 [1, 50]) 或 tail (如 [1000, -1]) 操作。
-- 按需扩容：仅在当前上下文无法支撑决策时，才通过 view 获取新的文件内容。"""
+**适用场景：**
+- 探索 sandbox 工作目录
+- 读取 create_file 创建的文件
+- 查看 shell_exec 生成的报告文件
+- 查看技能文件(SKILL.md)、系统配置、日志等
+
+**不适用：**
+- 读取截断归档的大文件 → 请使用 read_file 工具
+
+**安全约束：**
+- SKILL.md 互斥锁：单次仅读取1个技能文件，防止知识污染
+- 大文件熔断：未知大小文件必须用 view_range 分段读取
+- 只读边界：禁止创建或修改文件
+
+**推荐用法：**
+- 侦查先行：先列出目录建立文件树心智模型
+- 切片分析：用 view_range 模拟 head/tail 操作
+- 交付文件：设置 mark_as_deliverable=true 将文件标记为交付物
+"""
 
 
 def _parse_view_range(view_range) -> Optional[Union[Tuple[int, int], str]]:
@@ -320,6 +337,108 @@ async def _read_image_base64(client, abs_path: str) -> Dict[str, Union[str, int]
     }
 
 
+async def _add_deliverable_info(
+    client,
+    sandbox_path: str,
+    content: str,
+    conversation_id: str,
+    description: str = "",
+) -> str:
+    """为文件内容添加交付物信息。"""
+    file_name = os.path.basename(sandbox_path)
+
+    if not description or not description.strip():
+        description = f"交付文件: {file_name}"
+
+    oss_temp_url = None
+    oss_object_path = None
+
+    # 1. 通过 AgentFileSystem 统一管理
+    if client.agent_file_system:
+        try:
+            from derisk.agent.core.memory.gpts.file_base import FileType
+
+            afs = client.agent_file_system
+
+            file_metadata = await afs.save_file_from_sandbox(
+                sandbox_path=sandbox_path,
+                file_type=FileType.DELIVERABLE,
+                is_deliverable=True,
+                description=description.strip(),
+                tool_name="view",
+            )
+
+            if file_metadata:
+                oss_temp_url = file_metadata.preview_url
+                oss_object_path = (
+                    file_metadata.metadata.get("object_path")
+                    if file_metadata.metadata
+                    else None
+                )
+                logger.info(
+                    f"[view] File registered via AFS: file_name={file_name}, "
+                    f"object_path={oss_object_path}"
+                )
+        except Exception as e:
+            logger.warning(f"[view] Failed to register file via AFS: {e}")
+
+    # 2. 如果 AgentFileSystem 不可用，尝试直接通过 write_chat_file 转存
+    if not oss_temp_url:
+        try:
+            file_info = await client.file.read(sandbox_path)
+            file_content = getattr(file_info, "content", "")
+
+            if file_content and hasattr(client.file, "write_chat_file"):
+                upload_info = await client.file.write_chat_file(
+                    conversation_id=conversation_id,
+                    path=sandbox_path,
+                    data=file_content,
+                    overwrite=True,
+                )
+                if upload_info and upload_info.oss_info:
+                    oss_temp_url = upload_info.oss_info.temp_url
+                    oss_object_path = upload_info.oss_info.object_name
+        except Exception as exc:
+            logger.warning(f"[view] OSS 上传失败: {exc}")
+
+    # 构建附加信息
+    deliverable_info = [
+        "",
+        "---",
+        f"📦 **交付物信息**",
+        f"- 文件: `{file_name}`",
+        f"- 描述: {description.strip()}",
+    ]
+
+    if oss_temp_url:
+        try:
+            from derisk.agent.core.file_system.dattach_utils import render_dattach
+
+            dattach_content = render_dattach(
+                file_name=file_name,
+                file_url=oss_temp_url,
+                file_type="deliverable",
+                object_path=oss_object_path,
+                preview_url=oss_temp_url,
+                download_url=oss_temp_url,
+                description=description.strip(),
+            )
+            deliverable_info.append("")
+            deliverable_info.append("**下载/预览:**")
+            deliverable_info.append(dattach_content)
+        except Exception as exc:
+            logger.warning(f"[view] d-attach 渲染失败: {exc}")
+            deliverable_info.append(f"- 下载链接: {oss_temp_url}")
+
+        if oss_object_path:
+            deliverable_info.append(f"- OSS 对象路径: `{oss_object_path}`")
+    else:
+        deliverable_info.append("")
+        deliverable_info.append("⚠️ **注意：无法生成交付链接，请检查 OSS 配置。**")
+
+    return content + "\n".join(deliverable_info)
+
+
 class ViewTool(SandboxToolBase):
     """沙箱文件/目录查看工具"""
 
@@ -334,7 +453,7 @@ class ViewTool(SandboxToolBase):
             requires_permission=False,
             timeout=60,
             environment=ToolEnvironment.SANDBOX,
-            tags=["file", "read", "directory", "sandbox"],
+            tags=["file", "read", "directory", "sandbox", "deliverable"],
             author="tuyang.yhj",
         )
 
@@ -344,7 +463,7 @@ class ViewTool(SandboxToolBase):
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "目标绝对路径。支持目录（显示列表）或文件（显示内容）。",
+                    "description": "目标路径（支持绝对路径或相对路径）。相对路径会基于沙箱工作目录解析。支持目录（显示列表）或文件（显示内容）。不指定路径时可使用 '.' 表示当前工作目录。",
                 },
                 "view_range": {
                     "anyOf": [
@@ -357,7 +476,16 @@ class ViewTool(SandboxToolBase):
                         {"type": "null"},
                     ],
                     "default": None,
-                    "description": "行号范围 [start, end]（从1开始）。使用 -1 代表文件末尾。",
+                    "description": "行号范围 [start, end]（从1开始）。\\n- 强制场景：读取 >100 行的代码或日志时必填。\\n- 特殊值：使用 -1 代表文件末尾（例如 [50, -1] 读取从第50行到最后）。",
+                },
+                "mark_as_deliverable": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "是否将此文件标记为交付物。设置为 true 时，会在返回内容中包含 OSS 下载链接和 d-attach 组件。",
+                },
+                "delivery_description": {
+                    "type": "string",
+                    "description": "交付物描述（仅当 mark_as_deliverable=true 时有效）。如果为空，则使用文件名作为描述。",
                 },
             },
             "required": ["path"],
@@ -368,6 +496,8 @@ class ViewTool(SandboxToolBase):
     ) -> ToolResult:
         path = args["path"]
         view_range = args.get("view_range")
+        mark_as_deliverable = args.get("mark_as_deliverable", False)
+        delivery_description = args.get("delivery_description", "")
 
         # 检查沙箱可用性
         client = self._get_sandbox_client(context)
@@ -391,8 +521,24 @@ class ViewTool(SandboxToolBase):
         # 检测路径类型
         path_kind = await detect_path_kind(client, sandbox_path)
         if path_kind == "none":
+            skill_dir = getattr(client, "skill_dir", None)
+            is_skill_path = skill_dir and sandbox_path.startswith(skill_dir)
+            is_mnt_derisk = sandbox_path.startswith("/mnt/derisk")
+
+            if is_skill_path or is_mnt_derisk:
+                return ToolResult.fail(
+                    error=(
+                        f"错误: 路径不存在: {sandbox_path}\n"
+                        f"可能原因:\n"
+                        f"  1. 知识库正在初始化，请稍后重试\n"
+                        f"  2. 知识库初始化失败，请检查日志\n"
+                        f"  3. 该技能路径在知识库中不存在"
+                    ),
+                    tool_name=self.name,
+                )
             return ToolResult.fail(
-                error=f"错误: 路径不存在: {sandbox_path}", tool_name=self.name
+                error=f"错误: 路径不存在: {sandbox_path}",
+                tool_name=self.name,
             )
 
         # 处理目录
@@ -440,5 +586,17 @@ class ViewTool(SandboxToolBase):
         if content.startswith("[错误:"):
             return ToolResult.fail(error=content, tool_name=self.name)
 
-        output = _format_text_content(content, range_tuple)
-        return ToolResult.ok(output=output, tool_name=self.name)
+        formatted_content = _format_text_content(content, range_tuple)
+
+        # 如果需要标记为交付物
+        if mark_as_deliverable:
+            conversation_id = self._get_conversation_id(context)
+            formatted_content = await _add_deliverable_info(
+                client,
+                sandbox_path,
+                formatted_content,
+                conversation_id,
+                delivery_description,
+            )
+
+        return ToolResult.ok(output=formatted_content, tool_name=self.name)

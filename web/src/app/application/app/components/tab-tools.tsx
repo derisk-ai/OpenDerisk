@@ -52,12 +52,11 @@ import {
   type ToolWithBinding,
   type ToolBindingType,
 } from '@/client/api/tools/management';
+import { toResourceToolFormat, type ToolResource } from '@/client/api/tools/v2';
 import { GET, POST, PUT } from '@/client/api';
 import { AgentAuthorizationConfig } from '@/components/config/AgentAuthorizationConfig';
 import type { AuthorizationConfig } from '@/types/authorization';
 import { AuthorizationMode, LLMJudgmentPolicy } from '@/types/authorization';
-
-const { Panel } = Collapse;
 
 // 分组配置
 const GROUP_CONFIG: Record<ToolBindingType, { icon: React.ReactNode; color: string }> = {
@@ -174,6 +173,14 @@ export default function TabToolsManagement() {
   const { data: toolGroupsData, loading, refresh } = useRequest(
     async () => {
       if (!appCode) return null;
+      console.log('[ToolGroups] Fetching tool groups, clearing cache first...');
+      // 清除后端缓存，确保从 DB 重新加载最新的 resource_tool 绑定状态
+      // 注意：清除缓存失败不应阻断数据加载
+      try {
+        await clearToolCache({ app_id: appCode, agent_name: agentName });
+      } catch (error) {
+        console.warn('[ToolGroups] Failed to clear cache, continuing with fetch:', error);
+      }
       const res = await getToolGroups({
         app_id: appCode,
         agent_name: agentName,
@@ -181,9 +188,15 @@ export default function TabToolsManagement() {
         sandbox_enabled: sandboxEnabled,
       });
       if (res.data?.success) {
+        console.log('[ToolGroups] Got tool groups:', res.data.data?.map((g: any) => ({
+          group_id: g.group_id,
+          bound_count: g.tools?.filter((t: any) => t.is_bound).length,
+          tools: g.tools?.slice(0, 3).map((t: any) => ({ tool_id: t.tool_id, is_bound: t.is_bound }))
+        })));
         setExpandedGroups(res.data.data.map((g) => g.group_id));
         return res.data.data;
       }
+      console.log('[ToolGroups] Failed to get tool groups');
       return null;
     },
     {
@@ -224,6 +237,54 @@ export default function TabToolsManagement() {
       .filter((group) => group.tools.length > 0);
   }, [toolGroupsData, searchValue]);
 
+  /**
+   * 构建当前所有已绑定工具的完整 resource_tool 列表
+   *
+   * resource_tool 是全量数据源：在里面的就是绑定的，不在里面就是未绑定的。
+   * 当 resource_tool 为空时（首次操作），需要先把所有当前已绑定工具（含默认工具）全量写入，
+   * 然后再做增删操作。这样默认工具的反向解绑才能被持久化。
+   */
+  const buildFullResourceToolList = useCallback(() => {
+    const currentResourceTools = [...(appInfo?.resource_tool || [])];
+    console.log('[buildFullResourceToolList] currentResourceTools:', currentResourceTools.length);
+    console.log('[buildFullResourceToolList] toolGroupsData:', toolGroupsData?.map(g => ({ id: g.group_id, bound: g.tools.filter(t => t.is_bound).length })));
+
+    // 收集当前 resource_tool 中已有的 tool_id
+    const existingToolIds = new Set<string>();
+    currentResourceTools.forEach((item: any) => {
+      try {
+        const parsed = JSON.parse(item.value || '{}');
+        const toolId = parsed.tool_id || parsed.key;
+        if (toolId) existingToolIds.add(toolId);
+      } catch {}
+    });
+
+    // 如果 toolGroupsData 存在，合并所有已绑定的工具
+    if (toolGroupsData) {
+      for (const group of toolGroupsData) {
+        for (const tool of group.tools) {
+          // 如果工具已绑定但不在 resource_tool 中，添加它
+          if (tool.is_bound && !existingToolIds.has(tool.tool_id)) {
+            const toolResource: Partial<ToolResource> = {
+              tool_id: tool.tool_id,
+              name: tool.name,
+              display_name: tool.display_name,
+              description: tool.description,
+              category: tool.category || '',
+              source: tool.source || 'system',
+            };
+            currentResourceTools.push(toResourceToolFormat(toolResource as ToolResource));
+            existingToolIds.add(tool.tool_id);
+            console.log('[buildFullResourceToolList] Added missing bound tool:', tool.tool_id);
+          }
+        }
+      }
+    }
+
+    console.log('[buildFullResourceToolList] Final tools count:', currentResourceTools.length);
+    return currentResourceTools;
+  }, [appInfo?.resource_tool, toolGroupsData]);
+
   // 处理工具绑定/解绑
   const handleToggleBinding = useCallback(
     async (tool: ToolWithBinding, groupType: ToolBindingType) => {
@@ -234,6 +295,53 @@ export default function TabToolsManagement() {
       setTogglingTools((prev) => new Set(prev).add(toolId));
 
       try {
+        // 1. 持久化到 resource_tool 字段（全量数据源）
+        // 先确保 resource_tool 包含所有当前已绑定工具（含默认工具）
+        const baseTools = buildFullResourceToolList();
+        let updatedTools: any[];
+
+        if (newBindingState) {
+          // 绑定：添加到列表（先去重）
+          const filtered = baseTools.filter((item: any) => {
+            try {
+              const parsed = JSON.parse(item.value || '{}');
+              return (parsed.tool_id || parsed.key) !== toolId;
+            } catch {
+              return true;
+            }
+          });
+          const toolResource: Partial<ToolResource> = {
+            tool_id: tool.tool_id,
+            name: tool.name,
+            display_name: tool.display_name,
+            description: tool.description,
+            category: tool.category || '',
+            source: tool.source || 'system',
+          };
+          updatedTools = [...filtered, toResourceToolFormat(toolResource as ToolResource)];
+        } else {
+          // 解绑：从列表中移除
+          updatedTools = baseTools.filter((item: any) => {
+            try {
+              const parsed = JSON.parse(item.value || '{}');
+              return (parsed.tool_id || parsed.key) !== toolId;
+            } catch {
+              return true;
+            }
+          });
+        }
+
+        // 2. 先持久化到数据库
+        console.log('[ToolBinding] updatedTools:', JSON.stringify(updatedTools, null, 2));
+        console.log('[ToolBinding] appInfo.resource_tool before update:', appInfo?.resource_tool);
+        const updateResult = await fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
+        console.log('[ToolBinding] updateResult:', updateResult);
+        // 检查返回的 resource_tool
+        const [, updateResponse] = updateResult || [];
+        console.log('[ToolBinding] updateResponse:', updateResponse);
+        console.log('[ToolBinding] updateResponse.resource_tool:', updateResponse?.resource_tool);
+
+        // 3. 持久化成功后，再更新内存中的 tool_manager 缓存
         const res = await updateToolBinding({
           app_id: appCode!,
           agent_name: agentName,
@@ -241,15 +349,18 @@ export default function TabToolsManagement() {
           is_bound: newBindingState,
         });
 
-        if (res.success) {
+        if (res.data?.success) {
           message.success(
             newBindingState
               ? t('builder_tool_bound_success') || '工具绑定成功'
               : t('builder_tool_unbound_success') || '工具解绑成功'
           );
-          refresh();
+          // 4. 最后刷新UI，此时数据库已更新
+          console.log('[ToolBinding] Calling refresh() to reload tool groups...');
+          await refresh();
+          console.log('[ToolBinding] refresh() completed, toolGroupsData should be updated');
         } else {
-          message.error(res.message || t('builder_tool_toggle_error') || '操作失败');
+          message.error(res.data?.message || t('builder_tool_toggle_error') || '操作失败');
         }
       } catch (error) {
         message.error(t('builder_tool_toggle_error') || '操作失败');
@@ -261,7 +372,7 @@ export default function TabToolsManagement() {
         });
       }
     },
-    [appCode, agentName, togglingTools, refresh, t]
+    [appCode, agentName, appInfo, togglingTools, refresh, t, fetchUpdateApp, buildFullResourceToolList]
   );
 
   // 批量绑定/解绑分组内所有工具
@@ -273,13 +384,46 @@ export default function TabToolsManagement() {
       }));
 
       try {
+        // 1. 构建 resource_tool 更新
+        const baseTools = buildFullResourceToolList();
+        const toolIdsInGroup = new Set(group.tools.map((t) => t.tool_id));
+
+        // 先移除该组在列表中的工具
+        let updatedTools = baseTools.filter((item: any) => {
+          try {
+            const parsed = JSON.parse(item.value || '{}');
+            return !toolIdsInGroup.has(parsed.tool_id || parsed.key);
+          } catch {
+            return true;
+          }
+        });
+
+        if (bindAll) {
+          // 批量绑定：重新添加该组所有工具
+          for (const tool of group.tools) {
+            const toolResource: Partial<ToolResource> = {
+              tool_id: tool.tool_id,
+              name: tool.name,
+              display_name: tool.display_name,
+              description: tool.description,
+              category: tool.category || '',
+              source: tool.source || 'system',
+            };
+            updatedTools.push(toResourceToolFormat(toolResource as ToolResource));
+          }
+        }
+
+        // 2. 先持久化到数据库
+        await fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
+
+        // 3. 持久化成功后，再更新内存缓存
         const res = await batchUpdateToolBindings({
           app_id: appCode!,
           agent_name: agentName,
           bindings,
         });
 
-        if (res.success) {
+        if (res.data?.success) {
           message.success(
             bindAll
               ? t('builder_batch_bound_success') || '批量绑定成功'
@@ -287,13 +431,13 @@ export default function TabToolsManagement() {
           );
           refresh();
         } else {
-          message.error(res.message || t('builder_batch_toggle_error') || '批量操作失败');
+          message.error(res.data?.message || t('builder_batch_toggle_error') || '批量操作失败');
         }
       } catch (error) {
         message.error(t('builder_batch_toggle_error') || '批量操作失败');
       }
     },
-    [appCode, agentName, refresh, t]
+    [appCode, agentName, appInfo, refresh, t, fetchUpdateApp, buildFullResourceToolList]
   );
 
   // 获取统计信息
@@ -334,8 +478,7 @@ export default function TabToolsManagement() {
         console.log('[ToolStreaming] Loaded configs:', Object.keys(configMap));
       }
     } catch (error) {
-      console.error('Failed to load streaming configs:', error);
-      message.warning(t('streaming_load_failed') || '加载流式配置失败');
+      console.warn('Failed to load streaming configs:', error);
     }
   }, [appCode, t]);
 
@@ -484,94 +627,94 @@ export default function TabToolsManagement() {
               bordered={false}
               expandIconPosition="end"
               className="tool-groups-collapse"
-            >
-              {filteredGroups.map((group) => (
-                <Panel
-                  key={group.group_id}
-                  header={
-                    <div className="flex items-center justify-between pr-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
-                          style={{
-                            backgroundColor: GROUP_CONFIG[group.group_type].color,
-                          }}
-                        >
-                          {GROUP_CONFIG[group.group_type].icon}
-                        </div>
-                        <div>
-                          <div className="font-medium text-gray-800">{group.group_name}</div>
-                          <div className="text-xs text-gray-400">{group.description}</div>
-                        </div>
-                        <Badge
-                          count={group.count}
-                          style={{
-                            backgroundColor: GROUP_CONFIG[group.group_type].color,
-                          }}
-                        />
+              items={filteredGroups.map((group) => ({
+                key: group.group_id,
+                label: (
+                  <div className="flex items-center justify-between pr-4">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                        style={{
+                          backgroundColor: GROUP_CONFIG[group.group_type].color,
+                        }}
+                      >
+                        {GROUP_CONFIG[group.group_type].icon}
                       </div>
-                      {/* 批量操作按钮 */}
-                      <Space onClick={(e) => e.stopPropagation()}>
-                        <span className="text-xs text-gray-400">
-                          {group.tools.filter((t) => t.is_bound).length}/{group.count}{' '}
-                          {t('builder_tools_bound') || '已绑定'}
-                        </span>
-                        {group.group_type !== 'builtin_required' && (
-                          <>
-                            <Button
-                              size="small"
-                              icon={<PlusCircleFilled />}
-                              onClick={() => handleBatchToggle(group, true)}
-                            >
-                              {t('builder_bind_all') || '全部绑定'}
-                            </Button>
-                            <Button
-                              size="small"
-                              icon={<MinusCircleFilled />}
-                              onClick={() => handleBatchToggle(group, false)}
-                            >
-                              {t('builder_unbind_all') || '全部解绑'}
-                            </Button>
-                          </>
-                        )}
-                      </Space>
-                    </div>
-                  }
-                  className="mb-3 bg-gray-50 rounded-lg overflow-hidden"
-                >
-                  {/* 分组提示 */}
-                  {group.group_type === 'builtin_required' && (
-                    <Alert
-                      message={t('builder_builtin_required_tip') || '默认绑定工具'}
-                      description={
-                        t('builder_builtin_required_desc') ||
-                        '这些工具是 Agent 默认绑定的核心工具，您可以反向解除绑定，但可能会影响 Agent 的基础功能。'
-                      }
-                      type="info"
-                      showIcon
-                      icon={<InfoCircleOutlined />}
-                      className="mb-3"
-                    />
-                  )}
-
-                  {/* 工具列表 */}
-                  <div className="space-y-2">
-                    {group.tools.map((tool) => (
-                      <ToolItem
-                        key={tool.tool_id}
-                        tool={tool}
-                        groupType={group.group_type}
-                        isToggling={togglingTools.has(tool.tool_id)}
-                        onToggle={() => handleToggleBinding(tool, group.group_type)}
-                        onOpenStreamingConfig={() => openStreamingModal(tool)}
-                        hasStreamingConfig={!!streamingConfigs[tool.name]}
-                        t={t}
+                      <div>
+                        <div className="font-medium text-gray-800">{group.group_name}</div>
+                        <div className="text-xs text-gray-400">{group.description}</div>
+                      </div>
+                      <Badge
+                        count={group.count}
+                        style={{
+                          backgroundColor: GROUP_CONFIG[group.group_type].color,
+                        }}
                       />
-                    ))}
+                    </div>
+                    {/* 批量操作按钮 */}
+                    <Space onClick={(e) => e.stopPropagation()}>
+                      <span className="text-xs text-gray-400">
+                        {group.tools.filter((t) => t.is_bound).length}/{group.count}{' '}
+                        {t('builder_tools_bound') || '已绑定'}
+                      </span>
+                      {group.group_type !== 'builtin_required' && (
+                        <>
+                          <Button
+                            size="small"
+                            icon={<PlusCircleFilled />}
+                            onClick={() => handleBatchToggle(group, true)}
+                          >
+                            {t('builder_bind_all') || '全部绑定'}
+                          </Button>
+                          <Button
+                            size="small"
+                            icon={<MinusCircleFilled />}
+                            onClick={() => handleBatchToggle(group, false)}
+                          >
+                            {t('builder_unbind_all') || '全部解绑'}
+                          </Button>
+                        </>
+                      )}
+                    </Space>
                   </div>
-                </Panel>
-              ))}
-            </Collapse>
+                ),
+                className: 'mb-3 bg-gray-50 rounded-lg overflow-hidden',
+                children: (
+                  <>
+                    {/* 分组提示 */}
+                    {group.group_type === 'builtin_required' && (
+                      <Alert
+                        message={t('builder_builtin_required_tip') || '默认绑定工具'}
+                        description={
+                          t('builder_builtin_required_desc') ||
+                          '这些工具是 Agent 默认绑定的核心工具，您可以反向解除绑定，但可能会影响 Agent 的基础功能。'
+                        }
+                        type="info"
+                        showIcon
+                        icon={<InfoCircleOutlined />}
+                        className="mb-3"
+                      />
+                    )}
+
+                    {/* 工具列表 */}
+                    <div className="space-y-2">
+                      {group.tools.map((tool) => (
+                        <ToolItem
+                          key={tool.tool_id}
+                          tool={tool}
+                          groupType={group.group_type}
+                          isToggling={togglingTools.has(tool.tool_id)}
+                          onToggle={() => handleToggleBinding(tool, group.group_type)}
+                          onOpenStreamingConfig={() => openStreamingModal(tool)}
+                          hasStreamingConfig={!!streamingConfigs[tool.name]}
+                          t={t}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ),
+              }))}
+            />
           ) : (
             !loading && (
               <Empty
@@ -585,40 +728,44 @@ export default function TabToolsManagement() {
 
       {/* 授权配置区域 */}
       <div className="border-t border-gray-100 bg-gray-50/50">
-        <Collapse ghost>
-          <Panel
-            header={
-              <div className="flex items-center gap-2">
-                <LockOutlined className="text-blue-500" />
-                <span className="font-medium text-gray-700">
-                  {t('builder_authorization_config') || '授权配置'}
-                </span>
-                <Tooltip title={t('builder_authorization_config_tip') || '配置工具的授权策略和权限管理'}>
-                  <InfoCircleOutlined className="text-gray-400 text-sm" />
-                </Tooltip>
-              </div>
-            }
-            key="authorization"
-            className="bg-transparent"
-          >
-            <div className="bg-white rounded-lg border border-gray-100 p-4">
-              <AgentAuthorizationConfig
-                value={appInfo?.authorization_config as AuthorizationConfig}
-                onChange={(config) => {
-                  const updatedApp = {
-                    ...appInfo,
-                    authorization_config: config,
-                  };
-                  if (typeof fetchUpdateApp === 'function') {
-                    fetchUpdateApp(updatedApp);
-                  }
-                }}
-                availableTools={availableTools}
-                showAdvanced={true}
-              />
-            </div>
-          </Panel>
-        </Collapse>
+        <Collapse
+          ghost
+          items={[
+            {
+              key: 'authorization',
+              label: (
+                <div className="flex items-center gap-2">
+                  <LockOutlined className="text-blue-500" />
+                  <span className="font-medium text-gray-700">
+                    {t('builder_authorization_config') || '授权配置'}
+                  </span>
+                  <Tooltip title={t('builder_authorization_config_tip') || '配置工具的授权策略和权限管理'}>
+                    <InfoCircleOutlined className="text-gray-400 text-sm" />
+                  </Tooltip>
+                </div>
+              ),
+              className: 'bg-transparent',
+              children: (
+                <div className="bg-white rounded-lg border border-gray-100 p-4">
+                  <AgentAuthorizationConfig
+                    value={appInfo?.authorization_config as AuthorizationConfig}
+                    onChange={(config) => {
+                      const updatedApp = {
+                        ...appInfo,
+                        authorization_config: config,
+                      };
+                      if (typeof fetchUpdateApp === 'function') {
+                        fetchUpdateApp(updatedApp);
+                      }
+                    }}
+                    availableTools={availableTools}
+                    showAdvanced={true}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       {/* 流式配置弹窗 */}
