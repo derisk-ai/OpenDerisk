@@ -309,6 +309,8 @@ class ConfigService {
     provider: string;
     description: string;
     is_configured: boolean;
+    builtin?: boolean;
+    secret_name?: string;
   }>> {
     const response = await axios.get(`${API_BASE}/config/llm-keys`);
     return response.data.data;
@@ -331,7 +333,9 @@ class ConfigService {
     success: boolean;
     message: string;
   }> {
-    const response = await axios.delete(`${API_BASE}/config/llm-keys/${provider}`);
+    const response = await axios.delete(
+      `${API_BASE}/config/llm-keys/${encodeURIComponent(provider)}`
+    );
     return response.data;
   }
 }

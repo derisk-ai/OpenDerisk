@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 
 from derisk._private.pydantic import BaseModel, model_to_dict
 from derisk.agent.core.llm_config import AgentLLMConfig
@@ -19,6 +20,47 @@ from derisk.util.error_types import LLMChatError
 from derisk.util.tracer import root_tracer
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_provider_secret_suffix(provider_name: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", (provider_name or "").strip().lower()).strip("_")
+
+
+def _get_custom_provider_secret_name(provider_name: str) -> Optional[str]:
+    normalized = _normalize_provider_secret_suffix(provider_name)
+    if not normalized:
+        return None
+    return f"llm_provider_{normalized}_api_key"
+
+
+def _get_custom_secret_candidates(
+    provider_name: str, base_url: Optional[str] = None
+) -> List[str]:
+    candidates: List[str] = []
+
+    provider_secret = _get_custom_provider_secret_name(provider_name)
+    if provider_secret:
+        candidates.append(provider_secret)
+
+    if base_url:
+        try:
+            hostname = urlparse(base_url).hostname or ""
+            host_parts = [part for part in hostname.split(".") if part]
+            derived_names = []
+            if host_parts:
+                derived_names.append(host_parts[0])
+            if len(host_parts) >= 2:
+                derived_names.append(host_parts[-2])
+            for name in derived_names:
+                secret_name = _get_custom_provider_secret_name(name)
+                if secret_name and secret_name not in candidates:
+                    candidates.append(secret_name)
+        except Exception:
+            pass
+
+    return candidates
 
 
 def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None) -> Optional[str]:
@@ -40,6 +82,9 @@ def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None
         from derisk_core.config.encryption import get_secret
 
         provider_name_lower = provider_name.lower()
+        custom_provider_secrets = _get_custom_secret_candidates(
+            provider_name_lower, base_url
+        )
 
         # 首先尝试获取 provider 特定的 key
         provider_specific_keys = {
@@ -66,6 +111,10 @@ def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None
                 # openai provider 可能是 OpenAI 也可能是其他 OpenAI 兼容服务
                 # 尝试所有可能的 key
                 keys_to_try = ["openai_api_key", "dashscope_api_key", "alibaba_api_key", "anthropic_api_key"]
+
+        for secret_name in reversed(custom_provider_secrets):
+            if secret_name not in keys_to_try:
+                keys_to_try.insert(0, secret_name)
 
         # 最后添加通用的 llm_api_key
         if "llm_api_key" not in keys_to_try:
