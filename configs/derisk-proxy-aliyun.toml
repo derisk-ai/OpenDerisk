@@ -83,3 +83,7 @@ oss_ak="${env:OSS_ACCESS_KEY_ID:-xxx}"
 oss_sk="${env:OSS_ACCESS_KEY_SECRET:-xxx}"
 oss_endpoint="https://oss-cn-beijing.aliyuncs.com"
 oss_bucket_name="openderisk"
+
+# Disable default skill sync from GitHub (network can be slow)
+[derisk.serve.skill]
+enable_default_skill_sync = false

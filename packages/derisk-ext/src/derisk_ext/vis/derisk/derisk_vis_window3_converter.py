@@ -2,7 +2,7 @@ import json
 import logging
 import re
 from enum import Enum
-from typing import List, Optional, Dict, Union, Tuple
+from typing import List, Optional, Dict, Union, Tuple, Any
 
 from derisk.agent import ActionOutput, ConversableAgent, BlankAction
 from derisk.agent.core.action.report_action import ReportAction
@@ -219,6 +219,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     senders_map=senders_map,
                     main_agent_name=main_agent_name,
                     running_agents=running_agents,
+                    cache=kwargs.get("cache"),
                 )
 
             planning_window = planning_vis
@@ -996,7 +997,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             from derisk.agent.core.memory.gpts import GptsMemory
             from derisk.agent.core.memory.gpts.file_base import FileType
 
-            memory = main_agent.agent_context.memory
+            memory = main_agent.memory
             if not memory or not hasattr(memory, "gpts_memory"):
                 return file_system_folder
 
@@ -1067,6 +1068,85 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             logger.warning(f"Failed to build file system folder: {e}")
             return file_system_folder
 
+    async def _build_incremental_file_nodes(
+        self,
+        main_agent: Optional["ConversableAgent"],
+        cache: Optional[Any] = None,
+    ) -> List[FolderNode]:
+        conv_id = main_agent.agent_context.conv_id
+        conv_session_id = main_agent.agent_context.conv_session_id
+
+        incremental_nodes: List[FolderNode] = []
+
+        try:
+            from derisk.agent.core.memory.gpts import GptsMemory
+            from derisk.agent.core.memory.gpts.file_base import FileType
+
+            memory = main_agent.memory
+            if not memory or not hasattr(memory, "gpts_memory"):
+                return incremental_nodes
+
+            gpts_memory = memory.gpts_memory
+            if not isinstance(gpts_memory, GptsMemory):
+                return incremental_nodes
+
+            files = await gpts_memory.list_files(conv_id)
+            if not files:
+                return incremental_nodes
+
+            rendered_file_ids = cache.rendered_file_ids if cache else set()
+
+            type_display_names = {
+                FileType.CONCLUSION.value: "📋 结论文件",
+                FileType.TOOL_OUTPUT.value: "🔧 工具输出",
+                FileType.WRITE_FILE.value: "📝 写入文件",
+                FileType.DELIVERABLE.value: "📦 交付物",
+                FileType.TRUNCATED_OUTPUT.value: "📄 截断输出",
+                FileType.KANBAN.value: "📊 看板文件",
+                FileType.WORK_LOG.value: "📆 工作日志",
+                FileType.TODO.value: "✅ 任务列表",
+                "other": "📁 其他文件",
+            }
+
+            for file_meta in files:
+                if file_meta.file_id in rendered_file_ids:
+                    continue
+
+                file_type = file_meta.file_type or "other"
+                type_folder_uid = f"{conv_session_id}_fs_{file_type}"
+                file_node_uid = f"{conv_session_id}_file_{file_meta.file_id}"
+
+                file_node = FolderNode(
+                    uid=file_node_uid,
+                    type=UpdateType.INCR.value,
+                    item_type="file",
+                    path=type_folder_uid,
+                    title=file_meta.file_name,
+                    description=f"{file_meta.file_size} bytes"
+                    if file_meta.file_size
+                    else None,
+                    status=file_meta.status,
+                    task_type="afs_file",
+                    file_id=file_meta.file_id,
+                    file_name=file_meta.file_name,
+                    file_type=file_meta.file_type,
+                    file_size=file_meta.file_size,
+                    preview_url=file_meta.preview_url,
+                    download_url=file_meta.download_url,
+                    oss_url=file_meta.oss_url,
+                    mime_type=file_meta.mime_type,
+                )
+                incremental_nodes.append(file_node)
+
+                if cache:
+                    cache.rendered_file_ids.add(file_meta.file_id)
+
+            return incremental_nodes
+
+        except Exception as e:
+            logger.warning(f"Failed to build incremental file nodes: {e}")
+            return incremental_nodes
+
     async def _running_vis_build(
         self,
         gpt_msg: Optional[GptsMessage] = None,
@@ -1076,13 +1156,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
         main_agent_name: Optional[str] = None,
         running_agents: Optional[List[str]] = None,
+        cache: Optional[Any] = None,
     ):
         main_agent = senders_map[main_agent_name]
         conv_session_id = main_agent.agent_context.conv_session_id
-        # 不要因为有 gpt_msg 但没有 action_report 就返回 None
-        # LLM 流式输出可能没有 action_report，但仍然需要显示内容
-        # if gpt_msg and not gpt_msg.action_report and not is_first_push:
-        #     return None
 
         work_items = await self.gen_work_item(
             gpt_msg=gpt_msg,
@@ -1092,9 +1169,14 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         )
         main_agent_folder = None
         file_system_folder = None
+        incremental_file_items: List[FolderNode] = []
+
+        # 🔧 修复：每次都构建 agent folder，确保 explorer 始终存在
+        # 这样追问时也能正确更新 AgentFolder 数据
+        main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
+
         if is_first_push:
             logger.info("构建vis_window3空间，进行首次资源管理器刷新!")
-            main_agent_folder = await self._build_agent_folder(main_agent=main_agent)
             file_system_folder = await self._build_file_system_folder(
                 main_agent=main_agent
             )
@@ -1103,8 +1185,21 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     main_agent_folder.items = []
                 main_agent_folder.items.append(file_system_folder)
 
+            if cache and file_system_folder:
+                for type_folder in file_system_folder.items or []:
+                    for file_node in type_folder.items or []:
+                        if hasattr(file_node, "file_id") and file_node.file_id:
+                            cache.rendered_file_ids.add(file_node.file_id)
+        else:
+            incremental_file_items = await self._build_incremental_file_nodes(
+                main_agent=main_agent,
+                cache=cache,
+            )
+
         work_space_content = None
-        if work_items and main_agent_folder:
+        all_items = (work_items or []) + incremental_file_items
+
+        if all_items and main_agent_folder:
             work_space_content = WorkSpaceContent(
                 uid=conv_session_id,
                 type=UpdateType.INCR.value,
@@ -1112,11 +1207,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 explorer=self.vis_inst(AgentFolder.vis_tag()).sync_display(
                     content=main_agent_folder.to_dict()
                 ),
-                items=work_items,
+                items=all_items,
             )
-        elif work_items:
+        elif all_items:
             work_space_content = WorkSpaceContent(
-                uid=conv_session_id, type=UpdateType.INCR.value, items=work_items
+                uid=conv_session_id, type=UpdateType.INCR.value, items=all_items
             )
         elif main_agent_folder:
             work_space_content = WorkSpaceContent(
@@ -1582,26 +1677,20 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         messages: List["GptsMessage"],
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ) -> Optional[str]:
-        """渲染terminate时交付的文件列表.
+        """渲染交付的文件列表.
 
-        从messages中查找terminate action，并提取其中的文件信息，
+        从messages中查找包含output_files的action，并提取其中的文件信息，
         使用d-attach-list组件渲染文件列表。
 
         Returns:
             d-attach-list组件的vis字符串，如果没有文件则返回None
         """
-        from derisk.agent.expand.actions.terminate_action import Terminate
-
         file_contents = []
 
         for msg in messages:
             if not msg.action_report:
                 continue
             for action_out in msg.action_report:
-                # 检查是否是terminate action
-                if action_out.name != Terminate.name:
-                    continue
-
                 # 从output_files获取文件信息
                 output_files = action_out.output_files or []
                 if not output_files:

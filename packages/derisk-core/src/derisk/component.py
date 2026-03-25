@@ -108,6 +108,7 @@ class ComponentType(str, Enum):
     CONTEXT_MANAGER = "derisk_context_manager"
     PERFERMANCE = "perfermance"
     SANDBOX_MANAGER = "sandbox_manager"
+    GPTS_MEMORY = "derisk_gpts_memory"
 
 
 _EMPTY_DEFAULT_COMPONENT = "_EMPTY_DEFAULT_COMPONENT"

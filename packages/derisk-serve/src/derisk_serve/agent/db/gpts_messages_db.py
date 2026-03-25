@@ -13,7 +13,8 @@ from sqlalchemy import (
     Text,
     and_,
     desc,
-    or_, select,
+    or_,
+    select,
 )
 
 from derisk.agent import ActionOutput
@@ -72,24 +73,20 @@ class GptsMessagesEntity(Model):
         comment="The message in which app name",
     )
     thinking = Column(
-        Text(length=2 ** 31 - 1), nullable=True, comment="Thinking of the speech"
+        Text(length=2**31 - 1), nullable=True, comment="Thinking of the speech"
     )
     content = Column(
-        Text(length=2 ** 31 - 1), nullable=True, comment="Content of the speech"
+        Text(length=2**31 - 1), nullable=True, comment="Content of the speech"
     )
     content_types = Column(
         String(1000), nullable=True, comment="Content types of the speech"
     )
-    message_type = Column(
-        String(255),
-        nullable=True,
-        comment="type of the message"
-    )
+    message_type = Column(String(255), nullable=True, comment="type of the message")
     system_prompt = Column(
-        Text(length=2 ** 31 - 1), nullable=True, comment="this message system prompt"
+        Text(length=2**31 - 1), nullable=True, comment="this message system prompt"
     )
     user_prompt = Column(
-        Text(length=2 ** 31 - 1), nullable=True, comment="this message system prompt"
+        Text(length=2**31 - 1), nullable=True, comment="this message system prompt"
     )
     show_message = Column(
         Boolean,
@@ -107,7 +104,7 @@ class GptsMessagesEntity(Model):
         Text, nullable=True, comment="Current conversation review info"
     )
     action_report = Column(
-        Text(length=2 ** 31 - 1),
+        Text(length=2**31 - 1),
         nullable=True,
         comment="Current conversation action report",
     )
@@ -130,12 +127,17 @@ class GptsMessagesEntity(Model):
         comment="The performance metrics of agent messages",
     )
     tool_calls = Column(
-        Text(length=2 ** 31 - 1),
+        Text(length=2**31 - 1),
         nullable=True,
         comment="The tool_calls of agent messages",
     )
+    input_tools = Column(
+        Text(length=2**31 - 1),
+        nullable=True,
+        comment="The input tools passed to LLM",
+    )
     observation = Column(
-        Text(length=2 ** 31 - 1),
+        Text(length=2**31 - 1),
         nullable=True,
         comment="The  message observation",
     )
@@ -154,7 +156,6 @@ class GptsMessagesEntity(Model):
 
 
 class GptsMessagesDao(BaseDao):
-
     def _from_gpts_message(self, msg: GptsMessage) -> GptsMessagesEntity:
         """将GptsMessage对象转换为GptsMessagesEntity对象（用于数据库存储）"""
         # 处理非空字段的默认值（Entity中nullable=False的字段）
@@ -164,25 +165,61 @@ class GptsMessagesDao(BaseDao):
         app_name = msg.app_name or ""
 
         # 复杂字段的序列化
-        context_str = json.dumps(msg.context, ensure_ascii=False,
-                                 default=serialize) if msg.context is not None else None
-        review_info_str = json.dumps(dataclasses.asdict(msg.review_info), ensure_ascii=False,
-                                     default=serialize) if msg.review_info is not None else None
-        action_report_str = json.dumps([item.to_dict() for item in msg.action_report], ensure_ascii=False,
-                                       default=serialize) if msg.action_report else None
+        context_str = (
+            json.dumps(msg.context, ensure_ascii=False, default=serialize)
+            if msg.context is not None
+            else None
+        )
+        review_info_str = (
+            json.dumps(
+                dataclasses.asdict(msg.review_info),
+                ensure_ascii=False,
+                default=serialize,
+            )
+            if msg.review_info is not None
+            else None
+        )
+        action_report_str = (
+            json.dumps(
+                [item.to_dict() for item in msg.action_report],
+                ensure_ascii=False,
+                default=serialize,
+            )
+            if msg.action_report
+            else None
+        )
 
-        resource_info_str = json.dumps(msg.resource_info, ensure_ascii=False,
-                                       default=serialize) if msg.resource_info is not None else None
-        metrics_str = json.dumps(msg.metrics.to_dict(), ensure_ascii=False,
-                                 default=serialize) if msg.metrics is not None else None
-        tool_calls_str = json.dumps(msg.tool_calls, ensure_ascii=False,
-                                    default=serialize) if msg.tool_calls is not None else None
-        content_types_str = json.dumps(msg.content_types, ensure_ascii=False,
-                                       default=serialize) if msg.content_types is not None else None
+        resource_info_str = (
+            json.dumps(msg.resource_info, ensure_ascii=False, default=serialize)
+            if msg.resource_info is not None
+            else None
+        )
+        metrics_str = (
+            json.dumps(msg.metrics.to_dict(), ensure_ascii=False, default=serialize)
+            if msg.metrics is not None
+            else None
+        )
+        tool_calls_str = (
+            json.dumps(msg.tool_calls, ensure_ascii=False, default=serialize)
+            if msg.tool_calls is not None
+            else None
+        )
+        input_tools_str = (
+            json.dumps(msg.input_tools, ensure_ascii=False, default=serialize)
+            if msg.input_tools is not None
+            else None
+        )
+        content_types_str = (
+            json.dumps(msg.content_types, ensure_ascii=False, default=serialize)
+            if msg.content_types is not None
+            else None
+        )
 
         # 处理content字段（支持str和ChatCompletionUserMessageParam）
         content_val = msg.content
-        if isinstance(content_val, dict):  # 假设ChatCompletionUserMessageParam是dict类型
+        if isinstance(
+            content_val, dict
+        ):  # 假设ChatCompletionUserMessageParam是dict类型
             content_str = json.dumps(content_val)
         else:
             content_str = content_val  # 直接使用字符串或None
@@ -217,15 +254,20 @@ class GptsMessagesDao(BaseDao):
             avatar=msg.avatar,
             metrics=metrics_str,
             tool_calls=tool_calls_str,
+            input_tools=input_tools_str,
             observation=msg.observation,
             created_at=msg.created_at,
-            updated_at=msg.updated_at
+            updated_at=msg.updated_at,
         )
 
     def _to_gpts_message(self, entity: GptsMessagesEntity) -> GptsMessage:  # type: ignore
         # 复杂字段的反序列化
         context = json.loads(entity.context) if entity.context else None  # type: ignore
-        review_info = AgentReviewInfo(**json.loads(entity.review_info)) if entity.review_info else None  # type: ignore
+        review_info = (
+            AgentReviewInfo(**json.loads(entity.review_info))
+            if entity.review_info
+            else None
+        )  # type: ignore
 
         # 处理action_report（可能是ActionOutput或dict）
         action_reports = None
@@ -236,15 +278,21 @@ class GptsMessagesDao(BaseDao):
         metrics = None
         if entity.metrics:
             metrics_obj = json.loads(entity.metrics)  # type: ignore
-            action_metrics_obj = metrics_obj.get('action_metrics')
+            action_metrics_obj = metrics_obj.get("action_metrics")
             if action_metrics_obj and isinstance(action_metrics_obj, dict):
-                metrics_obj['action_metrics'] = [action_metrics_obj]
+                metrics_obj["action_metrics"] = [action_metrics_obj]
             metrics = MessageMetrics(**metrics_obj)
 
-        content_types = json.loads(entity.content_types) if entity.content_types else None  # type: ignore
-        resource_info = json.loads(entity.resource_info) if entity.resource_info else None  # type: ignore
+        content_types = (
+            json.loads(entity.content_types) if entity.content_types else None
+        )  # type: ignore
+        resource_info = (
+            json.loads(entity.resource_info) if entity.resource_info else None
+        )  # type: ignore
 
         tool_calls = json.loads(entity.tool_calls) if entity.tool_calls else None  # type: ignore
+
+        input_tools = json.loads(entity.input_tools) if entity.input_tools else None  # type: ignore
 
         # # 处理content字段（可能包含JSON字符串）
         # content_val = entity.content
@@ -286,7 +334,8 @@ class GptsMessagesDao(BaseDao):
             updated_at=entity.updated_at,
             observation=entity.observation,
             metrics=metrics,
-            tool_calls=tool_calls
+            tool_calls=tool_calls,
+            input_tools=input_tools,
         )
 
     def update_message(self, msg: GptsMessage):
@@ -339,6 +388,7 @@ class GptsMessagesDao(BaseDao):
                     GptsMessagesEntity.observation: entity.observation,
                     GptsMessagesEntity.metrics: entity.metrics,
                     GptsMessagesEntity.tool_calls: entity.tool_calls,
+                    GptsMessagesEntity.input_tools: entity.input_tools,
                 },
                 synchronize_session="fetch",
             )
@@ -368,9 +418,7 @@ class GptsMessagesDao(BaseDao):
             entities = result.scalars().all()
             return [self._to_gpts_message(e) for e in entities]
 
-    def get_by_conv_session_id(
-        self, conv_session_id: str
-    ) -> List[GptsMessage]:
+    def get_by_conv_session_id(self, conv_session_id: str) -> List[GptsMessage]:
         session = self.get_raw_session()
         gpts_messages = session.query(GptsMessagesEntity)
         if conv_session_id:
@@ -383,17 +431,23 @@ class GptsMessagesDao(BaseDao):
 
     def get_by_message_id(self, message_id: str) -> Optional[GptsMessage]:
         session = self.get_raw_session()
-        entity = session.query(GptsMessagesEntity).filter(
-            GptsMessagesEntity.message_id == message_id
-        ).order_by(GptsMessagesEntity.id.desc()).first()
+        entity = (
+            session.query(GptsMessagesEntity)
+            .filter(GptsMessagesEntity.message_id == message_id)
+            .order_by(GptsMessagesEntity.id.desc())
+            .first()
+        )
         session.close()
         return self._to_gpts_message(entity) if entity else None
 
     def get_last_message(self, conv_id: str) -> Optional[GptsMessage]:
         session = self.get_raw_session()
-        entity = session.query(GptsMessagesEntity).filter(
-            GptsMessagesEntity.conv_id == conv_id
-        ).order_by(desc(GptsMessagesEntity.rounds)).first()
+        entity = (
+            session.query(GptsMessagesEntity)
+            .filter(GptsMessagesEntity.conv_id == conv_id)
+            .order_by(desc(GptsMessagesEntity.rounds))
+            .first()
+        )
         session.close()
         return self._to_gpts_message(entity) if entity else None
 

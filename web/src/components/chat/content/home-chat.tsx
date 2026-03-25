@@ -961,10 +961,9 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
 
   return (
     <div className="h-full flex flex-col bg-[#FAFAFA] dark:bg-[#111] overflow-y-auto relative">
-      {/* Top Header - Simplified */}
-      <div className="flex justify-end items-center px-8 py-6 w-full absolute top-0 left-0 z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-full bg-white dark:bg-[#232734] flex items-center justify-center shadow-sm cursor-pointer hover:shadow-md transition-shadow">
+      <div className="flex justify-end items-center px-8 py-5 w-full absolute top-0 left-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-white dark:bg-[#232734] flex items-center justify-center shadow-sm border border-gray-200/60 dark:border-gray-700/60 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all">
             <Badge dot offset={[-2, 2]}>
               <span className="text-lg">🔔</span>
             </Badge>
@@ -973,9 +972,9 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-5xl mx-auto px-4 mt-10">
+      <div className="flex-1 flex flex-col items-center w-full max-w-5xl mx-auto px-4 pt-[12vh]">
         {/* Title */}
-        <div className="text-center mb-8 -translate-y-[10px]">
+        <div className="text-center mb-8">
           <h1 className="text-4xl font-medium text-gray-900 dark:text-gray-100 tracking-tight mb-3">
             <span className="mr-2">🚀</span>
             You Command, We
@@ -1133,7 +1132,7 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
         </div>
 
         {/* Quick Actions - SRE Domain Scenarios */}
-        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl translate-y-[10px]">
+        <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl">
           <QuickActionButton 
             icon={<HeartOutlined />} 
             text="AI应用健康" 

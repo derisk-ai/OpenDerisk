@@ -62,10 +62,10 @@ def uniform_time(date_time: datetime | str | int | float) -> datetime:
     try:
         if isinstance(date_time, str):
             date_time = int(date_time)
-    except:
+    except Exception:
         try:
             date_time = float(date_time)
-        except:
+        except Exception:
             pass
 
     if isinstance(date_time, int):

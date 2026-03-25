@@ -29,7 +29,7 @@ export function UnifiedMessageRenderer({
   agentVersion = 'v2',
   className = ''
 }: UnifiedMessageRendererProps) {
-  const messageType = _detectMessageType(message);
+  const messageType = _detectMessageType(message, agentVersion);
   
   return (
     <div className={`unified-message-container ${agentVersion} ${messageType} ${className}`}>
@@ -41,7 +41,7 @@ export function UnifiedMessageRenderer({
 /**
  * 检测消息类型
  */
-function _detectMessageType(message: UnifiedMessage): MessageType {
+function _detectMessageType(message: UnifiedMessage, agentVersion: 'v1' | 'v2' = 'v2'): MessageType {
   const metadata = message.metadata || {};
   
   if (metadata.type === 'thinking') {

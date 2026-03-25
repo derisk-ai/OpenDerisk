@@ -294,11 +294,6 @@ export default function ConfigPage() {
             ),
           },
           {
-            key: 'agents',
-            label: <span><TeamOutlined /> Agent配置</span>,
-            children: <AgentsConfigSection config={config} onChange={loadConfig} />,
-          },
-          {
             key: 'secrets',
             label: <span><KeyOutlined /> 密钥管理</span>,
             children: <SecretsConfigSection onChange={loadConfig} />,
@@ -606,7 +601,7 @@ function VisualAgentsSection({
   }, [config.agents]);
 
   const handleEditAgent = (name: string) => {
-    message.info(`编辑 Agent: ${name}`);
+    console.log(`编辑 Agent: ${name}`);
   };
 
   const columns = [

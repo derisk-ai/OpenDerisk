@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from derisk.agent.core.file_system.agent_file_system import AgentFileSystem
-from derisk.agent.core.memory.gpts import FileType
+from derisk.agent.core.memory.gpts.file_base import FileType
 
 from derisk.configs.model_config import DATA_DIR
 from derisk.sandbox.base import SandboxBase

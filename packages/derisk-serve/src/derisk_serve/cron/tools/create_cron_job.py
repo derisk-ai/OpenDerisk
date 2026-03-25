@@ -4,7 +4,7 @@ This tool allows Agents to create scheduled tasks during conversations.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from derisk.agent.core.system_tool_registry import system_tool
 from derisk.cron import (
@@ -25,6 +25,7 @@ def _get_cron_service():
     from ..service.service import Service
 
     from derisk._private.config import Config
+
     system_app = Config().SYSTEM_APP
     if not system_app:
         raise RuntimeError("SystemApp not initialized")
@@ -74,6 +75,7 @@ async def create_cron_job(
     session_mode: str = "shared",
     conv_session_id: Optional[str] = None,
     description: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a scheduled cron job.
 

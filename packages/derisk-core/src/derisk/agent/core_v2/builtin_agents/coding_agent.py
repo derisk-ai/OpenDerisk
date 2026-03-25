@@ -117,7 +117,7 @@ class CodingAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["read", "write", "bash", "grep", "glob", "think"]
+        return ["read", "write", "bash", "grep", "glob"]
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""

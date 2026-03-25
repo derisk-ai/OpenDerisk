@@ -14,7 +14,6 @@ from derisk.eval.tool.llm_snapshot_tool import LLMSnapshotTool, ToolSnapshot
 from derisk.eval.tool_run_model import RunModel, ToolRunModel
 from derisk.vis.schema import VisStepContent
 from derisk.vis.vis_converter import SystemVisTag
-from .terminate_action import Terminate
 from ... import ConversableAgent, AgentMemory, AgentContext, AgentMessage
 from ...core import sandbox_tool_dict
 from ...core.system_tool_registry import system_tool_dict
@@ -26,6 +25,87 @@ from ...resource.base import Resource
 from ...resource.tool.pack import ToolPack, _to_tool_list
 
 logger = logging.getLogger(__name__)
+
+
+class UnifiedToolAdapter(BaseTool):
+    """
+    统一工具框架适配器
+
+    将新框架的 ToolBase (derisk.agent.tools.base.ToolBase) 适配为
+    旧框架的 BaseTool 兼容接口，使 tool_action.py 能正确处理统一工具。
+    """
+
+    def __init__(self, tool_base):
+        """
+        初始化适配器
+
+        Args:
+            tool_base: 新框架的 ToolBase 实例
+        """
+        self._tool_base = tool_base
+        # 不调用 super().__init__()，因为 BaseTool 是 Resource 子类
+        # 直接设置需要的属性
+
+    @property
+    def name(self) -> str:
+        """工具名称"""
+        return self._tool_base.name
+
+    @property
+    def description(self) -> str:
+        """工具描述"""
+        return self._tool_base.metadata.description
+
+    @property
+    def args(self):
+        """工具参数 - 转换为旧格式"""
+        from derisk.agent.resource.tool.base import ToolParameter
+
+        params = self._tool_base.parameters or {}
+        properties = params.get("properties", {})
+        required = params.get("required", [])
+
+        result = {}
+        for key, value in properties.items():
+            result[key] = ToolParameter(
+                name=key,
+                title=value.get("title", key.replace("_", " ").title()),
+                type=value.get("type", "string"),
+                description=value.get("description", ""),
+                required=key in required,
+            )
+        return result
+
+    @property
+    def ask_user(self) -> bool:
+        """是否需要用户确认"""
+        return self._tool_base.metadata.requires_permission
+
+    @property
+    def is_stream(self) -> bool:
+        """是否流式输出"""
+        return self._tool_base.is_stream
+
+    @property
+    def is_async(self) -> bool:
+        """是否异步执行"""
+        return self._tool_base.is_async
+
+    @property
+    def stream_queue(self):
+        """流式输出队列"""
+        return self._tool_base.stream_queue
+
+    def execute(self, *args, **kwargs):
+        """同步执行 - 新框架通常是异步的"""
+        if self.is_async:
+            raise ValueError("This tool is asynchronous, use async_execute instead")
+        return self._tool_base.execute(*args, **kwargs)
+
+    async def async_execute(self, *args, **kwargs):
+        """异步执行"""
+        return await self._tool_base.async_execute(*args, **kwargs)
+
 
 # Constants for repeated strings
 TOOL_EXECUTION_ERROR = "Tool execution failed"
@@ -160,6 +240,8 @@ class ToolAction(Action[ToolInput]):
             tool_info = sandbox_tool_dict[param.tool_name]
         elif param.tool_name in system_tool_dict:
             tool_info = system_tool_dict[param.tool_name]
+        elif self._try_get_unified_tool(param.tool_name):
+            tool_info = self._try_get_unified_tool(param.tool_name)
         else:
             tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
 
@@ -236,7 +318,21 @@ class ToolAction(Action[ToolInput]):
         current_message: AgentMessage = kwargs.get("current_message")
         require_approval = kwargs.get("require_approval", False)
         action_id = kwargs.get("action_id", None)
-        self._render = kwargs.get("render_protocol") or self._render
+
+        # 诊断日志：检查 render_protocol 传入情况
+        render_protocol_from_kwargs = kwargs.get("render_protocol")
+        if render_protocol_from_kwargs:
+            logger.info(
+                f"[ToolAction] render_protocol received: type={type(render_protocol_from_kwargs).__name__}, "
+                f"render_name={getattr(render_protocol_from_kwargs, 'render_name', 'unknown')}"
+            )
+        else:
+            logger.warning(
+                f"[ToolAction] render_protocol NOT received from kwargs, using existing _render: "
+                f"type={type(self._render).__name__}"
+            )
+
+        self._render = render_protocol_from_kwargs or self._render
 
         ## 工具资源准备
         ### Get tool information
@@ -256,6 +352,10 @@ class ToolAction(Action[ToolInput]):
             # 系统工具需要 agent_file_system 参数
             if kwargs.get("agent_file_system"):
                 self.init_params["agent_file_system"] = kwargs.get("agent_file_system")
+        # 检查统一工具框架（如 bash, read, write 等）
+        elif self._try_get_unified_tool(param.tool_name):
+            tool_info = self._try_get_unified_tool(param.tool_name)
+            logger.info(f"[ToolAction] 从统一工具框架获取工具: {param.tool_name}")
         else:
             tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
         if not tool_info:
@@ -443,29 +543,31 @@ class ToolAction(Action[ToolInput]):
         view = None
         if need_vis_render:
             if not self.render_protocol:
-                raise NotImplementedError("Render protocol required for visualization")
-            ## 构造工具展示效果
-            kwargs_filtered = {
-                k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED
-            }
-            view = await self.gen_view(
-                message_id=message_id,
-                tool_call_id=self.action_uid,
-                tool_pack=tool_pack,
-                tool_info=tool_info,
-                tool_result=result_content,
-                tool_cost=metrics.cost_seconds,
-                status=status,
-                args=param.args,
-                start_time=start_time,
-                eval_view=tool_result.get("eval_view"),
-                err_msg=tool_result.get("error"),
-                **kwargs_filtered,
-            )
+                # 降级处理：不抛异常，记录警告并继续执行
+                logger.warning("render_protocol not available, skipping visualization")
+            else:
+                ## 构造工具展示效果
+                kwargs_filtered = {
+                    k: v for k, v in kwargs.items() if k not in KWARGS_FILTERED
+                }
+                view = await self.gen_view(
+                    message_id=message_id,
+                    tool_call_id=self.action_uid,
+                    tool_pack=tool_pack,
+                    tool_info=tool_info,
+                    tool_result=result_content,
+                    tool_cost=metrics.cost_seconds,
+                    status=status,
+                    args=param.args,
+                    start_time=start_time,
+                    eval_view=tool_result.get("eval_view"),
+                    err_msg=tool_result.get("error"),
+                    **kwargs_filtered,
+                )
 
-            # 如果有归档文件，追加 d-attach 组件到 view
-            if attach_view:
-                view = view + "\n" + attach_view
+                # 如果有归档文件，追加 d-attach 组件到 view
+                if attach_view:
+                    view = view + "\n" + attach_view
 
         # 构建最终的 content：如果是截断结果，使用 content 字段而非整个对象
         final_content = result_content
@@ -485,7 +587,7 @@ class ToolAction(Action[ToolInput]):
             ask_user=False,
             state=status,  # 使用根据执行结果计算的 status
             thoughts=param.thought,
-            terminate=isinstance(tool_info, Terminate),
+            terminate=False,  # Terminate 工具已移除
             cost_ms=cost_ms,
             eval_mode=eval_mode,
             metrics=metrics,
@@ -602,6 +704,31 @@ class ToolAction(Action[ToolInput]):
             state=Status.RUNNING.value,
         )
 
+    def _try_get_unified_tool(self, tool_name: str) -> Optional[BaseTool]:
+        """
+        尝试从统一工具框架获取工具
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            BaseTool: 适配后的工具实例，如果不存在返回 None
+        """
+        try:
+            from derisk.agent.tools import tool_registry
+
+            tool_base = tool_registry.get(tool_name)
+            if tool_base:
+                # 使用 UnifiedToolAdapter 适配为 BaseTool 兼容接口
+                return UnifiedToolAdapter(tool_base)
+            return None
+        except ImportError:
+            logger.debug("统一工具框架未安装，跳过查找")
+            return None
+        except Exception as e:
+            logger.warning(f"从统一工具框架获取工具失败: {tool_name}, error: {e}")
+            return None
+
     def _get_tool_attr(self, tool_info, attr: str):
         """兼容新旧工具框架获取属性
 
@@ -635,6 +762,7 @@ class ToolAction(Action[ToolInput]):
         """Normalize tool execution content to string.
 
         Handles various content types returned by different tool implementations:
+        - ToolResult (统一工具框架)
         - CallToolResult (MCP tools)
         - str (common string output)
         - dict (structured output)
@@ -652,6 +780,27 @@ class ToolAction(Action[ToolInput]):
 
         if isinstance(content, str):
             return content, True, None
+
+        # 处理统一工具框架的 ToolResult
+        try:
+            from derisk.agent.tools import ToolResult
+
+            if isinstance(content, ToolResult):
+                if content.success:
+                    output = content.output
+                    if output is None:
+                        return "", True, None
+                    if isinstance(output, str):
+                        return output, True, None
+                    return json.dumps(output, ensure_ascii=False), True, None
+                else:
+                    return (
+                        content.error or "Tool execution failed",
+                        False,
+                        content.error,
+                    )
+        except ImportError:
+            pass
 
         if isinstance(content, CallToolResult):
             self.process_files(content)
@@ -754,32 +903,6 @@ class ToolAction(Action[ToolInput]):
                     if k not in arguments:
                         arguments[k] = v
 
-                # Filter arguments based on tool definition to avoid passing
-                # unexpected parameters that cause validation errors
-                # (especially for MCP tools with strict Pydantic validation)
-                if hasattr(tool_info, "args") and tool_info.args:
-                    # Get valid parameter names from tool definition
-                    valid_keys = set(tool_info.args.keys())
-
-                    # Preserve special parameters that tools may need
-                    # - 'context': Used by some tools for additional context (sandbox_manager, etc.)
-                    # - 'client': Used by sandbox tools
-                    # Note: 'agent_file_system' is handled separately in run() for system tools only
-                    special_params = {"context", "client"}
-                    valid_keys.update(special_params)
-
-                    # Log filtering if any parameters will be removed
-                    original_keys = set(arguments.keys())
-                    removed_keys = original_keys - valid_keys
-                    if removed_keys:
-                        logger.debug(
-                            f"Filtering tool arguments for {tool_info.name}: "
-                            f"removed={removed_keys}, kept={original_keys & valid_keys}"
-                        )
-
-                    # Filter to only include valid parameters
-                    arguments = {k: v for k, v in arguments.items() if k in valid_keys}
-
                 # Build context with sandbox_manager for sandbox tools
                 tool_context = None
                 if (
@@ -789,12 +912,63 @@ class ToolAction(Action[ToolInput]):
                 ):
                     tool_context = {"sandbox_manager": agent.sandbox_manager}
 
+                # Merge system context into arguments before filtering
+                if tool_context:
+                    arguments["context"] = tool_context
+
+                # Filter arguments based on tool definition to avoid passing
+                # unexpected parameters that cause validation errors
+                # (especially for MCP tools with strict Pydantic validation)
+                valid_keys = None
+                if hasattr(tool_info, "args") and tool_info.args:
+                    valid_keys = set(tool_info.args.keys())
+                elif hasattr(tool_info, "_func") and callable(tool_info._func):
+                    import inspect as _inspect
+
+                    sig = _inspect.signature(tool_info._func)
+                    valid_keys = {p for p in sig.parameters if p not in ("self", "cls")}
+
+                # Save context before filtering (for sandbox tools)
+                # SandboxToolBase tools need context to get sandbox_client
+                saved_context = arguments.get("context")
+
+                if valid_keys is not None:
+                    original_keys = set(arguments.keys())
+                    removed_keys = original_keys - valid_keys
+                    if removed_keys:
+                        logger.debug(
+                            f"Filtering tool arguments for {tool_info.name}: "
+                            f"removed={removed_keys}, kept={original_keys & valid_keys}"
+                        )
+                    arguments = {k: v for k, v in arguments.items() if k in valid_keys}
+
+                # Restore context for sandbox tools if it was filtered out
+                # Check if tool needs sandbox context by checking _get_sandbox_client method
+                # (inherited from SandboxToolBase) or by checking tool_info._tool_base
+                needs_sandbox_context = False
+                if saved_context:
+                    # Check if this is a UnifiedToolAdapter wrapping a SandboxToolBase
+                    if hasattr(tool_info, "_tool_base"):
+                        tool_base = tool_info._tool_base
+                        if hasattr(tool_base, "_get_sandbox_client"):
+                            needs_sandbox_context = True
+                    # Check if tool_info itself has _get_sandbox_client (direct SandboxToolBase)
+                    elif hasattr(tool_info, "_get_sandbox_client"):
+                        needs_sandbox_context = True
+                    # Check if tool has "context" in its args definition
+                    elif hasattr(tool_info, "args") and "context" in (
+                        tool_info.args or {}
+                    ):
+                        needs_sandbox_context = True
+
+                if needs_sandbox_context and saved_context:
+                    arguments["context"] = saved_context
+                    logger.debug(f"Restored context for sandbox tool: {tool_info.name}")
+
                 if tool_info.is_async:
-                    raw_content = await tool_info.async_execute(
-                        **arguments, context=tool_context
-                    )
+                    raw_content = await tool_info.async_execute(**arguments)
                 else:
-                    raw_content = tool_info.execute(**arguments, context=tool_context)
+                    raw_content = tool_info.execute(**arguments)
 
                 normalized_content, is_success, error_msg = self._normalize_content(
                     raw_content
@@ -964,6 +1138,11 @@ class ToolAction(Action[ToolInput]):
         **kwargs,
     ):
         logger.info(f"Tool Action gen view!{self.action_view_tag}")
+
+        if not self.render_protocol:
+            logger.warning("render_protocol not available, returning simple view")
+            tool_name = getattr(tool_info, "name", "unknown")
+            return f"[Tool: {tool_name}] Status: {status}"
 
         # 兼容新旧工具框架
         # 新框架 ToolBase: description 在 metadata 中, ask_user 对应 requires_permission

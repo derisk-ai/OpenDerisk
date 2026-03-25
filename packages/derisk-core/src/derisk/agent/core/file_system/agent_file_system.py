@@ -31,12 +31,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Union
 
-from derisk.agent.core.memory.gpts import (
+from derisk.agent.core.memory.gpts.file_base import (
     AgentFileMetadata,
     FileMetadataStorage,
     FileType,
     FileStatus,
-    GptsMemory,
 )
 from derisk.agent.core.memory.gpts.file_base import SimpleFileMetadataStorage
 from derisk.configs.model_config import DATA_DIR
@@ -214,10 +213,8 @@ class AgentFileSystem:
         )
         bucket = self._bucket
 
-        # 创建 BytesIO 对象
         file_data = io.BytesIO(content_bytes)
 
-        # 构建自定义元数据
         custom_metadata = {
             "conv_id": self.conv_id,
             "session_id": self.session_id,
@@ -225,9 +222,7 @@ class AgentFileSystem:
             "file_key": file_key,
         }
 
-        # 使用 FileStorageClient 保存
         try:
-            # 同步方法在异步上下文中执行
             uri = await asyncio.to_thread(
                 self._file_storage_client.save_file,
                 bucket=bucket,
@@ -236,6 +231,18 @@ class AgentFileSystem:
                 custom_metadata=custom_metadata,
             )
             logger.info(f"[AFSv3] Saved to FileStorage: {uri}")
+
+            if self.sandbox:
+                safe_key = self._sanitize_filename(file_key)
+                if "." not in safe_key:
+                    safe_key = f"{safe_key}.{extension}"
+                work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
+                sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
+                await self.sandbox.file.create(
+                    sandbox_path, content_bytes.decode("utf-8")
+                )
+                logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+
             return uri, len(content_bytes)
         except Exception as e:
             logger.error(f"[AFSv3] Failed to save with FileStorageClient: {e}")
@@ -258,25 +265,25 @@ class AgentFileSystem:
 
         local_path = self.base_path / safe_key
 
-        # 写入本地文件
         if self.sandbox:
-            await self.sandbox.file.create(
-                str(local_path), content_bytes.decode("utf-8")
-            )
+            work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
+            sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
+            await self.sandbox.file.create(sandbox_path, content_bytes.decode("utf-8"))
+            logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
         else:
             await asyncio.to_thread(local_path.write_bytes, content_bytes)
 
-        # 上传到 OSS
         try:
             oss_object_name = f"{self.session_id}/{self.goal_id}/{local_path.name}"
 
             if self.sandbox:
-                # 沙箱环境：先下载到本地临时文件，再上传
                 temp_dir = Path("/tmp") / self.session_id / self.goal_id
                 temp_dir.mkdir(parents=True, exist_ok=True)
                 temp_file = temp_dir / local_path.name
 
-                file_info = await self.sandbox.file.read(str(local_path))
+                work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
+                sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
+                file_info = await self.sandbox.file.read(sandbox_path)
                 if file_info.content:
                     temp_file.write_text(file_info.content, encoding="utf-8")
                     await asyncio.to_thread(
@@ -286,7 +293,6 @@ class AgentFileSystem:
 
                 oss_url = f"oss://{self._oss_client.bucket_name}/{oss_object_name}"
             else:
-                # 本地文件系统：直接上传
                 await asyncio.to_thread(
                     self._oss_client.upload_file, str(local_path), oss_object_name
                 )
@@ -297,7 +303,6 @@ class AgentFileSystem:
 
         except Exception as e:
             logger.error(f"[AFSv3] OSS upload failed: {e}")
-            # 返回本地路径作为回退
             return f"local://{self.session_id}/{self.goal_id}/{local_path.name}", len(
                 content_bytes
             )
@@ -308,7 +313,7 @@ class AgentFileSystem:
         content_bytes: bytes,
         extension: str = "txt",
     ) -> tuple[str, int]:
-        """保存到本地文件系统."""
+        """保存到本地文件系统或 sandbox."""
         import asyncio
 
         self._ensure_dir()
@@ -319,11 +324,11 @@ class AgentFileSystem:
 
         local_path = self.base_path / safe_key
 
-        # 写入本地文件
         if self.sandbox:
-            await self.sandbox.file.create(
-                str(local_path), content_bytes.decode("utf-8")
-            )
+            work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
+            sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
+            await self.sandbox.file.create(sandbox_path, content_bytes.decode("utf-8"))
+            logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
         else:
             await asyncio.to_thread(local_path.write_bytes, content_bytes)
 
@@ -605,7 +610,9 @@ class AgentFileSystem:
             file_type=actual_file_type,
             file_size=file_size,
             local_path=str(local_path),
-            oss_url=storage_uri if storage_uri.startswith(("oss://", "derisk-fs://")) else None,
+            oss_url=storage_uri
+            if storage_uri.startswith(("oss://", "derisk-fs://"))
+            else None,
             preview_url=preview_url,
             download_url=download_url,
             content_hash=content_hash,
@@ -633,6 +640,129 @@ class AgentFileSystem:
 
         # 11. 如果是结论文件，推送d-attach
         if is_conclusion or actual_file_type == FileType.CONCLUSION.value:
+            await self._push_file_attach(file_metadata)
+
+        return file_metadata
+
+    async def save_binary_file(
+        self,
+        file_key: str,
+        data: bytes,
+        file_type: Union[str, FileType],
+        extension: str = "bin",
+        file_name: Optional[str] = None,
+        created_by: str = "",
+        task_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        is_deliverable: bool = False,
+        description: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentFileMetadata:
+        """保存二进制文件（如图片、视频等）.
+
+        与 save_file() 的区别: 直接接收 bytes 数据，不做 str() 转换，
+        适用于图片、视频等二进制内容。
+
+        Args:
+            file_key: 文件标识
+            data: 二进制文件内容
+            file_type: 文件类型
+            extension: 文件扩展名
+            file_name: 文件名（可选）
+            created_by: 创建者
+            task_id: 任务ID
+            message_id: 消息ID
+            tool_name: 工具名称
+            is_deliverable: 是否为交付物
+            description: 文件描述
+            meta 额外元数据
+
+        Returns:
+            文件元数据对象
+        """
+        # 1. 计算哈希
+        content_hash = hashlib.md5(data).hexdigest()
+
+        # 2. 检查去重
+        if content_hash in self._hash_index:
+            existing_key = self._hash_index[content_hash]
+            existing_metadata = await self.metadata_storage.get_file_by_key(
+                self.conv_id, existing_key
+            )
+            if existing_metadata:
+                logger.info(
+                    f"[AFSv3] Binary dedup: '{file_key}' matches '{existing_key}'"
+                )
+                return existing_metadata
+
+        # 3. 准备文件名和 MIME 类型
+        actual_file_name = file_name or (
+            file_key if "." in file_key else f"{file_key}.{extension}"
+        )
+        mime_type = self._get_mime_type(actual_file_name)
+
+        # 4. 直接保存 bytes 到存储系统
+        storage_uri, file_size = await self._save_to_storage(
+            file_key, data, extension, actual_file_name
+        )
+
+        # 5. 获取本地路径
+        local_path = self._get_file_path(file_key, extension)
+
+        # 6. 确定文件类型
+        actual_file_type = (
+            file_type.value if isinstance(file_type, FileType) else file_type
+        )
+
+        # 7. 生成 URL
+        preview_url = await self._generate_preview_url(storage_uri, mime_type)
+        download_url = await self._generate_download_url(storage_uri, actual_file_name)
+
+        # 8. 构建元数据
+        file_metadata_dict = metadata or {}
+        if description:
+            file_metadata_dict["description"] = description
+
+        file_metadata = AgentFileMetadata(
+            file_id=str(uuid.uuid4()),
+            conv_id=self.conv_id,
+            conv_session_id=self.session_id,
+            file_key=file_key,
+            file_name=actual_file_name,
+            file_type=actual_file_type,
+            file_size=file_size,
+            local_path=str(local_path),
+            oss_url=storage_uri
+            if storage_uri.startswith(("oss://", "derisk-fs://"))
+            else None,
+            preview_url=preview_url,
+            download_url=download_url,
+            content_hash=content_hash,
+            status=FileStatus.COMPLETED.value,
+            created_by=created_by,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            expires_at=datetime.utcnow() + timedelta(days=7),
+            metadata=file_metadata_dict,
+            mime_type=mime_type,
+            task_id=task_id,
+            message_id=message_id,
+            tool_name=tool_name,
+        )
+
+        # 9. 保存元数据
+        await self.metadata_storage.save_file_metadata(file_metadata)
+
+        # 10. 更新哈希索引
+        self._hash_index[content_hash] = file_key
+
+        logger.info(
+            f"[AFSv3] Saved binary file: {file_key} ({file_size} bytes) -> {storage_uri}"
+        )
+
+        # 11. 如果是交付物，推送 d-attach
+        if is_deliverable:
             await self._push_file_attach(file_metadata)
 
         return file_metadata
@@ -992,3 +1122,456 @@ class AgentFileSystem:
                 logger.warning(f"[AFSv3] Failed to get public URL: {e}")
 
         return metadata.download_url or metadata.preview_url
+
+    # ==================== 沙箱文件统一管理（新增） ====================
+
+    def _get_env_stage(self) -> str:
+        """获取环境阶段（dev/prod）."""
+        import os
+
+        env = (os.getenv("SERVER_ENV") or "local").lower()
+        return "dev" if env in {"local", "dev"} else "prod"
+
+    def _get_app_name(self) -> str:
+        """获取应用名称."""
+        import os
+
+        return os.getenv("app_name", "openderisk")
+
+    def _generate_object_key(
+        self,
+        file_name: str,
+        sandbox_path: Optional[str] = None,
+    ) -> str:
+        """生成 Object Key（不含 bucket 前缀）.
+
+        格式: {env}/{app}/conversations/{conv_id}/{goal_id?}/{file_name}
+        示例: dev/openderisk/conversations/conv-123/goal-1/report.md
+
+        注意: bucket 前缀由 write_chat_file 或 FileStorageClient 添加，
+        这里只生成相对路径。
+
+        Args:
+            file_name: 文件名
+            sandbox_path: 沙箱路径（可选，用于调试日志）
+
+        Returns:
+            Object key（不含 bucket 前缀）
+        """
+        env = self._get_env_stage()
+        app = self._get_app_name()
+
+        parts = [env, app, "conversations", self.conv_id]
+
+        if self.goal_id and self.goal_id != "default":
+            parts.append(self.goal_id)
+
+        parts.append(file_name)
+
+        object_key = "/".join(parts)
+        logger.debug(
+            f"[AFSv3] Generated object_key: {object_key} "
+            f"(sandbox_path={sandbox_path}, file_name={file_name})"
+        )
+        return object_key
+
+    def _extract_object_path_from_url(self, url: Optional[str]) -> Optional[str]:
+        """从 OSS URL 中提取 object path（去除 OSS 物理 bucket 名）.
+
+        URL 格式: https://{oss-bucket}.{endpoint}/{object_path}?...
+        例如: https://antsys-antdbgpt-dev.oss.../agent_files/dev/openderisk/...?...
+        返回: agent_files/dev/openderisk/...
+
+        Args:
+            url: OSS 预签名 URL
+
+        Returns:
+            object_path（不含 OSS 物理 bucket 名），如果 URL 无效则返回 None
+        """
+        if not url or not url.startswith("https://"):
+            return None
+
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            path = parsed.path
+            if path.startswith("/"):
+                path = path[1:]
+            return path
+        except Exception as e:
+            logger.warning(f"[AFSv3] Failed to extract object_path from URL: {e}")
+            return None
+
+    async def _check_sandbox_file_exists(
+        self,
+        sandbox_path: str,
+        content_hash: Optional[str] = None,
+    ) -> Optional[AgentFileMetadata]:
+        """检查沙箱文件是否已转存（去重检查）.
+
+        检查逻辑:
+        1. 如果提供了 content_hash，通过哈希索引检查
+        2. 通过 sandbox_path 元数据检查
+
+        Args:
+            sandbox_path: 沙箱文件路径
+            content_hash: 内容哈希（可选）
+
+        Returns:
+            如果已存在返回已有的元数据，否则返回 None
+        """
+        # 1. 通过内容哈希检查
+        if content_hash and content_hash in self._hash_index:
+            existing_key = self._hash_index[content_hash]
+            existing_metadata = await self.metadata_storage.get_file_by_key(
+                self.conv_id, existing_key
+            )
+            if existing_metadata:
+                logger.info(
+                    f"[AFSv3] Dedup by content_hash: sandbox_path={sandbox_path}, "
+                    f"existing_key={existing_key}"
+                )
+                return existing_metadata
+
+        # 2. 通过 sandbox_path 元数据检查
+        # 查找是否有相同 sandbox_path 的文件
+        all_files = await self.metadata_storage.list_files(self.conv_id)
+        for f in all_files:
+            if f.metadata and f.metadata.get("sandbox_path") == sandbox_path:
+                logger.info(
+                    f"[AFSv3] Dedup by sandbox_path: {sandbox_path}, "
+                    f"existing_file_id={f.file_id}"
+                )
+                return f
+
+        return None
+
+    async def save_file_from_sandbox(
+        self,
+        sandbox_path: str,
+        file_type: Union[str, FileType],
+        file_name: Optional[str] = None,
+        file_content: Optional[Union[str, bytes]] = None,
+        is_deliverable: bool = True,
+        description: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        task_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        created_by: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentFileMetadata:
+        """从沙箱保存文件到OSS并记录元数据（统一入口）.
+
+        这是沙箱工具（create_file, edit_file, deliver_file）的统一文件管理接口。
+        职责：
+        1. 去重检查（避免重复转存）
+        2. 统一 Object Key 生成
+        3. 调用 sandbox.file.write_chat_file() 或 upload_to_oss() 执行转存
+        4. 记录元数据到 FileMetadataStorage
+        5. 返回完整的文件元数据
+
+        Args:
+            sandbox_path: 沙箱中文件的绝对路径
+            file_type: 文件类型（FileType 枚举或字符串）
+            file_name: 文件名（可选，默认从 sandbox_path 提取）
+            file_content: 文件内容（可选，如果不提供会从沙箱读取）
+            is_deliverable: 是否标记为交付物
+            description: 文件描述
+            tool_name: 调用工具名称
+            task_id: 任务ID
+            message_id: 消息ID
+            created_by: 创建者
+            metadata: 额外的元数据
+
+        Returns:
+            AgentFileMetadata: 文件元数据对象
+        """
+        import os
+
+        # 1. 提取文件名
+        actual_file_name = file_name or os.path.basename(sandbox_path)
+        file_extension = (
+            os.path.splitext(actual_file_name)[1][1:]
+            if os.path.splitext(actual_file_name)[1]
+            else "txt"
+        )
+
+        # 2. 如果没有提供内容，从沙箱读取
+        if file_content is None:
+            if not self.sandbox:
+                raise ValueError(
+                    f"Cannot read from sandbox: sandbox not configured. "
+                    f"Please provide file_content for {sandbox_path}"
+                )
+            try:
+                file_info = await self.sandbox.file.read(sandbox_path)
+                file_content = getattr(file_info, "content", "")
+                if not file_content:
+                    raise ValueError(f"Empty content from sandbox: {sandbox_path}")
+            except Exception as e:
+                logger.error(f"[AFSv3] Failed to read from sandbox: {e}")
+                raise
+
+        # 3. 计算内容哈希
+        content_hash = self._compute_hash(file_content)
+
+        # 4. 去重检查
+        existing = await self._check_sandbox_file_exists(sandbox_path, content_hash)
+        if existing:
+            logger.info(
+                f"[AFSv3] File already exists, skipping: sandbox_path={sandbox_path}, "
+                f"file_id={existing.file_id}"
+            )
+            # 更新元数据中的访问时间
+            existing.updated_at = datetime.utcnow()
+            await self.metadata_storage.save_file_metadata(existing)
+            return existing
+
+        # 5. 生成统一的 Object Key（不含 bucket 前缀）
+        # 格式: {env}/{app}/conversations/{conv_id}/{file_name}
+        object_key = self._generate_object_key(actual_file_name, sandbox_path)
+
+        # 6. 执行 OSS 转存
+        oss_url = None
+        oss_object_path = None
+
+        logger.info(
+            f"[AFSv3] save_file_from_sandbox: sandbox={self.sandbox is not None}, "
+            f"file_storage_client={self._file_storage_client is not None}"
+        )
+
+        if self.sandbox and hasattr(self.sandbox.file, "write_chat_file"):
+            try:
+                import asyncio
+
+                file_info = await self.sandbox.file.write_chat_file(
+                    conversation_id=self.conv_id,
+                    path=sandbox_path,
+                    data=file_content,
+                    overwrite=True,
+                )
+
+                if file_info and file_info.oss_info and file_info.oss_info.temp_url:
+                    oss_url = file_info.oss_info.temp_url
+                    oss_object_path = self._extract_object_path_from_url(oss_url)
+                    logger.info(
+                        f"[AFSv3] OSS transfer via write_chat_file: "
+                        f"sandbox_path={sandbox_path}, "
+                        f"oss_url={oss_url[:80] if oss_url else None}..., "
+                        f"extracted_object_path={oss_object_path}"
+                    )
+            except Exception as e:
+                logger.warning(f"[AFSv3] write_chat_file failed, trying fallback: {e}")
+
+        # 7. 如果 write_chat_file 失败，尝试使用 FileStorageClient
+        if not oss_url and self._file_storage_client:
+            try:
+                storage_uri, file_size = await self._save_to_storage(
+                    file_key=actual_file_name,
+                    data=file_content,
+                    extension=file_extension,
+                    file_name=actual_file_name,
+                )
+                if storage_uri.startswith("https://"):
+                    oss_url = storage_uri
+                    oss_object_path = self._extract_object_path_from_url(oss_url)
+                logger.info(
+                    f"[AFSv3] OSS transfer via FileStorageClient: "
+                    f"object_key={object_key}, extracted_object_path={oss_object_path}"
+                )
+            except Exception as e:
+                logger.warning(f"[AFSv3] FileStorageClient save failed: {e}")
+
+        # 8. 如果仍然没有 URL，记录警告
+        if not oss_url:
+            logger.warning(
+                f"[AFSv3] No OSS URL generated for {sandbox_path}. "
+                f"File saved to metadata only, may not be accessible via web."
+            )
+
+        # 9. 准备元数据
+        mime_type = self._get_mime_type(actual_file_name)
+        actual_file_type = (
+            file_type.value if isinstance(file_type, FileType) else file_type
+        )
+
+        # 合并元数据
+        merged_metadata = metadata or {}
+        merged_metadata.update(
+            {
+                "sandbox_path": sandbox_path,
+                "is_deliverable": is_deliverable,
+                "description": description or "",
+                "oss_url": oss_url,
+                "content_hash": content_hash,
+            }
+        )
+
+        # 10. 生成预览和下载 URL
+        preview_url = None
+        download_url = None
+        if oss_url:
+            if oss_url.startswith("https://"):
+                preview_url = oss_url
+                download_url = oss_url
+            elif self._file_storage_client:
+                preview_url = await self._generate_preview_url(oss_url, mime_type)
+                download_url = await self._generate_download_url(
+                    oss_url, actual_file_name
+                )
+
+        # 11. 计算文件大小
+        file_size = 0
+        if isinstance(file_content, bytes):
+            file_size = len(file_content)
+        elif file_content:
+            file_size = len(file_content.encode("utf-8"))
+
+        # 12. 创建元数据对象
+        # Store object_path in metadata since AgentFileMetadata doesn't have this attribute
+        if oss_object_path:
+            merged_metadata["object_path"] = oss_object_path
+
+        file_metadata = AgentFileMetadata(
+            file_id=str(uuid.uuid4()),
+            conv_id=self.conv_id,
+            conv_session_id=self.session_id,
+            file_key=actual_file_name,
+            file_name=actual_file_name,
+            file_type=actual_file_type,
+            file_size=file_size,
+            local_path=sandbox_path,
+            oss_url=oss_url,
+            preview_url=preview_url,
+            download_url=download_url,
+            content_hash=content_hash,
+            status=FileStatus.COMPLETED.value,
+            created_by=created_by,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            expires_at=datetime.utcnow() + timedelta(days=7),
+            metadata=merged_metadata,
+            mime_type=mime_type,
+            task_id=task_id,
+            message_id=message_id,
+            tool_name=tool_name,
+        )
+
+        # 13. 保存到元数据存储
+        await self.metadata_storage.save_file_metadata(file_metadata)
+
+        # 14. 更新哈希索引
+        self._hash_index[content_hash] = actual_file_name
+
+        logger.info(
+            f"[AFSv3] Saved file from sandbox: {sandbox_path} -> {oss_url or 'metadata only'}"
+        )
+
+        return file_metadata
+
+    async def update_file_from_sandbox(
+        self,
+        sandbox_path: str,
+        file_content: Optional[Union[str, bytes]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[AgentFileMetadata]:
+        """更新沙箱文件到存储（编辑文件时使用）.
+
+        Args:
+            sandbox_path: 沙箱中文件的绝对路径
+            file_content: 文件内容（可选，如果不提供会从沙箱读取）
+            metadata: 更新的元数据
+
+        Returns:
+            更新后的文件元数据对象
+        """
+        import os
+
+        file_name = os.path.basename(sandbox_path)
+
+        # 1. 检查是否已存在元数据
+        existing = await self.metadata_storage.get_file_by_key(self.conv_id, file_name)
+
+        # 2. 如果没有提供内容，从沙箱读取
+        if file_content is None:
+            if self.sandbox:
+                try:
+                    file_info = await self.sandbox.file.read(sandbox_path)
+                    file_content = getattr(file_info, "content", "")
+                except Exception as e:
+                    logger.warning(f"[AFSv3] Failed to read from sandbox: {e}")
+
+        # 3. 执行 OSS 更新（重新上传）
+        oss_url = None
+        oss_object_path = None
+
+        if (
+            self.sandbox
+            and hasattr(self.sandbox.file, "write_chat_file")
+            and file_content
+        ):
+            try:
+                file_info = await self.sandbox.file.write_chat_file(
+                    conversation_id=self.conv_id,
+                    path=sandbox_path,
+                    data=file_content,
+                    overwrite=True,
+                )
+
+                if file_info and file_info.oss_info and file_info.oss_info.temp_url:
+                    oss_url = file_info.oss_info.temp_url
+                    oss_object_path = self._extract_object_path_from_url(oss_url)
+                    logger.info(
+                        f"[AFSv3] Updated file via write_chat_file: "
+                        f"sandbox_path={sandbox_path}, oss_url={oss_url[:80] if oss_url else None}..."
+                    )
+            except Exception as e:
+                logger.warning(f"[AFSv3] write_chat_file update failed: {e}")
+
+        # 4. 更新元数据
+        if existing:
+            existing.updated_at = datetime.utcnow()
+            if oss_url:
+                existing.oss_url = oss_url
+                existing.preview_url = oss_url
+                existing.download_url = oss_url
+            if metadata:
+                if existing.metadata:
+                    existing.metadata.update(metadata)
+                else:
+                    existing.metadata = metadata
+            # Store object_path in metadata since AgentFileMetadata doesn't have this attribute
+            if oss_object_path:
+                if existing.metadata:
+                    existing.metadata["object_path"] = oss_object_path
+                else:
+                    existing.metadata = {"object_path": oss_object_path}
+            if file_content:
+                existing.file_size = (
+                    len(file_content)
+                    if isinstance(file_content, bytes)
+                    else len(file_content.encode("utf-8"))
+                )
+                existing.content_hash = self._compute_hash(file_content)
+
+            await self.metadata_storage.save_file_metadata(existing)
+            return existing
+
+        # 5. 如果不存在，创建新记录
+        if file_content:
+            actual_file_type = FileType.DELIVERABLE.value
+            if metadata and metadata.get("is_deliverable") is False:
+                actual_file_type = FileType.WRITE_FILE.value
+
+            return await self.save_file_from_sandbox(
+                sandbox_path=sandbox_path,
+                file_type=actual_file_type,
+                file_content=file_content,
+                is_deliverable=metadata.get("is_deliverable", True)
+                if metadata
+                else True,
+                description=metadata.get("description") if metadata else None,
+            )
+
+        return None

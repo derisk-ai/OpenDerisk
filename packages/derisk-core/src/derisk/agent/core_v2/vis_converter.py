@@ -163,6 +163,29 @@ class CoreV2VisWindow3Converter(VisProtocolConverter):
                 )
             )
 
+        # action_report → planning window 工具步骤
+        action_report = stream_msg.get("action_report")
+        if action_report:
+            for action_out in action_report:
+                action_id = getattr(action_out, "action_id", None) or ""
+                action_name = getattr(action_out, "action", None) or getattr(
+                    action_out, "name", "tool"
+                )
+                state = getattr(action_out, "state", "running")
+                parts.append(
+                    _vis_tag(
+                        "drsk-plan",
+                        {
+                            "uid": action_id or f"{message_id}_tool",
+                            "type": "incr",
+                            "item_type": "task",
+                            "task_type": "tool",
+                            "title": action_name,
+                            "status": state,
+                        },
+                    )
+                )
+
         if not parts:
             return ""
 
@@ -293,6 +316,53 @@ class CoreV2VisWindow3Converter(VisProtocolConverter):
                 "task_type": "llm",
                 "markdown": content_vis,
             })
+
+        # action_report → 工作空间的工具执行结果
+        action_report = stream_msg.get("action_report")
+        if action_report:
+            for action_out in action_report:
+                action_id = getattr(action_out, "action_id", None) or ""
+                action_name = getattr(action_out, "action", None) or getattr(
+                    action_out, "name", "tool"
+                )
+                state = getattr(action_out, "state", "running")
+                view_content = getattr(action_out, "view", None) or getattr(
+                    action_out, "content", ""
+                )
+
+                if state == "running":
+                    # 工具正在执行，显示运行状态
+                    tool_vis = _vis_tag(
+                        "drsk-content",
+                        {
+                            "uid": f"{action_id}_work_view",
+                            "type": "incr",
+                            "dynamic": True,
+                            "markdown": f"**{action_name}** 执行中...",
+                        },
+                    )
+                elif view_content and view_content.strip():
+                    # 工具执行完成，显示结果
+                    tool_vis = _vis_tag(
+                        "drsk-content",
+                        {
+                            "uid": f"{action_id}_work_view",
+                            "type": "incr",
+                            "dynamic": False,
+                            "markdown": view_content.strip(),
+                        },
+                    )
+                else:
+                    continue
+
+                work_items.append({
+                    "uid": f"{action_id}_task_action",
+                    "type": "incr",
+                    "item_type": "file",
+                    "title": action_name,
+                    "task_type": "tool",
+                    "markdown": tool_vis,
+                })
 
         if not work_items:
             return ""

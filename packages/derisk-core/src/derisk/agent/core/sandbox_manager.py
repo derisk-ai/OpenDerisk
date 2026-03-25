@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import logging
 import os
@@ -9,6 +10,13 @@ from derisk._private.config import Config
 from derisk.sandbox.base import SandboxBase, DEFAULT_SKILL_DIR
 from derisk.sandbox.sandbox_client import AutoSandbox
 from derisk.sandbox.sandbox_utils import collect_shell_output
+from derisk.sandbox.watchdog_manager import (
+    WatchdogManager,
+    WatchdogClient,
+    get_watchdog_manager,
+    initialize_watchdog_manager,
+    shutdown_watchdog_manager,
+)
 
 # Try to import SandboxConfigParameters, but provide fallback if not available
 try:
@@ -20,7 +28,11 @@ except ImportError:
 
     @dataclass
     class SandboxConfigParameters:
-        """Fallback SandboxConfigParameters when derisk_app is not available."""
+        """Fallback SandboxConfigParameters when derisk_app is not available.
+
+        Note: Default values for work_dir and skill_dir should be defined by
+        the sandbox implementation (e.g., LocalSandboxConfig), not here.
+        """
 
         type: str = "local"
         user_id: str = "default"
@@ -33,13 +45,6 @@ except ImportError:
         oss_endpoint: Optional[str] = None
         oss_bucket_name: Optional[str] = None
 
-        def __post_init__(self):
-            if self.work_dir is None:
-                if self.type == "local":
-                    self.work_dir = "/Users/tuyang.yhj/Code/python/derisk/pilot"
-                else:
-                    self.work_dir = "/home/ubuntu"
-
         @classmethod
         def from_dict(cls, data: Dict[str, Any]) -> "SandboxConfigParameters":
             return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
@@ -50,7 +55,34 @@ CFG = Config()
 
 
 class SandboxManager:
-    def __init__(self, sandbox_client: Optional[SandboxBase] = None):
+    """
+    沙箱管理器
+
+    负责沙箱的生命周期管理，包括：
+    - 沙箱创建和初始化
+    - 看门狗（Watchdog）自动管理沙箱存活时间
+    - 资源释放
+    """
+
+    # 看门狗配置
+    WATCHDOG_CHECK_INTERVAL = 60  # 检查间隔（秒）
+    WATCHDOG_EXTEND_THRESHOLD = 300  # 延长阈值（秒）
+    WATCHDOG_EXTEND_MINUTES = 10  # 延长时间（分钟）
+
+    def __init__(
+        self,
+        sandbox_client: Optional[SandboxBase] = None,
+        enable_watchdog: bool = True,
+        watchdog_base_url: Optional[str] = None,
+    ):
+        """
+        初始化沙箱管理器
+
+        Args:
+            sandbox_client: 已存在的沙箱客户端（可选）
+            enable_watchdog: 是否启用看门狗自动管理
+            watchdog_base_url: 看门狗 API 基础 URL（可选，从配置读取）
+        """
         self._initialized: bool = False
         ## 是否完成初始化，默认拉起实例和初始化沙箱环境使用异步的方式，正式使用前需要检查是否初始化完成，如果未完成需要等待或者报错
         self._sandbox_client: Optional[SandboxBase] = sandbox_client
@@ -58,6 +90,11 @@ class SandboxManager:
         self._skill_path: Optional[str] = None  # Will be set from sandbox client
 
         self._init_task = None
+
+        # 看门狗管理
+        self._enable_watchdog = enable_watchdog
+        self._watchdog_base_url = watchdog_base_url
+        self._watchdog_manager: Optional[WatchdogManager] = None
 
     @property
     def initialized(self):
@@ -174,7 +211,7 @@ class SandboxManager:
 
         # 2. 确保工作目录存在 (local sandbox 不需要，runtime 会自动处理)
         provider = getattr(sandbox, "provider", lambda: None)()
-        if provider != "local":
+        if provider != "local" and self.work_dir:
             await self._ensure_directory(self.work_dir)
         logger.info(
             "工作目录已准备: sandbox_id=%s, work_dir=%s",
@@ -193,28 +230,33 @@ class SandboxManager:
         if prepare_knowledge_repo:
             # Use skill_dir from sandbox client instead of hardcoded path
             repo_path = sandbox.skill_dir or DEFAULT_SKILL_DIR
-            self._skill_path = repo_path
-            logger.info(
-                "知识库更新开始准备: sandbox_id=%s, repo_path=%s",
-                sandbox.sandbox_id,
-                repo_path,
-            )
-            try:
-                await self._ensure_directory(repo_path)
-                await self._update_repo(repo_path)
-                logger.info(
-                    "知识库已准备: sandbox_id=%s, repo_path=%s",
-                    sandbox.sandbox_id,
-                    repo_path,
-                )
-            except Exception as exc:
+            if not repo_path:
                 logger.warning(
-                    "知识库准备失败: sandbox_id=%s, repo_path=%s, error=%s",
+                    "skill_dir not configured, skipping knowledge repo preparation"
+                )
+            else:
+                self._skill_path = repo_path
+                logger.info(
+                    "知识库更新开始准备: sandbox_id=%s, repo_path=%s",
                     sandbox.sandbox_id,
                     repo_path,
-                    exc,
-                    exc_info=True,
                 )
+                try:
+                    await self._ensure_directory(repo_path)
+                    await self._update_repo(repo_path)
+                    logger.info(
+                        "知识库已准备: sandbox_id=%s, repo_path=%s",
+                        sandbox.sandbox_id,
+                        repo_path,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "知识库准备失败: sandbox_id=%s, repo_path=%s, error=%s",
+                        sandbox.sandbox_id,
+                        repo_path,
+                        exc,
+                        exc_info=True,
+                    )
         logger.info(f"Sandbox id={sandbox.sandbox_id} Initialized Success!")
         self._initialized = True
 
@@ -244,18 +286,155 @@ class SandboxManager:
         logger.info("sandbox acquire!")
         if not self._sandbox_client:
             self._sandbox_client = await self._create_client()
+
+        # 初始化看门狗管理（如果启用）
+        if self._enable_watchdog and self._sandbox_client:
+            await self._init_watchdog()
+
         return await self.initialize(self._sandbox_client, prepare_knowledge_repo=True)
 
+    async def _init_watchdog(self) -> None:
+        """
+        初始化看门狗管理器
+
+        如果全局看门狗管理器不存在，则创建一个
+        然后将当前沙箱实例注册到看门狗管理器
+        """
+        if not self._sandbox_client:
+            return
+
+        try:
+            # 尝试获取全局看门狗管理器
+            watchdog_mgr = get_watchdog_manager()
+
+            if not watchdog_mgr:
+                # 获取 API 基础 URL
+                base_url = self._watchdog_base_url
+                if not base_url:
+                    # 尝试从沙箱客户端获取
+                    if (
+                        hasattr(self._sandbox_client, "connection_config")
+                        and self._sandbox_client.connection_config
+                    ):
+                        base_url = self._sandbox_client.connection_config.domain
+
+                if not base_url:
+                    # 尝试从配置获取
+                    try:
+                        app_config = CFG.SYSTEM_APP.config.configs.get("app_config")
+                        if app_config and hasattr(app_config, "sandbox"):
+                            base_url = getattr(
+                                app_config.sandbox, "watchdog_base_url", None
+                            )
+                    except Exception:
+                        pass
+
+                if not base_url:
+                    logger.warning(
+                        "[SandboxManager] Watchdog base URL not configured, "
+                        "watchdog management disabled"
+                    )
+                    self._enable_watchdog = False
+                    return
+
+                # 初始化看门狗管理器
+                watchdog_mgr = await initialize_watchdog_manager(
+                    base_url=base_url,
+                    check_interval=self.WATCHDOG_CHECK_INTERVAL,
+                    extend_threshold=self.WATCHDOG_EXTEND_THRESHOLD,
+                    extend_minutes=self.WATCHDOG_EXTEND_MINUTES,
+                    auto_start=True,
+                )
+
+            self._watchdog_manager = watchdog_mgr
+
+            # 注册当前沙箱实例
+            instance_id = self._sandbox_client.sandbox_id
+            watchdog_mgr.register(instance_id)
+
+            logger.info(
+                f"[SandboxManager] Watchdog management enabled for instance: {instance_id}"
+            )
+
+        except Exception as e:
+            logger.warning(f"[SandboxManager] Failed to initialize watchdog: {e}")
+            self._enable_watchdog = False
+
+    async def feed_watchdog(self, instance_timeout: Optional[int] = None) -> bool:
+        """
+        手动延长沙箱存活时间
+
+        Args:
+            instance_timeout: 延长时间（分钟），不传则使用默认值
+
+        Returns:
+            bool: 是否成功延长
+        """
+        if not self._sandbox_client or not self._watchdog_manager:
+            logger.warning("[SandboxManager] Watchdog not initialized")
+            return False
+
+        try:
+            instance_id = self._sandbox_client.sandbox_id
+            await self._watchdog_manager.client.feed_watchdog(
+                instance_id=instance_id,
+                instance_timeout=instance_timeout or self.WATCHDOG_EXTEND_MINUTES,
+            )
+            logger.info(f"[SandboxManager] Manual watchdog feed: {instance_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[SandboxManager] Failed to feed watchdog: {e}")
+            return False
+
+    async def get_remaining_time(self) -> Optional[float]:
+        """
+        获取沙箱剩余存活时间
+
+        Returns:
+            Optional[float]: 剩余时间（秒），获取失败返回 None
+        """
+        if not self._sandbox_client or not self._watchdog_manager:
+            return None
+
+        try:
+            instance_id = self._sandbox_client.sandbox_id
+            status = await self._watchdog_manager.client.get_remaining_time(instance_id)
+            return status.remaining_time_seconds
+        except Exception as e:
+            logger.error(f"[SandboxManager] Failed to get remaining time: {e}")
+            return None
+
     async def close(self) -> None:
+        """
+        释放沙箱资源
+
+        包括：
+        1. 取消看门狗监控
+        2. 终止沙箱实例
+        """
+        # 取消看门狗注册
+        if self._watchdog_manager and self._sandbox_client:
+            try:
+                instance_id = self._sandbox_client.sandbox_id
+                self._watchdog_manager.unregister(instance_id)
+                logger.info(
+                    f"[SandboxManager] Unregistered from watchdog: {instance_id}"
+                )
+            except Exception as e:
+                logger.warning(f"[SandboxManager] Failed to unregister watchdog: {e}")
+
+        # 终止沙箱
         try:
             logger.info(
-                "释放 sandbox 资源, sandbox_id=%s", self._sandbox_client.sandbox_id
+                "释放 sandbox 资源, sandbox_id=%s",
+                self._sandbox_client.sandbox_id if self._sandbox_client else "None",
             )
             client = self._sandbox_client
-            kill_fn = getattr(client, "kill", None)
-            if kill_fn:
-                result = kill_fn(client.sandbox_id)
-                if inspect.isawaitable(result):
-                    await result
+            if client:
+                kill_fn = getattr(client, "kill", None)
+                if kill_fn:
+                    result = kill_fn(client.sandbox_id)
+                    if inspect.isawaitable(result):
+                        await result
         except Exception as exc:
             logger.warning("释放 sandbox 资源失败: %s", exc)

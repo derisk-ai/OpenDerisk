@@ -105,8 +105,8 @@ Create a configuration file (e.g., `sandbox.toml`):
 
 ```toml
 [sandbox.local]
-work_dir = "/workspace"
-skill_dir = "/path/to/data/skill"  # Default: DATA_DIR/skill for local sandbox for local sandbox
+work_dir = "/path/to/workspace"  # Default: DATA_DIR/workspace
+skill_dir = "/path/to/data/skill"  # Default: DATA_DIR/skill
 default_timeout = 300
 max_memory = 268435456  # 256MB
 max_cpus = 1
@@ -301,7 +301,7 @@ If processes exceed memory limits:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `work_dir` | str | `/workspace` | Working directory inside sandbox |
+| `work_dir` | str | `DATA_DIR/workspace` | Working directory for local sandbox |
 | `skill_dir` | str | `DATA_DIR/skill` | Skills directory for local sandbox |
 | `runtime_id` | str | `improved_local_runtime` | Runtime identifier |
 | `default_timeout` | int | `300` | Default execution timeout (seconds) |
