@@ -173,7 +173,7 @@ def _sync_oauth2_config_from_db():
     """
     try:
         from derisk_app.config_storage.oauth2_db_storage import get_oauth2_db_storage
-        from derisk.configs.model_config import Config
+        from derisk_core.config import ConfigManager, OAuth2Config
 
         db_storage = get_oauth2_db_storage()
         # Load with actual secrets for runtime use
@@ -181,18 +181,16 @@ def _sync_oauth2_config_from_db():
 
         if db_oauth2 is not None:
             # Update the runtime config with database values
-            cfg = Config()
-            if hasattr(cfg, "oauth2"):
-                from derisk_core.config import OAuth2Config
-
-                # Convert dict to OAuth2Config
-                oauth2_config = OAuth2Config(
-                    enabled=db_oauth2.get("enabled", False),
-                    providers=db_oauth2.get("providers", []),
-                    admin_users=db_oauth2.get("admin_users", []),
-                )
-                cfg.oauth2 = oauth2_config
-                logger.info("OAuth2 config loaded from database (secrets loaded for runtime)")
+            cfg = ConfigManager.get()
+            oauth2_config = OAuth2Config(
+                enabled=db_oauth2.get("enabled", False),
+                providers=db_oauth2.get("providers", []),
+                admin_users=db_oauth2.get("admin_users", []),
+            )
+            cfg.oauth2 = oauth2_config
+            logger.info(
+                "OAuth2 config loaded from database (secrets loaded for runtime)"
+            )
         else:
             logger.info("No OAuth2 config in database, using file config")
     except Exception as e:

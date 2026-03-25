@@ -1,10 +1,12 @@
 """配置管理 API"""
 
 import logging
+import re
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Dict, Any, Optional, List
 
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
@@ -67,6 +69,83 @@ class LLMKeyStatus(BaseModel):
     provider: str
     description: str
     is_configured: bool
+
+
+_BUILTIN_LLM_PROVIDER_KEYS: Dict[str, Dict[str, Any]] = {
+    "openai": {
+        "secret_names": ["openai_api_key"],
+        "primary_secret_name": "openai_api_key",
+        "description": "OpenAI API Key (GPT 系列模型)",
+    },
+    "alibaba": {
+        "secret_names": ["dashscope_api_key", "alibaba_api_key"],
+        "primary_secret_name": "dashscope_api_key",
+        "description": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
+    },
+    "anthropic": {
+        "secret_names": ["anthropic_api_key", "claude_api_key"],
+        "primary_secret_name": "anthropic_api_key",
+        "description": "Anthropic / Claude API Key",
+    },
+    "dashscope": {
+        "secret_names": ["dashscope_api_key", "alibaba_api_key"],
+        "primary_secret_name": "dashscope_api_key",
+        "description": "DashScope API Key",
+    },
+    "claude": {
+        "secret_names": ["anthropic_api_key", "claude_api_key"],
+        "primary_secret_name": "anthropic_api_key",
+        "description": "Claude API Key",
+    },
+}
+
+_CUSTOM_LLM_SECRET_PREFIX = "llm_provider_"
+_CUSTOM_LLM_SECRET_SUFFIX = "_api_key"
+
+
+def _normalize_llm_provider_name(provider: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", (provider or "").strip().lower()).strip("_")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Provider 不能为空")
+    return normalized
+
+
+def _build_custom_llm_secret_name(provider: str) -> str:
+    normalized = _normalize_llm_provider_name(provider)
+    return f"{_CUSTOM_LLM_SECRET_PREFIX}{normalized}{_CUSTOM_LLM_SECRET_SUFFIX}"
+
+
+def _resolve_llm_secret_names(provider: str) -> Dict[str, Any]:
+    normalized = _normalize_llm_provider_name(provider)
+    builtin = _BUILTIN_LLM_PROVIDER_KEYS.get(normalized)
+    if builtin:
+        return {
+            "provider": normalized,
+            "secret_names": builtin["secret_names"],
+            "primary_secret_name": builtin["primary_secret_name"],
+            "description": builtin["description"],
+            "builtin": True,
+        }
+
+    secret_name = _build_custom_llm_secret_name(normalized)
+    return {
+        "provider": normalized,
+        "secret_names": [secret_name],
+        "primary_secret_name": secret_name,
+        "description": f"{normalized} API Key (自定义 Provider)",
+        "builtin": False,
+    }
+
+
+def _provider_from_custom_secret_name(secret_name: str) -> Optional[str]:
+    if not secret_name.startswith(_CUSTOM_LLM_SECRET_PREFIX):
+        return None
+    if not secret_name.endswith(_CUSTOM_LLM_SECRET_SUFFIX):
+        return None
+    provider = secret_name[
+        len(_CUSTOM_LLM_SECRET_PREFIX) : -len(_CUSTOM_LLM_SECRET_SUFFIX)
+    ]
+    return provider or None
 
 
 class FeaturePluginUpdateRequest(BaseModel):
@@ -904,31 +983,41 @@ async def list_llm_keys():
 
     secrets_status = get_secrets_status()
 
-    # 定义支持的 LLM Provider 及其默认描述（简化为最常用的两个）
-    llm_providers = {
-        "openai": "OpenAI API Key (GPT 系列模型)",
-        "alibaba": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
-    }
-
-    # 定义各个 provider 对应的 secrets key 名称
-    provider_secret_keys = {
-        "openai": ["openai_api_key"],
-        "alibaba": ["dashscope_api_key"],
-    }
-
     llm_keys = []
-    for provider, description in llm_providers.items():
-        secret_keys = provider_secret_keys.get(provider, [])
-        # 检查该 provider 是否有任意一个对应的 secret key 已配置
-        is_configured = any(
-            secrets_status.get(key, False) for key in secret_keys
-        )
+    added_providers = set()
 
-        llm_keys.append({
-            "provider": provider,
-            "description": description,
-            "is_configured": is_configured,
-        })
+    for provider in _BUILTIN_LLM_PROVIDER_KEYS:
+        info = _resolve_llm_secret_names(provider)
+        is_configured = any(
+            secrets_status.get(key, False) for key in info["secret_names"]
+        )
+        llm_keys.append(
+            {
+                "provider": info["provider"],
+                "description": info["description"],
+                "is_configured": is_configured,
+                "builtin": info["builtin"],
+                "secret_name": info["primary_secret_name"],
+            }
+        )
+        added_providers.add(info["provider"])
+
+    for secret_name, has_value in secrets_status.items():
+        provider = _provider_from_custom_secret_name(secret_name)
+        if not provider or provider in added_providers:
+            continue
+        llm_keys.append(
+            {
+                "provider": provider,
+                "description": f"{provider} API Key (自定义 Provider)",
+                "is_configured": has_value,
+                "builtin": False,
+                "secret_name": secret_name,
+            }
+        )
+        added_providers.add(provider)
+
+    llm_keys.sort(key=lambda item: (not item["builtin"], item["provider"]))
 
     return JSONResponse(
         content={
@@ -951,18 +1040,9 @@ async def set_llm_key(request: LLMKeyRequest):
     logger = logging.getLogger(__name__)
 
     try:
-        # 根据 provider 确定存储的 key 名称（简化为只支持 openai 和 alibaba）
-        provider = request.provider.lower()
-
-        secret_key_mapping = {
-            "openai": "openai_api_key",
-            "alibaba": "dashscope_api_key",
-        }
-
-        if provider not in secret_key_mapping:
-            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
-
-        secret_name = secret_key_mapping.get(provider)
+        info = _resolve_llm_secret_names(request.provider)
+        provider = info["provider"]
+        secret_name = info["primary_secret_name"]
 
         # 清理 API Key（去除前后空格）
         api_key = request.api_key.strip() if request.api_key else ""
@@ -1003,25 +1083,19 @@ async def delete_llm_key(provider: str):
     from derisk_core.config.encryption import delete_secret
 
     try:
-        provider = provider.lower()
-
-        secret_key_mapping = {
-            "openai": "openai_api_key",
-            "alibaba": "dashscope_api_key",
-        }
-
-        if provider not in secret_key_mapping:
-            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
-
-        secret_name = secret_key_mapping.get(provider)
-
-        success = delete_secret(secret_name)
+        info = _resolve_llm_secret_names(provider)
+        normalized_provider = info["provider"]
+        success = True
+        for secret_name in info["secret_names"]:
+            if not delete_secret(secret_name):
+                success = False
+                break
 
         if success:
             return JSONResponse(
                 content={
                     "success": True,
-                    "message": f"{provider} API Key 已删除",
+                    "message": f"{normalized_provider} API Key 已删除",
                     "note": "已删除系统设置中的 API Key，将回退到使用配置文件中的配置",
                 }
             )

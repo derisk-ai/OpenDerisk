@@ -61,6 +61,7 @@ import {
 import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
 import ToolManagementPanel from '@/components/config/ToolManagementPanel';
 import OAuth2ConfigSection from '@/components/config/OAuth2ConfigSection';
+import LLMSettingsSection from '@/components/config/LLMSettingsSection';
 import type { AuthorizationConfig } from '@/types/authorization';
 import type { ToolMetadata } from '@/types/tool';
 
@@ -274,7 +275,10 @@ export default function ConfigPage() {
                 </div>
 
                 {editMode === 'visual' ? (
-                  <VisualConfig config={config} onConfigChange={loadConfig} />
+                  <VisualConfig
+                    config={config}
+                    onConfigChange={loadConfig}
+                  />
                 ) : (
                   <Card>
                     <div className="mb-2 flex justify-between">
@@ -332,7 +336,7 @@ export default function ConfigPage() {
           {
             key: 'llm-keys',
             label: <span><RobotOutlined /> LLM Key 配置</span>,
-            children: <LLMKeyConfigSection onChange={loadConfig} />,
+            children: <LLMKeyConfigSection onGoToSystem={() => setActiveTab('system')} />,
           },
         ]}
       />
@@ -367,8 +371,13 @@ function VisualConfig({
           },
           {
             key: 'model',
-            label: <span className="font-semibold"><ApiOutlined /> 默认模型配置</span>,
-            children: <DefaultModelConfigSection config={config} onChange={onConfigChange} />,
+            label: <span className="font-semibold"><ApiOutlined /> LLM 配置</span>,
+            children: (
+              <DefaultModelConfigSection
+                config={config}
+                onChange={onConfigChange}
+              />
+            ),
           },
           {
             key: 'agents',
@@ -529,60 +538,7 @@ function DefaultModelConfigSection({
   config: AppConfig;
   onChange: () => void;
 }) {
-  const [form] = Form.useForm();
-
-  useEffect(() => {
-    if (config.default_model) {
-      form.setFieldsValue(config.default_model);
-    }
-  }, [config.default_model]);
-
-  const handleSave = async (values: any) => {
-    try {
-      await configService.updateModelConfig(values);
-      message.success('默认模型配置已保存');
-      onChange();
-    } catch (error: any) {
-      message.error('保存失败: ' + error.message);
-    }
-  };
-
-  return (
-    <Form form={form} layout="vertical" onFinish={handleSave}>
-      <div className="grid grid-cols-2 gap-4">
-        <Form.Item name="provider" label="Provider">
-          <Select>
-            <Select.Option value="openai">OpenAI</Select.Option>
-            <Select.Option value="anthropic">Anthropic</Select.Option>
-            <Select.Option value="alibaba">Alibaba/DashScope</Select.Option>
-            <Select.Option value="custom">自定义</Select.Option>
-          </Select>
-        </Form.Item>
-        <Form.Item name="model_id" label="模型ID">
-          <Input placeholder="gpt-4" />
-        </Form.Item>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Form.Item name="base_url" label="API Base URL">
-          <Input placeholder="https://api.openai.com/v1" />
-        </Form.Item>
-        <Form.Item name="api_key" label="API Key">
-          <Input.Password placeholder="sk-..." />
-        </Form.Item>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Form.Item name="temperature" label="Temperature">
-          <Slider min={0} max={2} step={0.1} />
-        </Form.Item>
-        <Form.Item name="max_tokens" label="Max Tokens">
-          <InputNumber style={{ width: '100%' }} min={1} max={128000} />
-        </Form.Item>
-      </div>
-      <Form.Item>
-        <Button type="primary" htmlType="submit">保存</Button>
-      </Form.Item>
-    </Form>
-  );
+  return <LLMSettingsSection config={config} onChange={onChange} />;
 }
 
 function VisualAgentsSection({
@@ -1096,238 +1052,27 @@ function SecretsConfigSection({
 }
 
 function LLMKeyConfigSection({
-  onChange,
+  onGoToSystem,
 }: {
-  onChange: () => void;
+  onGoToSystem: () => void;
 }) {
-  const [llmKeys, setLLMKeys] = useState<Array<{
-    provider: string;
-    description: string;
-    is_configured: boolean;
-  }>>([]);
-  const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<string | null>(null);
-  const [form] = Form.useForm();
-
-  useEffect(() => {
-    loadLLMKeys();
-  }, []);
-
-  const loadLLMKeys = async () => {
-    setLoading(true);
-    try {
-      const data = await configService.listLLMKeys();
-      setLLMKeys(data);
-    } catch (error: any) {
-      message.error('加载 LLM Key 配置失败: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSetKey = (provider: string) => {
-    setEditingProvider(provider);
-    form.resetFields();
-    form.setFieldsValue({
-      provider,
-      api_key: '',
-    });
-    setModalVisible(true);
-  };
-
-  const handleSaveKey = async (values: any) => {
-    try {
-      await configService.setLLMKey(values.provider, values.api_key);
-      message.success(`${values.provider} API Key 已保存`);
-      setModalVisible(false);
-      loadLLMKeys();
-      onChange();
-    } catch (error: any) {
-      message.error('保存失败: ' + error.message);
-    }
-  };
-
-  const handleDeleteKey = async (provider: string) => {
-    try {
-      await configService.deleteLLMKey(provider);
-      message.success(`${provider} API Key 已删除`);
-      loadLLMKeys();
-      onChange();
-    } catch (error: any) {
-      message.error('删除失败: ' + error.message);
-    }
-  };
-
-  const getProviderLabel = (provider: string) => {
-    const labels: Record<string, string> = {
-      'openai': 'OpenAI',
-      'alibaba': '阿里云 DashScope',
-      'anthropic': 'Anthropic',
-      'dashscope': 'DashScope',
-      'custom': '自定义模型',
-    };
-    return labels[provider] || provider;
-  };
-
-  const getProviderIcon = (provider: string) => {
-    const icons: Record<string, string> = {
-      'openai': '🤖',
-      'alibaba': '🇨🇳',
-      'anthropic': '🧠',
-      'dashscope': '☁️',
-      'custom': '🔧',
-    };
-    return icons[provider] || '🔑';
-  };
-
-  const columns = [
-    {
-      title: 'Provider',
-      dataIndex: 'provider',
-      key: 'provider',
-      render: (provider: string) => (
-        <Space>
-          <span style={{ fontSize: '1.2em' }}>{getProviderIcon(provider)}</span>
-          <Text strong>{getProviderLabel(provider)}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: '说明',
-      dataIndex: 'description',
-      key: 'description',
-    },
-    {
-      title: '状态',
-      dataIndex: 'is_configured',
-      key: 'is_configured',
-      render: (isConfigured: boolean, record: any) => (
-        <Tag color={isConfigured ? 'green' : 'orange'}>
-          {isConfigured ? '已配置' : '未配置'}
-        </Tag>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: any, record: any) => (
-        <Space>
-          <Button
-            size="small"
-            type={record.is_configured ? 'default' : 'primary'}
-            icon={<KeyOutlined />}
-            onClick={() => handleSetKey(record.provider)}
-          >
-            {record.is_configured ? '更新' : '配置'}
-          </Button>
-          {record.is_configured && (
-            <Popconfirm
-              title="确定删除此 API Key?"
-              description="删除后将使用配置文件中的 API Key"
-              onConfirm={() => handleDeleteKey(record.provider)}
-            >
-              <Button size="small" danger icon={<DeleteOutlined />}>
-                删除
-              </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
-    },
-  ];
-
   return (
-    <div>
+    <Card>
       <Alert
         type="info"
         showIcon
-        message="LLM API Key 配置说明"
+        message="LLM 配置已整合到系统配置"
         description={
           <div>
-            <p>1. 在此配置的 API Key 将被加密存储，配置后立即生效</p>
-            <p>2. 优先级：系统设置 {'>'} 配置文件 {'>'} 环境变量</p>
-            <p>3. 配置后无法查看已保存的 Key，只能更新或删除</p>
+            <p>默认模型、多 Provider、模型列表和 API Key 现已统一整合到「系统配置」中的 LLM 配置区域。</p>
+            <p>这里保留为兼容入口，方便你从旧入口跳转过去，不再维护第二套独立配置表单。</p>
           </div>
         }
         className="mb-4"
       />
-
-      <Card className="mb-4" size="small">
-        <div className="flex justify-between items-center">
-          <div>
-            <Title level={5} style={{ margin: 0 }}>快速配置</Title>
-            <Text type="secondary">选择 LLM Provider 配置 API Key</Text>
-          </div>
-          <Space>
-            <Button
-              icon={<CloudServerOutlined />}
-              type="primary"
-              onClick={() => handleSetKey('alibaba')}
-            >
-              配置阿里云 DashScope
-            </Button>
-            <Button
-              icon={<RobotOutlined />}
-              onClick={() => handleSetKey('openai')}
-            >
-              配置 OpenAI
-            </Button>
-          </Space>
-        </div>
-      </Card>
-
-      <Table
-        dataSource={llmKeys}
-        columns={columns}
-        rowKey="provider"
-        loading={loading}
-        pagination={false}
-        size="middle"
-      />
-
-      <Modal
-        title={
-          <span>
-            <RobotOutlined /> {editingProvider ? `配置 ${getProviderLabel(editingProvider)} API Key` : '配置 API Key'}
-          </span>
-        }
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        onOk={() => form.submit()}
-        width={500}
-      >
-        <Alert
-          type="warning"
-          showIcon
-          message="安全提示"
-          description="API Key 将被加密存储。出于安全考虑，保存后无法查看，只能更新。"
-          className="mb-4"
-        />
-        <Form form={form} layout="vertical" onFinish={handleSaveKey}>
-          <Form.Item name="provider" hidden>
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="api_key"
-            label="API Key"
-            rules={[
-              { required: true, message: '请输入 API Key' },
-              { min: 10, message: 'API Key 长度不能少于 10 个字符' },
-            ]}
-          >
-            <Input.Password
-              placeholder="sk-..."
-              size="large"
-            />
-          </Form.Item>
-          <Form.Item>
-            <Text type="secondary">
-              支持的格式：sk-xxx (OpenAI)、sk-xxx (DashScope) 等
-            </Text>
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
+      <Button type="primary" icon={<ApiOutlined />} onClick={onGoToSystem}>
+        前往系统配置中的 LLM 配置
+      </Button>
+    </Card>
   );
 }

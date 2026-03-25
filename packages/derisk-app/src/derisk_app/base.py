@@ -88,6 +88,127 @@ def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
         try_to_create_db=not disable_alembic_upgrade,
         system_app=system_app,
     )
+    _migrate_mysql_chat_tables_utf8mb4(db_url)
+
+
+def _migrate_mysql_chat_tables_utf8mb4(db_url: str) -> None:
+    """Ensure chat history tables use utf8mb4 (fixes DataError 1366 on emoji).
+
+    New installs get correct DDL from assets/schema/derisk.sql. Legacy MySQL
+    databases may still have utf8/utf8mb3 tables; migrate them automatically.
+    """
+    if "mysql" not in (db_url or "").lower():
+        return
+    try:
+        from sqlalchemy import text
+        from derisk.storage.metadata.db_manager import db
+
+        if not db.is_initialized:
+            return
+
+        engine = db.engine
+        with engine.connect() as conn:
+            tables = conn.execute(
+                text(
+                    """
+                    SELECT TABLE_NAME, TABLE_COLLATION
+                    FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME IN ('chat_history', 'chat_history_message')
+                    """
+                )
+            ).fetchall()
+
+            if not tables:
+                return
+
+            def _collation_ok(collation: object) -> bool:
+                return str(collation or "").lower().startswith("utf8mb4")
+
+            bad_tables = [
+                name for name, coll in tables if not _collation_ok(coll)
+            ]
+
+            msg_detail_charset = None
+            row = conn.execute(
+                text(
+                    """
+                    SELECT CHARACTER_SET_NAME
+                    FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = 'chat_history_message'
+                      AND COLUMN_NAME = 'message_detail'
+                    """
+                )
+            ).fetchone()
+            if row:
+                msg_detail_charset = (row[0] or "").lower()
+
+            bad_column = msg_detail_charset and msg_detail_charset != "utf8mb4"
+
+            if not bad_tables and not bad_column:
+                return
+
+            schema = conn.execute(text("SELECT DATABASE()")).scalar()
+            if not schema:
+                return
+
+        # DDL auto-commits; use begin() for a clean transaction boundary per statement.
+        migrated = False
+        with engine.begin() as conn:
+            db_coll = conn.execute(
+                text(
+                    """
+                    SELECT DEFAULT_COLLATION_NAME
+                    FROM information_schema.SCHEMATA
+                    WHERE SCHEMA_NAME = :schema
+                    """
+                ),
+                {"schema": schema},
+            ).scalar()
+            if db_coll and not str(db_coll).lower().startswith("utf8mb4"):
+                conn.execute(
+                    text(
+                        "ALTER DATABASE `{schema}` CHARACTER SET utf8mb4 "
+                        "COLLATE utf8mb4_unicode_ci".format(schema=schema)
+                    )
+                )
+                migrated = True
+
+            if "chat_history" in bad_tables:
+                conn.execute(
+                    text(
+                        "ALTER TABLE `chat_history` CONVERT TO CHARACTER SET utf8mb4 "
+                        "COLLATE utf8mb4_unicode_ci"
+                    )
+                )
+                migrated = True
+            if "chat_history_message" in bad_tables:
+                conn.execute(
+                    text(
+                        "ALTER TABLE `chat_history_message` "
+                        "CONVERT TO CHARACTER SET utf8mb4 "
+                        "COLLATE utf8mb4_unicode_ci"
+                    )
+                )
+                migrated = True
+            elif bad_column:
+                conn.execute(
+                    text(
+                        "ALTER TABLE `chat_history_message` "
+                        "MODIFY COLUMN `message_detail` LONGTEXT "
+                        "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL "
+                        "COMMENT 'Message details, json format'"
+                    )
+                )
+                migrated = True
+
+        if migrated:
+            logger.info(
+                "MySQL chat_history / chat_history_message migrated to utf8mb4."
+            )
+    except Exception as e:
+        logger.error("MySQL utf8mb4 migration for chat tables failed: %s", e)
 
 
 def _add_missing_columns_sqlite(db):
