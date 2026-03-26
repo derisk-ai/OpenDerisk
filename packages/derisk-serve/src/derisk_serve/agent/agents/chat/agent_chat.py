@@ -619,6 +619,14 @@ class AgentChat(BaseComponent, ABC):
                 user_query, ignore_unknown_media=True
             )
 
+        file_dispatch_result = await self._dispatch_uploaded_files(
+            chat_in_params=chat_in_params,
+            conv_id=conv_id,
+            user_query=user_query,
+        )
+        if file_dispatch_result:
+            user_query = file_dispatch_result
+
         root_tracer.set_context_conv_id(agent_conv_id)
         message_round = 0
         history_message_count = 0
@@ -1052,7 +1060,9 @@ class AgentChat(BaseComponent, ABC):
                     # depend_resource = await blocking_func_to_async(
                     #     CFG.SYSTEM_APP, rm.build_resource, app.all_resources
                     # )
-                    depend_resource = await rm.a_build_resource(real_all_resources)
+                    depend_resource = await rm.a_build_resource(
+                        real_all_resources, ignore_missing=True
+                    )
 
                     agent_context = deepcopy(context)
                     agent_context.agent_app_code = app.app_code
@@ -1115,7 +1125,9 @@ class AgentChat(BaseComponent, ABC):
                     # depend_resource = await blocking_func_to_async(
                     #     CFG.SYSTEM_APP, rm.build_resource, app.all_resources
                     # )
-                    depend_resource = await rm.a_build_resource(real_all_resources)
+                    depend_resource = await rm.a_build_resource(
+                        real_all_resources, ignore_missing=True
+                    )
                     manager.bind(depend_resource)
 
                 agent_context = deepcopy(context)
@@ -1683,6 +1695,92 @@ class AgentChat(BaseComponent, ABC):
                         max_tokens = param.param_value
                         logger.info("用户指定了模型MaxTokens，优先使用")
         return llm_context, env_context
+
+    async def _dispatch_uploaded_files(
+        self,
+        chat_in_params: Optional[List[ChatInParamValue]],
+        conv_id: str,
+        user_query: HumanMessage,
+    ) -> Optional[HumanMessage]:
+        """处理上传的文件，根据类型分流.
+
+        - 图片/音频/视频文件 → 直接给多模态模型消费
+        - 其他文件 → 加入AgentFileSystem并同步写入沙箱
+
+        Args:
+            chat_in_params: 对话输入参数
+            conv_id: 会话ID
+            user_query: 用户消息
+
+        Returns:
+            更新后的用户消息（如果需要），如果无需更新则返回None
+        """
+        if not chat_in_params:
+            return None
+
+        file_resources = []
+        for param in chat_in_params:
+            if param.param_type == "resource":
+                try:
+                    if isinstance(param.param_value, str):
+                        value_data = json.loads(param.param_value)
+                    else:
+                        value_data = param.param_value
+
+                    if isinstance(value_data, list):
+                        file_resources.extend(value_data)
+                    elif isinstance(value_data, dict):
+                        file_resources.append(value_data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse file resource: {e}")
+
+        if not file_resources:
+            return None
+
+        sandbox_client = None
+        sandbox_manager = GlobalSandboxManagerCache.get(conv_id)
+        if sandbox_manager and sandbox_manager.client:
+            sandbox_client = sandbox_manager.client
+
+        from derisk_serve.agent.utils.file_dispatch import (
+            process_uploaded_files,
+            FileDispatchType,
+        )
+        from derisk.core.interface.media import MediaContent
+
+        media_contents, file_infos = await process_uploaded_files(
+            file_resources=file_resources,
+            conv_id=conv_id,
+            sandbox_client=sandbox_client,
+            system_app=self.system_app,
+        )
+
+        if not media_contents:
+            return None
+
+        existing_content = []
+        if isinstance(user_query.content, str) and user_query.content:
+            existing_content.append(MediaContent.build_text(user_query.content))
+        elif isinstance(user_query.content, list):
+            existing_content = user_query.content
+
+        new_content = media_contents + existing_content
+
+        multimodal_files = [
+            f for f in file_infos if f.dispatch_type == FileDispatchType.MULTIMODAL
+        ]
+        sandbox_files = [
+            f for f in file_infos if f.dispatch_type == FileDispatchType.SANDBOX
+        ]
+
+        if multimodal_files:
+            logger.info(
+                f"[FileDispatch] Processed {len(multimodal_files)} multimodal files"
+            )
+        if sandbox_files:
+            logger.info(f"[FileDispatch] Processed {len(sandbox_files)} sandbox files")
+
+        return HumanMessage(content=new_content)
 
     async def _inner_chat(
         self,

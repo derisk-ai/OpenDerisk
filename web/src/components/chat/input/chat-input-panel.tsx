@@ -9,6 +9,8 @@ import ToolsBar from './tools-bar';
 import { UserChatContent } from '@/types/chat';
 import { parseResourceValue } from '@/utils';
 import { MEDIA_RESOURCE_TYPES } from "@/app/application/app/components/chat-layout-config";
+import InputQueueDisplay from './input-queue-display';
+import useUserInput from '@/hooks/use-user-input';
 
 const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   const { t } = useTranslation();
@@ -20,7 +22,8 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
     resourceValue,
     refreshDialogList,
     chatInParams,
-    setResourceValue
+    setResourceValue,
+    currentDialogue,
   } = useContext(ChatContentContext);
 
   const [userInput, setUserInput] = useState<string>('');
@@ -28,6 +31,23 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   const [isZhInput, setIsZhInput] = useState<boolean>(false);
 
   const submitCountRef = useRef(0);
+
+  const sessionId = currentDialogue?.conv_uid;
+  const {
+    queueState,
+    clearQueue,
+    startPolling,
+    stopPolling,
+  } = useUserInput(sessionId);
+
+  React.useEffect(() => {
+    if (replyLoading) {
+      startPolling(2000);
+    } else {
+      stopPolling();
+    }
+    return () => stopPolling();
+  }, [replyLoading, startPolling, stopPolling]);
 
    const paramKey: string[] = useMemo(() => {
     return appInfo?.layout?.chat_in_layout?.map(i => i.param_type) || [];
@@ -79,6 +99,16 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
 
   return (
     <div className='flex flex-col w-full mx-auto pt-4 pb-0 bg-transparent'>
+      <InputQueueDisplay
+        messages={queueState.queueLength > 0 ? [{
+          id: 'queued-1',
+          content: `${queueState.queueLength} 条消息等待处理`,
+          sender: 'System',
+          timestamp: Date.now(),
+        }] : []}
+        isLoading={replyLoading && queueState.hasPendingInput}
+        onClear={clearQueue}
+      />
       <div
         className={`flex flex-1 flex-col bg-white dark:bg-[rgba(255,255,255,0.16)] px-5 py-4 pt-2 rounded-xl relative border border-[#E0E7F2] dark:border-[rgba(255,255,255,0.6)] ${
           isFocus ? 'border-[#0c75fc]' : ''

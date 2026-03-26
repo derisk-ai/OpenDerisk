@@ -214,6 +214,8 @@ async def file_upload(
     bucket = "derisk_app_file"
     file_params = []
 
+    import mimetypes
+
     for doc_file in doc_files:
         file_name = doc_file.filename
         custom_metadata = {
@@ -231,18 +233,30 @@ async def file_upload(
             custom_metadata=custom_metadata,
         )
 
+        doc_file.file.seek(0, 2)
+        file_size = doc_file.file.tell()
+        doc_file.file.seek(0)
+
         _, file_extension = os.path.splitext(file_name)
+        mime_type, _ = mimetypes.guess_type(file_name)
+        mime_type = mime_type or "application/octet-stream"
+
+        metadata = fs.storage_system.get_file_metadata_by_uri(file_uri)
+        file_id = metadata.file_id if metadata else ""
+
         file_param = {
             "is_oss": True,
             "file_path": file_uri,
             "file_name": file_name,
+            "file_size": file_size,
+            "file_extension": file_extension,
+            "mime_type": mime_type,
+            "file_id": file_id,
             "file_learning": False,
             "bucket": bucket,
         }
         file_params.append(file_param)
 
-    # If only one file was uploaded, return the single file_param directly
-    # Otherwise return the array of file_params
     result = file_params[0] if len(file_params) == 1 else file_params
     return Result.succ(result)
 
