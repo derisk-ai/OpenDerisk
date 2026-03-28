@@ -78,7 +78,7 @@ const MiniRingChart: FC<{ data: RingDataItem[]; size?: number }> = ({ data, size
     .join('\n');
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} title={tooltipText} style={{ cursor: 'help' }}>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ cursor: 'help' }}>
       <title>{tooltipText}</title>
       {segments.map((segment, index) => (
         <circle

@@ -688,16 +688,19 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         building_mode: bool = True,
     ) -> Optional[ServerResponse]:
         import time
+
         _total_start = time.time()
-        
+
         logger.info(
             f"[APP_DETAIL] get_app_detail: app_code={app_code}, specify_config_code={specify_config_code}, building_mode={building_mode}"
         )
-        
+
         _step_start = time.time()
         app_resp = self.dao.get_one({"app_code": app_code})
-        logger.info(f"[APP_DETAIL][PERF] 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms")
-        
+        logger.info(
+            f"[APP_DETAIL][PERF] 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         if not app_resp:
             raise ValueError(f"应用不存在[{app_code}]")
 
@@ -705,17 +708,30 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             f"[APP_DETAIL] app_resp.config_code={app_resp.config_code}, app_resp.config_version={app_resp.config_version}"
         )
 
+        _step_start = time.time()
         config_service = get_config_service()
+        logger.info(
+            f"[APP_DETAIL][PERF] 获取config_service耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         app_config = None
         if specify_config_code:
             logger.info(
                 f"[APP_DETAIL] 指定了配置代码，需要加载指定的配置: {specify_config_code}"
             )
+            _step_start = time.time()
             app_config = config_service.get_by_code(specify_config_code)
+            logger.info(
+                f"[APP_DETAIL][PERF] 查询指定配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
             logger.info(f"[APP_DETAIL] 指定配置查询结果: {app_config is not None}")
         else:
             if building_mode:
+                _step_start = time.time()
                 temp_config = config_service.get_app_temp_code(app_code=app_code)
+                logger.info(
+                    f"[APP_DETAIL][PERF] 查询临时配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                )
                 logger.info(
                     f"[APP_DETAIL] 构建模式, 临时配置查询结果: {temp_config is not None}"
                 )
@@ -724,7 +740,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         "[APP_DETAIL] 构建模式, 不存在临时配置, 尝试加载发布的配置"
                     )
                     if app_resp.config_code:
+                        _step_start = time.time()
                         app_config = config_service.get_by_code(app_resp.config_code)
+                        logger.info(
+                            f"[APP_DETAIL][PERF] 查询发布配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                        )
                         logger.info(
                             f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}"
                         )
@@ -733,21 +753,30 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else:
                 logger.info("[APP_DETAIL] 非构建模式, 只能加载当前发布版本配置")
                 if app_resp.config_code:
+                    _step_start = time.time()
                     app_config = config_service.get_by_code(app_resp.config_code)
+                    logger.info(
+                        f"[APP_DETAIL][PERF] 查询发布配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                    )
                     logger.info(
                         f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}"
                     )
 
         if app_config:
+            _config_process_start = time.time()
             all_resources = []
             logger.info(
                 f"当前应用有配置代码，需要加载指定版本配置[{app_config.code}][{app_config.version_info}]！"
             )
 
             if app_config.resource_agent:
+                _step_start = time.time()
                 app_resp.resource_agent = app_config.resource_agent
                 ## 如果配置存在resource_agent资源，转换为detail消费使用
                 self._resource_to_app_detail(app_resp, app_config.resource_agent)
+                logger.info(
+                    f"[APP_DETAIL][PERF] 处理resource_agent耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                )
 
             # 确保 team_context 被正确序列化为字典，包含 use_sandbox 等字段
             if app_config.team_context and hasattr(app_config.team_context, "to_dict"):
@@ -818,7 +847,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             # if not building_mode:
             app_resp.all_resources = all_resources
 
+            logger.info(
+                f"[APP_DETAIL][PERF] 处理资源配置总耗时: {(time.time() - _config_process_start) * 1000:.2f}ms"
+            )
+
+            _step_start = time.time()
             from derisk.agent.core.plan.unified_context import UnifiedTeamContext
+
+            logger.info(
+                f"[APP_DETAIL][PERF] 导入UnifiedTeamContext耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             if isinstance(app_config.team_context, SingleAgentContext):
                 app_resp.agent = app_config.team_context.agent_name
@@ -833,8 +871,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             r_engine_system_prompt_t: Optional[str] = None
             r_engine_user_prompt_t: Optional[str] = None
 
+            _step_start = time.time()
             ag_mg = get_agent_manager()
             ag = ag_mg.get(app_resp.agent)
+            logger.info(f"[APP_DETAIL][PERF] 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms")
 
             agent_version = getattr(app_config, "agent_version", "v1") or "v1"
             is_v2_agent = agent_version == "v2"
