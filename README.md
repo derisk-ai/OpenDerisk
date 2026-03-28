@@ -115,6 +115,27 @@ uv sync --all-packages --frozen \
 
 #### Start Server
 
+**🚀 Quick Start (Zero Configuration, Recommended)**
+
+Start without any configuration file:
+
+```bash
+# Method 1: Use quickstart command
+uv run derisk quickstart
+
+# Method 2: Use startup script
+./start.sh
+
+# Method 3: Specify port
+uv run derisk quickstart -p 8888
+```
+
+After starting, visit http://localhost:7777 and configure models and settings through the web UI.
+
+For detailed instructions, see: [Quick Start Guide](QUICKSTART.md)
+
+**📝 Start with Configuration File**
+
 Configure the API_KEY in `derisk-proxy-aliyun.toml`, then run:
 
 > Note: By default, we use the Telecom dataset from OpenRCA. Download via:
@@ -124,6 +145,10 @@ After downloading, move datasets to `pilot/datasets/`
 
 Run the startup command:
 ```bash
+# Start with configuration file
+uv run derisk quickstart -c configs/derisk-proxy-aliyun.toml
+
+# Or use traditional method
 uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
 ```
 

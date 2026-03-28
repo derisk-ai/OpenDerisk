@@ -76,6 +76,21 @@ class CompressionConfig:
         default_factory=lambda: {"view": ["skill.md"]}
     )
 
+    # Warm 层智能剪枝配置
+    warm_enable_llm_pruning: bool = True
+    warm_prune_error_after_turns: int = 4
+    warm_prune_duplicate_tools: bool = True
+    warm_prune_superseded_writes: bool = True
+    warm_preserve_tools: List[str] = dataclasses.field(
+        default_factory=lambda: ["view", "read", "ask_user"]
+    )
+    warm_write_tools: List[str] = dataclasses.field(
+        default_factory=lambda: ["edit", "write", "create_file", "edit_file"]
+    )
+    warm_read_tools: List[str] = dataclasses.field(
+        default_factory=lambda: ["read", "view", "cat"]
+    )
+
     def calculate_budgets(self, context_window: int) -> Dict[str, int]:
         return {
             "hot": int(context_window * self.hot_ratio),
@@ -116,6 +131,140 @@ class CompressionLog:
     result_length: int
     trigger_condition: str
     compression_ratio: float
+
+
+@dataclasses.dataclass
+class ColdSegmentSummary:
+    """对话分段摘要 - 包含 user + assistant 消息对
+
+    一个对话可以有多个 Cold 段摘要（分段压缩），每个段包含：
+    - 用户问题
+    - AI 回复摘要
+    - 工具调用摘要
+    """
+
+    segment_id: str = ""
+    conv_id: str = ""
+    user_query: Optional[str] = None
+    assistant_response: Optional[str] = None
+    tool_summary: str = ""
+    key_tools: List[str] = dataclasses.field(default_factory=list)
+    timestamp: float = 0.0
+    tokens: int = 0
+    start_index: int = 0
+    end_index: int = 0
+
+    def to_message(self) -> Dict[str, Any]:
+        """转换为 LLM Message 格式"""
+        from derisk.core import ModelMessageRoleType
+
+        content_parts = []
+
+        if self.user_query:
+            content_parts.append(f"用户问题: {self.user_query[:200]}")
+
+        if self.tool_summary:
+            content_parts.append(self.tool_summary)
+
+        if self.assistant_response:
+            content_parts.append(f"AI回复: {self.assistant_response[:200]}...")
+
+        if self.key_tools:
+            content_parts.append(f"关键工具: {', '.join(self.key_tools[:5])}")
+
+        content = "\n".join(content_parts)
+        return {
+            "role": ModelMessageRoleType.SYSTEM,
+            "content": f"[历史对话摘要 - {self.segment_id}]\n{content}",
+            "is_history_summary": True,
+            "segment_id": self.segment_id,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "segment_id": self.segment_id,
+            "conv_id": self.conv_id,
+            "user_query": self.user_query,
+            "assistant_response": self.assistant_response,
+            "tool_summary": self.tool_summary,
+            "key_tools": self.key_tools,
+            "timestamp": self.timestamp,
+            "tokens": self.tokens,
+            "start_index": self.start_index,
+            "end_index": self.end_index,
+        }
+
+
+@dataclasses.dataclass
+class WarmCacheEntry:
+    """Warm 层单条压缩缓存"""
+
+    tool_call_id: str = ""
+    tool_name: str = ""
+    compressed_content: str = ""
+    timestamp: float = 0.0
+    tokens: int = 0
+
+
+@dataclasses.dataclass
+class WorkLogCompressionCache:
+    """对话内压缩缓存 - 支持分段压缩和增量更新
+
+    改进点：
+    1. Cold 层支持分段摘要列表（layer3_summaries）
+    2. Warm 层支持增量缓存（warm_cache_entries + warm_entries_hash）
+    3. 只在新增条目超过阈值时重新压缩
+    """
+
+    layer3_summaries: List[ColdSegmentSummary] = dataclasses.field(default_factory=list)
+    layer3_end_index: int = 0
+    layer2_start_index: int = 0
+    last_total_entries: int = 0
+    last_compressed_tokens: int = 0
+
+    warm_compressed_messages: Optional[str] = None
+    warm_cache_entries: List[WarmCacheEntry] = dataclasses.field(default_factory=list)
+    warm_entries_hash: Optional[str] = None
+    warm_end_index: int = 0
+
+    def needs_recompression(
+        self, total_entries: int, new_entries_threshold: int = 20
+    ) -> bool:
+        """判断是否需要重新压缩"""
+        return total_entries - self.last_total_entries >= new_entries_threshold
+
+    def needs_warm_recompression(
+        self, entries_hash: str, new_entries_threshold: int = 10
+    ) -> bool:
+        """判断 Warm 层是否需要重新压缩"""
+        if not self.warm_compressed_messages:
+            return True
+        if self.warm_entries_hash != entries_hash:
+            return True
+        return False
+
+    def get_cached_cold_messages(self) -> List[Dict[str, Any]]:
+        """获取缓存的 Cold 层消息"""
+        if not self.layer3_summaries:
+            return []
+        return [summary.to_message() for summary in self.layer3_summaries]
+
+    def get_cached_warm_messages(self) -> Optional[List[Dict[str, Any]]]:
+        """获取缓存的 Warm 层消息"""
+        if not self.warm_compressed_messages:
+            return None
+        try:
+            return json.loads(self.warm_compressed_messages)
+        except Exception:
+            return None
+
+    def add_cold_segment(self, summary: ColdSegmentSummary):
+        """添加新的 Cold 段摘要（增量）"""
+        self.layer3_summaries.append(summary)
+
+    def clear_cold_summaries(self):
+        """清空 Cold 段摘要"""
+        self.layer3_summaries.clear()
 
 
 def format_entry_for_prompt(entry: WorkEntry, max_length: int = 500) -> str:
@@ -265,6 +414,13 @@ class WorkLogManager:
         # 压缩日志和预算信息
         self._compression_logs: List[CompressionLog] = []
         self._last_budget_info: Optional[Dict[str, Any]] = None
+
+        # 对话内压缩缓存：conv_id -> WorkLogCompressionCache
+        self.compression_cache: Dict[str, WorkLogCompressionCache] = {}
+
+        # 对话级别元数据：conv_id -> {"user_query": str, "final_answer": str, "timestamp": float}
+        # 用于 Cold 层分段摘要生成
+        self.conversation_metadata: Dict[str, Dict[str, Any]] = {}
 
         # 记录存储模式
         if work_log_storage:
@@ -939,6 +1095,45 @@ class WorkLogManager:
         else:
             filtered_entries = self.work_log
 
+        # 检查缓存
+        cache = None
+        if conv_id and apply_prune:
+            cache = self.get_compression_cache(conv_id)
+            total_entries = len(filtered_entries)
+
+            # 如果缓存有效且不需要重新压缩
+            if cache.warm_compressed_messages and not cache.needs_recompression(
+                total_entries, new_entries_threshold=10
+            ):
+                logger.debug(
+                    f"[WorkLogManager] 使用缓存的压缩结果: conv_id={conv_id[:8] if conv_id else 'N/A'}"
+                )
+
+                # 从缓存恢复 Cold 层分段摘要
+                if cache.layer3_summaries:
+                    cached_cold_messages = cache.get_cached_cold_messages()
+                    messages.extend(cached_cold_messages)
+
+                # 从缓存恢复 warm messages
+                cached_warm_messages = cache.get_cached_warm_messages()
+                if cached_warm_messages:
+                    messages.extend(cached_warm_messages)
+
+                # Hot layer 始终重新构建（最新的工具调用）
+                hot_entries, _, _, _ = self._categorize_entries_by_tokens(
+                    filtered_entries,
+                    budgets["hot"],
+                    0,
+                    0,
+                )
+                non_tool_actions = {"Blank", "ask_user", "terminate"}
+                hot_messages = self._build_hot_layer_messages(
+                    hot_entries, non_tool_actions
+                )
+                messages.extend(hot_messages)
+
+                return messages
+
         non_tool_actions = {"Blank", "ask_user", "terminate"}
 
         hot_entries, warm_entries, cold_entries, layer_tokens = (
@@ -950,10 +1145,22 @@ class WorkLogManager:
             )
         )
 
-        cold_messages = self._build_cold_layer_messages(cold_entries)
+        # 构建 Cold 层消息（使用分段摘要）
+        cold_messages = self._build_cold_layer_messages(
+            cold_entries, cache=cache, cold_budget=budgets["cold"]
+        )
         messages.extend(cold_messages)
 
-        warm_messages = self._build_warm_layer_messages(warm_entries)
+        # 计算当前对话轮次（用于错误清理）
+        current_turn = len(hot_entries) + len(warm_entries)
+
+        # 构建 warm messages 并应用智能剪枝
+        warm_messages = self._build_warm_layer_messages(
+            warm_entries,
+            warm_budget=budgets["warm"],
+            current_turn=current_turn,
+            cache=cache,
+        )
         messages.extend(warm_messages)
 
         hot_messages = self._build_hot_layer_messages(hot_entries, non_tool_actions)
@@ -968,6 +1175,11 @@ class WorkLogManager:
             f"~{total_tokens} tokens, "
             f"hot={len(hot_entries)}, warm={len(warm_entries)}, cold={len(cold_entries)}"
         )
+
+        # 更新缓存（Cold 和 Warm 层在各自的方法中已更新）
+        if conv_id and cache:
+            cache.last_total_entries = len(filtered_entries)
+            cache.last_compressed_tokens = total_tokens
 
         self._emit_layer_events(layer_tokens, budgets)
         self._emit_summary_event(total_tokens, context_window, budgets)
@@ -1065,60 +1277,267 @@ class WorkLogManager:
     def _build_cold_layer_messages(
         self,
         entries: List[WorkEntry],
+        cache: Optional[WorkLogCompressionCache] = None,
+        cold_budget: int = 0,
     ) -> List[Dict[str, Any]]:
+        """
+        构建 Cold Layer 消息：分段摘要，包含 user + assistant 消息对
+
+        改进点：
+        1. 一个对话可以有多个 Cold 段摘要（分段压缩）
+        2. 每个 Cold 段包含：user_query + assistant_response + tool_summary
+        3. 使用缓存避免重复压缩
+
+        Args:
+            entries: Cold 层的 WorkEntry 列表
+            cache: 压缩缓存（如果提供，优先使用缓存）
+            cold_budget: Cold 层 token 预算
+
+        Returns:
+            Message List 格式的摘要消息列表
+        """
         from derisk.core import ModelMessageRoleType
 
         if not entries:
             return []
 
+        # 检查缓存：如果缓存的分段摘要覆盖了所有 entries，直接使用缓存
+        if cache and cache.layer3_summaries:
+            cached_messages = cache.get_cached_cold_messages()
+            # 验证缓存是否覆盖当前 entries
+            if cache.layer3_end_index >= len(entries):
+                logger.debug(
+                    f"[WorkLogManager] Cold 层使用缓存: {len(cache.layer3_summaries)} 个分段摘要"
+                )
+                return cached_messages
+
         messages: List[Dict[str, Any]] = []
 
-        tool_names = list(
-            set(e.tool for e in entries if e.tool not in {"Blank", "terminate"})
-        )
-        tools_str = ", ".join(tool_names[:10])
+        # 分段压缩：按 conv_id 和 token 数分段
+        segment_summaries: List[ColdSegmentSummary] = []
 
-        cold_summary = (
-            f"[更早的工具调用摘要]\n"
-            f"执行了 {len(entries)} 次工具调用\n"
-            f"涉及工具: {tools_str}\n"
-        )
+        # 按 conv_id 分组
+        entries_by_conv: Dict[str, List[WorkEntry]] = {}
+        for entry in entries:
+            conv_id = entry.conv_id or "default"
+            if conv_id not in entries_by_conv:
+                entries_by_conv[conv_id] = []
+            entries_by_conv[conv_id].append(entry)
 
-        if len(cold_summary) > self.compression_config.cold_summary_max_length:
-            cold_summary = (
-                cold_summary[: self.compression_config.cold_summary_max_length] + "..."
-            )
+        # 对每个对话生成摘要
+        segment_id_counter = 0
+        max_segment_tokens = max(500, cold_budget // 3)  # 每段最大 token
 
-        messages.append(
-            {
-                "role": ModelMessageRoleType.SYSTEM,
-                "content": cold_summary,
-            }
+        for conv_id, conv_entries in entries_by_conv.items():
+            # 获取对话元数据（user_query, final_answer）
+            conv_meta = self.conversation_metadata.get(conv_id, {})
+            user_query = conv_meta.get("user_query", "")
+            final_answer = conv_meta.get("final_answer", "")
+
+            # 按 token 数分段（避免单个摘要太大）
+            current_segment_tokens = 0
+            current_segment_entries: List[WorkEntry] = []
+
+            for entry in conv_entries:
+                entry_tokens = entry.tokens or self._estimate_entry_tokens(entry)
+
+                # 如果当前段超过阈值，生成一个摘要
+                if (
+                    current_segment_tokens + entry_tokens > max_segment_tokens
+                    and current_segment_entries
+                ):
+                    segment_summary = self._create_cold_segment(
+                        current_segment_entries,
+                        conv_id,
+                        user_query if len(segment_summaries) == 0 else None,
+                        final_answer
+                        if current_segment_entries == conv_entries[-1:]
+                        else None,
+                        segment_id_counter,
+                    )
+                    segment_summaries.append(segment_summary)
+                    segment_id_counter += 1
+
+                    current_segment_entries = [entry]
+                    current_segment_tokens = entry_tokens
+                else:
+                    current_segment_entries.append(entry)
+                    current_segment_tokens += entry_tokens
+
+            # 处理最后一段（包含 final_answer）
+            if current_segment_entries:
+                segment_summary = self._create_cold_segment(
+                    current_segment_entries,
+                    conv_id,
+                    user_query if len(segment_summaries) == 0 else None,
+                    final_answer,
+                    segment_id_counter,
+                )
+                segment_summaries.append(segment_summary)
+
+        # 转换为消息列表
+        for summary in segment_summaries:
+            messages.append(summary.to_message())
+
+        # 记录压缩日志
+        total_original_chars = sum(
+            len(e.result or "") + len(e.summary or "") for e in entries
         )
+        total_compressed_chars = sum(len(m.get("content", "")) for m in messages)
 
         self._compression_logs.append(
             CompressionLog(
-                action="compress_llm",
+                action="compress_segmented",
                 layer="cold",
-                target=f"{len(entries)} entries",
-                original_length=sum(len(e.result or "") for e in entries),
-                result_length=len(cold_summary),
+                target=f"{len(entries)} entries -> {len(segment_summaries)} segments",
+                original_length=total_original_chars,
+                result_length=total_compressed_chars,
                 trigger_condition="cumulative_tokens > hot_budget + warm_budget",
-                compression_ratio=len(cold_summary)
-                / max(1, sum(len(e.result or "") for e in entries)),
+                compression_ratio=total_compressed_chars / max(1, total_original_chars),
             )
+        )
+
+        # 更新缓存
+        if cache:
+            cache.clear_cold_summaries()
+            for summary in segment_summaries:
+                cache.add_cold_segment(summary)
+            cache.layer3_end_index = len(entries)
+
+        logger.info(
+            f"[WorkLogManager] Cold 层分段压缩: {len(entries)} 条目 -> {len(segment_summaries)} 段摘要"
         )
 
         return messages
 
+    def _create_cold_segment(
+        self,
+        entries: List[WorkEntry],
+        conv_id: str,
+        user_query: Optional[str] = None,
+        final_answer: Optional[str] = None,
+        segment_id: int = 0,
+    ) -> ColdSegmentSummary:
+        """
+        创建单个 Cold 段摘要
+
+        Args:
+            entries: 该段包含的 WorkEntry
+            conv_id: 对话 ID
+            user_query: 用户问题（第一个段才有）
+            final_answer: 最终回复（最后一段才有）
+            segment_id: 段 ID
+
+        Returns:
+            ColdSegmentSummary 对象
+        """
+        # 提取关键工具
+        tool_names = list(
+            set(
+                e.tool
+                for e in entries
+                if e.tool not in {"Blank", "terminate", "ask_user"}
+            )
+        )
+
+        # 提取 assistant_content（如果有）
+        assistant_contents = []
+        for e in entries:
+            if e.assistant_content:
+                assistant_contents.append(e.assistant_content[:100])
+
+        # 生成工具调用摘要
+        tool_summary_lines = []
+        tool_summary_lines.append(f"执行了 {len(entries)} 次工具调用")
+        if tool_names:
+            tool_summary_lines.append(f"涉及工具: {', '.join(tool_names[:5])}")
+
+        # 提取关键结果（取前3个重要工具的结果摘要）
+        important_results = []
+        for e in entries[:3]:
+            if e.result and len(e.result) > 50:
+                important_results.append(f"{e.tool}: {e.result[:100]}...")
+
+        if important_results:
+            tool_summary_lines.append("关键结果:")
+            tool_summary_lines.extend(important_results[:3])
+
+        tool_summary = "\n".join(tool_summary_lines)
+
+        # 截断最终回复
+        assistant_response = None
+        if final_answer:
+            assistant_response = final_answer[:200]
+        elif assistant_contents:
+            assistant_response = (
+                "..." + assistant_contents[-1] if assistant_contents else None
+            )
+
+        # 计算 tokens
+        content = ""
+        if user_query:
+            content += user_query[:200]
+        content += tool_summary
+        if assistant_response:
+            content += assistant_response
+        tokens = max(1, len(content) // self.chars_per_token)
+
+        return ColdSegmentSummary(
+            segment_id=f"{conv_id}_seg_{segment_id}",
+            conv_id=conv_id,
+            user_query=user_query[:200] if user_query else None,
+            assistant_response=assistant_response,
+            tool_summary=tool_summary,
+            key_tools=tool_names[:5],
+            timestamp=entries[-1].timestamp if entries else time.time(),
+            tokens=tokens,
+            start_index=0,
+            end_index=len(entries),
+        )
+
     def _build_warm_layer_messages(
         self,
         entries: List[WorkEntry],
+        warm_budget: int = 0,
+        current_turn: int = 0,
+        cache: Optional[WorkLogCompressionCache] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        构建 Warm Layer 消息：适度压缩 + 智能剪枝
+
+        改进点：
+        1. 支持 cache 参数，增量缓存
+        2. 只在条目变化时重新压缩
+        3. 使用 warm_entries_hash 判断是否需要重新压缩
+
+        Args:
+            entries: Warm 层的 WorkEntry 列表
+            warm_budget: Warm 层 token 预算
+            current_turn: 当前对话轮次
+            cache: 压缩缓存
+
+        Returns:
+            Message List 格式的消息列表
+        """
         from derisk.core import ModelMessageRoleType
 
         if not entries:
             return []
+
+        # 计算条目 hash（用于判断是否需要重新压缩）
+        entries_hash = self._compute_entries_hash(entries)
+
+        # 检查缓存是否有效
+        if cache and cache.warm_compressed_messages:
+            if not cache.needs_warm_recompression(
+                entries_hash, new_entries_threshold=5
+            ):
+                cached_messages = cache.get_cached_warm_messages()
+                if cached_messages:
+                    logger.debug(
+                        f"[WorkLogManager] Warm 层使用缓存: {len(cached_messages)} 条消息"
+                    )
+                    return cached_messages
 
         messages: List[Dict[str, Any]] = []
         max_result_length = self.compression_config.warm_tool_result_max_length
@@ -1162,7 +1581,339 @@ class WorkLogManager:
                     }
                 )
 
+        # 应用智能剪枝
+        messages = self._smart_prune_messages(messages, warm_budget, current_turn)
+
+        # 更新缓存
+        if cache:
+            cache.warm_compressed_messages = json.dumps(messages) if messages else None
+            cache.warm_entries_hash = entries_hash
+            cache.warm_end_index = len(entries)
+            logger.debug(
+                f"[WorkLogManager] Warm 层更新缓存: {len(messages)} 条消息, hash={entries_hash[:8]}"
+            )
+
         return messages
+
+    def _compute_entries_hash(self, entries: List[WorkEntry]) -> str:
+        """计算条目列表的 hash（用于判断是否需要重新压缩）"""
+        if not entries:
+            return ""
+
+        # 只取关键信息计算 hash
+        hash_parts = []
+        for e in entries[-10:]:  # 只看最后10条（新增部分）
+            hash_parts.append(f"{e.tool}:{e.tool_call_id}:{len(e.result or '')}")
+
+        hash_str = "|".join(hash_parts)
+        return hashlib.md5(hash_str.encode()).hexdigest()
+
+    def _smart_prune_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        token_budget: int = 0,
+        current_turn: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        智能剪枝：整合去重、错误清理、写入覆盖
+
+        执行顺序：
+        1. 去重 (_prune_duplicate_tools)
+        2. 写入覆盖清理 (_prune_superseded_writes)
+        3. 错误清理 (_prune_error_tools)
+        4. Token 预算控制
+        """
+        pruned = self._prune_duplicate_tools(messages)
+        pruned = self._prune_superseded_writes(pruned)
+        pruned = self._prune_error_tools(pruned, current_turn)
+
+        # Token 预算控制
+        if token_budget > 0:
+            current_tokens = self._estimate_messages_tokens(pruned)
+            if current_tokens > token_budget:
+                final_messages = []
+                for msg in reversed(pruned):
+                    if current_tokens <= token_budget:
+                        final_messages.insert(0, msg)
+                    else:
+                        current_tokens -= self._estimate_messages_tokens([msg])
+                pruned = final_messages
+
+        return pruned
+
+    def _prune_duplicate_tools(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """去重：相同工具+相同参数的调用只保留最新的"""
+        if not self.compression_config.warm_prune_duplicate_tools:
+            return messages
+
+        seen_signatures: Dict[str, str] = {}
+        tool_call_id_to_keep: set = set()
+
+        for i, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                for tc in tool_calls:
+                    func_name = tc.get("function", {}).get("name", "")
+                    args = tc.get("function", {}).get("arguments", "")
+
+                    if func_name in self.compression_config.warm_preserve_tools:
+                        tool_call_id_to_keep.add(tc.get("id"))
+                        continue
+
+                    signature = f"{func_name}:{args}"
+                    tool_call_id_to_keep.add(tc.get("id"))
+                    if signature in seen_signatures:
+                        old_id = seen_signatures[signature]
+                        if old_id in tool_call_id_to_keep:
+                            tool_call_id_to_keep.remove(old_id)
+                    seen_signatures[signature] = tc.get("id")
+
+        pruned_messages: List[Dict[str, Any]] = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            tool_calls = msg.get("tool_calls", [])
+
+            if tool_calls:
+                tc_id = tool_calls[0].get("id")
+                if tc_id in tool_call_id_to_keep:
+                    pruned_messages.append(msg)
+                    if i + 1 < len(messages) and messages[i + 1].get("role") == "tool":
+                        pruned_messages.append(messages[i + 1])
+                        i += 1
+            elif msg.get("role") != "tool":
+                pruned_messages.append(msg)
+
+            i += 1
+
+        return pruned_messages
+
+    def _prune_error_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        current_turn: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """清理错误工具调用：N 轮后移除失败的调用"""
+        threshold = self.compression_config.warm_prune_error_after_turns
+        pruned_messages: List[Dict[str, Any]] = []
+
+        for msg in messages:
+            if msg.get("role") == "tool":
+                content = msg.get("content", "")
+                is_error = (
+                    "error" in content.lower()
+                    or "failed" in content.lower()
+                    or "exception" in content.lower()
+                )
+
+                if is_error and current_turn > threshold:
+                    pruned_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": msg.get("tool_call_id"),
+                            "content": "[错误工具调用已清理]",
+                        }
+                    )
+                else:
+                    pruned_messages.append(msg)
+            else:
+                pruned_messages.append(msg)
+
+        return pruned_messages
+
+    def _prune_superseded_writes(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """清理被覆盖的写入操作"""
+        if not self.compression_config.warm_prune_superseded_writes:
+            return messages
+
+        write_tools = set(self.compression_config.warm_write_tools)
+        read_tools = set(self.compression_config.warm_read_tools)
+        written_files: Dict[str, int] = {}
+
+        for i, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls", [])
+            if not tool_calls:
+                continue
+
+            for tc in tool_calls:
+                func_name = tc.get("function", {}).get("name", "")
+                args_str = tc.get("function", {}).get("arguments", "{}")
+
+                try:
+                    args = (
+                        json.loads(args_str) if isinstance(args_str, str) else args_str
+                    )
+                except Exception:
+                    continue
+
+                file_path = str(args.get("path", args.get("file_path", "")))
+
+                if func_name in write_tools and file_path:
+                    written_files[file_path] = i
+
+                elif func_name in read_tools and file_path:
+                    if file_path in written_files:
+                        write_idx = written_files[file_path]
+                        if 0 <= write_idx < len(messages):
+                            write_msg = messages[write_idx]
+                            tool_calls_write = write_msg.get("tool_calls", [])
+                            if tool_calls_write:
+                                for tc_write in tool_calls_write:
+                                    args_write = tc_write.get("function", {}).get(
+                                        "arguments", "{}"
+                                    )
+                                    try:
+                                        args_dict = (
+                                            json.loads(args_write)
+                                            if isinstance(args_write, str)
+                                            else args_write
+                                        )
+                                        new_args = dict(args_dict)
+                                        if (
+                                            "content" in new_args
+                                            and len(str(new_args.get("content", "")))
+                                            > 200
+                                        ):
+                                            new_args["content"] = (
+                                                f"[写入内容已清理，后续已读取文件: {file_path}]"
+                                            )
+                                            tc_write["function"]["arguments"] = (
+                                                json.dumps(new_args, ensure_ascii=False)
+                                            )
+                                    except Exception:
+                                        pass
+                        del written_files[file_path]
+
+        return messages
+
+    def _estimate_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
+        """估算消息列表的 token 数"""
+        total_chars = 0
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                total_chars += len(json.dumps(tool_calls, ensure_ascii=False))
+        return max(1, total_chars // self.chars_per_token)
+
+    def get_compression_cache(self, conv_id: str) -> WorkLogCompressionCache:
+        """获取压缩缓存"""
+        if conv_id not in self.compression_cache:
+            self.compression_cache[conv_id] = WorkLogCompressionCache()
+        return self.compression_cache[conv_id]
+
+    def update_compression_cache(
+        self,
+        conv_id: str,
+        layer3_end_index: int = 0,
+        layer2_start_index: int = 0,
+        total_entries: int = 0,
+        compressed_tokens: int = 0,
+        warm_compressed_messages: Optional[str] = None,
+        warm_entries_hash: Optional[str] = None,
+    ):
+        """
+        更新压缩缓存
+
+        注意：Cold 层分段摘要现在在 _build_cold_layer_messages 中直接更新 cache.layer3_summaries
+        """
+        cache = self.get_compression_cache(conv_id)
+        cache.layer3_end_index = layer3_end_index
+        cache.layer2_start_index = layer2_start_index
+        cache.last_total_entries = total_entries
+        cache.last_compressed_tokens = compressed_tokens
+        if warm_compressed_messages is not None:
+            cache.warm_compressed_messages = warm_compressed_messages
+        if warm_entries_hash is not None:
+            cache.warm_entries_hash = warm_entries_hash
+
+        logger.debug(
+            f"[WorkLog] 更新压缩缓存: conv_id={conv_id}, "
+            f"layer3_end={layer3_end_index}, layer2_start={layer2_start_index}, "
+            f"total_entries={total_entries}, cold_segments={len(cache.layer3_summaries)}"
+        )
+
+    def record_conversation_metadata(
+        self,
+        conv_id: str,
+        user_query: Optional[str] = None,
+        final_answer: Optional[str] = None,
+    ):
+        """
+        记录对话级别的元数据
+
+        用于 Cold 层分段摘要生成，包含用户问题和最终回复
+
+        Args:
+            conv_id: 对话 ID
+            user_query: 用户问题
+            final_answer: Agent 最终回复
+
+        Example:
+            work_log_manager.record_conversation_metadata(
+                conv_id="conv_123",
+                user_query="分析这个项目的认证流程",
+                final_answer="认证流程包含三个步骤..."
+            )
+        """
+        if conv_id not in self.conversation_metadata:
+            self.conversation_metadata[conv_id] = {
+                "timestamp": time.time(),
+            }
+
+        if user_query is not None:
+            self.conversation_metadata[conv_id]["user_query"] = user_query
+        if final_answer is not None:
+            self.conversation_metadata[conv_id]["final_answer"] = final_answer
+
+        logger.debug(
+            f"[WorkLog] 记录对话元数据: conv_id={conv_id}, "
+            f"user_query={user_query[:50] if user_query else 'N/A'}..., "
+            f"final_answer={final_answer[:50] if final_answer else 'N/A'}..."
+        )
+
+    def update_cold_segment_with_final_answer(
+        self,
+        conv_id: str,
+        final_answer: str,
+    ):
+        """
+        更新 Cold 层最后一个分段摘要的 final_answer
+
+        在对话结束时调用，补充最终回复
+
+        Args:
+            conv_id: 对话 ID
+            final_answer: 最终回复
+        """
+        cache = self.get_compression_cache(conv_id)
+
+        # 找到该对话最后一个分段
+        for summary in reversed(cache.layer3_summaries):
+            if summary.conv_id == conv_id:
+                summary.assistant_response = final_answer[:200]
+                # 更新元数据
+                self.record_conversation_metadata(conv_id, final_answer=final_answer)
+                logger.debug(
+                    f"[WorkLog] 更新 Cold 段最终回复: segment_id={summary.segment_id}"
+                )
+                break
+
+    def clear_compression_cache(self, conv_id: Optional[str] = None):
+        """清空压缩缓存"""
+        if conv_id:
+            self.compression_cache.pop(conv_id, None)
+            self.conversation_metadata.pop(conv_id, None)
+        else:
+            self.compression_cache.clear()
+            self.conversation_metadata.clear()
 
     def _build_hot_layer_messages(
         self,

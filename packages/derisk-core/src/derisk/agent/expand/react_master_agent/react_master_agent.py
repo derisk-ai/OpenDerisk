@@ -68,6 +68,10 @@ from .kanban_manager import (
     create_kanban_manager,
     validate_deliverable_schema,
 )
+from derisk.agent.core.memory.gpts.system_event import (
+    SystemEventManager,
+    SystemEventType,
+)
 from ...resource import BaseTool, RetrieverResource, FunctionTool, ToolPack
 from ...resource.agent_skills import AgentSkillResource
 from ...resource.app import AppResource
@@ -225,6 +229,9 @@ class ReActMasterAgent(ConversableAgent):
     # AsyncTaskManager 异步任务管理器（在 preload_resource 中按需初始化）
     _async_task_manager: Optional[Any] = PrivateAttr(default=None)
 
+    # SystemEventManager 系统事件管理器（用于 VIS 渲染）
+    _system_event_manager: Optional[SystemEventManager] = PrivateAttr(default=None)
+
     available_system_tools: Dict[str, FunctionTool] = Field(
         default_factory=dict, description="available system tools"
     )
@@ -250,6 +257,9 @@ class ReActMasterAgent(ConversableAgent):
         await super().preload_resource()
         await self.system_tool_injection()
         await self.sandbox_tool_injection()
+
+        # 初始化 SystemEventManager
+        await self._ensure_system_event_manager()
 
         # NOTE: read_file, todowrite, todoread 等工具现在通过统一工具框架注入
         # 不再在此处直接注入，见 base_agent.system_tool_injection()
@@ -1503,6 +1513,14 @@ class ReActMasterAgent(ConversableAgent):
             kwargs["tool_messages"] = tool_msgs
             logger.info("[ReActMasterAgent] 注入异步任务完成通知到 thinking 上下文")
 
+        # 记录 LLM 思考事件
+        if self._system_event_manager:
+            self._system_event_manager.add_event(
+                event_type=SystemEventType.LLM_THINKING,
+                title="LLM 思考",
+                description=f"Agent: {self.name}",
+            )
+
         return await super().thinking(
             messages,
             reply_message_id,
@@ -1722,6 +1740,18 @@ class ReActMasterAgent(ConversableAgent):
                         logger.info(
                             f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}"
                         )
+
+                        # 记录系统事件
+                        if self._system_event_manager:
+                            event_type = (
+                                SystemEventType.ACTION_COMPLETE
+                                if result.is_exe_success
+                                else SystemEventType.ACTION_FAILED
+                            )
+                            self._system_event_manager.add_event(
+                                event_type=event_type,
+                                title=f"{tool_name} {'完成' if result.is_exe_success else '失败'}",
+                            )
 
                         # 记录到 PhaseManager
                         self.record_phase_action(tool_name, result.is_exe_success)
@@ -2184,18 +2214,29 @@ class ReActMasterAgent(ConversableAgent):
             # (e.g. /mnt/derisk/skills set in [sandbox].skill_dir of the toml).
             # Local mode: default to DATA_DIR/skill (pilot/data/skill).
             sandbox_skill_dir: Optional[str] = None
+            sandbox_enabled = False
             if instance and getattr(instance, "sandbox_manager", None):
                 sb_client = getattr(instance.sandbox_manager, "client", None)
                 if sb_client:
                     sandbox_skill_dir = getattr(sb_client, "skill_dir", None)
+                    sandbox_enabled = True
 
             local_skill_dir = os.path.join(DATA_DIR, "skill")
             logger.info(
-                f"var_skills: sandbox_skill_dir={sandbox_skill_dir!r}, "
+                f"var_skills: sandbox_enabled={sandbox_enabled}, "
+                f"sandbox_skill_dir={sandbox_skill_dir!r}, "
                 f"local_skill_dir={local_skill_dir!r}"
             )
 
             prompts = ""
+            # Add sandbox environment info if sandbox is enabled
+            if sandbox_enabled and sandbox_skill_dir:
+                prompts += (
+                    "以下技能存储在沙箱环境中，路径为沙箱内的绝对路径。\n"
+                    f"技能目录：{sandbox_skill_dir}\n"
+                    "使用方式：使用 `skill_load` 工具加载技能，或使用 `view` 工具读取技能目录中的 SKILL.md 文件。\n\n"
+                )
+
             for k, v in self.resource_map.items():
                 if isinstance(v[0], AgentSkillResource):
                     for item in v:
@@ -2215,26 +2256,15 @@ class ReActMasterAgent(ConversableAgent):
                         if not skill_code and skill_meta.path:
                             skill_code = os.path.basename(skill_meta.path)
 
-                        # Use sandbox path only when the skill directory actually
-                        # exists inside the sandbox; otherwise fall back to local.
-                        if os.path.isdir(os.path.join(sandbox_skill_dir, skill_code)):
+                        # Determine skill path based on sandbox mode
+                        # If sandbox is enabled, use sandbox_skill_dir + skill_code (absolute path in sandbox)
+                        # If sandbox is disabled, use local_skill_dir + skill_code (absolute path locally)
+                        if sandbox_enabled and sandbox_skill_dir and skill_code:
                             skill_path = os.path.join(sandbox_skill_dir, skill_code)
+                        elif skill_code:
+                            skill_path = os.path.join(local_skill_dir, skill_code)
                         else:
-                            skill_path = os.path.join(
-                                local_skill_dir, skill_item._skill_path
-                            )
-
-                        # if skill_code and sandbox_skill_dir:
-                        #     sandbox_path = os.path.join(sandbox_skill_dir, skill_code)
-                        #     skill_path = (
-                        #         sandbox_path
-                        #         if os.path.exists(sandbox_path)
-                        #         else os.path.join(local_skill_dir, skill_code)
-                        #     )
-                        # elif skill_code:
-                        #     skill_path = os.path.join(local_skill_dir, skill_code)
-                        # else:
-                        #    skill_path = skill_meta.path
+                            skill_path = skill_meta.path
 
                         prompts += (
                             f"- <skill>"
@@ -2509,6 +2539,42 @@ class ReActMasterAgent(ConversableAgent):
             await self._work_log_manager.initialize()
             logger.info(
                 f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries"
+            )
+
+    async def _ensure_system_event_manager(self):
+        """确保 SystemEventManager 已初始化并设置到 GptsMemory"""
+        if self._system_event_manager:
+            return
+
+        conv_id = "default"
+        if self.not_null_agent_context:
+            conv_id = self.not_null_agent_context.conv_id or "default"
+
+        self._system_event_manager = SystemEventManager(conv_id=conv_id)
+
+        # 记录初始化事件
+        self._system_event_manager.add_event(
+            event_type=SystemEventType.AGENT_BUILD_START,
+            title="初始化 Agent 环境",
+            description=f"Agent: {self.name}",
+        )
+        self._system_event_manager.add_event(
+            event_type=SystemEventType.ENVIRONMENT_READY,
+            title="运行环境就绪",
+        )
+
+        # 设置到 GptsMemory
+        if (
+            self.memory
+            and hasattr(self.memory, "gpts_memory")
+            and self.memory.gpts_memory
+        ):
+            await self.memory.gpts_memory.init(
+                conv_id=conv_id,
+                event_manager=self._system_event_manager,
+            )
+            logger.info(
+                f"[ReActMasterAgent] SystemEventManager 已设置: conv_id={conv_id[:8]}"
             )
 
     async def _record_action_to_work_log(

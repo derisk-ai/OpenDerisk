@@ -52,6 +52,8 @@ class BashTool(SandboxToolBase):
             timeout=120,
             tags=["shell", "command", "execute"],
             approval_message="This command will be executed. Do you want to proceed?",
+            # 授权配置：可以禁用 cwd 检查
+            # authorization_config={"disable_cwd_check": True},
         )
 
     def _define_parameters(self) -> Dict[str, Any]:

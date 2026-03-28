@@ -296,6 +296,9 @@ class ConversationCache:
         ## 文件系统渲染追踪 (用于增量更新前端文件列表)
         self.rendered_file_ids: set = set()  # 已渲染到前端的 file_id 集合
 
+        ## SystemEventManager 用于记录系统事件
+        self.event_manager: Optional[Any] = None
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -701,8 +704,12 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         vis_converter: VisProtocolConverter = None,
         start_round: int = 0,
         app_code=None,
+        event_manager: Optional[Any] = None,
     ):
         cache = await self._get_or_create_cache(conv_id, start_round, vis_converter)
+        if event_manager:
+            cache.event_manager = event_manager
+            logger.info(f"[GptsMemory] 设置 SystemEventManager: conv_id={conv_id[:8]}")
         if history_messages:
             await self._cache_messages(conv_id, history_messages)
 
@@ -826,6 +833,10 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         messages = messages[cache.start_round :]
         messages = await self._merge_messages_async(messages)
         all_plans = cache.plans
+
+        # 从 cache 获取 event_manager，如果没有从 kwargs 获取
+        event_manager = kwargs.pop("event_manager", None) or cache.event_manager
+
         return await cache.vis_converter.visualization(
             messages=messages,
             plans_map=all_plans,
@@ -842,6 +853,7 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             task_manager=cache.task_manager,
             conv_id=conv_id,
             cache=cache,
+            event_manager=event_manager,
             **kwargs,
         )
 

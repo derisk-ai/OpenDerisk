@@ -386,14 +386,8 @@ class ResourceManager(BaseComponent):
                 for resource in agent_resources
             ]
         )
-<<<<<<< Updated upstream
         # Filter out None values (resources that failed to build or were skipped)
         dependencies = [dep for dep in dependencies if dep is not None]
-=======
-        # Filter out None values (missing resources when ignore_missing=True)
-        dependencies = [d for d in dependencies if d is not None]
-
->>>>>>> Stashed changes
         # Summary Agent不放入resource中
         dependencies = [
             dependency

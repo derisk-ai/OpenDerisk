@@ -52,10 +52,9 @@ class Serve(BaseServe):
     def after_init(self):
         from .service.service import MultimodalService
 
-        service = MultimodalService.get_instance(self._system_app)
-        if not service:
-            service = MultimodalService(self._system_app, self._serve_config)
-            self._system_app.register_instance(service)
+        # 先创建服务实例，然后注册（不要先get，因为还没注册）
+        service = MultimodalService(self._system_app, self._serve_config)
+        self._system_app.register_instance(service)
 
     @classmethod
     def get_instance(cls, system_app: SystemApp) -> Optional["Serve"]:

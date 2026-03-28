@@ -619,14 +619,6 @@ class AgentChat(BaseComponent, ABC):
                 user_query, ignore_unknown_media=True
             )
 
-        file_dispatch_result = await self._dispatch_uploaded_files(
-            chat_in_params=chat_in_params,
-            conv_id=conv_id,
-            user_query=user_query,
-        )
-        if file_dispatch_result:
-            user_query = file_dispatch_result
-
         root_tracer.set_context_conv_id(agent_conv_id)
         message_round = 0
         history_message_count = 0
@@ -1701,6 +1693,7 @@ class AgentChat(BaseComponent, ABC):
         chat_in_params: Optional[List[ChatInParamValue]],
         conv_id: str,
         user_query: HumanMessage,
+        staff_no: Optional[str] = None,
     ) -> Optional[HumanMessage]:
         """处理上传的文件，根据类型分流.
 
@@ -1711,6 +1704,7 @@ class AgentChat(BaseComponent, ABC):
             chat_in_params: 对话输入参数
             conv_id: 会话ID
             user_query: 用户消息
+            staff_no: 用户工号 (用于获取 sandbox)
 
         Returns:
             更新后的用户消息（如果需要），如果无需更新则返回None
@@ -1738,7 +1732,9 @@ class AgentChat(BaseComponent, ABC):
             return None
 
         sandbox_client = None
-        sandbox_manager = GlobalSandboxManagerCache.get(conv_id)
+        # 使用与 _get_or_create_sandbox_manager 相同的 key 格式
+        sandbox_key = f"{conv_id}_{staff_no or 'default'}"
+        sandbox_manager = GlobalSandboxManagerCache.get(sandbox_key)
         if sandbox_manager and sandbox_manager.client:
             sandbox_client = sandbox_manager.client
 
@@ -1890,6 +1886,17 @@ class AgentChat(BaseComponent, ABC):
                 **ext_info,
             )
 
+            # 在 sandbox 创建后处理上传的文件
+            if chat_in_params:
+                file_dispatch_result = await self._dispatch_uploaded_files(
+                    chat_in_params=chat_in_params,
+                    conv_id=conv_uid,
+                    user_query=user_query,
+                    staff_no=staff_no,
+                )
+                if file_dispatch_result:
+                    user_query = file_dispatch_result
+
             if is_retry_chat:
                 # retry chat
                 self.gpts_conversations.update(conv_uid, Status.RUNNING.value)
@@ -1942,7 +1949,7 @@ class AgentChat(BaseComponent, ABC):
                     "content": f"对话发生错误: {str(e)}",
                     "error_detail": error_trace,
                 }
-                await self.memory.gpts_memory.push_message(
+                await self.memory.push_message(
                     conv_id=conv_uid,
                     stream_msg=error_msg,
                 )
