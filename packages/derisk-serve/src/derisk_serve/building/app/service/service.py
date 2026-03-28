@@ -874,7 +874,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             _step_start = time.time()
             ag_mg = get_agent_manager()
             ag = ag_mg.get(app_resp.agent)
-            logger.info(f"[APP_DETAIL][PERF] 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms")
+            logger.info(
+                f"[APP_DETAIL][PERF] 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             agent_version = getattr(app_config, "agent_version", "v1") or "v1"
             is_v2_agent = agent_version == "v2"
