@@ -643,8 +643,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     def _resource_to_app_detail(
         self, app_info: ServerResponse, agent_resources: List[AgentResource]
     ):
+        import time
+
+        _start = time.time()
         details = []
-        for item in agent_resources:
+        for idx, item in enumerate(agent_resources):
             # {\"name\":\"My Agent Resource\",\"app_code\":\"1bc6d188-735e-11f0-b924-00163e0ea545\"}
             app_code = (None,)
             if isinstance(item.value, str):
@@ -657,7 +660,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if not app_code:
                 logger.warning(f"AgentAppResource{item.value}没有找到AppCode！")
                 continue
+            _query_start = time.time()
             item_info = self.get(ServeRequest(app_code=app_code))
+            logger.info(
+                f"[APP_DETAIL][PERF] _resource_to_app_detail 查询关联app[{app_code}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
+            )
             details.append(
                 GptsAppDetail(
                     app_code=app_info.app_code,
@@ -679,6 +686,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         app_info.details = details
         app_info.resource_agent = agent_resources
+        logger.info(
+            f"[APP_DETAIL][PERF] _resource_to_app_detail 总耗时(共{len(agent_resources)}个关联app): {(time.time() - _start) * 1000:.2f}ms"
+        )
         return app_info
 
     def sync_app_detail(
@@ -968,17 +978,33 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     logger.info(f"构建模式初始化[{app_resp.agent}]的默认参数！")
                     app_resp.custom_variables = ag.init_variables()
             ## 处理关联的推荐问题
+            _step_start = time.time()
             app_recommend_questions = self.recommend_question_dao.get_list(
                 {"app_code": app_resp.app_code}
             )
+            logger.info(
+                f"[APP_DETAIL][PERF] 查询推荐问题耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
             if app_recommend_questions:
                 app_resp.recommend_questions = app_recommend_questions
+
+            logger.info(
+                f"[APP_DETAIL][PERF] sync_app_detail总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+            )
             return app_resp
         else:
             logger.info(f"当前应用无配置代码，兼容旧数据模式！")
-            return self.sync_old_app_detail(app_code, building_mode)
+            result = self.sync_old_app_detail(app_code, building_mode)
+            logger.info(
+                f"[APP_DETAIL][PERF] sync_old_app_detail总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+            )
+            return result
 
     def app_detail_to_resource(self, app_info: ServerResponse):
+        import time
+
+        _start = time.time()
+
         ## 处理关联的App(agent)明细
         if not app_info.app_code:
             return app_info
@@ -987,9 +1013,13 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         agent_resources = []
         details = []
         if app_details and len(app_details) > 0:
-            for item in app_details:
+            for idx, item in enumerate(app_details):
                 if item.type == "app":
+                    _query_start = time.time()
                     item_info = self.get(ServeRequest(app_code=item.agent_role))
+                    logger.info(
+                        f"[APP_DETAIL][PERF] app_detail_to_resource 查询关联app[{item.agent_role}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
+                    )
                     if not item_info:
                         logger.warning(f"绑定应用[{item.agent_role}]已经不存在！")
                         continue
@@ -1033,6 +1063,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         app_info.details = details
         app_info.resource_agent = agent_resources
+        logger.info(
+            f"[APP_DETAIL][PERF] app_detail_to_resource 总耗时(共{len(app_details) if app_details else 0}个detail): {(time.time() - _start) * 1000:.2f}ms"
+        )
         return app_info
 
     async def app_detail(
@@ -1046,6 +1079,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     def old_app_switch_new_app(
         self, gpts_app: ServeRequest, building_mode: bool = True
     ) -> ServerResponse:
+        import time
+
+        _start = time.time()
+
         all_resources = []
         if gpts_app.team_context:
             if (
@@ -1091,8 +1128,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else None
         )
         try:
+            _step_start = time.time()
             ag_mg = get_agent_manager()
             ag = ag_mg.get(gpts_app.agent)
+            logger.info(
+                f"[APP_DETAIL][PERF] old_app_switch_new_app 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             if engine_resources:
                 gpts_app.is_reasoning_engine_agent = True
@@ -1196,21 +1237,46 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         if gpts_app.app_code:
             gpts_app = self.app_detail_to_resource(gpts_app)
 
+        logger.info(
+            f"[APP_DETAIL][PERF] old_app_switch_new_app 总耗时: {(time.time() - _start) * 1000:.2f}ms"
+        )
         return gpts_app
 
     def sync_old_app_detail(self, app_code: str, building_mode: bool = True):
+        import time
+
+        _start = time.time()
+
+        _step_start = time.time()
         app_resp = self.dao.get_one({"app_code": app_code})
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
 
         ## 获取旧版数据的应用明细信息
+        _step_start = time.time()
         app_resp.details = self.detail_app_dao.get_list({"app_code": app_code})
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询detail_app耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         ## 处理关联的推荐问题
+        _step_start = time.time()
         app_recommend_questions = self.recommend_question_dao.get_list(
             {"app_code": app_code}
         )
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询推荐问题耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         if app_recommend_questions:
             app_resp.recommend_questions = app_recommend_questions
 
-        return self.old_app_switch_new_app(app_resp, building_mode)
+        result = self.old_app_switch_new_app(app_resp, building_mode)
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 总耗时: {(time.time() - _start) * 1000:.2f}ms"
+        )
+        return result
 
     def _get_available_llm_models(self) -> List[str]:
         """获取当前可用的 LLM 模型列表
