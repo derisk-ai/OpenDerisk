@@ -146,6 +146,16 @@ from .runtime_loader import (
     is_tool_available_for_agent,
 )
 
+from .authorization_middleware import (
+    ToolAuthorizationMiddleware,
+    AuthorizationContext,
+    AuthorizationCheckResult,
+    AuthorizationDecision,
+    ToolSpecificAuthorizer,
+    BashCwdAuthorizer,
+    execute_with_authorization,
+)
+
 __all__ = [
     # 基类与枚举
     "ToolBase",
@@ -200,6 +210,14 @@ __all__ = [
     "AgentRuntimeToolLoader",
     "load_agent_tools",
     "is_tool_available_for_agent",
+    # 授权中间件
+    "ToolAuthorizationMiddleware",
+    "AuthorizationContext",
+    "AuthorizationCheckResult",
+    "AuthorizationDecision",
+    "ToolSpecificAuthorizer",
+    "BashCwdAuthorizer",
+    "execute_with_authorization",
     # 异常
     "ToolError",
     "ToolNotFoundError",

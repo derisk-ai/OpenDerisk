@@ -8,9 +8,15 @@ from derisk.agent.core.action.base import AskUserType
 from derisk.agent.core.reasoning.reasoning_action import AgentAction
 from derisk.agent.core.types import MessageType
 from derisk.agent.core.memory.gpts import GptsMessage, GptsPlan
-from derisk.vis.schema import VisConfirm, VisPlansContent, VisTextContent, VisTaskContent, VisInteract
+from derisk.vis.schema import (
+    VisConfirm,
+    VisPlansContent,
+    VisTextContent,
+    VisTaskContent,
+    VisInteract,
+)
 from derisk.vis.vis_converter import SystemVisTag
-from  .derisk_vis_converter import DeriskVisConverter
+from .derisk_vis_converter import DeriskVisConverter
 from derisk_ext.vis.derisk.ask_user.manager import convert
 
 from derisk_ext.vis.derisk.tags.drsk_content import DrskTextContent, DrskContent
@@ -24,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 
 class DeriskVisIncrConverter(DeriskVisConverter):
-
     @property
     def incremental(self) -> bool:
         return True
@@ -51,7 +56,7 @@ class DeriskVisIncrConverter(DeriskVisConverter):
         is_first_chunk: bool = False,
         incremental: bool = False,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
-        **kwargs
+        **kwargs,
     ):
         # logger.info(f"visualization:{messages},{is_first_chunk}")
         ## 使用增量传递模式
@@ -72,7 +77,7 @@ class DeriskVisIncrConverter(DeriskVisConverter):
         messages: List["GptsMessage"],
         plans_map: Optional[Dict[str, "GptsPlan"]] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
-        **kwargs
+        **kwargs,
     ):
         deal_messages: List[GptsMessage] = []
 
@@ -147,9 +152,11 @@ class DeriskVisIncrConverter(DeriskVisConverter):
             avatar=message.avatar,
             model=message.model_name,
             start_time=message.created_at,
-            task_id=message.goal_id
+            task_id=message.goal_id,
         )
-        return self.vis(SystemVisTag.VisMessage.value)().sync_display(content=drsk_msg_content.to_dict())
+        return self.vis(SystemVisTag.VisMessage.value)().sync_display(
+            content=drsk_msg_content.to_dict()
+        )
 
     async def gen_stream_message_vis(
         self,
@@ -190,7 +197,10 @@ class DeriskVisIncrConverter(DeriskVisConverter):
             if action_report:
                 act_markdown = action_report.view or action_report.content
             llm_content = DrskTextContent(
-                dynamic=True, markdown=act_markdown or markdown, uid=uid + "_content", type="incr"
+                dynamic=True,
+                markdown=act_markdown or markdown,
+                uid=uid + "_content",
+                type="incr",
             )
             vis_content = DrskContent().sync_display(
                 content=llm_content.to_dict(exclude_none=True)
@@ -206,15 +216,17 @@ class DeriskVisIncrConverter(DeriskVisConverter):
                 avatar=avatar,
                 model=message.get("model"),
                 start_time=message.get("start_time"),
-
             )
 
-            return await self.vis(SystemVisTag.VisMessage.value)().display(content=content.to_dict())
+            return await self.vis(SystemVisTag.VisMessage.value)().display(
+                content=content.to_dict()
+            )
         else:
             return None
 
     async def gen_final_notice_vis(self, messages: list[GptsMessage]) -> Optional[str]:
         from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
+
         view: Optional[str] = None
         for message in messages:
             if message.receiver != HUMAN_ROLE or not message.action_report:
@@ -225,22 +237,30 @@ class DeriskVisIncrConverter(DeriskVisConverter):
 
     async def gen_one_final_notice_vis(self, message: GptsMessage) -> Optional[str]:
         action_report = message.action_report[0]
-        if not action_report or not action_report.extra or not action_report.extra.get("ask_user_content"):
+        if (
+            not action_report
+            or not action_report.extra
+            or not action_report.extra.get("ask_user_content")
+        ):
             return None
 
-        view = DrskInteract().sync_display(content=VisInteract(
-            uid=message.message_id + "_interact",
-            message_id=message.message_id + "_interact",
-            type="all",
-            title="请补充信息",
-            markdown=action_report.extra.get("ask_user_content"),
-            interact_type="notice",
-            position="tail",
-        ).to_dict())
+        view = DrskInteract().sync_display(
+            content=VisInteract(
+                uid=message.message_id + "_interact",
+                message_id=message.message_id + "_interact",
+                type="all",
+                title="请补充信息",
+                markdown=action_report.extra.get("ask_user_content"),
+                interact_type="notice",
+                position="tail",
+            ).to_dict()
+        )
         return view
 
     async def gen_ask_user_vis(self, message: GptsMessage) -> Optional[str]:
-        ask_user_action_reports = await self.ask_user_action_reports(message.action_report)
+        ask_user_action_reports = await self.ask_user_action_reports(
+            message.action_report
+        )
         if not ask_user_action_reports:
             return None
 
@@ -251,11 +271,16 @@ class DeriskVisIncrConverter(DeriskVisConverter):
             reports = ask_user_action_report_map.get(ask_type, [])
             reports.append(ask_user_action_report)
             ask_user_action_report_map[ask_type] = reports
-        vis = [vs for ask_type, action_reports in ask_user_action_report_map.items() if
-               (vs := await convert(ask_type, action_reports, message))]
+        vis = [
+            vs
+            for ask_type, action_reports in ask_user_action_report_map.items()
+            if (vs := await convert(ask_type, action_reports, message))
+        ]
         return "\n\n".join(vis) if vis else None
 
-    async def ask_user_action_reports(self, parsed_action_reports: list[ActionOutput]) -> list[ActionOutput]:
+    async def ask_user_action_reports(
+        self, parsed_action_reports: list[ActionOutput]
+    ) -> list[ActionOutput]:
         action_reports: list[ActionOutput] = []
         if not parsed_action_reports:
             return action_reports
@@ -265,7 +290,10 @@ class DeriskVisIncrConverter(DeriskVisConverter):
                     # 无需询问用户
                     continue
                 # elif action_report.name != "Agent":
-                elif action_report.name != "Agent" or action_report.ask_type == AskUserType.CONCLUSION_INCOMPLETE.value:
+                elif (
+                    action_report.name != "Agent"
+                    or action_report.ask_type == AskUserType.CONCLUSION_INCOMPLETE.value
+                ):
                     # 询问用户
                     action_reports.append(action_report)
                 else:
@@ -276,7 +304,9 @@ class DeriskVisIncrConverter(DeriskVisConverter):
                     gpts_message = GptsMessagesDao().get_by_message_id(message_id)
                     if not gpts_message:
                         continue
-                    action_reports += await self.ask_user_action_reports(gpts_message.action_report)
+                    action_reports += await self.ask_user_action_reports(
+                        gpts_message.action_report
+                    )
         except Exception as e:
             logger.exception("ask_user_action_reports exception")
             return action_reports
@@ -294,43 +324,56 @@ class DeriskVisIncrConverter(DeriskVisConverter):
         other_action_views: List[str] = []
         for output in action_reports:
             if output.name == AgentAction.name:
-
                 if not output.view:
-                    content = VisTaskContent(task_uid=uuid.uuid4().hex, task_content=output.action_input,
-                                             task_name=output.action_input, agent_name=output.action)
+                    content = VisTaskContent(
+                        task_uid=uuid.uuid4().hex,
+                        task_content=output.action_input,
+                        task_name=output.action_input,
+                        agent_name=output.action,
+                    )
                     agent_action_contents.append(content)
                 else:
                     agent_action_views.append(output.view)
             else:
                 other_action_views.append(output.view or output.content)
         if action_reports[0].thoughts:
-            reasoning_view = self.vis_inst(SystemVisTag.VisText.value).sync_display(content=VisTextContent(
-                markdown=action_reports[0].thoughts, type="all", uid=message_id + "_reason", message_id=message_id
-            ).to_dict())
+            reasoning_view = self.vis_inst(SystemVisTag.VisText.value).sync_display(
+                content=VisTextContent(
+                    markdown=action_reports[0].thoughts,
+                    type="all",
+                    uid=message_id + "_reason",
+                    message_id=message_id,
+                ).to_dict()
+            )
             all_views.append(reasoning_view)
         if agent_action_views:
             all_views.extend(agent_action_views)
         if agent_action_contents:
-            all_views.append(self.vis_inst(vis_tag=SystemVisTag.VisPlans.value).sync_display(
-                content=VisPlansContent(
-                    uid=message_id + "_action_agent",
-                    type="all",
-                    message_id=message_id + "_action_agent",
-                    tasks=agent_action_contents,
-                ).to_dict()
-            ))
+            all_views.append(
+                self.vis_inst(vis_tag=SystemVisTag.VisPlans.value).sync_display(
+                    content=VisPlansContent(
+                        uid=message_id + "_action_agent",
+                        type="all",
+                        message_id=message_id + "_action_agent",
+                        tasks=agent_action_contents,
+                    ).to_dict()
+                )
+            )
         if other_action_views:
             all_views.extend(other_action_views)
 
         return "\n".join(all_views)
 
-    async def _render_confirm_action(self, message_id: str, action_reports: list[ActionOutput]) -> str:
+    async def _render_confirm_action(
+        self, message_id: str, action_reports: list[ActionOutput]
+    ) -> str:
 
         def _make_one_markdown(report: ActionOutput) -> str:
             return f"* 动作:{report.action_name}({report.action}),参数:{report.action_input}"
 
-        markdown = "\n\n".join([_make_one_markdown(report)
-                                for report in action_reports if report.ask_user])
+        markdown = "\n\n".join(
+            [_make_one_markdown(report) for report in action_reports if report.ask_user]
+        )
         if not markdown:
             return ""
 
@@ -342,6 +385,41 @@ class DeriskVisIncrConverter(DeriskVisConverter):
                 type="all",
                 disabled=False,
                 markdown=markdown,
-                extra={"approval_message_id": message_id}
+                extra={"approval_message_id": message_id},
+            ).to_dict()
+        )
+
+    async def _render_tool_confirm_action(
+        self, message_id: str, action_reports: list[ActionOutput]
+    ) -> str:
+        """渲染 Tool 执行前的确认（BEFORE_ACTION 类型）
+
+        只处理 ask_type=BEFORE_ACTION 的 action_reports，
+        Terminate ask（CONCLUSION_INCOMPLETE/AFTER_ACTION）由 gen_ask_user_vis 处理
+        """
+
+        def _make_one_markdown(report: ActionOutput) -> str:
+            return f"* 动作:{report.action_name}({report.action}),参数:{report.action_input}"
+
+        markdown = "\n\n".join(
+            [
+                _make_one_markdown(report)
+                for report in action_reports
+                if report.ask_user
+                and report.ask_type == AskUserType.BEFORE_ACTION.value
+            ]
+        )
+        if not markdown:
+            return ""
+
+        markdown = "将执行如下动作:\n\n" + markdown + "\n\n是否确认执行?"
+        return await self.vis_inst(vis_tag=SystemVisTag.VisConfirm.value).display(
+            content=VisConfirm(
+                uid=message_id + "_confirm",
+                message_id=message_id + "_confirm",
+                type="all",
+                disabled=False,
+                markdown=markdown,
+                extra={"approval_message_id": message_id},
             ).to_dict()
         )

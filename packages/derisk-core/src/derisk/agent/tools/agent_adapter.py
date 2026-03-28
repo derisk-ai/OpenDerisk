@@ -17,6 +17,11 @@ from .context import ToolContext
 from .result import ToolResult
 from .registry import ToolRegistry, tool_registry
 from .resource_manager import ToolResource, tool_resource_manager
+from .authorization_middleware import (
+    ToolAuthorizationMiddleware,
+    AuthorizationContext,
+    AuthorizationCheckResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ class AgentToolAdapter:
 
     提供Agent与新工具框架的集成接口：
     1. 工具发现和加载
-    2. 工具执行
+    2. 工具执行（带授权检查）
     3. 权限检查
     4. 结果处理
 
@@ -46,6 +51,7 @@ class AgentToolAdapter:
         agent: Any = None,
         registry: ToolRegistry = None,
         tool_ids: List[str] = None,
+        interaction_gateway: Optional[Any] = None,
     ):
         """
         初始化适配器
@@ -54,11 +60,17 @@ class AgentToolAdapter:
             agent: Agent实例（Core或CoreV2）
             registry: 工具注册表
             tool_ids: 可用工具ID列表（用于过滤）
+            interaction_gateway: InteractionGateway 实例（用于用户授权交互）
         """
         self._agent = agent
         self._registry = registry or tool_registry
         self._tool_ids = tool_ids
         self._resource_manager = tool_resource_manager
+
+        # 初始化授权中间件
+        self._auth_middleware = ToolAuthorizationMiddleware(
+            interaction_gateway=interaction_gateway,
+        )
 
         # 同步工具资源
         self._resource_manager.sync_from_registry()
@@ -105,14 +117,16 @@ class AgentToolAdapter:
         tool_name: str,
         args: Dict[str, Any],
         context: Optional[Union[ToolContext, Dict[str, Any]]] = None,
+        skip_authorization: bool = False,
     ) -> ToolResult:
         """
-        执行工具
+        执行工具（带授权检查）
 
         Args:
             tool_name: 工具名称
             args: 工具参数
             context: 执行上下文
+            skip_authorization: 是否跳过授权检查（用于内部调用）
 
         Returns:
             ToolResult: 执行结果
@@ -122,15 +136,6 @@ class AgentToolAdapter:
             return ToolResult.fail(
                 error=f"Tool not found: {tool_name}", tool_name=tool_name
             )
-
-        # 检查权限
-        if tool.metadata.requires_permission and context:
-            if not self._check_permission(tool, context):
-                return ToolResult.fail(
-                    error="Permission denied",
-                    tool_name=tool_name,
-                    error_code="PERMISSION_DENIED",
-                )
 
         # 构建上下文
         tool_context = self._build_context(context)
@@ -143,12 +148,58 @@ class AgentToolAdapter:
                 error_code="INVALID_ARGS",
             )
 
+        # 预处理
         try:
-            # 预处理
             args = await tool.pre_execute(args)
+        except Exception as e:
+            logger.error(
+                f"[AgentToolAdapter] Pre-execute failed: {tool_name}, error: {e}"
+            )
+            return ToolResult.fail(
+                error=f"Pre-execute failed: {str(e)}", tool_name=tool_name
+            )
 
+        # 执行（带授权检查）
+        if skip_authorization:
+            # 跳过授权，直接执行
+            return await self._do_execute(tool, args, tool_context)
+
+        # 使用授权中间件执行
+        try:
+            result = await self._auth_middleware.execute_with_auth(
+                tool=tool,
+                args=args,
+                context=tool_context,
+                execute_fn=self._do_execute,
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"[AgentToolAdapter] Authorization/execution failed: {tool_name}, error: {e}"
+            )
+            return ToolResult.fail(error=str(e), tool_name=tool_name)
+
+    async def _do_execute(
+        self,
+        tool: ToolBase,
+        args: Dict[str, Any],
+        context: Optional[ToolContext],
+    ) -> ToolResult:
+        """
+        实际执行工具（内部方法）
+
+        Args:
+            tool: 工具实例
+            args: 工具参数
+            context: 工具上下文
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        try:
             # 执行
-            result = await tool.execute(args, tool_context)
+            result = await tool.execute(args, context)
 
             # 后处理
             result = await tool.post_execute(result)
@@ -160,29 +211,26 @@ class AgentToolAdapter:
             return result
 
         except asyncio.TimeoutError:
-            return ToolResult.timeout(tool_name, tool.metadata.timeout)
+            return ToolResult.timeout(tool.name, tool.metadata.timeout)
         except Exception as e:
-            logger.error(f"[AgentToolAdapter] 工具执行失败: {tool_name}, error: {e}")
-            return ToolResult.fail(error=str(e), tool_name=tool_name)
+            logger.error(
+                f"[AgentToolAdapter] Tool execution failed: {tool.name}, error: {e}"
+            )
+            return ToolResult.fail(error=str(e), tool_name=tool.name)
 
-    # === 权限检查 ===
+    def set_interaction_gateway(self, gateway: Any):
+        """
+        设置 InteractionGateway（用于用户授权交互）
 
-    def _check_permission(
-        self, tool: ToolBase, context: Union[ToolContext, Dict[str, Any]]
-    ) -> bool:
-        """检查执行权限"""
-        if isinstance(context, ToolContext):
-            user_permissions = context.user_permissions
-        else:
-            user_permissions = context.get("user_permissions", [])
+        Args:
+            gateway: InteractionGateway 实例
+        """
+        self._auth_middleware._interaction_gateway = gateway
+        logger.info("[AgentToolAdapter] InteractionGateway set for authorization")
 
-        required = tool.metadata.required_permissions
-
-        for perm in required:
-            if perm not in user_permissions and "*" not in user_permissions:
-                return False
-
-        return True
+    def clear_authorization_cache(self, session_id: Optional[str] = None):
+        """清除授权缓存"""
+        self._auth_middleware.clear_session_cache(session_id)
 
     # === 上下文构建 ===
 
@@ -312,6 +360,15 @@ class CoreToolAdapter:
             context["conversation_id"] = getattr(agent_context, "conv_id", None)
             context["user_id"] = getattr(agent_context, "user_id", None)
 
+            # 注入 sandbox_client（用于 cwd 授权检查）
+            sandbox_manager = getattr(agent_context, "sandbox_manager", None)
+            if sandbox_manager:
+                context["sandbox_client"] = getattr(sandbox_manager, "client", None)
+                if not context["sandbox_client"]:
+                    context["sandbox_client"] = getattr(
+                        sandbox_manager, "get_client", lambda: None
+                    )()
+
         result = await self._adapter.execute_tool(tool_name, args, context)
 
         return {
@@ -384,6 +441,15 @@ class CoreV2ToolAdapter:
             )
             context["trace_id"] = getattr(execution_context, "trace_id", None)
 
+            # 注入 sandbox_client（用于 cwd 授权检查）
+            sandbox_manager = getattr(execution_context, "sandbox_manager", None)
+            if sandbox_manager:
+                context["sandbox_client"] = getattr(sandbox_manager, "client", None)
+                if not context["sandbox_client"]:
+                    context["sandbox_client"] = getattr(
+                        sandbox_manager, "get_client", lambda: None
+                    )()
+
         result = await self._adapter.execute_tool(tool_name, args, context)
 
         return {
@@ -402,7 +468,9 @@ class CoreV2ToolAdapter:
 
 
 def create_tool_adapter_for_agent(
-    agent: Any, tool_ids: List[str] = None
+    agent: Any,
+    tool_ids: List[str] = None,
+    interaction_gateway: Optional[Any] = None,
 ) -> AgentToolAdapter:
     """
     为Agent创建工具适配器
@@ -410,11 +478,16 @@ def create_tool_adapter_for_agent(
     Args:
         agent: Agent实例
         tool_ids: 可用工具ID列表
+        interaction_gateway: InteractionGateway 实例（用于用户授权交互）
 
     Returns:
         AgentToolAdapter: 工具适配器
     """
-    return AgentToolAdapter(agent=agent, tool_ids=tool_ids)
+    return AgentToolAdapter(
+        agent=agent,
+        tool_ids=tool_ids,
+        interaction_gateway=interaction_gateway,
+    )
 
 
 def get_tools_for_agent(agent_type: str = "core") -> List[Dict[str, Any]]:

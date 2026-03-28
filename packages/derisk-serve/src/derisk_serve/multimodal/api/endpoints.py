@@ -32,13 +32,13 @@ async def upload_file(
     """上传多模态文件.
 
     文件会被存储到文件系统，并记录元数据到会话中。
-    
+
     Args:
         file: 上传的文件
         bucket: 存储桶名称
         conv_uid: 会话ID，用于关联文件到会话
         message_id: 消息ID，用于关联文件到特定消息
-        
+
     Returns:
         文件信息，包括URI、预览URL等
     """
@@ -62,10 +62,10 @@ async def list_session_files(
     service: MultimodalService = Depends(get_service),
 ):
     """获取会话中用户上传的文件列表.
-    
+
     Args:
         conv_id: 会话ID
-        
+
     Returns:
         文件列表，包含文件名、类型、预览URL等信息
     """
@@ -81,12 +81,12 @@ async def process_multimodal(
     service: MultimodalService = Depends(get_service),
 ):
     """处理多模态内容，自动匹配合适的模型.
-    
+
     Args:
         text: 文本内容
         file_uris: 文件URI列表，逗号分隔
         preferred_provider: 首选模型提供商
-        
+
     Returns:
         处理后的内容、匹配的模型、文件信息
     """
@@ -106,11 +106,11 @@ async def list_models(
     service: MultimodalService = Depends(get_service),
 ):
     """列出支持的多模态模型.
-    
+
     Args:
         capability: 按能力筛选 (image_input, audio_input, video_input等)
         provider: 按提供商筛选 (openai, anthropic, alibaba, google等)
-        
+
     Returns:
         模型列表
     """
@@ -125,32 +125,34 @@ async def match_model(
     service: MultimodalService = Depends(get_service),
 ):
     """根据媒体类型匹配合适的模型.
-    
+
     Args:
         media_types: 媒体类型列表，逗号分隔 (image, audio, video, document)
         preferred_provider: 首选提供商
-        
+
     Returns:
         匹配的模型信息
     """
     from ..model_matcher import MediaType
-    
+
     types = [MediaType(t.strip()) for t in media_types.split(",") if t.strip()]
     model_info = service.model_matcher.match_model_for_media_types(
         media_types=types,
         preferred_provider=preferred_provider,
     )
-    
+
     if model_info:
-        return Result.succ({
-            "model_name": model_info.model_name,
-            "provider": model_info.provider,
-            "capabilities": [c.value for c in model_info.capabilities],
-        })
+        return Result.succ(
+            {
+                "model_name": model_info.model_name,
+                "provider": model_info.provider,
+                "capabilities": [c.value for c in model_info.capabilities],
+            }
+        )
     return Result.failed(msg="No matching model found")
 
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     global global_system_app
     global_system_app = system_app
-    system_app.register(MultimodalService, config=config)
+    # MultimodalService is registered in serve.py after_init method

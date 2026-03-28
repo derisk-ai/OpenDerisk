@@ -500,35 +500,37 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         session.close()
         return result
 
-    def sync_app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
-        session = self.dao.get_raw_session()
-        try:
-            app_qry = session.query(ServeEntity)
+    async def async_app_list(
+        self, query: GptsAppQuery, parse_llm_strategy: bool = False
+    ):
+        """Asynchronous version of app_list using SQLAlchemy 2.0 async API"""
+        from sqlalchemy import select, func
+        from sqlalchemy.orm import selectinload
+
+        async with self.dao.a_session(commit=False) as session:
+            # Build the base query
+            stmt = select(ServeEntity)
+
             if query.name_filter:
-                app_qry = app_qry.filter(
-                    ServeEntity.app_name.like(f"%{query.name_filter}%")
-                )
+                stmt = stmt.where(ServeEntity.app_name.like(f"%{query.name_filter}%"))
+
             if not (query.ignore_user and query.ignore_user.lower() == "true"):
                 if query.user_code:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.user_code == query.user_code,
                             ServeEntity.admins.like(f"%{query.user_code}%"),
                         )
                     )
                 if query.sys_code:
-                    app_qry = app_qry.filter(ServeEntity.sys_code == query.sys_code)
+                    stmt = stmt.where(ServeEntity.sys_code == query.sys_code)
+
             if query.team_mode:
-                app_qry = app_qry.filter(ServeEntity.team_mode == query.team_mode)
-            # if query.is_collected and query.is_collected.lower() in ("true", "false"):
-            #     app_qry = app_qry.filter(ServeEntity.app_code.in_(app_codes))
-            # if query.is_recent_used and query.is_recent_used.lower() == "true":
-            #     app_qry = app_qry.filter(ServeEntity.app_code.in_(recent_app_codes))
+                stmt = stmt.where(ServeEntity.team_mode == query.team_mode)
+
             if query.published is not None:
-                # Database may store published as integer (0/1) or string ("false"/"true")
-                # Support both formats for compatibility
                 if query.published:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.published == "true",
                             ServeEntity.published == "1",
@@ -536,43 +538,40 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         )
                     )
                 else:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.published == "false",
                             ServeEntity.published == "0",
                             ServeEntity.published == 0,
                         )
                     )
+
             if query.app_codes:
-                app_qry = app_qry.filter(ServeEntity.app_code.in_(query.app_codes))
-            total_count = app_qry.count()
-            app_qry = app_qry.order_by(ServeEntity.id.desc())
-            app_qry = app_qry.offset((query.page - 1) * query.page_size).limit(
+                stmt = stmt.where(ServeEntity.app_code.in_(query.app_codes))
+
+            # Get total count
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total_count_result = await session.execute(count_stmt)
+            total_count = total_count_result.scalar()
+
+            # Apply ordering and pagination
+            stmt = stmt.order_by(ServeEntity.id.desc())
+            stmt = stmt.offset((query.page - 1) * query.page_size).limit(
                 query.page_size
             )
 
-            results = app_qry.all()
-        finally:
-            session.close()
+            # Execute query
+            result = await session.execute(stmt)
+            results = result.scalars().all()
 
+        # Build response (this part doesn't need DB access)
         if results is not None:
-            # result_app_codes = [res.app_code for res in results]
-            # app_details_group = self._group_app_details(result_app_codes, session)
-            # app_question_group = self._group_app_questions(result_app_codes, session)
             apps: List = []
-
             for app_entity in results:
                 app_info = self.dao.to_response(app_entity)
                 apps.append(app_info)
-            app_resp = GptsAppResponse()
 
-            # apps = sorted(
-            #     apps,
-            #     key=lambda obj: (
-            #         float("-inf") if obj.hot_value is None else obj.hot_value
-            #     ),
-            #     reverse=True,
-            # )
+            app_resp = GptsAppResponse()
             app_resp.total_count = total_count
             app_resp.app_list = apps
             app_resp.current_page = query.page
@@ -580,8 +579,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_resp.total_page = (total_count + query.page_size - 1) // query.page_size
             return app_resp
 
+        return GptsAppResponse()
+
     async def app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
-        return self.sync_app_list(query, parse_llm_strategy)
+        return await self.async_app_list(query, parse_llm_strategy)
 
     def app_to_details(
         self, main_app_code: str, main_app_name: str, app_codes: List[str]
@@ -686,10 +687,17 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         specify_config_code: Optional[str] = None,
         building_mode: bool = True,
     ) -> Optional[ServerResponse]:
+        import time
+        _total_start = time.time()
+        
         logger.info(
             f"[APP_DETAIL] get_app_detail: app_code={app_code}, specify_config_code={specify_config_code}, building_mode={building_mode}"
         )
+        
+        _step_start = time.time()
         app_resp = self.dao.get_one({"app_code": app_code})
+        logger.info(f"[APP_DETAIL][PERF] 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms")
+        
         if not app_resp:
             raise ValueError(f"应用不存在[{app_code}]")
 

@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional, BinaryIO
 
-from derisk.component import SystemApp
+from derisk.component import SystemApp, LifeCycle
 from derisk.core.interface.file import FileStorageClient
 from derisk.core.interface.media import MediaContent
 
@@ -18,13 +18,15 @@ logger = logging.getLogger(__name__)
 USER_UPLOAD_FILE_TYPE = "user_upload"
 
 
-class MultimodalService:
+class MultimodalService(LifeCycle):
     """Multimodal service for handling multi-modal content.
 
     集成文件存储、元数据管理和模型匹配功能。
     用户上传的文件会被记录到 AgentFileMetadata 系统中，
     以便在对话历史和 Agent 消息系统中可查看。
     """
+
+    name = SERVE_SERVICE_COMPONENT_NAME
 
     def __init__(self, system_app: SystemApp, config: ServeConfig):
         self.system_app = system_app
@@ -43,6 +45,7 @@ class MultimodalService:
             return self._file_serve
         try:
             from derisk_serve.file.serve import Serve as FileServe
+
             self._file_serve = FileServe.get_instance(self.system_app)
             return self._file_serve
         except Exception as e:
@@ -55,6 +58,7 @@ class MultimodalService:
             return self._file_metadata_storage
         try:
             from derisk.agent.core.memory.gpts import GptsMemory
+
             gpts_memory = GptsMemory.get_instance(self.system_app)
             if gpts_memory:
                 self._file_metadata_storage = gpts_memory
@@ -73,9 +77,7 @@ class MultimodalService:
             self._file_storage_client = file_serve.file_storage_client
             return self._file_storage_client
 
-        client = FileStorageClient.get_instance(
-            self.system_app, default_component=None
-        )
+        client = FileStorageClient.get_instance(self.system_app, default_component=None)
         if client:
             self._file_storage_client = client
             return client
@@ -98,7 +100,8 @@ class MultimodalService:
             self._model_matcher = MultimodalModelMatcher(
                 default_text_model=self.config.default_text_model or "gpt-4o-mini",
                 default_image_model=self.config.default_image_model or "gpt-4o",
-                default_audio_model=self.config.default_audio_model or "qwen-audio-turbo",
+                default_audio_model=self.config.default_audio_model
+                or "qwen-audio-turbo",
                 default_video_model=self.config.default_video_model or "qwen-vl-max",
             )
         return self._model_matcher
@@ -120,7 +123,7 @@ class MultimodalService:
         custom_metadata: Optional[Dict[str, Any]] = None,
     ) -> MultimodalFileInfo:
         """Upload a file and return file info.
-        
+
         Args:
             file_name: 文件名
             file_data: 文件数据
@@ -147,7 +150,7 @@ class MultimodalService:
                 custom_metadata=custom_metadata,
             )
         )
-        
+
         if conv_id:
             loop.run_until_complete(
                 self._save_file_metadata(
@@ -156,7 +159,7 @@ class MultimodalService:
                     message_id=message_id,
                 )
             )
-        
+
         return file_info
 
     async def _save_file_metadata(
@@ -170,15 +173,15 @@ class MultimodalService:
         if not metadata_storage:
             logger.debug("FileMetadataStorage not available, skip saving metadata")
             return
-        
+
         try:
             from derisk.agent.core.memory.gpts import AgentFileMetadata, FileType
-            
+
             import uuid
             from datetime import datetime
-            
+
             public_url = self.replace_uri(file_info.uri)
-            
+
             file_metadata = AgentFileMetadata(
                 file_id=file_info.file_id or str(uuid.uuid4().hex),
                 conv_id=conv_id,
@@ -205,10 +208,12 @@ class MultimodalService:
                 mime_type=file_info.mime_type,
                 message_id=message_id,
             )
-            
+
             await metadata_storage.save_file_metadata(file_metadata)
-            logger.info(f"Saved file metadata for {file_info.file_name} in conv {conv_id}")
-            
+            logger.info(
+                f"Saved file metadata for {file_info.file_name} in conv {conv_id}"
+            )
+
         except Exception as e:
             logger.warning(f"Failed to save file metadata: {e}")
 
@@ -217,17 +222,17 @@ class MultimodalService:
         conv_id: str,
     ) -> List[Dict[str, Any]]:
         """列出会话中用户上传的文件.
-        
+
         Args:
             conv_id: 会话ID
-            
+
         Returns:
             文件信息列表
         """
         metadata_storage = self._get_file_metadata_storage()
         if not metadata_storage:
             return []
-        
+
         try:
             files = await metadata_storage.list_files(conv_id, USER_UPLOAD_FILE_TYPE)
             return [f.to_dict() for f in files]
@@ -315,9 +320,7 @@ class MultimodalService:
             replace_uri_func=self.replace_uri,
         )
 
-        matched_model = self.match_model_for_content(
-            media_contents, preferred_provider
-        )
+        matched_model = self.match_model_for_content(media_contents, preferred_provider)
 
         return {
             "content": media_contents,
@@ -349,21 +352,19 @@ class MultimodalService:
                 model_infos = [m for m in model_infos if m.provider == provider]
 
         for model_info in model_infos:
-            models.append({
-                "model_name": model_info.model_name,
-                "provider": model_info.provider,
-                "capabilities": [cap.value for cap in model_info.capabilities],
-                "context_length": model_info.context_length,
-                "max_output_tokens": model_info.max_output_tokens,
-                "priority": model_info.priority,
-            })
+            models.append(
+                {
+                    "model_name": model_info.model_name,
+                    "provider": model_info.provider,
+                    "capabilities": [cap.value for cap in model_info.capabilities],
+                    "context_length": model_info.context_length,
+                    "max_output_tokens": model_info.max_output_tokens,
+                    "priority": model_info.priority,
+                }
+            )
 
         return models
 
     @classmethod
-    def get_instance(
-        cls, system_app: SystemApp
-    ) -> Optional["MultimodalService"]:
-        return system_app.get_component(
-            SERVE_SERVICE_COMPONENT_NAME, MultimodalService
-        )
+    def get_instance(cls, system_app: SystemApp) -> Optional["MultimodalService"]:
+        return system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, MultimodalService)

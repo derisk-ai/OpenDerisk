@@ -1,6 +1,7 @@
 """This is an auto-generated model file
 You can define your own models and DAOs here
 """
+
 import json
 import uuid
 from datetime import datetime
@@ -40,7 +41,7 @@ class ServeEntity(Model):
         Text,
         nullable=True,
         comment="The execution logic and team member content that teams with different"
-                " working modes rely on",
+        " working modes rely on",
     )
     config_code = Column(String(255), nullable=True, comment="app config code")
     config_version = Column(String(255), nullable=True, comment="app config version")
@@ -65,9 +66,17 @@ class ServeEntity(Model):
         comment="last update time",
     )
     admins = Column(Text, nullable=True, comment="administrators")
-    agent_version = Column(String(32), nullable=True, default="v1", comment="agent version: v1 or v2")
+    agent_version = Column(
+        String(32), nullable=True, default="v1", comment="agent version: v1 or v2"
+    )
 
-    __table_args__ = (UniqueConstraint("app_name", name="uk_gpts_app"),)
+    __table_args__ = (
+        UniqueConstraint("app_name", name="uk_gpts_app"),
+        Index("idx_gpts_app_user_code", "user_code"),
+        Index("idx_gpts_app_published", "published"),
+        Index("idx_gpts_app_user_published", "user_code", "published"),
+        Index("idx_gpts_app_team_mode", "team_mode"),
+    )
 
     def __repr__(self):
         return (
@@ -91,7 +100,6 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             res = self.get_one({"app_code": entry.app_code})
             return res  # type: ignore
 
-
     def from_request(self, request: Union[ServeRequest, Dict[str, Any]]) -> ServeEntity:
         """Convert the request to an entity
 
@@ -101,7 +109,6 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             T: The entity
         """
-
 
         if isinstance(request, ServeRequest):
             entity = ServeEntity(  # type: ignore
@@ -118,26 +125,24 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 updated_at=datetime.now(),
                 icon=request.icon,
                 published=request.published,
-                agent_version=getattr(request, 'agent_version', 'v1') or 'v1',
-
+                agent_version=getattr(request, "agent_version", "v1") or "v1",
             )  # type: ignore
         else:
             request_dict = {
                 "app_code": request.get("app_code") or uuid.uuid4().hex,
-                "app_name": request.get('app_name'),
-                "app_hub_code": request.get('app_hub_code'),
-                "team_mode": request.get('team_mode'),
-                "app_describe": request.get('app_describe'),
-                "config_code": request.get('config_code'),
-                "language": request.get('language', "zh"),
-                "user_code": request.get('user_code'),
-                "sys_code": request.get('sys_code'),
-                "created_at": request.get('created_at'),
-                "updated_at": request.get('updated_at'),
-                "icon": request.get('icon'),
+                "app_name": request.get("app_name"),
+                "app_hub_code": request.get("app_hub_code"),
+                "team_mode": request.get("team_mode"),
+                "app_describe": request.get("app_describe"),
+                "config_code": request.get("config_code"),
+                "language": request.get("language", "zh"),
+                "user_code": request.get("user_code"),
+                "sys_code": request.get("sys_code"),
+                "created_at": request.get("created_at"),
+                "updated_at": request.get("updated_at"),
+                "icon": request.get("icon"),
                 "published": request.get("published", False),
-                "agent_version": request.get('agent_version', 'v1'),
-
+                "agent_version": request.get("agent_version", "v1"),
             }
             entity = ServeEntity(**request_dict)
         return entity
@@ -155,6 +160,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         gmt_modified_str = entity.updated_at.strftime("%Y-%m-%d %H:%M:%S")
 
         from derisk_serve.building.config.models.models import _load_team_context
+
         return ServeRequest.from_dict(
             {
                 "app_code": entity.app_code,
@@ -166,25 +172,25 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
                 "config_code": entity.config_code,
                 "config_version": entity.config_version,
                 "team_context": _load_team_context(
-                    entity.team_mode, entity.team_context, getattr(entity, 'agent_version', 'v1')       # type: ignore
+                    entity.team_mode,
+                    entity.team_context,
+                    getattr(entity, "agent_version", "v1"),  # type: ignore
                 ),
                 "user_code": entity.user_code,
                 "icon": entity.icon,
                 "sys_code": entity.sys_code,
-                "is_collected":  "false",
+                "is_collected": "false",
                 "created_at": entity.created_at,
                 "updated_at": entity.updated_at,
                 "details": [],
                 "published": entity.published,
                 "param_need": (
-                    json.loads(entity.param_need) if entity.param_need else None    # type: ignore
+                    json.loads(entity.param_need) if entity.param_need else None  # type: ignore
                 ),
                 "hot_value": 0,
                 "owner_name": entity.user_code,
-
                 "admins": [],
-                "agent_version": getattr(entity, 'agent_version', 'v1') or 'v1',
-
+                "agent_version": getattr(entity, "agent_version", "v1") or "v1",
                 # "keep_start_rounds": app_info.keep_start_rounds,
                 # "keep_end_rounds": app_info.keep_end_rounds,
             }

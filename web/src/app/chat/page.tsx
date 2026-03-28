@@ -306,7 +306,7 @@ export default function Chat() {
         // Handle multiple file resources
         const fileResources = initMessage.resources || (initMessage.resource ? [initMessage.resource] : []);
         
-        if (fileResources.length > 0) {
+if (fileResources.length > 0) {
             const resourceParamIndex = finalChatInParams.findIndex(p => p.param_type === 'resource');
             const resourceLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'resource');
             
@@ -317,18 +317,18 @@ export default function Chat() {
                     param_value: JSON.stringify(fileResources)
                 };
                 finalChatInParams = newParams;
-            } else if (resourceLayout) {
+            } else {
                 finalChatInParams = [
                     ...finalChatInParams,
                     {
                         param_type: 'resource',
                         param_value: JSON.stringify(fileResources),
-                        sub_type: resourceLayout.sub_type || 'common_file'
+                        sub_type: resourceLayout?.sub_type || 'common_file'
                     }
                 ];
             }
             
-setResourceValue(fileResources);
+ setResourceValue(fileResources);
         }
         
         // Handle skills - convert to chat_in_params format

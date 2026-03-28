@@ -184,9 +184,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         query_request = request
         return self.dao.get_list(query_request)
 
-
     def get_list_by_page(
-        self, request: ServeRequest, page: int, page_size: int, filter: Optional[str] = None
+        self,
+        request: ServeRequest,
+        page: int,
+        page_size: int,
+        filter: Optional[str] = None,
     ) -> PaginationResult[ServerResponse]:
         """Get a list of Conversation entities by page
 
@@ -201,10 +204,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         import asyncio
         import concurrent.futures
         from derisk.storage.unified_message_dao import UnifiedMessageDAO
-        
+
         try:
             unified_dao = UnifiedMessageDAO()
-            
+
             def _run_async():
                 loop = asyncio.new_event_loop()
                 try:
@@ -214,7 +217,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                             sys_code=request.sys_code,
                             filter_text=filter,
                             page=page,
-                            page_size=page_size
+                            page_size=page_size,
                         )
                     )
                 finally:
@@ -223,7 +226,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(_run_async)
                 result = future.result(timeout=30)
-            
+
             items = [
                 ServerResponse(
                     conv_uid=item.conv_id,
@@ -232,12 +235,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     app_code=item.app_code,
                     user_name=item.user_id,
                     sys_code=request.sys_code,
-                    gmt_created=item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else None,
-                    gmt_modified=item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else None,
+                    gmt_created=item.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if item.created_at
+                    else None,
+                    gmt_modified=item.updated_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if item.updated_at
+                    else None,
                 )
                 for item in result["items"]
             ]
-            
+
             return PaginationResult(
                 items=items,
                 total_count=result["total_count"],
@@ -246,12 +253,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 page_size=result["page_size"],
             )
         except Exception as e:
-            logger.warning(f"Failed to use unified list_conversations, fallback to v1: {e}")
+            logger.warning(
+                f"Failed to use unified list_conversations, fallback to v1: {e}"
+            )
             if filter:
                 additional_filters = [ServeEntity.summary.like(f"%{filter}%")]
             else:
                 additional_filters = None
-            return self.dao.get_conv_by_page(request, page, page_size, additional_filters=additional_filters)
+            return self.dao.get_conv_by_page(
+                request, page, page_size, additional_filters=additional_filters
+            )
 
     def get_history_messages(
         self, request: Union[ServeRequest, Dict[str, Any]]
@@ -267,15 +278,21 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         # ===== 统一消息读取策略 =====
         # 先尝试从gpts_messages读取（Core V2）
         # 如果没有，再从chat_history读取（Core V1）
-        
-        conv_uid = request.conv_uid if isinstance(request, ServeRequest) else request.get('conv_uid')
-        
+
+        conv_uid = (
+            request.conv_uid
+            if isinstance(request, ServeRequest)
+            else request.get("conv_uid")
+        )
+
         # 1. 尝试从gpts_messages读取（Core V2）
         messages_v2 = self._get_messages_from_gpts(conv_uid)
         if messages_v2:
-            logger.info(f"Loaded {len(messages_v2)} messages from gpts_messages for conv {conv_uid}")
+            logger.info(
+                f"Loaded {len(messages_v2)} messages from gpts_messages for conv {conv_uid}"
+            )
             return messages_v2
-        
+
         # 2. 回退到从chat_history读取（Core V1）
         from ...file.serve import Serve as FileServe
 
@@ -284,7 +301,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         conv: StorageConversation = self.create_storage_conv(request)
         result = []
         messages = _append_view_messages(conv.messages)
-        
+
         if not messages:
             logger.warning(f"No messages found for conv {conv_uid}")
             return []
@@ -305,20 +322,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             result.append(
                 MessageVo(
                     role=msg.type,
-                    context= msg.get_view_markdown_text(file_serve.replace_uri),
+                    context=msg.get_view_markdown_text(file_serve.replace_uri),
                     order=msg.round_index,
                     model_name=self.config.default_model,
                     feedback=feedback,
                 )
             )
         return result
-    
+
     def _get_messages_from_gpts(self, conv_uid: str) -> List[MessageVo]:
         """从gpts_messages表读取消息（Core V2）
-        
+
         Args:
             conv_uid: 对话ID
-            
+
         Returns:
             MessageVo列表，如果没有消息返回空列表
         """
@@ -326,32 +343,35 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             from derisk.storage.unified_message_dao import UnifiedMessageDAO
             from derisk.core.interface.message import _append_view_messages
             import asyncio
-            
+
             unified_dao = UnifiedMessageDAO()
-            
-            # 异步获取消息
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+
+            async def _get_messages():
+                return await unified_dao.get_messages_by_conv_id(conv_uid)
+
             try:
-                unified_messages = loop.run_until_complete(
-                    unified_dao.get_messages_by_conv_id(conv_uid)
-                )
-            finally:
-                loop.close()
-            
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(_get_messages(), loop)
+                    unified_messages = future.result(timeout=30)
+                else:
+                    unified_messages = loop.run_until_complete(_get_messages())
+            except RuntimeError:
+                unified_messages = asyncio.run(_get_messages())
+
             if not unified_messages:
                 return []
-            
+
             # 转换为BaseMessage格式
             base_messages = []
             for unified_msg in unified_messages:
                 base_msg = unified_msg.to_base_message()
                 base_msg.round_index = unified_msg.rounds
                 base_messages.append(base_msg)
-            
+
             # 添加ViewMessage
             messages_with_view = _append_view_messages(base_messages)
-            
+
             # 转换为MessageVo
             result = []
             for msg in messages_with_view:
@@ -364,9 +384,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         feedback={},
                     )
                 )
-            
+
             return result
-            
+
         except Exception as e:
             logger.warning(f"Failed to read from gpts_messages: {e}")
             return []
