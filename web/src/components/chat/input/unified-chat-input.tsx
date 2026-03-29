@@ -409,7 +409,14 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       );
       
       if (err) {
-        setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+        // 更新状态为错误，保留文件卡片
+        setUploadingFiles(prev => 
+          prev.map(f => 
+            f.id === uploadId 
+              ? { ...f, status: 'error', error: err?.message || t('upload_failed', '上传失败') }
+              : f
+          )
+        );
         message.error(t('upload_failed', '上传失败'));
         console.error('Upload error:', err);
         return;
@@ -527,9 +534,16 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         
         message.success(t('upload_success', '上传成功'));
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
-      setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+      // 更新状态为错误，保留文件卡片
+      setUploadingFiles(prev => 
+        prev.map(f => 
+          f.id === uploadId 
+            ? { ...f, status: 'error', error: error?.message || t('upload_failed', '上传失败') }
+            : f
+        )
+      );
       message.error(t('upload_failed', '上传失败'));
     }
   }, [chatId, scene, selectedModel, modelValue, temperatureValue, maxNewTokensValue, resourceConfig, extendedChatInParams, setChatInParams, setResourceValue, resourceValue]);
@@ -785,14 +799,15 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
             const theme = getFileTypeTheme(fileName);
             const FileIcon = getFileIcon(fileName);
             const isImage = uploadingFile.file.type.startsWith('image/');
+            const isError = uploadingFile.status === 'error';
             
             return (
               <div
                 key={uploadingFile.id}
                 className="relative group"
               >
-                {/* 正方形卡片 - 带上传进度遮罩 */}
-                <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm ${theme.border} relative`}>
+                {/* 正方形卡片 */}
+                <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm ${isError ? 'border-red-300' : theme.border} relative`}>
                   {isImage ? (
                     <img 
                       src={URL.createObjectURL(uploadingFile.file)} 
@@ -805,18 +820,34 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
                     </div>
                   )}
                   
-                  {/* 上传进度遮罩 - 简单的加载动画 */}
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <LoadingOutlined className="text-white text-lg" spin />
-                  </div>
+                  {/* 上传中遮罩 */}
+                  {uploadingFile.status === 'uploading' && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <LoadingOutlined className="text-white text-lg" spin />
+                    </div>
+                  )}
+                  
+                  {/* 错误遮罩 */}
+                  {isError && (
+                    <div className="absolute inset-0 bg-red-500/80 flex flex-col items-center justify-center cursor-pointer"
+                      onClick={() => {
+                        // 重试上传
+                        setUploadingFiles(prev => prev.filter(f => f.id !== uploadingFile.id));
+                        handleFileUpload(uploadingFile.file);
+                      }}
+                    >
+                      <CloseOutlined className="text-white text-lg mb-1" />
+                      <span className="text-white text-[10px]">{t('retry', '重试')}</span>
+                    </div>
+                  )}
                 </div>
                 {/* 文件名 */}
                 <div className="mt-1 max-w-[60px]">
-                  <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                  <p className={`text-xs truncate ${isError ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`}>
                     {fileName}
                   </p>
                 </div>
-                {/* 取消上传按钮 */}
+                {/* 删除按钮 */}
                 <button
                   onClick={() => handleDeleteUploading(uploadingFile.id)}
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shadow hover:bg-red-50 hover:border-red-300 hover:text-red-500"
