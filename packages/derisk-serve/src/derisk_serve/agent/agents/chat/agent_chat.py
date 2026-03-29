@@ -1743,12 +1743,23 @@ class AgentChat(BaseComponent, ABC):
             FileDispatchType,
         )
         from derisk.core.interface.media import MediaContent
+        from derisk.core.interface.file import FileStorageClient
+
+        # 获取 FileStorageClient 实例
+        file_storage_client = None
+        try:
+            file_storage_client = FileStorageClient.get_instance(
+                self.system_app, default_component=None
+            )
+        except Exception as e:
+            logger.debug(f"FileStorageClient not available: {e}")
 
         media_contents, file_infos = await process_uploaded_files(
             file_resources=file_resources,
             conv_id=conv_id,
             sandbox_client=sandbox_client,
             system_app=self.system_app,
+            file_storage_client=file_storage_client,
         )
 
         if not media_contents:
@@ -1946,7 +1957,7 @@ class AgentChat(BaseComponent, ABC):
             try:
                 error_msg = {
                     "type": "error",
-                    "content": f"对话发生错误: {str(e)}",
+                    "content": f"[ERROR]对话发生错误: {str(e)}[/ERROR]",
                     "error_detail": error_trace,
                 }
                 await self.memory.push_message(
