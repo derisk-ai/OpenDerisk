@@ -559,12 +559,13 @@ async def chat_completions(
         logger.exception(f"Chat Exception!{dialogue}", e)
 
         async def error_text(err_msg):
-            yield f"data:{err_msg}\n\n"
+            error_content = json.dumps({"vis": f"[ERROR]{str(e)}[/ERROR]"}, ensure_ascii=False)
+            yield f"data:{error_content}\n\n"
 
         return StreamingResponse(
             error_text(str(e)),
             headers=headers,
-            media_type="text/plain",
+            media_type="text/event-stream",
         )
     finally:
         if dialogue.user_name is not None and dialogue.app_code is not None:
