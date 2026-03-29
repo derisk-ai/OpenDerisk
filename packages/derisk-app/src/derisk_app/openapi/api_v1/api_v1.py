@@ -254,6 +254,7 @@ async def file_upload(
             "file_id": file_id,
             "file_learning": False,
             "bucket": bucket,
+            "preview_url": fs.get_public_url(file_uri),
         }
         file_params.append(file_param)
 

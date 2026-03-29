@@ -41,6 +41,7 @@ import { IChatDialogueMessageSchema, UserChatContent } from '@/types/chat';
 import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layout-config';
 import { parseResourceValue, transformFileUrl } from '@/utils';
 import { useSearchParams } from 'next/navigation';
+import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
 
 const { Panel } = Collapse;
 
@@ -50,6 +51,14 @@ interface ChatInLayoutItem {
   param_description?: string;
   param_default_value?: string | number;
   [key: string]: unknown;
+}
+
+interface UploadingFile {
+  id: string;
+  file: File;
+  progress: number;
+  status: 'uploading' | 'success' | 'error';
+  error?: string;
 }
 
 interface ChatInParamItem {
@@ -67,8 +76,14 @@ interface ResourceOptionItem {
 
 interface ParsedResourceItem {
   type: string;
-  image_url?: { url: string; file_name?: string };
-  file_url?: { url: string; file_name?: string };
+  image_url?: { url: string; preview_url?: string; file_name?: string };
+  file_url?: { url: string; preview_url?: string; file_name?: string };
+  audio_url?: { url: string; preview_url?: string; file_name?: string };
+  video_url?: { url: string; preview_url?: string; file_name?: string };
+  file_name?: string;
+  file_path?: string;
+  url?: string;
+  preview_url?: string;
 }
 
 const getAcceptTypes = (type: string) => {
@@ -238,6 +253,9 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   const [isModelOpen, setIsModelOpen] = useState(false);
   const [isParamsModalOpen, setIsParamsModalOpen] = useState(false);
   
+  // 上传中的文件列表
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+  
   // 动态资源选择相关
   const [resourceOptions, setResourceOptions] = useState<{ label: string; value: string; [key: string]: unknown }[]>([]);
   const searchParams = useSearchParams();
@@ -355,38 +373,166 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     setChatInParams(newChatInParams);
   }, [resourceConfig, resourceOptions, extendedChatInParams, setResourceValue, setChatInParams]);
 
-  // 处理文件上传
+  // 处理多文件上传 - 保持与 parseResourceValue 兼容的格式
   const handleFileUpload = useCallback(async (file: File) => {
+    // 生成唯一ID
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    
+    // 立即添加到上传列表，显示卡片
+    const uploadingFile: UploadingFile = {
+      id: uploadId,
+      file,
+      progress: 0,
+      status: 'uploading',
+    };
+    setUploadingFiles(prev => [...prev, uploadingFile]);
+    
     const formData = new FormData();
     formData.append('doc_files', file);
 
-    const [, res] = await apiInterceptors(
-      postChatModeParamsFileLoad({
-        convUid: chatId || '',
-        chatMode: scene || 'chat_normal',
-        data: formData,
-        model: modelValue,
-        temperatureValue,
-        maxNewTokensValue,
-        config: {
-          timeout: 1000 * 60 * 60,
-        },
-      }),
-    );
-    
-    if (res) {
-      const newChatInParams = [
-        ...extendedChatInParams,
-        {
-          param_type: 'resource',
-          param_value: JSON.stringify(res),
-          sub_type: resourceConfig?.sub_type || 'common_file',
-        },
-      ];
-      setChatInParams(newChatInParams);
-      setResourceValue(res);
+    // 使用本地选择的模型，如果没有则使用 modelValue
+    const currentModel = selectedModel || modelValue || '';
+
+    try {
+      const [err, res] = await apiInterceptors(
+        postChatModeParamsFileLoad({
+          convUid: chatId || '',
+          chatMode: scene || 'chat_normal',
+          data: formData,
+          model: currentModel,
+          temperatureValue,
+          maxNewTokensValue,
+          config: {
+            timeout: 1000 * 60 * 60,
+          },
+        }),
+      );
+      
+      if (err) {
+        setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+        message.error(t('upload_failed', '上传失败'));
+        console.error('Upload error:', err);
+        return;
+      }
+      
+      console.log('Upload response:', res);
+      
+      if (res) {
+        // 移除上传中的文件
+        setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+        
+        // 获取当前资源列表
+        const currentResources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
+        
+        // 判断是图片还是文件
+        const isImage = file.type.startsWith('image/');
+        const isAudio = file.type.startsWith('audio/');
+        const isVideo = file.type.startsWith('video/');
+        
+        // 处理返回的URL - 优先使用 preview_url
+        let fileUrl = '';
+        let previewUrl = '';
+        
+        // 格式1: res.data.preview_url (预览URL) 和 res.data.file_path (文件路径)
+        if (res.data?.preview_url) {
+          previewUrl = res.data.preview_url;
+          fileUrl = res.data.file_path || previewUrl;
+        }
+        // 格式2: res.data.file_path
+        else if (res.data?.file_path) {
+          fileUrl = res.data.file_path;
+          previewUrl = transformFileUrl(fileUrl);
+        }
+        // 格式3: res.url 或 res.file_url
+        else if (res.url || res.file_url) {
+          fileUrl = res.url || res.file_url;
+          previewUrl = fileUrl;
+        }
+        // 格式4: res.path
+        else if (res.path) {
+          fileUrl = res.path;
+          previewUrl = transformFileUrl(fileUrl);
+        }
+        // 格式5: 直接是字符串
+        else if (typeof res === 'string') {
+          fileUrl = res;
+          previewUrl = res;
+        }
+        // 格式6: 数组
+        else if (Array.isArray(res)) {
+          const firstRes = res[0];
+          previewUrl = firstRes?.data?.preview_url || '';
+          fileUrl = firstRes?.data?.file_path || firstRes?.data?.preview_url || previewUrl;
+          if (!previewUrl && fileUrl) {
+            previewUrl = transformFileUrl(fileUrl);
+          }
+        }
+        
+        console.log('File URL:', fileUrl, 'Preview URL:', previewUrl);
+        
+        let newResourceItem;
+        if (isImage) {
+          newResourceItem = {
+            type: 'image_url',
+            image_url: {
+              url: fileUrl,
+              preview_url: previewUrl || fileUrl,
+              file_name: file.name,
+            },
+          };
+        } else if (isAudio) {
+          newResourceItem = {
+            type: 'audio_url',
+            audio_url: {
+              url: fileUrl,
+              preview_url: previewUrl || fileUrl,
+              file_name: file.name,
+            },
+          };
+        } else if (isVideo) {
+          newResourceItem = {
+            type: 'video_url',
+            video_url: {
+              url: fileUrl,
+              preview_url: previewUrl || fileUrl,
+              file_name: file.name,
+            },
+          };
+        } else {
+          newResourceItem = {
+            type: 'file_url',
+            file_url: {
+              url: fileUrl,
+              preview_url: previewUrl || fileUrl,
+              file_name: file.name,
+            },
+          };
+        }
+        
+        console.log('New resource item:', newResourceItem);
+        
+        // 添加到现有资源列表
+        const updatedResources = [...currentResources, newResourceItem];
+        
+        const newChatInParams = [
+          ...extendedChatInParams,
+          {
+            param_type: 'resource',
+            param_value: JSON.stringify(updatedResources),
+            sub_type: resourceConfig?.sub_type || 'common_file',
+          },
+        ];
+        setChatInParams(newChatInParams);
+        setResourceValue(updatedResources as Record<string, unknown>);
+        
+        message.success(t('upload_success', '上传成功'));
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+      message.error(t('upload_failed', '上传失败'));
     }
-  }, [chatId, scene, modelValue, temperatureValue, maxNewTokensValue, resourceConfig, extendedChatInParams, setChatInParams, setResourceValue]);
+  }, [chatId, scene, selectedModel, modelValue, temperatureValue, maxNewTokensValue, resourceConfig, extendedChatInParams, setChatInParams, setResourceValue, resourceValue]);
 
   const groupedModels = useMemo(() => {
     const groups: Record<string, string[]> = {};
@@ -516,20 +662,29 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     </div>
   );
 
-  // 资源文件显示
+  // 资源文件显示 - 支持多文件，优化设计
   const ResourceItemsDisplay = () => {
     const resources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
-    if (resources.length === 0) return null;
+    
+    // 如果没有资源且没有上传中的文件，不显示
+    if (resources.length === 0 && uploadingFiles.length === 0) return null;
 
-    const handleDelete = () => {
-      setResourceValue({} as Record<string, unknown>);
+    const handleDelete = (index: number) => {
+      const newResources = resources.filter((_: unknown, i: number) => i !== index);
+      if (newResources.length === 0) {
+        setResourceValue(null);
+      } else {
+        // 直接存储数组
+        setResourceValue(newResources as Record<string, unknown>);
+      }
+      
       const chatInParamsResource = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
       if (chatInParamsResource && chatInParamsResource?.param_value) {
         const chatInParam = [
           ...extendedChatInParams,
           {
             param_type: 'resource',
-            param_value: '',
+            param_value: newResources.length > 0 ? JSON.stringify(newResources) : '',
             sub_type: resourceConfig?.sub_type,
           },
         ];
@@ -537,58 +692,224 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       }
     };
 
+    const handleDeleteUploading = (id: string) => {
+      setUploadingFiles(prev => prev.filter(f => f.id !== id));
+    };
+
+    // 获取文件类型的颜色主题
+    const getFileTypeTheme = (fileName: string) => {
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
+      const themes: Record<string, { bg: string; border: string; icon: string }> = {
+        // 图片 - 紫色主题
+        jpg: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+        jpeg: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+        png: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+        gif: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+        webp: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+        // PDF - 红色主题
+        pdf: { bg: 'bg-red-50', border: 'border-red-200', icon: 'text-red-500' },
+        // Word - 蓝色主题
+        doc: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-500' },
+        docx: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-500' },
+        // Excel - 绿色主题
+        xls: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+        xlsx: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+        csv: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+        // PPT - 橙色主题
+        ppt: { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'text-orange-500' },
+        pptx: { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'text-orange-500' },
+        // 代码文件 - 青色主题
+        js: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+        ts: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+        py: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+        java: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+        // Markdown - 灰色主题
+        md: { bg: 'bg-gray-50', border: 'border-gray-200', icon: 'text-gray-500' },
+        // 视频 - 粉色主题
+        mp4: { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'text-pink-500' },
+        mov: { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'text-pink-500' },
+        // 音频 - 黄色主题
+        mp3: { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'text-yellow-600' },
+        wav: { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'text-yellow-600' },
+        // 压缩包 - 靛蓝色主题
+        zip: { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+        rar: { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+        '7z': { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+      };
+      return themes[ext] || { bg: 'bg-gray-50', border: 'border-gray-200', icon: 'text-gray-500' };
+    };
+
+    const totalCount = resources.length + uploadingFiles.length;
+
     return (
-      <div className="flex flex-wrap gap-2 mb-3">
-        {resources.map((item: ParsedResourceItem, index: number) => {
-          if (item.type === 'image_url' && item.image_url?.url) {
-            const previewUrl = transformFileUrl(item.image_url.url);
+      <div className="px-4 pt-3 pb-2">
+        {/* 多文件上传标题 - 当有多个文件时显示 */}
+        {totalCount > 1 && (
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center">
+                <FolderAddOutlined className="text-indigo-600 text-xs" />
+              </div>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {t('uploaded_files', '已上传文件')} 
+                <span className="ml-1 text-xs text-gray-500">({totalCount})</span>
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setResourceValue(null);
+                setUploadingFiles([]);
+                const chatInParam = [
+                  ...extendedChatInParams,
+                  {
+                    param_type: 'resource',
+                    param_value: '',
+                    sub_type: resourceConfig?.sub_type,
+                  },
+                ];
+                setChatInParams(chatInParam);
+              }}
+              className="text-xs text-gray-500 hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-full hover:bg-red-50"
+            >
+              <CloseOutlined className="text-xs" />
+              {t('clear_all', '全部清除')}
+            </button>
+          </div>
+        )}
+        
+        {/* 文件列表 - 统一使用大正方形卡片风格 */}
+        <div className="flex flex-wrap gap-3">
+          {/* 上传中的文件 */}
+          {uploadingFiles.map((uploadingFile) => {
+            const fileName = uploadingFile.file.name;
+            const theme = getFileTypeTheme(fileName);
+            const FileIcon = getFileIcon(fileName);
+            const isImage = uploadingFile.file.type.startsWith('image/');
+            
             return (
               <div
-                key={`img-${index}`}
-                className="relative group flex-shrink-0"
+                key={uploadingFile.id}
+                className="relative group"
               >
-                <div className="w-16 h-16 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-gray-50 dark:bg-gray-800">
-                  <img src={previewUrl} alt={item.image_url.file_name || 'Preview'} className="w-full h-full object-cover" />
+                {/* 正方形卡片 - 带上传进度遮罩 */}
+                <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm ${theme.border} relative`}>
+                  {isImage ? (
+                    <img 
+                      src={URL.createObjectURL(uploadingFile.file)} 
+                      alt={fileName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className={`w-full h-full flex items-center justify-center ${theme.bg}`}>
+                      <FileIcon className={`${theme.icon} text-xl`} />
+                    </div>
+                  )}
+                  
+                  {/* 上传进度遮罩 - 简单的加载动画 */}
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <LoadingOutlined className="text-white text-lg" spin />
+                  </div>
                 </div>
+                {/* 文件名 */}
+                <div className="mt-1 max-w-[60px]">
+                  <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                    {fileName}
+                  </p>
+                </div>
+                {/* 取消上传按钮 */}
                 <button
-                  onClick={handleDelete}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-500 hover:bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                  onClick={() => handleDeleteUploading(uploadingFile.id)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shadow hover:bg-red-50 hover:border-red-300 hover:text-red-500"
                 >
-                  <CloseOutlined className="text-white text-xs" />
+                  <CloseOutlined className="text-[10px]" />
                 </button>
               </div>
             );
-          } else if (item.type === 'file_url' && item.file_url?.url) {
-            const fileName = item.file_url.file_name;
+          })}
+          
+          {/* 已上传的文件 */}
+          {resources.map((item: ParsedResourceItem, index: number) => {
+            // 提取文件名和URL
+            let fileName = 'File';
+            let fileUrl = '';
+            let previewUrl = '';
+            let isImage = false;
+            
+            // 先判断类型
+            if (item.type === 'image_url' && item.image_url) {
+              fileName = item.image_url.file_name || 'Image';
+              fileUrl = item.image_url.url || '';
+              // 优先使用 preview_url，否则转换 file_url
+              previewUrl = item.image_url.preview_url || transformFileUrl(fileUrl);
+              isImage = true;
+            } else if (item.type === 'file_url' && item.file_url) {
+              fileName = item.file_url.file_name || 'File';
+              fileUrl = item.file_url.url || '';
+              previewUrl = item.file_url.preview_url || transformFileUrl(fileUrl);
+            } else if (item.type === 'audio_url' && item.audio_url) {
+              fileName = item.audio_url.file_name || 'Audio';
+              fileUrl = item.audio_url.url || '';
+              previewUrl = item.audio_url.preview_url || transformFileUrl(fileUrl);
+            } else if (item.type === 'video_url' && item.video_url) {
+              fileName = item.video_url.file_name || 'Video';
+              fileUrl = item.video_url.url || '';
+              previewUrl = item.video_url.preview_url || transformFileUrl(fileUrl);
+            } else if (item.file_name) {
+              // 兼容旧格式
+              fileName = item.file_name;
+              fileUrl = item.file_path || item.url || '';
+              previewUrl = item.preview_url || transformFileUrl(fileUrl);
+              isImage = /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(fileName);
+            }
+            
+            const theme = getFileTypeTheme(fileName);
+            const FileIcon = getFileIcon(fileName);
             
             return (
               <div
                 key={`file-${index}`}
-                className="relative flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-shadow"
+                className="relative group"
               >
-                {/* 文件图标 */}
-                <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 flex items-center justify-center">
-                  <FileOutlined className="text-blue-500 text-sm" />
+                {/* 正方形卡片 - 图片显示预览，文件显示大图标 */}
+                <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200 ${theme.border}`}>
+                  {isImage && previewUrl ? (
+                    <img 
+                      src={previewUrl} 
+                      alt={fileName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.error('Image load error:', previewUrl);
+                        const target = e.target as HTMLImageElement;
+                        target.onerror = null;
+                        target.style.display = 'none';
+                        if (target.parentElement) {
+                          target.parentElement.innerHTML = `<div class="w-full h-full flex items-center justify-center ${theme.bg}"><span class="text-xl">📷</span></div>`;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className={`w-full h-full flex items-center justify-center ${theme.bg}`}>
+                      <FileIcon className={`${theme.icon} text-xl`} />
+                    </div>
+                  )}
                 </div>
                 {/* 文件名 */}
-                <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[150px] truncate">
-                  {fileName}
-                </span>
+                <div className="mt-1 max-w-[60px]">
+                  <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                    {fileName}
+                  </p>
+                </div>
                 {/* 删除按钮 */}
                 <button
-                  className="ml-1 p-1 rounded-full hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete();
-                  }}
+                  onClick={() => handleDelete(index)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shadow hover:bg-red-50 hover:border-red-300 hover:text-red-500"
                 >
-                  <CloseOutlined className="text-xs" />
+                  <CloseOutlined className="text-[10px]" />
                 </button>
               </div>
             );
-          }
-          return null;
-        })}
+          })}
+        </div>
       </div>
     );
   };
@@ -645,37 +966,50 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     );
   };
 
-  // 拖拽上传处理 - 统一使用 handleFileUpload
+  // 拖拽上传处理 - 支持多文件
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      // 上传第一个文件
-      await handleFileUpload(files[0]);
+      // 上传所有文件
+      for (const file of files) {
+        await handleFileUpload(file);
+      }
     }
   }, [handleFileUpload]);
 
-  // 粘贴上传处理 - 统一使用 handleFileUpload
+  // 粘贴上传处理 - 支持多文件
   const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
 
     if (items) {
+      const files: File[] = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (item.kind === 'file') {
           const file = item.getAsFile();
           if (file) {
-            e.preventDefault();
-            await handleFileUpload(file);
-            break;
+            files.push(file);
           }
+        }
+      }
+      
+      if (files.length > 0) {
+        e.preventDefault();
+        // 批量上传
+        for (const file of files) {
+          await handleFileUpload(file);
         }
       }
     }
   }, [handleFileUpload]);
 
   const onSubmit = async () => {
-    if (!userInput.trim()) return;
+    // 检查是否有输入内容或上传的文件
+    const resources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
+    const hasContent = userInput.trim() || resources.length > 0;
+    
+    if (!hasContent) return;
 
     if (shouldShowResourceSelect) {
       const resourceParam = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
@@ -697,9 +1031,8 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     let newUserInput: UserChatContent;
     const currentResourceConfig = chatInParams.find((i: ChatInParamItem) => i.param_type === 'resource');
     
-    if (MEDIA_RESOURCE_TYPES.includes(currentResourceConfig?.sub_type ?? '')) {
-      const resources = parseResourceValue(resourceValue);
-      const messages: (ParsedResourceItem | { type: string; text: string })[] = [...(resources || [])];
+    if (MEDIA_RESOURCE_TYPES.includes(currentResourceConfig?.sub_type ?? '') || resources.length > 0) {
+      const messages: (ParsedResourceItem | { type: string; text: string })[] = [...resources];
       if (userInput.trim()) {
         messages.push({ type: 'text', text: userInput });
       }
@@ -857,7 +1190,9 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
                 if (e.shiftKey) return;
                 if (isZhInput) return;
                 e.preventDefault();
-                if (!userInput.trim() || replyLoading) return;
+                const resources = resourceValue ? parseResourceValue(resourceValue) || [] : [];
+                const hasContent = userInput.trim() || resources.length > 0;
+                if (!hasContent || replyLoading) return;
                 onSubmit();
               }
             }}
@@ -966,12 +1301,12 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
               shape="circle"
               className={classNames(
                 'w-9 h-9 flex items-center justify-center transition-all !border-0 flex-shrink-0',
-                userInput.trim()
+                (userInput.trim() || (resourceValue && parseResourceValue(resourceValue)?.length > 0))
                   ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 shadow-md hover:shadow-lg'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               )}
               onClick={onSubmit}
-              disabled={!userInput.trim() || replyLoading}
+              disabled={(!userInput.trim() && !(resourceValue && parseResourceValue(resourceValue)?.length > 0)) || replyLoading}
             >
               {replyLoading ? (
                 <Spin indicator={<LoadingOutlined className="text-white text-sm" spin />} />
