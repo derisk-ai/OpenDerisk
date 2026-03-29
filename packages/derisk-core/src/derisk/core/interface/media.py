@@ -576,7 +576,7 @@ class MediaContent:
             elif content.type == MediaContentType.FILE:
                 if content.object.format.startswith("url"):
                     media.append(
-                        f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(str(content.object.data))}" }\n```'
+                        f'```vis-attatch\n{{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(str(content.object.data))}" }}\n```'
                     )
                 else:
                     raise ValueError(

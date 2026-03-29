@@ -1785,7 +1785,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 continue
             for action_out in msg.action_report:
                 # 从output_files获取文件信息
-                output_files = action_out.output_files or []
+                # 兼容两种情况：ActionOutput对象 或 字典（从数据库读取时）
+                if isinstance(action_out, dict):
+                    output_files = action_out.get("output_files") or []
+                else:
+                    output_files = getattr(action_out, "output_files", None) or []
                 if not output_files:
                     continue
 

@@ -862,25 +862,33 @@ class WorkLogManager:
         return "\n".join(lines)
 
     async def _check_and_compress(self):
-        """检查并压缩工作日志（支持自适应触发）"""
+        """检查并压缩工作日志（基于使用率触发）
+
+        改进：
+        - 移除 growth 触发（初始阶段会有误导）
+        - 改为基于使用率触发
+        - 使用率低于阈值不触发压缩
+        """
         current_tokens = self._calculate_total_tokens(self.work_log)
 
         # 自适应触发检查
         self._round_counter += 1
         should_check = self._round_counter % self.config.adaptive_check_interval == 0
 
-        # 检查增长率
-        if should_check and self._last_token_count > 0:
-            growth_rate = (
-                (current_tokens - self._last_token_count) / self._last_token_count
-                if self._last_token_count > 0
-                else 0
-            )
+        # 计算使用率
+        usage_ratio = current_tokens / self.config.context_window
 
-            if growth_rate > self.config.adaptive_growth_threshold:
-                logger.info(
-                    f"🔄 检测到快速增长率 ({growth_rate:.2%})，提前触发压缩检查"
-                )
+        # 使用率低于阈值，空间足够，不触发压缩
+        if should_check and usage_ratio < self.config.prune_min_usage_to_trigger:
+            logger.debug(
+                f"工作日志使用率较低 ({usage_ratio:.1%})，空间充足，跳过压缩检查"
+            )
+            self._last_token_count = current_tokens
+            return
+
+        # 高使用率日志
+        if should_check and usage_ratio >= self.config.prune_trigger_high_usage:
+            logger.info(f"🔥 工作日志高使用率 ({usage_ratio:.1%})，立即触发压缩检查")
 
         self._last_token_count = current_tokens
 
