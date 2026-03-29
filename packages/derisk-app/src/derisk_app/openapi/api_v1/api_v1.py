@@ -426,20 +426,44 @@ async def chat_completions(
                             if media.type == "image" and media.object.format.startswith(
                                 "url"
                             ):
+                                # 从 URL 中提取文件名
+                                url_str = str(media.object.data)
+                                from urllib.parse import urlparse, unquote
+
+                                parsed = urlparse(url_str)
+                                file_name = os.path.basename(unquote(parsed.path))
+                                if not file_name:
+                                    file_name = f"image_{uuid.uuid4().hex[:8]}.jpg"
+
                                 user_inputs.append(
                                     {
                                         "type": "image_url",
-                                        "image_url": {"url": str(media.object.data)},
+                                        "image_url": {
+                                            "url": url_str,
+                                            "file_name": file_name,
+                                        },
                                     }
                                 )
                             elif (
                                 media.type == "file"
                                 and media.object.format.startswith("url")
                             ):
+                                # 从 URL 中提取文件名
+                                url_str = str(media.object.data)
+                                from urllib.parse import urlparse, unquote
+
+                                parsed = urlparse(url_str)
+                                file_name = os.path.basename(unquote(parsed.path))
+                                if not file_name:
+                                    file_name = f"file_{uuid.uuid4().hex[:8]}"
+
                                 user_inputs.append(
                                     {
                                         "type": "file_url",
-                                        "file_url": {"url": str(media.object.data)},
+                                        "file_url": {
+                                            "url": url_str,
+                                            "file_name": file_name,
+                                        },
                                     }
                                 )
 
@@ -453,6 +477,13 @@ async def chat_completions(
                     logger.info(
                         f"[v1/chat] Processed {len(sandbox_file_refs)} files from user input"
                     )
+                    # 打印 sandbox_file_refs 的详细信息
+                    for i, ref in enumerate(sandbox_file_refs):
+                        ref_dict = ref.to_dict() if hasattr(ref, "to_dict") else ref
+                        logger.info(
+                            f"[v1/chat] File {i}: file_name={ref_dict.get('file_name')}, "
+                            f"url={ref_dict.get('url', '')[:80] if ref_dict.get('url') else 'None'}..."
+                        )
 
                     # 注意：不在 API 层构建带路径的消息
                     # 文件路径将在 sandbox 创建后由 agent_chat.py 正确处理

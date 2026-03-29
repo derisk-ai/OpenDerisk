@@ -20,6 +20,7 @@ interface ChatContentProps {
   chartsData: ChartData[];
   agent: string;
   currentDialogue: IChatDialogueSchema;
+  currentConvSessionId: string;
   appInfo: IApp;
   temperatureValue: number;
   maxNewTokensValue: number;
@@ -45,6 +46,7 @@ interface ChatContentProps {
   setAgent: React.Dispatch<React.SetStateAction<string>>;
   setCanAbort: React.Dispatch<React.SetStateAction<boolean>>;
   setReplyLoading: React.Dispatch<React.SetStateAction<boolean>>;
+  setCurrentConvSessionId: React.Dispatch<React.SetStateAction<string>>;
   handleChat: (content: UserChatContent, data?: Record<string, unknown>) => Promise<void>;
   refreshDialogList: () => void;
   refreshHistory: () => void;
@@ -63,6 +65,7 @@ export const ChatContentContext = createContext<ChatContentProps>({
   chartsData: [],
   agent: '',
   currentDialogue: {} as IChatDialogueSchema,
+  currentConvSessionId: '',
   appInfo: {} as IApp,
   temperatureValue: 0.5,
   maxNewTokensValue: 1024,
@@ -80,6 +83,7 @@ export const ChatContentContext = createContext<ChatContentProps>({
   setAgent: () => {},
   setCanAbort: () => {},
   setReplyLoading: () => {},
+  setCurrentConvSessionId: () => {},
   refreshDialogList: () => {},
   refreshHistory: () => {},
   refreshAppInfo: () => {},
