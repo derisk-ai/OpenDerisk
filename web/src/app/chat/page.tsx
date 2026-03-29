@@ -248,6 +248,11 @@ export default function Chat() {
                 }
                 return;
               }
+              // Check if message is interrupt notification
+              if (typeof message === 'object' && message.type === 'interrupt') {
+                // Handle interrupt - just acknowledge it
+                return;
+              }
               if (data?.incremental) {
                 tempHistory[index].context += message;
                 tempHistory[index].thinking = false;
