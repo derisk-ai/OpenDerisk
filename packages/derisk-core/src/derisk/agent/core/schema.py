@@ -1,4 +1,5 @@
 """Schema definition for the agent."""
+
 from __future__ import annotations
 import inspect
 import time
@@ -35,6 +36,7 @@ class Status(Enum):
     FAILED = "failed"
     COMPLETE = "complete"
     BLOCKED = "blocked"
+    INTERRUPTED = "interrupted"
 
 
 class DynamicParamType(Enum):
@@ -55,19 +57,22 @@ class AgentSpaceMode(Enum):
 
 
 class DynamicParam(BaseModel):
-    model_config = ConfigDict(title=f"DynamicParam",
-                              use_enum_values=True,  # 关键配置：自动序列化枚举值为字符串
-                              arbitrary_types_allowed=True,  # 如果 config 包含非基础类型可能需要
-                              )
+    model_config = ConfigDict(
+        title=f"DynamicParam",
+        use_enum_values=True,  # 关键配置：自动序列化枚举值为字符串
+        arbitrary_types_allowed=True,  # 如果 config 包含非基础类型可能需要
+    )
 
     key: str = Field(
         ...,
         description="The dynamic param key.",
     )
-    name: Optional[str] = Field(
-        ...,
-        description="The dynamic param name.",
-    ),
+    name: Optional[str] = (
+        Field(
+            ...,
+            description="The dynamic param name.",
+        ),
+    )
     type: Optional[str] = Field(
         ...,
         description="The dynamic param type.",
@@ -104,8 +109,7 @@ class DynamicParamView(DynamicParam):
         description="Content after dynamic parameter rendering.",
     )
     can_render: bool = Field(
-        True,
-        description="The variable can be rendered as a visual component"
+        True, description="The variable can be rendered as a visual component"
     )
 
 
@@ -123,8 +127,6 @@ class Variable:
             return self.value_func()
         else:
             return self.value_func(self)  # 传递自身实例
-
-
 
 
 class ActionInferenceMetrics(BaseModel):
@@ -164,7 +166,9 @@ class ActionInferenceMetrics(BaseModel):
             ModelInferenceMetrics: The metrics for model inference.
         """
         start_time_ms = last_metrics.start_time_ms if last_metrics else None
-        first_result_time_ms = last_metrics.first_result_time_ms if last_metrics else None
+        first_result_time_ms = (
+            last_metrics.first_result_time_ms if last_metrics else None
+        )
         result_tokens = last_metrics.result_tokens if last_metrics else None
 
         if not start_time_ms:
@@ -174,7 +178,7 @@ class ActionInferenceMetrics(BaseModel):
 
         # 计算速度
         cost_seconds = 0
-        if start_time_ms and end_time_ms :
+        if start_time_ms and end_time_ms:
             cost_seconds = (end_time_ms - start_time_ms) // 1000
 
         return ActionInferenceMetrics(
@@ -192,9 +196,9 @@ class MessageMetrics(BaseModel):
     """模型性能指标信息"""
     action_metrics: Optional[List[ActionInferenceMetrics]] = None
     """Action性能指标信息"""
-    start_time_ms:  Optional[int] = current_ms()
+    start_time_ms: Optional[int] = current_ms()
     """消息开始时间戳"""
-    end_time_ms:  Optional[int] = None
+    end_time_ms: Optional[int] = None
     """消息结束时间戳"""
     retry_count: Optional[int] = None
     """本次消息答案生成重试次数"""
@@ -205,7 +209,9 @@ class MessageMetrics(BaseModel):
         """Convert the model inference metrics to dict."""
         return {
             "llm_metrics": self.llm_metrics.to_dict() if self.llm_metrics else None,
-            "action_metrics": [item.to_dict() for item in self.action_metrics] if self.action_metrics else None,
+            "action_metrics": [item.to_dict() for item in self.action_metrics]
+            if self.action_metrics
+            else None,
             "start_time_ms": self.start_time_ms,
             "end_time_ms": self.end_time_ms,
             "retry_count": self.retry_count,

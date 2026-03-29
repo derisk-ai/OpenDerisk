@@ -459,8 +459,19 @@ async def process_uploaded_files(
             system_app=system_app,
         )
 
-    if sandbox_files:
-        file_info_text = build_file_info_message(sandbox_files)
+    # 只有当 sandbox_files 有有效的 sandbox_path 时才添加文件提示
+    # 如果 sandbox_path 为 None，说明文件没有写入沙箱，不应该添加提示
+    valid_sandbox_files = [f for f in sandbox_files if f.sandbox_path]
+    if valid_sandbox_files:
+        file_info_text = build_file_info_message(valid_sandbox_files)
         media_contents.insert(0, MediaContent.build_text(file_info_text))
+        logger.info(
+            f"[FileDispatch] Added file info for {len(valid_sandbox_files)} sandbox files"
+        )
+    elif sandbox_files:
+        logger.warning(
+            f"[FileDispatch] {len(sandbox_files)} sandbox files have no sandbox_path, "
+            f"skipping file info message"
+        )
 
     return media_contents, all_file_infos

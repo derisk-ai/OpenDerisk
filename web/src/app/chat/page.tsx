@@ -39,6 +39,7 @@ export default function Chat() {
   const [isShowDetail, setIsShowDetail] = useState<boolean>(true);
   const [chatInParams, setChatInParams] = useState<{ param_type: string; param_value: string; sub_type: string; }[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
+  const [currentConvSessionId, setCurrentConvSessionId] = useState<string>(chatId);
   const chatInputRef = useRef<any>(null);
   const { chat, ctrl } = useChat({
     app_code: app_code || '',
@@ -240,6 +241,13 @@ export default function Chat() {
           onMessage: message => {
             setCanAbort(true);
             if (message) {
+              // Check if message is metadata containing conv_session_id
+              if (typeof message === 'object' && message.type === 'metadata') {
+                if (message.conv_session_id) {
+                  setCurrentConvSessionId(message.conv_session_id);
+                }
+                return;
+              }
               if (data?.incremental) {
                 tempHistory[index].context += message;
                 tempHistory[index].thinking = false;
@@ -421,6 +429,7 @@ return (
           chartsData: chartsData || [],
           agent,
           currentDialogue,
+          currentConvSessionId,
           appInfo,
           temperatureValue,
           maxNewTokensValue,
@@ -436,6 +445,7 @@ return (
           setAgent,
           setCanAbort,
           setReplyLoading,
+          setCurrentConvSessionId,
           handleChat,
           refreshDialogList,
           refreshHistory,

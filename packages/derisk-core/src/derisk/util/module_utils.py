@@ -289,7 +289,7 @@ class ModelScanner(Generic[T]):
             self._registered_items.update(child_items)
 
         except ImportError as e:
-            logger.warning(f"Error importing module {config.module_path}: {str(e)}")
+            logger.debug(f"Error importing module {config.module_path}: {str(e)}")
 
         return self._registered_items
 
@@ -313,7 +313,9 @@ class ModelScanner(Generic[T]):
         return self._registered_items.get(name.lower())
 
 
-def model_scan(module_path: str, base_class: Type, recursive: bool = True, **kwargs) -> Dict[str, Type[T]]:
+def model_scan(
+    module_path: str, base_class: Type, recursive: bool = True, **kwargs
+) -> Dict[str, Type[T]]:
     """Scan a specific dir and get all items
 
     Args:
@@ -327,5 +329,12 @@ def model_scan(module_path: str, base_class: Type, recursive: bool = True, **kwa
         Dict[str, Type[T]]: Dictionary of all registered classes
     """
     scanner = ModelScanner[T]()
-    scanner.scan_and_register(ScannerConfig(module_path=module_path, base_class=base_class, recursive=recursive, **kwargs))
+    scanner.scan_and_register(
+        ScannerConfig(
+            module_path=module_path,
+            base_class=base_class,
+            recursive=recursive,
+            **kwargs,
+        )
+    )
     return scanner.get_registered_items()

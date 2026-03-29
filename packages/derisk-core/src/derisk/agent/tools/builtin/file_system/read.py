@@ -50,14 +50,20 @@ class ReadTool(SandboxToolBase):
                     "type": "string",
                     "description": "The absolute path to the file (or directory in sandbox mode) to read",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["line", "char"],
+                    "default": "line",
+                    "description": "Read mode: 'line' for line-based reading, 'char' for character-based reading (useful for single-line large files)",
+                },
                 "offset": {
                     "type": "integer",
-                    "description": "The line number to start reading from (1-based, local mode)",
+                    "description": "Line mode: line number to start (1-based). Char mode: character offset to start (0-based).",
                     "default": 1,
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of lines to read (local mode)",
+                    "description": "Line mode: max lines to read. Char mode: max characters to read.",
                     "default": 2000,
                 },
                 "view_range": {
@@ -125,8 +131,7 @@ class ReadTool(SandboxToolBase):
     ) -> ToolResult:
         """Execute locally using pathlib"""
         path = args["path"]
-        offset = args.get("offset", 1)
-        limit = args.get("limit", 2000)
+        mode = args.get("mode", "line")
 
         if context and context.working_directory:
             file_path = Path(context.working_directory) / path
@@ -148,28 +153,70 @@ class ReadTool(SandboxToolBase):
             )
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = []
-                for i, line in enumerate(f, 1):
-                    if i >= offset:
-                        lines.append(f"{i}: {line.rstrip()}")
-                    if len(lines) >= limit:
-                        break
-
-                content = "\n".join(lines)
-                if len(lines) >= limit:
-                    content += f"\n\n... (truncated, showing {limit} lines)"
-
-            return ToolResult.ok(
-                output=content,
-                tool_name=self.name,
-                metadata={
-                    "path": str(file_path),
-                    "lines_read": len(lines),
-                    "file_size": file_path.stat().st_size,
-                },
-            )
-
+            if mode == "char":
+                return await self._read_char_mode(args, file_path)
+            else:
+                return await self._read_line_mode(args, file_path)
         except Exception as e:
             logger.error(f"[ReadTool] Failed: {e}")
             return ToolResult.fail(error=str(e), tool_name=self.name)
+
+    async def _read_line_mode(
+        self, args: Dict[str, Any], file_path: Path
+    ) -> ToolResult:
+        """Line-based reading mode"""
+        offset = args.get("offset", 1)
+        limit = args.get("limit", 2000)
+
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = []
+            for i, line in enumerate(f, 1):
+                if i >= offset:
+                    lines.append(f"{i}: {line.rstrip()}")
+                if len(lines) >= limit:
+                    break
+
+            content = "\n".join(lines)
+            if len(lines) >= limit:
+                content += f"\n\n... (truncated, showing {limit} lines)"
+
+        return ToolResult.ok(
+            output=content,
+            tool_name=self.name,
+            metadata={
+                "path": str(file_path),
+                "mode": "line",
+                "lines_read": len(lines),
+                "file_size": file_path.stat().st_size,
+            },
+        )
+
+
+async def _read_char_mode(self, args: Dict[str, Any], file_path: Path) -> ToolResult:
+    """Character-based reading mode - safe for multi-byte characters (Chinese, etc.)"""
+    offset = args.get("offset", 1)
+    limit = args.get("limit", 2000)
+
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+        total_chars = len(content)
+        selected = content[offset : offset + limit]
+        has_more = offset + limit < total_chars
+
+    result = selected
+    if has_more:
+        result += f"\n\n... (truncated, showing {len(selected)} characters from offset {offset}, total {total_chars} characters)"
+
+    return ToolResult.ok(
+        output=result,
+        tool_name=self.name,
+        metadata={
+            "path": str(file_path),
+            "mode": "char",
+            "char_offset": offset,
+            "char_limit": limit,
+            "chars_read": len(selected),
+            "total_chars": total_chars,
+            "file_size": file_path.stat().st_size,
+        },
+    )

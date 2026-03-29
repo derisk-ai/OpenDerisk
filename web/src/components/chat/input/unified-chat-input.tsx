@@ -1097,7 +1097,10 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   // 浮动操作按钮
   const handleStop = () => {
     if (!canAbort) return;
-    stopChat({ conv_session_id: context.currentDialogue?.conv_uid || '' });
+    const sessionId = context.currentConvSessionId || context.currentDialogue?.conv_uid || '';
+    if (sessionId) {
+      stopChat({ conv_session_id: sessionId });
+    }
     ctrl && ctrl.abort();
     setTimeout(() => {
       setCanAbort(false);

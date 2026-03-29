@@ -22,6 +22,7 @@ except ImportError:
     def colored(x, *args, **kwargs):
         return x
 
+
 if not os.path.exists(LOGDIR):
     try:
         os.mkdir(LOGDIR)
@@ -101,25 +102,27 @@ class LoggingParameters(BaseParameters):
     )
 
     propagate: Optional[bool] = field(
-        default=True,
+        default=False,
         metadata={
             "help": _("Whether to propagate to parent logger"),
-        }
+        },
     )
 
     backup_count: Optional[int] = field(
         default=2,
         metadata={
             "help": _("Size of backup log files."),
-        }
+        },
     )
 
     when: Optional[str] = field(
         default="midnight",
         metadata={
-            "help": _("Log file rollover strategy. S - Seconds, M - Minutes, H - Hours, "
-                      "D - Days, midnight - roll over at midnight, W{0-6} - roll over on a certain day(0 - Monday)"),
-        }
+            "help": _(
+                "Log file rollover strategy. S - Seconds, M - Minutes, H - Hours, "
+                "D - Days, midnight - roll over at midnight, W{0-6} - roll over on a certain day(0 - Monday)"
+            ),
+        },
     )
 
     # redirect_stdio: Optional[bool] = field(
@@ -157,14 +160,22 @@ def setup_logging(
 ):
     log_config = log_config or LoggingParameters()
     log_config.level = log_config.level or _get_logging_level()
-    logger = _build_logger(logger_name, log_config)
+
+    has_coloredlogs = False
     try:
+        import coloredlogs
+
+        has_coloredlogs = True
+    except ImportError:
+        pass
+
+    logger = _build_logger(logger_name, log_config, skip_stdout=has_coloredlogs)
+
+    if has_coloredlogs:
         import coloredlogs
 
         color_level = log_config.level if log_config.level else "INFO"
         coloredlogs.install(level=color_level, logger=logger)
-    except ImportError:
-        pass
     return logger
 
 
@@ -181,8 +192,8 @@ def get_gpu_memory(max_gpus=None):
         with torch.cuda.device(gpu_id):
             device = torch.cuda.current_device()
             gpu_properties = torch.cuda.get_device_properties(device)
-            total_memory = gpu_properties.total_memory / (1024 ** 3)
-            allocated_memory = torch.cuda.memory_allocated() / (1024 ** 3)
+            total_memory = gpu_properties.total_memory / (1024**3)
+            allocated_memory = torch.cuda.memory_allocated() / (1024**3)
             available_memory = total_memory - allocated_memory
             gpu_memory.append(available_memory)
     return gpu_memory
@@ -191,6 +202,7 @@ def get_gpu_memory(max_gpus=None):
 def _build_logger(
     logger_name: Optional[str],
     log_config: LoggingParameters,
+    skip_stdout: bool = False,
 ) -> Logger:
     def _build_handler(_config: LoggingParameters) -> logging.Handler:
         # 创建TimedRotatingFileHandler，定时轮转
@@ -251,7 +263,7 @@ def _build_logger(
 
     if logger_name:
         # 确保root log已初始化
-        _build_logger(None, LoggingParameters())
+        _build_logger(None, LoggingParameters(), skip_stdout=skip_stdout)
 
     logger = logging.getLogger(logger_name)
     global default_handler
@@ -266,7 +278,7 @@ def _build_logger(
 
         # 由于propagate=True，所有日志都会落到root logger中 因此只需root logger输出到stdout中 以免重复
         logger.propagate = log_config.propagate
-        if not logger_name:  # or log_config.redirect_stdio:
+        if not logger_name and not skip_stdout:  # or log_config.redirect_stdio:
             for hdlr in _get_stdout_handlers():
                 logger.addHandler(hdlr)
 
@@ -393,7 +405,11 @@ class AsyncDigestLogger:
 
     def _flush_batch(self, batch):
         for logger, digest_name, extra, items in batch:
-            logger.info(f"[DIGEST][{digest_name}]" + ",".join([f"{key}=[{value}]" for key, value in items.items()]), extra=extra)
+            logger.info(
+                f"[DIGEST][{digest_name}]"
+                + ",".join([f"{key}=[{value}]" for key, value in items.items()]),
+                extra=extra,
+            )
 
     def add_log(self, logger, digest_name, extra, **items):
         self._ensure_worker()
@@ -406,10 +422,12 @@ _async_digest_logger = AsyncDigestLogger()
 def digest(logger: Optional[Logger], digest_name: str, **items):
     if not logger:
         from .log_util import DIGEST_LOGGER
+
         logger = DIGEST_LOGGER
 
     # 异步线程写入日志 需要传递当前trace_id、conv_id
     from derisk.util.tracer import root_tracer
+
     extra = {
         "trace_id": root_tracer.get_context_trace_id() or "",
         "conv_id": root_tracer.get_context_conv_id() or "",
