@@ -51,11 +51,13 @@ max_new_tokens = 4096
 name = "qwen-vl-max"
 temperature = 0.7
 max_new_tokens = 4096
+is_multimodal = true  # 多模态模型，支持图片输入
 
 [[agent.llm.provider.model]]
 name = "glm-5"
 temperature = 0.7
 max_new_tokens = 4096
+is_multimodal = true  # 多模态模型，支持图片输入
 
 [[serves]]
 type = "file"

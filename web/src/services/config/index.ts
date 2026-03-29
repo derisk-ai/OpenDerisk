@@ -48,6 +48,7 @@ export interface LLMModelConfig {
   name: string;
   temperature: number;
   max_new_tokens: number;
+  is_multimodal?: boolean;  // 是否为多模态模型，支持图片输入
 }
 
 export interface LLMProviderConfig {
