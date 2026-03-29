@@ -454,17 +454,9 @@ async def chat_completions(
                         f"[v1/chat] Processed {len(sandbox_file_refs)} files from user input"
                     )
 
-                    if sandbox_file_refs and not result.multimodal_contents:
-                        text_content = (
-                            in_message.last_text
-                            if hasattr(in_message, "last_text")
-                            else str(in_message.content)
-                        )
-                        enhanced_text = build_enhanced_query_with_files(
-                            text_content, sandbox_file_refs
-                        )
-                        in_message = HumanMessage(content=enhanced_text)
-                        logger.info("[v1/chat] Enhanced message with file references")
+                    # 注意：不在 API 层构建带路径的消息
+                    # 文件路径将在 sandbox 创建后由 agent_chat.py 正确处理
+                    # 只传递 sandbox_file_refs 到 ext_info
 
             except ImportError:
                 logger.warning("[v1/chat] file_io module not available")
@@ -559,7 +551,9 @@ async def chat_completions(
         logger.exception(f"Chat Exception!{dialogue}", e)
 
         async def error_text(err_msg):
-            error_content = json.dumps({"vis": f"[ERROR]{str(e)}[/ERROR]"}, ensure_ascii=False)
+            error_content = json.dumps(
+                {"vis": f"[ERROR]{str(e)}[/ERROR]"}, ensure_ascii=False
+            )
             yield f"data:{error_content}\n\n"
 
         return StreamingResponse(

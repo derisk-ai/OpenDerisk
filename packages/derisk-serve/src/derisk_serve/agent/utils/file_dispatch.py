@@ -124,6 +124,7 @@ async def dispatch_file_to_sandbox(
     file_content: Optional[bytes] = None,
     sandbox_client=None,
     conv_id: Optional[str] = None,
+    file_storage_client=None,
 ) -> Optional[str]:
     """将文件写入沙箱.
 
@@ -133,6 +134,7 @@ async def dispatch_file_to_sandbox(
         file_content: 文件内容（可选，如果不提供则从file_path下载）
         sandbox_client: 沙箱客户端
         conv_id: 会话ID
+        file_storage_client: 文件存储客户端（用于处理 derisk-fs:// 协议）
 
     Returns:
         沙箱中的文件路径
@@ -146,28 +148,148 @@ async def dispatch_file_to_sandbox(
         sandbox_path = f"{work_dir}/uploads/{file_name}"
 
         if sandbox_client.file:
+            content = None
+
             if file_content:
                 content = file_content
-                if isinstance(content, bytes):
-                    try:
-                        content = content.decode("utf-8")
-                    except UnicodeDecodeError:
-                        import base64
-
-                        content = base64.b64encode(content).decode("utf-8")
-                        logger.info(f"Binary file encoded as base64: {file_name}")
             else:
-                import httpx
+                # 处理不同类型的文件路径
+                actual_file_path = file_path
 
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(file_path)
-                    file_content = response.content
-                    try:
-                        content = file_content.decode("utf-8")
-                    except UnicodeDecodeError:
-                        import base64
+                if file_path.startswith("derisk-fs://"):
+                    # 使用 FileStorageClient 获取公开URL
+                    if file_storage_client:
+                        try:
+                            actual_file_path = file_storage_client.get_public_url(
+                                file_path
+                            )
+                            logger.info(
+                                f"Converted derisk-fs URI to public URL: {actual_file_path}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to get public URL for derisk-fs URI: {e}"
+                            )
+                            return None
+                    else:
+                        logger.warning(
+                            "FileStorageClient not available for derisk-fs:// URI"
+                        )
+                        return None
 
-                        content = base64.b64encode(file_content).decode("utf-8")
+                # 下载文件内容
+                if actual_file_path.startswith(
+                    "http://"
+                ) or actual_file_path.startswith("https://"):
+                    import httpx
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(actual_file_path)
+                        content = response.content
+                elif os.path.exists(actual_file_path):
+                    # 本地文件路径
+                    with open(actual_file_path, "rb") as f:
+                        content = f.read()
+                else:
+                    logger.warning(
+                        f"Unsupported file path or file not found: {actual_file_path}"
+                    )
+                    return None
+
+            if content is None:
+                logger.warning(f"Failed to get content for file: {file_name}")
+                return None
+
+            # 处理内容格式
+            if isinstance(content, bytes):
+                try:
+                    content = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    import base64
+
+                    content = base64.b64encode(content).decode("utf-8")
+                    logger.info(f"Binary file encoded as base64: {file_name}")
+
+            await sandbox_client.file.create(sandbox_path, content, overwrite=True)
+            logger.info(f"Wrote file to sandbox: {sandbox_path}")
+            return sandbox_path
+
+    except Exception as e:
+        logger.warning(f"Failed to write file to sandbox: {e}")
+
+    return None
+
+    try:
+        work_dir = sandbox_client.work_dir or "/home/ubuntu"
+        sandbox_path = f"{work_dir}/uploads/{file_name}"
+
+        if sandbox_client.file:
+            content = None
+
+            if file_content:
+                content = file_content
+            else:
+                # 处理不同类型的文件路径
+                if file_path.startswith("derisk-fs://"):
+                    # 使用 FileStorageClient 处理 derisk-fs:// 协议
+                    if file_storage_client:
+                        try:
+                            # 先尝试获取公开URL
+                            public_url = file_storage_client.get_public_url(file_path)
+                            if public_url and public_url.startswith("http"):
+                                # 使用公开URL下载
+                                import httpx
+
+                                async with httpx.AsyncClient() as client:
+                                    response = await client.get(public_url)
+                                    content = response.content
+                            else:
+                                # 直接读取文件内容
+                                file_obj = (
+                                    file_storage_client.storage_system.load_by_uri(
+                                        file_path
+                                    )
+                                )
+                                if file_obj:
+                                    content = file_obj.read()
+                                    file_obj.close()
+                        except Exception as e:
+                            logger.warning(f"Failed to read derisk-fs file: {e}")
+                    else:
+                        logger.warning(
+                            "FileStorageClient not available for derisk-fs:// URI"
+                        )
+                elif file_path.startswith("http://") or file_path.startswith(
+                    "https://"
+                ):
+                    # HTTP URL，使用httpx下载
+                    import httpx
+
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(file_path)
+                        content = response.content
+                else:
+                    # 本地文件路径
+                    if os.path.exists(file_path):
+                        with open(file_path, "rb") as f:
+                            content = f.read()
+                    else:
+                        logger.warning(f"File not found: {file_path}")
+                        return None
+
+            if content is None:
+                logger.warning(f"Failed to get content for file: {file_name}")
+                return None
+
+            # 处理内容格式
+            if isinstance(content, bytes):
+                try:
+                    content = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    import base64
+
+                    content = base64.b64encode(content).decode("utf-8")
+                    logger.info(f"Binary file encoded as base64: {file_name}")
 
             await sandbox_client.file.create(sandbox_path, content, overwrite=True)
             logger.info(f"Wrote file to sandbox: {sandbox_path}")
@@ -284,7 +406,7 @@ async def process_uploaded_files(
         conv_id: 会话ID
         sandbox_client: 沙箱客户端
         system_app: 系统应用实例
-        file_storage_client: 文件存储客户端
+        file_storage_client: 文件存储客户端（可选，用于处理 derisk-fs:// 协议）
 
     Returns:
         tuple: (多模态内容列表, 所有文件信息列表)
@@ -324,6 +446,7 @@ async def process_uploaded_files(
                 file_name=file_name,
                 sandbox_client=sandbox_client,
                 conv_id=conv_id,
+                file_storage_client=file_storage_client,
             )
             file_info.sandbox_path = sandbox_path
             sandbox_files.append(file_info)

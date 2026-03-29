@@ -3,8 +3,10 @@ import os
 import signal
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+from functools import wraps
 
 from derisk._private.config import Config
 from derisk.component import SystemApp
@@ -282,9 +284,9 @@ def _migration_db_storage(
                 )
 
             _add_missing_columns_sqlite(db)
-            
+
             db.engine.dispose()
-            
+
             _ddl_init_and_upgrade(default_meta_data_path, disable_alembic_upgrade)
         else:
             warn_msg = """For safety considerations, MySQL Database not support DDL \
@@ -332,10 +334,10 @@ def _initialize_db(
 
     is_sqlite = "sqlite" in (db_url or "").lower()
     if is_sqlite:
-        db_engine_args.setdefault("pool_size", 1)
-        db_engine_args.setdefault("max_overflow", 0)
-        db_engine_args.setdefault("pool_timeout", 60)
-        db_engine_args.setdefault("pool_recycle", 3600)
+        from sqlalchemy.pool import NullPool
+
+        # 使用 NullPool 避免连接池竞争，每个操作独立连接
+        db_engine_args.setdefault("poolclass", NullPool)
         db_engine_args.setdefault("pool_pre_ping", True)
         db_engine_args.setdefault("connect_args", {})
         db_engine_args["connect_args"].setdefault("check_same_thread", False)
@@ -369,12 +371,18 @@ def _enable_sqlite_wal_mode(db) -> None:
 
         engine = db.engine
         with engine.connect() as conn:
+            # 启用 WAL 模式 - 支持读写并发
             conn.execute(text("PRAGMA journal_mode=WAL"))
+            # 同步模式设为 NORMAL，平衡性能和安全性
             conn.execute(text("PRAGMA synchronous=NORMAL"))
+            # 增加缓存大小到 64MB
             conn.execute(text("PRAGMA cache_size=-64000"))
-            conn.execute(text("PRAGMA busy_timeout=60000"))
+            # 设置忙碌超时为 30 秒（SQLite 级别）
+            conn.execute(text("PRAGMA busy_timeout=30000"))
+            # 设置 WAL 自动检查点，防止 WAL 文件过大
+            conn.execute(text("PRAGMA wal_autocheckpoint=1000"))
             conn.commit()
-        logger.info("SQLite WAL mode enabled successfully")
+        logger.info("SQLite WAL mode enabled successfully with optimized settings")
     except Exception as e:
         logger.warning(f"Failed to enable SQLite WAL mode: {e}")
 
