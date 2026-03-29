@@ -437,17 +437,18 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         const isVideo = file.type.startsWith('video/');
         
         // 处理返回的URL - 优先使用 preview_url
+        // res 已经是 data.data，所以直接访问 preview_url
         let fileUrl = '';
         let previewUrl = '';
         
-        // 格式1: res.data.preview_url (预览URL) 和 res.data.file_path (文件路径)
-        if (res.data?.preview_url) {
-          previewUrl = res.data.preview_url;
-          fileUrl = res.data.file_path || previewUrl;
+        // 格式1: res.preview_url (预览URL) 和 res.file_path (文件路径)
+        if (res.preview_url) {
+          previewUrl = res.preview_url;
+          fileUrl = res.file_path || previewUrl;
         }
-        // 格式2: res.data.file_path
-        else if (res.data?.file_path) {
-          fileUrl = res.data.file_path;
+        // 格式2: res.file_path
+        else if (res.file_path) {
+          fileUrl = res.file_path;
           previewUrl = transformFileUrl(fileUrl);
         }
         // 格式3: res.url 或 res.file_url
@@ -468,8 +469,8 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         // 格式6: 数组
         else if (Array.isArray(res)) {
           const firstRes = res[0];
-          previewUrl = firstRes?.data?.preview_url || '';
-          fileUrl = firstRes?.data?.file_path || firstRes?.data?.preview_url || previewUrl;
+          previewUrl = firstRes?.preview_url || '';
+          fileUrl = firstRes?.file_path || firstRes?.preview_url || previewUrl;
           if (!previewUrl && fileUrl) {
             previewUrl = transformFileUrl(fileUrl);
           }
