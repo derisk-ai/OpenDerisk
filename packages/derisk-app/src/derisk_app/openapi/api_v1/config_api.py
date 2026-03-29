@@ -521,7 +521,7 @@ async def reload_config():
         manager = get_config_manager()
         config = manager.reload()
 
-        _sync_agent_llm_to_system_config(config)
+        sync_status = _sync_config_to_system_app(config)
 
         models_registered = _refresh_model_config_cache(config)
 
@@ -532,6 +532,7 @@ async def reload_config():
                 "data": config.model_dump(mode="json"),
                 "config_path": manager.get_config_path(),
                 "models_registered": models_registered,
+                "sync_status": sync_status,
             }
         )
     except Exception as e:
@@ -548,7 +549,7 @@ async def refresh_model_cache():
         manager = get_config_manager()
         config = manager.get()
 
-        _sync_agent_llm_to_system_config(config)
+        sync_status = _sync_config_to_system_app(config)
 
         models_registered = _refresh_model_config_cache(config)
 
@@ -557,6 +558,7 @@ async def refresh_model_cache():
                 "success": True,
                 "message": f"ModelConfigCache 已刷新，注册了 {models_registered} 个模型",
                 "models_registered": models_registered,
+                "sync_status": sync_status,
             }
         )
     except Exception as e:
@@ -810,6 +812,126 @@ def _convert_agent_llm_to_system_format(agent_llm_conf) -> Dict[str, Any]:
     return result
 
 
+def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
+    """将 JSON 配置同步到 system_app.config
+
+    确保所有配置项都能被后端服务正确读取
+
+    Args:
+        config: AppConfig 配置对象
+
+    Returns:
+        各配置项的同步状态
+    """
+    sync_status = {}
+
+    try:
+        from derisk.component import SystemApp
+
+        system_app = SystemApp.get_instance()
+        if not system_app:
+            logger.warning("SystemApp not available, cannot sync config")
+            return {"system_app": False}
+
+        # 1. 同步 agent_llm → agent.llm
+        try:
+            agent_llm_conf = getattr(config, "agent_llm", None)
+            if agent_llm_conf:
+                agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+                system_app.config.set("agent.llm", agent_llm_dict)
+
+                # 统计模型数量
+                model_count = 0
+                for p in agent_llm_dict.get("provider", []):
+                    if isinstance(p, dict):
+                        model_count += len(p.get("model", []))
+
+                logger.info(
+                    f"Synced agent_llm: {len(agent_llm_dict.get('provider', []))} providers, {model_count} models"
+                )
+                sync_status["agent_llm"] = True
+                sync_status["model_count"] = model_count
+            else:
+                logger.warning("No agent_llm config found in AppConfig")
+                sync_status["agent_llm"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync agent_llm: {e}")
+            sync_status["agent_llm"] = False
+
+        # 2. 同步 default_model → agent.default_model
+        try:
+            default_model = getattr(config, "default_model", None)
+            if default_model:
+                default_model_dict = (
+                    default_model.model_dump(mode="json")
+                    if hasattr(default_model, "model_dump")
+                    else dict(default_model)
+                )
+                system_app.config.set("agent.default_model", default_model_dict)
+                # 同时设置 default_llm 用于兼容
+                if default_model.model_id:
+                    system_app.config.set("agent.default_llm", default_model.model_id)
+                logger.info(f"Synced default_model: {default_model.model_id}")
+                sync_status["default_model"] = True
+            else:
+                sync_status["default_model"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync default_model: {e}")
+            sync_status["default_model"] = False
+
+        # 3. 同步 agents 配置
+        try:
+            agents = getattr(config, "agents", None)
+            if agents:
+                agents_dict = {}
+                for name, agent_cfg in agents.items():
+                    agents_dict[name] = (
+                        agent_cfg.model_dump(mode="json")
+                        if hasattr(agent_cfg, "model_dump")
+                        else dict(agent_cfg)
+                    )
+                system_app.config.set("agent.agents", agents_dict)
+                logger.info(f"Synced agents: {len(agents_dict)} agents")
+                sync_status["agents"] = True
+            else:
+                sync_status["agents"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync agents: {e}")
+            sync_status["agents"] = False
+
+        # 4. 同步 sandbox 配置
+        try:
+            sandbox = getattr(config, "sandbox", None)
+            if sandbox:
+                sandbox_dict = (
+                    sandbox.model_dump(mode="json")
+                    if hasattr(sandbox, "model_dump")
+                    else dict(sandbox)
+                )
+                system_app.config.set("sandbox", sandbox_dict)
+                logger.info(f"Synced sandbox config")
+                sync_status["sandbox"] = True
+            else:
+                sync_status["sandbox"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync sandbox: {e}")
+            sync_status["sandbox"] = False
+
+        # 5. 同步完整的 app_config 到 configs dict
+        try:
+            system_app.config.configs["app_config"] = config
+            sync_status["app_config"] = True
+        except Exception as e:
+            logger.warning(f"Failed to sync app_config: {e}")
+            sync_status["app_config"] = False
+
+        return sync_status
+
+    except Exception as e:
+        logger.error(f"Failed to sync config to system_app: {e}")
+        return {"error": str(e)}
+
+
 def _sync_agent_llm_to_system_config(config: AppConfig) -> bool:
     """将 AppConfig.agent_llm 同步到 system_app.config 的 agent.llm key
 
@@ -821,53 +943,8 @@ def _sync_agent_llm_to_system_config(config: AppConfig) -> bool:
     Returns:
         是否成功同步
     """
-    try:
-        from derisk.component import SystemApp
-
-        system_app = SystemApp.get_instance()
-        if not system_app:
-            logger.warning("SystemApp not available, cannot sync agent_llm config")
-            return False
-
-        agent_llm_conf = getattr(config, "agent_llm", None)
-        if not agent_llm_conf:
-            return False
-
-        agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
-
-        system_app.config.set("agent.llm", agent_llm_dict)
-        logger.info(
-            f"Synced agent_llm to system_app.config: {len(agent_llm_dict.get('provider', []))} providers"
-        )
-
-        system_app.config.configs["app_config"] = config
-
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to sync agent_llm to system config: {e}")
-        return False
-
-        agent_llm_conf = getattr(config, "agent_llm", None)
-        if not agent_llm_conf:
-            return False
-
-        agent_llm_dict = (
-            agent_llm_conf.model_dump(mode="json")
-            if hasattr(agent_llm_conf, "model_dump")
-            else dict(agent_llm_conf)
-        )
-
-        system_app.config.set("agent.llm", agent_llm_dict)
-        logger.info(
-            f"Synced agent_llm to system_app.config: {list(agent_llm_dict.keys())}"
-        )
-
-        system_app.config.configs["app_config"] = config
-
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to sync agent_llm to system config: {e}")
-        return False
+    sync_status = _sync_config_to_system_app(config)
+    return sync_status.get("agent_llm", False)
 
 
 def _refresh_model_config_cache(config: AppConfig) -> int:
@@ -914,7 +991,7 @@ async def import_config(config_data: Dict[str, Any]):
 
         saved = save_config_with_error_handling(manager, "配置")
 
-        _sync_agent_llm_to_system_config(config)
+        sync_status = _sync_config_to_system_app(config)
 
         models_registered = _refresh_model_config_cache(config)
 
@@ -926,6 +1003,7 @@ async def import_config(config_data: Dict[str, Any]):
                 "saved_to_file": saved,
                 "config_path": manager.get_config_path(),
                 "models_registered": models_registered,
+                "sync_status": sync_status,
             }
         )
     except Exception as e:

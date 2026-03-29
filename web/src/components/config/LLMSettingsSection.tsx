@@ -13,6 +13,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Switch,
   Tag,
   Typography,
   message,
@@ -120,6 +121,7 @@ function buildInitialFormValues(config: AppConfig) {
               name: model.name || "",
               temperature: model.temperature ?? 0.7,
               max_new_tokens: model.max_new_tokens ?? 4096,
+              is_multimodal: model.is_multimodal ?? false,
             })) || [],
         })) || [],
     },
@@ -137,7 +139,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [keyForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const [lastSavedConfig, setLastSavedConfig] = useState<AppConfig | null>(null);
+  const [initialized, setInitialized] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{
     type: "success" | "info" | "warning" | "error";
     text: string;
@@ -148,18 +150,20 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   const selectedDefaultProvider = Form.useWatch("default_provider_name", form);
   const selectedDefaultModelId = Form.useWatch(["default_model", "model_id"], form);
 
+  // 只在 config 变化时初始化表单
   useEffect(() => {
-    if (lastSavedConfig && lastSavedConfig === config) {
-      return;
-    }
+    if (!config) return;
+    
     const newValues = buildInitialFormValues(config);
-    const currentModelId = form.getFieldValue(["default_model", "model_id"]);
-    if (!currentModelId && newValues.default_model?.model_id) {
-      form.setFieldsValue(newValues);
-    } else if (!selectedDefaultModelId && config.default_model?.model_id) {
-      form.setFieldValue(["default_model", "model_id"], config.default_model.model_id);
-    }
-  }, [config, form, lastSavedConfig, selectedDefaultModelId]);
+    form.setFieldsValue(newValues);
+    setInitialized(true);
+    
+    // 调试日志
+    console.log('[LLMSettingsSection] Initialized form with:', {
+      default_provider_name: newValues.default_provider_name,
+      default_model: newValues.default_model,
+    });
+  }, [config, form]);
 
   useEffect(() => {
     loadLLMKeys();
@@ -304,6 +308,11 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   }
 
   async function handleSave(values: any) {
+    console.log('[LLMSettingsSection] handleSave called with values:', {
+      default_provider_name: values.default_provider_name,
+      default_model: values.default_model,
+    });
+    
     const providers = (values.agent_llm?.providers || [])
       .map((item: any) => {
         const provider = normalizeProviderName(item?.provider);
@@ -322,6 +331,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
               name: model.name,
               temperature: model.temperature ?? 0.7,
               max_new_tokens: model.max_new_tokens ?? 4096,
+              is_multimodal: model.is_multimodal ?? false,
             })),
         };
       })
@@ -384,8 +394,11 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
     } catch {
       setSaveFeedback({ type: "success", text: "LLM 配置已保存并生效" });
     }
-    setLastSavedConfig(nextConfig);
     message.success("LLM 配置已保存");
+    
+    // 重置初始化状态，让下一次 config 加载时重新初始化表单
+    setInitialized(false);
+    
     onChange();
   }
 
@@ -712,7 +725,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                           <Text type="secondary">
                             默认 Temperature / Max Tokens 继承自下方所选默认模型对应的这一行配置。
                             {defaultModelConfig?.name
-                              ? ` 当前默认模型为 ${defaultModelConfig.name}，Temperature=${defaultModelConfig.temperature ?? 0.7}，Max Tokens=${defaultModelConfig.max_new_tokens ?? 4096}。`
+                              ? ` 当前默认模型为 ${defaultModelConfig.name}，Temperature=${defaultModelConfig.temperature ?? 0.7}，Max Tokens=${defaultModelConfig.max_new_tokens ?? 4096}${defaultModelConfig.is_multimodal ? '，支持图片输入' : ''}。`
                               : " 请先在下方模型列表中维护模型，再选择默认模型。"}
                           </Text>
                         </div>
@@ -734,14 +747,15 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                               ]) || [];
                             form.setFieldValue(
                               ["agent_llm", "providers", field.name, "models"],
-                              [
-                                ...models,
-                                {
-                                  name: "",
-                                  temperature: 0.7,
-                                  max_new_tokens: 4096,
-                                },
-                              ]
+[
+                                 ...models,
+                                 {
+                                   name: "",
+                                   temperature: 0.7,
+                                   max_new_tokens: 4096,
+                                   is_multimodal: false,
+                                 },
+                               ]
                             );
                           }}
                         >
@@ -757,7 +771,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                                 key={modelField.key}
                                 className="rounded-lg border border-gray-200 p-3"
                               >
-                                <div className="grid grid-cols-4 gap-3">
+                                <div className="grid grid-cols-5 gap-3">
                                   <Form.Item
                                     name={[modelField.name, "name"]}
                                     label="模型名"
@@ -788,6 +802,16 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                                       style={{ width: "100%" }}
                                       min={1}
                                       max={128000}
+                                    />
+                                  </Form.Item>
+                                  <Form.Item
+                                    name={[modelField.name, "is_multimodal"]}
+                                    label="多模态"
+                                    tooltip="是否支持图片输入"
+                                  >
+                                    <Switch
+                                      checkedChildren="支持"
+                                      unCheckedChildren="不支持"
                                     />
                                   </Form.Item>
                                   <Form.Item label="操作">
