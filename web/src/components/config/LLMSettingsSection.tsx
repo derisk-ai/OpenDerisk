@@ -102,10 +102,11 @@ function deriveDefaultProviderName(config: AppConfig) {
 }
 
 function buildInitialFormValues(config: AppConfig) {
+  const defaultModelId = config.default_model?.model_id || "";
   return {
     default_provider_name: deriveDefaultProviderName(config),
     default_model: {
-      model_id: config.default_model?.model_id,
+      model_id: defaultModelId,
     },
     agent_llm: {
       temperature: config.agent_llm?.temperature ?? 0.5,
@@ -116,9 +117,9 @@ function buildInitialFormValues(config: AppConfig) {
           api_key_ref: provider.api_key_ref,
           models:
             provider.models?.map((model) => ({
-              name: model.name,
-              temperature: model.temperature,
-              max_new_tokens: model.max_new_tokens,
+              name: model.name || "",
+              temperature: model.temperature ?? 0.7,
+              max_new_tokens: model.max_new_tokens ?? 4096,
             })) || [],
         })) || [],
     },
@@ -136,6 +137,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [keyForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [lastSavedConfig, setLastSavedConfig] = useState<AppConfig | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{
     type: "success" | "info" | "warning" | "error";
     text: string;
@@ -144,10 +146,20 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   const configuredProviders =
     Form.useWatch(["agent_llm", "providers"], form) || [];
   const selectedDefaultProvider = Form.useWatch("default_provider_name", form);
+  const selectedDefaultModelId = Form.useWatch(["default_model", "model_id"], form);
 
   useEffect(() => {
-    form.setFieldsValue(buildInitialFormValues(config));
-  }, [config, form]);
+    if (lastSavedConfig && lastSavedConfig === config) {
+      return;
+    }
+    const newValues = buildInitialFormValues(config);
+    const currentModelId = form.getFieldValue(["default_model", "model_id"]);
+    if (!currentModelId && newValues.default_model?.model_id) {
+      form.setFieldsValue(newValues);
+    } else if (!selectedDefaultModelId && config.default_model?.model_id) {
+      form.setFieldValue(["default_model", "model_id"], config.default_model.model_id);
+    }
+  }, [config, form, lastSavedConfig, selectedDefaultModelId]);
 
   useEffect(() => {
     loadLLMKeys();
@@ -366,7 +378,13 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
     };
 
     await configService.importConfig(nextConfig);
-    setSaveFeedback({ type: "success", text: "LLM 配置已保存并生效" });
+    try {
+      await configService.refreshModelCache();
+      setSaveFeedback({ type: "success", text: "LLM 配置已保存并生效，模型缓存已刷新" });
+    } catch {
+      setSaveFeedback({ type: "success", text: "LLM 配置已保存并生效" });
+    }
+    setLastSavedConfig(nextConfig);
     message.success("LLM 配置已保存");
     onChange();
   }

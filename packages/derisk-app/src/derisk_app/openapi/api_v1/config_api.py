@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from derisk_core.config.schema import AppConfig
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter(prefix="/config", tags=["Config"])
@@ -36,6 +37,9 @@ class SandboxConfigRequest(BaseModel):
     timeout: Optional[int] = None
     type: Optional[str] = None
     work_dir: Optional[str] = None
+    repo_url: Optional[str] = None
+    skill_dir: Optional[str] = None
+    enable_git_sync: Optional[bool] = None
 
 
 class FileBackendRequest(BaseModel):
@@ -173,7 +177,11 @@ def _user_has_app_admin_role(user: UserRequest) -> bool:
             if row and (row.get("role") or "").strip() == "admin":
                 return True
         except Exception:
-            logger.debug("feature_plugins admin check: get_user failed for uid=%s", uid, exc_info=True)
+            logger.debug(
+                "feature_plugins admin check: get_user failed for uid=%s",
+                uid,
+                exc_info=True,
+            )
     return False
 
 
@@ -191,13 +199,7 @@ def _ensure_can_write_feature_plugins(user: UserRequest) -> None:
         return
     if _user_has_app_admin_role(user):
         return
-    login = (
-        user.user_name
-        or user.email
-        or user.real_name
-        or user.user_id
-        or ""
-    )
+    login = user.user_name or user.email or user.real_name or user.user_id or ""
     if login not in oauth2.admin_users:
         raise HTTPException(
             status_code=403,
@@ -519,12 +521,61 @@ async def reload_config():
         manager = get_config_manager()
         config = manager.reload()
 
+        models_registered = _refresh_model_config_cache(config)
+
         return JSONResponse(
             content={
                 "success": True,
                 "message": "配置已从文件重新加载",
                 "data": config.model_dump(mode="json"),
                 "config_path": manager.get_config_path(),
+                "models_registered": models_registered,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh-model-cache")
+async def refresh_model_cache():
+    """手动刷新 ModelConfigCache
+
+    将当前配置中的模型注册到全局缓存，使新配置的模型立即可用
+    """
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        models_registered = _refresh_model_config_cache(config)
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"ModelConfigCache 已刷新，注册了 {models_registered} 个模型",
+                "models_registered": models_registered,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/model-cache/models")
+async def get_cached_models():
+    """获取 ModelConfigCache 中已注册的模型列表"""
+    try:
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+
+        all_models = ModelConfigCache.get_all_models()
+        all_model_keys = ModelConfigCache.get_all_model_keys()
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "data": {
+                    "models": all_models,
+                    "model_keys": all_model_keys,
+                    "total": len(all_models),
+                },
             }
         )
     except Exception as e:
@@ -577,7 +628,7 @@ async def get_oauth2_config():
                 "source": "file",
             }
         )
-    
+
     # Mask secrets in file config too
     data = oauth2.model_dump(mode="json")
     for provider in data.get("providers", []):
@@ -586,10 +637,8 @@ async def get_oauth2_config():
             provider["client_secret"] = secret[:4] + "****"
         elif secret:
             provider["client_secret"] = "****"
-    
-    return JSONResponse(
-        content={"success": True, "data": data, "source": "file"}
-    )
+
+    return JSONResponse(content={"success": True, "data": data, "source": "file"})
 
 
 @router.post("/oauth2")
@@ -679,7 +728,9 @@ async def update_feature_plugins(
 
     _ensure_can_write_feature_plugins(user)
     if not is_known_plugin(body.plugin_id):
-        raise HTTPException(status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}"
+        )
 
     manager = get_config_manager()
     config = manager.get()
@@ -705,6 +756,41 @@ async def update_feature_plugins(
     )
 
 
+def _refresh_model_config_cache(config: AppConfig) -> int:
+    """刷新 ModelConfigCache，将配置中的模型注册到全局缓存
+
+    Returns:
+        注册的模型数量
+    """
+    try:
+        from derisk.agent.util.llm.model_config_cache import (
+            ModelConfigCache,
+            parse_provider_configs,
+        )
+
+        agent_llm_conf = getattr(config, "agent_llm", None)
+        if not agent_llm_conf:
+            return 0
+
+        agent_llm_dict = (
+            agent_llm_conf.model_dump(mode="json")
+            if hasattr(agent_llm_conf, "model_dump")
+            else dict(agent_llm_conf)
+        )
+        model_configs = parse_provider_configs(agent_llm_dict)
+
+        if model_configs:
+            ModelConfigCache.register_configs(model_configs)
+            logger.info(
+                f"ModelConfigCache refreshed with {len(model_configs)} models from imported config"
+            )
+            return len(model_configs)
+        return 0
+    except Exception as e:
+        logger.warning(f"Failed to refresh ModelConfigCache: {e}")
+        return 0
+
+
 @router.post("/import")
 async def import_config(config_data: Dict[str, Any]):
     """导入配置并保存到文件"""
@@ -718,6 +804,8 @@ async def import_config(config_data: Dict[str, Any]):
 
         saved = save_config_with_error_handling(manager, "配置")
 
+        models_registered = _refresh_model_config_cache(config)
+
         return JSONResponse(
             content={
                 "success": True,
@@ -725,6 +813,7 @@ async def import_config(config_data: Dict[str, Any]):
                 "data": config.model_dump(mode="json"),
                 "saved_to_file": saved,
                 "config_path": manager.get_config_path(),
+                "models_registered": models_registered,
             }
         )
     except Exception as e:
@@ -1052,7 +1141,9 @@ async def set_llm_key(request: LLMKeyRequest):
 
         # 记录调试信息（隐藏部分 key）
         key_preview = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
-        logger.info(f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}")
+        logger.info(
+            f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}"
+        )
 
         # 加密存储 API Key
         success = set_secret(secret_name, api_key)

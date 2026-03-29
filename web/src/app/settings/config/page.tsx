@@ -57,6 +57,7 @@ import {
   ToolInfo,
   SecretConfig,
   FileServiceConfig,
+  FileBackendConfig,
 } from '@/services/config';
 import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
 import ToolManagementPanel from '@/components/config/ToolManagementPanel';
@@ -627,6 +628,10 @@ function FileServiceConfigSection({
 }) {
   const [form] = Form.useForm();
   const [fileService, setFileService] = useState<FileServiceConfig | null>(null);
+  const [backendModalVisible, setBackendModalVisible] = useState(false);
+  const [editingBackendIndex, setEditingBackendIndex] = useState<number | null>(null);
+  const [backendForm] = Form.useForm();
+  const [secrets, setSecrets] = useState<Array<{ name: string; has_value: boolean }>>([]);
 
   useEffect(() => {
     if (config.file_service) {
@@ -638,11 +643,25 @@ function FileServiceConfigSection({
     }
   }, [config.file_service]);
 
+  useEffect(() => {
+    loadSecrets();
+  }, []);
+
+  const loadSecrets = async () => {
+    try {
+      const data = await configService.listSecrets();
+      setSecrets(data);
+    } catch (error) {
+      console.error('加载密钥列表失败', error);
+    }
+  };
+
   const handleSave = async (values: any) => {
     try {
       await configService.updateFileServiceConfig({
         enabled: values.enabled,
         default_backend: values.default_backend,
+        backends: fileService?.backends || [],
       });
       message.success('文件服务配置已保存');
       onChange();
@@ -651,7 +670,84 @@ function FileServiceConfigSection({
     }
   };
 
+  const handleAddBackend = () => {
+    setEditingBackendIndex(null);
+    backendForm.resetFields();
+    backendForm.setFieldsValue({ type: 'local' });
+    setBackendModalVisible(true);
+  };
+
+  const handleEditBackend = (index: number) => {
+    const backend = fileService?.backends?.[index];
+    if (backend) {
+      setEditingBackendIndex(index);
+      backendForm.setFieldsValue({
+        type: backend.type,
+        bucket: backend.bucket,
+        endpoint: backend.endpoint,
+        region: backend.region,
+        storage_path: backend.storage_path,
+        access_key_ref: backend.access_key_ref,
+        access_secret_ref: backend.access_secret_ref,
+      });
+      setBackendModalVisible(true);
+    }
+  };
+
+  const handleDeleteBackend = async (index: number) => {
+    const newBackends = [...(fileService?.backends || [])];
+    newBackends.splice(index, 1);
+    try {
+      await configService.updateFileServiceConfig({
+        enabled: fileService?.enabled,
+        default_backend: fileService?.default_backend,
+        backends: newBackends,
+      });
+      message.success('后端已删除');
+      onChange();
+    } catch (error: any) {
+      message.error('删除失败: ' + error.message);
+    }
+  };
+
+  const handleSaveBackend = async (values: any) => {
+    const backend: FileBackendConfig = {
+      type: values.type,
+      bucket: values.bucket || '',
+      storage_path: values.storage_path || '',
+      endpoint: values.endpoint,
+      region: values.region,
+      access_key_ref: values.access_key_ref || '',
+      access_secret_ref: values.access_secret_ref || '',
+    };
+
+    const newBackends = [...(fileService?.backends || [])];
+    if (editingBackendIndex !== null) {
+      newBackends[editingBackendIndex] = backend;
+    } else {
+      newBackends.push(backend);
+    }
+
+    try {
+      await configService.updateFileServiceConfig({
+        enabled: fileService?.enabled,
+        default_backend: fileService?.default_backend,
+        backends: newBackends,
+      });
+      message.success(editingBackendIndex !== null ? '后端已更新' : '后端已添加');
+      setBackendModalVisible(false);
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
   if (!fileService) return null;
+
+  const availableBackends = fileService.backends?.map(b => b.type) || [];
+  const canSelectBackend = (backendType: string) => {
+    return availableBackends.includes(backendType);
+  };
 
   return (
     <Form form={form} layout="vertical" onFinish={handleSave}>
@@ -659,25 +755,70 @@ function FileServiceConfigSection({
         <Form.Item name="enabled" label="启用文件服务" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item name="default_backend" label="默认后端">
+        <Form.Item 
+          name="default_backend" 
+          label="默认后端"
+          rules={[{ required: true, message: '请选择默认后端' }]}
+          help={!canSelectBackend(form.getFieldValue('default_backend')) && form.getFieldValue('default_backend') !== 'local' ? 
+            '所选后端尚未配置，请先添加对应的后端配置' : undefined}
+        >
           <Select>
             <Select.Option value="local">本地存储</Select.Option>
-            <Select.Option value="oss">阿里云OSS</Select.Option>
-            <Select.Option value="s3">AWS S3</Select.Option>
+            <Select.Option value="oss" disabled={!canSelectBackend('oss')}>阿里云OSS</Select.Option>
+            <Select.Option value="s3" disabled={!canSelectBackend('s3')}>AWS S3</Select.Option>
           </Select>
         </Form.Item>
       </div>
 
-      <Divider orientation="left" plain>存储后端配置</Divider>
+      <Divider orientation="left" plain>
+        存储后端配置
+        <Button type="link" size="small" icon={<PlusOutlined />} onClick={handleAddBackend}>
+          添加后端
+        </Button>
+      </Divider>
+
+      {fileService.backends?.length === 0 && (
+        <Alert type="info" message="暂无后端配置，请添加至少一个存储后端" className="mb-4" />
+      )}
+
       {fileService.backends?.map((backend, index) => (
-        <Card key={index} size="small" className="mb-2" title={`后端 #${index + 1}: ${backend.type}`}>
+        <Card 
+          key={index} 
+          size="small" 
+          className="mb-2" 
+          title={`后端 #${index + 1}: ${backend.type === 'oss' ? '阿里云OSS' : backend.type === 's3' ? 'AWS S3' : '本地存储'}`}
+          extra={
+            <Space>
+              <Button size="small" icon={<EditOutlined />} onClick={() => handleEditBackend(index)}>
+                编辑
+              </Button>
+              <Popconfirm title="确定删除此后端?" onConfirm={() => handleDeleteBackend(index)}>
+                <Button size="small" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            </Space>
+          }
+        >
           <Descriptions column={2} size="small">
-            <Descriptions.Item label="类型">{backend.type}</Descriptions.Item>
-            <Descriptions.Item label="Bucket">{backend.bucket}</Descriptions.Item>
+            <Descriptions.Item label="类型">
+              <Tag color={backend.type === 'oss' ? 'orange' : backend.type === 's3' ? 'blue' : 'green'}>
+                {backend.type === 'oss' ? '阿里云OSS' : backend.type === 's3' ? 'AWS S3' : '本地存储'}
+              </Tag>
+            </Descriptions.Item>
             {backend.type !== 'local' && (
               <>
+                <Descriptions.Item label="Bucket">{backend.bucket}</Descriptions.Item>
                 <Descriptions.Item label="Endpoint">{backend.endpoint}</Descriptions.Item>
                 <Descriptions.Item label="Region">{backend.region}</Descriptions.Item>
+                <Descriptions.Item label="Access Key">
+                  <Tag color={secrets.find(s => s.name === backend.access_key_ref)?.has_value ? 'green' : 'orange'}>
+                    {backend.access_key_ref || '未配置'}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="Access Secret">
+                  <Tag color={secrets.find(s => s.name === backend.access_secret_ref)?.has_value ? 'green' : 'orange'}>
+                    {backend.access_secret_ref || '未配置'}
+                  </Tag>
+                </Descriptions.Item>
               </>
             )}
             {backend.type === 'local' && (
@@ -690,6 +831,132 @@ function FileServiceConfigSection({
       <Form.Item>
         <Button type="primary" htmlType="submit">保存</Button>
       </Form.Item>
+
+      <Modal
+        title={editingBackendIndex !== null ? '编辑存储后端' : '添加存储后端'}
+        open={backendModalVisible}
+        onCancel={() => setBackendModalVisible(false)}
+        onOk={() => backendForm.submit()}
+        width={600}
+      >
+        <Alert
+          type="info"
+          message="配置说明"
+          description={
+            <div>
+              <p>• OSS/S3 的 AK/SK 需要先在「密钥管理」中设置，然后在此处引用密钥名称</p>
+              <p>• 密钥名称建议使用：<code>OSS_ACCESS_KEY</code> / <code>OSS_ACCESS_SECRET</code> 或 <code>S3_ACCESS_KEY</code> / <code>S3_ACCESS_SECRET</code></p>
+            </div>
+          }
+          className="mb-4"
+        />
+        <Form form={backendForm} layout="vertical" onFinish={handleSaveBackend}>
+          <Form.Item name="type" label="后端类型" rules={[{ required: true }]}>
+            <Select onChange={() => {
+              backendForm.setFieldsValue({
+                bucket: undefined,
+                endpoint: undefined,
+                region: undefined,
+                storage_path: undefined,
+                access_key_ref: undefined,
+                access_secret_ref: undefined,
+              });
+            }}>
+              <Select.Option value="local">本地存储</Select.Option>
+              <Select.Option value="oss">阿里云OSS</Select.Option>
+              <Select.Option value="s3">AWS S3</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item shouldUpdate={(prev, curr) => prev.type !== curr.type}>
+            {({ getFieldValue }) => {
+              const type = getFieldValue('type');
+              
+              if (type === 'local') {
+                return (
+                  <Form.Item name="storage_path" label="存储路径" rules={[{ required: true, message: '请输入存储路径' }]}>
+                    <Input placeholder="/data/files" />
+                  </Form.Item>
+                );
+              }
+
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Form.Item name="bucket" label="Bucket 名称" rules={[{ required: true, message: '请输入Bucket名称' }]}>
+                      <Input placeholder="my-bucket" />
+                    </Form.Item>
+                    <Form.Item name="region" label="Region" rules={[{ required: true, message: '请输入Region' }]}>
+                      <Input placeholder={type === 'oss' ? 'oss-cn-hangzhou' : 'us-east-1'} />
+                    </Form.Item>
+                  </div>
+                  <Form.Item name="endpoint" label="Endpoint" rules={[{ required: true, message: '请输入Endpoint' }]}>
+                    <Input placeholder={type === 'oss' ? 'https://oss-cn-hangzhou.aliyuncs.com' : 'https://s3.amazonaws.com'} />
+                  </Form.Item>
+                  
+                  <Divider orientation="left" plain>密钥配置</Divider>
+                  <Alert type="info" message="可从下拉列表选择已有密钥，或直接输入新的密钥名称（需先在「密钥管理」中设置值）" className="mb-4" />
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <Form.Item 
+                      name="access_key_ref" 
+                      label="Access Key 密钥名称" 
+                      rules={[{ required: true, message: '请输入或选择密钥名称' }]}
+                    >
+                      <Select 
+                        placeholder={type === 'oss' ? 'OSS_ACCESS_KEY' : 'S3_ACCESS_KEY'}
+                        showSearch
+                        allowClear
+                        mode="combobox"
+                        filterOption={(input, option) => 
+                          (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
+                        }
+                      >
+                        {secrets.map(s => (
+                          <Select.Option key={s.name} value={s.name}>
+                            <Space>
+                              {s.name}
+                              <Tag color={s.has_value ? 'green' : 'orange'} style={{ marginLeft: 4 }}>
+                                {s.has_value ? '已设置' : '未设置'}
+                              </Tag>
+                            </Space>
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                    <Form.Item 
+                      name="access_secret_ref" 
+                      label="Access Secret 密钥名称" 
+                      rules={[{ required: true, message: '请输入或选择密钥名称' }]}
+                    >
+                      <Select 
+                        placeholder={type === 'oss' ? 'OSS_ACCESS_SECRET' : 'S3_ACCESS_SECRET'}
+                        showSearch
+                        allowClear
+                        mode="combobox"
+                        filterOption={(input, option) => 
+                          (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
+                        }
+                      >
+                        {secrets.map(s => (
+                          <Select.Option key={s.name} value={s.name}>
+                            <Space>
+                              {s.name}
+                              <Tag color={s.has_value ? 'green' : 'orange'} style={{ marginLeft: 4 }}>
+                                {s.has_value ? '已设置' : '未设置'}
+                              </Tag>
+                            </Space>
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </div>
+                </>
+              );
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
     </Form>
   );
 }
@@ -702,12 +969,29 @@ function SandboxConfigSection({
   onChange: () => void;
 }) {
   const [form] = Form.useForm();
+  const sandboxType = Form.useWatch('type', form);
 
   useEffect(() => {
     if (config.sandbox) {
       form.setFieldsValue(config.sandbox);
     }
   }, [config.sandbox]);
+
+  const getDefaultWorkDir = (type: string) => {
+    if (type === 'local') {
+      return 'pilot/data/workspace';
+    } else if (type === 'docker') {
+      return '/home/ubuntu';
+    }
+    return '/home/user/workspace';
+  };
+
+  const handleTypeChange = (newType: string) => {
+    const currentWorkDir = form.getFieldValue('work_dir');
+    if (!currentWorkDir || currentWorkDir === getDefaultWorkDir(sandboxType)) {
+      form.setFieldValue('work_dir', getDefaultWorkDir(newType));
+    }
+  };
 
   const handleSave = async (values: any) => {
     try {
@@ -727,7 +1011,7 @@ function SandboxConfigSection({
           <Switch />
         </Form.Item>
         <Form.Item name="type" label="沙箱类型">
-          <Select>
+          <Select onChange={handleTypeChange}>
             <Select.Option value="local">Local</Select.Option>
             <Select.Option value="docker">Docker</Select.Option>
           </Select>
@@ -739,10 +1023,25 @@ function SandboxConfigSection({
 
       <div className="grid grid-cols-2 gap-4">
         <Form.Item name="work_dir" label="工作目录">
-          <Input placeholder="/home/user/workspace" />
+          <Input placeholder={getDefaultWorkDir(sandboxType || 'docker')} />
         </Form.Item>
         <Form.Item name="memory_limit" label="内存限制">
           <Input placeholder="512m" />
+        </Form.Item>
+      </div>
+
+      <Divider orientation="left" plain>GitHub 仓库配置</Divider>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="repo_url" label="仓库URL">
+          <Input placeholder="https://github.com/user/repo.git" />
+        </Form.Item>
+        <Form.Item name="enable_git_sync" label="启用Git同步" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item name="skill_dir" label="技能目录">
+          <Input placeholder="pilot/data/skill" />
         </Form.Item>
       </div>
 
