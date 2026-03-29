@@ -29,7 +29,7 @@ import {
   Collapse,
   Spin,
   Select,
-  message,
+  App,
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
@@ -216,6 +216,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   showFloatingActions = true,
 }) => {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const context = React.useContext(ChatContentContext);
   const {
     scrollRef,

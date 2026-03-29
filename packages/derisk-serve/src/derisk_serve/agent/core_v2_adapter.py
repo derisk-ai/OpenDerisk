@@ -234,7 +234,7 @@ class CoreV2Component(BaseComponent):
         2. 动态加载 (根据 app_code 从数据库加载配置)
         """
 
-        def create_from_template(agent_name: str, context, **kwargs):
+        async def create_from_template(agent_name: str, context, **kwargs):
             """根据模板名称创建 Agent（简化版：仅支持核心3个）"""
             from derisk.agent.core.plan.unified_context import (
                 V2_AGENT_TEMPLATES,
@@ -244,6 +244,18 @@ class CoreV2Component(BaseComponent):
             template = V2_AGENT_TEMPLATES.get(V2AgentTemplate(agent_name))
             if template:
                 logger.info(f"[CoreV2Component] 使用模板创建 Agent: {agent_name}")
+
+                # 获取或创建 sandbox_manager
+                sandbox_manager = (
+                    await self._get_or_create_sandbox_manager_for_template(
+                        context, agent_name
+                    )
+                )
+                if sandbox_manager:
+                    kwargs["sandbox_manager"] = sandbox_manager
+                    logger.info(
+                        f"[CoreV2Component] 注入 sandbox_manager 到 Agent: {agent_name}"
+                    )
 
                 # 内置Agent：react_reasoning 和 coding 有独立实现
                 if agent_name == "react_reasoning":
@@ -279,7 +291,7 @@ class CoreV2Component(BaseComponent):
 
             try:
                 if agent_name in [t.value for t in V2AgentTemplate]:
-                    return create_from_template(agent_name, context, **kwargs)
+                    return await create_from_template(agent_name, context, **kwargs)
 
                 from derisk_serve.building.app.config import (
                     SERVE_SERVICE_COMPONENT_NAME,
@@ -314,7 +326,7 @@ class CoreV2Component(BaseComponent):
             from derisk.agent.core.plan.unified_context import V2AgentTemplate
 
             if app_code in [t.value for t in V2AgentTemplate]:
-                return create_from_template(app_code, context, **kwargs)
+                return await create_from_template(app_code, context, **kwargs)
 
             try:
                 from derisk_serve.building.app.config import (
@@ -345,17 +357,24 @@ class CoreV2Component(BaseComponent):
         self._dynamic_agent_factory = dynamic_agent_factory
 
         # 注册所有Agent模板工厂（简化版：核心3个Agent）
+        # 注意：create_from_template 是 async 函数，需要用 async 包装
         for template_name in [
             "react_reasoning",
             "coding",
             "simple_chat",
         ]:
-            self.runtime.register_agent_factory(
-                template_name,
-                lambda ctx, name=template_name, **kw: create_from_template(
-                    name, ctx, **kw
-                ),
-            )
+
+            async def make_template_factory(name):
+                async def factory(ctx, **kw):
+                    return await create_from_template(name, ctx, **kw)
+
+                return factory
+
+            # 直接注册 create_from_template 的包装
+            async def template_factory(ctx, name=template_name, **kw):
+                return await create_from_template(name, ctx, **kw)
+
+            self.runtime.register_agent_factory(template_name, template_factory)
 
         logger.info(
             "[CoreV2Component] Agent 工厂已注册（简化版：react_reasoning, coding, simple_chat）"
@@ -459,6 +478,88 @@ class CoreV2Component(BaseComponent):
         except Exception as e:
             logger.error(
                 f"[CoreV2Component] Failed to create sandbox manager: {e}",
+                exc_info=True,
+            )
+            return None
+
+    async def _get_or_create_sandbox_manager_for_template(
+        self, context, agent_name: str
+    ) -> Optional[Any]:
+        """
+        为模板 Agent 获取或创建 sandbox_manager
+
+        Args:
+            context: Agent 上下文
+            agent_name: Agent 名称
+
+        Returns:
+            SandboxManager 实例或 None
+        """
+        conv_id = getattr(context, "conv_id", None) or getattr(
+            context, "session_id", "default"
+        )
+        staff_no = getattr(context, "staff_no", None) or "default"
+        sandbox_key = f"{conv_id}_{staff_no}"
+
+        # 检查缓存
+        if sandbox_key in self._sandbox_managers:
+            logger.info(
+                f"[CoreV2Component] Using cached sandbox manager for template: {sandbox_key}"
+            )
+            return self._sandbox_managers[sandbox_key]
+
+        # 创建新的 sandbox_manager
+        try:
+            from derisk_app.config import SandboxConfigParameters
+            from derisk.agent.core.sandbox_manager import SandboxManager
+            from derisk.sandbox import AutoSandbox
+
+            app_config = self.system_app.config.configs.get("app_config")
+            sandbox_config: Optional[SandboxConfigParameters] = (
+                app_config.sandbox if app_config else None
+            )
+
+            if not sandbox_config:
+                logger.warning(
+                    "[CoreV2Component] Sandbox config not found for template agent"
+                )
+                return None
+
+            logger.info(
+                f"[CoreV2Component] Creating sandbox for template agent: {agent_name}, "
+                f"type={sandbox_config.type}"
+            )
+
+            sandbox_client = await AutoSandbox.create(
+                user_id=staff_no or sandbox_config.user_id,
+                agent=agent_name,
+                type=sandbox_config.type,
+                template=sandbox_config.template_id,
+                work_dir=sandbox_config.work_dir,
+                skill_dir=sandbox_config.skill_dir,
+            )
+
+            sandbox_manager = SandboxManager(sandbox_client=sandbox_client)
+
+            # 后台启动和初始化沙箱服务
+            import asyncio
+
+            sandbox_task = asyncio.create_task(sandbox_manager.acquire())
+            sandbox_manager.set_init_task(sandbox_task)
+
+            # 缓存沙箱管理器
+            self._sandbox_managers[sandbox_key] = sandbox_manager
+
+            logger.info(
+                f"[CoreV2Component] Sandbox manager created for template: {sandbox_key}, "
+                f"work_dir={sandbox_client.work_dir}"
+            )
+
+            return sandbox_manager
+
+        except Exception as e:
+            logger.error(
+                f"[CoreV2Component] Failed to create sandbox manager for template: {e}",
                 exc_info=True,
             )
             return None
@@ -1032,7 +1133,9 @@ class CoreV2Component(BaseComponent):
                 self._app_name_cache[app_code] = gpt_app.app_name
                 return gpt_app.app_name
         except Exception as e:
-            logger.debug(f"[CoreV2Component] Failed to resolve app name for {app_code}: {e}")
+            logger.debug(
+                f"[CoreV2Component] Failed to resolve app name for {app_code}: {e}"
+            )
 
         return app_code
 

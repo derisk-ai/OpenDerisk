@@ -580,8 +580,18 @@ class V2AgentRuntime:
         )
 
         if agent_name in self._agents:
+            agent = self._agents[agent_name]
             logger.debug(f"[V2Runtime] 从缓存获取 Agent: {agent_name}")
-            return self._agents[agent_name]
+
+            # 检查并注入 sandbox_manager（如果 agent 没有）
+            if not getattr(agent, "sandbox_manager", None):
+                sandbox_manager = await self._get_sandbox_manager(context)
+                if sandbox_manager:
+                    agent.sandbox_manager = sandbox_manager
+                    logger.info(
+                        f"[V2Runtime] 注入 sandbox_manager 到缓存 Agent: {agent_name}"
+                    )
+            return agent
 
         if agent_name in self._agent_factories:
             agent = await self._create_agent_from_factory(agent_name, context, kwargs)
@@ -603,6 +613,29 @@ class V2AgentRuntime:
         logger.warning(
             f"[V2Runtime] Agent '{agent_name}' 不在已注册工厂列表中: {list(self._agent_factories.keys())}"
         )
+        return None
+
+    async def _get_sandbox_manager(self, context: SessionContext) -> Optional[Any]:
+        """
+        获取 sandbox_manager（从工厂或配置）
+
+        Args:
+            context: 会话上下文
+
+        Returns:
+            SandboxManager 实例或 None
+        """
+        # 尝试从 agent factory 获取
+        agent_name = context.agent_name
+        factory = self._agent_factories.get(agent_name) or self._agent_factories.get(
+            "default"
+        )
+
+        if factory:
+            # 检查工厂是否有 _get_or_create_sandbox_manager_for_template 方法
+            # 或者工厂所在的组件有这个方法
+            pass
+
         return None
 
     async def _create_agent_from_factory(
@@ -677,29 +710,134 @@ class V2AgentRuntime:
             # 处理 sandbox_file_refs: 更新路径并初始化文件
             sandbox_file_refs = kwargs.pop("sandbox_file_refs", None)
             if sandbox_file_refs:
-                if hasattr(agent, "sandbox_manager") and agent.sandbox_manager:
-                    await self._initialize_sandbox_files(
-                        agent.sandbox_manager, sandbox_file_refs, context.conv_id
+                logger.info(
+                    f"[V2Runtime] Processing {len(sandbox_file_refs)} sandbox_file_refs"
+                )
+
+                sandbox_manager = None
+                sandbox_client = None
+                work_dir = None
+
+                # 优先从 agent 获取 sandbox_manager
+                has_sandbox_manager = hasattr(agent, "sandbox_manager")
+                logger.info(
+                    f"[V2Runtime] agent has sandbox_manager attr: {has_sandbox_manager}"
+                )
+                if has_sandbox_manager:
+                    sandbox_manager = agent.sandbox_manager
+                    logger.info(
+                        f"[V2Runtime] sandbox_manager value: {sandbox_manager is not None}"
                     )
+                    if sandbox_manager:
+                        sandbox_client = getattr(sandbox_manager, "client", None)
+                        logger.info(
+                            f"[V2Runtime] sandbox_client from manager: {sandbox_client is not None}"
+                        )
+                        if sandbox_client:
+                            work_dir = getattr(sandbox_client, "work_dir", None)
+                            logger.info(
+                                f"[V2Runtime] work_dir from sandbox_client: {work_dir}"
+                            )
+
+                # Fallback: 尝试从 agent 其他属性获取 sandbox_client
+                if not sandbox_client:
+                    if hasattr(agent, "sandbox") and agent.sandbox:
+                        sandbox_client = agent.sandbox
+                        logger.info(
+                            f"[V2Runtime] Got sandbox_client from agent.sandbox"
+                        )
+                    elif hasattr(agent, "_sandbox_client") and agent._sandbox_client:
+                        sandbox_client = agent._sandbox_client
+                        logger.info(
+                            f"[V2Runtime] Got sandbox_client from agent._sandbox_client"
+                        )
+
+                    if sandbox_client:
+                        work_dir = getattr(sandbox_client, "work_dir", None)
+                        logger.info(f"[V2Runtime] work_dir from fallback: {work_dir}")
+
+                # 如果仍然没有 work_dir，尝试从 sandbox_manager 获取
+                if not work_dir and sandbox_manager:
+                    work_dir = getattr(sandbox_manager, "work_dir", None)
+                    logger.info(
+                        f"[V2Runtime] work_dir from sandbox_manager: {work_dir}"
+                    )
+
+                # 终极 fallback：直接创建 sandbox_client 获取 work_dir
+                if not work_dir:
+                    try:
+                        from derisk.sandbox import AutoSandbox
+                        from derisk.configs.model_config import DATA_DIR
+
+                        # 使用默认配置创建临时 sandbox
+                        temp_sandbox = await AutoSandbox.create(
+                            user_id=context.user_id or "default",
+                            agent=context.agent_name or "default",
+                            type="local",
+                        )
+                        work_dir = getattr(temp_sandbox, "work_dir", None)
+                        if work_dir:
+                            sandbox_client = temp_sandbox
+                            logger.info(
+                                f"[V2Runtime] Created temp sandbox, work_dir: {work_dir}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"[V2Runtime] Failed to create temp sandbox: {e}"
+                        )
+
+                logger.info(
+                    f"[V2Runtime] Final work_dir: {work_dir}, will update sandbox_path"
+                )
+
+                # 关键：无论后续初始化是否成功，都要先更新路径
+                if work_dir:
+                    for ref in sandbox_file_refs:
+                        if hasattr(ref, "sandbox_path") and ref.file_name:
+                            new_path = f"{work_dir}/uploads/{ref.file_name}"
+                            ref.sandbox_path = new_path
+                            logger.info(
+                                f"[V2Runtime] Updated sandbox_path to: {new_path}"
+                            )
+                else:
+                    # 没有 sandbox 信息，使用相对路径
+                    for ref in sandbox_file_refs:
+                        if hasattr(ref, "sandbox_path") and ref.file_name:
+                            ref.sandbox_path = f"uploads/{ref.file_name}"
+                            logger.warning(
+                                f"[V2Runtime] No sandbox work_dir found, using relative path: uploads/{ref.file_name}"
+                            )
+
+                # 初始化文件到 sandbox（如果有 sandbox_manager）
+                if sandbox_manager and sandbox_manager.client:
+                    try:
+                        await self._initialize_sandbox_files(
+                            sandbox_manager, sandbox_file_refs, context.conv_id
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[V2Runtime] Failed to initialize files in sandbox: {e}"
+                        )
 
                 # 追加文件信息到 message（不包含原始查询，避免重复）
                 try:
                     from derisk_serve.agent.file_io import build_file_info_prompt
 
-                    file_info = build_file_info_prompt(sandbox_file_refs)
+                    file_info = build_file_info_prompt(
+                        sandbox_file_refs, sandbox_client
+                    )
                     if file_info:
                         message = message + file_info
                         logger.info(
                             f"[V2Runtime] Added file info to message: {len(sandbox_file_refs)} files"
                         )
                 except ImportError:
-                    # 如果没有 file_io 模块，手动构建提示
                     file_info = "\n\n---\n\n📎 **User uploaded files**:\n"
                     for ref in sandbox_file_refs:
                         path = (
-                            ref.get_sandbox_path()
+                            ref.get_sandbox_path(sandbox_client)
                             if hasattr(ref, "get_sandbox_path")
-                            else f"/uploads/{ref.file_name}"
+                            else f"uploads/{ref.file_name}"
                         )
                         file_info += f"{path}\n"
                     message = message + file_info
@@ -1370,20 +1508,14 @@ class V2AgentRuntime:
         from derisk_serve.agent.file_io import initialize_files_in_sandbox
 
         if not sandbox_manager or not sandbox_manager.client:
-            logger.warning("[V2Runtime] No sandbox client available")
+            logger.warning(
+                "[V2Runtime] No sandbox client available, skipping file initialization"
+            )
             return {"success": [], "failed": [], "skipped": []}
 
         sandbox_client = sandbox_manager.client
-        work_dir = getattr(sandbox_client, "work_dir", "/home/user/workspace")
 
-        # 更新每个文件的 sandbox_path
-        for ref in sandbox_file_refs:
-            if hasattr(ref, "sandbox_path") and ref.file_name:
-                new_path = f"{work_dir}/uploads/{ref.file_name}"
-                ref.sandbox_path = new_path
-                logger.info(f"[V2Runtime] Updated sandbox_path: {new_path}")
-
-        # 初始化文件到 sandbox
+        # 初始化文件到 sandbox（路径已在外部更新）
         results = await initialize_files_in_sandbox(
             sandbox=sandbox_client,
             sandbox_file_refs=sandbox_file_refs,

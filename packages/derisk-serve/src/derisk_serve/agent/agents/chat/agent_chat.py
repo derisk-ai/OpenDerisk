@@ -1908,6 +1908,40 @@ class AgentChat(BaseComponent, ABC):
                 if file_dispatch_result:
                     user_query = file_dispatch_result
 
+            # 处理 sandbox_file_refs（从 api_v1.py 传递过来）
+            sandbox_file_refs = ext_info.get("sandbox_file_refs", [])
+            if sandbox_file_refs:
+                sandbox_key = f"{conv_uid}_{staff_no or 'default'}"
+                sandbox_manager = GlobalSandboxManagerCache.get(sandbox_key)
+                if sandbox_manager and sandbox_manager.client:
+                    work_dir = sandbox_manager.client.work_dir
+                    updated_refs = []
+                    for ref in sandbox_file_refs:
+                        if isinstance(ref, dict):
+                            file_name = ref.get("file_name", "")
+                            if file_name:
+                                new_path = f"{work_dir}/uploads/{file_name}"
+                                ref["sandbox_path"] = new_path
+                                updated_refs.append(f"1. `{new_path}`")
+                                logger.info(
+                                    f"[AgentChat] Updated sandbox_path: {new_path}"
+                                )
+                    ext_info["sandbox_file_refs"] = sandbox_file_refs
+
+                    # 如果用户消息中没有文件提示，添加正确的文件提示
+                    if updated_refs and isinstance(user_query.content, str):
+                        if "User uploaded files" not in user_query.content:
+                            new_file_info = (
+                                f"\n\n---\n\n📎 **User uploaded files**:\n"
+                                + "\n".join(updated_refs)
+                            )
+                            user_query = HumanMessage(
+                                content=user_query.content + new_file_info
+                            )
+                            logger.info(
+                                f"[AgentChat] Added file info to user message with correct paths"
+                            )
+
             if is_retry_chat:
                 # retry chat
                 self.gpts_conversations.update(conv_uid, Status.RUNNING.value)

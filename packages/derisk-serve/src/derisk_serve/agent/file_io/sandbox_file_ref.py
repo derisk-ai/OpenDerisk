@@ -74,12 +74,27 @@ class SandboxFileRef:
             "local_path": self.local_path,
         }
 
-    def get_sandbox_path(self) -> str:
-        """Get complete path in sandbox"""
+    def get_sandbox_path(self, sandbox: Optional["SandboxBase"] = None) -> str:
+        """Get complete path in sandbox
+
+        Args:
+            sandbox: Optional sandbox instance to get dynamic work_dir
+
+        Returns:
+            Sandbox path for the file
+        """
         if self.sandbox_path:
             return self.sandbox_path
-        # Default path rule (fallback when sandbox_path not set)
-        return f"{get_default_upload_dir()}/{self.file_name}"
+
+        if sandbox and hasattr(sandbox, "work_dir") and sandbox.work_dir:
+            return f"{sandbox.work_dir}/uploads/{self.file_name}"
+
+        # Fallback: use relative path (tools will resolve based on work_dir)
+        logger.warning(
+            f"[FileIO] sandbox_path not set and no sandbox provided for {self.file_name}, "
+            f"using relative path"
+        )
+        return f"uploads/{self.file_name}"
 
     def get_extension(self) -> str:
         """Get file extension"""
@@ -254,6 +269,7 @@ async def process_user_input_file(
 
     if process_mode == FileProcessMode.MODEL_DIRECT:
         # Model direct consumption: as multimodal message
+        # 只有图片才能直接给模型消费
         if input_type == "image_url":
             image_url_data = user_input.get("image_url", {})
             return (
@@ -265,18 +281,14 @@ async def process_user_input_file(
                 None,
             )
         else:
-            # Other types also try as multimodal message (like file_url)
-            file_url_data = user_input.get("file_url", {})
-            return (
-                {
-                    "type": "file_url",
-                    "file_url": file_url_data,
-                },
-                None,
-                None,
+            # 其他类型文件不应该走 MODEL_DIRECT，强制走 SANDBOX_TOOL
+            logger.warning(
+                f"[FileIO] File {file_name} is not an image, forcing SANDBOX_TOOL mode"
             )
-    else:
-        # Sandbox tool consumption: create file reference
+            process_mode = FileProcessMode.SANDBOX_TOOL
+
+    # Sandbox tool consumption: create file reference
+    if process_mode == FileProcessMode.SANDBOX_TOOL:
         upload_dir = get_default_upload_dir(sandbox)
         sandbox_path = f"{upload_dir}/{file_name}"
 
@@ -364,7 +376,9 @@ async def process_chat_input_files(
     return result
 
 
-def build_file_info_prompt(sandbox_file_refs: List[SandboxFileRef]) -> str:
+def build_file_info_prompt(
+    sandbox_file_refs: List[SandboxFileRef], sandbox: Optional["SandboxBase"] = None
+) -> str:
     """Build file information prompt for user message.
 
     Only returns the file list section, NOT including the original query.
@@ -372,6 +386,7 @@ def build_file_info_prompt(sandbox_file_refs: List[SandboxFileRef]) -> str:
 
     Args:
         sandbox_file_refs: List of sandbox file references
+        sandbox: Optional sandbox instance for dynamic path resolution
 
     Returns:
         File information prompt string (or empty string if no files)
@@ -381,7 +396,7 @@ def build_file_info_prompt(sandbox_file_refs: List[SandboxFileRef]) -> str:
 
     file_list_lines = []
     for i, ref in enumerate(sandbox_file_refs, 1):
-        sandbox_path = ref.get_sandbox_path()
+        sandbox_path = ref.get_sandbox_path(sandbox)
         file_info = f"{i}. `{sandbox_path}`"
         if ref.file_type:
             file_info += f" (.{ref.file_type})"
@@ -449,7 +464,7 @@ async def initialize_files_in_sandbox(
 
     for ref in sandbox_file_refs:
         try:
-            sandbox_path = ref.get_sandbox_path()
+            sandbox_path = ref.get_sandbox_path(sandbox)
 
             # Check if file has local content
             if ref.local_path and os.path.exists(ref.local_path):

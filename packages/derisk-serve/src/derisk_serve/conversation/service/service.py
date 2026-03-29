@@ -275,6 +275,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             List[ServerResponse]: The response
         """
+        import time
+
+        _total_start = time.time()
+
         # ===== 统一消息读取策略 =====
         # 先尝试从gpts_messages读取（Core V2）
         # 如果没有，再从chat_history读取（Core V1）
@@ -286,30 +290,59 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         )
 
         # 1. 尝试从gpts_messages读取（Core V2）
+        _step_start = time.time()
         messages_v2 = self._get_messages_from_gpts(conv_uid)
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] 从gpts_messages读取耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         if messages_v2:
             logger.info(
                 f"Loaded {len(messages_v2)} messages from gpts_messages for conv {conv_uid}"
             )
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] get_history_messages总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+            )
             return messages_v2
 
         # 2. 回退到从chat_history读取（Core V1）
+        _step_start = time.time()
         from ...file.serve import Serve as FileServe
 
         file_serve = FileServe.get_instance(self.system_app)
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] 获取FileServe耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
 
+        _step_start = time.time()
         conv: StorageConversation = self.create_storage_conv(request)
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] 创建StorageConversation耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         result = []
+
+        _step_start = time.time()
         messages = _append_view_messages(conv.messages)
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] _append_view_messages耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
 
         if not messages:
             logger.warning(f"No messages found for conv {conv_uid}")
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] get_history_messages总耗时: {(time.time() - _total_start) * 1000:.2f}ms (无消息)"
+            )
             return []
 
+        _step_start = time.time()
         feedback_service = get_service()
 
         feedbacks = feedback_service.list_conv_feedbacks(conv_uid=request.conv_uid)
         fb_map = {fb.message_id: fb.to_dict() for fb in feedbacks}
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] 查询feedback耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
 
         for msg in messages:
             feedback = {}
@@ -328,6 +361,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     feedback=feedback,
                 )
             )
+        logger.info(
+            f"[MESSAGES_HISTORY][PERF] get_history_messages总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+        )
         return result
 
     def _get_messages_from_gpts(self, conv_uid: str) -> List[MessageVo]:
@@ -339,40 +375,45 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         Returns:
             MessageVo列表，如果没有消息返回空列表
         """
+        import time
+
+        _start = time.time()
+
         try:
-            from derisk.storage.unified_message_dao import UnifiedMessageDAO
+            from derisk_serve.agent.db.gpts_messages_db import GptsMessagesDao
             from derisk.core.interface.message import _append_view_messages
-            import asyncio
 
-            unified_dao = UnifiedMessageDAO()
+            msg_dao = GptsMessagesDao()
 
-            async def _get_messages():
-                return await unified_dao.get_messages_by_conv_id(conv_uid)
+            _step_start = time.time()
+            gpts_messages = msg_dao.get_by_conv_id_sync(conv_uid)
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 查询gpts_messages耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(gpts_messages)}"
+            )
 
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(_get_messages(), loop)
-                    unified_messages = future.result(timeout=30)
-                else:
-                    unified_messages = loop.run_until_complete(_get_messages())
-            except RuntimeError:
-                unified_messages = asyncio.run(_get_messages())
-
-            if not unified_messages:
+            if not gpts_messages:
+                logger.info(
+                    f"[MESSAGES_HISTORY][PERF] 总耗时: {(time.time() - _start) * 1000:.2f}ms (无消息)"
+                )
                 return []
 
-            # 转换为BaseMessage格式
+            _step_start = time.time()
             base_messages = []
-            for unified_msg in unified_messages:
+            for unified_msg in gpts_messages:
                 base_msg = unified_msg.to_base_message()
                 base_msg.round_index = unified_msg.rounds
                 base_messages.append(base_msg)
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 转换为BaseMessage耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
-            # 添加ViewMessage
+            _step_start = time.time()
             messages_with_view = _append_view_messages(base_messages)
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 添加ViewMessage耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
-            # 转换为MessageVo
+            _step_start = time.time()
             result = []
             for msg in messages_with_view:
                 result.append(
@@ -384,9 +425,18 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         feedback={},
                     )
                 )
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 转换为MessageVo耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 总耗时: {(time.time() - _start) * 1000:.2f}ms, 返回消息数: {len(result)}"
+            )
             return result
 
         except Exception as e:
             logger.warning(f"Failed to read from gpts_messages: {e}")
+            logger.info(
+                f"[MESSAGES_HISTORY][PERF] 异常总耗时: {(time.time() - _start) * 1000:.2f}ms"
+            )
             return []

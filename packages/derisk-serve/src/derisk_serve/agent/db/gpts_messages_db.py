@@ -418,6 +418,15 @@ class GptsMessagesDao(BaseDao):
             entities = result.scalars().all()
             return [self._to_gpts_message(e) for e in entities]
 
+    def get_by_conv_id_sync(self, conv_id: str) -> List[GptsMessage]:
+        session = self.get_raw_session()
+        gpts_messages = session.query(GptsMessagesEntity)
+        if conv_id:
+            gpts_messages = gpts_messages.filter(GptsMessagesEntity.conv_id == conv_id)
+        entities = gpts_messages.order_by(GptsMessagesEntity.rounds).all()
+        session.close()
+        return [self._to_gpts_message(e) for e in entities]
+
     def get_by_conv_session_id(self, conv_session_id: str) -> List[GptsMessage]:
         session = self.get_raw_session()
         gpts_messages = session.query(GptsMessagesEntity)

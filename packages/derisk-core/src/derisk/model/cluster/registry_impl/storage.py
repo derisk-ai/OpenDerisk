@@ -198,11 +198,10 @@ class StorageModelRegistry(ModelRegistry):
         if engine_args is None:
             is_sqlite = "sqlite" in (db_url or "").lower()
             if is_sqlite:
+                from sqlalchemy.pool import NullPool
+
                 engine_args = {
-                    "pool_size": 1,
-                    "max_overflow": 0,
-                    "pool_timeout": 60,
-                    "pool_recycle": 3600,
+                    "poolclass": NullPool,
                     "pool_pre_ping": True,
                     "connect_args": {
                         "check_same_thread": False,
