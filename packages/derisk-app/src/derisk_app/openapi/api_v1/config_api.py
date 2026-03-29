@@ -521,6 +521,8 @@ async def reload_config():
         manager = get_config_manager()
         config = manager.reload()
 
+        _sync_agent_llm_to_system_config(config)
+
         models_registered = _refresh_model_config_cache(config)
 
         return JSONResponse(
@@ -545,6 +547,8 @@ async def refresh_model_cache():
     try:
         manager = get_config_manager()
         config = manager.get()
+
+        _sync_agent_llm_to_system_config(config)
 
         models_registered = _refresh_model_config_cache(config)
 
@@ -756,6 +760,116 @@ async def update_feature_plugins(
     )
 
 
+def _convert_agent_llm_to_system_format(agent_llm_conf) -> Dict[str, Any]:
+    """将前端 agent_llm 格式转换为后端 agent.llm 格式
+
+    前端格式 (agent_llm):
+    {
+        "temperature": 0.5,
+        "providers": [
+            {
+                "provider": "openai",
+                "api_base": "...",
+                "models": [{ "name": "gpt-4", "temperature": 0.7 }]
+            }
+        ]
+    }
+
+    后端格式 (agent.llm):
+    {
+        "temperature": 0.5,
+        "provider": [
+            {
+                "provider": "openai",
+                "api_base": "...",
+                "model": [{ "name": "gpt-4", "temperature": 0.7 }]
+            }
+        ]
+    }
+    """
+    agent_llm_dict = (
+        agent_llm_conf.model_dump(mode="json")
+        if hasattr(agent_llm_conf, "model_dump")
+        else dict(agent_llm_conf)
+    )
+
+    result = dict(agent_llm_dict)
+
+    if "providers" in result:
+        providers = result.pop("providers")
+        if isinstance(providers, list):
+            converted_providers = []
+            for p in providers:
+                if isinstance(p, dict):
+                    converted_p = dict(p)
+                    if "models" in converted_p:
+                        converted_p["model"] = converted_p.pop("models")
+                    converted_providers.append(converted_p)
+            result["provider"] = converted_providers
+
+    return result
+
+
+def _sync_agent_llm_to_system_config(config: AppConfig) -> bool:
+    """将 AppConfig.agent_llm 同步到 system_app.config 的 agent.llm key
+
+    这是解决 JSON 配置 (agent_llm) 和 TOML 配置系统 (agent.llm) 之间同步问题的关键
+
+    Args:
+        config: 应用配置对象
+
+    Returns:
+        是否成功同步
+    """
+    try:
+        from derisk.component import SystemApp
+
+        system_app = SystemApp.get_instance()
+        if not system_app:
+            logger.warning("SystemApp not available, cannot sync agent_llm config")
+            return False
+
+        agent_llm_conf = getattr(config, "agent_llm", None)
+        if not agent_llm_conf:
+            return False
+
+        agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+
+        system_app.config.set("agent.llm", agent_llm_dict)
+        logger.info(
+            f"Synced agent_llm to system_app.config: {len(agent_llm_dict.get('provider', []))} providers"
+        )
+
+        system_app.config.configs["app_config"] = config
+
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to sync agent_llm to system config: {e}")
+        return False
+
+        agent_llm_conf = getattr(config, "agent_llm", None)
+        if not agent_llm_conf:
+            return False
+
+        agent_llm_dict = (
+            agent_llm_conf.model_dump(mode="json")
+            if hasattr(agent_llm_conf, "model_dump")
+            else dict(agent_llm_conf)
+        )
+
+        system_app.config.set("agent.llm", agent_llm_dict)
+        logger.info(
+            f"Synced agent_llm to system_app.config: {list(agent_llm_dict.keys())}"
+        )
+
+        system_app.config.configs["app_config"] = config
+
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to sync agent_llm to system config: {e}")
+        return False
+
+
 def _refresh_model_config_cache(config: AppConfig) -> int:
     """刷新 ModelConfigCache，将配置中的模型注册到全局缓存
 
@@ -772,11 +886,7 @@ def _refresh_model_config_cache(config: AppConfig) -> int:
         if not agent_llm_conf:
             return 0
 
-        agent_llm_dict = (
-            agent_llm_conf.model_dump(mode="json")
-            if hasattr(agent_llm_conf, "model_dump")
-            else dict(agent_llm_conf)
-        )
+        agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
         model_configs = parse_provider_configs(agent_llm_dict)
 
         if model_configs:
@@ -803,6 +913,8 @@ async def import_config(config_data: Dict[str, Any]):
         manager._config = config
 
         saved = save_config_with_error_handling(manager, "配置")
+
+        _sync_agent_llm_to_system_config(config)
 
         models_registered = _refresh_model_config_cache(config)
 
