@@ -180,8 +180,16 @@ async def dispatch_file_to_sandbox(
     Returns:
         沙箱中的文件路径
     """
+    logger.info(
+        f"[FileDispatch] dispatch_file_to_sandbox: file_path={file_path}, file_name={file_name}"
+    )
+
     if not sandbox_client:
         logger.warning("No sandbox client available, skipping sandbox write")
+        return None
+
+    if not file_path:
+        logger.warning(f"Empty file_path for file: {file_name}")
         return None
 
     try:
@@ -363,12 +371,16 @@ async def save_file_metadata_to_gpts_memory(
             AgentFileMetadata,
             FileType,
         )
+        from derisk.component import ComponentType
         import uuid
 
         if system_app:
-            gpts_memory = GptsMemory.get_instance(system_app)
+            gpts_memory = system_app.get_component(
+                ComponentType.GPTS_MEMORY, GptsMemory
+            )
         else:
-            gpts_memory = GptsMemory.get_instance()
+            logger.debug("system_app not available")
+            return False
 
         if not gpts_memory:
             logger.debug("GptsMemory not available")
@@ -457,8 +469,28 @@ async def process_uploaded_files(
     sandbox_files: List[DispatchedFileInfo] = []
 
     for file_res in file_resources:
-        file_name = file_res.get("file_name", "unknown")
-        file_path = file_res.get("file_path", file_res.get("oss_url", ""))
+        # Handle both flat format and OpenAI file_url format
+        if file_res.get("type") == "file_url" and "file_url" in file_res:
+            # OpenAI compatible format: {"type": "file_url", "file_url": {"url": "...", "file_name": "..."}}
+            file_url_data = file_res["file_url"]
+            file_name = file_url_data.get("file_name", "unknown")
+            file_path = file_url_data.get("url", file_url_data.get("preview_url", ""))
+            file_size = file_url_data.get("file_size", 0)
+            bucket = file_url_data.get("bucket", "")
+            file_id = file_url_data.get("file_id", "")
+            logger.info(
+                f"[FileDispatch] Processing OpenAI file_url format: name={file_name}, path={file_path}"
+            )
+        else:
+            # Flat format: {"file_path": "...", "file_name": "...", "file_size": ...}
+            file_name = file_res.get("file_name", "unknown")
+            file_path = file_res.get("file_path", file_res.get("oss_url", ""))
+            file_size = file_res.get("file_size", 0)
+            bucket = file_res.get("bucket", "")
+            file_id = file_res.get("file_id", "")
+            logger.info(
+                f"[FileDispatch] Processing flat format: name={file_name}, path={file_path}"
+            )
 
         if _is_uuid_like(file_name):
             original_name = _get_original_file_name(
@@ -467,12 +499,8 @@ async def process_uploaded_files(
             if original_name and not _is_uuid_like(original_name):
                 file_name = original_name
 
-        file_size = file_res.get("file_size", 0)
-        bucket = file_res.get("bucket", "")
         mime_type = get_mime_type(file_name)
         dispatch_type = detect_dispatch_type(file_name, mime_type)
-
-        file_id = file_res.get("file_id", "")
 
         file_info = DispatchedFileInfo(
             file_id=file_id,
