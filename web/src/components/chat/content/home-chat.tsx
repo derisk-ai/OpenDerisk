@@ -1,6 +1,8 @@
 'use client';
 import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList, getMCPList } from '@/client/api';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
+import { transformFileUrl } from '@/utils';
+import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
 import {
   ArrowUpOutlined,
   BulbOutlined,
@@ -27,7 +29,9 @@ import {
   DashboardOutlined,
   RobotOutlined,
   SafetyOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  CloseOutlined,
+  FolderAddOutlined
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import {
@@ -57,6 +61,40 @@ import { IModelData } from '@/types/model';
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
+// 文件类型颜色主题
+const getFileTypeTheme = (fileName: string) => {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  const themes: Record<string, { bg: string; border: string; icon: string }> = {
+    jpg: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+    jpeg: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+    png: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+    gif: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+    webp: { bg: 'bg-purple-50', border: 'border-purple-200', icon: 'text-purple-500' },
+    pdf: { bg: 'bg-red-50', border: 'border-red-200', icon: 'text-red-500' },
+    doc: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-500' },
+    docx: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-500' },
+    xls: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+    xlsx: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+    csv: { bg: 'bg-green-50', border: 'border-green-200', icon: 'text-green-500' },
+    ppt: { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'text-orange-500' },
+    pptx: { bg: 'bg-orange-50', border: 'border-orange-200', icon: 'text-orange-500' },
+    js: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+    ts: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+    py: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+    java: { bg: 'bg-cyan-50', border: 'border-cyan-200', icon: 'text-cyan-500' },
+    md: { bg: 'bg-gray-50', border: 'border-gray-200', icon: 'text-gray-500' },
+    mp4: { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'text-pink-500' },
+    mov: { bg: 'bg-pink-50', border: 'border-pink-200', icon: 'text-pink-500' },
+    mp3: { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'text-yellow-600' },
+    wav: { bg: 'bg-yellow-50', border: 'border-yellow-200', icon: 'text-yellow-600' },
+    zip: { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+    rar: { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+    '7z': { bg: 'bg-indigo-50', border: 'border-indigo-200', icon: 'text-indigo-500' },
+  };
+  return themes[ext] || { bg: 'bg-gray-50', border: 'border-gray-200', icon: 'text-gray-500' };
+};
+
+// 文件预览组件 - 与应用内对话保持一致
 const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) => {
   const [preview, setPreview] = useState<string>('');
 
@@ -68,67 +106,65 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
     }
   }, [file]);
 
-  // Check if it's a markdown file
-  const isMarkdown = file.name.endsWith('.md') || file.type === 'text/markdown';
+  const theme = getFileTypeTheme(file.name);
+  const FileIcon = getFileIcon(file.name, file.type);
+  const isImage = file.type.startsWith('image/');
 
   return (
-    <div className="relative group flex-shrink-0">
-      {file.type.startsWith('image/') ? (
-        <div className="w-10 h-10 rounded-lg border border-gray-100 dark:border-gray-700 overflow-hidden bg-white dark:bg-[#1F1F1F]">
+    <div className="relative group">
+      <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200 ${theme.border}`}>
+        {isImage && preview ? (
           <img src={preview} alt={file.name} className="w-full h-full object-cover" />
-        </div>
-      ) : isMarkdown ? (
-        // Markdown file preview with document icon
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors">
-          <div className="w-8 h-10 rounded bg-white dark:bg-gray-800 shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center relative overflow-hidden">
-            {/* Document icon styling */}
-            <div className="absolute top-0 right-0 w-3 h-3 bg-blue-500" style={{ clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }}></div>
-            <FileTextOutlined className="text-blue-500 text-lg" />
-            <span className="text-[8px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">MD</span>
+        ) : (
+          <div className={`w-full h-full flex items-center justify-center ${theme.bg}`}>
+            <FileIcon className={`${theme.icon} text-xl`} />
           </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">
-              {file.name}
-            </span>
-            <span className="text-[10px] text-gray-400">
-              {(file.size / 1024).toFixed(1)} KB · Markdown
+        )}
+      </div>
+      <div className="mt-1 max-w-[60px]">
+        <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{file.name}</p>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shadow hover:bg-red-50 hover:border-red-300 hover:text-red-500"
+      >
+        <CloseOutlined className="text-[10px]" />
+      </button>
+    </div>
+  );
+};
+
+// 文件列表显示组件
+const FileListDisplay = ({ files, onRemove, onClearAll }: { files: File[]; onRemove: (index: number) => void; onClearAll: () => void }) => {
+  if (files.length === 0) return null;
+
+  return (
+    <div className="pb-3">
+      {files.length > 1 && (
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <FolderAddOutlined className="text-indigo-600 text-xs" />
+            </div>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              已上传文件
+              <span className="ml-1 text-xs text-gray-500">({files.length})</span>
             </span>
           </div>
           <button
-            className="ml-1 p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
+            onClick={onClearAll}
+            className="text-xs text-gray-500 hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-full hover:bg-red-50"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+            <CloseOutlined className="text-xs" />
+            全部清除
           </button>
         </div>
-      ) : (
-        <div className="w-10 h-10 rounded-lg border border-gray-100 dark:border-gray-700 overflow-hidden bg-white dark:bg-[#1F1F1F]">
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 gap-1">
-            <FileTextOutlined className="text-gray-400 text-xl" />
-            <span className="text-[10px] text-gray-400 truncate w-full text-center px-1">
-              {file.name}
-            </span>
-          </div>
-        </div>
       )}
-      {!isMarkdown && (
-        <div
-          className="absolute -top-1 -right-1 w-5 h-5 bg-black/50 hover:bg-red-500 rounded-full flex items-center justify-center cursor-pointer transition-all opacity-0 group-hover:opacity-100 backdrop-blur-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </div>
-      )}
+      <div className="flex flex-wrap gap-3">
+        {files.map((file, index) => (
+          <FilePreview key={`${index}-${file.name}`} file={file} onRemove={() => onRemove(index)} />
+        ))}
+      </div>
     </div>
   );
 };
@@ -707,7 +743,78 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           );
           
           if (uploadRes) {
-            uploadedResources.push(uploadRes);
+            // Convert uploadRes to standard format (same as unified-chat-input.tsx)
+            const isImage = file.type.startsWith('image/');
+            const isAudio = file.type.startsWith('audio/');
+            const isVideo = file.type.startsWith('video/');
+            
+            let fileUrl = '';
+            let previewUrl = '';
+            
+            if (uploadRes.preview_url) {
+              previewUrl = uploadRes.preview_url;
+              fileUrl = uploadRes.file_path || previewUrl;
+            } else if (uploadRes.file_path) {
+              fileUrl = uploadRes.file_path;
+              previewUrl = transformFileUrl(fileUrl);
+            } else if (uploadRes.url || uploadRes.file_url) {
+              fileUrl = uploadRes.url || uploadRes.file_url;
+              previewUrl = fileUrl;
+            } else if (uploadRes.path) {
+              fileUrl = uploadRes.path;
+              previewUrl = transformFileUrl(fileUrl);
+            } else if (typeof uploadRes === 'string') {
+              fileUrl = uploadRes;
+              previewUrl = uploadRes;
+            } else if (Array.isArray(uploadRes)) {
+              const firstRes = uploadRes[0];
+              previewUrl = firstRes?.preview_url || '';
+              fileUrl = firstRes?.file_path || firstRes?.preview_url || previewUrl;
+              if (!previewUrl && fileUrl) {
+                previewUrl = transformFileUrl(fileUrl);
+              }
+            }
+            
+            let newResourceItem;
+            if (isImage) {
+              newResourceItem = {
+                type: 'image_url',
+                image_url: {
+                  url: fileUrl,
+                  preview_url: previewUrl || fileUrl,
+                  file_name: file.name,
+                },
+              };
+            } else if (isAudio) {
+              newResourceItem = {
+                type: 'audio_url',
+                audio_url: {
+                  url: fileUrl,
+                  preview_url: previewUrl || fileUrl,
+                  file_name: file.name,
+                },
+              };
+            } else if (isVideo) {
+              newResourceItem = {
+                type: 'video_url',
+                video_url: {
+                  url: fileUrl,
+                  preview_url: previewUrl || fileUrl,
+                  file_name: file.name,
+                },
+              };
+            } else {
+              newResourceItem = {
+                type: 'file_url',
+                file_url: {
+                  url: fileUrl,
+                  preview_url: previewUrl || fileUrl,
+                  file_name: file.name,
+                },
+              };
+            }
+            
+            uploadedResources.push(newResourceItem);
           }
         }
       }
@@ -727,7 +834,6 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     }
     setUserInput('');
     setFileList([]);
-    setAutoGeneratedFileIndex(null);
     setSelectedSkills([]);
     setSelectedMcps([]);
   };
@@ -987,21 +1093,15 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
         >
           <div className="p-4">
             {/* Selected Files Preview Area (Top of Input) */}
-            {fileList.length > 0 && (
-              <div className="flex gap-3 px-1 pb-3 overflow-x-auto scrollbar-hide">
-                {fileList.map((file, index) => (
-                  <FilePreview
-                    key={index + file.name}
-                    file={file}
-                    onRemove={() => {
-                      const newFileList = [...fileList];
-                      newFileList.splice(index, 1);
-                      setFileList(newFileList);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+            <FileListDisplay
+              files={fileList}
+              onRemove={(index) => {
+                const newFileList = [...fileList];
+                newFileList.splice(index, 1);
+                setFileList(newFileList);
+              }}
+              onClearAll={() => setFileList([])}
+            />
 
             <Input.TextArea
               placeholder="分配一个任务或提问任何问题"
