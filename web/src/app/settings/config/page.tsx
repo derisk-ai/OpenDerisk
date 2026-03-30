@@ -64,6 +64,41 @@ import type { ToolMetadata } from '@/types/tool';
 
 const { Title, Text } = Typography;
 
+const OSS_REGION_ENDPOINT_MAP: Record<string, string> = {
+  'oss-cn-hangzhou': 'https://oss-cn-hangzhou.aliyuncs.com',
+  'oss-cn-shanghai': 'https://oss-cn-shanghai.aliyuncs.com',
+  'oss-cn-beijing': 'https://oss-cn-beijing.aliyuncs.com',
+  'oss-cn-shenzhen': 'https://oss-cn-shenzhen.aliyuncs.com',
+  'oss-cn-qingdao': 'https://oss-cn-qingdao.aliyuncs.com',
+  'oss-cn-hongkong': 'https://oss-cn-hongkong.aliyuncs.com',
+  'oss-ap-southeast-1': 'https://oss-ap-southeast-1.aliyuncs.com',
+  'oss-ap-southeast-3': 'https://oss-ap-southeast-3.aliyuncs.com',
+  'oss-ap-southeast-5': 'https://oss-ap-southeast-5.aliyuncs.com',
+  'oss-ap-northeast-1': 'https://oss-ap-northeast-1.aliyuncs.com',
+  'oss-eu-west-1': 'https://oss-eu-west-1.aliyuncs.com',
+  'oss-us-west-1': 'https://oss-us-west-1.aliyuncs.com',
+  'oss-us-east-1': 'https://oss-us-east-1.aliyuncs.com',
+};
+
+const S3_REGION_ENDPOINT_MAP: Record<string, string> = {
+  'us-east-1': 'https://s3.us-east-1.amazonaws.com',
+  'us-east-2': 'https://s3.us-east-2.amazonaws.com',
+  'us-west-1': 'https://s3.us-west-1.amazonaws.com',
+  'us-west-2': 'https://s3.us-west-2.amazonaws.com',
+  'eu-west-1': 'https://s3.eu-west-1.amazonaws.com',
+  'eu-west-2': 'https://s3.eu-west-2.amazonaws.com',
+  'eu-west-3': 'https://s3.eu-west-3.amazonaws.com',
+  'eu-central-1': 'https://s3.eu-central-1.amazonaws.com',
+  'ap-northeast-1': 'https://s3.ap-northeast-1.amazonaws.com',
+  'ap-northeast-2': 'https://s3.ap-northeast-2.amazonaws.com',
+  'ap-northeast-3': 'https://s3.ap-northeast-3.amazonaws.com',
+  'ap-southeast-1': 'https://s3.ap-southeast-1.amazonaws.com',
+  'ap-southeast-2': 'https://s3.ap-southeast-2.amazonaws.com',
+  'ap-south-1': 'https://s3.ap-south-1.amazonaws.com',
+  'sa-east-1': 'https://s3.sa-east-1.amazonaws.com',
+  'ca-central-1': 'https://s3.ca-central-1.amazonaws.com',
+};
+
 export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -804,6 +839,15 @@ function FileServiceConfigSection({
                     filterOption={(input, option) => 
                       (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
                     }
+                    onChange={(value) => {
+                      if (value && (isOSS || isS3)) {
+                        const endpointMap = isOSS ? OSS_REGION_ENDPOINT_MAP : S3_REGION_ENDPOINT_MAP;
+                        const endpoint = endpointMap[value as string];
+                        if (endpoint) {
+                          form.setFieldsValue({ endpoint });
+                        }
+                      }
+                    }}
                   >
                     {isOSS && (
                       <>

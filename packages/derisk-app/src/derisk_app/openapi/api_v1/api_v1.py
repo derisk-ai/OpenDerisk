@@ -70,6 +70,50 @@ global_counter = 0
 user_recent_app_dao = UserRecentAppsDao()
 
 
+def _is_uuid_like(filename: str) -> bool:
+    """Check if filename looks like a UUID (file_id)."""
+    import re
+
+    name_without_ext = filename.rsplit(".", 1)[0]
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    return bool(uuid_pattern.match(name_without_ext))
+
+
+def _get_file_name_from_url_or_metadata(url_str: str, fs: FileStorageClient) -> str:
+    """Get original file name from URL or metadata storage.
+
+    When files are uploaded, they are stored with UUID as file_id, but original
+    filename is saved in metadata. This function retrieves the original filename.
+    """
+    from urllib.parse import urlparse, unquote
+
+    if url_str.startswith("derisk-fs://"):
+        try:
+            metadata = fs.storage_system.get_file_metadata_by_uri(url_str)
+            if metadata and metadata.file_name:
+                return metadata.file_name
+        except Exception:
+            pass
+
+    parsed = urlparse(url_str)
+    path_file_name = os.path.basename(unquote(parsed.path))
+
+    if path_file_name and not _is_uuid_like(path_file_name):
+        return path_file_name
+
+    try:
+        metadata = fs.storage_system.get_file_metadata_by_uri(url_str)
+        if metadata and metadata.file_name:
+            return metadata.file_name
+    except Exception:
+        pass
+
+    return None
+
+
 def __get_conv_user_message(conversations: dict):
     messages = conversations["messages"]
     for item in messages:
@@ -426,12 +470,10 @@ async def chat_completions(
                             if media.type == "image" and media.object.format.startswith(
                                 "url"
                             ):
-                                # 从 URL 中提取文件名
                                 url_str = str(media.object.data)
-                                from urllib.parse import urlparse, unquote
-
-                                parsed = urlparse(url_str)
-                                file_name = os.path.basename(unquote(parsed.path))
+                                file_name = _get_file_name_from_url_or_metadata(
+                                    url_str, fs
+                                )
                                 if not file_name:
                                     file_name = f"image_{uuid.uuid4().hex[:8]}.jpg"
 
@@ -448,12 +490,10 @@ async def chat_completions(
                                 media.type == "file"
                                 and media.object.format.startswith("url")
                             ):
-                                # 从 URL 中提取文件名
                                 url_str = str(media.object.data)
-                                from urllib.parse import urlparse, unquote
-
-                                parsed = urlparse(url_str)
-                                file_name = os.path.basename(unquote(parsed.path))
+                                file_name = _get_file_name_from_url_or_metadata(
+                                    url_str, fs
+                                )
                                 if not file_name:
                                     file_name = f"file_{uuid.uuid4().hex[:8]}"
 

@@ -2,20 +2,32 @@ import asyncio
 import json
 import logging
 import traceback
+import uuid
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from abc import ABC, abstractmethod
 from copy import deepcopy
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Type, Union
 
+import orjson
+from fastapi import BackgroundTasks
+
+from derisk import BaseComponent
+from derisk._private.config import Config
 from derisk.agent import (
+    AgentMemory,
+    ConversableAgent,
+    get_agent_manager,
+    AgentContext,
+    UserProxyAgent,
+    LLMStrategyType,
+    GptsMemory,
+    LLMConfig,
+    ResourceType,
     ActionOutput,
     Agent,
-    AgentContext,
-    AgentMemory,
     AgentMessage,
     ProfileConfig,
-    ResourceType,
-    ConversableAgent,
-    UserProxyAgent,
+    ShortTermMemory,
 )
 from derisk.agent.core.agent_alias import AgentAliasManager, resolve_agent_name
 from derisk.agent.core.base_team import ManagerAgent
@@ -165,20 +177,6 @@ class GlobalSandboxManagerCache:
             except Exception as e:
                 logger.exception(
                     f"[Sandbox]清理sandbox_manager失败，key={key}, error={str(e)}"
-                )
-else:
-                # 解析Manager Agent别名（历史数据兼容）
-                resolved_manager_name = resolve_agent_name(
-                    app.team_context.team_leader if app.team_context and hasattr(app.team_context, 'team_leader') else "BAIZE"
-                )
-                
-                logger.info(
-                    f"[AgentChat] Building manager agent: team_mode={team_mode}, "
-                    f"manager={resolved_manager_name}, employee_count={len(employees)}"
-                )
-                
-                manager_cls: Type[ConversableAgent] = agent_manager.get_by_name(
-                    resolved_manager_name
                 )
 
 
@@ -1114,18 +1112,18 @@ class AgentChat(BaseComponent, ABC):
                 real_all_resources
             )
 
-if team_mode == TeamMode.SINGLE_AGENT or TeamMode.NATIVE_APP == team_mode:
+            if team_mode == TeamMode.SINGLE_AGENT or TeamMode.NATIVE_APP == team_mode:
                 if employees is not None and len(employees) == 1:
                     recipient = employees[0]
                 else:
                     # 解析Agent别名（历史数据兼容）
                     resolved_agent_type = resolve_agent_name(app.agent)
-                    
+
                     if resolved_agent_type != app.agent:
                         logger.info(
                             f"[AgentChat] Resolved agent alias: {app.agent} -> {resolved_agent_type}"
                         )
-                    
+
                     cls: Type[ConversableAgent] = self.agent_manage.get_by_name(
                         resolved_agent_type
                     )

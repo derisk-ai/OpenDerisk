@@ -7,6 +7,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
@@ -17,6 +18,18 @@ if TYPE_CHECKING:
     from derisk.sandbox.base import SandboxBase
 
 logger = logging.getLogger(__name__)
+
+
+def _is_uuid_like(filename: str) -> bool:
+    """Check if filename looks like a UUID (file_id)."""
+    if not filename:
+        return False
+    name_without_ext = filename.rsplit(".", 1)[0]
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    return bool(uuid_pattern.match(name_without_ext))
 
 
 def get_default_upload_dir(sandbox: Optional["SandboxBase"] = None) -> str:
@@ -257,6 +270,12 @@ async def process_user_input_file(
         path = unquote(parsed.path)
         file_name = os.path.basename(path)
         logger.info(f"[FileIO] Extracted file_name from URL: {file_name}")
+
+    if _is_uuid_like(file_name):
+        logger.warning(
+            f"[FileIO] file_name looks like UUID: {file_name}, "
+            f"original filename may not be preserved. Please check frontend data."
+        )
 
     # Skip if still no file_name
     if not file_name:

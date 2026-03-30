@@ -7,6 +7,7 @@
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -15,6 +16,46 @@ from typing import Any, Dict, List, Optional, Union
 from derisk.core.interface.media import MediaContent, MediaObject, MediaContentType
 
 logger = logging.getLogger(__name__)
+
+
+def _is_uuid_like(filename: str) -> bool:
+    """Check if filename looks like a UUID (file_id)."""
+    if not filename:
+        return False
+    name_without_ext = filename.rsplit(".", 1)[0]
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    return bool(uuid_pattern.match(name_without_ext))
+
+
+def _get_original_file_name(
+    file_path: str, file_name: str, file_storage_client=None
+) -> str:
+    """Get original file name from metadata if current name is UUID.
+
+    When files are uploaded, they are stored with UUID as file_id, but original
+    filename is saved in metadata. This function retrieves the original filename.
+    """
+    if not _is_uuid_like(file_name):
+        return file_name
+
+    if file_storage_client and file_path:
+        try:
+            if file_path.startswith("derisk-fs://"):
+                metadata = file_storage_client.storage_system.get_file_metadata_by_uri(
+                    file_path
+                )
+                if metadata and metadata.file_name:
+                    logger.info(
+                        f"[FileDispatch] Retrieved original filename: {metadata.file_name} from UUID: {file_name}"
+                    )
+                    return metadata.file_name
+        except Exception as e:
+            logger.warning(f"[FileDispatch] Failed to get metadata: {e}")
+
+    return file_name
 
 
 IMAGE_EXTENSIONS = {
@@ -418,6 +459,14 @@ async def process_uploaded_files(
     for file_res in file_resources:
         file_name = file_res.get("file_name", "unknown")
         file_path = file_res.get("file_path", file_res.get("oss_url", ""))
+
+        if _is_uuid_like(file_name):
+            original_name = _get_original_file_name(
+                file_path, file_name, file_storage_client
+            )
+            if original_name and not _is_uuid_like(original_name):
+                file_name = original_name
+
         file_size = file_res.get("file_size", 0)
         bucket = file_res.get("bucket", "")
         mime_type = get_mime_type(file_name)
