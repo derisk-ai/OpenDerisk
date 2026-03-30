@@ -270,15 +270,15 @@ class AgentRegistry:
     def get_instance(cls) -> "AgentRegistry":
         return cls()
 
-def register(self, agent_info: AgentInfo) -> "AgentRegistry":
+    def register(self, agent_info: AgentInfo) -> "AgentRegistry":
         """Register an agent definition."""
         self._agents[agent_info.name] = agent_info
-        
+
         # 自动注册别名（如果Agent有历史名称）
         aliases = AgentAliasManager.get_aliases_for(agent_info.name)
         for alias in aliases:
             logger.debug(f"Auto-registered alias: {alias} -> {agent_info.name}")
-        
+
         return self
 
     def unregister(self, name: str) -> "AgentRegistry":

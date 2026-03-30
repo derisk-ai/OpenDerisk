@@ -94,28 +94,51 @@ class AgentManager(BaseComponent):
         self._agents[profile] = (cls, inst)
 
         # 自动注册Agent别名（从profile.aliases获取）
-        if hasattr(inst, "profile") and hasattr(inst.profile, "aliases"):
-            aliases = inst.profile.aliases
-            if aliases:
-                AgentAliasManager.register_agent_aliases(profile, aliases)
-                logger.info(
-                    f"[AgentManager] Auto-registered aliases for {profile}: {aliases}"
+        aliases = []
+
+        # 方式1：从inst.profile.aliases获取
+        if hasattr(inst, "profile"):
+            profile_obj = inst.profile
+            if hasattr(profile_obj, "aliases") and profile_obj.aliases:
+                aliases = profile_obj.aliases
+                logger.debug(
+                    f"[AgentManager] Found aliases from inst.profile.aliases: {aliases}"
                 )
+
+        # 方式2：从profile配置中获取（如果使用DynConfig）
+        if not aliases and hasattr(inst, "_profile_config"):
+            profile_config = inst._profile_config
+            if hasattr(profile_config, "aliases") and profile_config.aliases:
+                aliases_value = profile_config.aliases
+                if hasattr(aliases_value, "query"):
+                    aliases = aliases_value.query()
+                elif aliases_value:
+                    aliases = aliases_value
+                logger.debug(
+                    f"[AgentManager] Found aliases from profile config: {aliases}"
+                )
+
+        # 注册别名
+        if aliases and isinstance(aliases, list):
+            AgentAliasManager.register_agent_aliases(profile, aliases)
+            logger.info(
+                f"[AgentManager] Auto-registered aliases for {profile}: {aliases}"
+            )
 
         return profile
 
-def get(self, name: str) -> ConversableAgent:
+    def get(self, name: str) -> ConversableAgent:
         """Get agent instance by name (supports alias resolution)."""
         resolved_name = AgentAliasManager.resolve_alias(name)
-        
+
         if resolved_name != name:
             logger.info(f"[AgentManager.get] Resolved alias: {name} -> {resolved_name}")
-        
+
         if resolved_name in self._agents:
             return self._agents[resolved_name][1]
         else:
             return None
-    
+
     def get_by_name(self, name: str) -> Type[ConversableAgent]:
         """Return an agent by name (supports alias resolution).
 
@@ -129,15 +152,17 @@ def get(self, name: str) -> ConversableAgent:
             ValueError: If the agent with the given name is not registered.
         """
         resolved_name = AgentAliasManager.resolve_alias(name)
-        
+
         if resolved_name != name:
-            logger.info(f"[AgentManager.get_by_name] Resolved alias: {name} -> {resolved_name}")
-        
+            logger.info(
+                f"[AgentManager.get_by_name] Resolved alias: {name} -> {resolved_name}"
+            )
+
         if resolved_name not in self._agents:
             raise ValueError(f"Agent:{name} (resolved: {resolved_name}) not register!")
         return self._agents[resolved_name][0]
 
-def get_agent(self, name: str) -> ConversableAgent:
+    def get_agent(self, name: str) -> ConversableAgent:
         """Return an agent instance by name (supports alias resolution).
 
         Args:
@@ -150,10 +175,10 @@ def get_agent(self, name: str) -> ConversableAgent:
             ValueError: If the agent with the given name is not registered.
         """
         resolved_name = AgentAliasManager.resolve_alias(name)
-        
+
         if resolved_name != name:
             logger.info(f"[AgentManager] Resolved alias: {name} -> {resolved_name}")
-        
+
         if resolved_name not in self._agents:
             raise ValueError(f"Agent:{name} (resolved: {resolved_name}) not register!")
         return self._agents[resolved_name][1]
@@ -194,7 +219,6 @@ def get_agent(self, name: str) -> ConversableAgent:
         return result
 
 
-# 这里缓存的是Agent的role和goal，数据来自代码编写，启动后不会更新，但查询耗时特别长，可以放在内存缓存中
 _CACHED_AGENTS = []
 
 _SYSTEM_APP: Optional[SystemApp] = None
