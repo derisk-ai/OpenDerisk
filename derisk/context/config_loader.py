@@ -15,7 +15,7 @@ class HierarchicalContextConfigLoader:
     """分层上下文配置加载器"""
     
     def __init__(self, config_path: Optional[str] = None):
-        self.config_path = config_path or "config/hierarchical_context_config.yaml"
+        self.config_path = config_path or "configs/context/hierarchical_context_config.yaml"
         self._config_cache: Optional[Dict[str, Any]] = None
     
     def load(self) -> Dict[str, Any]:

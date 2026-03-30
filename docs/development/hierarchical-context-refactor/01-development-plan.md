@@ -231,8 +231,9 @@ derisk/
             └── chat/
                 └── agent_chat.py               # 改造
 
-config/
-└── hierarchical_context_config.yaml            # 新增配置文件
+configs/
+└── context/
+    └── hierarchical_context_config.yaml        # 新增配置文件
 
 tests/
 └── test_unified_context/
@@ -612,7 +613,7 @@ async def _execute_stream(self, agent, message, context, **kwargs):
 ### 4.1 配置文件结构
 
 ```yaml
-# config/hierarchical_context_config.yaml
+# configs/context/hierarchical_context_config.yaml
 
 hierarchical_context:
   enabled: true
@@ -656,7 +657,7 @@ class HierarchicalContextConfigLoader:
     """分层上下文配置加载器"""
     
     def __init__(self, config_path: Optional[str] = None):
-        self.config_path = config_path or "config/hierarchical_context_config.yaml"
+        self.config_path = config_path or "configs/context/hierarchical_context_config.yaml"
         self._config_cache: Optional[Dict[str, Any]] = None
     
     def load(self) -> Dict[str, Any]:
