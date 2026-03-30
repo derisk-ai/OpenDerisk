@@ -736,6 +736,21 @@ class AgentBase(ABC):
 
         while self._current_step < self.info.max_steps:
             try:
+                # Check for pending user inputs from queue before thinking
+                if self._interaction_gateway and self._session_id:
+                    pending_inputs = (
+                        await self._interaction_gateway.get_pending_user_inputs(
+                            self._session_id, clear=True
+                        )
+                    )
+                    if pending_inputs:
+                        logger.info(
+                            f"[EnhancedAgent] Found {len(pending_inputs)} pending user inputs in queue"
+                        )
+                        for input_item in pending_inputs:
+                            self.add_message("user", input_item.content)
+                            message = input_item.content
+
                 thinking_output = []
                 if stream:
                     async for chunk in self.think(message):

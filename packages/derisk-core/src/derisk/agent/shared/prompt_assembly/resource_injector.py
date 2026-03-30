@@ -385,15 +385,55 @@ class ResourceContext:
             if not meta:
                 return None
 
+            # Get skill_code (UUID or directory name)
+            skill_code = (
+                getattr(item, "_skill_code", None)
+                or getattr(item, "skill_code", None)
+                or ""
+            )
+            if not skill_code and hasattr(meta, "path") and meta.path:
+                import os
+
+                skill_code = os.path.basename(meta.path)
+
+            # Determine skill path based on sandbox status
+            skill_path = ""
+            sandbox_enabled = False
+            sandbox_skill_dir = ""
+
+            if self.sandbox_manager:
+                sb_client = getattr(self.sandbox_manager, "client", None)
+                if sb_client:
+                    sandbox_enabled = True
+                    sandbox_skill_dir = getattr(sb_client, "skill_dir", "") or ""
+
+            import os
+            from derisk.agent.expand.react_master_agent.react_master_agent import (
+                DATA_DIR,
+            )
+
+            if sandbox_enabled and sandbox_skill_dir and skill_code:
+                # Sandbox mode: use absolute path in sandbox
+                skill_path = os.path.join(sandbox_skill_dir, skill_code)
+            elif skill_code:
+                # Local mode: use absolute path locally
+                local_skill_dir = os.path.join(DATA_DIR, "skill")
+                skill_path = os.path.join(local_skill_dir, skill_code)
+            else:
+                # Fallback to meta path
+                skill_path = getattr(meta, "path", "") or ""
+
             return ResourceInfo(
                 resource_type=ResourceType.SKILLS,
                 code=getattr(meta, "name", "") or "",
                 name=getattr(meta, "name", "") or "",
                 description=getattr(meta, "description", "") or "",
                 metadata={
-                    "path": getattr(meta, "path", "") or "",
+                    "path": skill_path,
                     "branch": branch,
                     "mode": mode,
+                    "sandbox_enabled": sandbox_enabled,
+                    "sandbox_skill_dir": sandbox_skill_dir if sandbox_enabled else "",
                 },
             )
         except Exception as e:
@@ -735,7 +775,29 @@ class ResourceInjector:
 
     def _format_skills_default(self, resources: List[ResourceInfo]) -> str:
         """默认技能格式"""
-        lines = ["<available_skills>", "以下是你可以加载的技能：", ""]
+        lines = []
+
+        # Check if sandbox is enabled for any resource
+        sandbox_enabled = False
+        sandbox_skill_dir = ""
+        for r in resources:
+            if r.metadata.get("sandbox_enabled", False):
+                sandbox_enabled = True
+                sandbox_skill_dir = r.metadata.get("sandbox_skill_dir", "")
+                break
+
+        # Add sandbox environment info if sandbox is enabled
+        if sandbox_enabled and sandbox_skill_dir:
+            lines.append("以下技能存储在沙箱环境中，路径为沙箱内的绝对路径。")
+            lines.append(f"技能目录：{sandbox_skill_dir}")
+            lines.append(
+                "使用方式：使用 `skill_load` 工具加载技能，或使用 `view` 工具读取技能目录中的 SKILL.md 文件。"
+            )
+            lines.append("")
+
+        lines.append("<available_skills>")
+        lines.append("以下是你可以加载的技能：")
+        lines.append("")
 
         for r in resources:
             path = r.metadata.get("path", "")

@@ -68,23 +68,26 @@ def run_uvicorn(creator: AppCreator):
     )
 
 
-def run_webserver(config_file: str):
+def run_webserver(config_file: str = None):
     init_json_config_manager()
 
-    creator = next(
-        (
-            creator
-            for creator in AppCreator.__subclasses__()
-            if creator.config_file and creator.config_file.endswith(config_file)
-        ),
-        CustomAppCreator,
-    )(config_file)
+    if config_file is None:
+        creator = CustomAppCreator(config_file)
+    else:
+        creator = next(
+            (
+                creator
+                for creator in AppCreator.__subclasses__()
+                if creator.config_file and creator.config_file.endswith(config_file)
+            ),
+            CustomAppCreator,
+        )(config_file)
+
     with root_tracer.start_span(
         "run_webserver",
         span_type=SpanType.RUN,
         metadata={
             "run_service": SpanTypeRunName.WEBSERVER,
-            # "params": _get_dict_from_obj(param),
             "sys_infos": _get_dict_from_obj(get_system_info()),
         },
     ):

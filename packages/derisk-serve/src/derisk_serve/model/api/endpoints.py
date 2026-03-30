@@ -169,27 +169,56 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
                 )
                 responses.append(response)
 
+        # Get system_app instance - prefer singleton instance for latest config
+        system_app = SystemApp.get_instance() or global_system_app
+
         # Add the lightweight model from config if it exists
-        if global_system_app and global_system_app.config:
+        if system_app and system_app.config:
             # 1. Try "agent.llm" direct key
-            agent_llm_conf = global_system_app.config.get("agent.llm")
+            agent_llm_conf = system_app.config.get("agent.llm")
 
             # 2. If not found, try "agent" -> "llm" (nested dict access)
             if not agent_llm_conf:
-                agent_conf = global_system_app.config.get("agent")
+                agent_conf = system_app.config.get("agent")
                 if isinstance(agent_conf, dict):
                     agent_llm_conf = agent_conf.get("llm")
 
             # 3. Check for flattened keys (fallback)
             if not agent_llm_conf:
-                flattened = global_system_app.config.get_all_by_prefix("agent.llm.")
+                flattened = system_app.config.get_all_by_prefix("agent.llm.")
                 if flattened:
                     agent_llm_conf = {}
                     prefix_len = len("agent.llm.")
                     for k, v in flattened.items():
                         agent_llm_conf[k[prefix_len:]] = v
 
-            # 4. Parse models from new Multi-Provider List Structure [[agent.llm.provider]]
+            # 4. Also try app_config from configs dict (JSON config source)
+            if not agent_llm_conf:
+                app_config = system_app.config.configs.get("app_config")
+                if app_config:
+                    agent_llm_attr = getattr(app_config, "agent_llm", None)
+                    if agent_llm_attr:
+                        # Convert frontend format to backend format
+                        agent_llm_dict = (
+                            agent_llm_attr.model_dump(mode="json")
+                            if hasattr(agent_llm_attr, "model_dump")
+                            else dict(agent_llm_attr)
+                        )
+                        # Convert providers -> provider, models -> model
+                        if "providers" in agent_llm_dict:
+                            providers = agent_llm_dict.pop("providers")
+                            if isinstance(providers, list):
+                                converted = []
+                                for p in providers:
+                                    if isinstance(p, dict):
+                                        cp = dict(p)
+                                        if "models" in cp:
+                                            cp["model"] = cp.pop("models")
+                                        converted.append(cp)
+                                agent_llm_dict["provider"] = converted
+                        agent_llm_conf = agent_llm_dict
+
+            # 5. Parse models from new Multi-Provider List Structure [[agent.llm.provider]]
             found_models = []
 
             if agent_llm_conf and isinstance(agent_llm_conf.get("provider"), list):
@@ -204,16 +233,27 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
                                     m_name = m.get("name")
                                     found_models.append((m_name, p_name))
 
-            # 5. Parse models from legacy "models" list Structure (agent.llm.models)
-            if not found_models and agent_llm_conf and isinstance(agent_llm_conf.get("models"), list):
+            # 6. Parse models from legacy "models" list Structure (agent.llm.models)
+            if (
+                not found_models
+                and agent_llm_conf
+                and isinstance(agent_llm_conf.get("models"), list)
+            ):
                 models_list = agent_llm_conf.get("models")
                 for m in models_list:
                     if isinstance(m, dict) and "model" in m:
-                        found_models.append((m.get("model"), agent_llm_conf.get("provider", "system")))
+                        found_models.append(
+                            (m.get("model"), agent_llm_conf.get("provider", "system"))
+                        )
 
-            # 6. Parse single model from basic config
+            # 7. Parse single model from basic config
             elif not found_models and agent_llm_conf and agent_llm_conf.get("model"):
-                found_models.append((agent_llm_conf.get("model"), agent_llm_conf.get("provider", "system")))
+                found_models.append(
+                    (
+                        agent_llm_conf.get("model"),
+                        agent_llm_conf.get("provider", "system"),
+                    )
+                )
 
             # Add all found models to response
             for m_name, p_name in found_models:
@@ -235,6 +275,7 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
         return Result.succ(responses)
 
     except Exception as e:
+        logger.exception(f"model list error: {e}")
         return Result.failed(err_code="E000X", msg=f"model list error {e}")
 
 

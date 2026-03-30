@@ -144,6 +144,7 @@ class LLMProviderModelConfig(BaseModel):
     name: str = "gpt-4"
     temperature: float = 0.7
     max_new_tokens: int = 4096
+    is_multimodal: bool = False
 
 
 class LLMProviderConfig(BaseModel):

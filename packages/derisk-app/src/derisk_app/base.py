@@ -3,8 +3,10 @@ import os
 import signal
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+from functools import wraps
 
 from derisk._private.config import Config
 from derisk.component import SystemApp
@@ -25,9 +27,6 @@ def signal_handler(sig, frame):
     os._exit(0)
 
 
-
-
-
 def server_init(param: ApplicationConfig, system_app: SystemApp):
     # logger.info(f"args: {args}")
     # init config
@@ -43,7 +42,6 @@ def server_init(param: ApplicationConfig, system_app: SystemApp):
 def _create_model_start_listener(system_app: SystemApp):
     def startup_event(wh):
         print("begin run _add_app_startup_event")
-
 
     return startup_event
 
@@ -79,7 +77,7 @@ def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
     db_url = db_config.db_url(ssl=db_ssl_verify, charset="utf8mb4")
     # db_type = connector.db_type
     db_engine_args: Optional[Dict[str, Any]] = db_config.engine_args()
-    
+
     _initialize_db(
         db_url,
         # db_type,
@@ -125,9 +123,7 @@ def _migrate_mysql_chat_tables_utf8mb4(db_url: str) -> None:
             def _collation_ok(collation: object) -> bool:
                 return str(collation or "").lower().startswith("utf8mb4")
 
-            bad_tables = [
-                name for name, coll in tables if not _collation_ok(coll)
-            ]
+            bad_tables = [name for name, coll in tables if not _collation_ok(coll)]
 
             msg_detail_charset = None
             row = conn.execute(
@@ -224,11 +220,18 @@ def _add_missing_columns_sqlite(db):
     inspector = sa_inspect(engine)
     existing_tables = inspector.get_table_names()
 
+    existing_cols_map = {}
+    for table in db.Model.metadata.sorted_tables:
+        if table.name in existing_tables:
+            existing_cols_map[table.name] = {
+                c["name"] for c in inspector.get_columns(table.name)
+            }
+
     with engine.connect() as conn:
         for table in db.Model.metadata.sorted_tables:
             if table.name not in existing_tables:
                 continue
-            existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            existing_cols = existing_cols_map[table.name]
             for col in table.columns:
                 if col.name in existing_cols:
                     continue
@@ -281,6 +284,9 @@ def _migration_db_storage(
                 )
 
             _add_missing_columns_sqlite(db)
+
+            db.engine.dispose()
+
             _ddl_init_and_upgrade(default_meta_data_path, disable_alembic_upgrade)
         else:
             warn_msg = """For safety considerations, MySQL Database not support DDL \
@@ -324,19 +330,61 @@ def _initialize_db(
     #     _create_mysql_database(db_name, db_url, try_to_create_db)
 
     if not db_engine_args:
-        db_engine_args = {
-            "pool_size": 100,
-            "max_overflow": 100,
-            "pool_timeout": 30,
-            "pool_recycle": 3600,
-            "pool_pre_ping": True,
-        }
+        db_engine_args = {}
+
+    is_sqlite = "sqlite" in (db_url or "").lower()
+    if is_sqlite:
+        from sqlalchemy.pool import NullPool
+
+        # 使用 NullPool 避免连接池竞争，每个操作独立连接
+        db_engine_args.setdefault("poolclass", NullPool)
+        db_engine_args.setdefault("pool_pre_ping", True)
+        db_engine_args.setdefault("connect_args", {})
+        db_engine_args["connect_args"].setdefault("check_same_thread", False)
+        db_engine_args["connect_args"].setdefault("timeout", 60)
+    else:
+        db_engine_args.setdefault("pool_size", 100)
+        db_engine_args.setdefault("max_overflow", 100)
+        db_engine_args.setdefault("pool_timeout", 30)
+        db_engine_args.setdefault("pool_recycle", 3600)
+        db_engine_args.setdefault("pool_pre_ping", True)
+
     db = initialize_db(db_url, db_name, db_engine_args)
+
+    if is_sqlite:
+        _enable_sqlite_wal_mode(db)
+
     if system_app:
         from derisk.storage.metadata import UnifiedDBManagerFactory
 
         system_app.register(UnifiedDBManagerFactory, db)
     return default_meta_data_path
+
+
+def _enable_sqlite_wal_mode(db) -> None:
+    """Enable WAL mode for SQLite to improve concurrent performance.
+
+    WAL mode allows concurrent reads and writes, reducing lock contention.
+    """
+    try:
+        from sqlalchemy import text
+
+        engine = db.engine
+        with engine.connect() as conn:
+            # 启用 WAL 模式 - 支持读写并发
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            # 同步模式设为 NORMAL，平衡性能和安全性
+            conn.execute(text("PRAGMA synchronous=NORMAL"))
+            # 增加缓存大小到 64MB
+            conn.execute(text("PRAGMA cache_size=-64000"))
+            # 设置忙碌超时为 30 秒（SQLite 级别）
+            conn.execute(text("PRAGMA busy_timeout=30000"))
+            # 设置 WAL 自动检查点，防止 WAL 文件过大
+            conn.execute(text("PRAGMA wal_autocheckpoint=1000"))
+            conn.commit()
+        logger.info("SQLite WAL mode enabled successfully with optimized settings")
+    except Exception as e:
+        logger.warning(f"Failed to enable SQLite WAL mode: {e}")
 
 
 def _create_mysql_database(db_name: str, db_url: str, try_to_create_db: bool = False):
@@ -471,9 +519,10 @@ class WebServerParameters(BaseServerParameters):
         },
     )
     default_thread_pool_size: Optional[int] = field(
-        default=None,
+        default=32,
         metadata={
             "help": "The default thread pool size, If None, "
-            "use default config of python thread pool",
+            "use default config of python thread pool. "
+            "Recommended: 32 for SQLite, 64+ for MySQL/PostgreSQL",
         },
     )

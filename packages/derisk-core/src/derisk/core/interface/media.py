@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from derisk.core.schema.types import (
     ChatCompletionMessageParam,
 )
 from derisk.util.i18n_utils import _
+
+logger = logging.getLogger(__name__)
 
 MEDIA_DATA_TYPE = Union[str, bytes]
 MEDIA_DATA_FORMAT_TYPE = Literal[
@@ -271,9 +274,38 @@ class MediaContent:
             return cast(ChatCompletionMessageParam, {"role": role, "content": content})
         if isinstance(content, MediaContent):
             content = [content]
+
+        # Handle both MediaContent objects and raw dict format
+        # Filter out FILE type content - files should be processed by sandbox,
+        # not sent directly to LLM (LLM doesn't support file_url type)
+        filtered_content = []
+        for c in content:
+            if isinstance(c, MediaContent):
+                if c.type != MediaContentType.FILE:
+                    filtered_content.append(c)
+            elif isinstance(c, dict):
+                # Raw dict format - filter out file_url type
+                if c.get("type") != "file_url":
+                    filtered_content.append(c)
+                else:
+                    logger.info(
+                        f"[MediaContent] Filtered out file_url content from raw dict: {c.get('file_url', {}).get('url', '')[:50]}..."
+                    )
+            else:
+                filtered_content.append(c)
+
+        if len(filtered_content) != len(content):
+            logger.info(
+                f"[MediaContent] Filtered out {len(content) - len(filtered_content)} FILE type content(s) "
+                f"from message to LLM (files should be processed by sandbox tool)"
+            )
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
-            for c in content
+            cls._parse_single_media_content(
+                c, type_mapping=type_mapping, replace_url_func=replace_url_func
+            )
+            if isinstance(c, MediaContent)
+            else c
+            for c in filtered_content
         ]
         if not support_media_content:
             text_content = [
@@ -282,14 +314,20 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            return cast(ChatCompletionMessageParam, {
+            return cast(
+                ChatCompletionMessageParam,
+                {
+                    "role": role,
+                    "content": text_content[0],
+                },
+            )
+        return cast(
+            ChatCompletionMessageParam,
+            {
                 "role": role,
-                "content": text_content[0],
-            })
-        return cast(ChatCompletionMessageParam, {
-            "role": role,
-            "content": new_content,
-        })
+                "content": new_content,
+            },
+        )
 
     @classmethod
     def to_chat_ai_message(
@@ -302,6 +340,7 @@ class MediaContent:
         replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> ChatCompletionMessageParam:
         """Convert the media contents to chat completion message."""
+
         # Build base message, only include tool_calls when present
         def build_message(role_val, content_val, tool_calls_val=None):
             msg: Dict[str, Any] = {"role": role_val, "content": content_val}
@@ -316,9 +355,38 @@ class MediaContent:
             return build_message(role, content, tool_calls)
         if isinstance(content, MediaContent):
             content = [content]
+
+        # Handle both MediaContent objects and raw dict format
+        # Filter out FILE type content - files should be processed by sandbox,
+        # not sent directly to LLM (LLM doesn't support file_url type)
+        filtered_content = []
+        for c in content:
+            if isinstance(c, MediaContent):
+                if c.type != MediaContentType.FILE:
+                    filtered_content.append(c)
+            elif isinstance(c, dict):
+                # Raw dict format - filter out file_url type
+                if c.get("type") != "file_url":
+                    filtered_content.append(c)
+                else:
+                    logger.info(
+                        f"[MediaContent] Filtered out file_url content from raw dict"
+                    )
+            else:
+                filtered_content.append(c)
+
+        if len(filtered_content) != len(content):
+            logger.info(
+                f"[MediaContent] Filtered out {len(content) - len(filtered_content)} FILE type content(s) "
+                f"from message to LLM (files should be processed by sandbox tool)"
+            )
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
-            for c in content
+            cls._parse_single_media_content(
+                c, type_mapping=type_mapping, replace_url_func=replace_url_func
+            )
+            if isinstance(c, MediaContent)
+            else c
+            for c in filtered_content
         ]
         if not support_media_content:
             text_content = [
@@ -344,11 +412,16 @@ class MediaContent:
         if not content:
             raise ValueError("The content are empty")
         if isinstance(content, str):
-            return cast(ChatCompletionMessageParam, {"role": role, "content": content, "tool_call_id": tool_call_id})
+            return cast(
+                ChatCompletionMessageParam,
+                {"role": role, "content": content, "tool_call_id": tool_call_id},
+            )
         if isinstance(content, MediaContent):
             content = [content]
         new_content = [
-            cls._parse_single_media_content(c, type_mapping=type_mapping, replace_url_func=replace_url_func)
+            cls._parse_single_media_content(
+                c, type_mapping=type_mapping, replace_url_func=replace_url_func
+            )
             for c in content
         ]
         if not support_media_content:
@@ -358,16 +431,22 @@ class MediaContent:
             if not text_content:
                 raise ValueError("No text content found in the media contents")
             # Not support media content, just pass the string text as content
-            return cast(ChatCompletionMessageParam, {
+            return cast(
+                ChatCompletionMessageParam,
+                {
+                    "role": role,
+                    "tool_call_id": tool_call_id,
+                    "content": text_content[0],
+                },
+            )
+        return cast(
+            ChatCompletionMessageParam,
+            {
                 "role": role,
                 "tool_call_id": tool_call_id,
-                "content": text_content[0],
-            })
-        return cast(ChatCompletionMessageParam, {
-            "role": role,
-            "tool_call_id": tool_call_id,
-            "content": new_content,
-        })
+                "content": new_content,
+            },
+        )
 
     @classmethod
     def _parse_single_media_content(
@@ -392,7 +471,7 @@ class MediaContent:
                 url_data = content.object.data
                 if replace_url_func:
                     url_data = replace_url_func(url_data)
-                
+
                 if real_type == "image_url":
                     return {
                         "image_url": {
@@ -471,7 +550,9 @@ class MediaContent:
                 texts.append(content.get_text())
             elif content.type == MediaContentType.IMAGE:
                 if content.object.format.startswith("url"):
-                    media.append(f"![image]({replace_url_func(str(content.object.data))})")
+                    media.append(
+                        f"![image]({replace_url_func(str(content.object.data))})"
+                    )
                 else:
                     raise ValueError(
                         f"Unsupported image format: {content.object.format}"
@@ -485,7 +566,9 @@ class MediaContent:
                     )
             elif content.type == MediaContentType.VIDEO:
                 if content.object.format.startswith("url"):
-                    media.append(f"[video]({replace_url_func(str(content.object.data))})")
+                    media.append(
+                        f"[video]({replace_url_func(str(content.object.data))})"
+                    )
                 else:
                     raise ValueError(
                         f"Unsupported video format: {content.object.format}"
@@ -493,7 +576,8 @@ class MediaContent:
             elif content.type == MediaContentType.FILE:
                 if content.object.format.startswith("url"):
                     media.append(
-                        f'```vis-attatch\n{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(str(content.object.data))}" }\n```')
+                        f'```vis-attatch\n{{"name": "{content.object.data}", "type": "file",  "url": "{replace_url_func(str(content.object.data))}" }}\n```'
+                    )
                 else:
                     raise ValueError(
                         f"Unsupported video format: {content.object.format}"

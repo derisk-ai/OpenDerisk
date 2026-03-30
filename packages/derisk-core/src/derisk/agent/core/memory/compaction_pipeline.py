@@ -62,30 +62,28 @@ class UnifiedCompactionConfig:
     max_output_bytes: int = 50 * 1024  # 50KB
 
     # ==================== Layer 2: Pruning ====================
-    # Layer 2: Pruning（混合智能剪枝策略）
-    # 参考：ImprovedSessionCompaction + Claude Code 风格
+    # Layer 2: Pruning（简化智能剪枝策略）
+    # 设计原则：基于使用率触发 + 按比例保护
 
     # 基础参数
-    prune_protect_tokens: int = 10000
+    prune_protect_tokens: int = 10000  # 废弃：使用 prune_protect_ratio 替代
+    prune_protect_ratio: float = 0.15  # 保留最近 15% 上下文空间的消息
     min_messages_keep: int = 20
     prune_protected_tools: Tuple[str, ...] = ("skill",)
 
-    # 自适应剪枝配置（参考 improved_compaction.py）
+    # 自适应剪枝配置
     enable_adaptive_pruning: bool = True
 
-    # 基于上下文使用率的三级触发
-    prune_trigger_low_usage: float = 0.3  # < 30%: 低频检查
-    prune_trigger_medium_usage: float = 0.6  # 30%-60%: 中频检查
-    prune_trigger_high_usage: float = 0.8  # > 80%: 高频/立即
+    # 触发条件简化：仅基于使用率
+    prune_min_usage_to_trigger: float = 0.5  # 使用率 < 50% 不触发剪枝
+    prune_trigger_high_usage: float = 0.8  # 使用率 >= 80% 立即触发
 
     # 动态剪枝间隔（根据使用率自动调整）
-    prune_interval_low_usage: int = 15  # 低使用率：每15轮
-    prune_interval_medium_usage: int = 8  # 中使用率：每8轮
-    prune_interval_high_usage: int = 3  # 高使用率：每3轮
+    prune_interval_medium_usage: int = 8  # 使用率 50%-80%：每8轮检查
+    prune_interval_high_usage: int = 3  # 使用率 >= 80%：每3轮检查
 
-    # 任务进展感知（参考 improved_compaction.py）
-    adaptive_check_interval: int = 5  # 检查间隔
-    adaptive_growth_threshold: float = 0.15  # 增长阈值 15%
+    # 检查间隔
+    adaptive_check_interval: int = 5
 
     # 智能选择策略
     max_tool_outputs_keep: int = 20  # 最多保留的工具输出数
@@ -112,10 +110,6 @@ class UnifiedCompactionConfig:
     # Shared memory
     reload_shared_memory: bool = True
 
-    # Adaptive trigger
-    adaptive_check_interval: int = 5
-    adaptive_growth_threshold: float = 0.3
-
     # Recovery tools
     enable_recovery_tools: bool = True
     max_search_results: int = 10
@@ -139,7 +133,12 @@ class UnifiedCompactionConfig:
     layer4_compression_token_threshold: int = 8000  # 超过此token数触发压缩
     layer4_chars_per_token: int = 4
 
-    # Layer 4 摘要长度限制
+    # Layer 4 LLM 摘要配置
+    enable_layer4_llm_summary: bool = True  # 启用 LLM 智能摘要（而非截断）
+    layer4_summary_max_tokens: int = 200  # LLM 摘要最大 token 数
+    layer4_summary_temperature: float = 0.3  # LLM 摘要温度
+
+    # Layer 4 摘要长度限制（截断模式备用）
     max_question_summary_length: int = 200
     max_response_summary_length: int = 300
     max_findings_length: int = 300
@@ -597,46 +596,49 @@ class UnifiedCompactionPipeline:
         usage_ratio = total_tokens / self.config.context_window
         self._current_usage_ratio = usage_ratio
 
-        if usage_ratio < self.config.prune_trigger_low_usage:
-            return self.config.prune_interval_low_usage
-        elif usage_ratio < self.config.prune_trigger_medium_usage:
-            return self.config.prune_interval_medium_usage
-        else:
+        if usage_ratio >= self.config.prune_trigger_high_usage:
             return self.config.prune_interval_high_usage
+        else:
+            return self.config.prune_interval_medium_usage
 
     def _should_prune_now(self, messages: List[Any]) -> Tuple[bool, str]:
+        """
+        简化的剪枝决策逻辑
+
+        触发条件：
+        1. 使用率 >= 80%: 立即触发
+        2. 使用率 >= 50% 且达到检查间隔: 检查动态间隔
+        3. 使用率 < 50%: 不触发，空间足够
+        """
         if not self.config.enable_adaptive_pruning:
             rounds_since_last = self._round_counter - self._last_prune_round
             if rounds_since_last >= 8:
                 return True, "fixed_interval"
             return False, "interval_not_reached"
 
-        # 1. 检查间隔（参考 improved_compaction.py）
-        message_count = self._round_counter - self._last_prune_round
-        if message_count < self.config.adaptive_check_interval:
+        # 1. 检查最小间隔
+        rounds_since_check = self._round_counter - self._last_prune_round
+        if rounds_since_check < self.config.adaptive_check_interval:
             return False, "check_interval_not_reached"
 
-        # 2. 估算当前 tokens
+        # 2. 估算当前 tokens 和使用率
         total_tokens = self._estimate_tokens(messages)
         usage_ratio = total_tokens / self.config.context_window
         self._current_usage_ratio = usage_ratio
 
-        # 3. 高使用率立即触发（紧急情况）
+        # 3. 使用率低于阈值，空间足够，不触发剪枝
+        if usage_ratio < self.config.prune_min_usage_to_trigger:
+            self._last_token_count = total_tokens
+            logger.debug(f"使用率较低 ({usage_ratio:.1%})，空间充足，跳过剪枝")
+            return False, f"low_usage_{usage_ratio:.1%}"
+
+        # 4. 高使用率立即触发（紧急情况）
         if usage_ratio >= self.config.prune_trigger_high_usage:
             logger.info(f"🔥 高上下文使用率 ({usage_ratio:.1%})，立即剪枝")
+            self._last_token_count = total_tokens
             return True, f"high_usage_{usage_ratio:.1%}"
 
-        # 4. 检查增长率（参考 improved_compaction.py）
-        if self._last_token_count > 0:
-            growth = (total_tokens - self._last_token_count) / max(
-                self._last_token_count, 1
-            )
-
-            if growth > self.config.adaptive_growth_threshold:
-                logger.info(f"⚡ 快速 token 增长 ({growth:.1%})，提前剪枝")
-                return True, f"rapid_growth_{growth:.1%}"
-
-        # 5. 根据使用率计算动态间隔
+        # 5. 中等使用率，检查动态间隔
         dynamic_interval = self._calculate_adaptive_prune_interval(messages)
         rounds_since_last = self._round_counter - self._last_prune_round
 
@@ -644,6 +646,7 @@ class UnifiedCompactionPipeline:
             logger.debug(
                 f"动态间隔检查: {rounds_since_last}/{dynamic_interval} 轮，使用率 {usage_ratio:.1%}"
             )
+            self._last_token_count = total_tokens
             return True, f"dynamic_interval_{usage_ratio:.1%}"
 
         # 6. 更新状态
@@ -671,14 +674,26 @@ class UnifiedCompactionPipeline:
             return PruningResult(messages=messages)
 
         adapter = self._adapter
+        total_tokens = self._estimate_tokens(messages)
+
+        # 按比例计算保护边界：保留最近 prune_protect_ratio 的上下文空间
+        protect_tokens_target = int(
+            self.config.context_window * self.config.prune_protect_ratio
+        )
+
         cumulative_tokens = 0
         protect_boundary_idx = len(messages)
 
         for i in range(len(messages) - 1, -1, -1):
             cumulative_tokens += adapter.get_token_estimate(messages[i])
-            if cumulative_tokens > self.config.prune_protect_tokens:
+            if cumulative_tokens > protect_tokens_target:
                 protect_boundary_idx = i + 1
                 break
+
+        logger.debug(
+            f"剪枝保护边界: 保留最近 {cumulative_tokens} tokens "
+            f"(目标 {protect_tokens_target} tokens, 比例 {self.config.prune_protect_ratio:.1%})"
+        )
 
         pruned_count = 0
         tokens_saved = 0

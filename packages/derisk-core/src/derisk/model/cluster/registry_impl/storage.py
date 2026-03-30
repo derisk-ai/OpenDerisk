@@ -196,13 +196,26 @@ class StorageModelRegistry(ModelRegistry):
         from .db_storage import ModelInstanceEntity, ModelInstanceItemAdapter
 
         if engine_args is None:
-            engine_args = {
-                "pool_size": 5,
-                "max_overflow": 10,
-                "pool_timeout": 30,
-                "pool_recycle": 3600,
-                "pool_pre_ping": True,
-            }
+            is_sqlite = "sqlite" in (db_url or "").lower()
+            if is_sqlite:
+                from sqlalchemy.pool import NullPool
+
+                engine_args = {
+                    "poolclass": NullPool,
+                    "pool_pre_ping": True,
+                    "connect_args": {
+                        "check_same_thread": False,
+                        "timeout": 60,
+                    },
+                }
+            else:
+                engine_args = {
+                    "pool_size": 5,
+                    "max_overflow": 10,
+                    "pool_timeout": 30,
+                    "pool_recycle": 3600,
+                    "pool_pre_ping": True,
+                }
 
         db: DatabaseManager = initialize_db(
             db_url, db_name, engine_args, try_to_create_db=try_to_create_db
@@ -232,18 +245,26 @@ class StorageModelRegistry(ModelRegistry):
 
     def _heartbeat_checker(self):
         while True:
-            all_instances: List[ModelInstanceStorageItem] = self._storage.query(
-                QuerySpec(conditions={}), ModelInstanceStorageItem
-            )
-            for instance in all_instances:
-                if (
-                    instance.check_healthy
-                    and datetime.now() - instance.last_heartbeat
-                    > timedelta(seconds=self.heartbeat_timeout_secs)
-                ):
-                    instance.healthy = False
-                    self._storage.update(instance)
-            time.sleep(self.heartbeat_interval_secs) # 单独进程 sleep不会阻塞主事件循环
+            try:
+                all_instances: List[ModelInstanceStorageItem] = self._storage.query(
+                    QuerySpec(conditions={}), ModelInstanceStorageItem
+                )
+                for instance in all_instances:
+                    if (
+                        instance.check_healthy
+                        and datetime.now() - instance.last_heartbeat
+                        > timedelta(seconds=self.heartbeat_timeout_secs)
+                    ):
+                        instance.healthy = False
+                        try:
+                            self._storage.update(instance)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to update instance health status: {e}"
+                            )
+            except Exception as e:
+                logger.warning(f"Heartbeat checker error: {e}")
+            time.sleep(self.heartbeat_interval_secs)
 
     async def register_instance(self, instance: ModelInstance) -> bool:
         model_name = instance.model_name.strip()

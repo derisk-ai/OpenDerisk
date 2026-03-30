@@ -48,6 +48,7 @@ export interface LLMModelConfig {
   name: string;
   temperature: number;
   max_new_tokens: number;
+  is_multimodal?: boolean;  // 是否为多模态模型，支持图片输入
 }
 
 export interface LLMProviderConfig {
@@ -92,6 +93,9 @@ export interface SandboxConfig {
   timeout: number;
   network_enabled: boolean;
   work_dir: string;
+  repo_url?: string;
+  skill_dir?: string;
+  enable_git_sync?: boolean;
 }
 
 export interface FileBackendConfig {
@@ -235,6 +239,16 @@ class ConfigService {
 
   async importConfig(config: AppConfig): Promise<AppConfig> {
     const response = await axios.post(`${API_BASE}/config/import`, config);
+    return response.data.data;
+  }
+
+  async refreshModelCache(): Promise<{ success: boolean; models_registered: number }> {
+    const response = await axios.post(`${API_BASE}/config/refresh-model-cache`);
+    return response.data;
+  }
+
+  async getCachedModels(): Promise<{ models: string[]; model_keys: string[]; total: number }> {
+    const response = await axios.get(`${API_BASE}/config/model-cache/models`);
     return response.data.data;
   }
 

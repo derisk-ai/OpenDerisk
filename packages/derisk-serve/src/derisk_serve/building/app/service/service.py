@@ -500,35 +500,37 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         session.close()
         return result
 
-    def sync_app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
-        session = self.dao.get_raw_session()
-        try:
-            app_qry = session.query(ServeEntity)
+    async def async_app_list(
+        self, query: GptsAppQuery, parse_llm_strategy: bool = False
+    ):
+        """Asynchronous version of app_list using SQLAlchemy 2.0 async API"""
+        from sqlalchemy import select, func
+        from sqlalchemy.orm import selectinload
+
+        async with self.dao.a_session(commit=False) as session:
+            # Build the base query
+            stmt = select(ServeEntity)
+
             if query.name_filter:
-                app_qry = app_qry.filter(
-                    ServeEntity.app_name.like(f"%{query.name_filter}%")
-                )
+                stmt = stmt.where(ServeEntity.app_name.like(f"%{query.name_filter}%"))
+
             if not (query.ignore_user and query.ignore_user.lower() == "true"):
                 if query.user_code:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.user_code == query.user_code,
                             ServeEntity.admins.like(f"%{query.user_code}%"),
                         )
                     )
                 if query.sys_code:
-                    app_qry = app_qry.filter(ServeEntity.sys_code == query.sys_code)
+                    stmt = stmt.where(ServeEntity.sys_code == query.sys_code)
+
             if query.team_mode:
-                app_qry = app_qry.filter(ServeEntity.team_mode == query.team_mode)
-            # if query.is_collected and query.is_collected.lower() in ("true", "false"):
-            #     app_qry = app_qry.filter(ServeEntity.app_code.in_(app_codes))
-            # if query.is_recent_used and query.is_recent_used.lower() == "true":
-            #     app_qry = app_qry.filter(ServeEntity.app_code.in_(recent_app_codes))
+                stmt = stmt.where(ServeEntity.team_mode == query.team_mode)
+
             if query.published is not None:
-                # Database may store published as integer (0/1) or string ("false"/"true")
-                # Support both formats for compatibility
                 if query.published:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.published == "true",
                             ServeEntity.published == "1",
@@ -536,43 +538,40 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         )
                     )
                 else:
-                    app_qry = app_qry.filter(
+                    stmt = stmt.where(
                         or_(
                             ServeEntity.published == "false",
                             ServeEntity.published == "0",
                             ServeEntity.published == 0,
                         )
                     )
+
             if query.app_codes:
-                app_qry = app_qry.filter(ServeEntity.app_code.in_(query.app_codes))
-            total_count = app_qry.count()
-            app_qry = app_qry.order_by(ServeEntity.id.desc())
-            app_qry = app_qry.offset((query.page - 1) * query.page_size).limit(
+                stmt = stmt.where(ServeEntity.app_code.in_(query.app_codes))
+
+            # Get total count
+            count_stmt = select(func.count()).select_from(stmt.subquery())
+            total_count_result = await session.execute(count_stmt)
+            total_count = total_count_result.scalar()
+
+            # Apply ordering and pagination
+            stmt = stmt.order_by(ServeEntity.id.desc())
+            stmt = stmt.offset((query.page - 1) * query.page_size).limit(
                 query.page_size
             )
 
-            results = app_qry.all()
-        finally:
-            session.close()
+            # Execute query
+            result = await session.execute(stmt)
+            results = result.scalars().all()
 
+        # Build response (this part doesn't need DB access)
         if results is not None:
-            # result_app_codes = [res.app_code for res in results]
-            # app_details_group = self._group_app_details(result_app_codes, session)
-            # app_question_group = self._group_app_questions(result_app_codes, session)
             apps: List = []
-
             for app_entity in results:
                 app_info = self.dao.to_response(app_entity)
                 apps.append(app_info)
-            app_resp = GptsAppResponse()
 
-            # apps = sorted(
-            #     apps,
-            #     key=lambda obj: (
-            #         float("-inf") if obj.hot_value is None else obj.hot_value
-            #     ),
-            #     reverse=True,
-            # )
+            app_resp = GptsAppResponse()
             app_resp.total_count = total_count
             app_resp.app_list = apps
             app_resp.current_page = query.page
@@ -580,8 +579,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_resp.total_page = (total_count + query.page_size - 1) // query.page_size
             return app_resp
 
+        return GptsAppResponse()
+
     async def app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
-        return self.sync_app_list(query, parse_llm_strategy)
+        return await self.async_app_list(query, parse_llm_strategy)
 
     def app_to_details(
         self, main_app_code: str, main_app_name: str, app_codes: List[str]
@@ -642,8 +643,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     def _resource_to_app_detail(
         self, app_info: ServerResponse, agent_resources: List[AgentResource]
     ):
+        import time
+
+        _start = time.time()
         details = []
-        for item in agent_resources:
+        for idx, item in enumerate(agent_resources):
             # {\"name\":\"My Agent Resource\",\"app_code\":\"1bc6d188-735e-11f0-b924-00163e0ea545\"}
             app_code = (None,)
             if isinstance(item.value, str):
@@ -656,7 +660,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if not app_code:
                 logger.warning(f"AgentAppResource{item.value}没有找到AppCode！")
                 continue
+            _query_start = time.time()
             item_info = self.get(ServeRequest(app_code=app_code))
+            logger.info(
+                f"[APP_DETAIL][PERF] _resource_to_app_detail 查询关联app[{app_code}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
+            )
             details.append(
                 GptsAppDetail(
                     app_code=app_info.app_code,
@@ -678,6 +686,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         app_info.details = details
         app_info.resource_agent = agent_resources
+        logger.info(
+            f"[APP_DETAIL][PERF] _resource_to_app_detail 总耗时(共{len(agent_resources)}个关联app): {(time.time() - _start) * 1000:.2f}ms"
+        )
         return app_info
 
     def sync_app_detail(
@@ -686,10 +697,20 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         specify_config_code: Optional[str] = None,
         building_mode: bool = True,
     ) -> Optional[ServerResponse]:
+        import time
+
+        _total_start = time.time()
+
         logger.info(
             f"[APP_DETAIL] get_app_detail: app_code={app_code}, specify_config_code={specify_config_code}, building_mode={building_mode}"
         )
+
+        _step_start = time.time()
         app_resp = self.dao.get_one({"app_code": app_code})
+        logger.info(
+            f"[APP_DETAIL][PERF] 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         if not app_resp:
             raise ValueError(f"应用不存在[{app_code}]")
 
@@ -697,17 +718,30 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             f"[APP_DETAIL] app_resp.config_code={app_resp.config_code}, app_resp.config_version={app_resp.config_version}"
         )
 
+        _step_start = time.time()
         config_service = get_config_service()
+        logger.info(
+            f"[APP_DETAIL][PERF] 获取config_service耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         app_config = None
         if specify_config_code:
             logger.info(
                 f"[APP_DETAIL] 指定了配置代码，需要加载指定的配置: {specify_config_code}"
             )
+            _step_start = time.time()
             app_config = config_service.get_by_code(specify_config_code)
+            logger.info(
+                f"[APP_DETAIL][PERF] 查询指定配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
             logger.info(f"[APP_DETAIL] 指定配置查询结果: {app_config is not None}")
         else:
             if building_mode:
+                _step_start = time.time()
                 temp_config = config_service.get_app_temp_code(app_code=app_code)
+                logger.info(
+                    f"[APP_DETAIL][PERF] 查询临时配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                )
                 logger.info(
                     f"[APP_DETAIL] 构建模式, 临时配置查询结果: {temp_config is not None}"
                 )
@@ -716,7 +750,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         "[APP_DETAIL] 构建模式, 不存在临时配置, 尝试加载发布的配置"
                     )
                     if app_resp.config_code:
+                        _step_start = time.time()
                         app_config = config_service.get_by_code(app_resp.config_code)
+                        logger.info(
+                            f"[APP_DETAIL][PERF] 查询发布配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                        )
                         logger.info(
                             f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}"
                         )
@@ -725,21 +763,30 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else:
                 logger.info("[APP_DETAIL] 非构建模式, 只能加载当前发布版本配置")
                 if app_resp.config_code:
+                    _step_start = time.time()
                     app_config = config_service.get_by_code(app_resp.config_code)
+                    logger.info(
+                        f"[APP_DETAIL][PERF] 查询发布配置耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                    )
                     logger.info(
                         f"[APP_DETAIL] 发布配置查询结果: {app_config is not None}"
                     )
 
         if app_config:
+            _config_process_start = time.time()
             all_resources = []
             logger.info(
                 f"当前应用有配置代码，需要加载指定版本配置[{app_config.code}][{app_config.version_info}]！"
             )
 
             if app_config.resource_agent:
+                _step_start = time.time()
                 app_resp.resource_agent = app_config.resource_agent
                 ## 如果配置存在resource_agent资源，转换为detail消费使用
                 self._resource_to_app_detail(app_resp, app_config.resource_agent)
+                logger.info(
+                    f"[APP_DETAIL][PERF] 处理resource_agent耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                )
 
             # 确保 team_context 被正确序列化为字典，包含 use_sandbox 等字段
             if app_config.team_context and hasattr(app_config.team_context, "to_dict"):
@@ -810,7 +857,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             # if not building_mode:
             app_resp.all_resources = all_resources
 
+            logger.info(
+                f"[APP_DETAIL][PERF] 处理资源配置总耗时: {(time.time() - _config_process_start) * 1000:.2f}ms"
+            )
+
+            _step_start = time.time()
             from derisk.agent.core.plan.unified_context import UnifiedTeamContext
+
+            logger.info(
+                f"[APP_DETAIL][PERF] 导入UnifiedTeamContext耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             if isinstance(app_config.team_context, SingleAgentContext):
                 app_resp.agent = app_config.team_context.agent_name
@@ -825,8 +881,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             r_engine_system_prompt_t: Optional[str] = None
             r_engine_user_prompt_t: Optional[str] = None
 
+            _step_start = time.time()
             ag_mg = get_agent_manager()
             ag = ag_mg.get(app_resp.agent)
+            logger.info(
+                f"[APP_DETAIL][PERF] 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             agent_version = getattr(app_config, "agent_version", "v1") or "v1"
             is_v2_agent = agent_version == "v2"
@@ -918,17 +978,33 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                     logger.info(f"构建模式初始化[{app_resp.agent}]的默认参数！")
                     app_resp.custom_variables = ag.init_variables()
             ## 处理关联的推荐问题
+            _step_start = time.time()
             app_recommend_questions = self.recommend_question_dao.get_list(
                 {"app_code": app_resp.app_code}
             )
+            logger.info(
+                f"[APP_DETAIL][PERF] 查询推荐问题耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
             if app_recommend_questions:
                 app_resp.recommend_questions = app_recommend_questions
+
+            logger.info(
+                f"[APP_DETAIL][PERF] sync_app_detail总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+            )
             return app_resp
         else:
             logger.info(f"当前应用无配置代码，兼容旧数据模式！")
-            return self.sync_old_app_detail(app_code, building_mode)
+            result = self.sync_old_app_detail(app_code, building_mode)
+            logger.info(
+                f"[APP_DETAIL][PERF] sync_old_app_detail总耗时: {(time.time() - _total_start) * 1000:.2f}ms"
+            )
+            return result
 
     def app_detail_to_resource(self, app_info: ServerResponse):
+        import time
+
+        _start = time.time()
+
         ## 处理关联的App(agent)明细
         if not app_info.app_code:
             return app_info
@@ -937,9 +1013,13 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         agent_resources = []
         details = []
         if app_details and len(app_details) > 0:
-            for item in app_details:
+            for idx, item in enumerate(app_details):
                 if item.type == "app":
+                    _query_start = time.time()
                     item_info = self.get(ServeRequest(app_code=item.agent_role))
+                    logger.info(
+                        f"[APP_DETAIL][PERF] app_detail_to_resource 查询关联app[{item.agent_role}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
+                    )
                     if not item_info:
                         logger.warning(f"绑定应用[{item.agent_role}]已经不存在！")
                         continue
@@ -983,6 +1063,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
         app_info.details = details
         app_info.resource_agent = agent_resources
+        logger.info(
+            f"[APP_DETAIL][PERF] app_detail_to_resource 总耗时(共{len(app_details) if app_details else 0}个detail): {(time.time() - _start) * 1000:.2f}ms"
+        )
         return app_info
 
     async def app_detail(
@@ -996,6 +1079,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     def old_app_switch_new_app(
         self, gpts_app: ServeRequest, building_mode: bool = True
     ) -> ServerResponse:
+        import time
+
+        _start = time.time()
+
         all_resources = []
         if gpts_app.team_context:
             if (
@@ -1041,8 +1128,12 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else None
         )
         try:
+            _step_start = time.time()
             ag_mg = get_agent_manager()
             ag = ag_mg.get(gpts_app.agent)
+            logger.info(
+                f"[APP_DETAIL][PERF] old_app_switch_new_app 获取agent manager耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+            )
 
             if engine_resources:
                 gpts_app.is_reasoning_engine_agent = True
@@ -1146,21 +1237,46 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         if gpts_app.app_code:
             gpts_app = self.app_detail_to_resource(gpts_app)
 
+        logger.info(
+            f"[APP_DETAIL][PERF] old_app_switch_new_app 总耗时: {(time.time() - _start) * 1000:.2f}ms"
+        )
         return gpts_app
 
     def sync_old_app_detail(self, app_code: str, building_mode: bool = True):
+        import time
+
+        _start = time.time()
+
+        _step_start = time.time()
         app_resp = self.dao.get_one({"app_code": app_code})
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询应用基础信息耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
 
         ## 获取旧版数据的应用明细信息
+        _step_start = time.time()
         app_resp.details = self.detail_app_dao.get_list({"app_code": app_code})
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询detail_app耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         ## 处理关联的推荐问题
+        _step_start = time.time()
         app_recommend_questions = self.recommend_question_dao.get_list(
             {"app_code": app_code}
         )
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 查询推荐问题耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+        )
+
         if app_recommend_questions:
             app_resp.recommend_questions = app_recommend_questions
 
-        return self.old_app_switch_new_app(app_resp, building_mode)
+        result = self.old_app_switch_new_app(app_resp, building_mode)
+        logger.info(
+            f"[APP_DETAIL][PERF] sync_old_app_detail 总耗时: {(time.time() - _start) * 1000:.2f}ms"
+        )
+        return result
 
     def _get_available_llm_models(self) -> List[str]:
         """获取当前可用的 LLM 模型列表

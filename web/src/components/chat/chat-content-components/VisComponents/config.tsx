@@ -38,6 +38,7 @@ import VisParseError from './VisParseError';
 import VisStatusNotification from './VisStatusNotification';
 import VisAuthorizationCard from './VisAuthorizationCard';
 import VisConfirmResponse from './VisConfirmResponse';
+import VisSystemEvents from './VisSystemEvents';
 
 export const visComponentsRender: { [key: string]: (props: { children: React.ReactNode }) => JSX.Element } = {
   'nex-running-window': ({ children }) => {
@@ -567,6 +568,19 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="d-authorization" />;
+    }
+  },
+  'd-system-events': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-system-events" />}>
+          <VisSystemEvents data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="d-system-events" />;
     }
   },
 };

@@ -34,7 +34,12 @@ from derisk_app.base import (
     _migration_db_storage,
     server_init,
 )
-from derisk_app.config import ApplicationConfig, SystemParameters
+from derisk_app.config import (
+    ApplicationConfig,
+    ServiceConfig,
+    ServiceWebParameters,
+    SystemParameters,
+)
 from derisk_serve.core import add_exception_handler
 
 ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,29 +64,88 @@ def scan_configs():
 
 def load_config(config_file: str = None) -> ApplicationConfig:
     from derisk.configs.model_config import ROOT_PATH as DERISK_ROOT_PATH
+    from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
+    from derisk.model.parameter import (
+        ModelWorkerParameters,
+        ModelServiceConfig,
+    )
+    from derisk.storage.cache.manager import ModelCacheParameters
+    from derisk.util.tracer import TracerParameters
+    from derisk.util.logger import LoggingParameters
+
+    # 支持环境变量覆盖配置文件
+    env_config = os.environ.get("DERISK_CONFIG_FILE")
+    if env_config and not config_file:
+        config_file = env_config
 
     if config_file is None:
-        config_file = os.path.join(
-            DERISK_ROOT_PATH, "configs", "derisk-proxy-aliyun.toml"
-        )
+        config_file = os.path.join(DERISK_ROOT_PATH, "configs", "derisk-minimal.toml")
     elif not os.path.isabs(config_file):
-        # If config_file is a relative path, make it relative to DERISK_ROOT_PATH
         config_file = os.path.join(DERISK_ROOT_PATH, config_file)
 
-    if not os.path.exists(config_file):
-        raise FileNotFoundError(f"Configuration file not found: {config_file}")
     from derisk.util.configure import ConfigurationManager
+
+    if not os.path.exists(config_file):
+        logger.info(
+            f"Starting with zero configuration (no TOML file needed). "
+            f"Configure models and settings through the web UI at http://localhost:7777"
+        )
+
+        # 支持环境变量覆盖端口和主机
+        env_port = os.environ.get("DERISK_WEB_PORT")
+        env_host = os.environ.get("DERISK_WEB_HOST")
+
+        sys_config = SystemParameters()
+        set_default_language(sys_config.language)
+        scan_configs()
+
+        app_config = ApplicationConfig(
+            system=SystemParameters(),
+            service=ServiceConfig(
+                web=ServiceWebParameters(
+                    host=env_host or "0.0.0.0",
+                    port=int(env_port) if env_port else 7777,
+                    database=SQLiteConnectorParameters(
+                        path="pilot/meta_data/derisk.db",
+                        check_same_thread=False,
+                    ),
+                    model_storage="database",
+                    model_cache=ModelCacheParameters(
+                        enable_model_cache=True,
+                        storage_type="memory",
+                        max_memory_mb=256,
+                    ),
+                ),
+                model=ModelServiceConfig(
+                    worker=ModelWorkerParameters(host="127.0.0.1", port=8001),
+                ),
+            ),
+            trace=TracerParameters(),
+            log=LoggingParameters(),
+        )
+
+        logger.info(
+            f"Service ready. Open http://localhost:{app_config.service.web.port} to configure."
+        )
+        return app_config
 
     logger.info(f"Loading configuration from: {config_file}")
     cfg = ConfigurationManager.from_file(config_file)
     sys_config = cfg.parse_config(SystemParameters, prefix="system")
-    # Must set default language before any i18n usage
     set_default_language(sys_config.language)
 
-    # Scan all configs
     scan_configs()
 
     app_config = cfg.parse_config(ApplicationConfig, hook_section="hooks")
+
+    # 支持环境变量覆盖端口和主机（即使有配置文件）
+    env_port = os.environ.get("DERISK_WEB_PORT")
+    env_host = os.environ.get("DERISK_WEB_HOST")
+    if env_port:
+        app_config.service.web.port = int(env_port)
+    if env_host:
+        app_config.service.web.host = env_host
+
     return app_config
 
 
@@ -134,7 +198,9 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(streaming_config_router, tags=["Streaming Config"])
     logger.info("[Streaming] Config API routes registered at /api/v1/streaming-config")
 
-    from derisk_app.feature_plugins.bootstrap import register_enabled_feature_plugin_routers
+    from derisk_app.feature_plugins.bootstrap import (
+        register_enabled_feature_plugin_routers,
+    )
 
     register_enabled_feature_plugin_routers(app)
 

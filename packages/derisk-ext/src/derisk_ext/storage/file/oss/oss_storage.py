@@ -519,7 +519,10 @@ class AliyunOSSStorage(StorageBackend):
             return False
 
     def get_public_url(
-        self, fm: FileMetadata, expire: Optional[int] = None
+        self,
+        fm: FileMetadata,
+        expire: Optional[int] = None,
+        params: Optional[Dict] = None,
     ) -> Optional[str]:
         """Generate a public URL for an existing file.
 
@@ -527,6 +530,7 @@ class AliyunOSSStorage(StorageBackend):
             fm (FileMetadata): The file metadata
             expire (Optional[int], optional): Expiration time in seconds. Defaults to
                 class default.
+            params (Optional[Dict], optional): Additional parameters. Not used for OSS.
 
         Returns:
             str: The generated public URL
