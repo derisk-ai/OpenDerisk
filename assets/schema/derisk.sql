@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-24 19:23:14
+-- Generated: 2026-03-29 23:19:58
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -112,6 +112,30 @@ CREATE TABLE IF NOT EXISTS `user` (
 CREATE TABLE IF NOT EXISTS `recommend_question` (
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: agent_input_queue
+-- Source Model: AgentInputQueueEntity
+CREATE TABLE IF NOT EXISTS `agent_input_queue` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `conv_id` VARCHAR(255) NOT NULL COMMENT '对话ID (agent_conv_id)',
+  `conv_session_id` VARCHAR(255) NOT NULL COMMENT '会话ID',
+  `message_id` VARCHAR(64) NOT NULL COMMENT '消息唯一ID',
+  `message_content` TEXT NOT NULL COMMENT '消息内容 (JSON)',
+  `sender_name` VARCHAR(128) NULL COMMENT '发送者名称',
+  `sender_type` VARCHAR(32) NULL COMMENT '发送者类型 (user/system)',
+  `status` VARCHAR(20) NOT NULL COMMENT 'pending/processing/consumed',
+  `consumed_at` DATETIME NULL COMMENT '消费时间',
+  `consumed_by` VARCHAR(64) NULL COMMENT '消费的服务器实例ID',
+  `priority` INT NULL DEFAULT 0 COMMENT '优先级 (数字越大越优先)',
+  `extra` TEXT NULL COMMENT '扩展信息 (JSON)',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT '更新时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_input_conv_session_status` (`conv_session_id`, `status`),
+  KEY `idx_input_conv_id_status` (`conv_id`, `status`),
+  KEY `idx_input_gmt_create` (`gmt_create`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: authorization_audit_log
@@ -479,7 +503,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `system_prompt_template` TEXT NULL COMMENT '当前版本配置的system prompt模版',
   `user_prompt_template` TEXT NULL COMMENT '当前版本配置的user prompt模版',
   `layout` VARCHAR(255) NULL COMMENT '当前版本配置的布局配置',
-  `custom_variables` VARCHAR(2000) NULL COMMENT '当前版本配置自定义参数配置',
+  `custom_variables` TEXT NULL COMMENT '当前版本配置自定义参数配置',
   `llm_config` TEXT NULL COMMENT '当前版本配置的模型配置',
   `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',

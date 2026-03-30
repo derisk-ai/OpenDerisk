@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field
 
 from .core_v2_adapter import get_core_v2
 from derisk.agent.core_v2.vis_converter import CoreV2VisWindow3Converter
-from derisk.agent.core_v2.integration.action_report_builder import build_action_report_from_chunk
+from derisk.agent.core_v2.integration.action_report_builder import (
+    build_action_report_from_chunk,
+)
 from derisk.storage.chat_history.chat_history_db import (
     ChatHistoryDao,
     ChatHistoryEntity,
@@ -159,12 +161,7 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
                 logger.info(
                     f"[v2/chat] Processed {len(sandbox_file_refs)} files: {file_names}"
                 )
-
-                if not multimodal_contents:
-                    message = build_enhanced_query_with_files(
-                        message, sandbox_file_refs
-                    )
-                    logger.info(f"[v2/chat] Enhanced message with file references")
+                # 注意: 文件路径信息将在 runtime 中更新并注入到 message
 
         except ImportError:
             logger.warning(
@@ -253,7 +250,9 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
                     "sender_role": "assistant",
                     "model": chunk.metadata.get("model") if chunk.metadata else None,
                     "thinking": chunk.content if is_thinking else None,
-                    "content": "" if (is_thinking or is_tool) else (chunk.content or ""),
+                    "content": ""
+                    if (is_thinking or is_tool)
+                    else (chunk.content or ""),
                     "prev_content": accumulated_content,
                     "start_time": datetime.now(),
                 }

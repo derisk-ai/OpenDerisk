@@ -206,11 +206,11 @@ class ServiceWebParameters(BaseParameters):
         metadata={"help": _("Whether to verify the SSL certificate of the database")},
     )
     default_thread_pool_size: Optional[int] = field(
-        default=None,
+        default=32,
         metadata={
             "help": _(
                 "The default thread pool size, If None, use default config of python "
-                "thread pool"
+                "thread pool. Recommended: 32 for SQLite, 64+ for MySQL/PostgreSQL"
             )
         },
     )

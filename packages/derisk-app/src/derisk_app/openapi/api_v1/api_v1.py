@@ -214,6 +214,8 @@ async def file_upload(
     bucket = "derisk_app_file"
     file_params = []
 
+    import mimetypes
+
     for doc_file in doc_files:
         file_name = doc_file.filename
         custom_metadata = {
@@ -231,18 +233,31 @@ async def file_upload(
             custom_metadata=custom_metadata,
         )
 
+        doc_file.file.seek(0, 2)
+        file_size = doc_file.file.tell()
+        doc_file.file.seek(0)
+
         _, file_extension = os.path.splitext(file_name)
+        mime_type, _ = mimetypes.guess_type(file_name)
+        mime_type = mime_type or "application/octet-stream"
+
+        metadata = fs.storage_system.get_file_metadata_by_uri(file_uri)
+        file_id = metadata.file_id if metadata else ""
+
         file_param = {
             "is_oss": True,
             "file_path": file_uri,
             "file_name": file_name,
+            "file_size": file_size,
+            "file_extension": file_extension,
+            "mime_type": mime_type,
+            "file_id": file_id,
             "file_learning": False,
             "bucket": bucket,
+            "preview_url": fs.get_public_url(file_uri),
         }
         file_params.append(file_param)
 
-    # If only one file was uploaded, return the single file_param directly
-    # Otherwise return the array of file_params
     result = file_params[0] if len(file_params) == 1 else file_params
     return Result.succ(result)
 
@@ -411,20 +426,44 @@ async def chat_completions(
                             if media.type == "image" and media.object.format.startswith(
                                 "url"
                             ):
+                                # 从 URL 中提取文件名
+                                url_str = str(media.object.data)
+                                from urllib.parse import urlparse, unquote
+
+                                parsed = urlparse(url_str)
+                                file_name = os.path.basename(unquote(parsed.path))
+                                if not file_name:
+                                    file_name = f"image_{uuid.uuid4().hex[:8]}.jpg"
+
                                 user_inputs.append(
                                     {
                                         "type": "image_url",
-                                        "image_url": {"url": str(media.object.data)},
+                                        "image_url": {
+                                            "url": url_str,
+                                            "file_name": file_name,
+                                        },
                                     }
                                 )
                             elif (
                                 media.type == "file"
                                 and media.object.format.startswith("url")
                             ):
+                                # 从 URL 中提取文件名
+                                url_str = str(media.object.data)
+                                from urllib.parse import urlparse, unquote
+
+                                parsed = urlparse(url_str)
+                                file_name = os.path.basename(unquote(parsed.path))
+                                if not file_name:
+                                    file_name = f"file_{uuid.uuid4().hex[:8]}"
+
                                 user_inputs.append(
                                     {
                                         "type": "file_url",
-                                        "file_url": {"url": str(media.object.data)},
+                                        "file_url": {
+                                            "url": url_str,
+                                            "file_name": file_name,
+                                        },
                                     }
                                 )
 
@@ -438,18 +477,17 @@ async def chat_completions(
                     logger.info(
                         f"[v1/chat] Processed {len(sandbox_file_refs)} files from user input"
                     )
+                    # 打印 sandbox_file_refs 的详细信息
+                    for i, ref in enumerate(sandbox_file_refs):
+                        ref_dict = ref.to_dict() if hasattr(ref, "to_dict") else ref
+                        logger.info(
+                            f"[v1/chat] File {i}: file_name={ref_dict.get('file_name')}, "
+                            f"url={ref_dict.get('url', '')[:80] if ref_dict.get('url') else 'None'}..."
+                        )
 
-                    if sandbox_file_refs and not result.multimodal_contents:
-                        text_content = (
-                            in_message.last_text
-                            if hasattr(in_message, "last_text")
-                            else str(in_message.content)
-                        )
-                        enhanced_text = build_enhanced_query_with_files(
-                            text_content, sandbox_file_refs
-                        )
-                        in_message = HumanMessage(content=enhanced_text)
-                        logger.info("[v1/chat] Enhanced message with file references")
+                    # 注意：不在 API 层构建带路径的消息
+                    # 文件路径将在 sandbox 创建后由 agent_chat.py 正确处理
+                    # 只传递 sandbox_file_refs 到 ext_info
 
             except ImportError:
                 logger.warning("[v1/chat] file_io module not available")
@@ -544,12 +582,15 @@ async def chat_completions(
         logger.exception(f"Chat Exception!{dialogue}", e)
 
         async def error_text(err_msg):
-            yield f"data:{err_msg}\n\n"
+            error_content = json.dumps(
+                {"vis": f"[ERROR]{str(e)}[/ERROR]"}, ensure_ascii=False
+            )
+            yield f"data:{error_content}\n\n"
 
         return StreamingResponse(
             error_text(str(e)),
             headers=headers,
-            media_type="text/plain",
+            media_type="text/event-stream",
         )
     finally:
         if dialogue.user_name is not None and dialogue.app_code is not None:

@@ -115,6 +115,27 @@ uv sync --all-packages --frozen \
 
 #### 启动服务
 
+**🚀 快速启动（零配置，推荐）**
+
+无需任何配置文件，直接启动：
+
+```bash
+# 方式一：使用快速启动命令
+uv run derisk quickstart
+
+# 方式二：使用启动脚本
+./start.sh
+
+# 方式三：指定端口
+uv run derisk quickstart -p 8888
+```
+
+启动后访问 http://localhost:7777，通过 Web UI 配置模型和其他设置。
+
+详细说明请查看: [快速启动指南](QUICKSTART.md)
+
+**📝 使用配置文件启动**
+
 在 `derisk-proxy-aliyun.toml` 中配置 API_KEY，然后运行：
 
 > 注意：默认使用 OpenRCA 的 Telecom 数据集。通过以下链接或命令下载：
@@ -124,6 +145,10 @@ uv sync --all-packages --frozen \
 
 运行启动命令：
 ```bash
+# 使用配置文件启动
+uv run derisk quickstart -c configs/derisk-proxy-aliyun.toml
+
+# 或使用传统方式
 uv run python packages/derisk-app/src/derisk_app/derisk_server.py --config configs/derisk-proxy-aliyun.toml
 ```
 

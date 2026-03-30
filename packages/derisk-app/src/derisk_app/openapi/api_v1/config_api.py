@@ -1,11 +1,14 @@
 """配置管理 API"""
 
 import logging
+import re
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Dict, Any, Optional, List
 
+from derisk_core.config.schema import AppConfig
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 router = APIRouter(prefix="/config", tags=["Config"])
@@ -34,6 +37,9 @@ class SandboxConfigRequest(BaseModel):
     timeout: Optional[int] = None
     type: Optional[str] = None
     work_dir: Optional[str] = None
+    repo_url: Optional[str] = None
+    skill_dir: Optional[str] = None
+    enable_git_sync: Optional[bool] = None
 
 
 class FileBackendRequest(BaseModel):
@@ -69,6 +75,83 @@ class LLMKeyStatus(BaseModel):
     is_configured: bool
 
 
+_BUILTIN_LLM_PROVIDER_KEYS: Dict[str, Dict[str, Any]] = {
+    "openai": {
+        "secret_names": ["openai_api_key"],
+        "primary_secret_name": "openai_api_key",
+        "description": "OpenAI API Key (GPT 系列模型)",
+    },
+    "alibaba": {
+        "secret_names": ["dashscope_api_key", "alibaba_api_key"],
+        "primary_secret_name": "dashscope_api_key",
+        "description": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
+    },
+    "anthropic": {
+        "secret_names": ["anthropic_api_key", "claude_api_key"],
+        "primary_secret_name": "anthropic_api_key",
+        "description": "Anthropic / Claude API Key",
+    },
+    "dashscope": {
+        "secret_names": ["dashscope_api_key", "alibaba_api_key"],
+        "primary_secret_name": "dashscope_api_key",
+        "description": "DashScope API Key",
+    },
+    "claude": {
+        "secret_names": ["anthropic_api_key", "claude_api_key"],
+        "primary_secret_name": "anthropic_api_key",
+        "description": "Claude API Key",
+    },
+}
+
+_CUSTOM_LLM_SECRET_PREFIX = "llm_provider_"
+_CUSTOM_LLM_SECRET_SUFFIX = "_api_key"
+
+
+def _normalize_llm_provider_name(provider: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", (provider or "").strip().lower()).strip("_")
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Provider 不能为空")
+    return normalized
+
+
+def _build_custom_llm_secret_name(provider: str) -> str:
+    normalized = _normalize_llm_provider_name(provider)
+    return f"{_CUSTOM_LLM_SECRET_PREFIX}{normalized}{_CUSTOM_LLM_SECRET_SUFFIX}"
+
+
+def _resolve_llm_secret_names(provider: str) -> Dict[str, Any]:
+    normalized = _normalize_llm_provider_name(provider)
+    builtin = _BUILTIN_LLM_PROVIDER_KEYS.get(normalized)
+    if builtin:
+        return {
+            "provider": normalized,
+            "secret_names": builtin["secret_names"],
+            "primary_secret_name": builtin["primary_secret_name"],
+            "description": builtin["description"],
+            "builtin": True,
+        }
+
+    secret_name = _build_custom_llm_secret_name(normalized)
+    return {
+        "provider": normalized,
+        "secret_names": [secret_name],
+        "primary_secret_name": secret_name,
+        "description": f"{normalized} API Key (自定义 Provider)",
+        "builtin": False,
+    }
+
+
+def _provider_from_custom_secret_name(secret_name: str) -> Optional[str]:
+    if not secret_name.startswith(_CUSTOM_LLM_SECRET_PREFIX):
+        return None
+    if not secret_name.endswith(_CUSTOM_LLM_SECRET_SUFFIX):
+        return None
+    provider = secret_name[
+        len(_CUSTOM_LLM_SECRET_PREFIX) : -len(_CUSTOM_LLM_SECRET_SUFFIX)
+    ]
+    return provider or None
+
+
 class FeaturePluginUpdateRequest(BaseModel):
     plugin_id: str
     enabled: Optional[bool] = None
@@ -94,7 +177,11 @@ def _user_has_app_admin_role(user: UserRequest) -> bool:
             if row and (row.get("role") or "").strip() == "admin":
                 return True
         except Exception:
-            logger.debug("feature_plugins admin check: get_user failed for uid=%s", uid, exc_info=True)
+            logger.debug(
+                "feature_plugins admin check: get_user failed for uid=%s",
+                uid,
+                exc_info=True,
+            )
     return False
 
 
@@ -112,13 +199,7 @@ def _ensure_can_write_feature_plugins(user: UserRequest) -> None:
         return
     if _user_has_app_admin_role(user):
         return
-    login = (
-        user.user_name
-        or user.email
-        or user.real_name
-        or user.user_id
-        or ""
-    )
+    login = user.user_name or user.email or user.real_name or user.user_id or ""
     if login not in oauth2.admin_users:
         raise HTTPException(
             status_code=403,
@@ -440,12 +521,67 @@ async def reload_config():
         manager = get_config_manager()
         config = manager.reload()
 
+        sync_status = _sync_config_to_system_app(config)
+
+        models_registered = _refresh_model_config_cache(config)
+
         return JSONResponse(
             content={
                 "success": True,
                 "message": "配置已从文件重新加载",
                 "data": config.model_dump(mode="json"),
                 "config_path": manager.get_config_path(),
+                "models_registered": models_registered,
+                "sync_status": sync_status,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh-model-cache")
+async def refresh_model_cache():
+    """手动刷新 ModelConfigCache
+
+    将当前配置中的模型注册到全局缓存，使新配置的模型立即可用
+    """
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        sync_status = _sync_config_to_system_app(config)
+
+        models_registered = _refresh_model_config_cache(config)
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"ModelConfigCache 已刷新，注册了 {models_registered} 个模型",
+                "models_registered": models_registered,
+                "sync_status": sync_status,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/model-cache/models")
+async def get_cached_models():
+    """获取 ModelConfigCache 中已注册的模型列表"""
+    try:
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+
+        all_models = ModelConfigCache.get_all_models()
+        all_model_keys = ModelConfigCache.get_all_model_keys()
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "data": {
+                    "models": all_models,
+                    "model_keys": all_model_keys,
+                    "total": len(all_models),
+                },
             }
         )
     except Exception as e:
@@ -498,7 +634,7 @@ async def get_oauth2_config():
                 "source": "file",
             }
         )
-    
+
     # Mask secrets in file config too
     data = oauth2.model_dump(mode="json")
     for provider in data.get("providers", []):
@@ -507,10 +643,8 @@ async def get_oauth2_config():
             provider["client_secret"] = secret[:4] + "****"
         elif secret:
             provider["client_secret"] = "****"
-    
-    return JSONResponse(
-        content={"success": True, "data": data, "source": "file"}
-    )
+
+    return JSONResponse(content={"success": True, "data": data, "source": "file"})
 
 
 @router.post("/oauth2")
@@ -600,7 +734,9 @@ async def update_feature_plugins(
 
     _ensure_can_write_feature_plugins(user)
     if not is_known_plugin(body.plugin_id):
-        raise HTTPException(status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}")
+        raise HTTPException(
+            status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}"
+        )
 
     manager = get_config_manager()
     config = manager.get()
@@ -626,6 +762,222 @@ async def update_feature_plugins(
     )
 
 
+def _convert_agent_llm_to_system_format(agent_llm_conf) -> Dict[str, Any]:
+    """将前端 agent_llm 格式转换为后端 agent.llm 格式
+
+    前端格式 (agent_llm):
+    {
+        "temperature": 0.5,
+        "providers": [
+            {
+                "provider": "openai",
+                "api_base": "...",
+                "models": [{ "name": "gpt-4", "temperature": 0.7 }]
+            }
+        ]
+    }
+
+    后端格式 (agent.llm):
+    {
+        "temperature": 0.5,
+        "provider": [
+            {
+                "provider": "openai",
+                "api_base": "...",
+                "model": [{ "name": "gpt-4", "temperature": 0.7 }]
+            }
+        ]
+    }
+    """
+    agent_llm_dict = (
+        agent_llm_conf.model_dump(mode="json")
+        if hasattr(agent_llm_conf, "model_dump")
+        else dict(agent_llm_conf)
+    )
+
+    result = dict(agent_llm_dict)
+
+    if "providers" in result:
+        providers = result.pop("providers")
+        if isinstance(providers, list):
+            converted_providers = []
+            for p in providers:
+                if isinstance(p, dict):
+                    converted_p = dict(p)
+                    if "models" in converted_p:
+                        converted_p["model"] = converted_p.pop("models")
+                    converted_providers.append(converted_p)
+            result["provider"] = converted_providers
+
+    return result
+
+
+def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
+    """将 JSON 配置同步到 system_app.config
+
+    确保所有配置项都能被后端服务正确读取
+
+    Args:
+        config: AppConfig 配置对象
+
+    Returns:
+        各配置项的同步状态
+    """
+    sync_status = {}
+
+    try:
+        from derisk.component import SystemApp
+
+        system_app = SystemApp.get_instance()
+        if not system_app:
+            logger.warning("SystemApp not available, cannot sync config")
+            return {"system_app": False}
+
+        # 1. 同步 agent_llm → agent.llm
+        try:
+            agent_llm_conf = getattr(config, "agent_llm", None)
+            if agent_llm_conf:
+                agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+                system_app.config.set("agent.llm", agent_llm_dict)
+
+                # 统计模型数量
+                model_count = 0
+                for p in agent_llm_dict.get("provider", []):
+                    if isinstance(p, dict):
+                        model_count += len(p.get("model", []))
+
+                logger.info(
+                    f"Synced agent_llm: {len(agent_llm_dict.get('provider', []))} providers, {model_count} models"
+                )
+                sync_status["agent_llm"] = True
+                sync_status["model_count"] = model_count
+            else:
+                logger.warning("No agent_llm config found in AppConfig")
+                sync_status["agent_llm"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync agent_llm: {e}")
+            sync_status["agent_llm"] = False
+
+        # 2. 同步 default_model → agent.default_model
+        try:
+            default_model = getattr(config, "default_model", None)
+            if default_model:
+                default_model_dict = (
+                    default_model.model_dump(mode="json")
+                    if hasattr(default_model, "model_dump")
+                    else dict(default_model)
+                )
+                system_app.config.set("agent.default_model", default_model_dict)
+                # 同时设置 default_llm 用于兼容
+                if default_model.model_id:
+                    system_app.config.set("agent.default_llm", default_model.model_id)
+                logger.info(f"Synced default_model: {default_model.model_id}")
+                sync_status["default_model"] = True
+            else:
+                sync_status["default_model"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync default_model: {e}")
+            sync_status["default_model"] = False
+
+        # 3. 同步 agents 配置
+        try:
+            agents = getattr(config, "agents", None)
+            if agents:
+                agents_dict = {}
+                for name, agent_cfg in agents.items():
+                    agents_dict[name] = (
+                        agent_cfg.model_dump(mode="json")
+                        if hasattr(agent_cfg, "model_dump")
+                        else dict(agent_cfg)
+                    )
+                system_app.config.set("agent.agents", agents_dict)
+                logger.info(f"Synced agents: {len(agents_dict)} agents")
+                sync_status["agents"] = True
+            else:
+                sync_status["agents"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync agents: {e}")
+            sync_status["agents"] = False
+
+        # 4. 同步 sandbox 配置
+        try:
+            sandbox = getattr(config, "sandbox", None)
+            if sandbox:
+                sandbox_dict = (
+                    sandbox.model_dump(mode="json")
+                    if hasattr(sandbox, "model_dump")
+                    else dict(sandbox)
+                )
+                system_app.config.set("sandbox", sandbox_dict)
+                logger.info(f"Synced sandbox config")
+                sync_status["sandbox"] = True
+            else:
+                sync_status["sandbox"] = False
+        except Exception as e:
+            logger.warning(f"Failed to sync sandbox: {e}")
+            sync_status["sandbox"] = False
+
+        # 5. 同步完整的 app_config 到 configs dict
+        try:
+            system_app.config.configs["app_config"] = config
+            sync_status["app_config"] = True
+        except Exception as e:
+            logger.warning(f"Failed to sync app_config: {e}")
+            sync_status["app_config"] = False
+
+        return sync_status
+
+    except Exception as e:
+        logger.error(f"Failed to sync config to system_app: {e}")
+        return {"error": str(e)}
+
+
+def _sync_agent_llm_to_system_config(config: AppConfig) -> bool:
+    """将 AppConfig.agent_llm 同步到 system_app.config 的 agent.llm key
+
+    这是解决 JSON 配置 (agent_llm) 和 TOML 配置系统 (agent.llm) 之间同步问题的关键
+
+    Args:
+        config: 应用配置对象
+
+    Returns:
+        是否成功同步
+    """
+    sync_status = _sync_config_to_system_app(config)
+    return sync_status.get("agent_llm", False)
+
+
+def _refresh_model_config_cache(config: AppConfig) -> int:
+    """刷新 ModelConfigCache，将配置中的模型注册到全局缓存
+
+    Returns:
+        注册的模型数量
+    """
+    try:
+        from derisk.agent.util.llm.model_config_cache import (
+            ModelConfigCache,
+            parse_provider_configs,
+        )
+
+        agent_llm_conf = getattr(config, "agent_llm", None)
+        if not agent_llm_conf:
+            return 0
+
+        agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+        model_configs = parse_provider_configs(agent_llm_dict)
+
+        if model_configs:
+            ModelConfigCache.register_configs(model_configs)
+            logger.info(
+                f"ModelConfigCache refreshed with {len(model_configs)} models from imported config"
+            )
+            return len(model_configs)
+        return 0
+    except Exception as e:
+        logger.warning(f"Failed to refresh ModelConfigCache: {e}")
+        return 0
+
+
 @router.post("/import")
 async def import_config(config_data: Dict[str, Any]):
     """导入配置并保存到文件"""
@@ -639,6 +991,10 @@ async def import_config(config_data: Dict[str, Any]):
 
         saved = save_config_with_error_handling(manager, "配置")
 
+        sync_status = _sync_config_to_system_app(config)
+
+        models_registered = _refresh_model_config_cache(config)
+
         return JSONResponse(
             content={
                 "success": True,
@@ -646,6 +1002,8 @@ async def import_config(config_data: Dict[str, Any]):
                 "data": config.model_dump(mode="json"),
                 "saved_to_file": saved,
                 "config_path": manager.get_config_path(),
+                "models_registered": models_registered,
+                "sync_status": sync_status,
             }
         )
     except Exception as e:
@@ -904,31 +1262,41 @@ async def list_llm_keys():
 
     secrets_status = get_secrets_status()
 
-    # 定义支持的 LLM Provider 及其默认描述（简化为最常用的两个）
-    llm_providers = {
-        "openai": "OpenAI API Key (GPT 系列模型)",
-        "alibaba": "阿里云 DashScope API Key (通义千问/Qwen/DeepSeek 等)",
-    }
-
-    # 定义各个 provider 对应的 secrets key 名称
-    provider_secret_keys = {
-        "openai": ["openai_api_key"],
-        "alibaba": ["dashscope_api_key"],
-    }
-
     llm_keys = []
-    for provider, description in llm_providers.items():
-        secret_keys = provider_secret_keys.get(provider, [])
-        # 检查该 provider 是否有任意一个对应的 secret key 已配置
-        is_configured = any(
-            secrets_status.get(key, False) for key in secret_keys
-        )
+    added_providers = set()
 
-        llm_keys.append({
-            "provider": provider,
-            "description": description,
-            "is_configured": is_configured,
-        })
+    for provider in _BUILTIN_LLM_PROVIDER_KEYS:
+        info = _resolve_llm_secret_names(provider)
+        is_configured = any(
+            secrets_status.get(key, False) for key in info["secret_names"]
+        )
+        llm_keys.append(
+            {
+                "provider": info["provider"],
+                "description": info["description"],
+                "is_configured": is_configured,
+                "builtin": info["builtin"],
+                "secret_name": info["primary_secret_name"],
+            }
+        )
+        added_providers.add(info["provider"])
+
+    for secret_name, has_value in secrets_status.items():
+        provider = _provider_from_custom_secret_name(secret_name)
+        if not provider or provider in added_providers:
+            continue
+        llm_keys.append(
+            {
+                "provider": provider,
+                "description": f"{provider} API Key (自定义 Provider)",
+                "is_configured": has_value,
+                "builtin": False,
+                "secret_name": secret_name,
+            }
+        )
+        added_providers.add(provider)
+
+    llm_keys.sort(key=lambda item: (not item["builtin"], item["provider"]))
 
     return JSONResponse(
         content={
@@ -951,18 +1319,9 @@ async def set_llm_key(request: LLMKeyRequest):
     logger = logging.getLogger(__name__)
 
     try:
-        # 根据 provider 确定存储的 key 名称（简化为只支持 openai 和 alibaba）
-        provider = request.provider.lower()
-
-        secret_key_mapping = {
-            "openai": "openai_api_key",
-            "alibaba": "dashscope_api_key",
-        }
-
-        if provider not in secret_key_mapping:
-            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
-
-        secret_name = secret_key_mapping.get(provider)
+        info = _resolve_llm_secret_names(request.provider)
+        provider = info["provider"]
+        secret_name = info["primary_secret_name"]
 
         # 清理 API Key（去除前后空格）
         api_key = request.api_key.strip() if request.api_key else ""
@@ -972,7 +1331,9 @@ async def set_llm_key(request: LLMKeyRequest):
 
         # 记录调试信息（隐藏部分 key）
         key_preview = f"{api_key[:8]}...{api_key[-4:]}" if len(api_key) > 12 else "***"
-        logger.info(f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}")
+        logger.info(
+            f"Saving API key for provider={provider}, secret_name={secret_name}, key_preview={key_preview}, key_length={len(api_key)}"
+        )
 
         # 加密存储 API Key
         success = set_secret(secret_name, api_key)
@@ -1003,25 +1364,19 @@ async def delete_llm_key(provider: str):
     from derisk_core.config.encryption import delete_secret
 
     try:
-        provider = provider.lower()
-
-        secret_key_mapping = {
-            "openai": "openai_api_key",
-            "alibaba": "dashscope_api_key",
-        }
-
-        if provider not in secret_key_mapping:
-            raise HTTPException(status_code=400, detail=f"不支持的 provider: {provider}")
-
-        secret_name = secret_key_mapping.get(provider)
-
-        success = delete_secret(secret_name)
+        info = _resolve_llm_secret_names(provider)
+        normalized_provider = info["provider"]
+        success = True
+        for secret_name in info["secret_names"]:
+            if not delete_secret(secret_name):
+                success = False
+                break
 
         if success:
             return JSONResponse(
                 content={
                     "success": True,
-                    "message": f"{provider} API Key 已删除",
+                    "message": f"{normalized_provider} API Key 已删除",
                     "note": "已删除系统设置中的 API Key，将回退到使用配置文件中的配置",
                 }
             )

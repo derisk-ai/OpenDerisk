@@ -8,10 +8,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from cryptography.fernet import Fernet
 from sqlalchemy import Column, DateTime, Integer, String, Text
 
-from derisk._private.config import Config
 from derisk.storage.metadata import BaseDao, Model
 
 logger = logging.getLogger(__name__)
@@ -182,28 +180,37 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
                 provider["client_secret"] = "****"
         return masked
 
-    def get_config(self, config_key: str = "global", mask_secrets: bool = True) -> Optional[Dict[str, Any]]:
+    def get_config(
+        self, config_key: str = "global", mask_secrets: bool = True
+    ) -> Optional[Dict[str, Any]]:
         """Get OAuth2 config from database.
 
         Args:
             config_key: Configuration key (default: global)
             mask_secrets: If True, mask client_secret in providers for display
         """
-        entity = self.get_by_key(config_key)
-        if not entity:
-            return None
+        with self.session() as session:
+            entity = (
+                session.query(OAuth2ConfigEntity)
+                .filter(OAuth2ConfigEntity.config_key == config_key)
+                .first()
+            )
+            if not entity:
+                return None
+
+            # Read ORM attributes before the session closes to avoid
+            # detached-instance access during JSON conversion.
+            enabled = bool(entity.enabled)
+            admin_users_json = entity.admin_users_json or "[]"
+            providers_json = entity.providers_json or "[]"
 
         try:
-            admin_users = (
-                json.loads(entity.admin_users_json)
-                if entity.admin_users_json
-                else []
-            )
+            admin_users = json.loads(admin_users_json) if admin_users_json else []
         except json.JSONDecodeError:
             admin_users = []
 
         try:
-            providers = json.loads(entity.providers_json or "[]")
+            providers = json.loads(providers_json)
         except json.JSONDecodeError:
             providers = []
 
@@ -212,12 +219,14 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
             providers = self._mask_providers_for_display(providers)
 
         return {
-            "enabled": bool(entity.enabled),
+            "enabled": enabled,
             "providers": providers,
             "admin_users": admin_users,
         }
 
-    def get_config_with_secrets(self, config_key: str = "global") -> Optional[Dict[str, Any]]:
+    def get_config_with_secrets(
+        self, config_key: str = "global"
+    ) -> Optional[Dict[str, Any]]:
         """Get OAuth2 config with actual secrets (for internal use only)."""
         return self.get_config(config_key, mask_secrets=False)
 
@@ -242,7 +251,9 @@ class OAuth2DbStorage:
         """Load OAuth2 config with actual secrets (for internal use only)."""
         return self.dao.get_config_with_secrets("global")
 
-    def save(self, enabled: bool, providers: List[Dict], admin_users: List[str]) -> bool:
+    def save(
+        self, enabled: bool, providers: List[Dict], admin_users: List[str]
+    ) -> bool:
         """Save OAuth2 config to database."""
         try:
             self.dao.save_or_update(enabled, providers, admin_users, "global")

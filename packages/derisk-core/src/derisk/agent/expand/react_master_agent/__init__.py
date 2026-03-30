@@ -77,10 +77,12 @@ await agent.act(message, sender)
 ```python
 # 旧代码 (PDCAAgent)
 from derisk.agent.expand.pdca_agent import PDCAAgent
+
 agent = PDCAAgent()
 
 # 新代码 (ReActMasterAgent with Kanban)
 from derisk.agent.expand.react_master_agent import ReActMasterAgent
+
 agent = ReActMasterAgent(enable_kanban=True)
 
 # API 兼容
@@ -180,7 +182,7 @@ from .todo_tools import (
     get_todo_report_for_reportgenerator,
 )
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 __all__ = [
     "ReActMasterAgent",

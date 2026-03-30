@@ -64,6 +64,10 @@ class SessionConversation:
     summary: Optional[str] = None
     key_takeaways: List[str] = field(default_factory=list)  # 关键结论
 
+    # 压缩缓存 (防止重复压缩)
+    cold_summary: Optional[str] = None  # Cold Layer 摘要缓存
+    warm_compressed_content: Optional[str] = None  # Warm Layer 压缩内容缓存
+
     # 状态
     status: str = "active"  # active, compressed, archived
 
@@ -85,6 +89,8 @@ class SessionConversation:
             "success": self.success,
             "summary": self.summary,
             "key_takeaways": self.key_takeaways,
+            "cold_summary": self.cold_summary,
+            "warm_compressed_content": self.warm_compressed_content,
             "status": self.status,
             "has_tool_calls": self.has_tool_calls,
             "pure_model_output": self.pure_model_output,
@@ -395,19 +401,29 @@ class SessionHistoryManager:
         max_tokens: int = 8000,
     ) -> List[Dict[str, Any]]:
         """
-        构建用于 LLM 的历史上下文
+        构建用于 LLM 的历史上下文 - 使用 HistoryMessageBuilder
 
         策略:
-        1. 优先包含热数据区的完整对话
-        2. 如果 token 充足,包含温数据区的摘要
-        3. 完全不包含冷数据(或只包含一句话提示)
-
-        关键: 包含纯模型输出的历史记录
+        1. 使用 HistoryMessageBuilder 统一构建三层压缩
+        2. 检查 warm_compressed_content 缓存
+        3. 应用智能剪枝
         """
-        context: List[Dict[str, Any]] = []
-        total_tokens = 0
+        from .message_builder import HistoryMessageBuilder, HistoryMessageBuilderConfig
 
-        # 1. 添加纯模型输出历史 (如果有)
+        # 创建 HistoryMessageBuilder
+        builder_config = HistoryMessageBuilderConfig(
+            max_history_tokens=max_tokens,
+        )
+        builder = HistoryMessageBuilder(config=builder_config)
+
+        # 构建消息
+        context = await builder.build_messages(
+            session_history_manager=self,
+            current_conv_id=current_conv_id,
+            max_tokens=max_tokens,
+        )
+
+        # 添加纯模型输出历史 (如果有)
         if self.config.include_pure_model_outputs and self._pure_model_outputs:
             pure_outputs_text = "\n".join(
                 [
@@ -419,37 +435,11 @@ class SessionHistoryManager:
                 "role": "system",
                 "content": f"\n### 历史纯模型输出\n{pure_outputs_text}\n",
             }
-            context.append(pure_outputs_msg)
-            total_tokens += len(pure_outputs_text) // 4
-
-        # 2. 添加热数据区的完整对话 (按时间倒序)
-        for conv_id, conv in reversed(self.hot_conversations.items()):
-            if conv_id == current_conv_id:
-                continue  # 跳过当前对话
-
-            conv_context = await self._format_conversation_full(conv)
-            conv_tokens = len(str(conv_context)) // 4
-
-            if total_tokens + conv_tokens > max_tokens * 0.7:
-                break
-
-            context.extend(conv_context)
-            total_tokens += conv_tokens
-
-        # 3. 添加温数据区的摘要
-        remaining_tokens = max_tokens - total_tokens
-        for conv_id, conv in self.warm_summaries.items():
-            summary_context = self._format_conversation_summary(conv)
-            summary_tokens = len(str(summary_context)) // 4
-
-            if summary_tokens > remaining_tokens:
-                break
-
-            context.extend(summary_context)
-            total_tokens += summary_tokens
+            # 插入到开头
+            context.insert(0, pure_outputs_msg)
 
         logger.info(
-            f"Built history context: {len(context)} messages, ~{total_tokens} tokens"
+            f"Built history context: {len(context)} messages, ~{sum(len(str(m.get('content', ''))) // 4 for m in context)} tokens"
         )
 
         return context

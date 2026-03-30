@@ -120,15 +120,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 request.path = existing.path
             else:
                 project_skill_dir = self._serve_config.get_project_skill_dir()
-                request.path = os.path.join(
-                    project_skill_dir, request.skill_code
-                )
+                request.path = os.path.join(project_skill_dir, request.skill_code)
                 logger.info(
                     f"Skill '{request.skill_code}' update path is empty, "
                     f"using default path '{request.path}'"
                 )
 
-        logger.info(f"Updating skill {request.skill_code} with auto_sync={request.auto_sync}")
+        logger.info(
+            f"Updating skill {request.skill_code} with auto_sync={request.auto_sync}"
+        )
 
         # Pass the Pydantic model directly to dao.update, which will use model_to_dict
         return self.dao.update(query_request, update_request=request)
@@ -302,7 +302,11 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
                     # Check auto_sync setting - skip if auto_sync is disabled
                     # unless force_update is explicitly set
-                    if existing_skill and existing_skill.auto_sync is False and not force_update:
+                    if (
+                        existing_skill
+                        and existing_skill.auto_sync is False
+                        and not force_update
+                    ):
                         logger.info(
                             f"Skill {skill_name} has auto_sync disabled, skipping"
                         )
@@ -512,10 +516,13 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         except Exception as e:
             logger.warning(f"Failed to parse skill metadata from {file_path}: {e}")
             return None
-            return None
 
     def _generate_skill_code(self, skill_meta: Dict[str, str], repo_url: str) -> str:
         """Generate a unique skill code from metadata and repo URL.
+
+        The skill code is based on skill name and repo URL, NOT version.
+        This ensures the same skill gets updated instead of creating new records
+        when the version changes.
 
         Args:
             skill_meta (Dict[str, str]): Parsed skill metadata
@@ -528,20 +535,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         name = skill_meta.get("name", "unnamed").lower()
         name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
-        # Add version/author info if available
-        version = skill_meta.get("version", "")
-        author = skill_meta.get("author", "")
-
-        parts = [name]
-        if version:
-            parts.append(version.replace(".", "-"))
-        if author:
-            parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
-
-        # Add repo hash for uniqueness
+        # Add repo hash for uniqueness (same repo = same hash)
         repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
 
-        skill_code = "-".join(parts) + "-" + repo_hash
+        skill_code = f"{name}-{repo_hash}"
         return skill_code
 
     def _copy_skill_to_project(
@@ -823,25 +820,20 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
     def _generate_upload_skill_code(self, skill_meta: Dict[str, str]) -> str:
         """Generate a skill code for uploaded skills.
 
+        The skill code is based on skill name only, NOT version.
+        This ensures the same skill gets updated instead of creating new records
+        when the version changes.
+
         Args:
             skill_meta (Dict[str, str]): Parsed skill metadata
 
         Returns:
-            str: Skill code (same skill will have the same code)
+            str: Skill code (same skill name will have the same code)
         """
         name = skill_meta.get("name", "unnamed").lower()
         name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
-        version = skill_meta.get("version", "")
-        author = skill_meta.get("author", "")
-
-        parts = [name]
-        if version:
-            parts.append(version.replace(".", "-"))
-        if author:
-            parts.append(re.sub(r"[^a-z0-9-]", "-", author.lower()))
-
-        return "-".join(parts)
+        return name
 
     def get_skill_directory(self, skill_code: str) -> str:
         """Get the physical directory path for a skill.
@@ -1059,7 +1051,9 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             "message": "Deleted successfully",
         }
 
-    def rename_skill_file(self, skill_code: str, old_path: str, new_path: str) -> Dict[str, Any]:
+    def rename_skill_file(
+        self, skill_code: str, old_path: str, new_path: str
+    ) -> Dict[str, Any]:
         """Rename a file in the skill directory.
 
         Args:
@@ -1136,10 +1130,12 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
                 # Check if file exists and we're not overwriting
                 if os.path.exists(full_path) and not overwrite:
-                    failed_files.append({
-                        "file_path": file_path,
-                        "error": "File already exists (use overwrite=true to replace)"
-                    })
+                    failed_files.append(
+                        {
+                            "file_path": file_path,
+                            "error": "File already exists (use overwrite=true to replace)",
+                        }
+                    )
                     continue
 
                 # Ensure directory exists
@@ -1164,10 +1160,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
                 success_files.append(file_path)
             except Exception as e:
-                failed_files.append({
-                    "file_path": file_path,
-                    "error": str(e)
-                })
+                failed_files.append({"file_path": file_path, "error": str(e)})
 
         return {
             "skill_code": skill_code,

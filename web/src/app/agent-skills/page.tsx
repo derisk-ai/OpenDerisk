@@ -1,10 +1,10 @@
 "use client"
 import { apiInterceptors } from '@/client/api';
-import { getSkillList, createSkill, updateSkill, deleteSkill, createSyncTask, getSyncTaskStatus, getRecentSyncTasks, updateSkillAutoSync } from '@/client/api/skill';
+import { getSkillList, createSkill, updateSkill, deleteSkill, createSyncTask, getSyncTaskStatus, getRecentSyncTasks, updateSkillAutoSync, uploadSkillFromZip } from '@/client/api/skill';
 import { InnerDropdown } from '@/components/blurred-card';
-import { FolderOpenFilled, ReloadOutlined, PlusOutlined, GithubOutlined, SyncOutlined, CloseOutlined, HistoryOutlined, ClockCircleOutlined, CloudSyncOutlined, CloudOutlined } from '@ant-design/icons';
+import { FolderOpenFilled, ReloadOutlined, PlusOutlined, GithubOutlined, SyncOutlined, HistoryOutlined, CloudSyncOutlined, CloudOutlined, UploadOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Form, Pagination, Result, Spin, Tooltip, Button, message, Tag, Popconfirm, Input, Modal, Select, Switch, PaginationProps, Progress, Row, Col, Drawer, List, Typography, Space } from 'antd';
+import { Form, Pagination, Result, Spin, Tooltip, Button, message, Tag, Input, Modal, Select, Switch, PaginationProps, Progress, Drawer, List, Typography, Space, Upload } from 'antd';
 import { useRouter } from 'next/navigation';
 import React, { memo, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +32,7 @@ const SkillPage: React.FC = () => {
   const [isSyncModalVisible, setIsSyncModalVisible] = useState(false);
   const [isSyncProgressDrawerVisible, setIsSyncProgressDrawerVisible] = useState(false);
   const [editingSkill, setEditingSkill] = useState<any>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Sync task state
   const [currentSyncTask, setCurrentSyncTask] = useState<any>(null);
@@ -80,14 +81,14 @@ const SkillPage: React.FC = () => {
         (window as any).syncPollTimer = setTimeout(() => checkSyncTaskStatus(taskId), 2000);
       }
 
-      // Update recent tasks list when task completes
-      if (task.status === 'completed' || task.status === 'failed') {
-        // Use ignore to prevent stale closure warnings
-        runGetRecentSyncTasks().then(() => {
-          if (task.status === 'completed') {
-            runGetSkillList(queryParams, paginationParams);
-          }
-        });
+      // Refresh skill list when task completes
+      if (task.status === 'completed') {
+        runGetRecentSyncTasks();
+        runGetSkillList(queryParams, paginationParams);
+        message.success('Skill sync completed successfully!');
+      } else if (task.status === 'failed') {
+        runGetRecentSyncTasks();
+        message.error('Skill sync failed');
       }
     }
   }, [runGetRecentSyncTasks, runGetSkillList, queryParams, paginationParams]);
@@ -132,6 +133,37 @@ const SkillPage: React.FC = () => {
     } catch (error) {
       message.error('Failed to delete skill');
     }
+  };
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const [err, res] = await apiInterceptors(uploadSkillFromZip(file));
+      if (err) {
+        message.error(`Upload failed: ${err}`);
+        return;
+      }
+      message.success(`Skill "${res?.name || 'Unknown'}" uploaded successfully`);
+      runGetSkillList(queryParams, paginationParams);
+    } catch (error: any) {
+      message.error(`Upload failed: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const uploadProps = {
+    accept: '.zip',
+    showUploadList: false,
+    beforeUpload: (file: File) => {
+      const isZip = file.name.endsWith('.zip');
+      if (!isZip) {
+        message.error('Only ZIP files are supported');
+        return false;
+      }
+      handleUpload(file);
+      return false;
+    },
   };
 
   // Handle auto_sync toggle
@@ -288,6 +320,14 @@ const SkillPage: React.FC = () => {
                 Refresh
               </Button>
               {renderSyncButton()}
+              <Upload {...uploadProps}>
+                <Button
+                  icon={<UploadOutlined />}
+                  loading={uploading}
+                >
+                  Upload ZIP
+                </Button>
+              </Upload>
               <Button
                 type="primary"
                 icon={<PlusOutlined />}

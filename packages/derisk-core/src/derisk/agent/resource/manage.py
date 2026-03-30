@@ -233,15 +233,29 @@ class ResourceManager(BaseComponent):
         type_unique_key: str,
         agent_resource: AgentResource,
         return_resource: bool = True,
+        ignore_missing: bool = False,
     ) -> Union[Resource, Dict[str, Any], None]:
-        """Return the resource by type."""
+        """Return the resource by type.
+
+        Args:
+            type_unique_key: Resource type key
+            agent_resource: Agent resource instance
+            return_resource: Whether to return resource instance
+            ignore_missing: If True, return None instead of raising error for missing resource type
+
+        Returns:
+            Resource instance, dict, or None if ignore_missing=True and resource not found
+        """
         item = self._type_to_resources.get(type_unique_key)
         if not item:
-            # Resource type not registered, skip this resource (optional resource)
-            logger.warning(
-                f"Resource type {type_unique_key} not found, skipping this resource."
-            )
-            return None
+            if ignore_missing:
+                logger.warning(
+                    f"Resource type {type_unique_key} not found, skipping. "
+                    f"Resource name: {agent_resource.name}. "
+                    f"This may be a deprecated tool type, please update your app configuration."
+                )
+                return None
+            raise ValueError(f"Resource type {type_unique_key} not found.")
         inst_items = [i for i in item if not i.is_class]
         resource_value: Union[str, Dict[str, Any]] = agent_resource.value
         v2_resource = False
@@ -303,6 +317,7 @@ class ResourceManager(BaseComponent):
     def build_resource(
         self,
         agent_resources: Optional[List[AgentResource]] = None,
+        ignore_missing: bool = False,
     ) -> Optional[Resource]:
         """Build a resource.
 
@@ -311,7 +326,7 @@ class ResourceManager(BaseComponent):
 
         Args:
             agent_resources: The agent resources.
-            version: The resource version.
+            ignore_missing: If True, ignore missing resource types instead of raising error.
 
         Returns:
             Optional[Resource]: The resource instance.
@@ -320,18 +335,22 @@ class ResourceManager(BaseComponent):
             return None
         dependencies: List[Resource] = execute_to_thread(
             *[
-                t(self.build_resource_by_type, resource.type, resource)
+                t(
+                    self.build_resource_by_type,
+                    resource.type,
+                    resource,
+                    True,
+                    ignore_missing,
+                )
                 for resource in agent_resources
             ]
         )
-        # dependencies: List[Resource] = execute_parallel_sync([(self.build_resource_by_type, resource.type, resource) for resource in agent_resources])
-        # dependencies: List[Resource] = []
-        # for resource in agent_resources:
-        #     resource_inst = cast(
-        #         Resource, self.build_resource_by_type(resource.type, resource)
-        #     )
-        #     dependencies.append(resource_inst)
-        if len(dependencies) == 1:
+        # Filter out None values (missing resources when ignore_missing=True)
+        dependencies = [d for d in dependencies if d is not None]
+
+        if len(dependencies) == 0:
+            return None
+        elif len(dependencies) == 1:
             return dependencies[0]
         else:
             return ResourcePack(dependencies)
@@ -339,6 +358,7 @@ class ResourceManager(BaseComponent):
     async def a_build_resource(
         self,
         agent_resources: Optional[List[AgentResource]] = None,
+        ignore_missing: bool = False,
     ) -> Optional[Resource]:
         """Build a resource.
 
@@ -347,7 +367,7 @@ class ResourceManager(BaseComponent):
 
         Args:
             agent_resources: The agent resources.
-            version: The resource version.
+            ignore_missing: If True, ignore missing resource types instead of raising error.
 
         Returns:
             Optional[Resource]: The resource instance.
@@ -356,7 +376,13 @@ class ResourceManager(BaseComponent):
             return None
         dependencies: List[Resource] = execute_to_thread(
             *[
-                t(self.build_resource_by_type, resource.type, resource)
+                t(
+                    self.build_resource_by_type,
+                    resource.type,
+                    resource,
+                    True,
+                    ignore_missing,
+                )
                 for resource in agent_resources
             ]
         )
@@ -369,7 +395,9 @@ class ResourceManager(BaseComponent):
             if not await is_summary_agent_resource(dependency)
         ]
 
-        if len(dependencies) == 1:
+        if len(dependencies) == 0:
+            return None
+        elif len(dependencies) == 1:
             return dependencies[0]
         else:
             return ResourcePack(dependencies)

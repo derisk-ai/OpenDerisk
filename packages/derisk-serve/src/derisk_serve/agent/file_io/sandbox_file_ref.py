@@ -18,8 +18,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Sandbox file storage base path
-SANDBOX_UPLOAD_DIR = "/home/user/uploads"
+
+def get_default_upload_dir(sandbox: Optional["SandboxBase"] = None) -> str:
+    """Get default upload directory based on sandbox work_dir.
+
+    Args:
+        sandbox: Sandbox instance (optional)
+
+    Returns:
+        Upload directory path
+    """
+    if sandbox and hasattr(sandbox, "work_dir") and sandbox.work_dir:
+        return f"{sandbox.work_dir}/uploads"
+    return "/home/user/uploads"
 
 
 class UserInputType(Enum):
@@ -63,12 +74,27 @@ class SandboxFileRef:
             "local_path": self.local_path,
         }
 
-    def get_sandbox_path(self) -> str:
-        """Get complete path in sandbox"""
+    def get_sandbox_path(self, sandbox: Optional["SandboxBase"] = None) -> str:
+        """Get complete path in sandbox
+
+        Args:
+            sandbox: Optional sandbox instance to get dynamic work_dir
+
+        Returns:
+            Sandbox path for the file
+        """
         if self.sandbox_path:
             return self.sandbox_path
-        # Default path rule
-        return f"{SANDBOX_UPLOAD_DIR}/{self.file_name}"
+
+        if sandbox and hasattr(sandbox, "work_dir") and sandbox.work_dir:
+            return f"{sandbox.work_dir}/uploads/{self.file_name}"
+
+        # Fallback: use relative path (tools will resolve based on work_dir)
+        logger.warning(
+            f"[FileIO] sandbox_path not set and no sandbox provided for {self.file_name}, "
+            f"using relative path"
+        )
+        return f"uploads/{self.file_name}"
 
     def get_extension(self) -> str:
         """Get file extension"""
@@ -223,12 +249,27 @@ async def process_user_input_file(
         logger.warning(f"[FileIO] Unknown user input type: {input_type}")
         return None, None, f"Unknown input type: {input_type}"
 
+    # Fallback: extract file_name from URL if not provided
+    if not file_name and file_url:
+        from urllib.parse import urlparse, unquote
+
+        parsed = urlparse(file_url)
+        path = unquote(parsed.path)
+        file_name = os.path.basename(path)
+        logger.info(f"[FileIO] Extracted file_name from URL: {file_name}")
+
+    # Skip if still no file_name
+    if not file_name:
+        logger.warning(f"[FileIO] No file_name available, skipping file")
+        return None, None, "No file_name available"
+
     # Use dynamic configuration to determine processing mode
     file_ext = detect_file_type(file_name)
     process_mode = get_file_process_mode(file_name, mime_type)
 
     if process_mode == FileProcessMode.MODEL_DIRECT:
         # Model direct consumption: as multimodal message
+        # 只有图片才能直接给模型消费
         if input_type == "image_url":
             image_url_data = user_input.get("image_url", {})
             return (
@@ -240,19 +281,16 @@ async def process_user_input_file(
                 None,
             )
         else:
-            # Other types also try as multimodal message (like file_url)
-            file_url_data = user_input.get("file_url", {})
-            return (
-                {
-                    "type": "file_url",
-                    "file_url": file_url_data,
-                },
-                None,
-                None,
+            # 其他类型文件不应该走 MODEL_DIRECT，强制走 SANDBOX_TOOL
+            logger.warning(
+                f"[FileIO] File {file_name} is not an image, forcing SANDBOX_TOOL mode"
             )
-    else:
-        # Sandbox tool consumption: create file reference
-        sandbox_path = f"{SANDBOX_UPLOAD_DIR}/{file_name}"
+            process_mode = FileProcessMode.SANDBOX_TOOL
+
+    # Sandbox tool consumption: create file reference
+    if process_mode == FileProcessMode.SANDBOX_TOOL:
+        upload_dir = get_default_upload_dir(sandbox)
+        sandbox_path = f"{upload_dir}/{file_name}"
 
         # For local sandbox, we need to handle file download/storage
         local_path = None
@@ -338,25 +376,27 @@ async def process_chat_input_files(
     return result
 
 
-def build_enhanced_query_with_files(
-    original_query: str, sandbox_file_refs: List[SandboxFileRef]
+def build_file_info_prompt(
+    sandbox_file_refs: List[SandboxFileRef], sandbox: Optional["SandboxBase"] = None
 ) -> str:
-    """Build enhanced query message with file information
+    """Build file information prompt for user message.
 
-    Associates uploaded files with the original question to help the model understand context.
-    Displays complete sandbox paths for model to use directly.
+    Only returns the file list section, NOT including the original query.
+    The original query will be added separately by assemble_user_prompt.
 
     Args:
-        original_query: User's original question
         sandbox_file_refs: List of sandbox file references
+        sandbox: Optional sandbox instance for dynamic path resolution
 
     Returns:
-        Enhanced query message
+        File information prompt string (or empty string if no files)
     """
-    # Build file list (including complete sandbox paths)
+    if not sandbox_file_refs:
+        return ""
+
     file_list_lines = []
     for i, ref in enumerate(sandbox_file_refs, 1):
-        sandbox_path = ref.get_sandbox_path()
+        sandbox_path = ref.get_sandbox_path(sandbox)
         file_info = f"{i}. `{sandbox_path}`"
         if ref.file_type:
             file_info += f" (.{ref.file_type})"
@@ -366,16 +406,33 @@ def build_enhanced_query_with_files(
 
     file_list_str = "\n".join(file_list_lines)
 
-    # Build enhanced message
-    enhanced_query = f"""{original_query}
-
+    return f"""
 ---
 
 📎 **User uploaded files**:
 
 {file_list_str}"""
 
-    return enhanced_query
+
+def build_enhanced_query_with_files(
+    original_query: str, sandbox_file_refs: List[SandboxFileRef]
+) -> str:
+    """Build enhanced query message with file information (DEPRECATED).
+
+    WARNING: This function includes original_query in the result, which may cause
+    duplication when combined with assemble_user_prompt. Use build_file_info_prompt instead.
+
+    Args:
+        original_query: User's original question
+        sandbox_file_refs: List of sandbox file references
+
+    Returns:
+        Enhanced query message
+    """
+    file_info = build_file_info_prompt(sandbox_file_refs)
+    if not file_info:
+        return original_query
+    return f"{original_query}{file_info}"
 
 
 async def initialize_files_in_sandbox(
@@ -407,7 +464,7 @@ async def initialize_files_in_sandbox(
 
     for ref in sandbox_file_refs:
         try:
-            sandbox_path = ref.get_sandbox_path()
+            sandbox_path = ref.get_sandbox_path(sandbox)
 
             # Check if file has local content
             if ref.local_path and os.path.exists(ref.local_path):

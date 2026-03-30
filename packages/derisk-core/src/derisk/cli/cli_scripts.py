@@ -82,6 +82,59 @@ def run():
     pass
 
 
+@click.command(name="quickstart")
+@click.option(
+    "-c",
+    "--config",
+    type=str,
+    default=None,
+    required=False,
+    help="Config file path (optional)",
+)
+@click.option(
+    "-p",
+    "--port",
+    type=int,
+    default=7777,
+    help="Server port (default: 7777)",
+)
+@click.option(
+    "-h",
+    "--host",
+    type=str,
+    default="0.0.0.0",
+    help="Server host (default: 0.0.0.0)",
+)
+def quickstart(config: str, port: int, host: str):
+    """Quick start DeRisk server with zero configuration.
+
+    Examples:
+        derisk quickstart                    # Start with zero config
+        derisk quickstart -p 8888            # Start on port 8888
+        derisk quickstart -c config.toml     # Start with config file
+
+    After starting, open http://localhost:7777 to configure models and settings.
+    """
+    import os
+    import sys
+
+    if config:
+        os.environ["DERISK_CONFIG_FILE"] = config
+    if port != 7777:
+        os.environ["DERISK_WEB_PORT"] = str(port)
+    if host != "0.0.0.0":
+        os.environ["DERISK_WEB_HOST"] = host
+
+    try:
+        from derisk_app.derisk_server import run_webserver
+
+        run_webserver(config)
+    except ImportError as e:
+        click.echo(f"Error: Failed to import derisk_app: {e}", err=True)
+        click.echo("Please ensure derisk-app package is installed.", err=True)
+        sys.exit(1)
+
+
 @click.group()
 def net():
     """Net tools."""
@@ -105,7 +158,6 @@ def stop_all():
 
 cli.add_command(start)
 cli.add_command(stop)
-# cli.add_command(install)
 cli.add_command(db)
 cli.add_command(new)
 cli.add_command(app)
@@ -113,6 +165,7 @@ cli.add_command(repo)
 cli.add_command(run)
 cli.add_command(net)
 cli.add_command(tool)
+cli.add_command(quickstart)
 add_command_alias(stop_all, name="all", parent_group=stop)
 
 try:
@@ -150,7 +203,7 @@ try:
 
     add_command_alias(start_webserver, name="webserver", parent_group=start)
     add_command_alias(stop_webserver, name="webserver", parent_group=stop)
-    # Add migration command
+    add_command_alias(start_webserver, name="all", parent_group=start, hidden=True)
     add_command_alias(migration, name="migration", parent_group=db)
     stop_all_func_list.append(_stop_all_derisk_server)
 

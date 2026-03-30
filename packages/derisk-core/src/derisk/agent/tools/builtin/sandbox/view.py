@@ -131,12 +131,24 @@ def _format_text_content(
     content_joined = "".join(lines)
 
     if len(content_joined) > _MAX_FILE_CHARS:
-        return (
-            f"[文件内容过长: {len(content_joined)} 字符，超出限制 {_MAX_FILE_CHARS} 字符，共 {total_lines} 行]\n"
-            f"建议：\n"
-            f"  1. 使用 view_range 参数分段读取，如 [1, 200] 或 [500, -1]\n"
-            f"  2. 使用 grep 工具搜索关键信息"
-        )
+        if total_lines <= 5:
+            return (
+                f"[文件内容过长: {len(content_joined)} 字符，超出限制 {_MAX_FILE_CHARS} 字符，共 {total_lines} 行]\n"
+                f"此文件为单行或少行大文件，建议：\n"
+                f"  1. 使用 read 工具的 char 模式分段读取：\n"
+                f'     read(path="...", mode="char", offset=0, limit=5000)\n'
+                f"  2. 使用 python 脚本解析（如为 JSON）：\n"
+                f"     python3 -c \"import json; d=json.load(open('path')); print(json.dumps(d, indent=2, ensure_ascii=False))\"\n"
+                f"  3. 使用 grep 工具搜索关键信息"
+            )
+        else:
+            return (
+                f"[文件内容过长: {len(content_joined)} 字符，超出限制 {_MAX_FILE_CHARS} 字符，共 {total_lines} 行]\n"
+                f"建议：\n"
+                f"  1. 使用 view_range 参数分段读取，如 [1, 200] 或 [500, -1]\n"
+                f"  2. 使用 read 工具的 char 模式分段读取\n"
+                f"  3. 使用 grep 工具搜索关键信息"
+            )
 
     return content_joined
 
