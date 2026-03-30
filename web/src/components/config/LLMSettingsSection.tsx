@@ -279,6 +279,8 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
       await configService.importConfig(nextConfig);
       try {
         await configService.refreshModelCache();
+        // 刷新后重新加载模型列表
+        await loadSupportedModels();
         message.success("LLM 配置已保存并生效，模型缓存已刷新");
       } catch {
         message.success("LLM 配置已保存并生效");
