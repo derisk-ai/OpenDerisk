@@ -191,6 +191,7 @@ thirdparty
 configs/my
 configs/local
 .specstory
+.deriskdb
 
 .cursorignore
 .cursor

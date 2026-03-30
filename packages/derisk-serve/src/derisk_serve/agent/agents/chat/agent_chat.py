@@ -1857,7 +1857,7 @@ class AgentChat(BaseComponent, ABC):
                 except Exception as e:
                     logger.warning(f"Failed to parse file resource: {e}")
 
-        logger.info(
+logger.info(
             f"[FileDispatch] Total file_resources count: {len(file_resources)}, content: {file_resources}"
         )
 
