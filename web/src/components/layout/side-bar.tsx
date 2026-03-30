@@ -455,13 +455,6 @@ function SideBar() {
             path: '/knowledge',
           },
           {
-            key: 'prompt',
-            name: t('Prompt'),
-            isActive: pathname.startsWith('/prompt'),
-            icon: <MessageOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/prompt',
-          },
-          {
             key: 'cron',
             name: t('cron_page_title'),
             isActive: pathname.startsWith('/cron'),

@@ -139,12 +139,13 @@ class OAuth2Config(BaseModel):
 
 
 class LLMProviderModelConfig(BaseModel):
-    """LLM Provider 中的模型配置"""
+    """模型配置（provider下的模型）"""
 
-    name: str = "gpt-4"
-    temperature: float = 0.7
-    max_new_tokens: int = 4096
-    is_multimodal: bool = False
+    name: str = Field(..., description="模型名称，如 gpt-4o, deepseek-chat")
+    temperature: float = Field(0.7, description="模型温度参数")
+    max_new_tokens: int = Field(4096, description="最大生成token数")
+    is_multimodal: bool = Field(False, description="是否支持多模态（图片输入）")
+    is_default: bool = Field(False, description="是否为该provider下的默认模型")
 
 
 class LLMProviderConfig(BaseModel):
