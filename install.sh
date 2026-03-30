@@ -9,8 +9,10 @@ set -u
 
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
+CONFIG_DIR="${CONFIG_DIR:-$HOME/.openderisk/configs}"
 REPO_URL="https://github.com/derisk-ai/OpenDerisk.git"
 VERSION="${VERSION:-latest}"
+DEFAULT_CONFIG="derisk-proxy-aliyun.toml"
 
 # Colors
 RED='\033[0;31m'
@@ -149,6 +151,27 @@ install_dependencies() {
     success "Dependencies installed successfully"
 }
 
+# Initialize default configuration
+init_config() {
+    local src_config="$INSTALL_DIR/configs/$DEFAULT_CONFIG"
+    local dest_config="$CONFIG_DIR/$DEFAULT_CONFIG"
+
+    mkdir -p "$CONFIG_DIR"
+
+    if [ -f "$dest_config" ]; then
+        log "Configuration file already exists: $dest_config (skipping)"
+        return 0
+    fi
+
+    if [ -f "$src_config" ]; then
+        cp "$src_config" "$dest_config"
+        success "Default configuration initialized: $dest_config"
+        warn "Please edit $dest_config and set your API keys before starting the server."
+    else
+        warn "Template config not found at $src_config, skipping config initialization."
+    fi
+}
+
 # Create wrapper scripts
 create_wrappers() {
     log "Creating wrapper scripts..."
@@ -171,8 +194,16 @@ EOF
 #!/bin/bash
 # OpenDerisk Server Launcher
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
+DEFAULT_CONFIG="$HOME/.openderisk/configs/derisk-proxy-aliyun.toml"
+
 cd "$INSTALL_DIR" || exit 1
-exec uv run derisk start webserver "$@"
+
+# If no arguments provided and default config exists, use it
+if [ $# -eq 0 ] && [ -f "$DEFAULT_CONFIG" ]; then
+    exec uv run derisk start webserver -c "$DEFAULT_CONFIG"
+else
+    exec uv run derisk start webserver "$@"
+fi
 EOF
     
     chmod +x "$BIN_DIR/openderisk-server"
@@ -217,6 +248,7 @@ Usage:
 Environment Variables:
   INSTALL_DIR    Installation directory (default: $HOME/.openderisk)
   BIN_DIR        Binary directory (default: $HOME/.local/bin)
+  CONFIG_DIR     Configuration directory (default: $HOME/.openderisk/configs)
   VERSION        Version to install (default: latest)
 
 Options:
@@ -224,8 +256,9 @@ Options:
   --version      Show version information
 
 After Installation:
-  openderisk     Start OpenDerisk CLI
-  openderisk-server  Start OpenDerisk Server
+  1. Edit ~/.openderisk/configs/derisk-proxy-aliyun.toml and set your API keys
+  2. openderisk-server    Start OpenDerisk Server (uses default config)
+  3. openderisk           Start OpenDerisk CLI
 
 For more information, visit: https://github.com/derisk-ai/OpenDerisk
 EOF
@@ -255,6 +288,7 @@ main() {
     log "Starting OpenDerisk installation..."
     log "Platform: $(detect_platform)"
     log "Install directory: $INSTALL_DIR"
+    log "Config directory: $CONFIG_DIR"
     log "Binary directory: $BIN_DIR"
     
     # Installation steps
@@ -262,15 +296,17 @@ main() {
     ensure_python
     clone_repo
     install_dependencies
+    init_config
     create_wrappers
     add_to_path
     
     success "OpenDerisk installed successfully!"
     echo ""
     echo "Getting Started:"
-    echo "  1. Configure API keys in: $INSTALL_DIR/configs/derisk-proxy-aliyun.toml"
-    echo "  2. Run: openderisk --help"
-    echo "  3. Start server: openderisk-server"
+    echo "  1. Edit config file: $CONFIG_DIR/$DEFAULT_CONFIG"
+    echo "     Set your API keys (e.g., DASHSCOPE_API_KEY)"
+    echo "  2. Start server:     openderisk-server"
+    echo "  3. Open browser:     http://localhost:7777"
     echo ""
     echo "Documentation: https://github.com/derisk-ai/OpenDerisk"
 }

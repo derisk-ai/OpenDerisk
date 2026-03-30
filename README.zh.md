@@ -69,8 +69,13 @@ curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.s
 ```
 
 #### 配置文件
-安装完成后，需要配置系统。创建配置文件：
-编辑 `~/.openderisk/derisk-proxy-aliyun.toml` 并设置您的 API 密钥。
+安装完成后，默认配置文件已自动初始化到：
+`~/.openderisk/configs/derisk-proxy-aliyun.toml`
+
+编辑该文件并设置您的 API 密钥：
+```shell
+vi ~/.openderisk/configs/derisk-proxy-aliyun.toml
+```
 
 #### 启动
 ```

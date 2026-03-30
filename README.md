@@ -69,8 +69,13 @@ Digital Employees (Agents) in OpenDeRisk
 curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
 ```
 #### Configuration File
-After installation, you need to configure the system. Create a configuration file:
-Edit `~/.openderisk/derisk-proxy-aliyun.toml` and set your API keys.
+After installation, the default configuration file is automatically initialized at:
+`~/.openderisk/configs/derisk-proxy-aliyun.toml`
+
+Edit this file and set your API keys:
+```shell
+vi ~/.openderisk/configs/derisk-proxy-aliyun.toml
+```
 
 #### Start 
 ```
