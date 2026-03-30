@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-use-before-define */
+ 
 import { find, keyBy } from 'lodash';
 // @ts-ignore
 import { Root } from 'mdast';

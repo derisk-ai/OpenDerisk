@@ -80,7 +80,7 @@ const CommandPromptInput: FC<IPromptInputProps> = (props) => {
    */
   const handleReplace = (text: string, range?: Range) => {
     if (!editorRef.current || (!selectionRange && !range)) return;
-    let newText = text || '';
+    const newText = text || '';
     // 默认使用传入的范围进行替换操作
     const curRange = {
       from: range?.from ?? selectionRange?.from,

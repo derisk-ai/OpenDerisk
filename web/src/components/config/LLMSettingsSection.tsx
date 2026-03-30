@@ -67,6 +67,11 @@ function buildSecretReference(secretName?: string) {
   return secretName ? `\${secrets.${secretName}}` : "";
 }
 
+function buildDefaultSecretName(provider: string) {
+  const normalized = (provider || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  return `llm_provider_${normalized}_api_key`;
+}
+
 export default function LLMSettingsSection({ config, onChange }: Props) {
   const [form] = Form.useForm();
   const [llmKeys, setLLMKeys] = useState<LLMKeyItem[]>([]);
@@ -85,7 +90,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
     
     form.setFieldsValue({
       agent_llm: {
-        temperature: config.agent_llm?.temperature ?? 0.5,
+        temperature: config.agent_llm?.temperature ?? 0.7,
         providers:
           config.agent_llm?.providers?.map((provider) => ({
             provider: normalizeProviderName(provider.provider),
@@ -259,8 +264,18 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
           return {
             provider,
             api_base: item.api_base || "",
-            api_key_ref:
-              item.api_key_ref || buildSecretReference(keyInfo?.secret_name),
+            api_key_ref: (() => {
+              // 优先使用用户手动输入的值
+              if (item.api_key_ref?.trim()) {
+                return item.api_key_ref.trim();
+              }
+              // 如果已配置密钥，使用密钥引用
+              if (keyInfo?.secret_name) {
+                return buildSecretReference(keyInfo.secret_name);
+              }
+              // 否则生成默认引用格式（用户需要先配置密钥）
+              return buildSecretReference(buildDefaultSecretName(provider));
+            })(),
             models,
           };
         })
@@ -399,16 +414,19 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                     <Form.Item
                       name={[field.name, "api_key_ref"]}
                       label="API Key 引用"
-                      tooltip="保存后会自动优先使用加密密钥；这里显示的是引用名而不是明文 Key"
+                      tooltip="可以手动输入引用格式如 ${secrets.llm_provider_xxx_api_key}，或保存时自动生成"
                     >
-                      <Input placeholder="${secrets.openai_api_key}" disabled={!!providerKey?.secret_name} />
+                      <Input placeholder="${secrets.llm_provider_deepseek_api_key}" />
                     </Form.Item>
 
-                    {providerKey && (
+                    {providerKey && providerKey.is_configured && (
                       <div className="mb-4 flex items-center gap-2">
                         <CheckCircleOutlined className="text-green-500" />
                         <Text type="success">
-                          已配置 API Key（{providerKey.description || providerKey.secret_name}）
+                          已配置加密 API Key（{providerKey.description || providerKey.secret_name}）
+                        </Text>
+                        <Text type="secondary" className="text-xs">
+                          保存时将自动使用此密钥引用
                         </Text>
                       </div>
                     )}

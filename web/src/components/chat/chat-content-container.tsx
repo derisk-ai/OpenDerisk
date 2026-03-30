@@ -18,7 +18,7 @@ import BasicChatContent from "./content/basic-chat-content";
 import TaskChatContent from "./content/task-chat-content";
 import { ChatContentContext } from '@/contexts';
 
-// eslint-disable-next-line no-empty-pattern
+ 
 const ChatContentContainer = (props: { ctrl: AbortController; }, ref: React.ForwardedRef<any>) => {
   const { ctrl } = props;
   const { appInfo } = useContext(ChatContentContext);

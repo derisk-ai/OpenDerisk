@@ -63,7 +63,9 @@ def _get_custom_secret_candidates(
     return candidates
 
 
-def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None) -> Optional[str]:
+def _get_api_key_from_secrets(
+    provider_name: str, base_url: Optional[str] = None
+) -> Optional[str]:
     """从加密存储的 secrets 中获取 API Key
 
     优先级：
@@ -110,7 +112,12 @@ def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None
             if provider_name_lower == "openai":
                 # openai provider 可能是 OpenAI 也可能是其他 OpenAI 兼容服务
                 # 尝试所有可能的 key
-                keys_to_try = ["openai_api_key", "dashscope_api_key", "alibaba_api_key", "anthropic_api_key"]
+                keys_to_try = [
+                    "openai_api_key",
+                    "dashscope_api_key",
+                    "alibaba_api_key",
+                    "anthropic_api_key",
+                ]
 
         for secret_name in reversed(custom_provider_secrets):
             if secret_name not in keys_to_try:
@@ -120,15 +127,22 @@ def _get_api_key_from_secrets(provider_name: str, base_url: Optional[str] = None
         if "llm_api_key" not in keys_to_try:
             keys_to_try.append("llm_api_key")
 
-        logger.debug(f"Looking for API key: provider={provider_name}, base_url={base_url}, keys_to_try={keys_to_try}")
+        logger.debug(
+            f"Looking for API key: provider={provider_name}, base_url={base_url}, keys_to_try={keys_to_try}"
+        )
 
         for key_name in keys_to_try:
             secret_value = get_secret(key_name)
             if secret_value:
                 # 记录找到的 key（只显示部分信息）
-                key_preview = f"{secret_value[:8]}...{secret_value[-4:]}" if len(secret_value) > 12 else "***"
+                key_preview = (
+                    f"{secret_value[:8]}...{secret_value[-4:]}"
+                    if len(secret_value) > 12
+                    else "***"
+                )
                 logger.info(
-                    f"Found API key from secrets: key_name={key_name}, provider={provider_name}, preview={key_preview}, length={len(secret_value)}")
+                    f"Found API key from secrets: key_name={key_name}, provider={provider_name}, preview={key_preview}, length={len(secret_value)}"
+                )
                 return secret_value
 
         logger.debug(f"No API key found in secrets for provider={provider_name}")
@@ -176,10 +190,10 @@ class AIWrapper:
     }
 
     def __init__(
-            self,
-            llm_client: Optional[LLMClient] = None,
-            llm_config: Optional[AgentLLMConfig] = None,
-            output_parser: Optional[BaseOutputParser] = None,
+        self,
+        llm_client: Optional[LLMClient] = None,
+        llm_config: Optional[AgentLLMConfig] = None,
+        output_parser: Optional[BaseOutputParser] = None,
     ):
         """Create an AIWrapper instance.
 
@@ -215,7 +229,13 @@ class AIWrapper:
             if key.startswith("${"):
                 return True
             # 检查是否是常见的占位符值
-            placeholder_patterns = ["sk-...", "sk-xxxx", "your_api_key", "xxx", "placeholder"]
+            placeholder_patterns = [
+                "sk-...",
+                "sk-xxxx",
+                "your_api_key",
+                "xxx",
+                "placeholder",
+            ]
             key_lower = key.lower()
             if any(pattern in key_lower for pattern in placeholder_patterns):
                 return True
@@ -223,7 +243,9 @@ class AIWrapper:
 
         is_placeholder = _is_placeholder_key(api_key)
         if is_placeholder and api_key:
-            logger.debug(f"API key appears to be a placeholder: {api_key[:20]}..., will try to get from secrets")
+            logger.debug(
+                f"API key appears to be a placeholder: {api_key[:20]}..., will try to get from secrets"
+            )
 
         # 优先级：系统设置(secrets) > 配置文件 > 环境变量
         if not api_key or is_placeholder:
@@ -231,7 +253,9 @@ class AIWrapper:
             secrets_key = _get_api_key_from_secrets(provider_name, base_url)
             if secrets_key:
                 api_key = secrets_key
-                logger.info(f"Using API key from system secrets for provider={provider_name}")
+                logger.info(
+                    f"Using API key from system secrets for provider={provider_name}"
+                )
 
         if not api_key:
             # 2. 然后尝试从环境变量获取
@@ -310,6 +334,20 @@ class AIWrapper:
         # Ensure llm_model is a string
         final_llm_model: str = str(llm_model) if llm_model else "default"
 
+        # If the model doesn't exist in cache, fallback to default model
+        if llm_model and not ModelConfigCache.has_model(llm_model):
+            all_models = ModelConfigCache.get_all_models()
+            if all_models:
+                fallback_model = all_models[0]
+                logger.warning(
+                    f"Model '{llm_model}' not found in config, falling back to '{fallback_model}'"
+                )
+                llm_model = fallback_model
+            else:
+                logger.warning(
+                    f"Model '{llm_model}' not found in config and no fallback available"
+                )
+
         if llm_model and ModelConfigCache.has_model(llm_model):
             model_config_dict = ModelConfigCache.get_config(llm_model)
             if model_config_dict:
@@ -326,9 +364,17 @@ class AIWrapper:
                                 return True
                             if key.startswith("${"):
                                 return True
-                            placeholder_patterns = ["sk-...", "sk-xxxx", "your_api_key", "xxx", "placeholder"]
+                            placeholder_patterns = [
+                                "sk-...",
+                                "sk-xxxx",
+                                "your_api_key",
+                                "xxx",
+                                "placeholder",
+                            ]
                             key_lower = key.lower()
-                            if any(pattern in key_lower for pattern in placeholder_patterns):
+                            if any(
+                                pattern in key_lower for pattern in placeholder_patterns
+                            ):
                                 return True
                             return False
 
@@ -340,7 +386,8 @@ class AIWrapper:
                             api_key = _get_api_key_from_secrets(provider_name, base_url)
                             if api_key:
                                 logger.info(
-                                    f"Using API key from system secrets for model={llm_model}, provider={provider_name}")
+                                    f"Using API key from system secrets for model={llm_model}, provider={provider_name}"
+                                )
                         if not api_key:
                             env_key = ProviderRegistry.get_env_key(provider_name)
                             if env_key:
@@ -354,7 +401,9 @@ class AIWrapper:
                         )
                         if provider:
                             self._provider_cache[llm_model] = provider
-                            logger.info(f"Created {provider_name} provider for model={llm_model}")
+                            logger.info(
+                                f"Created {provider_name} provider for model={llm_model}"
+                            )
                     except Exception as e:
                         logger.error(
                             f"Failed to create provider for model {llm_model}: {e}"

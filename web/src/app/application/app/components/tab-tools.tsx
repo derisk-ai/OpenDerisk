@@ -389,7 +389,7 @@ export default function TabToolsManagement() {
         const toolIdsInGroup = new Set(group.tools.map((t) => t.tool_id));
 
         // 先移除该组在列表中的工具
-        let updatedTools = baseTools.filter((item: any) => {
+        const updatedTools = baseTools.filter((item: any) => {
           try {
             const parsed = JSON.parse(item.value || '{}');
             return !toolIdsInGroup.has(parsed.tool_id || parsed.key);
