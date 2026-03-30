@@ -469,6 +469,7 @@ async def process_uploaded_files(
     sandbox_files: List[DispatchedFileInfo] = []
 
     for file_res in file_resources:
+<<<<<<< HEAD
         # Handle both flat format and OpenAI file_url format
         if file_res.get("type") == "file_url" and "file_url" in file_res:
             # OpenAI compatible format: {"type": "file_url", "file_url": {"url": "...", "file_name": "..."}}
