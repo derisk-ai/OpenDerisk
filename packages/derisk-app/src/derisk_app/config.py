@@ -314,19 +314,31 @@ class SandboxConfigParameters(BaseParameters):
 
     oss_ak: Optional[str] = field(
         default=None,
-        metadata={"help": _("The sandbox oss ak.")},
+        metadata={
+            "help": _("Deprecated: Use FileStorageClient instead. The sandbox oss ak.")
+        },
     )
     oss_sk: Optional[str] = field(
         default=None,
-        metadata={"help": _("The sandbox oss sk.")},
+        metadata={
+            "help": _("Deprecated: Use FileStorageClient instead. The sandbox oss sk.")
+        },
     )
     oss_endpoint: Optional[str] = field(
         default=None,
-        metadata={"help": _("The sandbox oss endpoint.")},
+        metadata={
+            "help": _(
+                "Deprecated: Use FileStorageClient instead. The sandbox oss endpoint."
+            )
+        },
     )
     oss_bucket_name: Optional[str] = field(
         default=None,
-        metadata={"help": _("The sandbox oss bucket.")},
+        metadata={
+            "help": _(
+                "Deprecated: Use FileStorageClient instead. The sandbox oss bucket."
+            )
+        },
     )
 
 

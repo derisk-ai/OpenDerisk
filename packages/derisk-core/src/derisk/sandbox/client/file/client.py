@@ -1,14 +1,16 @@
 import logging
 import os
 import posixpath
-from typing import Union, IO, Optional, Literal, List
+from typing import Union, IO, Optional, Literal, List, TYPE_CHECKING
 
 from .types import EntryInfo, FileInfo, OSSFile, TaskResult
 from ..base import BaseClient
 from ...connection_config import Username
 from ...utils.oss_utils import OSSUtils
 
-## TODO
+if TYPE_CHECKING:
+    from derisk.core.interface.file import FileStorageClient
+
 DEFAULT_OSS_AK = os.getenv("OSS_AK")
 DEFAULT_OSS_SK = os.getenv("OSS_SK")
 DEFAULT_OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "")
@@ -17,18 +19,45 @@ logger = logging.Logger(__name__)
 
 
 class FileClient(BaseClient):
-
-    def __init__(self, sandbox_id: str, work_dir: str, **kwargs):
+    def __init__(
+        self,
+        sandbox_id: str,
+        work_dir: str,
+        file_storage_client: Optional["FileStorageClient"] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._sandbox_id = sandbox_id
         self._work_dir = work_dir
+
+        self._file_storage_client = file_storage_client
+
+        self._oss_bucket = (
+            kwargs.get("oss_bucket_name", DEFAULT_OSS_BUCKET_NAME) or "sandbox-files"
+        )
+
         oss_ak = kwargs.get("oss_ak", DEFAULT_OSS_AK)
         oss_sk = kwargs.get("oss_sk", DEFAULT_OSS_SK)
         oss_endpoint = kwargs.get("oss_endpoint", DEFAULT_OSS_ENDPOINT)
         oss_bucket_name = kwargs.get("oss_bucket_name", DEFAULT_OSS_BUCKET_NAME)
-        self._oss = None
-        if  oss_ak and  oss_sk:
-            self._oss = OSSUtils(oss_ak, oss_sk, oss_endpoint, oss_bucket_name)
+
+        self._legacy_oss: Optional[OSSUtils] = None
+        if oss_ak and oss_sk:
+            self._legacy_oss = OSSUtils(oss_ak, oss_sk, oss_endpoint, oss_bucket_name)
+
+        self._pending_oss_sync: set = set()
+
+    @property
+    def oss(self) -> Optional[OSSUtils]:
+        return self._legacy_oss
+
+    @property
+    def file_storage_client(self) -> Optional["FileStorageClient"]:
+        return self._file_storage_client
+
+    @property
+    def storage_bucket(self) -> str:
+        return self._oss_bucket
 
     def _get_env_stage(self) -> str:
         env = (os.getenv("SERVER_ENV") or "local").lower()
@@ -50,16 +79,21 @@ class FileClient(BaseClient):
     def work_dir(self) -> str:
         return self._work_dir
 
+    def set_work_dir(self, work_dir: str) -> None:
+        self._work_dir = work_dir
+        logger.info(f"[FileClient] Updated work_dir to: {work_dir}")
+
     @property
     def sandbox_id(self):
         return self._sandbox_id
 
-    @property
-    def oss(self) -> OSSUtils:
-        return self._oss
-
-    async def create(self, path: str, content: Optional[str] = None, user: Optional[str] = None,
-                     overwrite: bool = True) -> FileInfo:
+    async def create(
+        self,
+        path: str,
+        content: Optional[str] = None,
+        user: Optional[str] = None,
+        overwrite: bool = True,
+    ) -> FileInfo:
         """
         create file .
 
@@ -74,27 +108,29 @@ class FileClient(BaseClient):
 
     async def find_file(self, path: str, glob: str) -> List[str]:
         """
-           find file .
+        find file .
 
-           :param path: Path to the file
-           :param glob: 全局模式匹配文件
+        :param path: Path to the file
+        :param glob: 全局模式匹配文件
 
-           :return: File content as a `str`
-           """
+        :return: File content as a `str`
+        """
         ...
 
     async def find_content(self, path: str, reg_ex: str) -> FileInfo:
         """
-           find file .
+        find file .
 
-           :param path: Path to the file
-           :param reg_ex: 要搜索的正则表达式模式
+        :param path: Path to the file
+        :param reg_ex: 要搜索的正则表达式模式
 
-           :return: File content as a `str`
-           """
+        :return: File content as a `str`
+        """
         ...
 
-    async def str_replace(self, path: str, old_str: str, new_str: str, user: Optional[str] = None) -> FileInfo:
+    async def str_replace(
+        self, path: str, old_str: str, new_str: str, user: Optional[str] = None
+    ) -> FileInfo:
         """
         str replace.
 
@@ -132,53 +168,187 @@ class FileClient(BaseClient):
         #
 
     async def write_chat_file(
-        self,
-        conversation_id: str,
-        path: str,
-        data: Union[str, bytes, IO],
-        user: Optional[Username] = None,
-        overwrite: bool = False,
-    ) -> FileInfo:
-        """写入对 Agent 对话文件并将其持久化至 conversation 专属 OSS 路径。"""
+            self,
+            conversation_id: str,
+            path: str,
+            data: Union[str, bytes, IO],
+            user: Optional[Username] = None,
+            overwrite: bool = False,
+        ) -> FileInfo:
+            """写入对 Agent 对话文件并将其持久化至 conversation 专属存储路径。"""
 
-        normalized_path = (path or "").strip()
-        if not normalized_path:
-            raise ValueError("写入对话文件失败: path 不能为空")
+            normalized_path = (path or "").strip()
+            if not normalized_path:
+                raise ValueError("写入对话文件失败: path 不能为空")
 
-        if normalized_path.startswith("/"):
-            normalized_path = posixpath.normpath(normalized_path)
-        else:
-            normalized_path = posixpath.normpath(posixpath.join(self._work_dir, normalized_path))
+            if normalized_path.startswith("/"):
+                normalized_path = posixpath.normpath(normalized_path)
+            else:
+                normalized_path = posixpath.normpath(
+                    posixpath.join(self._work_dir, normalized_path)
+                )
 
-        workspace_root = posixpath.normpath(self._work_dir.rstrip("/") or "/") or "/"
-        try:
-            relative_path = posixpath.relpath(normalized_path, workspace_root)
-            if relative_path.startswith("../"):
-                raise ValueError
-        except ValueError:
-            # 回退到移除前导斜杠的绝对路径，确保不会抛异常
-            relative_path = normalized_path.lstrip("/")
-
-        file_info = await self.write(path=normalized_path, data=data, user=user, overwrite=overwrite, save_oss=False)
-
-        if conversation_id:
+            workspace_root = posixpath.normpath(self._work_dir.rstrip("/") or "/") or "/"
             try:
-                oss_source = await self.upload_to_oss(normalized_path)
-                storage_key = self.build_oss_path(
-                    posixpath.join("conversations", str(conversation_id), relative_path)
-                )
-                transfer_result = self.oss.transfer_from_url(oss_source.temp_url, storage_key)
-                preview_url = self.oss.generate_presigned_url(storage_key, download=False)
-                file_info.oss_info = OSSFile(
-                    object_name=storage_key,
-                    object_url=transfer_result.get("object_url"),
-                    temp_url=preview_url,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("写入 OSS 失败: conversation_id=%s path=%s error=%s", conversation_id, normalized_path,
-                               exc)
+                relative_path = posixpath.relpath(normalized_path, workspace_root)
+                if relative_path.startswith("../"):
+                    raise ValueError
+            except ValueError:
+                relative_path = normalized_path.lstrip("/")
 
-        return file_info
+            file_info = await self.write(
+                path=normalized_path,
+                data=data,
+                user=user,
+                overwrite=overwrite,
+                save_oss=False,
+            )
+
+            if not conversation_id:
+                return file_info
+
+            storage_key = self.build_oss_path(
+                posixpath.join("conversations", str(conversation_id), relative_path)
+            )
+
+            if self._file_storage_client:
+                try:
+                    import asyncio
+                    import io
+                    from derisk.core.interface.file import FileStorageURI
+
+                    bucket = self._oss_bucket
+                    file_name = posixpath.basename(normalized_path)
+
+                    if isinstance(data, str):
+                        data_bytes = data.encode("utf-8")
+                    elif isinstance(data, bytes):
+                        data_bytes = data
+                    else:
+                        data_bytes = data.read()
+                        if isinstance(data_bytes, str):
+                            data_bytes = data_bytes.encode("utf-8")
+
+                    file_stream = io.BytesIO(data_bytes)
+
+                    custom_metadata = {
+                        "conversation_id": conversation_id,
+                        "original_filename": file_name,
+                    }
+
+                    uri = await asyncio.to_thread(
+                        self._file_storage_client.save_file,
+                        bucket,
+                        file_name,
+                        file_stream,
+                        storage_type=self._file_storage_client.default_storage_type,
+                        file_id=storage_key,
+                        custom_metadata=custom_metadata,
+                        public_url=True,
+                    )
+
+                    if uri.startswith(("http://", "https://")):
+                        preview_url = uri
+                    else:
+                        preview_url = await asyncio.to_thread(
+                            self._file_storage_client.get_public_url,
+                            uri,
+                            expire=3600,
+                        )
+
+                    fixed_bucket = None
+                    try:
+                        storage_system = self._file_storage_client.storage_system
+                        storage_backends = getattr(storage_system, "storage_backends", {})
+                        backend = storage_backends.get(
+                            self._file_storage_client.default_storage_type
+                        )
+                        if backend:
+                            fixed_bucket = getattr(backend, "fixed_bucket", None)
+                    except Exception:
+                        pass
+
+                    if fixed_bucket:
+                        full_object_name = f"{fixed_bucket}/{bucket}/{storage_key}"
+                    elif bucket:
+                        full_object_name = f"{bucket}/{storage_key}"
+                    else:
+                        full_object_name = storage_key
+
+                    if preview_url and str(preview_url).startswith(("http://", "https://")):
+                        file_info.oss_info = OSSFile(
+                            object_name=full_object_name,
+                            object_url=None,
+                            temp_url=preview_url,
+                        )
+                        logger.info(
+                            f"Successfully saved file via FileStorageClient: {normalized_path} -> {uri}"
+                        )
+                        return file_info
+                    else:
+                        logger.warning(
+                            f"[FileClient] FileStorageClient saved file but preview_url is invalid: "
+                            f"preview_url={preview_url!r}. Falling back to legacy OSS."
+                        )
+
+                except Exception as exc:
+                    logger.error(
+                        "FileStorageClient save failed: path=%s error=%s. Falling back to OSS.",
+                        normalized_path,
+                        exc,
+                    )
+
+            if self.oss:
+                try:
+                    oss_source = await self.upload_to_oss(normalized_path)
+                    if not oss_source or not oss_source.temp_url:
+                        raise RuntimeError(
+                            f"upload_to_oss returned invalid result for {normalized_path}"
+                        )
+
+                    transfer_result = self.oss.transfer_from_url(
+                        oss_source.temp_url, storage_key
+                    )
+                    preview_url = self.oss.generate_presigned_url(
+                        storage_key, download=False
+                    )
+
+                    full_object_name = (
+                        f"{self._oss_bucket}/{storage_key}"
+                        if self._oss_bucket
+                        else storage_key
+                    )
+                    file_info.oss_info = OSSFile(
+                        object_name=full_object_name,
+                        object_url=None,
+                        temp_url=preview_url,
+                    )
+                    logger.info(
+                        f"Successfully uploaded file to OSS: {normalized_path} -> {storage_key}"
+                    )
+                    return file_info
+
+                except Exception as exc:
+                    logger.error(
+                        "OSS upload failed: conversation_id=%s path=%s error=%s. "
+                        "File was created in sandbox but cannot be accessed via web URL. "
+                        "Please check storage configuration.",
+                        conversation_id,
+                        normalized_path,
+                        exc,
+                    )
+                    raise RuntimeError(
+                        f"Failed to upload file: {normalized_path}. "
+                        f"Error: {exc}. Please check storage configuration."
+                    ) from exc
+
+            logger.warning(
+                "No storage backend configured for file: %s. "
+                "File was created in sandbox but cannot be accessed via web URL. "
+                "Please configure FileStorageClient or OSS for web access.",
+                normalized_path,
+            )
+            return file_info
 
     async def write(
         self,
@@ -186,7 +356,7 @@ class FileClient(BaseClient):
         data: Union[str, bytes, IO],
         user: Optional[Username] = None,
         overwrite: bool = False,
-        save_oss: bool = False
+        save_oss: bool = False,
     ) -> FileInfo:
         """
         Write content to a file on the path.

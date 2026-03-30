@@ -298,6 +298,19 @@ class AgentChat(BaseComponent, ABC):
         async def _create_sandbox_manager() -> SandboxManager:
             app_config = self.system_app.config.configs.get("app_config")
             sandbox_config: Optional[SandboxConfigParameters] = app_config.sandbox
+
+            file_storage_client = None
+            try:
+                from derisk.core.interface.file import FileStorageClient
+
+                file_storage_client = FileStorageClient.get_instance(self.system_app)
+                if file_storage_client:
+                    logger.info(
+                        f"[AgentChat] FileStorageClient retrieved for sandbox creation"
+                    )
+            except Exception as e:
+                logger.warning(f"[AgentChat] Failed to get FileStorageClient: {e}")
+
             sandbox_client = await AutoSandbox.create(
                 user_id=context.staff_no or sandbox_config.user_id,
                 agent=sandbox_config.agent_name,
@@ -305,6 +318,7 @@ class AgentChat(BaseComponent, ABC):
                 template=sandbox_config.template_id,
                 work_dir=sandbox_config.work_dir,
                 skill_dir=sandbox_config.skill_dir,
+                file_storage_client=file_storage_client,
                 oss_ak=sandbox_config.oss_ak,
                 oss_sk=sandbox_config.oss_sk,
                 oss_endpoint=sandbox_config.oss_endpoint,
@@ -1522,15 +1536,23 @@ class AgentChat(BaseComponent, ABC):
                         except Exception as e:
                             logger.warning(f"Failed to process MCP resource: {e}")
                     else:
-                        dynamic_resources.append(
-                            AgentResource.from_dict(
-                                {
-                                    "type": sub_type,
-                                    "name": f"用户选择了[{sub_type}]资源",
-                                    "value": param_value,
-                                }
+                        # Skip FILE_RESOURCES (common_file, text_file, excel_file, image_file)
+                        # These are handled separately in _dispatch_uploaded_files
+                        if sub_type not in FILE_RESOURCES:
+                            dynamic_resources.append(
+                                AgentResource.from_dict(
+                                    {
+                                        "type": sub_type,
+                                        "name": f"用户选择了[{sub_type}]资源",
+                                        "value": param_value,
+                                    }
+                                )
                             )
-                        )
+                        else:
+                            logger.info(
+                                f"Skipping file resource type {sub_type} in chat_in_params_to_resource, "
+                                f"will be handled in _dispatch_uploaded_files"
+                            )
 
                     if chat_in_param.sub_type == DeriskSkillResource.type():
                         skill_param_value = chat_in_param.param_value
@@ -1805,10 +1827,18 @@ class AgentChat(BaseComponent, ABC):
         for param in chat_in_params:
             if param.param_type == "resource":
                 try:
+                    logger.debug(
+                        f"[FileDispatch] Processing param: sub_type={param.sub_type}, param_value type={type(param.param_value)}"
+                    )
+
                     if isinstance(param.param_value, str):
                         value_data = json.loads(param.param_value)
                     else:
                         value_data = param.param_value
+
+                    logger.debug(
+                        f"[FileDispatch] Parsed value_data type={type(value_data)}, content={value_data}"
+                    )
 
                     if isinstance(value_data, list):
                         file_resources.extend(value_data)
@@ -1816,6 +1846,10 @@ class AgentChat(BaseComponent, ABC):
                         file_resources.append(value_data)
                 except Exception as e:
                     logger.warning(f"Failed to parse file resource: {e}")
+
+        logger.info(
+            f"[FileDispatch] Total file_resources count: {len(file_resources)}, content: {file_resources}"
+        )
 
         if not file_resources:
             return None

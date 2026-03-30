@@ -6,9 +6,9 @@
     "language": "zh",
     "icon": "/agents/agent4.jpg",
     "team_mode": "single_agent",
-    "agent": "ReActMasterV2",
+    "agent": "BAIZE",
     "team_context": {
-      "agent_name": "ReActMasterV2",
+      "agent_name": "BAIZE",
       "can_ask_user": true,
       "use_sandbox": true
     },

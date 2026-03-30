@@ -155,8 +155,10 @@ class CoreV2Component(BaseComponent):
                     kanban_db_storage=MetaDerisksKanbanStorage(),
                     todo_db_storage=MetaDerisksTodoStorage(),
                 )
+                # Register to system_app so it can be accessed via get_component
+                self.system_app.register_instance(gpts_memory)
                 logger.info(
-                    "[CoreV2Component] Created GptsMemory with database persistence (MetaDerisksMessageMemory)"
+                    "[CoreV2Component] Created and registered GptsMemory with database persistence (MetaDerisksMessageMemory)"
                 )
         except Exception as e:
             logger.warning(f"GptsMemory initialization failed: {e}")
@@ -444,6 +446,20 @@ class CoreV2Component(BaseComponent):
                 f"user_id={sandbox_config.user_id}, template={sandbox_config.template_id}"
             )
 
+            file_storage_client = None
+            try:
+                from derisk.core.interface.file import FileStorageClient
+
+                file_storage_client = FileStorageClient.get_instance(self._system_app)
+                if file_storage_client:
+                    logger.info(
+                        f"[CoreV2Component] FileStorageClient retrieved for sandbox creation"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"[CoreV2Component] Failed to get FileStorageClient: {e}"
+                )
+
             sandbox_client = await AutoSandbox.create(
                 user_id=staff_no or sandbox_config.user_id,
                 agent=sandbox_config.agent_name,
@@ -451,6 +467,7 @@ class CoreV2Component(BaseComponent):
                 template=sandbox_config.template_id,
                 work_dir=sandbox_config.work_dir,
                 skill_dir=sandbox_config.skill_dir,
+                file_storage_client=file_storage_client,
                 oss_ak=sandbox_config.oss_ak,
                 oss_sk=sandbox_config.oss_sk,
                 oss_endpoint=sandbox_config.oss_endpoint,
@@ -1165,21 +1182,6 @@ _core_v2: Optional[CoreV2Component] = None
 def get_core_v2() -> CoreV2Component:
     """获取 Core_v2 组件"""
     global _core_v2
-    import sys
-    import traceback
-
-    print(
-        f"[get_core_v2] called, _core_v2 is None: {_core_v2 is None}, id={id(_core_v2) if _core_v2 else 'N/A'}",
-        file=sys.stderr,
-        flush=True,
-    )
     if _core_v2 is None:
-        print("[get_core_v2] Stack trace:", file=sys.stderr, flush=True)
-        traceback.print_stack(file=sys.stderr)
         _core_v2 = CoreV2Component(CFG.SYSTEM_APP)
-        print(
-            f"[get_core_v2] created new instance, id={id(_core_v2)}",
-            file=sys.stderr,
-            flush=True,
-        )
     return _core_v2
