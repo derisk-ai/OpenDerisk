@@ -82,15 +82,34 @@ function deriveDefaultProviderName(config: AppConfig) {
     String(config.default_model?.provider || "")
   );
   
-  if (defaultProvider && defaultProvider !== "custom") {
-    const matchedProvider = providers.find(
-      (item) => normalizeProviderName(item.provider) === defaultProvider
-    );
-    if (matchedProvider) {
-      return normalizeProviderName(matchedProvider.provider);
-    }
+  console.log('[deriveDefaultProviderName] Input:', {
+    defaultProviderFromConfig: config.default_model?.provider,
+    normalizedDefaultProvider: defaultProvider,
+    providersCount: providers.length,
+    providers: providers.map(p => ({
+      provider: p.provider,
+      normalized: normalizeProviderName(p.provider)
+    }))
+  });
+  
+  // 直接匹配provider名称
+  const matchedProvider = providers.find(
+    (item) => normalizeProviderName(item.provider) === defaultProvider
+  );
+  
+  if (matchedProvider) {
+    const result = normalizeProviderName(matchedProvider.provider);
+    console.log('[deriveDefaultProviderName] Found matched provider:', result);
+    return result;
   }
 
+  // 如果providers列表为空，直接返回defaultProvider
+  if (providers.length === 0 && defaultProvider) {
+    console.log('[deriveDefaultProviderName] No providers, returning defaultProvider:', defaultProvider);
+    return defaultProvider;
+  }
+
+  // 尝试通过base_url匹配
   const defaultBaseUrl = config.default_model?.base_url || "";
   if (defaultBaseUrl) {
     const matchedByBaseUrl = providers.find(
@@ -99,17 +118,31 @@ function deriveDefaultProviderName(config: AppConfig) {
         normalizeProviderName(defaultBaseUrl)
     );
     if (matchedByBaseUrl) {
-      return normalizeProviderName(matchedByBaseUrl.provider);
+      const result = normalizeProviderName(matchedByBaseUrl.provider);
+      console.log('[deriveDefaultProviderName] Found by base_url:', result);
+      return result;
     }
   }
 
-  return defaultProvider || normalizeProviderName(providers[0]?.provider) || "openai";
+  const result = defaultProvider || normalizeProviderName(providers[0]?.provider) || "openai";
+  console.log('[deriveDefaultProviderName] Fallback result:', result);
+  return result;
 }
 
 function buildInitialFormValues(config: AppConfig) {
+  const defaultProviderName = deriveDefaultProviderName(config);
   const defaultModelId = config.default_model?.model_id || "";
+  
+  console.log('[buildInitialFormValues] Config:', {
+    default_model_provider: config.default_model?.provider,
+    default_model_model_id: config.default_model?.model_id,
+    derived_provider_name: defaultProviderName,
+    derived_model_id: defaultModelId,
+    agent_llm_providers_count: config.agent_llm?.providers?.length || 0
+  });
+  
   return {
-    default_provider_name: deriveDefaultProviderName(config),
+    default_provider_name: defaultProviderName,
     default_model: {
       model_id: defaultModelId,
     },
