@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class DrskVisTagPackage(Enum):
     """System Vis Tags."""
+
     NexMessage = "nex-msg"
     NexStep = "nex-step"
 
@@ -32,10 +33,8 @@ class DrskVisTagPackage(Enum):
     NexRunningWindow = "nex-running-window"
     DrskConfirm = "drsk-confirm"
 
-    WorkFolder = 'work-folder'
+    WorkFolder = "work-folder"
     NexReport = "nex-report"
-
-
 
 
 class DeriskVisConverter(VisProtocolConverter):
@@ -46,10 +45,10 @@ class DeriskVisConverter(VisProtocolConverter):
     @property
     def web_use(self) -> bool:
         return False
+
     @property
     def render_name(self):
         return "derisk_vis_all"
-
 
     def system_vis_tag_map(self):
         return {
@@ -61,18 +60,15 @@ class DeriskVisConverter(VisProtocolConverter):
             SystemVisTag.VisTools.value: DrskVisTagPackage.DrskSteps.value,
             SystemVisTag.VisSelect.value: DrskVisTagPackage.DrskSelect.value,
             SystemVisTag.VisRefs.value: DrskVisTagPackage.DrskRefs.value,
-            # SystemVisTag.VisChart.value: GptVisTagPackage.Chart.value,
-            # SystemVisTag.VisCode.value: GptVisTagPackage.Code.value,
-            # SystemVisTag.VisTool.value: GptVisTagPackage.Plugin.value,
-            # SystemVisTag.VisDashboard.value: GptVisTagPackage.Dashboard.value,
+            SystemVisTag.VisConfirm.value: DrskVisTagPackage.DrskConfirm.value,
         }
 
     async def final_view(
         self,
         messages: List["GptsMessage"],
-        plans_map: Optional[Dict[str,"GptsPlan"]] = None,
+        plans_map: Optional[Dict[str, "GptsPlan"]] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
-        **kwargs
+        **kwargs,
     ):
         return await self.visualization(messages, plans_map)
 
@@ -86,7 +82,7 @@ class DeriskVisConverter(VisProtocolConverter):
         is_first_chunk: bool = False,
         incremental: bool = False,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
-        **kwargs
+        **kwargs,
     ):
         ## 使用增量传递模式，复用VIS协议规范
         ##  增量数据和全量数据进行逻辑比对
@@ -178,7 +174,10 @@ class DeriskVisConverter(VisProtocolConverter):
             if action_report:
                 act_markdown = action_report.view or action_report.content
             llm_content = DrskTextContent(
-                dynamic=True, markdown=act_markdown or markdown, uid=uid + "_content", type="incr"
+                dynamic=True,
+                markdown=act_markdown or markdown,
+                uid=uid + "_content",
+                type="incr",
             )
             vis_content = DrskContent().sync_display(
                 content=llm_content.to_dict(exclude_none=True)

@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 from enum import Enum
 import asyncio
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .agent_info import AgentInfo, PermissionAction
 from .permission import PermissionChecker, PermissionResponse, PermissionDeniedError
@@ -141,6 +144,7 @@ class AgentBase(ABC):
         self._current_step = 0
         self._subagent_manager: Optional["SubagentManager"] = None
         self._session_id: Optional[str] = None
+        self._interaction_gateway: Optional[Any] = None
 
         # 存储 GptsMemory 引用以便后续使用
         self._gpts_memory = gpts_memory
@@ -579,6 +583,19 @@ class AgentBase(ABC):
 
         return self
 
+    def set_interaction_gateway(self, gateway: Any) -> "AgentBase":
+        """
+        设置交互网关，用于用户输入队列
+
+        Args:
+            gateway: InteractionGateway 实例
+
+        Returns:
+            self: 支持链式调用
+        """
+        self._interaction_gateway = gateway
+        return self
+
     def set_gpts_memory(
         self,
         gpts_memory: "GptsMemory",
@@ -700,6 +717,21 @@ class AgentBase(ABC):
 
         while self._current_step < self.info.max_steps:
             try:
+                # Check for pending user inputs from queue before thinking
+                if self._interaction_gateway and self._session_id:
+                    pending_inputs = (
+                        await self._interaction_gateway.get_pending_user_inputs(
+                            self._session_id, clear=True
+                        )
+                    )
+                    if pending_inputs:
+                        logger.info(
+                            f"[AgentBase] Found {len(pending_inputs)} pending user inputs in queue"
+                        )
+                        for input_item in pending_inputs:
+                            self.add_message("user", input_item.content)
+                            message = input_item.content
+
                 self.set_state(AgentState.THINKING)
 
                 if stream:

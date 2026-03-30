@@ -134,6 +134,13 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
                   const merged = visParser.update(vis);
                   onMessage?.(merged);
                 }
+              } else if (typeof vis === 'object' && vis !== null) {
+                // Handle metadata and other object messages
+                if (vis.type === 'metadata' || vis.type === 'interrupt') {
+                  onMessage?.(vis);
+                } else {
+                  onMessage?.(vis);
+                }
               }
             } catch {}
           }
@@ -182,19 +189,33 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
           onmessage: event => {
             let message = event.data;
             try {
+              const parsedData = JSON.parse(message);
+              
+              // Check if it's a metadata or interrupt message first
+              if (parsedData?.vis && typeof parsedData.vis === 'object') {
+                const vis = parsedData.vis;
+                if (vis.type === 'metadata' || vis.type === 'interrupt') {
+                  onMessage?.(vis);
+                  return;
+                }
+              }
+              
               if (!isIncremental) {
-                message = JSON.parse(message).vis;
+                message = parsedData.vis;
               } else {
-                const { midMsgObject: newMidMsgObject } = parseChunkData(answerText, midMsgObject, JSON.parse(message), visParser);
+                const { midMsgObject: newMidMsgObject } = parseChunkData(answerText, midMsgObject, parsedData, visParser);
                 midMsgObject = newMidMsgObject;
                 message = midMsgObject.text;
               }
-            } catch { message.replaceAll('\\n', '\n'); }
+            } catch { message = message.replaceAll('\\n', '\n'); }
             if (typeof message === 'string') {
               if (message === '[DONE]') onDone?.();
               else if (message?.startsWith('[ERROR]')) onError?.(message?.replace('[ERROR]', ''));
               else onMessage?.(message);
-            } else { onMessage?.(message); onDone?.(); }
+            } else if (typeof message === 'object' && message !== null) {
+              // Handle other object messages
+              onMessage?.(message);
+            }
           },
         });
       } catch (err) {

@@ -143,14 +143,20 @@ class ReadTool(ToolBase):
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "文件路径"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["line", "char"],
+                    "default": "line",
+                    "description": "读取模式: 'line' 按行读取, 'char' 按字符读取(适用于单行大文件)",
+                },
                 "start_line": {
                     "type": "integer",
-                    "description": "起始行号(从1开始)",
+                    "description": "起始行号(从1开始, line模式)",
                     "default": 1,
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "读取行数限制",
+                    "description": "line模式: 读取行数限制; char模式: 读取字符数限制",
                     "default": 2000,
                 },
             },
@@ -161,8 +167,7 @@ class ReadTool(ToolBase):
         self, args: Dict[str, Any], context: Optional[Dict[str, Any]] = None
     ) -> ToolResult:
         path = args.get("path")
-        start_line = args.get("start_line", 1)
-        limit = args.get("limit", 2000)
+        mode = args.get("mode", "line")
 
         try:
             file_path = Path(path)
@@ -175,31 +180,73 @@ class ReadTool(ToolBase):
                     success=False, output="", error=f"路径不是文件: {path}"
                 )
 
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = []
-                for i, line in enumerate(f, 1):
-                    if i >= start_line:
-                        lines.append(line.rstrip("\n"))
-                    if len(lines) >= limit:
-                        break
-
-                content = "\n".join(lines)
-                if len(lines) == limit:
-                    content += f"\n\n... (truncated, showing {limit} lines)"
-
-            return ToolResult(
-                success=True,
-                output=content,
-                metadata={
-                    "path": str(file_path),
-                    "lines_read": len(lines),
-                    "file_size": file_path.stat().st_size,
-                },
-            )
+            if mode == "char":
+                return await self._read_char_mode(args, file_path)
+            else:
+                return await self._read_line_mode(args, file_path)
 
         except Exception as e:
             logger.error(f"[ReadTool] 读取失败: {e}")
             return ToolResult(success=False, output="", error=str(e))
+
+    async def _read_line_mode(
+        self, args: Dict[str, Any], file_path: Path
+    ) -> ToolResult:
+        start_line = args.get("start_line", 1)
+        limit = args.get("limit", 2000)
+
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = []
+            for i, line in enumerate(f, 1):
+                if i >= start_line:
+                    lines.append(line.rstrip("\n"))
+                if len(lines) >= limit:
+                    break
+
+            content = "\n".join(lines)
+            if len(lines) == limit:
+                content += f"\n\n... (truncated, showing {limit} lines)"
+
+        return ToolResult(
+            success=True,
+            output=content,
+            metadata={
+                "path": str(file_path),
+                "mode": "line",
+                "lines_read": len(lines),
+                "file_size": file_path.stat().st_size,
+            },
+        )
+
+    async def _read_char_mode(
+        self, args: Dict[str, Any], file_path: Path
+    ) -> ToolResult:
+        offset = args.get("start_line", 1)
+        limit = args.get("limit", 2000)
+
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+            total_chars = len(content)
+            selected = content[offset : offset + limit]
+            has_more = offset + limit < total_chars
+
+        result = selected
+        if has_more:
+            result += f"\n\n... (truncated, showing {len(selected)} characters from offset {offset}, total {total_chars} characters)"
+
+        return ToolResult(
+            success=True,
+            output=result,
+            metadata={
+                "path": str(file_path),
+                "mode": "char",
+                "char_offset": offset,
+                "char_limit": limit,
+                "chars_read": len(selected),
+                "total_chars": total_chars,
+                "file_size": file_path.stat().st_size,
+            },
+        )
 
 
 class WriteTool(ToolBase):

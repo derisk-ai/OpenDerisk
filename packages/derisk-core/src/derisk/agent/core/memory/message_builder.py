@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -60,6 +61,21 @@ class HistoryMessageBuilderConfig:
     summary_max_length: int = 1000
     include_tool_call_ids: bool = True
     include_archived_references: bool = True
+
+    # Warm 层智能剪枝配置
+    warm_enable_llm_pruning: bool = True
+    warm_prune_error_after_turns: int = 4
+    warm_prune_duplicate_tools: bool = True
+    warm_prune_superseded_writes: bool = True
+    warm_preserve_tools: List[str] = field(
+        default_factory=lambda: ["view", "read", "ask_user"]
+    )
+    warm_write_tools: List[str] = field(
+        default_factory=lambda: ["edit", "write", "create_file", "edit_file"]
+    )
+    warm_read_tools: List[str] = field(default_factory=lambda: ["read", "view", "cat"])
+
+    chars_per_token: int = 4
 
 
 class HistoryMessageBuilder:
@@ -214,13 +230,13 @@ class HistoryMessageBuilder:
         max_tokens: int,
     ) -> tuple[List[Dict[str, Any]], int]:
         """
-        Build Warm Layer messages: Summary + compressed tool calls.
+        Build Warm Layer messages: Summary + compressed tool calls with smart pruning.
 
         Warm Layer contains older conversations that have been compressed:
         - Summary as system message
         - Key tool calls with compressed results
-
-        This preserves essential information while saving tokens.
+        - Cache check to prevent redundant compression
+        - Smart pruning (dedup, error cleanup, write superseding)
         """
         messages: List[Dict[str, Any]] = []
         total_tokens = 0
@@ -229,7 +245,33 @@ class HistoryMessageBuilder:
             if conv_id == current_conv_id:
                 continue
 
+            # Check cache
+            if conv.warm_compressed_content:
+                try:
+                    cached_messages = json.loads(conv.warm_compressed_content)
+                    conv_tokens = self._estimate_tokens(cached_messages)
+                    if total_tokens + conv_tokens <= max_tokens:
+                        messages.extend(cached_messages)
+                        total_tokens += conv_tokens
+                        logger.debug(
+                            f"[HistoryMessageBuilder] Using cached warm content for {conv_id}"
+                        )
+                        continue
+                except Exception as e:
+                    logger.warning(f"Failed to parse cached warm content: {e}")
+
+            # Build messages if no cache
             conv_messages, conv_tokens = self._build_summary_conv_messages(conv)
+
+            # Apply smart pruning
+            current_turn = getattr(conv, "total_rounds", 0) or 0
+            conv_messages = await self._smart_prune_messages(
+                conv_messages,
+                token_budget=max_tokens - total_tokens,
+                current_turn=current_turn,
+                llm_client=None,  # LLM pruning is optional
+            )
+            conv_tokens = self._estimate_tokens(conv_messages)
 
             # Check token budget
             if total_tokens + conv_tokens > max_tokens:
@@ -240,6 +282,12 @@ class HistoryMessageBuilder:
 
             messages.extend(conv_messages)
             total_tokens += conv_tokens
+
+            # Cache the compressed content
+            try:
+                conv.warm_compressed_content = json.dumps(conv_messages)
+            except Exception:
+                pass
 
         return messages, total_tokens
 
@@ -511,6 +559,304 @@ class HistoryMessageBuilder:
         if entry.args:
             tokens += len(json.dumps(entry.args, ensure_ascii=False)) // 4
         return tokens
+
+    def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
+        """Estimate tokens for a list of messages."""
+        total_chars = 0
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_chars += len(content)
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                total_chars += len(json.dumps(tool_calls, ensure_ascii=False))
+        return max(1, total_chars // self.config.chars_per_token)
+
+    def _prune_duplicate_tools(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        去重：相同工具+相同参数的调用只保留最新的
+
+        OpenCode DCP 策略：
+        - 通过签名（tool_name + args）判断重复
+        - 只保留最新的调用结果
+        - 保护特定工具不去重
+        """
+        if not self.config.warm_prune_duplicate_tools:
+            return messages
+
+        seen_signatures: Dict[str, str] = {}
+        tool_call_id_to_keep: set = set()
+
+        for i, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                for tc in tool_calls:
+                    func_name = tc.get("function", {}).get("name", "")
+                    args = tc.get("function", {}).get("arguments", "")
+
+                    if func_name in self.config.warm_preserve_tools:
+                        tool_call_id_to_keep.add(tc.get("id"))
+                        continue
+
+                    signature = f"{func_name}:{args}"
+                    tool_call_id_to_keep.add(tc.get("id"))
+                    if signature in seen_signatures:
+                        old_id = seen_signatures[signature]
+                        if old_id in tool_call_id_to_keep:
+                            tool_call_id_to_keep.remove(old_id)
+                    seen_signatures[signature] = tc.get("id")
+
+        pruned_messages: List[Dict[str, Any]] = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            tool_calls = msg.get("tool_calls", [])
+
+            if tool_calls:
+                tc_id = tool_calls[0].get("id")
+                if tc_id in tool_call_id_to_keep:
+                    pruned_messages.append(msg)
+                    if i + 1 < len(messages) and messages[i + 1].get("role") == "tool":
+                        pruned_messages.append(messages[i + 1])
+                        i += 1
+            elif msg.get("role") != "tool":
+                pruned_messages.append(msg)
+
+            i += 1
+
+        return pruned_messages
+
+    def _prune_error_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        current_turn: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        清理错误工具调用：N 轮后移除失败的调用
+
+        OpenCode DCP 策略：
+        - 保留错误消息（用于调试）
+        - 只移除失败的输入参数
+        """
+        threshold = self.config.warm_prune_error_after_turns
+        pruned_messages: List[Dict[str, Any]] = []
+
+        for msg in messages:
+            if msg.get("role") == "tool":
+                content = msg.get("content", "")
+                is_error = (
+                    "error" in content.lower()
+                    or "failed" in content.lower()
+                    or "exception" in content.lower()
+                )
+
+                if is_error and current_turn > threshold:
+                    pruned_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": msg.get("tool_call_id"),
+                            "content": "[错误工具调用已清理]",
+                        }
+                    )
+                else:
+                    pruned_messages.append(msg)
+            else:
+                pruned_messages.append(msg)
+
+        return pruned_messages
+
+    def _prune_superseded_writes(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        清理被覆盖的写入操作
+
+        OpenCode DCP 策略：
+        - 当写入操作之后有读取同一文件的操作
+        - 清理写入操作的输入参数（文件内容）
+        - 保留写入操作的记录，只清理大内容
+
+        示例：
+        [1] edit("config.json", "修改内容...") → 写入
+        [2] read("config.json") → 读取
+        → [1] 的参数可清理为 "[写入内容已清理，后续已读取]"
+        """
+        if not self.config.warm_prune_superseded_writes:
+            return messages
+
+        write_tools = set(self.config.warm_write_tools)
+        read_tools = set(self.config.warm_read_tools)
+        written_files: Dict[str, int] = {}
+
+        for i, msg in enumerate(messages):
+            tool_calls = msg.get("tool_calls", [])
+            if not tool_calls:
+                continue
+
+            for tc in tool_calls:
+                func_name = tc.get("function", {}).get("name", "")
+                args_str = tc.get("function", {}).get("arguments", "{}")
+
+                try:
+                    args = (
+                        json.loads(args_str) if isinstance(args_str, str) else args_str
+                    )
+                except Exception:
+                    continue
+
+                file_path = str(args.get("path", args.get("file_path", "")))
+
+                if func_name in write_tools and file_path:
+                    written_files[file_path] = i
+
+                elif func_name in read_tools and file_path:
+                    if file_path in written_files:
+                        write_idx = written_files[file_path]
+                        if 0 <= write_idx < len(messages):
+                            write_msg = messages[write_idx]
+                            tool_calls_write = write_msg.get("tool_calls", [])
+                            if tool_calls_write:
+                                for tc_write in tool_calls_write:
+                                    args_write = tc_write.get("function", {}).get(
+                                        "arguments", "{}"
+                                    )
+                                    try:
+                                        args_dict = (
+                                            json.loads(args_write)
+                                            if isinstance(args_write, str)
+                                            else args_write
+                                        )
+                                        new_args = dict(args_dict)
+                                        if (
+                                            "content" in new_args
+                                            and len(str(new_args.get("content", "")))
+                                            > 200
+                                        ):
+                                            new_args["content"] = (
+                                                f"[写入内容已清理，后续已读取文件: {file_path}]"
+                                            )
+                                            tc_write["function"]["arguments"] = (
+                                                json.dumps(new_args, ensure_ascii=False)
+                                            )
+                                    except Exception:
+                                        pass
+                        del written_files[file_path]
+
+        return messages
+
+    async def _llm_evaluate_message_value(
+        self,
+        messages: List[Dict[str, Any]],
+        llm_client: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        LLM 评估消息价值，清理低价值消息
+
+        评估标准：
+        - 是否包含关键决策信息
+        - 是否包含重要的技术细节
+        - 是否与当前任务相关
+
+        返回：保留的高价值消息
+        """
+        if not self.config.warm_enable_llm_pruning or not llm_client:
+            return messages
+
+        if len(messages) < 4:
+            return messages
+
+        messages_text = []
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if isinstance(content, str) and len(content) > 50:
+                messages_text.append(f"[{i}] {role}: {content[:200]}...")
+
+        if not messages_text:
+            return messages
+
+        prompt = f"""分析以下对话片段，判断每条消息的价值。
+
+消息列表:
+{chr(10).join(messages_text)}
+
+请返回一个 JSON 数组，包含应该保留的消息索引，格式如: [0, 2, 4]
+
+保留标准：
+1. 包含关键决策或结论
+2. 包含重要的技术细节（文件路径、错误信息、配置值）
+3. 用户的明确指令或问题
+4. 重要的工具调用结果
+
+应该清理的：
+1. 重复的确认信息
+2. 过长的中间过程（可压缩）
+3. 与主要任务无关的对话
+
+只返回 JSON 数组，不要其他内容。"""
+
+        try:
+            response = await llm_client.async_call(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=100,
+            )
+
+            response_content = response.content
+            if isinstance(response_content, list):
+                result_text = response_content[-1].get("text", "")
+            else:
+                result_text = response_content.get_text()
+
+            import re
+
+            match = re.search(r"\[.*?\]", result_text)
+            if match:
+                indices_to_keep = json.loads(match.group())
+                return [messages[i] for i in indices_to_keep if i < len(messages)]
+        except Exception as e:
+            logger.warning(f"LLM message evaluation failed: {e}")
+
+        return messages
+
+    async def _smart_prune_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        token_budget: int,
+        current_turn: int = 0,
+        llm_client: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        智能剪枝：整合去重、错误清理、写入覆盖、LLM评估、Token预算控制
+
+        执行顺序：
+        1. 去重 (_prune_duplicate_tools)
+        2. 写入覆盖清理 (_prune_superseded_writes)
+        3. 错误清理 (_prune_error_tools)
+        4. LLM 价值评估 (_llm_evaluate_message_value) - 可选
+        5. Token 预算控制
+        """
+        pruned = self._prune_duplicate_tools(messages)
+        pruned = self._prune_superseded_writes(pruned)
+        pruned = self._prune_error_tools(pruned, current_turn)
+
+        if self.config.warm_enable_llm_pruning and llm_client:
+            pruned = await self._llm_evaluate_message_value(pruned, llm_client)
+
+        current_tokens = self._estimate_tokens(pruned)
+        if current_tokens > token_budget:
+            final_messages = []
+            for msg in reversed(pruned):
+                if current_tokens <= token_budget:
+                    final_messages.insert(0, msg)
+                else:
+                    current_tokens -= self._estimate_tokens([msg])
+            pruned = final_messages
+
+        return pruned
 
 
 # =============================================================================

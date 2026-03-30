@@ -13,10 +13,34 @@ _GLOBAL_CONFIG: str = ""
 
 
 @click.command(name="webserver")
-@add_start_server_options
-def start_webserver(config: str, **kwargs):
-    """Start webserver(derisk_server.py)"""
-    if kwargs["daemon"]:
+@click.option(
+    "-c",
+    "--config",
+    type=str,
+    default=None,
+    required=False,
+    help=_(
+        "The config file to start server (optional, starts with zero config if not provided)"
+    ),
+)
+@click.option(
+    "-d",
+    "--daemon",
+    is_flag=True,
+    help=(
+        _(
+            "Run in daemon mode. It will run in the background. If you want to stop"
+            " it, use `derisk stop` command"
+        )
+    ),
+)
+def start_webserver(config: str, daemon: bool):
+    """Start webserver(derisk_server.py)
+
+    If no config file is provided, starts with zero configuration.
+    Configure models and settings through the web UI at http://localhost:7777
+    """
+    if daemon:
         log_file = os.path.join(LOGDIR, "webserver_uvicorn.log")
         _run_current_with_daemon("WebServer", log_file)
     else:

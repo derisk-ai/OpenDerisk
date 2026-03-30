@@ -33,6 +33,7 @@ const ToolsBar: React.FC<{
     canAbort,
     replyLoading,
     currentDialogue,
+    currentConvSessionId,
     appInfo,
     temperatureValue,
     maxNewTokensValue,
@@ -71,7 +72,10 @@ const ToolsBar: React.FC<{
           if (!canAbort) {
             return;
           }
-          stopChat({ conv_session_id: chatId });
+          const sessionId = currentConvSessionId || chatId;
+          if (sessionId) {
+            stopChat({ conv_session_id: sessionId });
+          }
           ctrl && ctrl.abort();
           setTimeout(() => {
             setCanAbort(false);

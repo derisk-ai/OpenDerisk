@@ -26,7 +26,6 @@ try:
 except ImportError:
     LARK_SDK_AVAILABLE = False
     lark = None
-    logger.warning("lark-oapi SDK not installed. Install with: pip install lark-oapi")
 
 
 class FeishuClient:
@@ -107,7 +106,9 @@ class FeishuClient:
                     event_dict = {
                         "event_type": "im.message.receive_v1",
                         "event_id": data.header.event_id,
-                        "body": data.event.model_dump() if hasattr(data.event, 'model_dump') else data.event,
+                        "body": data.event.model_dump()
+                        if hasattr(data.event, "model_dump")
+                        else data.event,
                         "raw": data,
                     }
                     asyncio.create_task(
@@ -120,7 +121,7 @@ class FeishuClient:
             event_handler = (
                 lark.EventDispatcherHandler.builder(
                     self._config.verification_token or "",
-                    self._config.encrypt_key or ""
+                    self._config.encrypt_key or "",
                 )
                 .register_p2_im_message_receive_v1(do_p2_im_message_receive_v1)
                 .build()
@@ -130,8 +131,10 @@ class FeishuClient:
                 self._config.app_id,
                 self._config.app_secret,
                 event_handler=event_handler,
-                domain=lark.FEISHU_DOMAIN if self._config.domain == "feishu" else lark.LARK_DOMAIN,
-                log_level=lark.LogLevel.DEBUG
+                domain=lark.FEISHU_DOMAIN
+                if self._config.domain == "feishu"
+                else lark.LARK_DOMAIN,
+                log_level=lark.LogLevel.DEBUG,
             )
             self._ws_client.start()
             logger.info("WebSocket connection established")
@@ -359,7 +362,11 @@ class FeishuClient:
 
         try:
             # Create a client for bot info request
-            domain = lark.FEISHU_DOMAIN if self._config.domain == "feishu" else lark.LARK_DOMAIN
+            domain = (
+                lark.FEISHU_DOMAIN
+                if self._config.domain == "feishu"
+                else lark.LARK_DOMAIN
+            )
             client = (
                 lark.Client.builder()
                 .app_id(self._config.app_id)
@@ -375,13 +382,19 @@ class FeishuClient:
             )
 
             if response.code == 0:
-                bot = response.data.get("bot", {}) if isinstance(response.data, dict) else {}
+                bot = (
+                    response.data.get("bot", {})
+                    if isinstance(response.data, dict)
+                    else {}
+                )
                 return {
                     "app_name": bot.get("app_name", self._config.app_id),
                     "open_id": bot.get("open_id"),
                     "avatar_url": bot.get("avatar_url"),
                 }
-            logger.error(f"Failed to get bot info: code={response.code}, msg={response.msg}")
+            logger.error(
+                f"Failed to get bot info: code={response.code}, msg={response.msg}"
+            )
             return None
         except Exception as e:
             logger.error(f"Error getting bot info: {e}")

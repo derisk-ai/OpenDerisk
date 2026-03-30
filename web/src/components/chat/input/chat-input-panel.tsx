@@ -1,14 +1,23 @@
 import { ChatContentContext } from "@/contexts";
 import { LoadingOutlined } from '@ant-design/icons';
-import { Button, Input, Spin } from 'antd';
+import { Button, Input, Spin, message } from 'antd';
 import classNames from 'classnames';
 import { useSearchParams } from 'next/navigation';
-import React, { memo, useContext, useMemo, useRef, useState } from 'react';
+import React, { memo, useContext, useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import ToolsBar from './tools-bar';
 import { UserChatContent } from '@/types/chat';
 import { parseResourceValue } from '@/utils';
 import { MEDIA_RESOURCE_TYPES } from "@/app/application/app/components/chat-layout-config";
+import InputQueueDisplay from './input-queue-display';
+import useUserInput from '@/hooks/use-user-input';
+
+interface QueuedMessage {
+  id: string;
+  content: string;
+  sender: string;
+  timestamp: number;
+}
 
 const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
   const { t } = useTranslation();
@@ -20,14 +29,42 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
     resourceValue,
     refreshDialogList,
     chatInParams,
-    setResourceValue
+    setResourceValue,
+    currentDialogue,
   } = useContext(ChatContentContext);
 
   const [userInput, setUserInput] = useState<string>('');
   const [isFocus, setIsFocus] = useState<boolean>(false);
   const [isZhInput, setIsZhInput] = useState<boolean>(false);
+  const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
 
   const submitCountRef = useRef(0);
+  const prevReplyLoadingRef = useRef(replyLoading);
+
+  const sessionId = currentDialogue?.conv_uid;
+  const {
+    queueState,
+    clearQueue,
+    startPolling,
+    stopPolling,
+    submitUserInput,
+  } = useUserInput(sessionId);
+
+  useEffect(() => {
+    if (prevReplyLoadingRef.current && !replyLoading) {
+      setQueuedMessages([]);
+    }
+    prevReplyLoadingRef.current = replyLoading;
+  }, [replyLoading]);
+
+  useEffect(() => {
+    if (replyLoading && sessionId) {
+      startPolling(2000);
+    } else {
+      stopPolling();
+    }
+    return () => stopPolling();
+  }, [replyLoading, sessionId, startPolling, stopPolling]);
 
    const paramKey: string[] = useMemo(() => {
     return appInfo?.layout?.chat_in_layout?.map(i => i.param_type) || [];
@@ -43,7 +80,6 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
       setUserInput('');
     }, 0);
 
-    // Clear the resourceValue if it not empty
     let newUserInput: UserChatContent;
     if (
       MEDIA_RESOURCE_TYPES.includes(
@@ -71,14 +107,70 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
         chat_in_params: chatInParams,
       }),
     });
-    // 如果应用进来第一次对话，刷新对话列表
     if (submitCountRef.current === 1) {
       refreshDialogList && await refreshDialogList();
     }
   };
 
+  const onSubmitToQueue = async () => {
+    if (!sessionId) {
+      message.warning(t('conversation_not_found') || 'Conversation not found');
+      return;
+    }
+
+    const messageContent = userInput.trim();
+    if (!messageContent) return;
+
+    const tempId = `temp-${Date.now()}`;
+    
+    const newMessage: QueuedMessage = {
+      id: tempId,
+      content: messageContent,
+      sender: 'user',
+      timestamp: Date.now(),
+    };
+
+    setQueuedMessages(prev => [...prev, newMessage]);
+
+    const success = await submitUserInput(messageContent, 'text');
+    
+    if (success) {
+      message.success(t('input_queued') || 'Message queued successfully');
+      setUserInput('');
+      
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({
+          top: scrollRef.current?.scrollHeight,
+          behavior: 'smooth',
+        });
+      }, 0);
+    } else {
+      setQueuedMessages(prev => prev.filter(msg => msg.id !== tempId));
+    }
+  };
+
+  const handleClearQueue = useCallback(async () => {
+    await clearQueue();
+    setQueuedMessages([]);
+  }, [clearQueue]);
+
+  const handleSend = async () => {
+    if (replyLoading) {
+      await onSubmitToQueue();
+    } else {
+      await onSubmit();
+    }
+  };
+
+  const displayMessages = queuedMessages;
+
   return (
     <div className='flex flex-col w-full mx-auto pt-4 pb-0 bg-transparent'>
+      <InputQueueDisplay
+        messages={displayMessages}
+        isLoading={replyLoading && queueState.hasPendingInput}
+        onClear={handleClearQueue}
+      />
       <div
         className={`flex flex-1 flex-col bg-white dark:bg-[rgba(255,255,255,0.16)] px-5 py-4 pt-2 rounded-xl relative border border-[#E0E7F2] dark:border-[rgba(255,255,255,0.6)] ${
           isFocus ? 'border-[#0c75fc]' : ''
@@ -87,7 +179,7 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
       >
         <ToolsBar ctrl={ctrl} />
         <Input.TextArea
-          placeholder={t('input_tips')}
+          placeholder={replyLoading ? t('input_tips_running') || t('input_tips') : t('input_tips')}
           className='w-full h-10 resize-none border-0 p-0 focus:shadow-none dark:bg-transparent'
           value={userInput}
           onKeyDown={e => {
@@ -99,10 +191,10 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
                 return;
               }
               e.preventDefault();
-              if (!userInput.trim() || replyLoading) {
+              if (!userInput.trim()) {
                 return;
               }
-              onSubmit();
+              handleSend();
             }
           }}
           onChange={e => {
@@ -124,10 +216,10 @@ const ChatInputPanel: React.FC<{ ctrl: AbortController }> = ({ ctrl }) => {
             },
           )}
           onClick={() => {
-            if (replyLoading || !userInput.trim()) {
+            if (!userInput.trim()) {
               return;
             }
-            onSubmit();
+            handleSend();
           }}
         >
           {replyLoading ? (

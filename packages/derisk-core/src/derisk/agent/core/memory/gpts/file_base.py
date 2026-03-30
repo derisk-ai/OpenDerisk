@@ -525,6 +525,12 @@ class WorkEntry:
     对于大型输出，使用 full_result_archive 或 archives 引用文件系统中的文件。
 
     统一了 ReActAgent WorkLog 和 PDCA Agent Kanban 的 WorkEntry 定义。
+
+    新增字段（用于原生 Function Call 模式）：
+    - tool_call_id: 工具调用 ID，用于关联 tool message
+    - assistant_content: 触发工具调用的 AI 消息内容
+    - round_index: 当前轮次索引
+    - conv_id: 对话 ID（用于隔离不同对话的工具调用记录）
     """
 
     timestamp: float
@@ -539,6 +545,11 @@ class WorkEntry:
     tokens: int = 0
     status: str = WorkLogStatus.ACTIVE.value
     step_index: int = 0
+    # 新增字段：原生 Function Call 模式支持
+    tool_call_id: Optional[str] = None  # 工具调用 ID
+    assistant_content: Optional[str] = None  # 触发工具调用的 AI 消息内容
+    round_index: int = 0  # 当前轮次索引
+    conv_id: Optional[str] = None  # 对话 ID（用于隔离不同对话的工具调用记录）
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典."""
@@ -555,6 +566,10 @@ class WorkEntry:
             "tokens": self.tokens,
             "status": self.status,
             "step_index": self.step_index,
+            "tool_call_id": self.tool_call_id,
+            "assistant_content": self.assistant_content,
+            "round_index": self.round_index,
+            "conv_id": self.conv_id,
         }
 
     @classmethod
@@ -1300,8 +1315,12 @@ class TodoItem:
     content: str
     status: str = TodoStatus.PENDING.value
     priority: str = TodoPriority.MEDIUM.value
-    created_at: float = dataclasses.field(default_factory=lambda: datetime.utcnow().timestamp())
-    updated_at: float = dataclasses.field(default_factory=lambda: datetime.utcnow().timestamp())
+    created_at: float = dataclasses.field(
+        default_factory=lambda: datetime.utcnow().timestamp()
+    )
+    updated_at: float = dataclasses.field(
+        default_factory=lambda: datetime.utcnow().timestamp()
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典."""

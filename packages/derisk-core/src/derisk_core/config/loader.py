@@ -140,15 +140,16 @@ class ConfigManager:
 
         Args:
             path: 配置文件路径，如果为 None 则使用默认路径
-            auto_save: 是否在修改配置时自动保存到文件
+            auto_save: 是否在修改配置时自动保存
         """
         cls._auto_save = auto_save
 
         if path is None:
             path = cls.get_default_config_path()
-            if not Path(path).exists():
-                logger.info(f"配置文件不存在，将创建默认配置: {path}")
-                cls._ensure_default_config()
+
+        if not Path(path).exists():
+            logger.info(f"配置文件不存在，将创建默认配置: {path}")
+            cls._ensure_default_config()
 
         cls._config_path = path
         cls._config = ConfigLoader.load(path)

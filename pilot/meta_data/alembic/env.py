@@ -19,8 +19,6 @@ config = context.config
 # ... etc.
 
 
-
-
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -57,25 +55,31 @@ def run_migrations_online() -> None:
     """
     engine = db.engine
     target_metadata = db.metadata
-    with engine.connect() as connection:
-        if engine.dialect.name == "sqlite":
-            context.configure(
-                connection=engine.connect(),
-                target_metadata=target_metadata,
-                render_as_batch=True,
-            )
-        else:
-            context.configure(connection=connection, target_metadata=target_metadata)
-
+    connection = config.attributes.get("connection", None)
+    if connection is not None:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True if engine.dialect.name == "sqlite" else False,
+        )
         with context.begin_transaction():
             context.run_migrations()
+    else:
+        with engine.connect() as connection:
+            if engine.dialect.name == "sqlite":
+                context.configure(
+                    connection=connection,
+                    target_metadata=target_metadata,
+                    render_as_batch=True,
+                )
+            else:
+                context.configure(
+                    connection=connection, target_metadata=target_metadata
+                )
 
+            with context.begin_transaction():
+                context.run_migrations()
 
-# ... 顶部导入 ...
-
-print("Alembic 扫描到的表:")
-for table in db.metadata.tables:
-    print(f" - {table}")
 
 if context.is_offline_mode():
     run_migrations_offline()

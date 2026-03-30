@@ -228,7 +228,12 @@ class Layer4CompressionConfig:
     compression_token_threshold: int = 8000  # 超过此token数触发压缩
     chars_per_token: int = 4
 
-    # 摘要长度限制
+    # LLM 摘要配置
+    enable_llm_summary: bool = True  # 启用 LLM 智能摘要（而非截断）
+    llm_summary_max_tokens: int = 200  # LLM 摘要最大 token 数
+    llm_summary_temperature: float = 0.3  # LLM 摘要温度
+
+    # 摘要长度限制（截断模式备用）
     max_question_summary_length: int = 200
     max_response_summary_length: int = 300
     max_findings_length: int = 300
@@ -271,6 +276,10 @@ class ConversationHistoryManager:
     2. 对历史轮次进行压缩
     3. 提供压缩后的历史摘要供 prompt 使用
     4. 区分"历史轮次"（已压缩）和"当前轮次"（原生Function Call）
+
+    改进：
+    - 支持 LLM 智能摘要而非简单截断
+    - 保留完整的 user-AI 消息对
     """
 
     def __init__(
@@ -278,10 +287,12 @@ class ConversationHistoryManager:
         session_id: str,
         storage: Optional[ConversationHistoryStorage] = None,
         config: Optional[Layer4CompressionConfig] = None,
+        llm_client: Optional[Any] = None,
     ):
         self.session_id = session_id
         self.storage = storage
         self.config = config or Layer4CompressionConfig()
+        self.llm_client = llm_client
 
         # 内存缓存
         self._rounds: Dict[str, ConversationRound] = {}
@@ -291,6 +302,10 @@ class ConversationHistoryManager:
         # 锁
         self._lock = asyncio.Lock()
         self._initialized = False
+
+    def set_llm_client(self, llm_client: Any) -> None:
+        """设置 LLM 客户端（用于智能摘要）"""
+        self.llm_client = llm_client
 
     async def initialize(self):
         """初始化，加载历史数据"""
@@ -448,9 +463,15 @@ class ConversationHistoryManager:
         """
         压缩单个轮次
 
-        生成简洁的摘要替代完整内容
+        改进：
+        1. 优先使用 LLM 智能摘要（如果启用且有 llm_client）
+        2. 保留完整的 user-AI 消息对结构
+        3. 降级到截断模式（如果没有 LLM）
         """
         try:
+            # 尝试 LLM 智能摘要
+            ai_summary = await self._generate_llm_summary(round_obj)
+
             # 生成摘要
             summary_lines = [
                 f"[第 {round_obj.round_id} 轮]",
@@ -468,7 +489,11 @@ class ConversationHistoryManager:
                         f"Findings: {findings}{'...' if len(wls.key_findings) > self.config.max_findings_length else ''}"
                     )
 
-            if round_obj.ai_response:
+            if ai_summary:
+                # 使用 LLM 生成的摘要
+                summary_lines.append(f"A: {ai_summary}")
+            elif round_obj.ai_response:
+                # 降级到截断模式
                 response = round_obj.ai_response[
                     : self.config.max_response_summary_length
                 ]
@@ -485,6 +510,7 @@ class ConversationHistoryManager:
                 "original_response_length": len(round_obj.ai_response),
                 "compression_ratio": len(compressed_content)
                 / max(len(round_obj.user_question) + len(round_obj.ai_response), 1),
+                "llm_summary_used": ai_summary is not None,
             }
 
             round_obj.mark_compressed(compressed_content, metadata)
@@ -493,10 +519,104 @@ class ConversationHistoryManager:
             if self.storage:
                 await self.storage.update_round(self.session_id, round_obj)
 
-            logger.info(f"Compressed conversation round: {round_obj.round_id}")
+            logger.info(
+                f"Compressed conversation round: {round_obj.round_id} "
+                f"(LLM摘要: {ai_summary is not None})"
+            )
 
         except Exception as e:
             logger.error(f"Failed to compress round {round_obj.round_id}: {e}")
+
+    async def _generate_llm_summary(
+        self, round_obj: ConversationRound
+    ) -> Optional[str]:
+        """
+        使用 LLM 生成智能摘要
+
+        Args:
+            round_obj: 对话轮次
+
+        Returns:
+            LLM 生成的摘要，如果失败则返回 None
+        """
+        if not self.config.enable_llm_summary:
+            return None
+
+        if not self.llm_client:
+            logger.debug("No LLM client available for Layer 4 summary")
+            return None
+
+        if not round_obj.ai_response or len(round_obj.ai_response) < 100:
+            return None
+
+        try:
+            prompt = self._build_summary_prompt(round_obj)
+
+            # 调用 LLM
+            if hasattr(self.llm_client, "generate"):
+                response = await self.llm_client.generate(
+                    prompt,
+                    max_tokens=self.config.llm_summary_max_tokens,
+                    temperature=self.config.llm_summary_temperature,
+                )
+            elif hasattr(self.llm_client, "call"):
+                response = await self.llm_client.call(
+                    prompt,
+                    max_new_tokens=self.config.llm_summary_max_tokens,
+                    temperature=self.config.llm_summary_temperature,
+                )
+            elif hasattr(self.llm_client, "agenerate"):
+                response = await self.llm_client.agenerate(
+                    prompt,
+                    max_tokens=self.config.llm_summary_max_tokens,
+                    temperature=self.config.llm_summary_temperature,
+                )
+            else:
+                logger.warning(f"Unknown LLM client type: {type(self.llm_client)}")
+                return None
+
+            if response:
+                summary = (
+                    response.strip()
+                    if isinstance(response, str)
+                    else str(response).strip()
+                )
+                if summary and len(summary) > 10:
+                    logger.debug(f"LLM summary generated: {len(summary)} chars")
+                    return summary
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"LLM summary generation failed: {e}")
+            return None
+
+    def _build_summary_prompt(self, round_obj: ConversationRound) -> str:
+        """构建摘要生成 Prompt"""
+        work_log_info = ""
+        if round_obj.work_log_summary:
+            wls = round_obj.work_log_summary
+            work_log_info = f"\n工具使用: {wls.tool_count} 次调用，关键工具: {', '.join(wls.key_tools[:5])}"
+            if wls.key_findings:
+                work_log_info += f"\n关键发现: {wls.key_findings}"
+
+        prompt = f"""请将以下 AI 回答压缩为简洁的摘要，保留关键结论、决策和发现。
+
+用户问题: {round_obj.user_question[:200]}
+{work_log_info}
+
+AI 回答:
+{round_obj.ai_response[:2000]}
+
+要求:
+1. 保留关键结论和决策
+2. 保留重要的代码片段或文件路径
+3. 保留用户的偏好或约束
+4. 使用简洁的中文表达
+5. 长度控制在 150 字以内
+
+摘要:"""
+        return prompt
 
     async def get_history_for_prompt(
         self,

@@ -26,8 +26,8 @@ class SimpleAgentChat(AgentChat):
         stream: bool = True,
         chat_call_back: Optional[Any] = None,
         chat_in_params: Optional[List[ChatInParamValue]] = None,
-        **ext_info: Any
-    ) -> Union[AsyncGenerator[str, None], Tuple[str,str]]:
+        **ext_info: Any,
+    ) -> Union[AsyncGenerator[str, None], Tuple[str, str]]:
         """简单对话入口(构建会话、发起Agent对话、处理连接中断、保存对话历史)
 
         Args:
@@ -50,7 +50,9 @@ class SimpleAgentChat(AgentChat):
             asyncio.CancelledError: 客户端断开连接
             Exception: 其他异常
         """
-        logger.info(f"Simple agent chat initiated - GPT: {gpts_name}, Query: {user_query}, Session: {conv_uid}")
+        logger.info(
+            f"Simple agent chat initiated - GPT: {gpts_name}, Query: {user_query}, Session: {conv_uid}"
+        )
 
         current_message = None
         agent_conv_id = None
@@ -64,9 +66,9 @@ class SimpleAgentChat(AgentChat):
             metadata={
                 "chat_type": "simple",
                 "app_code": gpts_name,
-                "ttft" : None,
+                "ttft": None,
                 "succeed": False,
-            }
+            },
         )
         try:
             # 初始化对话
@@ -74,13 +76,14 @@ class SimpleAgentChat(AgentChat):
                 conv_session_id=conv_uid,
                 app_code=gpts_name,
                 user_query=user_query,
-                user_code=user_code
+                user_code=user_code,
             )
 
-            agent_conv_id, gpts_conversations = await self._initialize_agent_conversation(
-                conv_session_id=conv_uid,
-                app_code=gpts_name,
-                **ext_info
+            (
+                agent_conv_id,
+                gpts_conversations,
+            ) = await self._initialize_agent_conversation(
+                conv_session_id=conv_uid, app_code=gpts_name, **ext_info
             )
             span.metadata["conv_id"] = agent_conv_id
 
@@ -96,10 +99,12 @@ class SimpleAgentChat(AgentChat):
                 specify_config_code=specify_config_code,
                 gpts_conversations=gpts_conversations,
                 stream=stream,
-                **ext_info
+                **ext_info,
             ):
                 agent_task = task
-                first_chunk_ms = current_ms() if first_chunk_ms is None else first_chunk_ms
+                first_chunk_ms = (
+                    current_ms() if first_chunk_ms is None else first_chunk_ms
+                )
                 if ttft is None:
                     ttft = current_ms() - start_ms
                     span.metadata["ttft"] = ttft
@@ -107,18 +112,23 @@ class SimpleAgentChat(AgentChat):
                 yield chunk, agent_conv_id
             span.metadata["succeed"] = True
         except asyncio.CancelledError:
-            logger.warning("Client connection terminated")
+            logger.warning(f"Chat interrupted by user for session {conv_uid}")
             if agent_task:
-                logger.info(f"Cancelling chat with {gpts_name} (Conversation ID: {agent_conv_id})")
+                logger.info(
+                    f"Cancelling chat with {gpts_name} (Conversation ID: {agent_conv_id})"
+                )
                 agent_task.cancel()
-            yield _format_vis_msg("Client connection terminated!"), agent_conv_id
+            yield _format_vis_msg("对话已被用户中断"), agent_conv_id
+            error_info = "对话已被用户中断"
 
         except Exception as e:
             error_msg = f"Chat with {gpts_name} failed (Conversation ID: {agent_conv_id}) - {str(e)}"
             logger.exception(error_msg)
             error_info = str(e)
             if agent_task:
-                logger.info(f"Exception chat with {gpts_name} (Conversation ID: {agent_conv_id})")
+                logger.info(
+                    f"Exception chat with {gpts_name} (Conversation ID: {agent_conv_id})"
+                )
                 agent_task.cancel()
             yield _format_vis_msg(error_info), agent_conv_id
 

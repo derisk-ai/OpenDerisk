@@ -268,6 +268,21 @@ def register_serve_apps(
 
     # ################################ File Serve Register End ########################
 
+    # ################################ Multimodal Serve Register Begin ##############
+    from derisk_serve.multimodal.serve import Serve as MultimodalServe
+
+    # Register serve app
+    system_app.register(
+        MultimodalServe,
+        config=get_config(
+            serve_configs,
+            MultimodalServe.name,
+            derisk_serve.multimodal.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+    # ################################ Multimodal Serve Register End ################
+
     # ################################ Evaluate Serve Register Begin ##################
     from derisk_serve.evaluate.serve import Serve as EvaluateServe
 

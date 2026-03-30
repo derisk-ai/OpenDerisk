@@ -68,7 +68,7 @@ def run_demo():
     """运行演示"""
     async def demo():
         from derisk.agent.core_v2.integration import create_v2_agent
-        from derisk.agent.tools_v2 import BashTool
+        from derisk.agent.tools import BashTool
         
         print("\n" + "=" * 50)
         print("Core_v2 Agent 演示")

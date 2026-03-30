@@ -43,14 +43,15 @@ from .file_type_config import (
 )
 
 from .sandbox_file_ref import (
-    SANDBOX_UPLOAD_DIR,
     FileProcessResult,
     SandboxFileRef,
     UserInputType,
     build_enhanced_query_with_files,
+    build_file_info_prompt,
     detect_file_type,
     detect_mime_type,
     download_file_from_url,
+    get_default_upload_dir,
     initialize_files_in_sandbox,
     is_image_file,
     process_chat_input_files,
@@ -79,14 +80,15 @@ __all__ = [
     "is_model_direct_file",
     "is_sandbox_tool_file",
     # Sandbox File Ref
-    "SANDBOX_UPLOAD_DIR",
     "FileProcessResult",
     "SandboxFileRef",
     "UserInputType",
     "build_enhanced_query_with_files",
+    "build_file_info_prompt",
     "detect_file_type",
     "detect_mime_type",
     "download_file_from_url",
+    "get_default_upload_dir",
     "initialize_files_in_sandbox",
     "is_image_file",
     "process_chat_input_files",

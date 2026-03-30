@@ -39,6 +39,7 @@ export default function Chat() {
   const [isShowDetail, setIsShowDetail] = useState<boolean>(true);
   const [chatInParams, setChatInParams] = useState<{ param_type: string; param_value: string; sub_type: string; }[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
+  const [currentConvSessionId, setCurrentConvSessionId] = useState<string>(chatId);
   const chatInputRef = useRef<any>(null);
   const { chat, ctrl } = useChat({
     app_code: app_code || '',
@@ -240,6 +241,18 @@ export default function Chat() {
           onMessage: message => {
             setCanAbort(true);
             if (message) {
+              // Check if message is metadata containing conv_session_id
+              if (typeof message === 'object' && message.type === 'metadata') {
+                if (message.conv_session_id) {
+                  setCurrentConvSessionId(message.conv_session_id);
+                }
+                return;
+              }
+              // Check if message is interrupt notification
+              if (typeof message === 'object' && message.type === 'interrupt') {
+                // Handle interrupt - just acknowledge it
+                return;
+              }
               if (data?.incremental) {
                 tempHistory[index].context += message;
                 tempHistory[index].thinking = false;
@@ -306,7 +319,7 @@ export default function Chat() {
         // Handle multiple file resources
         const fileResources = initMessage.resources || (initMessage.resource ? [initMessage.resource] : []);
         
-        if (fileResources.length > 0) {
+if (fileResources.length > 0) {
             const resourceParamIndex = finalChatInParams.findIndex(p => p.param_type === 'resource');
             const resourceLayout = appInfo?.layout?.chat_in_layout?.find(item => item.param_type === 'resource');
             
@@ -317,18 +330,18 @@ export default function Chat() {
                     param_value: JSON.stringify(fileResources)
                 };
                 finalChatInParams = newParams;
-            } else if (resourceLayout) {
+            } else {
                 finalChatInParams = [
                     ...finalChatInParams,
                     {
                         param_type: 'resource',
                         param_value: JSON.stringify(fileResources),
-                        sub_type: resourceLayout.sub_type || 'common_file'
+                        sub_type: resourceLayout?.sub_type || 'common_file'
                     }
                 ];
             }
             
-setResourceValue(fileResources);
+ setResourceValue(fileResources);
         }
         
         // Handle skills - convert to chat_in_params format
@@ -421,6 +434,7 @@ return (
           chartsData: chartsData || [],
           agent,
           currentDialogue,
+          currentConvSessionId,
           appInfo,
           temperatureValue,
           maxNewTokensValue,
@@ -436,6 +450,7 @@ return (
           setAgent,
           setCanAbort,
           setReplyLoading,
+          setCurrentConvSessionId,
           handleChat,
           refreshDialogList,
           refreshHistory,
