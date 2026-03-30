@@ -736,7 +736,6 @@ class V2AgentRuntime:
                     f"[_execute_stream] Injected interaction gateway into agent"
                 )
 
-<<<<<<< HEAD
             # 注入 GptsMemory（用于VIS推送）- backup in case _get_or_create_agent missed it
             if self.gpts_memory and hasattr(agent, "set_gpts_memory"):
                 if not getattr(agent, "_gpts_memory", None):
