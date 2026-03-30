@@ -27,7 +27,7 @@ export default (params: {
       const content: string = match.groups?.content || '';
       // 获取attrs中的type
       const type = attrs?.match(/type="([^"]+)"/)?.[1] || '';
-      let params = {
+      const params = {
         name: content,
         description: '',
         type,

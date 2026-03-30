@@ -40,7 +40,7 @@ const customeTags: string[] = ['custom-view', 'chart-view', 'references', 'summa
 
 function matchCustomeTagValues(context: string) {
   const matchValues = customeTags.reduce<string[]>((acc, tagName) => {
-    // eslint-disable-next-line no-useless-escape
+     
     const tagReg = new RegExp(`<${tagName}[^>]*\/?>`, 'gi');
     context = context.replace(tagReg, matchVal => {
       acc.push(matchVal);

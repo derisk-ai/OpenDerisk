@@ -47,6 +47,14 @@ class SandboxConfig(BaseModel):
     timeout: int = 300
     network_enabled: bool = False
     work_dir: str = "/home/user/workspace"
+    agent_name: str = "default"
+    user_id: Optional[str] = None
+    template_id: Optional[str] = None
+    skill_dir: Optional[str] = None
+    oss_ak: Optional[str] = None
+    oss_sk: Optional[str] = None
+    oss_endpoint: Optional[str] = None
+    oss_bucket_name: Optional[str] = None
 
 
 class AgentConfig(BaseModel):

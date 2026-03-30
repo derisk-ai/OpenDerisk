@@ -25,7 +25,6 @@ import {
 } from 'antd';
 import {
   SettingOutlined,
-  PlusOutlined,
   DeleteOutlined,
   ReloadOutlined,
   DownloadOutlined,
@@ -40,7 +39,6 @@ import {
   ApiOutlined,
   FolderOutlined,
   KeyOutlined,
-  TeamOutlined,
   LockOutlined,
   RobotOutlined,
 } from '@ant-design/icons';
@@ -50,7 +48,6 @@ import {
   configService,
   toolsService,
   AppConfig,
-  AgentConfig,
   ToolInfo,
   FileServiceConfig,
   FileBackendConfig,
@@ -411,11 +408,7 @@ function VisualConfig({
               />
             ),
           },
-          {
-            key: 'agents',
-            label: <span className="font-semibold"><TeamOutlined /> Agent配置</span>,
-            children: <VisualAgentsSection config={config} onChange={onConfigChange} />,
-          },
+          
           {
             key: 'file-service',
             label: <span className="font-semibold"><FolderOutlined /> 文件服务配置</span>,
@@ -573,83 +566,6 @@ function DefaultModelConfigSection({
   return <LLMSettingsSection config={config} onChange={onChange} />;
 }
 
-function VisualAgentsSection({
-  config,
-  onChange,
-}: {
-  config: AppConfig;
-  onChange: () => void;
-}) {
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
-
-  useEffect(() => {
-    if (config.agents) {
-      setAgents(Object.values(config.agents));
-    }
-  }, [config.agents]);
-
-  const handleEditAgent = (name: string) => {
-    console.log(`编辑 Agent: ${name}`);
-  };
-
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string, record: AgentConfig) => (
-        <Tag color={record.color}>{name}</Tag>
-      ),
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '最大步数',
-      dataIndex: 'max_steps',
-      key: 'max_steps',
-    },
-    {
-      title: '工具',
-      dataIndex: 'tools',
-      key: 'tools',
-      render: (tools: string[]) => (
-        <div className="flex flex-wrap gap-1">
-          {tools?.slice(0, 3).map((t, i) => <Tag key={i}>{t}</Tag>)}
-          {tools?.length > 3 && <Tag>+{tools.length - 3}</Tag>}
-        </div>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: any, record: AgentConfig) => (
-        <Button size="small" onClick={() => handleEditAgent(record.name)}>编辑</Button>
-      ),
-    },
-  ];
-
-  return (
-    <div>
-      <div className="mb-4">
-        <Text type="secondary">
-          系统预设的 Agent 配置。可在 "Agent配置" 标签页进行详细管理。
-        </Text>
-      </div>
-      <Table
-        dataSource={agents}
-        columns={columns}
-        rowKey="name"
-        pagination={false}
-        size="small"
-      />
-    </div>
-  );
-}
-
 function FileServiceConfigSection({
   config,
   onChange,
@@ -694,7 +610,7 @@ function FileServiceConfigSection({
 
   const handleSave = async (values: any) => {
     const backendType = values.default_backend;
-    let backends = [...(fileService?.backends || [])];
+    const backends = [...(fileService?.backends || [])];
     
     if (backendType === 'local') {
       const existingLocalIndex = backends.findIndex(b => b.type === 'local');
@@ -1075,165 +991,6 @@ function SandboxConfigSection({
         <Button type="primary" htmlType="submit">保存</Button>
       </Form.Item>
     </Form>
-  );
-}
-
-function AgentsConfigSection({
-  config,
-  onChange,
-}: {
-  config: AppConfig | null;
-  onChange: () => void;
-}) {
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingAgent, setEditingAgent] = useState<string | null>(null);
-  const [form] = Form.useForm();
-
-  useEffect(() => {
-    if (config?.agents) {
-      setAgents(Object.values(config.agents));
-    }
-  }, [config?.agents]);
-
-  const handleAddAgent = () => {
-    setEditingAgent(null);
-    form.resetFields();
-    form.setFieldsValue({
-      max_steps: 30,
-      color: '#4A90E2',
-      tools: [],
-    });
-    setModalVisible(true);
-  };
-
-  const handleEditAgent = (agent: AgentConfig) => {
-    setEditingAgent(agent.name);
-    form.setFieldsValue(agent);
-    setModalVisible(true);
-  };
-
-  const handleDeleteAgent = async (name: string) => {
-    try {
-      await configService.deleteAgent(name);
-      message.success('Agent已删除');
-      onChange();
-    } catch (error: any) {
-      message.error('删除失败: ' + error.message);
-    }
-  };
-
-  const handleSaveAgent = async (values: any) => {
-    try {
-      if (editingAgent) {
-        await configService.updateAgent(editingAgent, values);
-        message.success('Agent已更新');
-      } else {
-        await configService.createAgent(values);
-        message.success('Agent已创建');
-      }
-      setModalVisible(false);
-      onChange();
-    } catch (error: any) {
-      message.error('保存失败: ' + error.message);
-    }
-  };
-
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string, record: AgentConfig) => (
-        <Tag color={record.color}>{name}</Tag>
-      ),
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-    },
-    {
-      title: '最大步数',
-      dataIndex: 'max_steps',
-      key: 'max_steps',
-    },
-    {
-      title: '工具',
-      dataIndex: 'tools',
-      key: 'tools',
-      render: (tools: string[]) => (
-        <div className="flex flex-wrap gap-1">
-          {tools?.slice(0, 3).map((t, i) => <Tag key={i}>{t}</Tag>)}
-          {tools?.length > 3 && <Tag>+{tools.length - 3}</Tag>}
-        </div>
-      ),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: any, record: AgentConfig) => (
-        <Space>
-          <Button size="small" onClick={() => handleEditAgent(record)}>编辑</Button>
-          {record.name !== 'primary' && (
-            <Popconfirm title="确定删除?" onConfirm={() => handleDeleteAgent(record.name)}>
-              <Button size="small" danger icon={<DeleteOutlined />} />
-            </Popconfirm>
-          )}
-        </Space>
-      ),
-    },
-  ];
-
-  return (
-    <div>
-      <div className="mb-4">
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddAgent}>
-          添加 Agent
-        </Button>
-      </div>
-      <Table
-        dataSource={agents}
-        columns={columns}
-        rowKey="name"
-        pagination={false}
-        size="small"
-      />
-
-      <Modal
-        title={editingAgent ? '编辑 Agent' : '添加 Agent'}
-        open={modalVisible}
-        onCancel={() => setModalVisible(false)}
-        onOk={() => form.submit()}
-        width={600}
-      >
-        <Form form={form} layout="vertical">
-          <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-              <Input disabled={!!editingAgent} />
-            </Form.Item>
-            <Form.Item name="color" label="颜色">
-              <Input type="color" />
-            </Form.Item>
-          </div>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="max_steps" label="最大步数">
-              <InputNumber style={{ width: '100%' }} min={1} max={100} />
-            </Form.Item>
-            <Form.Item name="tools" label="工具列表">
-              <Select mode="tags" placeholder="输入工具名称" />
-            </Form.Item>
-          </div>
-          <Form.Item name="system_prompt" label="系统提示词">
-            <Input.TextArea rows={3} placeholder="Agent的系统提示词..." />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
   );
 }
 

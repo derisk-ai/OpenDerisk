@@ -94,8 +94,15 @@ export interface SandboxConfig {
   timeout: number;
   network_enabled: boolean;
   work_dir: string;
+  agent_name?: string;
+  user_id?: string;
+  template_id?: string;
   repo_url?: string;
   skill_dir?: string;
+  oss_ak?: string;
+  oss_sk?: string;
+  oss_endpoint?: string;
+  oss_bucket_name?: string;
   enable_git_sync?: boolean;
 }
 
