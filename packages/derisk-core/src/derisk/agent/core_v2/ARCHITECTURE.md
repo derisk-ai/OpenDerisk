@@ -105,6 +105,9 @@ packages/derisk-core/src/derisk/agent/core_v2/
 ├── execution_replay.py         # 执行回放系统
 ├── long_task_executor.py       # 长任务执行器
 │
+├── vis_push_manager.py         # VIS 推送管理器
+├── vis_push_hooks.py           # VIS 推送钩子
+│
 ├── resource_adapter.py         # 资源适配器
 ├── api_routes.py               # API 路由
 ├── main.py                     # 入口文件
@@ -2001,6 +2004,101 @@ class AuthorizationCache:
 | **Todo 管理** | 基础 | 完整（含依赖管理） |
 | **恢复机制** | RecoveryCoordinator | RecoveryCoordinator |
 | **WebSocket 支持** | 通过 Gateway | 通过 Gateway |
+
+---
+
+## 9.8 VIS 推送系统
+
+Core V2 提供 VIS 推送能力，用于支持 vis_window3 渲染。采用**配置驱动 + 管理器分离**的设计。
+
+### 设计原则
+
+1. **配置驱动** - 通过 AgentInfo.enable_vis_push 控制
+2. **职责分离** - VISPushManager 专注于推送，Agent 专注于业务
+3. **钩子扩展** - 支持 VISPushHook 通过钩子系统扩展
+4. **可选注入** - 没有 GptsMemory 时静默跳过
+
+### VISPushManager - VIS 推送管理器
+
+```python
+from derisk.agent.core_v2 import VISPushManager, VISPushConfig
+
+# 创建推送管理器
+config = VISPushConfig(
+    enabled=True,
+    push_thinking=True,
+    push_tool_calls=True,
+)
+
+manager = VISPushManager(
+    gpts_memory=gpts_memory,
+    conv_id="conv-123",
+    agent_name="my-agent",
+    config=config,
+)
+
+# 初始化消息
+manager.init_message(goal="用户的问题")
+
+# 推送 thinking
+await manager.push_thinking("正在思考...")
+
+# 推送工具调用
+await manager.push_tool_start("bash", {"command": "ls"})
+await manager.push_tool_result("bash", "file1.txt\nfile2.txt", success=True)
+
+# 推送最终响应
+await manager.push_response("任务完成")
+```
+
+### VISPushHook - 钩子系统支持
+
+```python
+from derisk.agent.core_v2 import VISPushHook, create_vis_push_hooks
+
+# 创建钩子
+hook = VISPushHook(
+    gpts_memory=gpts_memory,
+    conv_id="conv-123",
+    config=VISPushConfig(enabled=True),
+)
+
+# 添加到场景配置
+profile = SceneProfileBuilder()
+    .name("vis-enabled-agent")
+    .hooks([hook])
+    .build()
+
+# 或使用工厂函数创建多个钩子
+hooks = create_vis_push_hooks(
+    gpts_memory=gpts_memory,
+    conv_id="conv-123",
+    combined=True,  # 使用组合钩子
+)
+```
+
+### AgentInfo 配置
+
+```python
+from derisk.agent.core_v2 import AgentInfo
+
+# 启用 VIS 推送（默认启用）
+info = AgentInfo(
+    name="my-agent",
+    enable_vis_push=True,      # 总开关
+    vis_push_thinking=True,    # 推送 thinking
+    vis_push_tool_calls=True,  # 推送工具调用
+)
+```
+
+### 与 Core V1 对比
+
+| 特性 | Core V1 | Core V2 |
+|------|---------|---------|
+| **推送方式** | Agent 内置 listen_thinking_stream() | VISPushManager 分离 |
+| **配置控制** | 无 | enable_vis_push 配置 |
+| **钩子支持** | 无 | VISPushHook |
+| **职责分离** | 耦合在 Agent 中 | 独立管理器 |
 
 ---
 

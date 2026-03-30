@@ -124,7 +124,7 @@ pytest tests/test_unified_context/ --cov=derisk/context --cov-report=html
 - `derisk/context/unified_context_middleware.py` - 核心中间件
 - `derisk/context/gray_release_controller.py` - 灰度控制器
 - `derisk/context/config_loader.py` - 配置加载器
-- `config/hierarchical_context_config.yaml` - 配置文件
+- `configs/hierarchical_context_config.yaml` - 配置文件
 
 **改造文件**：
 - `derisk_serve/agent/agents/chat/agent_chat.py` - 集成中间件
