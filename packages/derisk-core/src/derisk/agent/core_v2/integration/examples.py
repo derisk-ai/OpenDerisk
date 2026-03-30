@@ -25,7 +25,7 @@ async def example_1_simple_agent():
 
 async def example_2_agent_with_tools():
     """示例2: 创建带工具的 Agent"""
-    from derisk.agent.tools_v2 import BashTool
+    from derisk.agent.tools import BashTool
     from derisk.agent.core_v2.integration import create_v2_agent
 
     tools = {
@@ -49,7 +49,7 @@ async def example_2_agent_with_tools():
 async def example_3_use_runtime():
     """示例3: 使用 Runtime 管理会话"""
     from derisk.agent.core_v2.integration import V2AgentRuntime, RuntimeConfig
-    from derisk.agent.tools_v2 import BashTool
+    from derisk.agent.tools import BashTool
     from derisk.agent.core_v2.integration import create_v2_agent
 
     config = RuntimeConfig(
@@ -92,7 +92,7 @@ async def example_4_use_dispatcher():
         V2AgentRuntime,
         RuntimeConfig,
     )
-    from derisk.agent.tools_v2 import BashTool
+    from derisk.agent.tools import BashTool
     from derisk.agent.core_v2.integration import create_v2_agent
 
     runtime = V2AgentRuntime()
@@ -216,7 +216,7 @@ async def example_7_full_application():
         V2AgentDispatcher,
         V2Adapter,
     )
-    from derisk.agent.tools_v2 import BashTool
+    from derisk.agent.tools import BashTool
     from derisk.agent.core_v2.integration import create_v2_agent
 
     print("=" * 50)

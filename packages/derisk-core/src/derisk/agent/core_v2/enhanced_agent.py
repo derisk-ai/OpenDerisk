@@ -600,6 +600,9 @@ class AgentBase(ABC):
         tools: Optional[ToolRegistry] = None,
         permission_checker: Optional[PermissionChecker] = None,
         llm_client: Optional[Any] = None,
+        gpts_memory: Optional[Any] = None,
+        conv_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ):
         self.info = info
         self.memory = memory
@@ -617,6 +620,18 @@ class AgentBase(ABC):
         self._team_manager: Optional[TeamManager] = None
         self._auto_compaction: Optional[AutoCompactionManager] = None
         self._interaction_gateway: Optional[InteractionGateway] = None
+
+        # GptsMemory引用（用于VIS推送）
+        self._gpts_memory = gpts_memory
+        self._conv_id = conv_id
+        self._session_id = session_id
+
+        # VIS推送状态
+        self._current_message_id: Optional[str] = None
+        self._accumulated_content: str = ""
+        self._accumulated_thinking: str = ""
+        self._is_first_chunk: bool = True
+        self._current_goal: str = ""
 
     async def initialize(self, context: Optional[Any] = None) -> None:
         """
@@ -656,6 +671,154 @@ class AgentBase(ABC):
     def set_interaction_gateway(self, gateway: InteractionGateway) -> None:
         """设置交互网关，用于 ask_user 暂停/恢复"""
         self._interaction_gateway = gateway
+
+    def set_gpts_memory(
+        self,
+        gpts_memory: Any,
+        conv_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> None:
+        """设置 GptsMemory 引用，用于 VIS 推送"""
+        self._gpts_memory = gpts_memory
+        self._conv_id = conv_id
+        self._session_id = session_id
+
+    def _init_vis_state(self, message_id: str, goal: str = ""):
+        """初始化VIS推送状态"""
+        self._current_message_id = message_id
+        self._accumulated_content = ""
+        self._accumulated_thinking = ""
+        self._is_first_chunk = True
+        self._current_goal = goal
+
+    async def _push_vis_message(
+        self,
+        thinking: Optional[str] = None,
+        content: Optional[str] = None,
+        action_report: Optional[List[Any]] = None,
+        is_first_chunk: bool = False,
+        model: Optional[str] = None,
+        status: str = "running",
+        metrics: Optional[Dict[str, Any]] = None,
+    ):
+        """推送VIS消息到GptsMemory"""
+        if not self._gpts_memory or not self._conv_id:
+            logger.debug(f"[EnhancedAgentBase] GptsMemory未配置，跳过VIS推送")
+            return
+
+        if not self._current_message_id:
+            logger.warning("[EnhancedAgentBase] message_id未初始化，跳过VIS推送")
+            return
+
+        # 构建stream_msg
+        stream_msg = {
+            "uid": self._current_message_id,
+            "type": "incr",
+            "message_id": self._current_message_id,
+            "conv_id": self._conv_id,
+            "conv_session_uid": self._session_id or self._conv_id,
+            "goal_id": self._current_message_id,
+            "task_goal_id": self._current_message_id,
+            "task_goal": self._current_goal,
+            "app_code": self.info.name,
+            "sender": self.info.name,
+            "sender_name": self.info.name,
+            "sender_role": "assistant",
+            "model": model,
+            "thinking": thinking,
+            "content": content,
+            "avatar": None,
+            "observation": "",
+            "status": status,
+            "start_time": datetime.now(),
+            "metrics": metrics or {},
+            "prev_content": self._accumulated_content,
+        }
+
+        # 累积内容
+        if thinking:
+            self._accumulated_thinking += thinking
+        if content:
+            self._accumulated_content += content
+
+        # 添加action_report
+        if action_report:
+            stream_msg["action_report"] = action_report
+
+        try:
+            await self._gpts_memory.push_message(
+                self._conv_id,
+                stream_msg=stream_msg,
+                is_first_chunk=is_first_chunk,
+            )
+            self._is_first_chunk = False
+            logger.debug(f"[EnhancedAgentBase] VIS推送成功")
+        except Exception as e:
+            logger.warning(f"[EnhancedAgentBase] VIS推送失败: {e}")
+
+    def _build_action_output(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result_content: str,
+        action_id: str,
+        success: bool = True,
+        state: str = "complete",
+        thought: Optional[str] = None,
+    ) -> List[Any]:
+        """构建ActionOutput对象"""
+        try:
+            from derisk.agent.core.action.base import ActionOutput
+        except ImportError:
+            logger.warning("[EnhancedAgentBase] ActionOutput导入失败")
+            return []
+
+        view = result_content[:2000] if result_content else ""
+
+        action_output = ActionOutput(
+            content=result_content,
+            action_id=action_id,
+            action=tool_name,
+            action_name=tool_name,
+            name=tool_name,
+            action_input=tool_args,
+            state=state,
+            is_exe_success=success,
+            view=view,
+            stream=False,
+            thought=thought or "",
+        )
+
+        return [action_output]
+
+    def _build_tool_start_action_output(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        action_id: str,
+        thought: Optional[str] = None,
+    ) -> List[Any]:
+        """构建工具开始时的ActionOutput"""
+        try:
+            from derisk.agent.core.action.base import ActionOutput
+        except ImportError:
+            logger.warning("[EnhancedAgentBase] ActionOutput导入失败")
+            return []
+
+        action_output = ActionOutput(
+            content="",
+            action_id=action_id,
+            action=tool_name,
+            action_name=tool_name,
+            name=tool_name,
+            action_input=tool_args,
+            state="running",
+            stream=True,
+            is_exe_success=True,
+            thought=thought or "",
+        )
+
+        return [action_output]
 
     def setup_auto_compaction(
         self,
@@ -724,7 +887,7 @@ class AgentBase(ABC):
         return []
 
     async def run(self, message: str, stream: bool = True) -> AsyncIterator[str]:
-        """主执行循环 - 支持四层压缩架构"""
+        """主执行循环 - 支持四层压缩架构和VIS推送"""
         # Layer 4: 启动新的对话轮次
         await self._start_conversation_round(message)
 
@@ -733,6 +896,10 @@ class AgentBase(ABC):
         self.add_message("user", message)
 
         final_response = ""
+
+        # 初始化VIS状态
+        message_id = str(uuid.uuid4().hex)
+        self._init_vis_state(message_id, goal=message)
 
         while self._current_step < self.info.max_steps:
             try:
@@ -755,6 +922,11 @@ class AgentBase(ABC):
                 if stream:
                     async for chunk in self.think(message):
                         thinking_output.append(chunk)
+                        # 推送thinking增量到VIS
+                        await self._push_vis_message(
+                            thinking=chunk,
+                            is_first_chunk=self._is_first_chunk,
+                        )
                         yield f"[THINKING] {chunk}"
 
                 self._state = AgentState.DECIDING
@@ -769,6 +941,11 @@ class AgentBase(ABC):
                     self._state = AgentState.RESPONDING
                     if decision.content:
                         final_response = decision.content
+                        # 推送最终响应到VIS
+                        await self._push_vis_message(
+                            content=decision.content,
+                            status="complete",
+                        )
                         yield decision.content
                         self.add_message("assistant", decision.content)
                     break
@@ -812,6 +989,20 @@ class AgentBase(ABC):
                         or f"call_{decision.tool_name}_{uuid.uuid4().hex[:8]}"
                     )
 
+                    # 推送工具开始到VIS
+                    thought_content = (
+                        "".join(thinking_output) if thinking_output else None
+                    )
+                    await self._push_vis_message(
+                        action_report=self._build_tool_start_action_output(
+                            tool_name=decision.tool_name,
+                            tool_args=decision.tool_args or {},
+                            action_id=action_id,
+                            thought=thought_content,
+                        ),
+                        is_first_chunk=False,
+                    )
+
                     # yield 工具开始标记
                     tool_args_json = json.dumps(
                         decision.tool_args or {}, ensure_ascii=False
@@ -836,6 +1027,22 @@ class AgentBase(ABC):
                     )
                     logger.info(
                         f"[AgentBase] 工具执行完成: {decision.tool_name}, 成功={result.success}, 输出长度={len(tool_output)}"
+                    )
+
+                    # 推送工具结果到VIS
+                    action_outputs = self._build_action_output(
+                        tool_name=decision.tool_name,
+                        tool_args=decision.tool_args or {},
+                        result_content=tool_output,
+                        action_id=action_id,
+                        success=result.success,
+                        state="complete" if result.success else "failed",
+                        thought=thought_content,
+                    )
+                    await self._push_vis_message(
+                        content=tool_output,
+                        action_report=action_outputs,
+                        is_first_chunk=False,
                     )
 
                     # yield 工具结果标记
@@ -931,16 +1138,28 @@ class AgentBase(ABC):
                 elif decision.type == DecisionType.SUBAGENT:
                     self._state = AgentState.ACTING
                     result = await self._delegate_to_subagent(decision)
+                    # 推送子Agent结果到VIS
+                    await self._push_vis_message(
+                        content=result.output,
+                        is_first_chunk=False,
+                    )
                     yield f"\n[SUBAGENT: {decision.subagent_name}]\n{result.output}"
                     message = result.output
 
                 elif decision.type == DecisionType.TEAM_TASK:
                     self._state = AgentState.ACTING
                     result = await self._assign_team_task(decision)
+                    # 推送团队任务结果到VIS
+                    await self._push_vis_message(
+                        content=result.output,
+                        is_first_chunk=False,
+                    )
                     yield f"\n[TEAM TASK]\n{result.output}"
                     message = result.output
 
                 elif decision.type == DecisionType.TERMINATE:
+                    # 推送终止状态到VIS
+                    await self._push_vis_message(status="complete")
                     break
 
                 self._current_step += 1
@@ -950,7 +1169,13 @@ class AgentBase(ABC):
 
             except Exception as e:
                 self._state = AgentState.ERROR
-                yield f"\n[ERROR] {str(e)}"
+                error_msg = str(e)
+                # 推送错误到VIS
+                await self._push_vis_message(
+                    content=error_msg,
+                    status="error",
+                )
+                yield f"\n[ERROR] {error_msg}"
                 break
 
         # Layer 4: 完成对话轮次
@@ -1025,6 +1250,9 @@ class ProductionAgent(AgentBase):
         tool_registry: Optional[ToolRegistry] = None,
         memory: Optional[Any] = None,
         use_persistent_memory: bool = False,
+        gpts_memory: Optional[Any] = None,
+        conv_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         **kwargs,
     ):
         # llm_adapter is an alias for llm_client (used by BaseBuiltinAgent)
@@ -1039,6 +1267,17 @@ class ProductionAgent(AgentBase):
         # Pass memory to parent if provided
         if memory is not None:
             base_kwargs["memory"] = memory
+
+        # Pass gpts_memory and related params for VIS push
+        if gpts_memory is not None:
+            base_kwargs["gpts_memory"] = gpts_memory
+        if conv_id is not None:
+            base_kwargs["conv_id"] = conv_id
+        if session_id is not None:
+            base_kwargs["session_id"] = session_id
+
+        # Pass any remaining kwargs
+        base_kwargs.update(kwargs)
 
         super().__init__(info, llm_client=llm_client, **base_kwargs)
 

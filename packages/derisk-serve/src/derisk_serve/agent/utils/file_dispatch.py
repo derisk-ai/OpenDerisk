@@ -7,6 +7,7 @@
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -15,6 +16,46 @@ from typing import Any, Dict, List, Optional, Union
 from derisk.core.interface.media import MediaContent, MediaObject, MediaContentType
 
 logger = logging.getLogger(__name__)
+
+
+def _is_uuid_like(filename: str) -> bool:
+    """Check if filename looks like a UUID (file_id)."""
+    if not filename:
+        return False
+    name_without_ext = filename.rsplit(".", 1)[0]
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    return bool(uuid_pattern.match(name_without_ext))
+
+
+def _get_original_file_name(
+    file_path: str, file_name: str, file_storage_client=None
+) -> str:
+    """Get original file name from metadata if current name is UUID.
+
+    When files are uploaded, they are stored with UUID as file_id, but original
+    filename is saved in metadata. This function retrieves the original filename.
+    """
+    if not _is_uuid_like(file_name):
+        return file_name
+
+    if file_storage_client and file_path:
+        try:
+            if file_path.startswith("derisk-fs://"):
+                metadata = file_storage_client.storage_system.get_file_metadata_by_uri(
+                    file_path
+                )
+                if metadata and metadata.file_name:
+                    logger.info(
+                        f"[FileDispatch] Retrieved original filename: {metadata.file_name} from UUID: {file_name}"
+                    )
+                    return metadata.file_name
+        except Exception as e:
+            logger.warning(f"[FileDispatch] Failed to get metadata: {e}")
+
+    return file_name
 
 
 IMAGE_EXTENSIONS = {
@@ -139,8 +180,16 @@ async def dispatch_file_to_sandbox(
     Returns:
         沙箱中的文件路径
     """
+    logger.info(
+        f"[FileDispatch] dispatch_file_to_sandbox: file_path={file_path}, file_name={file_name}"
+    )
+
     if not sandbox_client:
         logger.warning("No sandbox client available, skipping sandbox write")
+        return None
+
+    if not file_path:
+        logger.warning(f"Empty file_path for file: {file_name}")
         return None
 
     try:
@@ -322,12 +371,16 @@ async def save_file_metadata_to_gpts_memory(
             AgentFileMetadata,
             FileType,
         )
+        from derisk.component import ComponentType
         import uuid
 
         if system_app:
-            gpts_memory = GptsMemory.get_instance(system_app)
+            gpts_memory = system_app.get_component(
+                ComponentType.GPTS_MEMORY, GptsMemory
+            )
         else:
-            gpts_memory = GptsMemory.get_instance()
+            logger.debug("system_app not available")
+            return False
 
         if not gpts_memory:
             logger.debug("GptsMemory not available")
@@ -416,14 +469,38 @@ async def process_uploaded_files(
     sandbox_files: List[DispatchedFileInfo] = []
 
     for file_res in file_resources:
-        file_name = file_res.get("file_name", "unknown")
-        file_path = file_res.get("file_path", file_res.get("oss_url", ""))
-        file_size = file_res.get("file_size", 0)
-        bucket = file_res.get("bucket", "")
+        # Handle both flat format and OpenAI file_url format
+        if file_res.get("type") == "file_url" and "file_url" in file_res:
+            # OpenAI compatible format: {"type": "file_url", "file_url": {"url": "...", "file_name": "..."}}
+            file_url_data = file_res["file_url"]
+            file_name = file_url_data.get("file_name", "unknown")
+            file_path = file_url_data.get("url", file_url_data.get("preview_url", ""))
+            file_size = file_url_data.get("file_size", 0)
+            bucket = file_url_data.get("bucket", "")
+            file_id = file_url_data.get("file_id", "")
+            logger.info(
+                f"[FileDispatch] Processing OpenAI file_url format: name={file_name}, path={file_path}"
+            )
+        else:
+            # Flat format: {"file_path": "...", "file_name": "...", "file_size": ...}
+            file_name = file_res.get("file_name", "unknown")
+            file_path = file_res.get("file_path", file_res.get("oss_url", ""))
+            file_size = file_res.get("file_size", 0)
+            bucket = file_res.get("bucket", "")
+            file_id = file_res.get("file_id", "")
+            logger.info(
+                f"[FileDispatch] Processing flat format: name={file_name}, path={file_path}"
+            )
+
+        if _is_uuid_like(file_name):
+            original_name = _get_original_file_name(
+                file_path, file_name, file_storage_client
+            )
+            if original_name and not _is_uuid_like(original_name):
+                file_name = original_name
+
         mime_type = get_mime_type(file_name)
         dispatch_type = detect_dispatch_type(file_name, mime_type)
-
-        file_id = file_res.get("file_id", "")
 
         file_info = DispatchedFileInfo(
             file_id=file_id,

@@ -269,6 +269,9 @@ class SandboxManager:
         logger.info(
             f"创建 sandbox client,type={sandbox_config.type} user_id={sandbox_config.user_id}, template_id={sandbox_config.template_id}"
         )
+
+        file_storage_client = self._get_file_storage_client()
+
         return await AutoSandbox.create(
             user_id=sandbox_config.user_id,
             agent=sandbox_config.agent_name,
@@ -276,11 +279,54 @@ class SandboxManager:
             template=sandbox_config.template_id,
             work_dir=sandbox_config.work_dir,
             skill_dir=sandbox_config.skill_dir,
+            file_storage_client=file_storage_client,
             oss_ak=sandbox_config.oss_ak,
             oss_sk=sandbox_config.oss_sk,
             oss_endpoint=sandbox_config.oss_endpoint,
             oss_bucket_name=sandbox_config.oss_bucket_name,
         )
+
+    def _get_file_storage_client(self):
+        """从系统应用获取文件存储客户端"""
+        try:
+            from derisk.core.interface.file import FileStorageClient
+
+            system_app = CFG.SYSTEM_APP
+            if not system_app:
+                logger.warning(
+                    "[SandboxManager] CFG.SYSTEM_APP is None, cannot get FileStorageClient"
+                )
+                return None
+
+            file_storage_client = FileStorageClient.get_instance(system_app)
+
+            if file_storage_client:
+                logger.info(
+                    f"[SandboxManager] FileStorageClient retrieved successfully. "
+                    f"client_name={file_storage_client.name}, "
+                    f"default_storage_type={file_storage_client.default_storage_type}, "
+                    f"storage_backends={list(file_storage_client.storage_system.storage_backends.keys())}"
+                )
+            else:
+                logger.warning(
+                    "[SandboxManager] FileStorageClient.get_instance() returned None"
+                )
+
+            return file_storage_client
+
+        except ValueError as e:
+            logger.warning(
+                f"[SandboxManager] FileStorageClient not found in system_app. "
+                f"Error: {e}. Available components: {list(CFG.SYSTEM_APP.components.keys()) if CFG.SYSTEM_APP else 'N/A'}"
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                f"[SandboxManager] Failed to get FileStorageClient: {e}. "
+                f"Error type: {type(e).__name__}",
+                exc_info=True,
+            )
+            return None
 
     async def acquire(self) -> SandboxBase:
         logger.info("sandbox acquire!")
