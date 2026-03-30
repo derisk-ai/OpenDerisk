@@ -154,6 +154,8 @@ class ReActMasterAgent(ConversableAgent):
             system_prompt_template=None,
             user_prompt_template=None,
             write_memory_template=REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
+            # 别名配置：用于历史数据兼容
+            aliases=["ReActMasterV2", "ReActMaster"],
         )
     )
 

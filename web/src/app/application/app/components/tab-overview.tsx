@@ -83,10 +83,15 @@ export default function TabOverview() {
         ? safeJsonParse(teamContext, {}) 
         : (teamContext || {});
       
+      const defaultV1Agent = 'BAIZE';
+      const v1AgentValue = currentAgentVersion === 'v1' 
+        ? (appInfo.agent || defaultV1Agent) 
+        : undefined;
+      
       form.setFieldsValue({
         app_name: appInfo.app_name,
         app_describe: appInfo.app_describe,
-        agent: currentAgentVersion === 'v1' ? appInfo.agent : undefined,
+        agent: v1AgentValue,
         agent_version: currentAgentVersion,
         v2_agent_template: currentAgentVersion === 'v2' ? v2TemplateName : undefined,
         llm_strategy: appInfo?.llm_config?.llm_strategy,
@@ -100,6 +105,10 @@ export default function TabOverview() {
       
       setAgentVersion(currentAgentVersion);
       setSelectedIcon(appInfo.icon || 'smart-plugin');
+      
+      if (currentAgentVersion === 'v1' && !appInfo.agent) {
+        fetchUpdateApp({ ...appInfo, agent: defaultV1Agent });
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appInfo]);
@@ -233,13 +242,15 @@ export default function TabOverview() {
         };
         fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext, agent: undefined });
       } else {
-        // 切换到 V1
+        // 切换到 V1，设置默认的 V1 Agent 为 BAIZE
+        const defaultV1Agent = 'BAIZE';
         form.setFieldValue('v2_agent_template', undefined);
+        form.setFieldValue('agent', defaultV1Agent);
         const newTeamContext = {
           ...currentTeamContext,
           agent_version: fieldValue,
         };
-        fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext });
+        fetchUpdateApp({ ...appInfo, agent_version: fieldValue, team_context: newTeamContext, agent: defaultV1Agent });
       }
     } else if (fieldName === 'v2_agent_template') {
       const currentTeamContext = appInfo?.team_context || {};

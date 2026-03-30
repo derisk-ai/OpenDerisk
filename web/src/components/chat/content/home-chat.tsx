@@ -94,27 +94,35 @@ const getFileTypeTheme = (fileName: string) => {
   return themes[ext] || { bg: 'bg-gray-50', border: 'border-gray-200', icon: 'text-gray-500' };
 };
 
-// 文件预览组件 - 与应用内对话保持一致
-const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) => {
-  const [preview, setPreview] = useState<string>('');
-
-  useEffect(() => {
-    if (file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file);
-      setPreview(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [file]);
-
-  const theme = getFileTypeTheme(file.name);
-  const FileIcon = getFileIcon(file.name, file.type);
-  const isImage = file.type.startsWith('image/');
-
+// 已上传资源显示组件
+const UploadedResourcePreview = ({ resource, onRemove }: { resource: any; onRemove: () => void }) => {
+  const theme = getFileTypeTheme(resource.file_name || resource.image_url?.file_name || resource.file_url?.file_name || '');
+  const FileIcon = getFileIcon(resource.file_name || resource.image_url?.file_name || resource.file_url?.file_name || '');
+  
+  let fileName = 'File';
+  let previewUrl = '';
+  let isImage = false;
+  
+  if (resource.type === 'image_url' && resource.image_url) {
+    fileName = resource.image_url.file_name || 'Image';
+    previewUrl = resource.image_url.preview_url || resource.image_url.url;
+    isImage = true;
+  } else if (resource.type === 'file_url' && resource.file_url) {
+    fileName = resource.file_url.file_name || 'File';
+    previewUrl = resource.file_url.preview_url || resource.file_url.url;
+  } else if (resource.type === 'audio_url' && resource.audio_url) {
+    fileName = resource.audio_url.file_name || 'Audio';
+    previewUrl = resource.audio_url.preview_url || resource.audio_url.url;
+  } else if (resource.type === 'video_url' && resource.video_url) {
+    fileName = resource.video_url.file_name || 'Video';
+    previewUrl = resource.video_url.preview_url || resource.video_url.url;
+  }
+  
   return (
     <div className="relative group">
       <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200 ${theme.border}`}>
-        {isImage && preview ? (
-          <img src={preview} alt={file.name} className="w-full h-full object-cover" />
+        {isImage && previewUrl ? (
+          <img src={previewUrl} alt={fileName} className="w-full h-full object-cover" />
         ) : (
           <div className={`w-full h-full flex items-center justify-center ${theme.bg}`}>
             <FileIcon className={`${theme.icon} text-xl`} />
@@ -122,7 +130,51 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
         )}
       </div>
       <div className="mt-1 max-w-[60px]">
-        <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{file.name}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{fileName}</p>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shadow hover:bg-red-50 hover:border-red-300 hover:text-red-500"
+      >
+        <CloseOutlined className="text-[10px]" />
+      </button>
+    </div>
+  );
+};
+
+// 上传中文件显示组件
+const UploadingFilePreview = ({ uploadingFile, onRetry, onRemove }: { uploadingFile: { id: string; file: File; status: string }; onRetry: () => void; onRemove: () => void }) => {
+  const theme = getFileTypeTheme(uploadingFile.file.name);
+  const FileIcon = getFileIcon(uploadingFile.file.name, uploadingFile.file.type);
+  const isImage = uploadingFile.file.type.startsWith('image/');
+  const isError = uploadingFile.status === 'error';
+  
+  return (
+    <div className="relative group">
+      <div className={`w-[60px] h-[60px] rounded-lg border-2 overflow-hidden bg-white dark:bg-gray-800 shadow-sm ${isError ? 'border-red-300' : theme.border} relative`}>
+        {isImage ? (
+          <img src={URL.createObjectURL(uploadingFile.file)} alt={uploadingFile.file.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className={`w-full h-full flex items-center justify-center ${theme.bg}`}>
+            <FileIcon className={`${theme.icon} text-xl`} />
+          </div>
+        )}
+        {uploadingFile.status === 'uploading' && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {isError && (
+          <div className="absolute inset-0 bg-red-500/80 flex flex-col items-center justify-center cursor-pointer" onClick={onRetry}>
+            <CloseOutlined className="text-white text-lg mb-1" />
+            <span className="text-white text-[10px]">重试</span>
+          </div>
+        )}
+      </div>
+      <div className="mt-1 max-w-[60px]">
+        <p className={`text-xs truncate ${isError ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`}>
+          {uploadingFile.file.name}
+        </p>
       </div>
       <button
         onClick={(e) => { e.stopPropagation(); onRemove(); }}
@@ -135,12 +187,27 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
 };
 
 // 文件列表显示组件
-const FileListDisplay = ({ files, onRemove, onClearAll }: { files: File[]; onRemove: (index: number) => void; onClearAll: () => void }) => {
-  if (files.length === 0) return null;
+const FileListDisplay = ({ 
+  uploadingFiles, 
+  uploadedResources, 
+  onRemoveUploading, 
+  onRemoveResource, 
+  onRetryUploading,
+  onClearAll 
+}: { 
+  uploadingFiles: { id: string; file: File; status: string }[];
+  uploadedResources: any[];
+  onRemoveUploading: (id: string) => void;
+  onRemoveResource: (index: number) => void;
+  onRetryUploading: (id: string) => void;
+  onClearAll: () => void;
+}) => {
+  const totalCount = uploadingFiles.length + uploadedResources.length;
+  if (totalCount === 0) return null;
 
   return (
     <div className="pb-3">
-      {files.length > 1 && (
+      {totalCount > 1 && (
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center">
@@ -148,7 +215,7 @@ const FileListDisplay = ({ files, onRemove, onClearAll }: { files: File[]; onRem
             </div>
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               已上传文件
-              <span className="ml-1 text-xs text-gray-500">({files.length})</span>
+              <span className="ml-1 text-xs text-gray-500">({totalCount})</span>
             </span>
           </div>
           <button
@@ -161,8 +228,20 @@ const FileListDisplay = ({ files, onRemove, onClearAll }: { files: File[]; onRem
         </div>
       )}
       <div className="flex flex-wrap gap-3">
-        {files.map((file, index) => (
-          <FilePreview key={`${index}-${file.name}`} file={file} onRemove={() => onRemove(index)} />
+        {uploadingFiles.map((uf) => (
+          <UploadingFilePreview 
+            key={uf.id} 
+            uploadingFile={uf} 
+            onRetry={() => onRetryUploading(uf.id)}
+            onRemove={() => onRemoveUploading(uf.id)} 
+          />
+        ))}
+        {uploadedResources.map((resource, index) => (
+          <UploadedResourcePreview 
+            key={`resource-${index}`} 
+            resource={resource} 
+            onRemove={() => onRemoveResource(index)} 
+          />
         ))}
       </div>
     </div>
@@ -174,7 +253,9 @@ export default function HomeChat() {
   const { t } = useTranslation();
   const [userInput, setUserInput] = useState<string>('');
   const [isFocus, setIsFocus] = useState<boolean>(false);
-  const [fileList, setFileList] = useState<any[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<{ id: string; file: File; status: 'uploading' | 'success' | 'error' }[]>([]);
+  const [uploadedResources, setUploadedResources] = useState<any[]>([]);
+  const [pendingConvUid, setPendingConvUid] = useState<string>('');
   const [isConnectorsModalOpen, setIsConnectorsModalOpen] = useState(false);
   const [connectorsModalTab, setConnectorsModalTab] = useState<'mcp' | 'local' | 'skill'>('skill');
   const [selectedSkills, setSelectedSkills] = useState<any[]>([]);
@@ -709,120 +790,120 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     }
 }, [selectedApp?.app_code]);
 
-  const onSubmit = async () => {
-    if (!userInput.trim() && fileList.length === 0) return;
-
-    // Here we would typically upload files first or send them with the message
-    // For now, we'll just create the dialogue
-    const appCode = selectedApp?.app_code || 'chat_normal';
+  // Handle file upload - upload immediately after selection (same as unified-chat-input.tsx)
+  const handleFileUpload = useCallback(async (file: File) => {
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     
-    // Create new dialogue first
-    const [, res] = await apiInterceptors(
-      newDialogue({ app_code: appCode, model: selectedModel }),
+    setUploadingFiles(prev => [...prev, { id: uploadId, file, status: 'uploading' }]);
+    
+    const appCode = selectedApp?.app_code || 'chat_normal';
+    const currentModel = selectedModel || '';
+    
+    let convUid = pendingConvUid;
+    
+    if (!convUid) {
+      const [, dialogueRes] = await apiInterceptors(
+        newDialogue({ app_code: appCode, model: currentModel }),
+      );
+      if (dialogueRes) {
+        convUid = dialogueRes.conv_uid;
+        setPendingConvUid(convUid);
+      }
+    }
+    
+    if (!convUid) {
+      setUploadingFiles(prev => prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f));
+      return;
+    }
+    
+    const formData = new FormData();
+    formData.append('doc_files', file);
+    
+    const [uploadErr, uploadRes] = await apiInterceptors(
+      postChatModeParamsFileLoad({
+        convUid: convUid,
+        chatMode: appCode,
+        data: formData,
+        model: currentModel,
+        config: { timeout: 1000 * 60 * 60 },
+      }),
     );
     
-    if (res) {
-      const uploadedResources: any[] = [];
+    if (uploadErr || !uploadRes) {
+      console.error('File upload error:', uploadErr);
+      setUploadingFiles(prev => prev.map(f => f.id === uploadId ? { ...f, status: 'error' } : f));
+      return;
+    }
+    
+    const isImage = file.type.startsWith('image/');
+    const isAudio = file.type.startsWith('audio/');
+    const isVideo = file.type.startsWith('video/');
+    
+    let fileUrl = '';
+    let previewUrl = '';
+    
+    if (uploadRes.preview_url) {
+      previewUrl = uploadRes.preview_url;
+      fileUrl = uploadRes.file_path || previewUrl;
+    } else if (uploadRes.file_path) {
+      fileUrl = uploadRes.file_path;
+      previewUrl = transformFileUrl(fileUrl);
+    } else if (uploadRes.url || uploadRes.file_url) {
+      fileUrl = uploadRes.url || uploadRes.file_url;
+      previewUrl = fileUrl;
+    } else if (uploadRes.path) {
+      fileUrl = uploadRes.path;
+      previewUrl = transformFileUrl(fileUrl);
+    } else if (typeof uploadRes === 'string') {
+      fileUrl = uploadRes;
+      previewUrl = uploadRes;
+    } else if (Array.isArray(uploadRes)) {
+      const firstRes = uploadRes[0];
+      previewUrl = firstRes?.preview_url || '';
+      fileUrl = firstRes?.file_path || firstRes?.preview_url || previewUrl;
+      if (!previewUrl && fileUrl) previewUrl = transformFileUrl(fileUrl);
+    }
+    
+    let newResourceItem;
+    if (isImage) {
+      newResourceItem = { type: 'image_url', image_url: { url: fileUrl, preview_url: previewUrl || fileUrl, file_name: file.name } };
+    } else if (isAudio) {
+      newResourceItem = { type: 'audio_url', audio_url: { url: fileUrl, preview_url: previewUrl || fileUrl, file_name: file.name } };
+    } else if (isVideo) {
+      newResourceItem = { type: 'video_url', video_url: { url: fileUrl, preview_url: previewUrl || fileUrl, file_name: file.name } };
+    } else {
+      newResourceItem = { type: 'file_url', file_url: { url: fileUrl, preview_url: previewUrl || fileUrl, file_name: file.name } };
+    }
+    
+    setUploadingFiles(prev => prev.filter(f => f.id !== uploadId));
+    setUploadedResources(prev => [...prev, newResourceItem]);
+  }, [pendingConvUid, selectedApp, selectedModel]);
 
-      // Upload all files including auto-generated markdown
-      if (fileList.length > 0) {
-        for (const file of fileList) {
-          const formData = new FormData();
-          formData.append('doc_files', file);
-          
-          const [_, uploadRes] = await apiInterceptors(
-            postChatModeParamsFileLoad({
-              convUid: res.conv_uid,
-              chatMode: appCode,
-              data: formData,
-              model: selectedModel,
-              config: {
-                timeout: 1000 * 60 * 60,
-              },
-            }),
-          );
-          
-          if (uploadRes) {
-            // Convert uploadRes to standard format (same as unified-chat-input.tsx)
-            const isImage = file.type.startsWith('image/');
-            const isAudio = file.type.startsWith('audio/');
-            const isVideo = file.type.startsWith('video/');
-            
-            let fileUrl = '';
-            let previewUrl = '';
-            
-            if (uploadRes.preview_url) {
-              previewUrl = uploadRes.preview_url;
-              fileUrl = uploadRes.file_path || previewUrl;
-            } else if (uploadRes.file_path) {
-              fileUrl = uploadRes.file_path;
-              previewUrl = transformFileUrl(fileUrl);
-            } else if (uploadRes.url || uploadRes.file_url) {
-              fileUrl = uploadRes.url || uploadRes.file_url;
-              previewUrl = fileUrl;
-            } else if (uploadRes.path) {
-              fileUrl = uploadRes.path;
-              previewUrl = transformFileUrl(fileUrl);
-            } else if (typeof uploadRes === 'string') {
-              fileUrl = uploadRes;
-              previewUrl = uploadRes;
-            } else if (Array.isArray(uploadRes)) {
-              const firstRes = uploadRes[0];
-              previewUrl = firstRes?.preview_url || '';
-              fileUrl = firstRes?.file_path || firstRes?.preview_url || previewUrl;
-              if (!previewUrl && fileUrl) {
-                previewUrl = transformFileUrl(fileUrl);
-              }
-            }
-            
-            let newResourceItem;
-            if (isImage) {
-              newResourceItem = {
-                type: 'image_url',
-                image_url: {
-                  url: fileUrl,
-                  preview_url: previewUrl || fileUrl,
-                  file_name: file.name,
-                },
-              };
-            } else if (isAudio) {
-              newResourceItem = {
-                type: 'audio_url',
-                audio_url: {
-                  url: fileUrl,
-                  preview_url: previewUrl || fileUrl,
-                  file_name: file.name,
-                },
-              };
-            } else if (isVideo) {
-              newResourceItem = {
-                type: 'video_url',
-                video_url: {
-                  url: fileUrl,
-                  preview_url: previewUrl || fileUrl,
-                  file_name: file.name,
-                },
-              };
-            } else {
-              newResourceItem = {
-                type: 'file_url',
-                file_url: {
-                  url: fileUrl,
-                  preview_url: previewUrl || fileUrl,
-                  file_name: file.name,
-                },
-              };
-            }
-            
-            uploadedResources.push(newResourceItem);
-          }
-        }
+  const onSubmit = async () => {
+    if (!userInput.trim() && uploadedResources.length === 0 && uploadingFiles.length === 0) return;
+    
+    if (uploadingFiles.some(f => f.status === 'uploading')) {
+      return;
+    }
+    
+    const appCode = selectedApp?.app_code || 'chat_normal';
+    let convUid = pendingConvUid;
+    
+    if (!convUid) {
+      const [, res] = await apiInterceptors(
+        newDialogue({ app_code: appCode, model: selectedModel }),
+      );
+      if (res) {
+        convUid = res.conv_uid;
+        setPendingConvUid(convUid);
       }
-      
+    }
+    
+    if (convUid) {
       localStorage.setItem(
         STORAGE_INIT_MESSAGE_KET,
         JSON.stringify({
-          id: res.conv_uid,
+          id: convUid,
           message: userInput,
           resources: uploadedResources.length > 0 ? uploadedResources : undefined,
           model: selectedModel, 
@@ -830,26 +911,22 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           mcps: selectedMcps.length > 0 ? selectedMcps : undefined,
         }),
       );
-      router.push(`/chat/?app_code=${appCode}&conv_uid=${res.conv_uid}`);
+      router.push(`/chat/?app_code=${appCode}&conv_uid=${convUid}`);
     }
     setUserInput('');
-    setFileList([]);
+    setUploadingFiles([]);
+    setUploadedResources([]);
+    setPendingConvUid('');
     setSelectedSkills([]);
     setSelectedMcps([]);
   };
 
   const uploadProps: UploadProps = {
-    onRemove: (file) => {
-      const index = fileList.indexOf(file);
-      const newFileList = fileList.slice();
-      newFileList.splice(index, 1);
-      setFileList(newFileList);
-    },
+    showUploadList: false,
     beforeUpload: (file) => {
-      setFileList([...fileList, file]);
+      handleFileUpload(file);
       return false;
     },
-    fileList,
   };
 
   const QuickActionButton = ({ 
@@ -1026,7 +1103,7 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
         if (item.kind === 'file') {
           const file = item.getAsFile();
           if (file) {
-            setFileList((prev) => [...prev, file]);
+            handleFileUpload(file);
             hasFile = true;
           }
         }
@@ -1043,7 +1120,7 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     setIsFocus(false);
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      setFileList((prev) => [...prev, ...files]);
+      files.forEach(file => handleFileUpload(file));
     }
   };
 
@@ -1094,13 +1171,21 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           <div className="p-4">
             {/* Selected Files Preview Area (Top of Input) */}
             <FileListDisplay
-              files={fileList}
-              onRemove={(index) => {
-                const newFileList = [...fileList];
-                newFileList.splice(index, 1);
-                setFileList(newFileList);
+              uploadingFiles={uploadingFiles}
+              uploadedResources={uploadedResources}
+              onRemoveUploading={(id) => setUploadingFiles(prev => prev.filter(f => f.id !== id))}
+              onRemoveResource={(index) => setUploadedResources(prev => prev.filter((_, i) => i !== index))}
+              onRetryUploading={(id) => {
+                const uf = uploadingFiles.find(f => f.id === id);
+                if (uf) {
+                  setUploadingFiles(prev => prev.filter(f => f.id !== id));
+                  handleFileUpload(uf.file);
+                }
               }}
-              onClearAll={() => setFileList([])}
+              onClearAll={() => {
+                setUploadingFiles([]);
+                setUploadedResources([]);
+              }}
             />
 
             <Input.TextArea
@@ -1192,12 +1277,12 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
                 <button
                   className={cls(
                     'h-8 w-8 rounded-full flex items-center justify-center transition-all',
-                    userInput.trim() || fileList.length > 0
+                    userInput.trim() || uploadedResources.length > 0 || uploadingFiles.length > 0
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md hover:shadow-lg'
                       : 'bg-gray-100 text-gray-400 border-none dark:bg-gray-800 dark:text-gray-600',
                   )}
                   onClick={onSubmit}
-                  disabled={!userInput.trim() && fileList.length === 0}
+                  disabled={!userInput.trim() && uploadedResources.length === 0 && uploadingFiles.length === 0}
                 >
                   <ArrowUpOutlined className="text-sm" />
                 </button>
