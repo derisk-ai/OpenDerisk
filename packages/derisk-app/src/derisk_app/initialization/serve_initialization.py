@@ -39,6 +39,7 @@ def scan_serve_configs():
         "derisk_serve.config",
         "derisk_serve.version",
         "derisk_serve.channel",
+        "derisk_serve.risk_dashboard",
     ]
 
     scanner = ModelScanner[BaseServeConfig]()
@@ -473,3 +474,18 @@ def register_serve_apps(
     )
 
     # ################################ Streaming Config Serve Register End   ################
+
+    # ################################ Risk Dashboard Serve Register Begin ################
+    from derisk_serve.risk_dashboard.serve import Serve as RiskDashboardServe
+
+    system_app.register(
+        RiskDashboardServe,
+        config=get_config(
+            serve_configs,
+            RiskDashboardServe.name,
+            derisk_serve.risk_dashboard.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Risk Dashboard Serve Register End   ################
