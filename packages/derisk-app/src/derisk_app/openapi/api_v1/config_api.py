@@ -966,6 +966,9 @@ def _refresh_model_config_cache(config: AppConfig) -> int:
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
         model_configs = parse_provider_configs(agent_llm_dict)
 
+        # 先清空旧缓存，再注册新配置
+        ModelConfigCache.clear()
+
         if model_configs:
             ModelConfigCache.register_configs(model_configs)
             logger.info(
