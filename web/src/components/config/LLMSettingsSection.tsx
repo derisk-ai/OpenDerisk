@@ -78,25 +78,29 @@ function buildSecretReference(secretName?: string) {
 
 function deriveDefaultProviderName(config: AppConfig) {
   const providers = config.agent_llm?.providers || [];
-  const defaultBaseUrl = config.default_model?.base_url || "";
   const defaultProvider = normalizeProviderName(
     String(config.default_model?.provider || "")
   );
-
-  const matchedByBaseUrl = providers.find(
-    (item) =>
-      normalizeProviderName(item.api_base || "") ===
-      normalizeProviderName(defaultBaseUrl)
-  );
-  if (matchedByBaseUrl) {
-    return normalizeProviderName(matchedByBaseUrl.provider);
+  
+  if (defaultProvider && defaultProvider !== "custom") {
+    const matchedProvider = providers.find(
+      (item) => normalizeProviderName(item.provider) === defaultProvider
+    );
+    if (matchedProvider) {
+      return normalizeProviderName(matchedProvider.provider);
+    }
   }
 
-  const matchedByProvider = providers.find(
-    (item) => normalizeProviderName(item.provider) === defaultProvider
-  );
-  if (matchedByProvider) {
-    return normalizeProviderName(matchedByProvider.provider);
+  const defaultBaseUrl = config.default_model?.base_url || "";
+  if (defaultBaseUrl) {
+    const matchedByBaseUrl = providers.find(
+      (item) =>
+        normalizeProviderName(item.api_base || "") ===
+        normalizeProviderName(defaultBaseUrl)
+    );
+    if (matchedByBaseUrl) {
+      return normalizeProviderName(matchedByBaseUrl.provider);
+    }
   }
 
   return defaultProvider || normalizeProviderName(providers[0]?.provider) || "openai";
@@ -197,11 +201,12 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
   const providerOptions = useMemo(() => {
     const values = new Set<string>();
     BUILTIN_PROVIDER_OPTIONS.forEach((item) => values.add(item.value));
-    llmKeys.forEach((item) => values.add(normalizeProviderName(item.provider)));
-    Object.keys(modelSuggestionsByProvider).forEach((item) => values.add(item));
     configuredProviders.forEach((item: LLMProviderConfig) => {
       if (item?.provider) {
-        values.add(normalizeProviderName(item.provider));
+        const normalized = normalizeProviderName(item.provider);
+        if (!BUILTIN_DEFAULT_MODEL_PROVIDERS.has(normalized)) {
+          values.add(normalized);
+        }
       }
     });
     return Array.from(values)
@@ -213,7 +218,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
           BUILTIN_PROVIDER_OPTIONS.find((item) => item.value === value)?.label ||
           value,
       }));
-  }, [configuredProviders, llmKeys, modelSuggestionsByProvider]);
+  }, [configuredProviders]);
 
   async function loadSupportedModels() {
     setLoadingModels(true);
@@ -366,11 +371,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
       ...config,
       default_model: {
         ...config.default_model,
-        provider: (
-          BUILTIN_DEFAULT_MODEL_PROVIDERS.has(selectedProviderName)
-            ? selectedProviderName
-            : "custom"
-        ) as AppConfig["default_model"]["provider"],
+        provider: selectedProviderName as AppConfig["default_model"]["provider"],
         model_id: resolvedModelId,
         base_url: selectedProvider.api_base || config.default_model?.base_url,
         temperature: resolvedTemperature,
@@ -797,11 +798,12 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                                   <Form.Item
                                     name={[modelField.name, "max_new_tokens"]}
                                     label="Max Tokens"
+                                    tooltip="请根据模型实际支持的最大token数设置，不同模型限制不同"
                                   >
                                     <InputNumber
                                       style={{ width: "100%" }}
                                       min={1}
-                                      max={128000}
+                                      placeholder="4096"
                                     />
                                   </Form.Item>
                                   <Form.Item

@@ -16,7 +16,7 @@ class LLMProvider(str, Enum):
 class ModelConfig(BaseModel):
     """模型配置"""
 
-    provider: LLMProvider = LLMProvider.OPENAI
+    provider: str = "openai"
     model_id: str = "gpt-4"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
