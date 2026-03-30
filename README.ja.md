@@ -71,8 +71,13 @@ curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.s
 ```
 
 #### 設定ファイル
-インストール後、システムを設定する必要があります。設定ファイルを作成してください：
-`~/.openderisk/derisk-proxy-aliyun.toml` を編集し、API キーを設定してください。
+インストール後、デフォルトの設定ファイルは自動的に以下のパスに初期化されます：
+`~/.openderisk/configs/derisk-proxy-aliyun.toml`
+
+このファイルを編集し、API キーを設定してください：
+```shell
+vi ~/.openderisk/configs/derisk-proxy-aliyun.toml
+```
 
 #### 起動
 ```

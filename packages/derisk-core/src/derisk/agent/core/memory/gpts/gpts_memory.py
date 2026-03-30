@@ -429,6 +429,8 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
     可作为 AgentFileSystem、WorkLogManager、KanbanManager 和 Todo 工具的统一存储后端。
     """
 
+    name = "derisk_gpts_memory"  # Component name for registration
+
     def __init__(
         self,
         plans_memory: GptsPlansMemory = DefaultGptsPlansMemory(),
@@ -468,6 +470,10 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         self._work_log_db_storage = work_log_db_storage
         self._kanban_db_storage = kanban_db_storage
         self._todo_db_storage = todo_db_storage
+
+    def init_app(self, system_app):
+        """Initialize with system app (required for component registration)."""
+        pass
 
     @property
     def file_memory(self) -> AgentFileMemory:

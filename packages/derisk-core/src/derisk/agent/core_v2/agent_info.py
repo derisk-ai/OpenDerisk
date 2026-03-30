@@ -160,24 +160,32 @@ class AgentInfo(BaseModel):
         default_factory=list, description="排除的工具列表"
     )
 
+    # VIS 推送配置
+    enable_vis_push: bool = Field(
+        default=True, description="是否启用 VIS 消息推送（用于 vis_window3 渲染）"
+    )
+    vis_push_thinking: bool = Field(
+        default=True, description="是否推送 thinking 内容到 VIS"
+    )
+    vis_push_tool_calls: bool = Field(
+        default=True, description="是否推送工具调用信息到 VIS"
+    )
+
     task_scene: TaskScene = Field(
         default=TaskScene.GENERAL,
-        description="任务场景类型，决定默认的上下文和Prompt策略"
+        description="任务场景类型，决定默认的上下文和Prompt策略",
     )
-    
+
     context_policy: Optional[ContextPolicy] = Field(
-        default=None,
-        description="上下文策略配置，覆盖场景默认配置"
+        default=None, description="上下文策略配置，覆盖场景默认配置"
     )
-    
+
     prompt_policy: Optional[PromptPolicy] = Field(
-        default=None,
-        description="Prompt策略配置，覆盖场景默认配置"
+        default=None, description="Prompt策略配置，覆盖场景默认配置"
     )
-    
+
     tool_policy: Optional[ToolPolicy] = Field(
-        default=None,
-        description="工具策略配置，覆盖场景默认配置"
+        default=None, description="工具策略配置，覆盖场景默认配置"
     )
 
     class Config:
@@ -198,58 +206,61 @@ class AgentInfo(BaseModel):
                 },
             }
         }
-    
+
     def get_effective_context_policy(self) -> ContextPolicy:
         """
         获取生效的上下文策略
-        
+
         优先级：自定义配置 > 场景默认配置
-        
+
         Returns:
             ContextPolicy: 生效的上下文策略
         """
         if self.context_policy:
             return self.context_policy
-        
+
         from derisk.agent.core_v2.scene_registry import SceneRegistry
+
         profile = SceneRegistry.get(self.task_scene)
         if profile:
             return profile.context_policy
-        
+
         return ContextPolicy()
-    
+
     def get_effective_prompt_policy(self) -> PromptPolicy:
         """
         获取生效的Prompt策略
-        
+
         优先级：自定义配置 > 场景默认配置
-        
+
         Returns:
             PromptPolicy: 生效的Prompt策略
         """
         if self.prompt_policy:
             return self.prompt_policy
-        
+
         from derisk.agent.core_v2.scene_registry import SceneRegistry
+
         profile = SceneRegistry.get(self.task_scene)
         if profile:
             return profile.prompt_policy
-        
+
         return PromptPolicy()
-    
+
     def get_effective_tool_policy(self) -> ToolPolicy:
         """
         获取生效的工具策略
-        
+
         优先级：自定义配置 > 场景默认配置 > 工具列表
-        
+
         Returns:
             ToolPolicy: 生效的工具策略
         """
         if self.tool_policy:
             return self.tool_policy
-        
+
         from derisk.agent.core_v2.scene_registry import SceneRegistry
+
         profile = SceneRegistry.get(self.task_scene)
         if profile:
             tool_policy = profile.tool_policy.copy()
@@ -258,51 +269,45 @@ class AgentInfo(BaseModel):
             if self.excluded_tools:
                 tool_policy.excluded_tools = self.excluded_tools
             return tool_policy
-        
+
         return ToolPolicy(
             preferred_tools=self.tools,
             excluded_tools=self.excluded_tools,
         )
-    
+
     def get_effective_temperature(self) -> float:
         """获取生效的温度参数"""
         if self.temperature is not None:
             return self.temperature
         prompt_policy = self.get_effective_prompt_policy()
         return prompt_policy.temperature
-    
+
     def get_effective_max_tokens(self) -> int:
         """获取生效的最大token数"""
         if self.max_tokens is not None:
             return self.max_tokens
         prompt_policy = self.get_effective_prompt_policy()
         return prompt_policy.max_tokens
-    
+
     def with_scene(self, scene: TaskScene) -> "AgentInfo":
         """
         创建指定场景的新AgentInfo
-        
+
         Args:
             scene: 任务场景
-            
+
         Returns:
             AgentInfo: 新的配置实例
         """
-        return AgentInfo(
-            **{**self.dict(), "task_scene": scene}
-        )
-    
+        return AgentInfo(**{**self.dict(), "task_scene": scene})
+
     def with_context_policy(self, policy: ContextPolicy) -> "AgentInfo":
         """创建指定上下文策略的新AgentInfo"""
-        return AgentInfo(
-            **{**self.dict(), "context_policy": policy}
-        )
-    
+        return AgentInfo(**{**self.dict(), "context_policy": policy})
+
     def with_prompt_policy(self, policy: PromptPolicy) -> "AgentInfo":
         """创建指定Prompt策略的新AgentInfo"""
-        return AgentInfo(
-            **{**self.dict(), "prompt_policy": policy}
-        )
+        return AgentInfo(**{**self.dict(), "prompt_policy": policy})
 
 
 # ========== 预定义Agent ==========

@@ -133,11 +133,11 @@ class ImprovedLocalSandbox(SandboxBase):
     _runtime_lock = asyncio.Lock()
 
     def __init__(self, **kwargs):
-        # Parse configuration
         config_dict = kwargs.get("local_sandbox_config", {})
         self._config = LocalSandboxConfig.from_dict(config_dict)
 
-        # Initialize base with required parameters
+        self._file_storage_client = kwargs.get("file_storage_client")
+
         super().__init__(
             sandbox_id=kwargs.get("sandbox_id", ""),
             user_id=kwargs.get("user_id", "default"),
@@ -148,25 +148,21 @@ class ImprovedLocalSandbox(SandboxBase):
             work_dir=self._config.work_dir,
             enable_skill=kwargs.get("enable_skill", True),
             skill_dir=kwargs.get("skill_dir", self._config.skill_dir),
-            connection_config=None,  # Local sandbox doesn't use HTTP connection
+            connection_config=None,
         )
 
-        # Runtime will be initialized in before_create
         self._runtime: Optional[ImprovedLocalSandboxRuntime] = None
         self._session: Optional[ImprovedLocalSandboxSession] = None
 
-        # Clients will be initialized in start_session
         self._shell: Optional[LocalShellClient] = None
         self._file: Optional[LocalFileClient] = None
         self._browser: Optional[PlaywrightBrowserClient] = None
 
-        # State tracking
         self._is_running = False
         self._created_at: Optional[float] = None
         self._timeout_at: Optional[float] = None
         self._metadata: Dict[str, str] = kwargs.get("metadata", {})
 
-        # Enable/disable specific features
         self._enable_browser = kwargs.get("enable_browser", True)
 
     @classmethod
@@ -281,12 +277,12 @@ class ImprovedLocalSandbox(SandboxBase):
         work_dir = self._config.work_dir
         skill_dir = self._config.skill_dir
 
-        # File client
         self._file = LocalFileClient(
             sandbox_id=self.sandbox_id,
             work_dir=work_dir,
             runtime=self._runtime,
             skill_dir=skill_dir,
+            file_storage_client=self._file_storage_client,
         )
 
         # Shell client

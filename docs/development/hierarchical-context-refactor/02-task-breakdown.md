@@ -104,7 +104,7 @@ __all__ = ["UnifiedContextMiddleware", "ContextLoadResult"]
 
 3. 创建配置文件：
 ```yaml
-# config/hierarchical_context_config.yaml
+# configs/hierarchical_context_config.yaml
 hierarchical_context:
   enabled: true
   
@@ -127,7 +127,7 @@ worklog_conversion:
 
 **交付物**:
 - [ ] `derisk/context/__init__.py`
-- [ ] `config/hierarchical_context_config.yaml`
+- [ ] `configs/hierarchical_context_config.yaml`
 - [ ] `tests/test_unified_context/__init__.py`
 
 **验收标准**:

@@ -7,6 +7,8 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Union, Callable, Type
 from derisk._private.pydantic import BaseModel, Field, field_validator, model_validator
 
+from derisk.agent.core.agent_alias import AgentAliasManager
+
 
 class AgentMode(str, Enum):
     """Agent running mode."""
@@ -271,6 +273,12 @@ class AgentRegistry:
     def register(self, agent_info: AgentInfo) -> "AgentRegistry":
         """Register an agent definition."""
         self._agents[agent_info.name] = agent_info
+
+        # 自动注册别名（如果Agent有历史名称）
+        aliases = AgentAliasManager.get_aliases_for(agent_info.name)
+        for alias in aliases:
+            logger.debug(f"Auto-registered alias: {alias} -> {agent_info.name}")
+
         return self
 
     def unregister(self, name: str) -> "AgentRegistry":
@@ -279,8 +287,9 @@ class AgentRegistry:
         return self
 
     def get(self, name: str) -> Optional[AgentInfo]:
-        """Get agent info by name."""
-        return self._agents.get(name)
+        """Get agent info by name (支持别名解析)"""
+        resolved_name = AgentAliasManager.resolve_alias(name)
+        return self._agents.get(resolved_name)
 
     def list(
         self, mode: Optional[AgentMode] = None, include_hidden: bool = False

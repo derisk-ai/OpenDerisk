@@ -111,7 +111,7 @@ await integration.inject_to_agent(agent, context_result)
 |--------|---------|------|---------|
 | T4.1 | 配置加载器实现 | ✅ 完成 | `derisk/context/config_loader.py` |
 | T4.2 | 灰度控制器实现 | ✅ 完成 | `derisk/context/gray_release_controller.py` |
-| T4.3 | 配置文件创建 | ✅ 完成 | `config/hierarchical_context_config.yaml` |
+| T4.3 | 配置文件创建 | ✅ 完成 | `configs/hierarchical_context_config.yaml` |
 
 **灰度策略**：
 
@@ -154,7 +154,7 @@ derisk/
 │   ├── gray_release_controller.py             # ✅ 灰度控制器
 │   └── config_loader.py                       # ✅ 配置加载器
 
-config/
+configs/
 └── hierarchical_context_config.yaml            # ✅ 配置文件
 
 tests/

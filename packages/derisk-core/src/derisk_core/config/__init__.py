@@ -9,6 +9,9 @@ from .schema import (
     OAuth2Config,
     FeaturePluginEntry,
     AppConfig,
+    FileBackendType,
+    FileBackendConfig,
+    FileServiceConfig,
 )
 from .loader import ConfigLoader, ConfigManager
 from .validator import ConfigValidator
@@ -24,6 +27,9 @@ __all__ = [
     "OAuth2Config",
     "FeaturePluginEntry",
     "AppConfig",
+    "FileBackendType",
+    "FileBackendConfig",
+    "FileServiceConfig",
     "ConfigLoader",
     "ConfigManager",
     "ConfigValidator",
