@@ -396,6 +396,13 @@ function SideBar() {
       // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
       // ...appLists, // Remove appList from menu items since we have a new way to start chats
       {
+        key: 'risk_dashboard',
+        name: t('risk_dashboard_title'),
+        icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/risk-dashboard',
+        isActive: pathname.startsWith('/risk-dashboard'),
+      },
+      {
         key: 'application',
         name: t('application'),
         icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
