@@ -48,7 +48,8 @@ export interface LLMModelConfig {
   name: string;
   temperature: number;
   max_new_tokens: number;
-  is_multimodal?: boolean;  // 是否为多模态模型，支持图片输入
+  is_multimodal?: boolean;
+  is_default?: boolean;
 }
 
 export interface LLMProviderConfig {
@@ -93,8 +94,15 @@ export interface SandboxConfig {
   timeout: number;
   network_enabled: boolean;
   work_dir: string;
+  agent_name?: string;
+  user_id?: string;
+  template_id?: string;
   repo_url?: string;
   skill_dir?: string;
+  oss_ak?: string;
+  oss_sk?: string;
+  oss_endpoint?: string;
+  oss_bucket_name?: string;
   enable_git_sync?: boolean;
 }
 

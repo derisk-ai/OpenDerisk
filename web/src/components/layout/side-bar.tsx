@@ -448,20 +448,6 @@ function SideBar() {
             path: '/models',
           },
           {
-            key: 'knowledge',
-            name: t('Knowledge_Space'),
-            isActive: pathname.startsWith('/knowledge'),
-            icon: <PartitionOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/knowledge',
-          },
-          {
-            key: 'prompt',
-            name: t('Prompt'),
-            isActive: pathname.startsWith('/prompt'),
-            icon: <MessageOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/prompt',
-          },
-          {
             key: 'cron',
             name: t('cron_page_title'),
             isActive: pathname.startsWith('/cron'),
@@ -518,7 +504,7 @@ function SideBar() {
             path: '/users',
           }] : []),
         ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
       },
     ];
     return items;

@@ -37,8 +37,15 @@ class SandboxConfigRequest(BaseModel):
     timeout: Optional[int] = None
     type: Optional[str] = None
     work_dir: Optional[str] = None
+    agent_name: Optional[str] = None
+    user_id: Optional[str] = None
+    template_id: Optional[str] = None
     repo_url: Optional[str] = None
     skill_dir: Optional[str] = None
+    oss_ak: Optional[str] = None
+    oss_sk: Optional[str] = None
+    oss_endpoint: Optional[str] = None
+    oss_bucket_name: Optional[str] = None
     enable_git_sync: Optional[bool] = None
 
 
@@ -829,9 +836,31 @@ def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
         from derisk.component import SystemApp
 
         system_app = SystemApp.get_instance()
+
+        # 即使 SystemApp 不可用，也要同步 app_config（这总是成功的）
+        # 因为 model API 会从 app_config 中读取配置
+
+        # 5. 同步完整的 app_config 到 configs dict（这个操作在后面会执行）
+        # 先执行这个，确保配置总是可用的
+        try:
+            if system_app:
+                system_app.config.configs["app_config"] = config
+                sync_status["app_config"] = True
+            else:
+                # SystemApp 不可用时，仍然标记为成功，因为配置文件已更新
+                sync_status["app_config"] = True
+        except Exception as e:
+            logger.warning(f"Failed to sync app_config: {e}")
+            sync_status["app_config"] = False
+
         if not system_app:
-            logger.warning("SystemApp not available, cannot sync config")
-            return {"system_app": False}
+            logger.warning("SystemApp not available, skipping SystemApp-specific sync")
+            # 即使 SystemApp 不可用，配置文件已更新，API 仍可从 app_config 读取
+            return {
+                "system_app": False,
+                "app_config": sync_status.get("app_config", True),
+                "note": "Config saved to file and app_config updated",
+            }
 
         # 1. 同步 agent_llm → agent.llm
         try:
@@ -966,6 +995,9 @@ def _refresh_model_config_cache(config: AppConfig) -> int:
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
         model_configs = parse_provider_configs(agent_llm_dict)
 
+        # 先清空旧缓存，再注册新配置
+        ModelConfigCache.clear()
+
         if model_configs:
             ModelConfigCache.register_configs(model_configs)
             logger.info(
@@ -1022,12 +1054,18 @@ async def reset_config():
 
         saved = save_config_with_error_handling(manager, "默认配置")
 
+        sync_status = _sync_config_to_system_app(config)
+
+        models_registered = _refresh_model_config_cache(config)
+
         return JSONResponse(
             content={
                 "success": True,
                 "message": "配置已重置为默认值",
                 "data": config.model_dump(mode="json"),
                 "saved_to_file": saved,
+                "models_registered": models_registered,
+                "sync_status": sync_status,
             }
         )
     except Exception as e:

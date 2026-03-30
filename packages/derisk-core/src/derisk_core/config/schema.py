@@ -16,7 +16,7 @@ class LLMProvider(str, Enum):
 class ModelConfig(BaseModel):
     """模型配置"""
 
-    provider: LLMProvider = LLMProvider.OPENAI
+    provider: str = "openai"
     model_id: str = "gpt-4"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
@@ -47,6 +47,14 @@ class SandboxConfig(BaseModel):
     timeout: int = 300
     network_enabled: bool = False
     work_dir: str = "/home/user/workspace"
+    agent_name: str = "default"
+    user_id: Optional[str] = None
+    template_id: Optional[str] = None
+    skill_dir: Optional[str] = None
+    oss_ak: Optional[str] = None
+    oss_sk: Optional[str] = None
+    oss_endpoint: Optional[str] = None
+    oss_bucket_name: Optional[str] = None
 
 
 class AgentConfig(BaseModel):
@@ -139,12 +147,13 @@ class OAuth2Config(BaseModel):
 
 
 class LLMProviderModelConfig(BaseModel):
-    """LLM Provider 中的模型配置"""
+    """模型配置（provider下的模型）"""
 
-    name: str = "gpt-4"
-    temperature: float = 0.7
-    max_new_tokens: int = 4096
-    is_multimodal: bool = False
+    name: str = Field(..., description="模型名称，如 gpt-4o, deepseek-chat")
+    temperature: float = Field(0.7, description="模型温度参数")
+    max_new_tokens: int = Field(4096, description="最大生成token数")
+    is_multimodal: bool = Field(False, description="是否支持多模态（图片输入）")
+    is_default: bool = Field(False, description="是否为该provider下的默认模型")
 
 
 class LLMProviderConfig(BaseModel):

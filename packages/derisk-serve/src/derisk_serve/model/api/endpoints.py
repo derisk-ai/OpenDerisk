@@ -127,16 +127,100 @@ async def test_auth():
 async def model_params(worker_manager: WorkerManager = Depends(get_worker_manager)):
     try:
         params = []
-        workers = await worker_manager.supported_models()
-        for worker in workers:
-            for model in worker.models:
-                model_dict = model.__dict__
-                model_dict["host"] = worker.host
-                model_dict["port"] = worker.port
-                params.append(model_dict)
+        config_models_found = False
+
+        # 1. Get models from system_app.config (JSON configuration) - PRIORITY
+        system_app = SystemApp.get_instance() or global_system_app
+        if system_app and system_app.config:
+            # PRIORITY 1: Try app_config from configs dict (JSON config source)
+            # This is the most reliable source as it's always updated via /api/v1/config/import
+            app_config = system_app.config.configs.get("app_config")
+            agent_llm_conf = None
+
+            if app_config:
+                agent_llm_attr = getattr(app_config, "agent_llm", None)
+                if agent_llm_attr:
+                    # Convert frontend format to backend format
+                    agent_llm_dict = (
+                        agent_llm_attr.model_dump(mode="json")
+                        if hasattr(agent_llm_attr, "model_dump")
+                        else dict(agent_llm_attr)
+                    )
+                    # Convert providers -> provider, models -> model
+                    if "providers" in agent_llm_dict:
+                        providers = agent_llm_dict.pop("providers")
+                        if isinstance(providers, list):
+                            converted = []
+                            for p in providers:
+                                if isinstance(p, dict):
+                                    cp = dict(p)
+                                    if "models" in cp:
+                                        cp["model"] = cp.pop("models")
+                                    converted.append(cp)
+                            agent_llm_dict["provider"] = converted
+                    agent_llm_conf = agent_llm_dict
+
+            # PRIORITY 2: Try "agent.llm" direct key (fallback for TOML config)
+            if not agent_llm_conf:
+                agent_llm_conf = system_app.config.get("agent.llm")
+
+            # PRIORITY 3: If not found, try "agent" -> "llm" (nested dict access)
+            if not agent_llm_conf:
+                agent_conf = system_app.config.get("agent")
+                if isinstance(agent_conf, dict):
+                    agent_llm_conf = agent_conf.get("llm")
+
+            # PRIORITY 4: Check for flattened keys (fallback)
+            if not agent_llm_conf:
+                flattened = system_app.config.get_all_by_prefix("agent.llm.")
+                if flattened:
+                    agent_llm_conf = {}
+                    prefix_len = len("agent.llm.")
+                    for k, v in flattened.items():
+                        agent_llm_conf[k[prefix_len:]] = v
+
+            # Parse models from Multi-Provider List Structure [[agent.llm.provider]]
+            if agent_llm_conf and isinstance(agent_llm_conf.get("provider"), list):
+                providers = agent_llm_conf.get("provider")
+                for p_conf in providers:
+                    if isinstance(p_conf, dict) and "model" in p_conf:
+                        p_models = p_conf.get("model")
+                        p_name = p_conf.get("provider", "unknown")
+                        if isinstance(p_models, list):
+                            for m in p_models:
+                                if isinstance(m, dict) and "name" in m:
+                                    m_name = m.get("name")
+                                    # Add model to params if not already present
+                                    if not any(
+                                        p.get("model") == m_name
+                                        and p.get("provider") == p_name
+                                        for p in params
+                                    ):
+                                        params.append(
+                                            {
+                                                "model": m_name,
+                                                "provider": p_name,
+                                                "worker_type": "llm",
+                                                "host": f"proxy@{p_name}",
+                                                "port": 0,
+                                                "enabled": True,
+                                            }
+                                        )
+                                    config_models_found = True
+
+        # 2. Only get models from worker_manager if no config models found (fallback)
+        if not config_models_found:
+            workers = await worker_manager.supported_models()
+            for worker in workers:
+                for model in worker.models:
+                    model_dict = model.__dict__
+                    model_dict["host"] = worker.host
+                    model_dict["port"] = worker.port
+                    params.append(model_dict)
+
         return Result.succ(params)
     except Exception as e:
-        return Result.failed(err_code="E000X", msg=f"model stop failed {e}")
+        return Result.failed(err_code="E000X", msg=f"model types failed {e}")
 
 
 @router.get("/models")
@@ -174,16 +258,45 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
 
         # Add the lightweight model from config if it exists
         if system_app and system_app.config:
-            # 1. Try "agent.llm" direct key
-            agent_llm_conf = system_app.config.get("agent.llm")
+            # PRIORITY 1: Try app_config from configs dict (JSON config source)
+            # This is the most reliable source as it's always updated via /api/v1/config/import
+            app_config = system_app.config.configs.get("app_config")
+            agent_llm_conf = None
 
-            # 2. If not found, try "agent" -> "llm" (nested dict access)
+            if app_config:
+                agent_llm_attr = getattr(app_config, "agent_llm", None)
+                if agent_llm_attr:
+                    # Convert frontend format to backend format
+                    agent_llm_dict = (
+                        agent_llm_attr.model_dump(mode="json")
+                        if hasattr(agent_llm_attr, "model_dump")
+                        else dict(agent_llm_attr)
+                    )
+                    # Convert providers -> provider, models -> model
+                    if "providers" in agent_llm_dict:
+                        providers = agent_llm_dict.pop("providers")
+                        if isinstance(providers, list):
+                            converted = []
+                            for p in providers:
+                                if isinstance(p, dict):
+                                    cp = dict(p)
+                                    if "models" in cp:
+                                        cp["model"] = cp.pop("models")
+                                    converted.append(cp)
+                            agent_llm_dict["provider"] = converted
+                    agent_llm_conf = agent_llm_dict
+
+            # PRIORITY 2: Try "agent.llm" direct key (fallback for TOML config)
+            if not agent_llm_conf:
+                agent_llm_conf = system_app.config.get("agent.llm")
+
+            # PRIORITY 3: If not found, try "agent" -> "llm" (nested dict access)
             if not agent_llm_conf:
                 agent_conf = system_app.config.get("agent")
                 if isinstance(agent_conf, dict):
                     agent_llm_conf = agent_conf.get("llm")
 
-            # 3. Check for flattened keys (fallback)
+            # PRIORITY 4: Check for flattened keys (fallback)
             if not agent_llm_conf:
                 flattened = system_app.config.get_all_by_prefix("agent.llm.")
                 if flattened:
@@ -191,32 +304,6 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
                     prefix_len = len("agent.llm.")
                     for k, v in flattened.items():
                         agent_llm_conf[k[prefix_len:]] = v
-
-            # 4. Also try app_config from configs dict (JSON config source)
-            if not agent_llm_conf:
-                app_config = system_app.config.configs.get("app_config")
-                if app_config:
-                    agent_llm_attr = getattr(app_config, "agent_llm", None)
-                    if agent_llm_attr:
-                        # Convert frontend format to backend format
-                        agent_llm_dict = (
-                            agent_llm_attr.model_dump(mode="json")
-                            if hasattr(agent_llm_attr, "model_dump")
-                            else dict(agent_llm_attr)
-                        )
-                        # Convert providers -> provider, models -> model
-                        if "providers" in agent_llm_dict:
-                            providers = agent_llm_dict.pop("providers")
-                            if isinstance(providers, list):
-                                converted = []
-                                for p in providers:
-                                    if isinstance(p, dict):
-                                        cp = dict(p)
-                                        if "models" in cp:
-                                            cp["model"] = cp.pop("models")
-                                        converted.append(cp)
-                                agent_llm_dict["provider"] = converted
-                        agent_llm_conf = agent_llm_dict
 
             # 5. Parse models from new Multi-Provider List Structure [[agent.llm.provider]]
             found_models = []

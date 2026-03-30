@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, Backgroun
 from fastapi.responses import StreamingResponse
 
 from derisk._private.config import Config
-from derisk.component import ComponentType
+from derisk.component import ComponentType, SystemApp
 from derisk.configs import TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE
 from derisk.core import ModelOutput, HumanMessage
 from derisk.core.awel import BaseOperator, CommonLLMHttpRequestBody
@@ -662,14 +662,83 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
     logger.info("/controller/model/types")
     try:
         types = set()
-        models = await controller.get_all_instances(healthy_only=True)
-        for model in models:
-            worker_name, worker_type = model.model_name.split("@")
-            if worker_type == "llm" and worker_name not in [
-                "codegpt_proxyllm",
-                "text2sql_proxyllm",
-            ]:
-                types.add(worker_name)
+        config_models_found = False
+
+        # 1. Get models from system_app.config (JSON configuration) - PRIORITY
+        system_app = SystemApp.get_instance()
+        if system_app and system_app.config:
+            # PRIORITY 1: Try app_config from configs dict (JSON config source)
+            # This is the most reliable source as it's always updated via /api/v1/config/import
+            app_config = system_app.config.configs.get("app_config")
+            agent_llm_conf = None
+
+            if app_config:
+                agent_llm_attr = getattr(app_config, "agent_llm", None)
+                if agent_llm_attr:
+                    # Convert frontend format to backend format
+                    agent_llm_dict = (
+                        agent_llm_attr.model_dump(mode="json")
+                        if hasattr(agent_llm_attr, "model_dump")
+                        else dict(agent_llm_attr)
+                    )
+                    # Convert providers -> provider, models -> model
+                    if "providers" in agent_llm_dict:
+                        providers = agent_llm_dict.pop("providers")
+                        if isinstance(providers, list):
+                            converted = []
+                            for p in providers:
+                                if isinstance(p, dict):
+                                    cp = dict(p)
+                                    if "models" in cp:
+                                        cp["model"] = cp.pop("models")
+                                    converted.append(cp)
+                            agent_llm_dict["provider"] = converted
+                    agent_llm_conf = agent_llm_dict
+
+            # PRIORITY 2: Try "agent.llm" direct key (fallback for TOML config)
+            if not agent_llm_conf:
+                agent_llm_conf = system_app.config.get("agent.llm")
+
+            # PRIORITY 3: If not found, try "agent" -> "llm" (nested dict access)
+            if not agent_llm_conf:
+                agent_conf = system_app.config.get("agent")
+                if isinstance(agent_conf, dict):
+                    agent_llm_conf = agent_conf.get("llm")
+
+            # PRIORITY 4: Check for flattened keys (fallback)
+            if not agent_llm_conf:
+                flattened = system_app.config.get_all_by_prefix("agent.llm.")
+                if flattened:
+                    agent_llm_conf = {}
+                    prefix_len = len("agent.llm.")
+                    for k, v in flattened.items():
+                        agent_llm_conf[k[prefix_len:]] = v
+
+            # Parse models from Multi-Provider List Structure [[agent.llm.provider]]
+            if agent_llm_conf and isinstance(agent_llm_conf.get("provider"), list):
+                providers = agent_llm_conf.get("provider")
+                for p_conf in providers:
+                    if isinstance(p_conf, dict) and "model" in p_conf:
+                        p_models = p_conf.get("model")
+                        if isinstance(p_models, list):
+                            for m in p_models:
+                                if isinstance(m, dict) and "name" in m:
+                                    m_name = m.get("name")
+                                    # Add model name to types
+                                    types.add(m_name)
+                                    config_models_found = True
+
+        # 2. Only get models from controller if no config models found (fallback)
+        if not config_models_found:
+            models = await controller.get_all_instances(healthy_only=True)
+            for model in models:
+                worker_name, worker_type = model.model_name.split("@")
+                if worker_type == "llm" and worker_name not in [
+                    "codegpt_proxyllm",
+                    "text2sql_proxyllm",
+                ]:
+                    types.add(worker_name)
+
         return Result.succ(list(types))
 
     except Exception as e:

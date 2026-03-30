@@ -38,8 +38,8 @@ export function parseChunkData(
   visParser: VisParser,
 ) {
 
-  let answerText = preText || '';
-  let midMsgObject = preMidMsg || {
+  const answerText = preText || '';
+  const midMsgObject = preMidMsg || {
     nodeId: '',
     text: '',
   }; 
@@ -164,7 +164,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
 
       const params = { ...data, app_code };
       const isIncremental = data?.ext_info?.incremental;
-      let answerText = "";
+      const answerText = "";
       let midMsgObject = { nodeId: "", text: "" };
       const visParser = new VisParser();
       
