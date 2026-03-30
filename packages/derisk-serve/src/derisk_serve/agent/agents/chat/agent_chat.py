@@ -207,6 +207,16 @@ class AgentChat(BaseComponent, ABC):
             kanban_db_storage=kanban_db_storage,
             todo_db_storage=todo_db_storage,
         )
+
+        # Register GptsMemory to system_app for file_dispatch.py to access
+        try:
+            from derisk.component import ComponentType
+
+            self.system_app.register_instance(self.memory)
+            logger.info("[AgentChat] Registered GptsMemory to system_app")
+        except Exception as e:
+            logger.warning(f"[AgentChat] Failed to register GptsMemory: {e}")
+
         self.llm_provider = llm_provider
         self.agent_memory_map = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}
