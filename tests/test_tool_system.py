@@ -5,7 +5,7 @@
 """
 
 import pytest
-from derisk.agent.tools_v2.tool_base import (
+from derisk.agent.tools import (
     ToolBase,
     ToolMetadata,
     ToolResult,
@@ -14,7 +14,7 @@ from derisk.agent.tools_v2.tool_base import (
     ToolRegistry,
     tool_registry,
 )
-from derisk.agent.tools_v2.bash_tool import BashTool
+from derisk.agent.tools.builtin.shell import BashTool
 
 
 class TestToolBase:

@@ -74,6 +74,9 @@ class BaseBuiltinAgent(ProductionAgent):
         sandbox_manager: Optional[SandboxManager] = None,
         memory: Optional[Any] = None,
         use_persistent_memory: bool = False,
+        gpts_memory: Optional[Any] = None,
+        conv_id: Optional[str] = None,
+        session_id: Optional[str] = None,
         # UnifiedCompactionPipeline 配置参数
         enable_compaction_pipeline: bool = True,
         agent_file_system: Optional[Any] = None,
@@ -94,6 +97,9 @@ class BaseBuiltinAgent(ProductionAgent):
             tool_registry=tool_registry,
             memory=memory,
             use_persistent_memory=use_persistent_memory,
+            gpts_memory=gpts_memory,
+            conv_id=conv_id,
+            session_id=session_id,
             **kwargs,
         )
 

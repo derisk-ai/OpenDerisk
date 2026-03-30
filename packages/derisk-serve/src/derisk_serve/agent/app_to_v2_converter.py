@@ -196,7 +196,7 @@ async def _convert_mcp_resource(resource: Any, resource_value: Any) -> Dict[str,
     tools = {}
 
     try:
-        from derisk.agent.core_v2.tools_v2.mcp_tools import (
+        from derisk.agent.tools.builtin.mcp import (
             MCPToolAdapter,
             MCPToolRegistry,
             mcp_connection_manager,
@@ -266,7 +266,7 @@ async def _load_mcp_tools_from_server(
 
     try:
         from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-        from derisk.agent.core_v2.tools_v2.mcp_tools import MCPToolAdapter
+        from derisk.agent.tools.builtin.mcp import MCPToolAdapter
 
         mcp_pack = MCPToolPack(
             mcp_servers=server_url,

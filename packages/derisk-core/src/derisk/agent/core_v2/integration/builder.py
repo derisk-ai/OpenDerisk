@@ -179,7 +179,7 @@ class V2ApplicationBuilder:
         )
 
     async def _build_tools(self, tools_config: List[Any]) -> Dict[str, Any]:
-        from derisk.agent.tools_v2 import tool_registry, BashTool
+        from derisk.agent.tools import tool_registry, BashTool
 
         tools = {}
 
