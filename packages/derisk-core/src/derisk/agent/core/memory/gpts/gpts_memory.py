@@ -471,6 +471,10 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         self._kanban_db_storage = kanban_db_storage
         self._todo_db_storage = todo_db_storage
 
+    def init_app(self, system_app):
+        """Initialize with system app (required for component registration)."""
+        pass
+
     @property
     def file_memory(self) -> AgentFileMemory:
         """获取文件元数据存储.
