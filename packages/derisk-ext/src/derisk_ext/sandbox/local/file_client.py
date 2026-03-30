@@ -34,9 +34,21 @@ class LocalFileClient(FileClient):
     """
 
     def __init__(
-        self, sandbox_id: str, work_dir: str, runtime, skill_dir: str = None, **kwargs
+        self,
+        sandbox_id: str,
+        work_dir: str,
+        runtime,
+        skill_dir: str = None,
+        file_storage_client=None,
+        **kwargs,
     ):
-        super().__init__(sandbox_id, work_dir, connection_config=None, **kwargs)
+        super().__init__(
+            sandbox_id,
+            work_dir,
+            connection_config=None,
+            file_storage_client=file_storage_client,
+            **kwargs,
+        )
         self._runtime = runtime
         self._sandbox_id = sandbox_id
         self._logical_work_dir = work_dir
@@ -314,15 +326,72 @@ class LocalFileClient(FileClient):
             raise FileNotFoundError(f"File not found: {file_path}")
 
         file_name = os.path.basename(file_path)
-        file_id = str(uuid.uuid4())
 
-        if self._oss and self._oss._bucket_name:
+        if self._file_storage_client:
+            try:
+                import asyncio
+                from derisk.core.interface.file import FileStorageURI
+
+                bucket = self._oss_bucket
+                oss_path = self.build_oss_path(
+                    f"local_sandbox/{self._sandbox_id}/{file_name}"
+                )
+
+                with open(physical_path, "rb") as f:
+                    uri = await asyncio.to_thread(
+                        self._file_storage_client.save_file,
+                        bucket,
+                        file_name,
+                        f,
+                        storage_type=self._file_storage_client.default_storage_type,
+                        file_id=oss_path,
+                        public_url=True,
+                    )
+
+                if uri.startswith(("http://", "https://")):
+                    preview_url = uri
+                else:
+                    preview_url = await asyncio.to_thread(
+                        self._file_storage_client.get_public_url,
+                        uri,
+                        expire=3600,
+                    )
+
+                fixed_bucket = None
+                try:
+                    storage_system = self._file_storage_client.storage_system
+                    storage_backends = getattr(storage_system, "storage_backends", {})
+                    backend = storage_backends.get(
+                        self._file_storage_client.default_storage_type
+                    )
+                    if backend:
+                        fixed_bucket = getattr(backend, "fixed_bucket", None)
+                except Exception:
+                    pass
+
+                if fixed_bucket:
+                    full_object_name = f"{fixed_bucket}/{bucket}/{oss_path}"
+                elif bucket:
+                    full_object_name = f"{bucket}/{oss_path}"
+                else:
+                    full_object_name = oss_path
+
+                return OSSFile(
+                    object_name=full_object_name,
+                    object_url=preview_url,
+                    temp_url=preview_url,
+                    status="completed",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to upload via FileStorageClient: {e}")
+
+        if self.oss and self.oss.bucket_name:
             try:
                 oss_path = self.build_oss_path(
                     f"local_sandbox/{self._sandbox_id}/{file_name}"
                 )
-                self._oss.upload_file(physical_path, oss_path)
-                temp_url = self._oss.generate_presigned_url(oss_path, download=True)
+                self.oss.upload_file(physical_path, oss_path)
+                temp_url = self.oss.generate_presigned_url(oss_path, download=True)
                 return OSSFile(
                     object_name=oss_path,
                     object_url=temp_url,

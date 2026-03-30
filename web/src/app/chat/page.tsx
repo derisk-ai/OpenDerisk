@@ -397,7 +397,19 @@ if (initMessage.model) {
 
          setChatInParams(finalChatInParams);
 
-        debouncedChat.run(initMessage.message, {
+        // Build user_input with resources (same as unified-chat-input.tsx)
+        let userContent: UserChatContent;
+        if (fileResources.length > 0) {
+          const messages: any[] = [...fileResources];
+          if (initMessage.message?.trim()) {
+            messages.push({ type: 'text', text: initMessage.message });
+          }
+          userContent = { role: 'user', content: messages };
+        } else {
+          userContent = initMessage.message;
+        }
+
+        debouncedChat.run(userContent, {
           app_code: appInfo?.app_code,
           ...(finalChatInParams?.length && {
             chat_in_params: finalChatInParams,

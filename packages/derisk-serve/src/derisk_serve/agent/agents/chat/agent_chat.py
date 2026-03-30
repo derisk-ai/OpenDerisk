@@ -1,10 +1,12 @@
 import asyncio
 import json
 import logging
+import traceback
 import uuid
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Union, Optional, List, Dict, Any, Type, Tuple, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import orjson
 from fastapi import BackgroundTasks
@@ -21,8 +23,13 @@ from derisk.agent import (
     GptsMemory,
     LLMConfig,
     ResourceType,
+    ActionOutput,
+    Agent,
+    AgentMessage,
+    ProfileConfig,
     ShortTermMemory,
 )
+from derisk.agent.core.agent_alias import AgentAliasManager, resolve_agent_name
 from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
@@ -171,10 +178,6 @@ class GlobalSandboxManagerCache:
                 logger.exception(
                     f"[Sandbox]清理sandbox_manager失败，key={key}, error={str(e)}"
                 )
-        else:
-            logger.info(
-                f"[Sandbox]清理sandbox_manager（无client），key={key}, 当前运行中沙箱数量={len(cls._repository)}"
-            )
 
 
 class AgentChat(BaseComponent, ABC):
@@ -204,6 +207,16 @@ class AgentChat(BaseComponent, ABC):
             kanban_db_storage=kanban_db_storage,
             todo_db_storage=todo_db_storage,
         )
+
+        # Register GptsMemory to system_app for file_dispatch.py to access
+        try:
+            from derisk.component import ComponentType
+
+            self.system_app.register_instance(self.memory)
+            logger.info("[AgentChat] Registered GptsMemory to system_app")
+        except Exception as e:
+            logger.warning(f"[AgentChat] Failed to register GptsMemory: {e}")
+
         self.llm_provider = llm_provider
         self.agent_memory_map = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}
@@ -295,6 +308,19 @@ class AgentChat(BaseComponent, ABC):
         async def _create_sandbox_manager() -> SandboxManager:
             app_config = self.system_app.config.configs.get("app_config")
             sandbox_config: Optional[SandboxConfigParameters] = app_config.sandbox
+
+            file_storage_client = None
+            try:
+                from derisk.core.interface.file import FileStorageClient
+
+                file_storage_client = FileStorageClient.get_instance(self.system_app)
+                if file_storage_client:
+                    logger.info(
+                        f"[AgentChat] FileStorageClient retrieved for sandbox creation"
+                    )
+            except Exception as e:
+                logger.warning(f"[AgentChat] Failed to get FileStorageClient: {e}")
+
             sandbox_client = await AutoSandbox.create(
                 user_id=context.staff_no or sandbox_config.user_id,
                 agent=sandbox_config.agent_name,
@@ -302,6 +328,7 @@ class AgentChat(BaseComponent, ABC):
                 template=sandbox_config.template_id,
                 work_dir=sandbox_config.work_dir,
                 skill_dir=sandbox_config.skill_dir,
+                file_storage_client=file_storage_client,
                 oss_ak=sandbox_config.oss_ak,
                 oss_sk=sandbox_config.oss_sk,
                 oss_endpoint=sandbox_config.oss_endpoint,
@@ -1113,8 +1140,25 @@ class AgentChat(BaseComponent, ABC):
                 if employees is not None and len(employees) == 1:
                     recipient = employees[0]
                 else:
+                    # 解析Agent别名（历史数据兼容）
+                    resolved_agent_type = resolve_agent_name(app.agent)
+
+                    if resolved_agent_type != app.agent:
+                        logger.info(
+                            f"[AgentChat] Resolved agent alias: {app.agent} -> {resolved_agent_type}"
+                        )
+
                     cls: Type[ConversableAgent] = self.agent_manage.get_by_name(
-                        app.agent
+                        resolved_agent_type
+                    )
+
+                    if resolved_agent_type != app.agent:
+                        logger.info(
+                            f"[AgentChat] Resolved agent alias: {app.agent} -> {resolved_agent_type}"
+                        )
+
+                    cls: Type[ConversableAgent] = self.agent_manage.get_by_name(
+                        resolved_agent_type
                     )
 
                     ## 处理agent资源内容
@@ -1502,15 +1546,23 @@ class AgentChat(BaseComponent, ABC):
                         except Exception as e:
                             logger.warning(f"Failed to process MCP resource: {e}")
                     else:
-                        dynamic_resources.append(
-                            AgentResource.from_dict(
-                                {
-                                    "type": sub_type,
-                                    "name": f"用户选择了[{sub_type}]资源",
-                                    "value": param_value,
-                                }
+                        # Skip FILE_RESOURCES (common_file, text_file, excel_file, image_file)
+                        # These are handled separately in _dispatch_uploaded_files
+                        if sub_type not in FILE_RESOURCES:
+                            dynamic_resources.append(
+                                AgentResource.from_dict(
+                                    {
+                                        "type": sub_type,
+                                        "name": f"用户选择了[{sub_type}]资源",
+                                        "value": param_value,
+                                    }
+                                )
                             )
-                        )
+                        else:
+                            logger.info(
+                                f"Skipping file resource type {sub_type} in chat_in_params_to_resource, "
+                                f"will be handled in _dispatch_uploaded_files"
+                            )
 
                     if chat_in_param.sub_type == DeriskSkillResource.type():
                         skill_param_value = chat_in_param.param_value
@@ -1785,10 +1837,18 @@ class AgentChat(BaseComponent, ABC):
         for param in chat_in_params:
             if param.param_type == "resource":
                 try:
+                    logger.debug(
+                        f"[FileDispatch] Processing param: sub_type={param.sub_type}, param_value type={type(param.param_value)}"
+                    )
+
                     if isinstance(param.param_value, str):
                         value_data = json.loads(param.param_value)
                     else:
                         value_data = param.param_value
+
+                    logger.debug(
+                        f"[FileDispatch] Parsed value_data type={type(value_data)}, content={value_data}"
+                    )
 
                     if isinstance(value_data, list):
                         file_resources.extend(value_data)
@@ -1796,6 +1856,10 @@ class AgentChat(BaseComponent, ABC):
                         file_resources.append(value_data)
                 except Exception as e:
                     logger.warning(f"Failed to parse file resource: {e}")
+
+        logger.info(
+            f"[FileDispatch] Total file_resources count: {len(file_resources)}, content: {file_resources}"
+        )
 
         if not file_resources:
             return None

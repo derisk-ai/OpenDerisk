@@ -172,14 +172,30 @@ def parse_provider_configs(
                 if "name" in final_conf_dict and "model" not in final_conf_dict:
                     final_conf_dict["model"] = model_name
 
-                # 添加多模态配置：is_multimodal 字段（默认为 False）
-                # 如果配置中指定了 is_multimodal 或 supports_vision，则使用该值
                 is_multimodal = m_conf.get(
                     "is_multimodal", m_conf.get("supports_vision", False)
                 )
                 final_conf_dict["is_multimodal"] = bool(is_multimodal)
 
-                # key 使用 "provider/model" 格式
+                api_key_ref = final_conf_dict.get("api_key_ref", "")
+                if api_key_ref and not final_conf_dict.get("api_key"):
+                    try:
+                        from derisk_core.config.encryption import (
+                            ConfigReferenceResolver,
+                        )
+
+                        resolved_value = ConfigReferenceResolver.resolve(api_key_ref)
+                        if resolved_value and isinstance(resolved_value, str):
+                            final_conf_dict["api_key"] = resolved_value
+                            logger.debug(
+                                f"Resolved api_key_ref for {provider_name}/{model_name}: "
+                                f"{resolved_value[:8]}...{resolved_value[-4:] if len(resolved_value) > 12 else ''}"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to resolve api_key_ref for {provider_name}/{model_name}: {e}"
+                        )
+
                 config_key = f"{provider_name}/{model_name}"
                 model_configs[config_key] = final_conf_dict
 

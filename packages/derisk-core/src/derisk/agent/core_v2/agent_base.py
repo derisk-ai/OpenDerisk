@@ -174,6 +174,16 @@ class AgentBase(ABC):
         self._use_persistent_memory = use_persistent_memory
         self._memory_initialized = False
 
+        # VIS 推送管理器
+        from .vis_push_manager import create_vis_push_manager
+
+        self._vis_push_manager = create_vis_push_manager(
+            agent_info=info,
+            gpts_memory=gpts_memory,
+            conv_id=conv_id,
+            session_id=None,  # 稍后设置
+        )
+
     @property
     def state(self) -> AgentState:
         """获取当前状态"""
@@ -580,6 +590,7 @@ class AgentBase(ABC):
         # 如果使用 GptsMemory 且没有 conv_id，使用 session_id 作为 conv_id
         if self._gpts_memory is not None and not self._conv_id:
             self._conv_id = session_id
+            self._vis_push_manager.set_gpts_memory(self._gpts_memory, self._conv_id)
 
         return self
 
@@ -613,6 +624,9 @@ class AgentBase(ABC):
         """
         self._gpts_memory = gpts_memory
         self._conv_id = conv_id or self._session_id
+
+        # 更新 VISPushManager
+        self._vis_push_manager.set_gpts_memory(gpts_memory, self._conv_id)
 
         # 重新创建记忆适配器
         if self._gpts_memory is not None:
@@ -687,7 +701,7 @@ class AgentBase(ABC):
         self, message: str, stream: bool = True, **kwargs
     ) -> AsyncIterator[str]:
         """
-        执行主循环 - 支持四层上下文压缩架构
+        执行主循环 - 支持四层上下文压缩架构和VIS推送
 
         四层架构：
         - Layer 1-3: 处理当前轮次的工具输出
@@ -699,7 +713,7 @@ class AgentBase(ABC):
             **kwargs: 额外参数
 
         Yields:
-            str: 响应片段
+            str: 均匀片段
         """
         # Layer 4: 启动新的对话轮次
         await self._start_conversation_round(message)
@@ -714,6 +728,9 @@ class AgentBase(ABC):
 
         self._current_step = 0
         final_response = ""
+
+        # 初始化 VIS 推送
+        self._vis_push_manager.init_message(goal=message)
 
         while self._current_step < self.info.max_steps:
             try:
@@ -734,8 +751,16 @@ class AgentBase(ABC):
 
                 self.set_state(AgentState.THINKING)
 
+                # 思考阶段
+                thinking_chunks = []
                 if stream:
                     async for chunk in self.think(message, **kwargs):
+                        thinking_chunks.append(chunk)
+                        # 推送 thinking 到 VIS
+                        await self._vis_push_manager.push_thinking(
+                            content=chunk,
+                            is_first_chunk=len(thinking_chunks) == 1,
+                        )
                         yield f"[THINKING] {chunk}"
 
                 decision = await self.decide(message, **kwargs)
@@ -753,6 +778,11 @@ class AgentBase(ABC):
                         metadata={"role": "assistant"},
                     )
 
+                    # 推送最终响应到 VIS
+                    await self._vis_push_manager.push_response(
+                        content=content,
+                        status="complete",
+                    )
                     yield content
                     break
 
@@ -760,12 +790,43 @@ class AgentBase(ABC):
                     tool_name = decision.get("tool_name")
                     tool_args = decision.get("tool_args", {})
 
+                    thought_content = (
+                        "".join(thinking_chunks) if thinking_chunks else None
+                    )
+
                     try:
+                        # 推送工具开始到 VIS
+                        await self._vis_push_manager.push_tool_start(
+                            tool_name=tool_name,
+                            tool_args=tool_args,
+                            thought=thought_content,
+                        )
+
                         result = await self.execute_tool(tool_name, tool_args)
-                        message = self._format_tool_result(tool_name, result)
+                        result_str = self._format_tool_result(tool_name, result)
+
+                        # 推送工具结果到 VIS
+                        await self._vis_push_manager.push_tool_result(
+                            tool_name=tool_name,
+                            result_content=result_str,
+                            tool_args=tool_args,
+                            success=True,
+                            thought=thought_content,
+                        )
+
+                        message = result_str
                     except PermissionDeniedError as e:
-                        message = f"工具执行被拒绝: {e.message}"
-                        yield f"[ERROR] {message}"
+                        error_msg = f"工具执行被拒绝: {e.message}"
+                        # 推送错误到 VIS
+                        await self._vis_push_manager.push_tool_result(
+                            tool_name=tool_name,
+                            result_content=error_msg,
+                            tool_args=tool_args,
+                            success=False,
+                            thought=thought_content,
+                        )
+                        message = error_msg
+                        yield f"[ERROR] {error_msg}"
 
                 elif decision_type == "subagent":
                     subagent = decision.get("subagent")
@@ -776,29 +837,49 @@ class AgentBase(ABC):
                             subagent_name=subagent,
                             task=task,
                         )
-                        message = result.to_llm_message()
+                        subagent_msg = result.to_llm_message()
                         self.add_message(
                             "assistant", f"[子Agent {subagent}] {result.output}"
                         )
+                        # 推送子Agent结果到 VIS
+                        await self._vis_push_manager.push_content(
+                            content=subagent_msg,
+                        )
+                        message = subagent_msg
                     except Exception as e:
-                        message = f"子Agent执行失败: {str(e)}"
-                        yield f"[ERROR] {message}"
+                        error_msg = f"子Agent执行失败: {str(e)}"
+                        await self._vis_push_manager.push_error(error_msg)
+                        message = error_msg
+                        yield f"[ERROR] {error_msg}"
 
                 elif decision_type == "terminate":
+                    await self._vis_push_manager.push_response(
+                        content="",
+                        status="complete",
+                    )
                     yield "[TERMINATE] 执行已完成"
                     break
 
                 else:
-                    yield f"[ERROR] 未知的决策类型: {decision_type}"
+                    error_msg = f"未知的决策类型: {decision_type}"
+                    await self._vis_push_manager.push_error(error_msg)
+                    yield f"[ERROR] {error_msg}"
                     break
 
             except Exception as e:
                 self.set_state(AgentState.ERROR)
-                yield f"[ERROR] 执行出错: {str(e)}"
+                error_msg = f"执行出错: {str(e)}"
+                await self._vis_push_manager.push_error(error_msg)
+                yield f"[ERROR] {error_msg}"
                 break
 
         if self._current_step >= self.info.max_steps:
-            yield f"[WARNING] 达到最大步数限制({self.info.max_steps})"
+            warning_msg = f"达到最大步数限制({self.info.max_steps})"
+            await self._vis_push_manager.push_response(
+                content=warning_msg,
+                status="complete",
+            )
+            yield f"[WARNING] {warning_msg}"
 
         # Layer 4: 完成对话轮次
         await self._complete_conversation_round(final_response)
@@ -817,6 +898,185 @@ class AgentBase(ABC):
             return f"工具 {tool_name} 执行结果:\n{result}"
         else:
             return f"工具 {tool_name} 执行结果: {result}"
+
+    # ========== VIS推送相关 ==========
+
+    def _init_vis_state(self, message_id: str, goal: str = ""):
+        """初始化VIS推送状态"""
+        import uuid
+
+        self._current_message_id = message_id or str(uuid.uuid4().hex)
+        self._accumulated_content = ""
+        self._accumulated_thinking = ""
+        self._is_first_chunk = True
+        self._current_goal = goal
+
+    async def _push_vis_message(
+        self,
+        thinking: Optional[str] = None,
+        content: Optional[str] = None,
+        action_report: Optional[List[Any]] = None,
+        is_first_chunk: bool = False,
+        model: Optional[str] = None,
+        status: str = "running",
+        metrics: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        推送VIS消息到GptsMemory
+
+        Args:
+            thinking: 思考内容增量
+            content: 内容增量
+            action_report: ActionOutput列表
+            is_first_chunk: 是否是第一个chunk
+            model: LLM模型名称
+            status: 执行状态
+            metrics: 性能指标
+        """
+        if not self._gpts_memory or not self._conv_id:
+            logger.debug(f"[AgentBase] GptsMemory未配置，跳过VIS推送")
+            return
+
+        if not self._current_message_id:
+            logger.warning("[AgentBase] message_id未初始化，跳过VIS推送")
+            return
+
+        # 构建完整的stream_msg
+        stream_msg = {
+            "uid": self._current_message_id,
+            "type": "incr",
+            "message_id": self._current_message_id,
+            "conv_id": self._conv_id,
+            "conv_session_uid": self._session_id or self._conv_id,
+            "goal_id": self._current_message_id,
+            "task_goal_id": self._current_message_id,
+            "task_goal": self._current_goal,
+            "app_code": self.info.name,
+            "sender": self.info.name,
+            "sender_name": self.info.name,
+            "sender_role": "assistant",
+            "model": model,
+            "thinking": thinking,
+            "content": content,
+            "avatar": getattr(self.info, "avatar", None),
+            "observation": "",
+            "status": status,
+            "start_time": datetime.now(),
+            "metrics": metrics or {},
+            "prev_content": self._accumulated_content,
+        }
+
+        # 累积内容
+        if thinking:
+            self._accumulated_thinking += thinking
+        if content:
+            self._accumulated_content += content
+
+        # 添加action_report
+        if action_report:
+            stream_msg["action_report"] = action_report
+
+        try:
+            await self._gpts_memory.push_message(
+                self._conv_id,
+                stream_msg=stream_msg,
+                is_first_chunk=is_first_chunk,
+            )
+            self._is_first_chunk = False
+            logger.debug(
+                f"[AgentBase] VIS推送成功: type={thinking and 'thinking' or content and 'content' or 'action'}"
+            )
+        except Exception as e:
+            logger.warning(f"[AgentBase] VIS推送失败: {e}")
+
+    def _build_action_output(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result_content: str,
+        action_id: str,
+        success: bool = True,
+        state: str = "complete",
+        thought: Optional[str] = None,
+    ) -> List[Any]:
+        """
+        构建ActionOutput对象（用于VIS渲染）
+
+        Args:
+            tool_name: 工具名称
+            tool_args: 工具参数
+            result_content: 执行结果内容
+            action_id: 动作ID
+            success: 是否成功
+            state: 状态（running/complete/failed）
+            thought: 思考内容
+
+        Returns:
+            ActionOutput列表
+        """
+        try:
+            from derisk.agent.core.action.base import ActionOutput
+        except ImportError:
+            logger.warning("[AgentBase] ActionOutput导入失败，返回空列表")
+            return []
+
+        view = result_content[:2000] if result_content else ""
+
+        action_output = ActionOutput(
+            content=result_content,
+            action_id=action_id,
+            action=tool_name,
+            action_name=tool_name,
+            name=tool_name,
+            action_input=tool_args,
+            state=state,
+            is_exe_success=success,
+            view=view,
+            stream=False,
+            thought=thought or "",
+        )
+
+        return [action_output]
+
+    def _build_tool_start_action_output(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        action_id: str,
+        thought: Optional[str] = None,
+    ) -> List[Any]:
+        """
+        构建工具开始时的ActionOutput
+
+        Args:
+            tool_name: 工具名称
+            tool_args: 工具参数
+            action_id: 动作ID
+            thought: 思考内容
+
+        Returns:
+            ActionOutput列表
+        """
+        try:
+            from derisk.agent.core.action.base import ActionOutput
+        except ImportError:
+            logger.warning("[AgentBase] ActionOutput导入失败，返回空列表")
+            return []
+
+        action_output = ActionOutput(
+            content="",
+            action_id=action_id,
+            action=tool_name,
+            action_name=tool_name,
+            name=tool_name,
+            action_input=tool_args,
+            state="running",
+            stream=True,
+            is_exe_success=True,
+            thought=thought or "",
+        )
+
+        return [action_output]
 
     # ========== 辅助方法 ==========
 

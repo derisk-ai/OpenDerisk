@@ -544,6 +544,13 @@ class ProfileConfig(BaseModel):
     )
     examples: str | ConfigInfo | None = DynConfig(None, description="The examples.")
 
+    # Agent别名配置：用于历史数据兼容性
+    aliases: List[str] | ConfigInfo | None = DynConfig(
+        None,
+        is_list=True,
+        description="Agent别名列表，用于历史数据兼容。例如：['ReActMasterV2', 'ReActMaster']",
+    )
+
     system_prompt_template: str | ConfigInfo | None = DynConfig(
         _DEFAULT_SYSTEM_TEMPLATE, description="The prompt template."
     )

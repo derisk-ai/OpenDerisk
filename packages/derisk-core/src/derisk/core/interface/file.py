@@ -233,7 +233,10 @@ class StorageBackend(ABC):
         """
 
     def get_public_url(
-        self, fm: FileMetadata, expire: Optional[int] = None, params: Optional[Dict] = None
+        self,
+        fm: FileMetadata,
+        expire: Optional[int] = None,
+        params: Optional[Dict] = None,
     ) -> Optional[str]:
         """Generate a public URL for an existing file.
 
@@ -524,10 +527,7 @@ class FileStorageSystem:
         return False
 
     def get_public_url(
-        self,
-        uri: str,
-        expire: Optional[int] = None,
-        params: Optional[Dict] = None
+        self, uri: str, expire: Optional[int] = None, params: Optional[Dict] = None
     ) -> str:
         """Generate a public URL for an existing file.
 
@@ -667,7 +667,9 @@ class FileStorageClient(BaseComponent):
         Returns:
             str: The file URI
         """
-        logger.info(f"save_file storage_type is {storage_type}, file_name is {file_name}")
+        logger.info(
+            f"save_file storage_type is {storage_type}, file_name is {file_name}"
+        )
 
         if not storage_type:
             storage_type = self.default_storage_type
@@ -806,10 +808,7 @@ class FileStorageClient(BaseComponent):
         return self.storage_system.list_files(bucket, filters)
 
     def get_public_url(
-        self,
-        uri: str,
-        expire: Optional[int] = None,
-        params: Optional[Dict] = None
+        self, uri: str, expire: Optional[int] = None, params: Optional[Dict] = None
     ) -> str:
         """Generate a public URL for an existing file.
 
@@ -959,6 +958,46 @@ class SimpleDistributedStorage(StorageBackend):
                 return True
             except Exception:
                 return False
+
+    def get_public_url(
+        self,
+        fm: FileMetadata,
+        expire: Optional[int] = None,
+        params: Optional[Dict] = None,
+    ) -> Optional[str]:
+        """Generate a public URL for an existing file.
+
+        Args:
+            fm (FileMetadata): The file metadata
+            expire (Optional[int], optional): Expiration time in seconds. Not used for distributed storage.
+            params (Optional[Dict], optional): Additional query parameters. Defaults to None.
+
+        Returns:
+            str: The HTTP URL to access the file
+        """
+        file_id = fm.file_id
+        bucket = fm.bucket
+        node_address = self._parse_node_address(fm)
+
+        # Construct HTTP URL
+        url = f"http://{node_address}{self._api_prefix}/{bucket}/{file_id}"
+
+        # Add query parameters from metadata and params
+        query_params = {}
+        if fm.custom_metadata:
+            # Add custom metadata as query params
+            for key, value in fm.custom_metadata.items():
+                if value is not None:
+                    query_params[key] = value
+        if params:
+            query_params.update(params)
+
+        if query_params:
+            from urllib.parse import urlencode
+
+            url = f"{url}?{urlencode(query_params)}"
+
+        return url
 
 
 class StreamedBytesIO(io.BytesIO):

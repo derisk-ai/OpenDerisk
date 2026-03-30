@@ -591,11 +591,30 @@ class V2AgentRuntime:
                     logger.info(
                         f"[V2Runtime] 注入 sandbox_manager 到缓存 Agent: {agent_name}"
                     )
+
+            # 注入 GptsMemory（用于VIS推送）
+            if self.gpts_memory and hasattr(agent, "set_gpts_memory"):
+                agent.set_gpts_memory(
+                    self.gpts_memory,
+                    conv_id=context.conv_id,
+                    session_id=context.session_id,
+                )
+                logger.info(f"[V2Runtime] 注入 GptsMemory 到缓存 Agent: {agent_name}")
             return agent
 
         if agent_name in self._agent_factories:
             agent = await self._create_agent_from_factory(agent_name, context, kwargs)
             if agent:
+                # 注入 GptsMemory（用于VIS推送）
+                if self.gpts_memory and hasattr(agent, "set_gpts_memory"):
+                    agent.set_gpts_memory(
+                        self.gpts_memory,
+                        conv_id=context.conv_id,
+                        session_id=context.session_id,
+                    )
+                    logger.info(
+                        f"[V2Runtime] 注入 GptsMemory 到新创建 Agent: {agent_name}"
+                    )
                 self._agents[agent_name] = agent
             return agent
 
@@ -607,6 +626,16 @@ class V2AgentRuntime:
                 "default", context, {**kwargs, "app_code": agent_name}
             )
             if agent:
+                # 注入 GptsMemory（用于VIS推送）
+                if self.gpts_memory and hasattr(agent, "set_gpts_memory"):
+                    agent.set_gpts_memory(
+                        self.gpts_memory,
+                        conv_id=context.conv_id,
+                        session_id=context.session_id,
+                    )
+                    logger.info(
+                        f"[V2Runtime] 注入 GptsMemory 到 default Agent: {agent_name}"
+                    )
                 self._agents[agent_name] = agent
             return agent
 
@@ -706,6 +735,17 @@ class V2AgentRuntime:
                 logger.info(
                     f"[_execute_stream] Injected interaction gateway into agent"
                 )
+
+<<<<<<< HEAD
+            # 注入 GptsMemory（用于VIS推送）- backup in case _get_or_create_agent missed it
+            if self.gpts_memory and hasattr(agent, "set_gpts_memory"):
+                if not getattr(agent, "_gpts_memory", None):
+                    agent.set_gpts_memory(
+                        self.gpts_memory,
+                        conv_id=context.conv_id,
+                        session_id=context.session_id,
+                    )
+                    logger.info(f"[_execute_stream] Injected GptsMemory into agent")
 
             # 处理 sandbox_file_refs: 更新路径并初始化文件
             sandbox_file_refs = kwargs.pop("sandbox_file_refs", None)

@@ -426,6 +426,21 @@ from .se_hooks import (
     create_se_hooks,
 )
 
+# VIS Push Manager
+from .vis_push_manager import (
+    VISPushManager,
+    VISPushConfig,
+    create_vis_push_manager,
+)
+
+# VIS Push Hooks
+from .vis_push_hooks import (
+    VISPushHook,
+    VISPushThinkHook,
+    VISPushToolHook,
+    create_vis_push_hooks,
+)
+
 __all__ = [
     "AgentInfo",
     "AgentMode",
@@ -879,6 +894,15 @@ __all__ = [
     "MemoryFileSync",
     "PromptFileManager",
     "register_project_memory_hooks",
+    # VIS Push Manager
+    "VISPushManager",
+    "VISPushConfig",
+    "create_vis_push_manager",
+    # VIS Push Hooks
+    "VISPushHook",
+    "VISPushThinkHook",
+    "VISPushToolHook",
+    "create_vis_push_hooks",
 ]
 
 # Enhanced Interaction System

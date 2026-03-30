@@ -263,6 +263,68 @@ def _sync_oauth2_config_from_db():
         logger.warning(f"Failed to sync OAuth2 from database: {e}")
 
 
+def _sync_app_config_to_system_app():
+    """Sync JSON config (agent_llm, default_model, etc.) to system_app.config on startup.
+
+    This ensures that after restart, the LLM configuration saved in derisk.json
+    is properly loaded into system_app.config and ModelConfigCache, making models
+    available immediately without needing manual refresh.
+    """
+    try:
+        from derisk_core.config import ConfigManager
+        from derisk.agent.util.llm.model_config_cache import (
+            ModelConfigCache,
+            parse_provider_configs,
+        )
+
+        cfg = ConfigManager.get()
+
+        agent_llm_conf = getattr(cfg, "agent_llm", None)
+        if not agent_llm_conf:
+            logger.info("No agent_llm config in derisk.json")
+            return
+
+        from derisk.component import SystemApp
+
+        system_app = SystemApp.get_instance()
+        if not system_app:
+            logger.warning("SystemApp not available, cannot sync app config")
+            return
+
+        from derisk_app.openapi.api_v1.config_api import (
+            _convert_agent_llm_to_system_format,
+        )
+
+        agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+
+        system_app.config.set("agent.llm", agent_llm_dict)
+
+        model_configs = parse_provider_configs(agent_llm_dict)
+        if model_configs:
+            ModelConfigCache.register_configs(model_configs)
+
+        model_count = 0
+        for p in agent_llm_dict.get("provider", []):
+            if isinstance(p, dict):
+                model_count += len(p.get("model", []))
+
+        logger.info(
+            f"App config synced: {len(agent_llm_dict.get('provider', []))} providers, "
+            f"{model_count} models registered to ModelConfigCache"
+        )
+
+        default_model = getattr(cfg, "default_model", None)
+        if default_model:
+            default_model_dict = default_model.model_dump(mode="json")
+            system_app.config.set("agent.default_model", default_model_dict)
+            if default_model.model_id:
+                system_app.config.set("agent.default_llm", default_model.model_id)
+            logger.info(f"Default model synced: {default_model.model_id}")
+
+    except Exception as e:
+        logger.warning(f"Failed to sync app config to system_app: {e}")
+
+
 def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp):
     """Initialize app
     If you use gunicorn as a process manager, initialize_app can be invoke in
@@ -290,8 +352,9 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
         param.service.web.database, web_config.disable_alembic_upgrade
     )
 
-    # Load OAuth2 config from database (if exists) to override file config
     _sync_oauth2_config_from_db()
+
+    _sync_app_config_to_system_app()
 
     from derisk_app.component_configs import initialize_components
 

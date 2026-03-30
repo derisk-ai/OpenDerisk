@@ -6,9 +6,9 @@
     "language": "zh",
     "icon": "/agents/agent5.jpg",
     "team_mode": "auto_plan",
-    "agent": "ReActMasterV2",
+    "agent": "BAIZE",
     "team_context": {
-      "teamleader": "ReActMasterV2",
+      "teamleader": "BAIZE",
       "can_ask_user": true,
       "use_sandbox": true
     },

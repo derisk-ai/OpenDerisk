@@ -64,6 +64,41 @@ import type { ToolMetadata } from '@/types/tool';
 
 const { Title, Text } = Typography;
 
+const OSS_REGION_ENDPOINT_MAP: Record<string, string> = {
+  'oss-cn-hangzhou': 'https://oss-cn-hangzhou.aliyuncs.com',
+  'oss-cn-shanghai': 'https://oss-cn-shanghai.aliyuncs.com',
+  'oss-cn-beijing': 'https://oss-cn-beijing.aliyuncs.com',
+  'oss-cn-shenzhen': 'https://oss-cn-shenzhen.aliyuncs.com',
+  'oss-cn-qingdao': 'https://oss-cn-qingdao.aliyuncs.com',
+  'oss-cn-hongkong': 'https://oss-cn-hongkong.aliyuncs.com',
+  'oss-ap-southeast-1': 'https://oss-ap-southeast-1.aliyuncs.com',
+  'oss-ap-southeast-3': 'https://oss-ap-southeast-3.aliyuncs.com',
+  'oss-ap-southeast-5': 'https://oss-ap-southeast-5.aliyuncs.com',
+  'oss-ap-northeast-1': 'https://oss-ap-northeast-1.aliyuncs.com',
+  'oss-eu-west-1': 'https://oss-eu-west-1.aliyuncs.com',
+  'oss-us-west-1': 'https://oss-us-west-1.aliyuncs.com',
+  'oss-us-east-1': 'https://oss-us-east-1.aliyuncs.com',
+};
+
+const S3_REGION_ENDPOINT_MAP: Record<string, string> = {
+  'us-east-1': 'https://s3.us-east-1.amazonaws.com',
+  'us-east-2': 'https://s3.us-east-2.amazonaws.com',
+  'us-west-1': 'https://s3.us-west-1.amazonaws.com',
+  'us-west-2': 'https://s3.us-west-2.amazonaws.com',
+  'eu-west-1': 'https://s3.eu-west-1.amazonaws.com',
+  'eu-west-2': 'https://s3.eu-west-2.amazonaws.com',
+  'eu-west-3': 'https://s3.eu-west-3.amazonaws.com',
+  'eu-central-1': 'https://s3.eu-central-1.amazonaws.com',
+  'ap-northeast-1': 'https://s3.ap-northeast-1.amazonaws.com',
+  'ap-northeast-2': 'https://s3.ap-northeast-2.amazonaws.com',
+  'ap-northeast-3': 'https://s3.ap-northeast-3.amazonaws.com',
+  'ap-southeast-1': 'https://s3.ap-southeast-1.amazonaws.com',
+  'ap-southeast-2': 'https://s3.ap-southeast-2.amazonaws.com',
+  'ap-south-1': 'https://s3.ap-south-1.amazonaws.com',
+  'sa-east-1': 'https://s3.sa-east-1.amazonaws.com',
+  'ca-central-1': 'https://s3.ca-central-1.amazonaws.com',
+};
+
 export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -804,6 +839,15 @@ function FileServiceConfigSection({
                     filterOption={(input, option) => 
                       (option?.value as string)?.toLowerCase().includes(input.toLowerCase())
                     }
+                    onChange={(value) => {
+                      if (value && (isOSS || isS3)) {
+                        const endpointMap = isOSS ? OSS_REGION_ENDPOINT_MAP : S3_REGION_ENDPOINT_MAP;
+                        const endpoint = endpointMap[value as string];
+                        if (endpoint) {
+                          form.setFieldsValue({ endpoint });
+                        }
+                      }
+                    }}
                   >
                     {isOSS && (
                       <>
@@ -857,39 +901,39 @@ function FileServiceConfigSection({
                 >
                   {isOSS && (
                     <>
-                      <Select.Option value="https://oss-cn-hangzhou.aliyuncs.com">杭州 (oss-cn-hangzhou)</Select.Option>
-                      <Select.Option value="https://oss-cn-shanghai.aliyuncs.com">上海 (oss-cn-shanghai)</Select.Option>
-                      <Select.Option value="https://oss-cn-beijing.aliyuncs.com">北京 (oss-cn-beijing)</Select.Option>
-                      <Select.Option value="https://oss-cn-shenzhen.aliyuncs.com">深圳 (oss-cn-shenzhen)</Select.Option>
-                      <Select.Option value="https://oss-cn-qingdao.aliyuncs.com">青岛 (oss-cn-qingdao)</Select.Option>
-                      <Select.Option value="https://oss-cn-hongkong.aliyuncs.com">香港 (oss-cn-hongkong)</Select.Option>
-                      <Select.Option value="https://oss-ap-southeast-1.aliyuncs.com">新加坡 (oss-ap-southeast-1)</Select.Option>
-                      <Select.Option value="https://oss-ap-southeast-3.aliyuncs.com">马来西亚 (oss-ap-southeast-3)</Select.Option>
-                      <Select.Option value="https://oss-ap-southeast-5.aliyuncs.com">印尼 (oss-ap-southeast-5)</Select.Option>
-                      <Select.Option value="https://oss-ap-northeast-1.aliyuncs.com">日本 (oss-ap-northeast-1)</Select.Option>
-                      <Select.Option value="https://oss-eu-west-1.aliyuncs.com">伦敦 (oss-eu-west-1)</Select.Option>
-                      <Select.Option value="https://oss-us-west-1.aliyuncs.com">硅谷 (oss-us-west-1)</Select.Option>
-                      <Select.Option value="https://oss-us-east-1.aliyuncs.com">弗吉尼亚 (oss-us-east-1)</Select.Option>
+                      <Select.Option value="https://oss-cn-hangzhou.aliyuncs.com">https://oss-cn-hangzhou.aliyuncs.com (杭州)</Select.Option>
+                      <Select.Option value="https://oss-cn-shanghai.aliyuncs.com">https://oss-cn-shanghai.aliyuncs.com (上海)</Select.Option>
+                      <Select.Option value="https://oss-cn-beijing.aliyuncs.com">https://oss-cn-beijing.aliyuncs.com (北京)</Select.Option>
+                      <Select.Option value="https://oss-cn-shenzhen.aliyuncs.com">https://oss-cn-shenzhen.aliyuncs.com (深圳)</Select.Option>
+                      <Select.Option value="https://oss-cn-qingdao.aliyuncs.com">https://oss-cn-qingdao.aliyuncs.com (青岛)</Select.Option>
+                      <Select.Option value="https://oss-cn-hongkong.aliyuncs.com">https://oss-cn-hongkong.aliyuncs.com (香港)</Select.Option>
+                      <Select.Option value="https://oss-ap-southeast-1.aliyuncs.com">https://oss-ap-southeast-1.aliyuncs.com (新加坡)</Select.Option>
+                      <Select.Option value="https://oss-ap-southeast-3.aliyuncs.com">https://oss-ap-southeast-3.aliyuncs.com (马来西亚)</Select.Option>
+                      <Select.Option value="https://oss-ap-southeast-5.aliyuncs.com">https://oss-ap-southeast-5.aliyuncs.com (印尼)</Select.Option>
+                      <Select.Option value="https://oss-ap-northeast-1.aliyuncs.com">https://oss-ap-northeast-1.aliyuncs.com (日本)</Select.Option>
+                      <Select.Option value="https://oss-eu-west-1.aliyuncs.com">https://oss-eu-west-1.aliyuncs.com (伦敦)</Select.Option>
+                      <Select.Option value="https://oss-us-west-1.aliyuncs.com">https://oss-us-west-1.aliyuncs.com (硅谷)</Select.Option>
+                      <Select.Option value="https://oss-us-east-1.aliyuncs.com">https://oss-us-east-1.aliyuncs.com (弗吉尼亚)</Select.Option>
                     </>
                   )}
                   {isS3 && (
                     <>
-                      <Select.Option value="https://s3.us-east-1.amazonaws.com">us-east-1 (弗吉尼亚北部)</Select.Option>
-                      <Select.Option value="https://s3.us-east-2.amazonaws.com">us-east-2 (俄亥俄)</Select.Option>
-                      <Select.Option value="https://s3.us-west-1.amazonaws.com">us-west-1 (加利福尼亚北部)</Select.Option>
-                      <Select.Option value="https://s3.us-west-2.amazonaws.com">us-west-2 (俄勒冈)</Select.Option>
-                      <Select.Option value="https://s3.eu-west-1.amazonaws.com">eu-west-1 (爱尔兰)</Select.Option>
-                      <Select.Option value="https://s3.eu-west-2.amazonaws.com">eu-west-2 (伦敦)</Select.Option>
-                      <Select.Option value="https://s3.eu-west-3.amazonaws.com">eu-west-3 (巴黎)</Select.Option>
-                      <Select.Option value="https://s3.eu-central-1.amazonaws.com">eu-central-1 (法兰克福)</Select.Option>
-                      <Select.Option value="https://s3.ap-northeast-1.amazonaws.com">ap-northeast-1 (东京)</Select.Option>
-                      <Select.Option value="https://s3.ap-northeast-2.amazonaws.com">ap-northeast-2 (首尔)</Select.Option>
-                      <Select.Option value="https://s3.ap-northeast-3.amazonaws.com">ap-northeast-3 (大阪)</Select.Option>
-                      <Select.Option value="https://s3.ap-southeast-1.amazonaws.com">ap-southeast-1 (新加坡)</Select.Option>
-                      <Select.Option value="https://s3.ap-southeast-2.amazonaws.com">ap-southeast-2 (悉尼)</Select.Option>
-                      <Select.Option value="https://s3.ap-south-1.amazonaws.com">ap-south-1 (孟买)</Select.Option>
-                      <Select.Option value="https://s3.sa-east-1.amazonaws.com">sa-east-1 (圣保罗)</Select.Option>
-                      <Select.Option value="https://s3.ca-central-1.amazonaws.com">ca-central-1 (加拿大中部)</Select.Option>
+                      <Select.Option value="https://s3.us-east-1.amazonaws.com">https://s3.us-east-1.amazonaws.com (弗吉尼亚北部)</Select.Option>
+                      <Select.Option value="https://s3.us-east-2.amazonaws.com">https://s3.us-east-2.amazonaws.com (俄亥俄)</Select.Option>
+                      <Select.Option value="https://s3.us-west-1.amazonaws.com">https://s3.us-west-1.amazonaws.com (加利福尼亚北部)</Select.Option>
+                      <Select.Option value="https://s3.us-west-2.amazonaws.com">https://s3.us-west-2.amazonaws.com (俄勒冈)</Select.Option>
+                      <Select.Option value="https://s3.eu-west-1.amazonaws.com">https://s3.eu-west-1.amazonaws.com (爱尔兰)</Select.Option>
+                      <Select.Option value="https://s3.eu-west-2.amazonaws.com">https://s3.eu-west-2.amazonaws.com (伦敦)</Select.Option>
+                      <Select.Option value="https://s3.eu-west-3.amazonaws.com">https://s3.eu-west-3.amazonaws.com (巴黎)</Select.Option>
+                      <Select.Option value="https://s3.eu-central-1.amazonaws.com">https://s3.eu-central-1.amazonaws.com (法兰克福)</Select.Option>
+                      <Select.Option value="https://s3.ap-northeast-1.amazonaws.com">https://s3.ap-northeast-1.amazonaws.com (东京)</Select.Option>
+                      <Select.Option value="https://s3.ap-northeast-2.amazonaws.com">https://s3.ap-northeast-2.amazonaws.com (首尔)</Select.Option>
+                      <Select.Option value="https://s3.ap-northeast-3.amazonaws.com">https://s3.ap-northeast-3.amazonaws.com (大阪)</Select.Option>
+                      <Select.Option value="https://s3.ap-southeast-1.amazonaws.com">https://s3.ap-southeast-1.amazonaws.com (新加坡)</Select.Option>
+                      <Select.Option value="https://s3.ap-southeast-2.amazonaws.com">https://s3.ap-southeast-2.amazonaws.com (悉尼)</Select.Option>
+                      <Select.Option value="https://s3.ap-south-1.amazonaws.com">https://s3.ap-south-1.amazonaws.com (孟买)</Select.Option>
+                      <Select.Option value="https://s3.sa-east-1.amazonaws.com">https://s3.sa-east-1.amazonaws.com (圣保罗)</Select.Option>
+                      <Select.Option value="https://s3.ca-central-1.amazonaws.com">https://s3.ca-central-1.amazonaws.com (加拿大中部)</Select.Option>
                     </>
                   )}
                 </Select>

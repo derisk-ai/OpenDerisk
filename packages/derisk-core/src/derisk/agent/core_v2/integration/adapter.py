@@ -52,7 +52,7 @@ class V2MessageConverter:
 
     def _get_vis_tag(self, tag_name: str) -> Optional[Any]:
         from derisk.vis.vis_converter import SystemVisTag
-        
+
         tag_map = {
             "thinking": SystemVisTag.VisThinking.value,
             "tool": SystemVisTag.VisTool.value,
@@ -115,7 +115,7 @@ class V2MessageConverter:
     ) -> str:
         """
         将 V2StreamChunk 转换为 VIS 组件格式
-        
+
         返回 VIS 组件标记，前端可以渲染
         """
         if chunk.type == "thinking":
@@ -130,14 +130,15 @@ class V2MessageConverter:
             return self._render_error(chunk)
         else:
             return chunk.content
-    
+
     def _render_thinking(self, chunk: V2StreamChunk) -> str:
         """渲染思考内容为 VIS 组件 (markdown 代码块格式)"""
         return f"```vis-thinking\n{chunk.content}\n```"
-    
+
     def _render_tool_call(self, chunk: V2StreamChunk) -> str:
         """渲染工具调用为 VIS 组件 (markdown 代码块格式)"""
         import json
+
         tool_name = chunk.metadata.get("tool_name", "unknown")
         tool_data = {
             "name": tool_name,
@@ -145,10 +146,11 @@ class V2MessageConverter:
             "status": "running",
         }
         return f"```vis-tool\n{json.dumps(tool_data, ensure_ascii=False)}\n```"
-    
+
     def _render_tool_result(self, chunk: V2StreamChunk) -> str:
         """渲染工具结果为 VIS 组件 (markdown 代码块格式)"""
         import json
+
         tool_name = chunk.metadata.get("tool_name", "unknown")
         tool_data = {
             "name": tool_name,
@@ -156,11 +158,11 @@ class V2MessageConverter:
             "output": chunk.content,
         }
         return f"```vis-tool\n{json.dumps(tool_data, ensure_ascii=False)}\n```"
-    
+
     def _render_response(self, chunk: V2StreamChunk) -> str:
         """渲染响应内容 - 纯文本格式"""
         return chunk.content or ""
-    
+
     def _render_error(self, chunk: V2StreamChunk) -> str:
         """渲染错误内容"""
         return f"[ERROR]{chunk.content}[/ERROR]"
@@ -196,7 +198,7 @@ class V2ResourceBridge:
 
     def convert_to_v2_tools(self, resources: List[Any]) -> Dict[str, Any]:
         from derisk.agent.resource import BaseTool
-        from derisk.agent.tools_v2 import ToolBase
+        from derisk.agent.tools import ToolBase
 
         tools = {}
         for resource in resources:
@@ -209,7 +211,7 @@ class V2ResourceBridge:
         return tools
 
     def _wrap_v1_tool(self, v1_tool: Any) -> Any:
-        from derisk.agent.tools_v2.tool_base import ToolBase, ToolInfo
+        from derisk.agent.tools.base import ToolBase, ToolMetadata
 
         class V1ToolWrapper(ToolBase):
             def __init__(self, v1_tool):
