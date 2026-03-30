@@ -511,7 +511,7 @@ function SideBar() {
             path: '/users',
           }] : []),
         ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/prompt') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/knowledge') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
       },
     ];
     return items;
