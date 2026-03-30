@@ -662,18 +662,9 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
     logger.info("/controller/model/types")
     try:
         types = set()
+        config_models_found = False
 
-        # 1. Get models from controller (old worker-based models)
-        models = await controller.get_all_instances(healthy_only=True)
-        for model in models:
-            worker_name, worker_type = model.model_name.split("@")
-            if worker_type == "llm" and worker_name not in [
-                "codegpt_proxyllm",
-                "text2sql_proxyllm",
-            ]:
-                types.add(worker_name)
-
-        # 2. Get models from system_app.config (JSON configuration)
+        # 1. Get models from system_app.config (JSON configuration) - PRIORITY
         system_app = SystemApp.get_instance()
         if system_app and system_app.config:
             # Try "agent.llm" direct key
@@ -732,6 +723,18 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
                                     m_name = m.get("name")
                                     # Add model name to types
                                     types.add(m_name)
+                                    config_models_found = True
+
+        # 2. Only get models from controller if no config models found (fallback)
+        if not config_models_found:
+            models = await controller.get_all_instances(healthy_only=True)
+            for model in models:
+                worker_name, worker_type = model.model_name.split("@")
+                if worker_type == "llm" and worker_name not in [
+                    "codegpt_proxyllm",
+                    "text2sql_proxyllm",
+                ]:
+                    types.add(worker_name)
 
         return Result.succ(list(types))
 

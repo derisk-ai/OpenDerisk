@@ -127,17 +127,9 @@ async def test_auth():
 async def model_params(worker_manager: WorkerManager = Depends(get_worker_manager)):
     try:
         params = []
+        config_models_found = False
 
-        # 1. Get models from worker_manager
-        workers = await worker_manager.supported_models()
-        for worker in workers:
-            for model in worker.models:
-                model_dict = model.__dict__
-                model_dict["host"] = worker.host
-                model_dict["port"] = worker.port
-                params.append(model_dict)
-
-        # 2. Get models from system_app.config (JSON configuration)
+        # 1. Get models from system_app.config (JSON configuration) - PRIORITY
         system_app = SystemApp.get_instance() or global_system_app
         if system_app and system_app.config:
             # Try "agent.llm" direct key
@@ -211,6 +203,17 @@ async def model_params(worker_manager: WorkerManager = Depends(get_worker_manage
                                                 "enabled": True,
                                             }
                                         )
+                                    config_models_found = True
+
+        # 2. Only get models from worker_manager if no config models found (fallback)
+        if not config_models_found:
+            workers = await worker_manager.supported_models()
+            for worker in workers:
+                for model in worker.models:
+                    model_dict = model.__dict__
+                    model_dict["host"] = worker.host
+                    model_dict["port"] = worker.port
+                    params.append(model_dict)
 
         return Result.succ(params)
     except Exception as e:
