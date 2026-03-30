@@ -148,9 +148,9 @@ class ReActMasterAgent(ConversableAgent):
 
     profile: ProfileConfig = Field(
         default_factory=lambda: ProfileConfig(
-            name="ReActMasterV2",
-            role="ReActMasterV2",
-            goal="一个遵循最佳实践的 ReAct 代理，通过系统化推理和工具使用高效解决复杂任务。",
+            name="BAIZE",
+            role="BAIZE",
+            goal="白泽，一个遵循最佳ReAct推理范式实践的Agent，通过系统化推理和工具使用高效解决复杂任务。",
             system_prompt_template=None,
             user_prompt_template=None,
             write_memory_template=REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
