@@ -30,6 +30,9 @@ class DBType(Enum):
     Spark = DbInfo("spark", True)
     Doris = DbInfo("doris")
     Hive = DbInfo("hive")
+    GaussDB = DbInfo("gaussdb")
+    openGauss = DbInfo("openGauss")
+    Neo4j = DbInfo("neo4j")
     TuGraph = DbInfo("tugraph")
 
     def value(self) -> str:

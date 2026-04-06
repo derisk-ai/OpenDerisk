@@ -13,6 +13,7 @@ from derisk.util.template_utils import render
 class UpdateType(Enum):
     INCR = "incr"
     ALL = "all"
+    DELETE = "delete"
 
 
 class VisTreeNode(BaseModel):
@@ -219,6 +220,9 @@ class ComponentParser:
         ## 组件嵌套结构更新
         # 新增组件只判断child 里是否有新增即可，不需要所有组件判断
         for child in childs:
+            # DELETE 类型不添加到树中，仅在后续数据合并阶段移除
+            if child.uid in new_cmp_cache and new_cmp_cache[child.uid].type == UpdateType.DELETE:
+                continue
             ## 新增的根结点组件不在组件缓存中，代表新增，直接整棵树放到根节点后面，并进行content更新
             if child.uid not in self.component_cache:
                 self.vis_tree.childs.append(child)
@@ -232,6 +236,11 @@ class ComponentParser:
 
         # 进行组件内容更新，所有组件从组件数据缓存中进行数据合并更新
         for uid, new_cmp in new_cmp_cache.items():
+            if new_cmp.type == UpdateType.DELETE:
+                # DELETE 类型：从缓存和组件树中移除
+                self.component_cache.pop(uid, None)
+                self._remove_from_tree(self.vis_tree, uid)
+                continue
             if uid in self.component_cache:
                 # 组件已经存在，数据按规则更新
                 self.component_cache[uid].data = self._cmp_data_merge(
@@ -295,6 +304,19 @@ class ComponentParser:
                 vis_content = f"```{component_data.tag}\n{json.dumps(component_data.data, default=serialize, ensure_ascii=False)}\n```"
 
             return vis_content
+
+    def _remove_from_tree(self, node: VisTreeNode, uid: str):
+        """递归从组件树中移除指定 uid 的节点"""
+        if not node.childs:
+            return
+        node.childs = [child for child in node.childs if child.uid != uid]
+        for child in node.childs:
+            self._remove_from_tree(child, uid)
+        # 同时清除父节点 content 中对该组件的引用
+        if node.uid in self.component_cache:
+            cmp = self.component_cache[node.uid]
+            if cmp.content and isinstance(cmp.content, str) and f"{{{{cmp['{uid}']}}}}" in cmp.content:
+                cmp.content = cmp.content.replace(f"{{{{cmp['{uid}']}}}}", "")
 
     def init_vis_tree(self) -> VisTreeNode:
         return VisTreeNode(uid=DEFAULT_COMPONENT_UID, childs=[])

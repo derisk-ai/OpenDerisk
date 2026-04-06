@@ -25,7 +25,7 @@ import { VFile } from 'vfile';
 // ============== 类型定义 ==============
 
 interface VisItem {
-  type: 'incr' | 'all';
+  type: 'incr' | 'all' | 'delete';
   uid: string;
   dynamic?: boolean;
   markdown?: string;
@@ -252,6 +252,12 @@ export class VisBaseParser {
       const uid = incrJson.uid;
       if (!uid) return;
 
+      // DELETE 类型：从组件树中移除该节点
+      if (incrJson.type === 'delete') {
+        this.removeNodeByUid(uid);
+        return;
+      }
+
       // 通过索引快速查找目标节点
       const existingEntry = this.uidIndex.get(uid);
 
@@ -266,6 +272,44 @@ export class VisBaseParser {
 
     // 重建索引
     this.rebuildIndex();
+  }
+
+  /**
+   * 根据 UID 从 AST 树中移除节点
+   * 支持 VIS DELETE 协议 - 删除已渲染的组件
+   */
+  private removeNodeByUid(uid: string): void {
+    const entry = this.uidIndex.get(uid);
+    if (!entry) return;
+
+    try {
+      if (entry.nodeType === 'ast') {
+        // 顶层 AST 节点：从 astRoot.children 中移除
+        if (this.astRoot) {
+          const idx = this.astRoot.children.indexOf(entry.node);
+          if (idx !== -1) {
+            this.astRoot.children.splice(idx, 1);
+          }
+        }
+      } else if (entry.nodeType === 'item') {
+        // items 数组中的元素：从宿主的 items 中移除
+        if (entry.itemsHostNode && entry.itemIndex !== undefined) {
+          const hostJson = safeJsonParse(entry.itemsHostNode.value) as VisItem;
+          if (hostJson.items) {
+            hostJson.items = hostJson.items.filter((item: any) => item.uid !== uid);
+            entry.itemsHostNode.value = JSON.stringify(hostJson);
+          }
+        } else if (entry.itemsHost && entry.itemIndex !== undefined) {
+          if (entry.itemsHost.items) {
+            entry.itemsHost.items = entry.itemsHost.items.filter((item: any) => item.uid !== uid);
+          }
+        }
+      }
+      // 从索引中移除
+      this.uidIndex.delete(uid);
+    } catch (e) {
+      console.error(`[removeNodeByUid] Error removing uid=${uid}:`, e);
+    }
   }
 
   /**

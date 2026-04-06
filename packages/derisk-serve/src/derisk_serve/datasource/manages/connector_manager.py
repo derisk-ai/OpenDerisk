@@ -1,6 +1,7 @@
 """Connection manager."""
 
 import logging
+import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Type
 
 from derisk.component import BaseComponent, ComponentType, SystemApp
@@ -38,8 +39,13 @@ class ConnectorManager(BaseComponent):
     @classmethod
     def pkg_import(cls):
         from derisk.datasource.rdbms.base import RDBMSConnector  # noqa: F401
-        from derisk_ext.datasource.conn_tugraph import TuGraphConnector  # noqa: F401
 
+        # Graph / NoSQL connectors
+        from derisk_ext.datasource.conn_tugraph import TuGraphConnector  # noqa: F401
+        from derisk_ext.datasource.conn_neo4j import Neo4jConnector  # noqa: F401
+        from derisk_ext.datasource.conn_spark import SparkConnector  # noqa: F401
+
+        # RDBMS connectors
         from derisk_ext.datasource.rdbms.conn_mysql import MySQLConnector  # noqa: F401
         from derisk_ext.datasource.rdbms.conn_oceanbase import (  # noqa: F401
             OceanBaseConnector,
@@ -47,10 +53,41 @@ class ConnectorManager(BaseComponent):
         from derisk_ext.datasource.rdbms.conn_postgresql import (  # noqa: F401
             PostgreSQLConnector,
         )
-        from derisk_ext.datasource.rdbms.conn_sqlite import (
-            SQLiteConnector,  # noqa: F401
+        from derisk_ext.datasource.rdbms.conn_sqlite import (  # noqa: F401
+            SQLiteConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_duckdb import (  # noqa: F401
+            DuckDbConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_mssql import (  # noqa: F401
+            MSSQLConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_oracle import (  # noqa: F401
+            OracleConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_vertica import (  # noqa: F401
+            VerticaConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_clickhouse import (  # noqa: F401
+            ClickhouseConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_starrocks import (  # noqa: F401
+            StarRocksConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_doris import (  # noqa: F401
+            DorisConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_hive import (  # noqa: F401
+            HiveConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_gaussdb import (  # noqa: F401
+            GaussDBConnector,
+        )
+        from derisk_ext.datasource.rdbms.conn_opengauss import (  # noqa: F401
+            openGaussConnector,
         )
 
+        # Dialect extensions
         from derisk_ext.datasource.rdbms.dialect.oceanbase.ob_dialect import (  # noqa: F401
             OBDialect,
         )
@@ -155,6 +192,9 @@ class ConnectorManager(BaseComponent):
         connect_instance = self.get_cls_by_dbtype(db_type.value())
         if db_type.is_file_db():
             db_path = db_config.get("db_path")
+            # Resolve relative paths to absolute
+            if db_path and not os.path.isabs(db_path):
+                db_path = os.path.abspath(db_path)
             return connect_instance.from_file_path(db_path)  # type: ignore
         else:
             db_host = db_config.get("db_host")

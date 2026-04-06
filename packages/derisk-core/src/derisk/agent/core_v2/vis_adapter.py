@@ -331,6 +331,44 @@ class CoreV2VisAdapter:
                 "running_window": self.generate_running_window(),
             }
     
+    async def generate_vis_manus_output(
+        self,
+    ) -> Optional[str]:
+        """
+        生成 Manus 布局 VIS 输出
+
+        使用 DeriskIncrVisManusConverter 将步骤数据转换为 manus-left-panel + manus-right-panel
+
+        Returns:
+            VIS 输出 JSON 字符串
+        """
+        try:
+            from derisk_ext.vis.derisk.derisk_vis_manus_converter import DeriskIncrVisManusConverter
+
+            messages = self._steps_to_gpts_messages()
+
+            if not messages:
+                return None
+
+            converter = DeriskIncrVisManusConverter()
+
+            vis_output = await converter.visualization(
+                messages=messages,
+                senders_map={},
+                main_agent_name=self.agent_name,
+                is_first_chunk=True,
+                is_first_push=True,
+            )
+
+            return vis_output
+
+        except ImportError:
+            logger.warning("DeriskIncrVisManusConverter not available")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to generate Manus VIS output: {e}")
+            return None
+
     def clear(self):
         """清空数据"""
         self.steps.clear()

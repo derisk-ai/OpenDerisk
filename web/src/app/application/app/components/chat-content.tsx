@@ -127,7 +127,8 @@ function ChatContent() {
             setCanAbort(true);
             if (message) {
               if (data?.incremental) {
-                tempHistory[index].context += message;
+                // VisParser.update() 返回的是完整合并状态，直接替换而非追加
+                tempHistory[index].context = message;
                 tempHistory[index].thinking = false;
               } else {
                 tempHistory[index].context = message;

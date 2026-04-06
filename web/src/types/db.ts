@@ -75,3 +75,124 @@ export type ChatFeedBackSchema = {
 export type PostDbRefreshParams = {
   id: number | string;
 };
+
+// ============================================================
+// Database Spec & Learning Types
+// ============================================================
+
+export type LearningTaskRequest = {
+  task_type?: 'full_learn' | 'single_table';
+  table_name?: string;
+};
+
+export type LearningTaskResponse = {
+  id: number;
+  datasource_id: number;
+  task_type: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  total_tables: number | null;
+  processed_tables: number;
+  error_message: string | null;
+  trigger_type: string;
+  gmt_created: string | null;
+  gmt_modified: string | null;
+};
+
+export type DbSpecTableEntry = {
+  table_name: string;
+  summary: string;
+  row_count: number | null;
+  column_count: number;
+  group?: string;
+};
+
+export type DbSpecResponse = {
+  datasource_id: number;
+  db_name: string;
+  db_type: string;
+  table_count: number | null;
+  spec_content: DbSpecTableEntry[];
+  group_config: Record<string, any> | null;
+  status: 'ready' | 'generating' | 'failed';
+  gmt_created: string | null;
+  gmt_modified: string | null;
+};
+
+export type TableSpecSummary = {
+  table_name: string;
+  table_comment: string | null;
+  row_count: number | null;
+  column_count: number;
+  group_name: string | null;
+};
+
+export type TableColumnDef = {
+  name: string;
+  type: string;
+  nullable: boolean;
+  default: string | null;
+  comment: string | null;
+  pk: boolean;
+};
+
+export type TableIndexDef = {
+  name: string;
+  columns: string[];
+  unique: boolean;
+};
+
+export type TableSpecDetail = {
+  table_name: string;
+  table_comment: string | null;
+  row_count: number | null;
+  columns: TableColumnDef[];
+  indexes: TableIndexDef[];
+  sample_data: {
+    columns: string[];
+    rows: any[][];
+  } | null;
+  create_ddl: string | null;
+  group_name: string | null;
+  gmt_created: string | null;
+  gmt_modified: string | null;
+};
+
+export type TableDataPreview = {
+  columns: string[];
+  rows: any[][];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+// ============================================================
+// Sensitive Column Masking Types
+// ============================================================
+
+export type SensitiveColumnConfig = {
+  id?: number;
+  datasource_id: number;
+  table_name: string;
+  column_name: string;
+  sensitive_type: string;
+  masking_mode: string;
+  confidence: number | null;
+  source: 'auto' | 'manual';
+  enabled: boolean;
+};
+
+export const SENSITIVE_TYPES = [
+  'phone',
+  'email',
+  'id_card',
+  'bank_card',
+  'address',
+  'name',
+  'password',
+  'token',
+  'ip_address',
+  'custom',
+] as const;
+
+export const MASKING_MODES = ['mask', 'token', 'none'] as const;

@@ -1,0 +1,28 @@
+[
+  {
+    "app_code": "manus-agent",
+    "app_name": "Manus Agent",
+    "app_describe": "Manus双面板布局Agent，左面板展示执行步骤和思考过程，右面板展示详细输出（终端/代码/HTML预览/技能等）。",
+    "language": "zh",
+    "icon": "/agents/agent5.jpg",
+    "team_mode": "auto_plan",
+    "agent": "BAIZE",
+    "team_context": {
+      "teamleader": "BAIZE",
+      "can_ask_user": true,
+      "use_sandbox": true
+    },
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": []
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "vis_manus",
+        "incremental": true,
+        "reuse_name": "vis_manus"
+      }
+    },
+    "published": true
+  }
+]

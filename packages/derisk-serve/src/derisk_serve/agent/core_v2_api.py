@@ -33,7 +33,41 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v2", tags=["Core_v2 Agent"])
 
-_vis_converter = CoreV2VisWindow3Converter()
+_vis_converter_default = CoreV2VisWindow3Converter()
+
+
+async def _resolve_vis_converter(app_code: str):
+    """根据应用的 layout 配置动态选择 VIS 转换器"""
+    try:
+        core_v2 = get_core_v2()
+        from derisk_serve.building.app.config import SERVE_SERVICE_COMPONENT_NAME
+        from derisk_serve.building.app.service.service import Service
+
+        app_service = core_v2.system_app.get_component(
+            SERVE_SERVICE_COMPONENT_NAME, Service
+        )
+        gpt_app = await app_service.app_detail(
+            app_code, specify_config_code=None, building_mode=False
+        )
+        if gpt_app and gpt_app.layout and gpt_app.layout.chat_layout:
+            layout_name = gpt_app.layout.chat_layout.name
+            if layout_name == "vis_manus":
+                from derisk_ext.vis.derisk.derisk_vis_manus_converter import (
+                    DeriskIncrVisManusConverter,
+                )
+                logger.info(f"[v2/chat] Using vis_manus converter for app: {app_code}")
+                return DeriskIncrVisManusConverter()
+            elif layout_name in ("vis_window3", "derisk_vis_window"):
+                try:
+                    from derisk_ext.vis.derisk.derisk_vis_window3_converter import (
+                        DeriskIncrVisWindow3Converter,
+                    )
+                    return DeriskIncrVisWindow3Converter()
+                except ImportError:
+                    pass
+    except Exception as e:
+        logger.debug(f"[v2/chat] Failed to resolve vis converter for {app_code}: {e}")
+    return _vis_converter_default
 
 
 class ImageURLContent(BaseModel):
@@ -212,6 +246,7 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
         message_id = str(uuid.uuid4().hex)
         accumulated_content = ""
         is_first_chunk = True
+        _vis_converter = await _resolve_vis_converter(app_code)
 
         try:
             async for chunk in core_v2.dispatcher.dispatch_and_wait(
@@ -296,9 +331,26 @@ async def create_session(request: CreateSessionRequest):
 
     app_code = request.app_code or request.agent_name or "default"
 
+    # 解析应用布局配置
+    layout_name = None
+    try:
+        from derisk_serve.building.app.config import SERVE_SERVICE_COMPONENT_NAME
+        from derisk_serve.building.app.service.service import Service
+        app_service = core_v2.system_app.get_component(
+            SERVE_SERVICE_COMPONENT_NAME, Service
+        )
+        gpt_app = await app_service.app_detail(
+            app_code, specify_config_code=None, building_mode=False
+        )
+        if gpt_app and gpt_app.layout and gpt_app.layout.chat_layout:
+            layout_name = gpt_app.layout.chat_layout.name
+    except Exception as e:
+        logger.debug(f"[v2/session] Failed to resolve layout for {app_code}: {e}")
+
     session = await core_v2.runtime.create_session(
         user_id=request.user_id,
         agent_name=app_code,
+        layout_name=layout_name,
     )
 
     # 写入 chat_history 表，以便历史会话列表能够显示
@@ -348,6 +400,83 @@ async def close_session(session_id: str):
         await core_v2.start()
     await core_v2.runtime.close_session(session_id)
     return {"status": "closed"}
+
+
+class StepOutputRequest(BaseModel):
+    """请求某个执行步骤的右面板数据"""
+    session_id: str
+    step_id: str
+    app_code: Optional[str] = None
+
+
+@router.post("/step-output")
+async def get_step_output(request: StepOutputRequest):
+    """
+    获取指定步骤的右面板渲染数据
+
+    用于 Manus 布局中用户切换执行步骤时，按需加载步骤详情。
+    前端不缓存所有步骤数据，仅保留当前步骤，切换时从后端获取。
+    """
+    core_v2 = get_core_v2()
+    if not core_v2.runtime:
+        await core_v2.start()
+
+    session_id = request.session_id
+    step_id = request.step_id
+
+    # 从 gpts_memory 中查找对应步骤的消息
+    if not core_v2.runtime.gpts_memory:
+        return {"error": "Memory not available"}
+
+    try:
+        cache = await core_v2.runtime.gpts_memory._get_cache(session_id)
+        if not cache:
+            return {"error": "Session cache not found"}
+
+        vis_converter = cache.vis_converter
+        if not hasattr(vis_converter, '_steps') or not hasattr(vis_converter, '_outputs'):
+            return {"error": "Converter does not support step output retrieval"}
+
+        # 检查步骤是否存在
+        step = vis_converter._steps.get(step_id)
+        if not step:
+            return {"error": f"Step {step_id} not found"}
+
+        # 构建该步骤的右面板数据
+        from derisk.agent.core_v2.vis_manus_protocol import (
+            ManusActiveStepInfo,
+            ManusRightPanelData,
+            ManusPanelView,
+            ManusStepType,
+        )
+
+        active_step_info = ManusActiveStepInfo(
+            id=step.id,
+            type=step.type,
+            title=step.title,
+            subtitle=step.subtitle,
+            status=step.status,
+            detail=step.description,
+        )
+        outputs = vis_converter._outputs.get(step_id, [])
+
+        panel_view = ManusPanelView.EXECUTION.value
+        if active_step_info.type == ManusStepType.HTML.value:
+            panel_view = ManusPanelView.HTML_PREVIEW.value
+        elif active_step_info.type == ManusStepType.SKILL.value:
+            panel_view = ManusPanelView.SKILL_PREVIEW.value
+
+        right_panel = ManusRightPanelData(
+            active_step=active_step_info,
+            outputs=outputs,
+            is_running=False,
+            panel_view=panel_view,
+        )
+
+        return right_panel.to_dict()
+    except Exception as e:
+        logger.error(f"[v2/step-output] Error: {e}")
+        return {"error": str(e)}
 
 
 @router.get("/status")

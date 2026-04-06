@@ -51,6 +51,22 @@ class Serve(BaseServe):
             system_app.config, SERVE_CONFIG_KEY_PREFIX
         )
         init_endpoints(self._system_app, self._config)
+
+        # Register SQL Guard routes (tightly coupled with datasource)
+        try:
+            from derisk_serve.sql_guard.api.endpoints import (
+                router as sql_guard_router,
+            )
+
+            self._system_app.app.include_router(
+                sql_guard_router,
+                prefix=self._api_prefix,
+                tags=["SQL Guard"],
+            )
+            logger.info("SQL Guard API routes registered")
+        except ImportError:
+            logger.debug("SQL Guard module not available, skipping route registration")
+
         self._app_has_initiated = True
 
     def on_init(self):
@@ -60,6 +76,17 @@ class Serve(BaseServe):
         because they may be not initialized yet
         """
         from .manages.connect_config_db import ConnectConfigEntity as _  # noqa: F401
+        from .manages.db_spec_db import DbSpecEntity as _ds  # noqa: F401
+        from .manages.table_spec_db import TableSpecEntity as _ts  # noqa: F401
+        from .manages.learning_task_db import DbLearningTaskEntity as _lt  # noqa: F401
+
+        # Ensure SQL Guard tables are created
+        try:
+            from derisk_serve.sql_guard.masking.config_db import (
+                SensitiveColumnEntity as _sg,  # noqa: F401
+            )
+        except ImportError:
+            pass
 
     def before_start(self):
         """Called before the start of the application."""

@@ -334,6 +334,7 @@ class V2AgentRuntime:
         agent_name: str = "primary",
         metadata: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
+        layout_name: Optional[str] = None,
     ) -> SessionContext:
         if len(self._sessions) >= self.config.max_concurrent_sessions:
             raise RuntimeError("达到最大并发会话数限制")
@@ -385,26 +386,45 @@ class V2AgentRuntime:
         self._message_queues[session_id] = asyncio.Queue(maxsize=100)
 
         if self.gpts_memory:
-            try:
-                from derisk_ext.vis.derisk.derisk_vis_window3_converter import (
-                    DeriskIncrVisWindow3Converter,
-                )
-
-                vis_converter = DeriskIncrVisWindow3Converter()
-                logger.info(
-                    "[V2Runtime] 使用 DeriskIncrVisWindow3Converter (支持 SystemEvents)"
-                )
-            except ImportError:
-                vis_converter = CoreV2VisWindow3Converter()
-                logger.warning(
-                    "[V2Runtime] DeriskIncrVisWindow3Converter 不可用，使用 CoreV2VisWindow3Converter"
-                )
+            vis_converter = self._select_vis_converter(agent_name, layout_name=layout_name)
             await self.gpts_memory.init(conv_id, vis_converter=vis_converter)
 
         logger.info(
-            f"[V2Runtime] 创建会话: {session_id[:8]}, conv_id: {conv_id[:8]}, vis_converter: vis_window3"
+            f"[V2Runtime] 创建会话: {session_id[:8]}, conv_id: {conv_id[:8]}, "
+            f"vis_converter: {type(vis_converter).__name__ if self.gpts_memory else 'none'}"
         )
         return context
+
+    def _select_vis_converter(self, agent_name: str = "primary", layout_name: Optional[str] = None):
+        """根据布局配置选择合适的 VIS 转换器
+
+        优先级：
+        1. layout_name 参数（从应用配置中读取）
+        2. vis_manager 注册表按名称查找
+        3. 默认 vis_window3
+        """
+        # 优先使用 layout_name 通过 vis_manager 查找
+        if layout_name:
+            try:
+                from derisk.vis.vis_manage import get_vis_manager
+                vis_manager = get_vis_manager()
+                converter_cls = vis_manager.get_by_name(layout_name)
+                if converter_cls:
+                    logger.info(f"[V2Runtime] 使用 {converter_cls.__name__} (layout: {layout_name})")
+                    return converter_cls()
+            except Exception as e:
+                logger.debug(f"[V2Runtime] vis_manager 查找 {layout_name} 失败: {e}")
+
+        # 默认使用 vis_window3
+        try:
+            from derisk_ext.vis.derisk.derisk_vis_window3_converter import (
+                DeriskIncrVisWindow3Converter,
+            )
+            logger.info("[V2Runtime] 使用 DeriskIncrVisWindow3Converter (默认)")
+            return DeriskIncrVisWindow3Converter()
+        except ImportError:
+            logger.warning("[V2Runtime] DeriskIncrVisWindow3Converter 不可用，使用 CoreV2VisWindow3Converter")
+            return CoreV2VisWindow3Converter()
 
     async def get_session(self, session_id: str) -> Optional[SessionContext]:
         return self._sessions.get(session_id)

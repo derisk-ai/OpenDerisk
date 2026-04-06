@@ -39,6 +39,16 @@ import VisStatusNotification from './VisStatusNotification';
 import VisAuthorizationCard from './VisAuthorizationCard';
 import VisConfirmResponse from './VisConfirmResponse';
 import VisSystemEvents from './VisSystemEvents';
+import VisManusLeftPanel from './VisManusLeftPanel';
+import VisManusRightPanel from './VisManusRightPanel';
+import {
+  OutputRenderer,
+  TerminalRenderer,
+  CodeExecutionRenderer,
+  HtmlTabbedRenderer,
+  SkillScriptRenderer,
+  SkillCardRenderer,
+} from './VisManusRightPanel/renderers';
 
 export const visComponentsRender: { [key: string]: (props: { children: React.ReactNode }) => JSX.Element } = {
   'nex-running-window': ({ children }) => {
@@ -581,6 +591,111 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="d-system-events" />;
+    }
+  },
+  // Manus 双面板布局组件
+  'manus-left-panel': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-left-panel" />}>
+          <VisManusLeftPanel data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-left-panel" />;
+    }
+  },
+  'manus-right-panel': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-right-panel" />}>
+          <VisManusRightPanel data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-right-panel" />;
+    }
+  },
+  'manus-output': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-output" />}>
+          <OutputRenderer outputs={Array.isArray(data.outputs) ? data.outputs : [data]} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-output" />;
+    }
+  },
+  'manus-terminal': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-terminal" />}>
+          <TerminalRenderer command={data.command} outputs={data.outputs || []} status={data.status || 'completed'} title={data.title} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-terminal" />;
+    }
+  },
+  'manus-code-exec': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-code-exec" />}>
+          <CodeExecutionRenderer outputs={data.outputs || []} language={data.language} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-code-exec" />;
+    }
+  },
+  'manus-html-preview': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-html-preview" />}>
+          <HtmlTabbedRenderer outputs={data.outputs || []} title={data.title} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-html-preview" />;
+    }
+  },
+  'manus-skill-script': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-script" />}>
+          <SkillScriptRenderer outputs={data.outputs || []} skillName={data.skillName} scriptName={data.scriptName} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-skill-script" />;
+    }
+  },
+  'manus-skill-card': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-card" />}>
+          <SkillCardRenderer outputs={data.outputs || []} skillName={data.skillName} skillDescription={data.skillDescription} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="manus-skill-card" />;
     }
   },
 };

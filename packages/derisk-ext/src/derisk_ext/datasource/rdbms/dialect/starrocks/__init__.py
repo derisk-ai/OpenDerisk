@@ -1,0 +1,1 @@
+"""StarRocks dialect for SQLAlchemy."""

@@ -63,6 +63,10 @@ class BaseDatasourceParameters(BaseParameters, RegisterParameters):
             new_state["ext_config"] = ext_config
         db_name = new_state.get("db_name")
         db_path = new_state.get("db_path")
+        # Resolve relative paths to absolute for file-based databases
+        if db_path and not os.path.isabs(db_path):
+            db_path = os.path.abspath(db_path)
+            new_state["db_path"] = db_path
         if not db_name and db_path:
             # parse db_name from db_path
             # For example, if db_path is /path/to/db.sqlite, then db_name is db

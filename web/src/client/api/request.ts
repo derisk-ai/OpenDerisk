@@ -21,9 +21,16 @@ import {
 import {
   ChatFeedBackSchema,
   DbListResponse,
+  DbSpecResponse,
   DbSupportTypeResponse,
+  LearningTaskRequest,
+  LearningTaskResponse,
   PostDbParams,
   PostDbRefreshParams,
+  SensitiveColumnConfig,
+  TableDataPreview,
+  TableSpecDetail,
+  TableSpecSummary,
 } from '@/types/db';
 import {
   GetEditorSQLRoundRequest,
@@ -96,6 +103,14 @@ export const postDbDelete = (id: string) => {
 export const postDbEdit = (data: PostDbParams) => {
   return PUT<PostDbParams, null>('/api/v2/serve/datasources', data);
 };
+export const uploadDbFile = (file: File) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return POST<FormData, { file_path: string; file_name: string }>(
+    '/api/v2/serve/datasources/upload-db',
+    formData,
+  );
+};
 export const postDbAdd = (data: PostDbParams) => {
   return POST<PostDbParams, null>('/api/v2/serve/datasources', data);
 };
@@ -104,6 +119,92 @@ export const postDbTestConnect = (data: PostDbParams) => {
 };
 export const postDbRefresh = (data: PostDbRefreshParams) => {
   return POST<PostDbRefreshParams, boolean>(`/api/v2/serve/datasources/${data.id}/refresh`);
+};
+
+/** Database Spec & Learning APIs */
+export const postDbLearn = (id: string | number, data?: LearningTaskRequest) => {
+  return POST<LearningTaskRequest | undefined, LearningTaskResponse>(
+    `/api/v2/serve/datasources/${id}/learn`,
+    data,
+  );
+};
+export const getDbLearnStatus = (id: string | number) => {
+  return GET<null, LearningTaskResponse | null>(
+    `/api/v2/serve/datasources/${id}/learn/status`,
+  );
+};
+export const getDbSpec = (id: string | number) => {
+  return GET<null, DbSpecResponse | null>(`/api/v2/serve/datasources/${id}/spec`);
+};
+export const getDbTables = (id: string | number) => {
+  return GET<null, TableSpecSummary[]>(`/api/v2/serve/datasources/${id}/tables`);
+};
+export const getDbTableDetail = (id: string | number, tableName: string) => {
+  return GET<null, TableSpecDetail | null>(
+    `/api/v2/serve/datasources/${id}/tables/${tableName}`,
+  );
+};
+export const postDbTablesBatch = (id: string | number, tableNames: string[]) => {
+  return POST<{ table_names: string[] }, TableSpecDetail[]>(
+    `/api/v2/serve/datasources/${id}/tables/batch`,
+    { table_names: tableNames },
+  );
+};
+export const getDbTableData = (
+  id: string | number,
+  tableName: string,
+  page = 1,
+  pageSize = 20,
+) => {
+  return GET<null, TableDataPreview>(
+    `/api/v2/serve/datasources/${id}/tables/${tableName}/data?page=${page}&page_size=${pageSize}`,
+  );
+};
+
+/** Sensitive Column Masking APIs */
+export const getSensitiveColumns = (datasourceId: string | number) => {
+  return GET<null, SensitiveColumnConfig[]>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/columns`,
+  );
+};
+export const addSensitiveColumn = (
+  datasourceId: string | number,
+  data: { table_name: string; column_name: string; sensitive_type: string; masking_mode: string },
+) => {
+  return POST<typeof data, SensitiveColumnConfig>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/columns`,
+    data,
+  );
+};
+export const updateSensitiveColumn = (
+  datasourceId: string | number,
+  tableName: string,
+  columnName: string,
+  data: { sensitive_type?: string; masking_mode?: string; enabled?: boolean },
+) => {
+  return PUT<typeof data, SensitiveColumnConfig>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/columns/${tableName}/${columnName}`,
+    data,
+  );
+};
+export const toggleSensitiveColumn = (
+  datasourceId: string | number,
+  tableName: string,
+  columnName: string,
+  enabled: boolean,
+) => {
+  return PUT<null, string>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/columns/${tableName}/${columnName}/toggle?enabled=${enabled}`,
+  );
+};
+export const detectSensitiveColumns = (
+  datasourceId: string | number,
+  tableNames?: string[],
+) => {
+  return POST<{ table_names?: string[] } | undefined, SensitiveColumnConfig[]>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/detect`,
+    tableNames ? { table_names: tableNames } : undefined,
+  );
 };
 
 /** Chat Page */

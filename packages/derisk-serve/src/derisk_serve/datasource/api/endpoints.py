@@ -1,15 +1,22 @@
 from functools import cache
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 
 from derisk.component import SystemApp
 from derisk_serve.core import ResourceTypes, Result, blocking_func_to_async
 from derisk_serve.datasource.api.schemas import (
+    BatchTableRequest,
     DatasourceCreateRequest,
     DatasourceQueryResponse,
     DatasourceServeRequest,
+    DbSpecResponse,
+    LearningTaskRequest,
+    LearningTaskResponse,
+    TableDataPreviewResponse,
+    TableSpecDetailResponse,
+    TableSpecSummaryResponse,
 )
 from derisk_serve.datasource.config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from derisk_serve.datasource.service.service import Service
@@ -94,6 +101,26 @@ async def health():
 async def test_auth():
     """Test auth endpoint"""
     return {"status": "ok"}
+
+
+@router.post(
+    "/datasources/upload-db",
+    response_model=Result[dict],
+    dependencies=[Depends(check_api_key)],
+)
+async def upload_db_file(
+    file: UploadFile,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Upload a database file and return the server-side storage path.
+
+    Used for file-based databases (SQLite, DuckDB, etc.) where the browser
+    cannot provide the server-side file path.
+    """
+    result = await blocking_func_to_async(
+        global_system_app, service.upload_db_file, file
+    )
+    return Result.succ(result)
 
 
 @router.post(
@@ -260,6 +287,155 @@ async def refresh_datasource(
         global_system_app, service.refresh, datasource_id
     )
     return Result.succ(res)
+
+
+# ============================================================
+# Database Spec & Learning Endpoints
+# ============================================================
+
+
+@router.post(
+    "/datasources/{datasource_id}/learn",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[LearningTaskResponse],
+)
+async def trigger_learning(
+    datasource_id: str,
+    request: Optional[LearningTaskRequest] = None,
+    service: Service = Depends(get_service),
+) -> Result[LearningTaskResponse]:
+    """Trigger a schema learning task for a datasource.
+
+    Args:
+        datasource_id: The datasource ID.
+        request: Optional learning task parameters.
+        service: The service instance.
+    """
+    task_type = request.task_type if request else "full_learn"
+    table_name = request.table_name if request else None
+
+    result = await blocking_func_to_async(
+        global_system_app,
+        service.trigger_learning,
+        datasource_id,
+        task_type,
+        table_name,
+    )
+    return Result.succ(LearningTaskResponse(**result))
+
+
+@router.get(
+    "/datasources/{datasource_id}/learn/status",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[Optional[LearningTaskResponse]],
+)
+async def get_learning_status(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[Optional[LearningTaskResponse]]:
+    """Get the current learning task status for a datasource."""
+    result = service.get_learning_status(datasource_id)
+    if result:
+        return Result.succ(LearningTaskResponse(**result))
+    return Result.succ(None)
+
+
+@router.get(
+    "/datasources/{datasource_id}/spec",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[Optional[DbSpecResponse]],
+)
+async def get_db_spec(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[Optional[DbSpecResponse]]:
+    """Get the database-level spec document for a datasource."""
+    result = service.get_db_spec(datasource_id)
+    if result:
+        return Result.succ(DbSpecResponse(**result))
+    return Result.succ(None)
+
+
+@router.get(
+    "/datasources/{datasource_id}/tables",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[List[TableSpecSummaryResponse]],
+)
+async def get_table_specs(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[List[TableSpecSummaryResponse]]:
+    """Get all table spec summaries for a datasource."""
+    results = service.get_all_table_specs(datasource_id)
+    summaries = []
+    for r in results:
+        columns = r.get("columns", [])
+        summaries.append(
+            TableSpecSummaryResponse(
+                table_name=r.get("table_name", ""),
+                table_comment=r.get("table_comment"),
+                row_count=r.get("row_count"),
+                column_count=len(columns) if columns else 0,
+                group_name=r.get("group_name"),
+            )
+        )
+    return Result.succ(summaries)
+
+
+@router.get(
+    "/datasources/{datasource_id}/tables/{table_name}",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[Optional[TableSpecDetailResponse]],
+)
+async def get_table_spec_detail(
+    datasource_id: str,
+    table_name: str,
+    service: Service = Depends(get_service),
+) -> Result[Optional[TableSpecDetailResponse]]:
+    """Get detailed table spec for a specific table."""
+    result = service.get_table_spec(datasource_id, table_name)
+    if result:
+        return Result.succ(TableSpecDetailResponse(**result))
+    return Result.succ(None)
+
+
+@router.post(
+    "/datasources/{datasource_id}/tables/batch",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[List[TableSpecDetailResponse]],
+)
+async def get_table_specs_batch(
+    datasource_id: str,
+    request: BatchTableRequest,
+    service: Service = Depends(get_service),
+) -> Result[List[TableSpecDetailResponse]]:
+    """Get multiple table specs at once."""
+    results = service.get_table_specs_batch(datasource_id, request.table_names)
+    return Result.succ([TableSpecDetailResponse(**r) for r in results])
+
+
+@router.get(
+    "/datasources/{datasource_id}/tables/{table_name}/data",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[TableDataPreviewResponse],
+)
+async def preview_table_data(
+    datasource_id: str,
+    table_name: str,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Page size"),
+    service: Service = Depends(get_service),
+) -> Result[TableDataPreviewResponse]:
+    """Preview table data with pagination."""
+    result = await blocking_func_to_async(
+        global_system_app,
+        service.preview_table_data,
+        datasource_id,
+        table_name,
+        page,
+        page_size,
+    )
+    return Result.succ(TableDataPreviewResponse(**result))
 
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:

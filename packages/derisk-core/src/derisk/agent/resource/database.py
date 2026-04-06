@@ -162,6 +162,10 @@ class RDBMSConnectorResource(DBResource[DBParameters]):
         if not db_name and connector:
             db_name = connector.get_current_db_name()
         self._connector = connector
+        self._sql_guard = None
+        self._sql_guard_loaded = False
+        self._data_masker = None
+        self._data_masker_loaded = False
         super().__init__(
             name,
             db_type=db_type,
@@ -186,11 +190,66 @@ class RDBMSConnectorResource(DBResource[DBParameters]):
 
         return _parse_db_summary(self.connector)
 
+    def _get_sql_guard(self):
+        """Lazy-load the SQL Guard singleton."""
+        if not self._sql_guard_loaded:
+            self._sql_guard_loaded = True
+            try:
+                from derisk_serve.sql_guard.guard import get_sql_guard
+
+                self._sql_guard = get_sql_guard()
+            except ImportError:
+                self._sql_guard = None
+        return self._sql_guard
+
+    def _get_data_masker(self):
+        """Lazy-load the DataMasker singleton."""
+        if not self._data_masker_loaded:
+            self._data_masker_loaded = True
+            try:
+                from derisk_serve.sql_guard.masking.masker import get_data_masker
+
+                self._data_masker = get_data_masker()
+            except ImportError:
+                self._data_masker = None
+        return self._data_masker
+
     def _sync_query(self, db: str, sql: str) -> Tuple[Tuple, List]:
-        """Return the query result."""
+        """Return the query result.
+
+        Applies SQL Guard check before execution and data masking after.
+        """
+        guard = self._get_sql_guard()
+        if guard:
+            check_result = guard.check(
+                sql,
+                db_name=db,
+                user_id=getattr(self, "_user_id", None),
+                datasource_id=getattr(self, "_datasource_id", None),
+            )
+            if not check_result.allowed:
+                blocked = ", ".join(check_result.blocked_rules)
+                raise ValueError(
+                    f"SQL blocked by guard [{blocked}]: "
+                    f"{check_result.details[0].message if check_result.details else ''}"
+                )
+            if check_result.rewritten_sql:
+                sql = check_result.rewritten_sql
+
         result_lst = self.connector.run(sql)
         columns = result_lst[0]
         values = result_lst[1:]
+
+        # Apply data masking to sensitive columns
+        masker = self._get_data_masker()
+        if masker and columns and values:
+            session_id = getattr(self, "_session_id", None)
+            columns, values = masker.mask_results(
+                columns,
+                values,
+                session_id=session_id,
+            )
+
         return columns, values
 
 
