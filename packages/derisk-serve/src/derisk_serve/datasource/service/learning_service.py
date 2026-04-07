@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 # Threshold for table grouping
 TABLE_GROUP_THRESHOLD = 30
-# Max sample rows per table
-MAX_SAMPLE_ROWS = 5
 # Max characters per sample value
 MAX_SAMPLE_VALUE_LENGTH = 100
 
@@ -30,14 +28,16 @@ class SchemaLearningService:
     per-table specs and a database-level spec index.
     """
 
-    def __init__(self, connector_manager):
+    def __init__(self, connector_manager, system_app=None):
         """Initialize with a ConnectorManager instance.
 
         Args:
             connector_manager: The ConnectorManager used to create
                 database connectors.
+            system_app: Optional SystemApp for LLM access.
         """
         self._connector_manager = connector_manager
+        self._system_app = system_app
         self._db_spec_dao = DbSpecDao()
         self._table_spec_dao = TableSpecDao()
         self._learning_task_dao = DbLearningTaskDao()
@@ -283,39 +283,16 @@ class SchemaLearningService:
             pass
 
         # Row count
+        # Note: connector.run() returns [column_names, row1, row2, ...]
+        # so data rows start at index 1
         row_count = None
         try:
             result = connector.run(f"SELECT COUNT(*) FROM `{table_name}`")
-            if result and len(result) > 0:
-                row_val = result[0]
-                if isinstance(row_val, (list, tuple)) and len(row_val) > 0:
+            if result and len(result) > 1:
+                # SQLAlchemy 2.x Row is NOT a tuple subclass, convert first
+                row_val = tuple(result[1])
+                if len(row_val) > 0:
                     row_count = int(row_val[0])
-                elif isinstance(row_val, (int, float)):
-                    row_count = int(row_val)
-        except Exception:
-            pass
-
-        # Sample data
-        sample_data = None
-        try:
-            sample_result = connector.run(
-                f"SELECT * FROM `{table_name}` LIMIT {MAX_SAMPLE_ROWS}"
-            )
-            if sample_result:
-                sample_cols = [c.get("name", "") for c in columns_raw]
-                sample_rows = []
-                for row in sample_result:
-                    if isinstance(row, (list, tuple)):
-                        truncated = [
-                            str(v)[:MAX_SAMPLE_VALUE_LENGTH] if v is not None else None
-                            for v in row
-                        ]
-                        sample_rows.append(truncated)
-                if sample_rows:
-                    sample_data = {
-                        "columns": sample_cols,
-                        "rows": sample_rows,
-                    }
         except Exception:
             pass
 
@@ -331,16 +308,17 @@ class SchemaLearningService:
                     dist_result = connector.run(
                         f"SELECT DISTINCT `{col_name}` FROM `{table_name}` LIMIT 20"
                     )
-                    if dist_result and len(dist_result) <= 15:
+                    # Skip first row (column names)
+                    dist_data = dist_result[1:] if dist_result else []
+                    if dist_data and len(dist_data) <= 15:
                         values = []
-                        for row in dist_result:
-                            if isinstance(row, (list, tuple)) and len(row) > 0:
-                                if row[0] is not None:
-                                    values.append(
-                                        str(row[0])[:MAX_SAMPLE_VALUE_LENGTH]
-                                    )
-                            elif row is not None:
-                                values.append(str(row)[:MAX_SAMPLE_VALUE_LENGTH])
+                        for row in dist_data:
+                            # SQLAlchemy 2.x Row → tuple
+                            row = tuple(row)
+                            if len(row) > 0 and row[0] is not None:
+                                values.append(
+                                    str(row[0])[:MAX_SAMPLE_VALUE_LENGTH]
+                                )
                         if values:
                             col["distribution"] = {
                                 "type": "enum",
@@ -348,6 +326,14 @@ class SchemaLearningService:
                             }
                 except Exception:
                     pass
+
+        # LLM-generated description (when table_comment is empty/short)
+        if not table_comment or len(table_comment) < 10:
+            llm_desc = self._generate_single_table_summary(
+                connector, table_name, columns, row_count, table_comment,
+            )
+            if llm_desc:
+                table_comment = llm_desc
 
         # Determine group name from table name prefix
         group_name = "default"
@@ -358,9 +344,11 @@ class SchemaLearningService:
             "row_count": row_count,
             "columns_json": json.dumps(columns, ensure_ascii=False),
             "indexes_json": json.dumps(indexes, ensure_ascii=False),
-            "sample_data_json": (
-                json.dumps(sample_data, ensure_ascii=False) if sample_data else None
+            "foreign_keys_json": (
+                json.dumps(foreign_keys, ensure_ascii=False)
+                if foreign_keys else None
             ),
+            "sample_data_json": None,
             "create_ddl": create_ddl,
             "group_name": group_name,
         }
@@ -372,10 +360,137 @@ class SchemaLearningService:
             "row_count": row_count,
             "columns": columns,
             "indexes": indexes,
-            "sample_data": sample_data,
+            "foreign_keys": foreign_keys,
             "create_ddl": create_ddl,
             "group_name": group_name,
         }
+
+    def _get_llm_client(self):
+        """Lazy-init LLM client and model name. Returns (llm_client, model_name, loop) or (None, None, None)."""
+        if hasattr(self, "_llm_client_cache"):
+            return self._llm_client_cache
+
+        if not self._system_app:
+            logger.warning("No system_app available, cannot init LLM client")
+            self._llm_client_cache = (None, None, None)
+            return self._llm_client_cache
+
+        try:
+            from derisk.component import ComponentType
+            from derisk.model import DefaultLLMClient
+            from derisk.model.cluster import WorkerManagerFactory
+            from derisk.util import get_or_create_event_loop
+
+            worker_manager = self._system_app.get_component(
+                ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
+            ).create()
+            llm_client = DefaultLLMClient(worker_manager, True)
+
+            loop = get_or_create_event_loop()
+            models = loop.run_until_complete(llm_client.models())
+            if not models:
+                logger.warning("No LLM models available, skipping summaries")
+                self._llm_client_cache = (None, None, None)
+                return self._llm_client_cache
+
+            model_name = models[0].model
+            logger.info(f"Using model '{model_name}' for table summaries")
+            self._llm_client_cache = (llm_client, model_name, loop)
+            return self._llm_client_cache
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize LLM client: {e}\n"
+                f"{traceback.format_exc()}"
+            )
+            self._llm_client_cache = (None, None, None)
+            return self._llm_client_cache
+
+    def _generate_single_table_summary(
+        self,
+        connector,
+        table_name: str,
+        columns: List[Dict[str, Any]],
+        row_count: Optional[int],
+        existing_comment: str,
+    ) -> Optional[str]:
+        """Generate an LLM description for a single table using live data."""
+        llm_client, model_name, loop = self._get_llm_client()
+        if not llm_client:
+            logger.debug(f"LLM client not available, skipping summary for {table_name}")
+            return None
+
+        logger.info(f"Generating LLM summary for table: {table_name}")
+
+        from derisk.core.interface.llm import ModelRequest
+        from derisk.core.interface.message import ModelMessage, ModelMessageRoleType
+
+        # Column info
+        col_desc = ", ".join(
+            f"{c.get('name', '')}({c.get('type', '')})"
+            for c in columns[:15]
+        )
+        if len(columns) > 15:
+            col_desc += f", ... ({len(columns)} columns total)"
+
+        # Query live sample data (3 rows)
+        sample_str = ""
+        try:
+            sample_result = connector.run(
+                f"SELECT * FROM `{table_name}` LIMIT 3"
+            )
+            if sample_result and len(sample_result) > 1:
+                col_names = [c.get("name", "") for c in columns[:10]]
+                sample_str = f"\nSample data (columns: {', '.join(col_names)}):\n"
+                for row in sample_result[1:]:
+                    row = tuple(row)
+                    sample_str += f"  {list(row[:10])}\n"
+        except Exception:
+            pass
+
+        row_info = f"\nRow count: {row_count}" if row_count is not None else ""
+        comment_info = f"\nExisting comment: {existing_comment}" if existing_comment else ""
+
+        prompt = (
+            f"Based on the following database table structure, write ONE brief sentence "
+            f"(under 50 words) in Chinese describing what data this table stores and its purpose. "
+            f"Only output the description, no other text.\n\n"
+            f"Table: {table_name}\n"
+            f"Columns: {col_desc}{row_info}{comment_info}{sample_str}"
+        )
+
+        try:
+            messages = [
+                ModelMessage(
+                    role=ModelMessageRoleType.HUMAN, content=prompt
+                )
+            ]
+            request = ModelRequest.build_request(
+                model=model_name,
+                messages=messages,
+                temperature=0.3,
+                max_new_tokens=200,
+            )
+            result = loop.run_until_complete(llm_client.generate(request))
+            if result and result.success and result.text:
+                summary_text = result.text.strip()
+                if len(summary_text) > 500:
+                    summary_text = summary_text[:500]
+                logger.info(
+                    f"LLM summary for {table_name}: {summary_text[:80]}"
+                )
+                return summary_text
+            elif result:
+                logger.warning(
+                    f"LLM generation failed for {table_name}: "
+                    f"error_code={result.error_code}, text={result.text[:200] if result.text else 'None'}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to generate summary for {table_name}: {e}\n"
+                f"{traceback.format_exc()}"
+            )
+
+        return None
 
     def _detect_table_relations(
         self, datasource_id: int

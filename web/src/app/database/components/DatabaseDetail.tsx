@@ -182,9 +182,9 @@ export default function DatabaseDetail({
     loading: tableDataLoading,
     run: fetchTableData,
   } = useRequest(
-    async (tableName: string, page = 1, pageSize = 10) => {
+    async (tableName: string) => {
       const [err, res] = await apiInterceptors(
-        getDbTableData(datasourceId, tableName, page, pageSize),
+        getDbTableData(datasourceId, tableName),
       );
       if (err) return null;
       return res as TableDataPreview | null;
@@ -633,7 +633,7 @@ export default function DatabaseDetail({
           open={addSensitiveModalOpen}
           onOk={handleAddSensitive}
           onCancel={() => setAddSensitiveModalOpen(false)}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={addForm} layout="vertical">
             <Form.Item
@@ -688,7 +688,7 @@ export default function DatabaseDetail({
             setEditSensitiveModalOpen(false);
             setEditingColumn(null);
           }}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={editForm} layout="vertical">
             <Form.Item
@@ -757,7 +757,7 @@ export default function DatabaseDetail({
                     {tableDetail.table_comment || '-'}
                   </Descriptions.Item>
                   <Descriptions.Item label="Row Count">
-                    {tableDetail.row_count?.toLocaleString() ?? '-'}
+                    {(tableData?.total ?? tableDetail.row_count)?.toLocaleString() ?? '-'}
                   </Descriptions.Item>
                   <Descriptions.Item label="Group">
                     {tableDetail.group_name || '-'}
@@ -858,6 +858,53 @@ export default function DatabaseDetail({
                     />
                   </>
                 )}
+
+                {tableDetail.foreign_keys && tableDetail.foreign_keys.length > 0 && (
+                  <>
+                    <h4 className="font-semibold mb-2 mt-4">
+                      Foreign Keys ({tableDetail.foreign_keys.length})
+                    </h4>
+                    <Table
+                      dataSource={tableDetail.foreign_keys.map((fk, i) => ({
+                        key: i,
+                        columns: fk.constrained_columns.join(', '),
+                        referred_table: fk.referred_table,
+                        referred_columns: fk.referred_columns.join(', '),
+                      }))}
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: 'Columns',
+                          dataIndex: 'columns',
+                          key: 'columns',
+                        },
+                        {
+                          title: 'References Table',
+                          dataIndex: 'referred_table',
+                          key: 'referred_table',
+                          render: (v: string) => (
+                            <a
+                              onClick={() => {
+                                setSelectedTableName(v);
+                                fetchTableDetail(v);
+                                fetchTableData(v);
+                              }}
+                              className="text-blue-500 hover:text-blue-700 cursor-pointer"
+                            >
+                              {v}
+                            </a>
+                          ),
+                        },
+                        {
+                          title: 'Referenced Columns',
+                          dataIndex: 'referred_columns',
+                          key: 'referred_columns',
+                        },
+                      ]}
+                    />
+                  </>
+                )}
               </div>
             ),
           },
@@ -887,77 +934,68 @@ export default function DatabaseDetail({
             ),
           },
           {
-            key: 'sample',
-            label: 'Sample Data',
-            children: tableDetail.sample_data ? (
-              <Table
-                dataSource={tableDetail.sample_data.rows.map(
-                  (row, idx) => {
-                    const obj: any = { key: idx };
-                    tableDetail.sample_data!.columns.forEach(
-                      (col, ci) => {
-                        obj[col] = row[ci];
-                      },
-                    );
-                    return obj;
-                  },
-                )}
-                columns={tableDetail.sample_data.columns.map(
-                  (col) => ({
-                    title: col,
-                    dataIndex: col,
-                    key: col,
-                    ellipsis: true,
-                  }),
-                )}
-                pagination={false}
-                size="small"
-                scroll={{ x: 'max-content' }}
-              />
-            ) : (
-              <Empty description="No sample data" />
-            ),
-          },
-          {
             key: 'data',
             label: 'Data Preview',
             children: (
               <div>
-                {!tableData && !tableDataLoading && (
-                  <Button
-                    onClick={() =>
-                      fetchTableData(selectedTableName)
-                    }
-                  >
-                    Load Data
-                  </Button>
-                )}
                 {tableDataLoading && <Empty description="Loading..." />}
                 {tableData && (
-                  <Table
-                    dataSource={tableData.rows.map((row, idx) => {
-                      const obj: any = { key: idx };
-                      tableData.columns.forEach((col, ci) => {
-                        obj[col] = row[ci];
-                      });
-                      return obj;
-                    })}
-                    columns={tableData.columns.map((col) => ({
-                      title: col,
-                      dataIndex: col,
-                      key: col,
-                      ellipsis: true,
-                    }))}
-                    size="small"
-                    scroll={{ x: 'max-content' }}
-                    pagination={{
-                      total: tableData.total,
-                      current: tableData.page,
-                      pageSize: tableData.page_size,
-                      onChange: (page, pageSize) =>
-                        fetchTableData(selectedTableName, page, pageSize),
-                    }}
-                  />
+                  <>
+                    <Text type="secondary" className="mb-3 block">
+                      Total: {tableData.total.toLocaleString()} rows
+                    </Text>
+                    {tableData.first_rows.length > 0 && (
+                      <>
+                        {tableData.last_rows.length > 0 && (
+                          <h4 className="font-semibold mb-2">First 5 Rows</h4>
+                        )}
+                        <Table
+                          dataSource={tableData.first_rows.map((row, idx) => {
+                            const obj: any = { key: `first-${idx}` };
+                            tableData.columns.forEach((col, ci) => {
+                              obj[col] = row[ci];
+                            });
+                            return obj;
+                          })}
+                          columns={tableData.columns.map((col) => ({
+                            title: col,
+                            dataIndex: col,
+                            key: col,
+                            ellipsis: true,
+                          }))}
+                          pagination={false}
+                          size="small"
+                          scroll={{ x: 'max-content' }}
+                        />
+                      </>
+                    )}
+                    {tableData.last_rows.length > 0 && (
+                      <>
+                        <h4 className="font-semibold mb-2 mt-4">Last 5 Rows</h4>
+                        <Table
+                          dataSource={tableData.last_rows.map((row, idx) => {
+                            const obj: any = { key: `last-${idx}` };
+                            tableData.columns.forEach((col, ci) => {
+                              obj[col] = row[ci];
+                            });
+                            return obj;
+                          })}
+                          columns={tableData.columns.map((col) => ({
+                            title: col,
+                            dataIndex: col,
+                            key: col,
+                            ellipsis: true,
+                          }))}
+                          pagination={false}
+                          size="small"
+                          scroll={{ x: 'max-content' }}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+                {!tableData && !tableDataLoading && (
+                  <Empty description="No data" />
                 )}
               </div>
             ),
@@ -1034,7 +1072,7 @@ export default function DatabaseDetail({
         width={700}
         open={tableDetailDrawerOpen}
         onClose={() => setTableDetailDrawerOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         {renderTableDetail()}
       </Drawer>

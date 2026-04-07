@@ -60,6 +60,7 @@ from derisk_ext.vis.common.tags.derisk_thinking import (
 )
 from derisk_ext.vis.common.tags.derisk_tool import ToolSpace
 from derisk_ext.vis.common.tags.derisk_todo_list import TodoList
+from derisk_ext.vis.derisk.tags.drsk_content import DrskContent, DrskTextContent
 from derisk_ext.vis.common.tags.derisk_system_events import (
     SystemEvents,
     SystemEventsContent,
@@ -238,6 +239,67 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 if val and isinstance(val, str) and val.strip():
                     return val.strip()
         return None
+
+    async def _gen_plan_items(
+        self,
+        gpt_msg: Optional[GptsMessage] = None,
+        stream_msg: Optional[Union[Dict, str]] = None,
+        layer_count: int = 0,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        """覆写父类方法，处理 BlankAction 结论的流式渲染问题
+
+        父类对 BlankAction(terminate=True) 的处理：
+        - step_thought 走 INCR 路径 → 流式推送产生多个 DrskContent 片段
+        - _act_out_2_plan() 返回 None → action 输出被丢弃
+
+        覆写后：
+        - 检测 BlankAction（无论 terminate 值）→ 用 observations/content 生成 type=ALL 的 DrskContent
+        - 每次推送完整替换内容，确保 markdown 可正确渲染（表格、标题等不被拆分）
+        """
+        # 提取 action_outs
+        action_outs = None
+        message_id = None
+        if gpt_msg:
+            action_outs = gpt_msg.action_report
+            message_id = gpt_msg.message_id
+        elif stream_msg and isinstance(stream_msg, dict):
+            action_outs = stream_msg.get("action_report")
+            message_id = stream_msg.get("message_id")
+
+        if action_outs:
+            for act_out in (action_outs if isinstance(action_outs, list) else [action_outs]):
+                # 兼容 ActionOutput 对象和 dict
+                if isinstance(act_out, dict):
+                    act_name = act_out.get('name', '') or act_out.get('action', '')
+                    is_terminate = act_out.get('terminate', False)
+                    conclusion = act_out.get('observations') or act_out.get('content')
+                else:
+                    act_name = getattr(act_out, 'name', '') or getattr(act_out, 'action', '')
+                    is_terminate = getattr(act_out, 'terminate', False)
+                    conclusion = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
+
+                if act_name == BlankAction.name or is_terminate:
+                    if conclusion and isinstance(conclusion, str) and conclusion.strip():
+                        # 用 type=ALL 完整替换，确保 markdown 表格等结构完整渲染
+                        text_content = DrskTextContent(
+                            dynamic=False,
+                            markdown=conclusion,
+                            uid=f"{message_id}_'step_thought'",
+                            type=UpdateType.ALL.value,
+                        )
+                        return DrskContent().sync_display(
+                            content=text_content.to_dict(exclude_none=True)
+                        )
+                    return None
+
+        # 非 BlankAction：走父类默认逻辑
+        return await super()._gen_plan_items(
+            gpt_msg=gpt_msg,
+            stream_msg=stream_msg,
+            layer_count=layer_count,
+            senders_map=senders_map,
+        )
 
     def _process_gpt_message(self, gpt_msg: GptsMessage) -> Optional[ManusExecutionStep]:
         """处理单条 GptsMessage，提取为执行步骤
@@ -909,9 +971,23 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         right_panel = self._build_right_panel_data(is_running=False)
         if messages:
             last_msg = messages[-1]
-            if last_msg.role != HUMAN_ROLE and last_msg.content:
-                right_panel.summary_content = last_msg.content
-                right_panel.panel_view = ManusPanelView.SUMMARY.value
+            if last_msg.role != HUMAN_ROLE:
+                # 优先从 action_report 提取完整结论内容（observations > content），
+                # last_msg.content 可能只是 agent 的 thinking/response 文本，不含完整输出
+                summary = None
+                if last_msg.action_report:
+                    for act_out in last_msg.action_report:
+                        obs = getattr(act_out, 'observations', None)
+                        cnt = getattr(act_out, 'content', None)
+                        candidate = obs or cnt
+                        if candidate and isinstance(candidate, str) and candidate.strip():
+                            summary = candidate
+                            break
+                if not summary and last_msg.content:
+                    summary = last_msg.content
+                if summary:
+                    right_panel.summary_content = summary
+                    right_panel.panel_view = ManusPanelView.SUMMARY.value
 
         right_vis = self._generate_vis_tag_output(
             tag=ManusRightPanel.vis_tag(),
@@ -932,4 +1008,59 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         return json.dumps(
             {"planning_window": "", "running_window": right_vis},
             ensure_ascii=False,
+        )
+
+    async def _render_final_conclusion(
+        self, output_message: GptsMessage
+    ) -> Optional[str]:
+        """渲染最终结论 - 覆写父类方法，优先使用 observations/content 而非 view
+
+        父类 _render_final_conclusion 优先使用 action_report.view，
+        但 view 可能包含 VIS tag 标记（如 ```d-tool {...}```），
+        导致在 DrskContent 中作为 markdown 渲染时出现问题。
+        """
+        conclusion_content = None
+
+        def _get_val(action_out, key, default=None):
+            if isinstance(action_out, dict):
+                return action_out.get(key, default)
+            return getattr(action_out, key, default)
+
+        # 从 terminate action 提取结论 - 优先 observations/content，避免 view 中的 VIS 标记
+        if output_message.action_report:
+            for action_out in output_message.action_report:
+                if _get_val(action_out, "terminate"):
+                    conclusion_content = (
+                        _get_val(action_out, "observations")
+                        or _get_val(action_out, "content")
+                        or _get_val(action_out, "view")
+                    )
+                    if conclusion_content:
+                        break
+
+        # fallback: 发给用户的消息
+        if not conclusion_content and output_message.receiver == HUMAN_ROLE:
+            if output_message.action_report:
+                for action_out in output_message.action_report:
+                    conclusion_content = (
+                        _get_val(action_out, "observations")
+                        or _get_val(action_out, "content")
+                        or _get_val(action_out, "view")
+                    )
+                    if conclusion_content:
+                        break
+            if not conclusion_content:
+                conclusion_content = output_message.content
+
+        if not conclusion_content:
+            return None
+
+        final_conclusion = DrskTextContent(
+            dynamic=False,
+            markdown=f"## 最终结论\n\n{conclusion_content}",
+            uid=f"{output_message.message_id}_final_conclusion",
+            type="all",
+        )
+        return DrskContent().sync_display(
+            content=final_conclusion.to_dict(exclude_none=True)
         )

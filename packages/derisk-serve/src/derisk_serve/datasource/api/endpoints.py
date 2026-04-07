@@ -422,18 +422,14 @@ async def get_table_specs_batch(
 async def preview_table_data(
     datasource_id: str,
     table_name: str,
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Page size"),
     service: Service = Depends(get_service),
 ) -> Result[TableDataPreviewResponse]:
-    """Preview table data with pagination."""
+    """Preview table  first 5 rows + last 5 rows."""
     result = await blocking_func_to_async(
         global_system_app,
         service.preview_table_data,
         datasource_id,
         table_name,
-        page,
-        page_size,
     )
     return Result.succ(TableDataPreviewResponse(**result))
 

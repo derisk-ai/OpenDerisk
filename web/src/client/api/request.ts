@@ -153,11 +153,9 @@ export const postDbTablesBatch = (id: string | number, tableNames: string[]) => 
 export const getDbTableData = (
   id: string | number,
   tableName: string,
-  page = 1,
-  pageSize = 20,
 ) => {
   return GET<null, TableDataPreview>(
-    `/api/v2/serve/datasources/${id}/tables/${tableName}/data?page=${page}&page_size=${pageSize}`,
+    `/api/v2/serve/datasources/${id}/tables/${tableName}/data`,
   );
 };
 

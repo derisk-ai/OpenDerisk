@@ -54,6 +54,11 @@ class TableSpecEntity(Model):
     create_ddl = Column(
         Text, nullable=True, comment="CREATE TABLE DDL statement"
     )
+    foreign_keys_json = Column(
+        Text, nullable=True,
+        comment="JSON: array of foreign key definitions "
+                "(constrained_columns, referred_table, referred_columns)",
+    )
     group_name = Column(
         String(128), nullable=True, comment="Table group name for categorization"
     )
@@ -106,6 +111,7 @@ class TableSpecDao(BaseDao):
             "row_count": entity.row_count,
             "columns": _parse_json(entity.columns_json),
             "indexes": _parse_json(entity.indexes_json),
+            "foreign_keys": _parse_json(entity.foreign_keys_json),
             "sample_data": _parse_json(entity.sample_data_json),
             "create_ddl": entity.create_ddl,
             "group_name": entity.group_name,

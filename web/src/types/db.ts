@@ -142,16 +142,19 @@ export type TableIndexDef = {
   unique: boolean;
 };
 
+export type ForeignKeyDef = {
+  constrained_columns: string[];
+  referred_table: string;
+  referred_columns: string[];
+};
+
 export type TableSpecDetail = {
   table_name: string;
   table_comment: string | null;
   row_count: number | null;
   columns: TableColumnDef[];
   indexes: TableIndexDef[];
-  sample_data: {
-    columns: string[];
-    rows: any[][];
-  } | null;
+  foreign_keys: ForeignKeyDef[] | null;
   create_ddl: string | null;
   group_name: string | null;
   gmt_created: string | null;
@@ -160,10 +163,9 @@ export type TableSpecDetail = {
 
 export type TableDataPreview = {
   columns: string[];
-  rows: any[][];
+  first_rows: any[][];
+  last_rows: any[][];
   total: number;
-  page: number;
-  page_size: number;
 };
 
 // ============================================================

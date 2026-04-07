@@ -99,7 +99,8 @@ class Service(
     def learning_service(self) -> SchemaLearningService:
         if not self._learning_service:
             self._learning_service = SchemaLearningService(
-                self.datasource_manager
+                self.datasource_manager,
+                system_app=self._system_app,
             )
         return self._learning_service
 
@@ -405,55 +406,94 @@ class Service(
         self,
         datasource_id: str,
         table_name: str,
-        page: int = 1,
-        page_size: int = 20,
     ) -> Dict[str, Any]:
-        """Preview table data with pagination."""
+        """Preview table data: first 5 rows + last 5 rows."""
         db_config = self._dao.get_one({"id": datasource_id})
         if not db_config:
             raise HTTPException(status_code=404, detail="datasource not found")
 
         connector = self.datasource_manager.get_connector(db_config.db_name)
 
-        # Get total count
+        # connector.run() returns [column_names_tuple, row1, row2, ...]
+        # SQLAlchemy 2.x Row is NOT a tuple subclass, must convert via tuple()
+
+        def _extract_rows(result):
+            rows = []
+            if result and len(result) > 1:
+                for row in result[1:]:
+                    row = tuple(row)
+                    rows.append([
+                        str(v)[:200] if v is not None else None for v in row
+                    ])
+            return rows
+
+        # Total count
         total = 0
         try:
             count_result = connector.run(
                 f"SELECT COUNT(*) FROM `{table_name}`"
             )
-            if count_result and len(count_result) > 0:
-                row_val = count_result[0]
-                if isinstance(row_val, (list, tuple)) and len(row_val) > 0:
+            if count_result and len(count_result) > 1:
+                row_val = tuple(count_result[1])
+                if len(row_val) > 0:
                     total = int(row_val[0])
-                elif isinstance(row_val, (int, float)):
-                    total = int(row_val)
         except Exception:
             pass
 
-        # Get columns
+        # Columns
         columns_raw = connector.get_columns(table_name)
         columns = [c.get("name", "") for c in columns_raw]
 
-        # Get paginated data
-        offset = (page - 1) * page_size
-        rows = []
-        try:
-            result = connector.run(
-                f"SELECT * FROM `{table_name}` LIMIT {page_size} OFFSET {offset}"
-            )
-            if result:
-                for row in result:
-                    if isinstance(row, (list, tuple)):
-                        rows.append([
-                            str(v)[:200] if v is not None else None for v in row
-                        ])
-        except Exception:
-            pass
+        # First 5 rows + Last 5 rows (no overlap)
+        first_rows = []
+        last_rows = []
+        if total <= 5:
+            # Show all rows as first_rows only
+            try:
+                result = connector.run(
+                    f"SELECT * FROM `{table_name}` LIMIT 5"
+                )
+                first_rows = _extract_rows(result)
+            except Exception:
+                pass
+        elif total <= 10:
+            # Split: first N rows + remaining rows, no overlap
+            try:
+                result = connector.run(
+                    f"SELECT * FROM `{table_name}` LIMIT 5"
+                )
+                first_rows = _extract_rows(result)
+            except Exception:
+                pass
+            try:
+                remaining = total - 5
+                result = connector.run(
+                    f"SELECT * FROM `{table_name}` LIMIT {remaining} OFFSET 5"
+                )
+                last_rows = _extract_rows(result)
+            except Exception:
+                pass
+        else:
+            # total > 10: first 5 + last 5, guaranteed no overlap
+            try:
+                result = connector.run(
+                    f"SELECT * FROM `{table_name}` LIMIT 5"
+                )
+                first_rows = _extract_rows(result)
+            except Exception:
+                pass
+            try:
+                offset = total - 5
+                result = connector.run(
+                    f"SELECT * FROM `{table_name}` LIMIT 5 OFFSET {offset}"
+                )
+                last_rows = _extract_rows(result)
+            except Exception:
+                pass
 
         return {
             "columns": columns,
-            "rows": rows,
+            "first_rows": first_rows,
+            "last_rows": last_rows,
             "total": total,
-            "page": page,
-            "page_size": page_size,
         }

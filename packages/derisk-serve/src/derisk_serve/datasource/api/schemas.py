@@ -186,9 +186,9 @@ class TableSpecDetailResponse(BaseModel):
         default_factory=list,
         description="Index definitions: name, columns, unique",
     )
-    sample_data: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Sample data: {columns: [...], rows: [[...]]}",
+    foreign_keys: Optional[List[Dict[str, Any]]] = Field(
+        default_factory=list,
+        description="Foreign key definitions: constrained_columns, referred_table, referred_columns",
     )
     create_ddl: Optional[str] = Field(None, description="CREATE TABLE DDL statement")
     group_name: Optional[str] = Field(None, description="Group name")
@@ -205,10 +205,9 @@ class BatchTableRequest(BaseModel):
 
 
 class TableDataPreviewResponse(BaseModel):
-    """Response for table data preview (paginated)."""
+    """Response for table data preview (first 5 + last 5 rows)."""
 
     columns: List[str] = Field(default_factory=list, description="Column names")
-    rows: List[List[Any]] = Field(default_factory=list, description="Data rows")
+    first_rows: List[List[Any]] = Field(default_factory=list, description="First 5 rows")
+    last_rows: List[List[Any]] = Field(default_factory=list, description="Last 5 rows")
     total: int = Field(0, description="Total row count")
-    page: int = Field(1, description="Current page")
-    page_size: int = Field(20, description="Page size")
