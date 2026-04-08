@@ -23,6 +23,7 @@ import {
   BookOutlined,
   UploadOutlined,
   ApiOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -37,6 +38,7 @@ import {
   Select,
   App,
   Badge,
+  Tag,
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
@@ -1082,8 +1084,13 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     }
 
     // main view
+    const dsVisible = selectedDataSources.slice(0, 3);
+    const dsMore = selectedDataSources.length - 3;
+    const kbVisible = selectedKnowledgeBases.slice(0, 3);
+    const kbMore = selectedKnowledgeBases.length - 3;
+
     return (
-      <div className="w-56 p-1">
+      <div className="w-72 p-1">
         <Upload
           ref={uploadRef}
           name="file"
@@ -1101,19 +1108,57 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
           </div>
         </Upload>
         <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
+          className="flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
           onClick={() => { setPlusMenuView('datasource'); fetchDbList(); }}
         >
-          <DatabaseOutlined className="text-base text-gray-500" />
-          <span className="text-sm">{t('select_datasource', '选择数据源')}</span>
+          <div className="flex items-center gap-3">
+            <DatabaseOutlined className="text-base text-gray-500" />
+            <span className="text-sm">{t('select_datasource', '选择数据源')}</span>
+          </div>
+          <RightOutlined className="text-[10px] text-gray-400" />
         </div>
+        {selectedDataSources.length > 0 && (
+          <div className="flex flex-wrap gap-1 px-3 pb-2">
+            {dsVisible.map((ds: any) => (
+              <Tag
+                key={ds.id || ds.db_name}
+                closable
+                onClose={(e) => { e.preventDefault(); handleDataSourceSelect(ds); }}
+                color="green"
+                className="!text-xs !mr-0 !mb-0"
+              >
+                {ds.db_name}{ds._isDefault ? <span className="text-[10px] opacity-60"> 默认</span> : ''}
+              </Tag>
+            ))}
+            {dsMore > 0 && <span className="text-xs text-gray-400 leading-[22px]">+{dsMore}</span>}
+          </div>
+        )}
         <div
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
+          className="flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
           onClick={() => { setPlusMenuView('knowledge'); fetchSpaceList(); }}
         >
-          <BookOutlined className="text-base text-gray-500" />
-          <span className="text-sm">{t('select_knowledge_base', '选择知识库')}</span>
+          <div className="flex items-center gap-3">
+            <BookOutlined className="text-base text-gray-500" />
+            <span className="text-sm">{t('select_knowledge_base', '选择知识库')}</span>
+          </div>
+          <RightOutlined className="text-[10px] text-gray-400" />
         </div>
+        {selectedKnowledgeBases.length > 0 && (
+          <div className="flex flex-wrap gap-1 px-3 pb-2">
+            {kbVisible.map((kb: any) => (
+              <Tag
+                key={kb.id || kb.name}
+                closable
+                onClose={(e) => { e.preventDefault(); handleKnowledgeBaseSelect(kb); }}
+                color="gold"
+                className="!text-xs !mr-0 !mb-0"
+              >
+                {kb.name}{kb._isDefault ? <span className="text-[10px] opacity-60"> 默认</span> : ''}
+              </Tag>
+            ))}
+            {kbMore > 0 && <span className="text-xs text-gray-400 leading-[22px]">+{kbMore}</span>}
+          </div>
+        )}
       </div>
     );
   }, [plusMenuView, dbList, spaceList, dbLoading, spaceLoading, selectedDataSources, selectedKnowledgeBases, dbSearch, kbSearch, resourceConfig, t, handleFileUpload, handleDataSourceSelect, handleKnowledgeBaseSelect, fetchDbList, fetchSpaceList]);
@@ -1849,13 +1894,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         }}
         onDrop={handleDrop}
       >
-        {/* 已选技能预览 */}
-        <SelectedSkillsDisplay />
-
-        {/* 已选资源预览 - 数据源、知识库、MCP */}
-        <SelectedResourcesDisplay />
-
-        {/* 已选资源预览 - 统一展示上传的文件 */}
+        {/* 已选资源预览 - 仅展示上传的文件附件，技能和数据源等绑定资源通过底部工具栏图标提示 */}
         <ResourceItemsDisplay />
 
         {/* 文本输入区 */}

@@ -185,7 +185,7 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
             'w-[62%] min-w-[480px] h-full p-2 pl-0'
           )}
         >
-          <ManusRightPanelContainer runningWindow={runningWindow} />
+          <ManusRightPanelContainer runningWindow={runningWindow} isProcessing={!!isProcessing} />
         </div>
       )}
     </div>
@@ -196,7 +196,7 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
  * Right panel container - renders running_window content via GPTVis
  * Same pattern as ChatDetailContent for vis_window3
  */
-const ManusRightPanelContainer: React.FC<{ runningWindow: string }> = memo(({ runningWindow }) => {
+const ManusRightPanelContainer: React.FC<{ runningWindow: string; isProcessing: boolean }> = memo(({ runningWindow, isProcessing }) => {
   const { appInfo } = useContext(ChatContentContext);
   const handleClose = useCallback(() => {
     ee.emit(EVENTS.CLOSE_PANEL);
@@ -240,12 +240,34 @@ const ManusRightPanelContainer: React.FC<{ runningWindow: string }> = memo(({ ru
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mb-4">
-              <DesktopOutlined className="text-3xl text-gray-300" />
+            <div className={classNames(
+              'w-16 h-16 rounded-2xl flex items-center justify-center mb-4 relative',
+              isProcessing ? 'bg-blue-50' : 'bg-gray-50'
+            )}>
+              {isProcessing && (
+                <div className="absolute inset-0 rounded-2xl bg-blue-100 opacity-40 animate-pulse" />
+              )}
+              <DesktopOutlined className={classNames(
+                'text-3xl relative z-10',
+                isProcessing ? 'text-blue-400' : 'text-gray-300'
+              )} />
             </div>
-            <div className="text-sm font-medium text-gray-400 mb-1">Workspace</div>
-            <div className="text-xs text-gray-300">
-              等待执行...
+            <div className={classNames(
+              'text-sm font-medium mb-1',
+              isProcessing ? 'text-blue-500' : 'text-gray-400'
+            )}>Workspace</div>
+            <div className={classNames(
+              'text-xs flex items-center gap-1',
+              isProcessing ? 'text-blue-400' : 'text-gray-300'
+            )}>
+              {isProcessing ? (
+                <>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0ms]" />
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:300ms]" />
+                  <span className="ml-1">执行中...</span>
+                </>
+              ) : '等待执行...'}
             </div>
           </div>
         )}

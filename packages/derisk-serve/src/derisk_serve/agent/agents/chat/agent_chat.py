@@ -1180,8 +1180,20 @@ class AgentChat(BaseComponent, ABC):
                     # depend_resource = await blocking_func_to_async(
                     #     CFG.SYSTEM_APP, rm.build_resource, app.all_resources
                     # )
+                    logger.info(
+                        f"[AgentChat] real_all_resources before build: "
+                        f"{[(r.type, r.name) for r in real_all_resources]}"
+                    )
+                    logger.info(
+                        f"[AgentChat] ResourceManager registered type_keys: "
+                        f"{list(rm._type_to_resources.keys())}"
+                    )
                     depend_resource = await rm.a_build_resource(
                         real_all_resources, ignore_missing=True
+                    )
+                    logger.info(
+                        f"[AgentChat] depend_resource after build: "
+                        f"{type(depend_resource).__name__ if depend_resource else None}"
                     )
 
                     agent_context = deepcopy(context)
@@ -1200,6 +1212,18 @@ class AgentChat(BaseComponent, ABC):
                         .bind(scheduler)
                         .build()
                     )
+
+                # 诊断日志：检查 resource_map
+                if hasattr(recipient, 'resource_map'):
+                    logger.info(
+                        f"[AgentChat] recipient.resource_map keys: "
+                        f"{list(recipient.resource_map.keys()) if recipient.resource_map else 'empty'}"
+                    )
+                    for rk, rv in (recipient.resource_map or {}).items():
+                        logger.info(
+                            f"[AgentChat] resource_map['{rk}']: "
+                            f"{[type(r).__name__ for r in rv] if isinstance(rv, list) else type(rv).__name__}"
+                        )
 
                 ## 处理Agent实例的基本信息
                 temp_profile = recipient.profile.copy()

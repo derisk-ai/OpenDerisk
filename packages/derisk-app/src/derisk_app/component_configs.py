@@ -121,6 +121,10 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(
         DatasourceResource, resource_type_alias="datasource"
     )
+    logger.info(
+        f"[ResourceInit] DatasourceResource registered with alias='datasource', "
+        f"registered_keys={list(rm._resources.keys())}"
+    )
     rm.register_resource(KnowledgeSpaceRetrieverResource)
     rm.register_resource(GptAppResource)
     rm.register_resource(resource_instance=fetch)

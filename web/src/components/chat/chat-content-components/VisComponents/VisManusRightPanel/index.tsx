@@ -685,37 +685,38 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
   }, [matchedDeliverable]);
 
   const handlePrint = useCallback(() => {
-    // For deliverable files (iframe), open source URL directly for printing
-    if (matchedDeliverable) {
-      const url = resolveFileUrl(matchedDeliverable);
-      if (url) {
-        const printWindow = window.open(url, '_blank');
-        if (printWindow) {
-          printWindow.onload = () => {
-            setTimeout(() => printWindow.print(), 1000);
-          };
-        } else {
-          message.error('无法打开打印窗口，请检查浏览器弹窗设置');
-        }
-        return;
-      }
-    }
-    // Fallback: print current tab content
     const container = contentRef.current;
     if (!container) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      message.error('无法打开打印窗口，请检查浏览器弹窗设置');
-      return;
+
+    // For iframe deliverables, call print on the iframe's contentWindow directly
+    const iframe = container.querySelector('iframe');
+    if (iframe?.contentWindow) {
+      try {
+        iframe.contentWindow.print();
+        return;
+      } catch {
+        // Cross-origin fallback below
+      }
     }
-    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-      .map((el) => el.outerHTML).join('\n');
-    printWindow.document.write(
-      `<html><head><title>打印报告</title>${styles}<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:20px;background:#fff}@media print{body{padding:0}}</style></head><body>${container.innerHTML}</body></html>`
-    );
-    printWindow.document.close();
-    printWindow.onload = () => printWindow.print();
-  }, [matchedDeliverable]);
+
+    // Fallback: use window.print() with print-only styles to hide everything else
+    const printId = 'manus-print-area';
+    container.setAttribute('id', printId);
+    const style = document.createElement('style');
+    style.setAttribute('data-print-helper', 'true');
+    style.textContent = `
+      @media print {
+        body * { visibility: hidden !important; }
+        #${printId}, #${printId} * { visibility: visible !important; }
+        #${printId} { position: absolute; left: 0; top: 0; width: 100%; }
+      }
+    `;
+    document.head.appendChild(style);
+    window.print();
+    // Cleanup after print dialog closes
+    document.head.removeChild(style);
+    container.removeAttribute('id');
+  }, []);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     { key: 'export', icon: <DownloadOutlined />, label: '导出文件', onClick: handleExportPDF },
