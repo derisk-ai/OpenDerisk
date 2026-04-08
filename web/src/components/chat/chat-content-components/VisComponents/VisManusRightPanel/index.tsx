@@ -287,9 +287,19 @@ const resolveTaskFileDownloadUrl = (file: ManusTaskFileItem): string | null => {
   return null;
 };
 
-const handleTaskFilePreview = (file: ManusTaskFileItem) => {
+const handleTaskFilePreview = async (file: ManusTaskFileItem) => {
   const url = resolveTaskFilePreviewUrl(file);
-  if (url) {
+  if (!url) return;
+  try {
+    // Fetch and open as blob to force inline display (avoid server Content-Disposition: attachment)
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const mimeType = file.mime_type || (file.file_name?.endsWith('.txt') ? 'text/plain' : blob.type) || 'text/plain';
+    const inlineBlob = new Blob([blob], { type: mimeType });
+    const blobUrl = URL.createObjectURL(inlineBlob);
+    window.open(blobUrl, '_blank', 'noopener,noreferrer');
+  } catch {
+    // Fallback: open URL directly
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
@@ -723,7 +733,7 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
       {/* ── Tab bar (underline style, matching DB-GPT original) ── */}
       <div className="flex items-center justify-between border-b border-gray-200 bg-white px-1">
         <div className="flex items-center overflow-x-auto">
