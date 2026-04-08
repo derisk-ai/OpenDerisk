@@ -97,6 +97,15 @@ class SandboxToolBase(ToolBase):
 
     def _get_conversation_id(self, context: Optional[ToolContext]) -> str:
         """获取会话ID"""
-        if context and context.conversation_id:
+        if context is None:
+            return "default"
+
+        # 支持普通字典类型的 context
+        if isinstance(context, dict):
+            return context.get("conversation_id") or "default"
+
+        # 支持 ToolContext 对象
+        if hasattr(context, "conversation_id") and context.conversation_id:
             return context.conversation_id
+
         return "default"

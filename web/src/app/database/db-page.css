@@ -721,11 +721,25 @@
 
 .db-modal .ant-modal-body {
   padding: 24px !important;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .db-modal .ant-modal-footer {
   padding: 16px 24px !important;
   border-top: 1px solid var(--mcp-border) !important;
+}
+
+.db-modal .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.db-modal .ant-collapse-header {
+  padding: 8px 0 !important;
+}
+
+.db-modal .ant-collapse-content-box {
+  padding: 0 !important;
 }
 
 /* === Loading skeleton === */

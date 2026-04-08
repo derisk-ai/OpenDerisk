@@ -112,6 +112,7 @@ class Vis:
             "plan": ("derisk_ext.vis.common.tags.derisk_plan", "AgentPlan"),
             "todo_list": ("derisk_ext.vis.common.tags.derisk_todo_list", "TodoList"),
             "d-attach": ("derisk_ext.vis.common.tags.derisk_attach", "DeriskAttach"),
+            "d-sql-query": ("derisk_ext.vis.common.tags.derisk_sql_query", "DeriskSqlQuery"),
         }
 
         if vis_type in vis_map:

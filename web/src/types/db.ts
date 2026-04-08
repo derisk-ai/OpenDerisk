@@ -89,7 +89,7 @@ export type LearningTaskResponse = {
   id: number;
   datasource_id: number;
   task_type: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'finalizing' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   total_tables: number | null;
   processed_tables: number;

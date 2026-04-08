@@ -903,6 +903,10 @@ class ToolAction(Action[ToolInput]):
                     if k not in arguments:
                         arguments[k] = v
 
+                # Inject agent for system tools that need it (e.g. todowrite, todoread)
+                if agent and "agent" not in arguments:
+                    arguments["agent"] = agent
+
                 # Build context with sandbox_manager for sandbox tools
                 tool_context = None
                 if (
@@ -926,7 +930,13 @@ class ToolAction(Action[ToolInput]):
                     import inspect as _inspect
 
                     sig = _inspect.signature(tool_info._func)
-                    valid_keys = {p for p in sig.parameters if p not in ("self", "cls")}
+                    # 如果函数签名包含 **kwargs，则不过滤参数，允许额外参数传入
+                    has_var_keyword = any(
+                        p.kind == _inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if not has_var_keyword:
+                        valid_keys = {p for p in sig.parameters if p not in ("self", "cls")}
 
                 # Save context before filtering (for sandbox tools)
                 # SandboxToolBase tools need context to get sandbox_client

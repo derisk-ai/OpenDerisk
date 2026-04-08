@@ -138,6 +138,8 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
                 // Handle metadata and other object messages
                 if (vis.type === 'metadata' || vis.type === 'interrupt') {
                   onMessage?.(vis);
+                } else if (vis.type === 'error') {
+                  onError?.(vis.content || '对话发生错误');
                 } else {
                   onMessage?.(vis);
                 }
@@ -196,6 +198,9 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code, agent_v
                 const vis = parsedData.vis;
                 if (vis.type === 'metadata' || vis.type === 'interrupt') {
                   onMessage?.(vis);
+                  return;
+                } else if (vis.type === 'error') {
+                  onError?.(vis.content || '对话发生错误');
                   return;
                 }
               }

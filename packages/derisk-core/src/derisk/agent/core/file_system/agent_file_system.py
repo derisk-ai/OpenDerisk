@@ -1048,9 +1048,22 @@ class AgentFileSystem:
                     "description": f.metadata.get("description")
                     if f.metadata
                     else None,
+                    "object_path": f.metadata.get("object_path")
+                    if f.metadata
+                    else None,
                 }
             )
 
+        # DEBUG: log each delivery file's URL fields
+        for r in result:
+            logger.info(
+                f"[AFSv3] delivery file detail: file_name={r.get('file_name')}, "
+                f"file_type={r.get('file_type')}, "
+                f"oss_url={r.get('oss_url')}, "
+                f"preview_url={r.get('preview_url')}, "
+                f"download_url={r.get('download_url')}, "
+                f"object_path={r.get('object_path')}"
+            )
         logger.info(f"[AFSv3] Collected {len(result)} delivery files")
         return result
 
@@ -1352,6 +1365,12 @@ class AgentFileSystem:
                     overwrite=True,
                 )
 
+                logger.info(
+                    f"[AFSv3] write_chat_file result: "
+                    f"file_info={file_info is not None}, "
+                    f"oss_info={file_info.oss_info if file_info else None}, "
+                    f"temp_url={file_info.oss_info.temp_url if file_info and file_info.oss_info else None}"
+                )
                 if file_info and file_info.oss_info and file_info.oss_info.temp_url:
                     oss_url = file_info.oss_info.temp_url
                     oss_object_path = self._extract_object_path_from_url(oss_url)
@@ -1373,9 +1392,10 @@ class AgentFileSystem:
                     extension=file_extension,
                     file_name=actual_file_name,
                 )
-                if storage_uri.startswith("https://"):
+                if storage_uri.startswith(("https://", "derisk-fs://")):
                     oss_url = storage_uri
-                    oss_object_path = self._extract_object_path_from_url(oss_url)
+                    if storage_uri.startswith("https://"):
+                        oss_object_path = self._extract_object_path_from_url(oss_url)
                 logger.info(
                     f"[AFSv3] OSS transfer via FileStorageClient: "
                     f"object_key={object_key}, extracted_object_path={oss_object_path}"

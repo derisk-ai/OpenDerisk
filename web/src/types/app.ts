@@ -79,6 +79,20 @@ export interface SubagentConfig {
 }
 
 /**
+ * 首页场景入驻配置
+ */
+export interface HomeSceneConfig {
+  /** 是否入驻首页 */
+  featured: boolean;
+  /** 排序位置（越小越靠前） */
+  position?: number;
+  /** antd 图标名称，如 "HeartOutlined" */
+  icon_type?: string;
+  /** 渐变背景色，如 "from-blue-400 to-blue-500" */
+  bg_color?: string;
+}
+
+/**
  * 扩展配置 - 分布式执行设置
  */
 export interface ExtConfig {
@@ -86,6 +100,8 @@ export interface ExtConfig {
   worker_pool?: WorkerPoolConfig;
   monitoring?: MonitoringConfig;
   subagents?: SubagentConfig[];
+  /** 首页场景入驻配置 */
+  home_scene?: HomeSceneConfig;
 }
 
 // =============================================================================

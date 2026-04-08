@@ -53,9 +53,9 @@ const TerminalRenderer: FC<IProps> = ({
   const isError = status === 'error';
 
   return (
-    <div className="rounded-xl overflow-hidden border border-slate-700 bg-[#1e1e1e] shadow-lg">
+    <div className="h-full flex flex-col rounded-lg overflow-hidden border border-slate-700/60 bg-[#1e1e1e] shadow-sm">
       {/* macOS-style header */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-[#2d2d2d] border-b border-slate-700">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-slate-700/60 flex-shrink-0">
         <div className="flex items-center gap-2">
           {/* Traffic light dots */}
           <div className="flex items-center gap-1.5">
@@ -90,7 +90,7 @@ const TerminalRenderer: FC<IProps> = ({
       </div>
 
       {/* Terminal content */}
-      <div className="p-4 font-mono text-sm overflow-x-auto max-h-[400px] overflow-y-auto">
+      <div className="flex-1 p-4 font-mono text-sm overflow-x-auto overflow-y-auto min-h-0">
         {/* Command line */}
         {command && (
           <div className="flex items-start gap-0">

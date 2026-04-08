@@ -128,6 +128,11 @@ export const postDbLearn = (id: string | number, data?: LearningTaskRequest) => 
     data,
   );
 };
+export const cancelDbLearn = (id: string | number) => {
+  return POST<undefined, { cancelled: boolean; task_id?: number; reason?: string }>(
+    `/api/v2/serve/datasources/${id}/learn/cancel`,
+  );
+};
 export const getDbLearnStatus = (id: string | number) => {
   return GET<null, LearningTaskResponse | null>(
     `/api/v2/serve/datasources/${id}/learn/status`,

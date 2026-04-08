@@ -247,6 +247,9 @@ class FileClient(BaseClient):
                         public_url=True,
                     )
 
+                    logger.info(
+                        f"[FileClient] write_chat_file save_file returned uri={uri}"
+                    )
                     if uri.startswith(("http://", "https://")):
                         preview_url = uri
                     else:
@@ -275,21 +278,35 @@ class FileClient(BaseClient):
                     else:
                         full_object_name = storage_key
 
+                    logger.info(
+                        f"[FileClient] write_chat_file preview_url={preview_url}, "
+                        f"full_object_name={full_object_name}"
+                    )
                     if preview_url and str(preview_url).startswith(("http://", "https://")):
                         file_info.oss_info = OSSFile(
                             object_name=full_object_name,
-                            object_url=None,
+                            object_url=uri,
                             temp_url=preview_url,
                         )
                         logger.info(
-                            f"Successfully saved file via FileStorageClient: {normalized_path} -> {uri}"
+                            f"[FileClient] write_chat_file -> oss_info set with HTTP URL: "
+                            f"temp_url={preview_url}"
                         )
                         return file_info
                     else:
-                        logger.warning(
-                            f"[FileClient] FileStorageClient saved file but preview_url is invalid: "
-                            f"preview_url={preview_url!r}. Falling back to legacy OSS."
+                        # File saved to FileStorage but no HTTP preview URL available
+                        # (e.g. local storage backend). Store the derisk-fs:// URI
+                        # so downstream can use /api/v2/serve/file/files/preview API.
+                        file_info.oss_info = OSSFile(
+                            object_name=full_object_name,
+                            object_url=uri,
+                            temp_url=uri,
                         )
+                        logger.info(
+                            f"[FileClient] write_chat_file -> oss_info set with storage URI: "
+                            f"temp_url={uri}"
+                        )
+                        return file_info
 
                 except Exception as exc:
                     logger.error(
@@ -329,18 +346,14 @@ class FileClient(BaseClient):
                     return file_info
 
                 except Exception as exc:
-                    logger.error(
-                        "OSS upload failed: conversation_id=%s path=%s error=%s. "
+                    logger.warning(
+                        "Legacy OSS upload failed: conversation_id=%s path=%s error=%s. "
                         "File was created in sandbox but cannot be accessed via web URL. "
                         "Please check storage configuration.",
                         conversation_id,
                         normalized_path,
                         exc,
                     )
-                    raise RuntimeError(
-                        f"Failed to upload file: {normalized_path}. "
-                        f"Error: {exc}. Please check storage configuration."
-                    ) from exc
 
             logger.warning(
                 "No storage backend configured for file: %s. "

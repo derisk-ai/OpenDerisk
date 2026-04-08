@@ -29,7 +29,8 @@ export type ManusOutputType =
   | 'error'
   | 'html'
   | 'image'
-  | 'thought';
+  | 'thought'
+  | 'sql_query';
 
 export type ManusArtifactType =
   | 'file'
@@ -47,7 +48,8 @@ export type ManusPanelView =
   | 'html-preview'
   | 'image-preview'
   | 'skill-preview'
-  | 'summary';
+  | 'summary'
+  | 'deliverable';
 
 export interface ManusExecutionStep {
   id: string;
@@ -108,6 +110,37 @@ export interface ManusLeftPanelData {
   artifacts: ManusArtifactItem[];
 }
 
+export interface ManusTaskFileItem {
+  file_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  mime_type?: string;
+  oss_url?: string;
+  preview_url?: string;
+  download_url?: string;
+  description?: string;
+  created_at?: string;
+  object_path?: string;
+}
+
+export interface ManusDeliverableFile {
+  file_id: string;
+  file_name: string;
+  mime_type?: string;
+  file_size: number;
+  content_url?: string;
+  download_url?: string;
+  content?: string;
+  object_path?: string;
+  render_type: 'iframe' | 'markdown' | 'code' | 'image' | 'pdf' | 'text';
+}
+
+export interface ManusStepData {
+  active_step: ManusActiveStepInfo;
+  outputs: ManusExecutionOutput[];
+}
+
 export interface ManusRightPanelData {
   active_step?: ManusActiveStepInfo;
   outputs: ManusExecutionOutput[];
@@ -116,6 +149,10 @@ export interface ManusRightPanelData {
   panel_view: ManusPanelView;
   summary_content?: string;
   is_summary_streaming?: boolean;
+  task_files: ManusTaskFileItem[];
+  deliverable_files: ManusDeliverableFile[];
+  /** Map from planning_window UID (action_id) to step data for click-to-switch */
+  steps_map?: Record<string, ManusStepData>;
 }
 
 /** Step type display configuration */

@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from typing import Dict, Any, AsyncIterator, List, Optional
 
 from derisk.core.interface.llm import (
@@ -77,7 +78,7 @@ class OpenAIProvider(LLMProvider):
                 "parallel_tool_calls": request.parallel_tool_calls,
                 "use_compat_fc": use_compat_fc,
             }
-            logger.info(f"OpenAIProvider generate request: {json.dumps(log_params, ensure_ascii=False)}")
+            logger.info(f"OpenAIProvider generate request params: {json.dumps(log_params, ensure_ascii=False)}")
 
             response = await self.client.chat.completions.create(**params)
 
@@ -161,12 +162,13 @@ class OpenAIProvider(LLMProvider):
                 "use_compat_fc": use_compat_fc,
                 "stream": True,
             }
-            logger.info(f"OpenAIProvider generate_stream request: {json.dumps(log_params, ensure_ascii=False)}")
+            logger.info(f"OpenAIProvider generate_stream request params: {json.dumps(log_params, ensure_ascii=False)}")
 
             stream = await self.client.chat.completions.create(**params)
 
             accumulated_tool_calls = {}
             accumulated_content = ""
+            _last_progress_time = time.time()
 
             async for chunk in stream:
                 if not chunk.choices:
@@ -178,6 +180,21 @@ class OpenAIProvider(LLMProvider):
 
                 if content:
                     accumulated_content += content
+
+                # Progress log every 10s
+                _now = time.time()
+                if _now - _last_progress_time >= 10:
+                    _tc_lens = {
+                        idx: len(tc["function"]["arguments"])
+                        for idx, tc in accumulated_tool_calls.items()
+                    }
+                    logger.info(
+                        f"OpenAIProvider stream progress: "
+                        f"content_len={len(accumulated_content)}, "
+                        f"tool_args_len={_tc_lens}, "
+                        f"elapsed={_now - _last_progress_time:.1f}s"
+                    )
+                    _last_progress_time = _now
 
                 if tool_calls:
                     for tc in tool_calls:

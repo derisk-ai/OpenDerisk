@@ -41,6 +41,7 @@ import {
   KeyOutlined,
   LockOutlined,
   RobotOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
@@ -415,6 +416,11 @@ function VisualConfig({
             children: <FileServiceConfigSection config={config} onChange={onConfigChange} />,
           },
           {
+            key: 'datasource',
+            label: <span className="font-semibold"><DatabaseOutlined /> 数据源配置</span>,
+            children: <DatasourceConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
             key: 'sandbox',
             label: <span className="font-semibold"><SafetyOutlined /> 沙箱配置</span>,
             children: <SandboxConfigSection config={config} onChange={onConfigChange} />,
@@ -466,6 +472,56 @@ function SystemConfigSection({
             <Select.Option value="WARNING">WARNING</Select.Option>
             <Select.Option value="ERROR">ERROR</Select.Option>
           </Select>
+        </Form.Item>
+      </div>
+      <Form.Item>
+        <Button type="primary" htmlType="submit">保存</Button>
+      </Form.Item>
+    </Form>
+  );
+}
+
+function DatasourceConfigSection({
+  config,
+  onChange,
+}: {
+  config: AppConfig;
+  onChange: () => void;
+}) {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (config.datasource) {
+      form.setFieldsValue(config.datasource);
+    }
+  }, [config.datasource]);
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateDatasourceConfig(values);
+      message.success('数据源配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item
+          name="learning_worker_concurrency"
+          label="Schema Learning 并发度"
+          tooltip="单节点 schema learning 的并发 worker 线程数，越大学习速度越快，但占用更多数据库连接"
+        >
+          <InputNumber min={1} max={20} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item
+          name="learning_subtask_timeout"
+          label="子任务超时时间（秒）"
+          tooltip="worker 领取子任务后如果超过此时间未完成，会被回收重新分配"
+        >
+          <InputNumber min={60} max={3600} step={60} style={{ width: '100%' }} />
         </Form.Item>
       </div>
       <Form.Item>

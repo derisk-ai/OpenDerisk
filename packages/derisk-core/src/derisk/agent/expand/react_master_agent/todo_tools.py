@@ -210,7 +210,7 @@ async def todowrite(
     await storage.write_todos(conv_id, new_todos)
 
     # 推送可视化
-    mission = agent.not_null_agent_context.query if hasattr(agent, "not_null_agent_context") else ""
+    mission = getattr(agent.not_null_agent_context, "query", "") if hasattr(agent, "not_null_agent_context") else ""
     await _push_todolist_vis(agent, new_todos, mission)
 
     # 统计

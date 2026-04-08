@@ -1460,6 +1460,42 @@ async def update_system_config(request: Dict[str, Any]):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/datasource")
+async def get_datasource_config():
+    manager = get_config_manager()
+    config = manager.get()
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": config.datasource.model_dump(),
+        }
+    )
+
+
+@router.post("/datasource")
+async def update_datasource_config(request: Dict[str, Any]):
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+
+        for key, value in request.items():
+            if hasattr(config.datasource, key):
+                setattr(config.datasource, key, value)
+
+        saved = save_config_with_error_handling(manager, "数据源配置")
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "数据源配置已更新" + ("并保存" if saved else "（保存失败）"),
+                "data": config.datasource.model_dump(),
+                "saved_to_file": saved,
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/web")
 async def get_web_config():
     manager = get_config_manager()

@@ -44,6 +44,8 @@ from derisk.agent.core_v2.vis_manus_protocol import (
     ManusExecutionStep,
     ManusThinkingSection,
     ManusArtifactItem,
+    ManusTaskFileItem,
+    ManusDeliverableFile,
     ManusExecutionOutput,
     ManusActiveStepInfo,
     ManusLeftPanelData,
@@ -119,6 +121,11 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         self._outputs: Dict[str, List[ManusExecutionOutput]] = {}
         self._step_thoughts: Dict[str, str] = {}
         self._active_step_id: Optional[str] = None
+        # Map planning_window UID (action_id) → step_id for click-to-switch
+        self._planning_uid_to_step_id: Dict[str, str] = {}
+        # Buffer: (planning_uid, action_name) captured from _act_out_2_plan,
+        # consumed by _process_gpt_message matching by action_name (FIFO)
+        self._pending_planning_uids: List[tuple] = []
 
     @property
     def web_use(self) -> bool:
@@ -135,6 +142,22 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
     @property
     def description(self) -> str:
         return "Manus双面板可视化布局"
+
+    def _act_out_2_plan(self, action_out, layer_count):
+        """Override parent to capture the exact UIDs used for planning items.
+
+        The planning_window uses action_out.action_id as the UID for each plan item.
+        We capture these UIDs so we can map them to manus steps for click-to-switch.
+        Only capture when the parent actually creates a planning item (returns non-None).
+        """
+        result = super()._act_out_2_plan(action_out, layer_count)
+        if result is not None:
+            action_id = getattr(action_out, 'action_id', None)
+            action_name = getattr(action_out, 'action', None) or getattr(action_out, 'name', '') or ''
+            if action_id:
+                self._pending_planning_uids.append((action_id, action_name))
+                logger.debug(f"[manus] captured planning UID: {action_id} (action={action_name})")
+        return result
 
     # 用于检测 bash 命令中实际执行的代码语言
     _CODE_EXEC_PATTERNS = [
@@ -304,42 +327,58 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
     def _process_gpt_message(self, gpt_msg: GptsMessage) -> Optional[ManusExecutionStep]:
         """处理单条 GptsMessage，提取为执行步骤
 
-        支持两种数据来源：
-        1. V1 Agent: action_report (List[ActionOutput]) 包含工具执行详情
-        2. content JSON: 包含 action/tool/thought 等字段
+        支持并行工具调用：当 action_report 包含多个 ActionOutput 时，
+        为每个创建独立的执行步骤，确保所有步骤都可点击切换。
         """
         if not gpt_msg:
             return None
 
-        self._step_counter += 1
-        step_id = f"step_{self._step_counter}"
+        # Multiple action_reports = parallel tool calls → one step per report
+        if gpt_msg.action_report and len(gpt_msg.action_report) > 1:
+            last_step = None
+            for act_out in gpt_msg.action_report:
+                step = self._create_step_for_action(gpt_msg, act_out)
+                if step:
+                    last_step = step
+            return last_step
 
-        # 提取 action 信息 - 优先从 action_report 获取（V1 Agent 主要路径）
+        # Single action_report or none
+        single_report = gpt_msg.action_report[0] if gpt_msg.action_report else None
+        return self._create_step_for_action(gpt_msg, single_report)
+
+    def _create_step_for_action(
+        self, gpt_msg: GptsMessage, act_out=None
+    ) -> Optional[ManusExecutionStep]:
+        """为单个 ActionOutput 创建执行步骤
+
+        Args:
+            gpt_msg: 原始 GptsMessage（用于 fallback 字段如 content, thinking, current_goal）
+            act_out: 单个 ActionOutput 对象（可为 None，此时从 content JSON 解析）
+        """
+        # 提取 action 信息
         action_name = None
         action_input = None
         thought = None
         observation = None
 
-        # 路径1: 从 action_report (List[ActionOutput]) 提取
-        if gpt_msg.action_report:
-            for act_out in gpt_msg.action_report:
-                if hasattr(act_out, 'action') and act_out.action:
-                    action_name = act_out.action
-                elif hasattr(act_out, 'action_name') and act_out.action_name:
-                    action_name = act_out.action_name
-                elif hasattr(act_out, 'name') and act_out.name:
-                    action_name = act_out.name
-                if hasattr(act_out, 'action_input') and act_out.action_input:
-                    action_input = act_out.action_input
-                if hasattr(act_out, 'thoughts') and act_out.thoughts:
-                    thought = act_out.thoughts
-                if hasattr(act_out, 'observations') and act_out.observations:
-                    observation = act_out.observations
-                elif hasattr(act_out, 'content') and act_out.content:
-                    observation = act_out.content
-                break  # 取第一个 action_report
+        # 从指定的 act_out 提取
+        if act_out:
+            if hasattr(act_out, 'action') and act_out.action:
+                action_name = act_out.action
+            elif hasattr(act_out, 'action_name') and act_out.action_name:
+                action_name = act_out.action_name
+            elif hasattr(act_out, 'name') and act_out.name:
+                action_name = act_out.name
+            if hasattr(act_out, 'action_input') and act_out.action_input:
+                action_input = act_out.action_input
+            if hasattr(act_out, 'thoughts') and act_out.thoughts:
+                thought = act_out.thoughts
+            if hasattr(act_out, 'observations') and act_out.observations:
+                observation = act_out.observations
+            elif hasattr(act_out, 'content') and act_out.content:
+                observation = act_out.content
 
-        # 路径2: 从 content JSON 解析（V2 或 fallback）
+        # Fallback: 从 content JSON 解析（V2 或 fallback）
         content = gpt_msg.content or ""
         if isinstance(content, str) and not action_name:
             try:
@@ -357,32 +396,28 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # 确定步骤类型（bash 时检测是否执行代码）
         step_type = self._map_action_to_step_type(action_name, action_input)
 
-        # 确定步骤标题 - BlankAction 显示为 "任务完成"
+        # BlankAction / terminate — 跳过，不在执行步骤中展示
         is_blank = action_name == BlankAction.name
-        if not is_blank and gpt_msg.action_report:
-            for act_out in gpt_msg.action_report:
-                if getattr(act_out, 'name', '') == BlankAction.name:
-                    is_blank = True
-                    break
+        if not is_blank and act_out:
+            if getattr(act_out, 'name', '') == BlankAction.name or getattr(act_out, 'terminate', False):
+                is_blank = True
 
         if is_blank:
-            title = "任务完成"
-        else:
-            title = action_name or self._get_action_report_summary(gpt_msg) or "执行中"
+            return None
+
+        self._step_counter += 1
+        step_id = f"step_{self._step_counter}"
+
+        title = action_name or self._get_action_report_summary(gpt_msg) or "执行中"
 
         # 确定阶段
         phase = self._extract_phase_key(thought or content if isinstance(content, str) else "")
 
-        # 确定状态 - 从 action_report 获取更精确的状态
+        # 确定状态
         status = ManusStepStatus.RUNNING.value
-        if gpt_msg.action_report:
-            all_success = all(
-                getattr(a, 'is_exe_success', True) for a in gpt_msg.action_report
-            )
-            if all_success:
-                status = ManusStepStatus.COMPLETED.value
-            else:
-                status = ManusStepStatus.ERROR.value
+        if act_out:
+            is_success = getattr(act_out, 'is_exe_success', True)
+            status = ManusStepStatus.COMPLETED.value if is_success else ManusStepStatus.ERROR.value
         elif gpt_msg.current_goal and "failed" in gpt_msg.current_goal.lower():
             status = ManusStepStatus.ERROR.value
         elif self._get_action_report_summary(gpt_msg) and "完成" in self._get_action_report_summary(gpt_msg):
@@ -392,7 +427,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             id=step_id,
             type=step_type,
             title=title,
-            subtitle=self._get_action_report_summary(gpt_msg),
+            subtitle=observation[:100] if observation and isinstance(observation, str) else None,
             description=gpt_msg.current_goal,
             phase=phase,
             status=status,
@@ -405,21 +440,25 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # 提取输出
         outputs = []
 
-        # 从 action_report 提取输出（V1 主要路径）
-        if gpt_msg.action_report:
-            for act_out in gpt_msg.action_report:
-                # view 是给人看的信息
-                # 优先使用 observations/content（实际工具执行结果），
-                # 避免使用 view/simple_view（包含 VIS tag 标记，如 ```d-tool {...}```）
+        if act_out:
+            # SQL 步骤特殊处理：提取 d-sql-query VIS tag 中的结构化数据
+            if step_type == ManusStepType.SQL.value:
+                sql_data = self._extract_sql_query_data(act_out)
+                if sql_data:
+                    outputs.append(ManusExecutionOutput(
+                        output_type=ManusOutputType.SQL_QUERY.value,
+                        content=sql_data,
+                    ))
+
+            if not outputs:
+                # 优先使用 observations/content（实际工具执行结果）
                 obs_content = getattr(act_out, 'observations', None)
                 act_content = getattr(act_out, 'content', None)
-
                 display_content = obs_content or act_content
                 if display_content:
-                    # 根据步骤类型决定输出类型
                     if step_type == ManusStepType.BASH.value:
                         out_type = ManusOutputType.TEXT.value
-                    elif step_type in (ManusStepType.PYTHON.value, ManusStepType.SQL.value):
+                    elif step_type in (ManusStepType.PYTHON.value,):
                         out_type = ManusOutputType.CODE.value
                     elif step_type == ManusStepType.HTML.value:
                         out_type = ManusOutputType.HTML.value
@@ -435,13 +474,12 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 content=self._get_action_report_summary(gpt_msg),
             ))
 
-        # 处理 content 中的各类输出
-        if isinstance(content, str) and content.strip():
+        # 处理 content 中的各类输出（仅在无 act_out 时作为 fallback）
+        if not act_out and isinstance(content, str) and content.strip():
             try:
                 content_dict = json.loads(content)
                 observation = content_dict.get("observation", "")
                 if observation:
-                    # 根据 action 类型确定输出类型
                     if step_type == ManusStepType.BASH.value:
                         outputs.append(ManusExecutionOutput(
                             output_type=ManusOutputType.TEXT.value,
@@ -483,11 +521,64 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         self._steps[step_id] = step
         self._active_step_id = step_id
 
+        # Map planning UID → step_id for click-to-switch
+        mapped = False
+        if act_out:
+            action_id = getattr(act_out, 'action_id', None)
+            if not action_id and isinstance(act_out, dict):
+                action_id = act_out.get('action_id')
+            if action_id:
+                self._planning_uid_to_step_id[action_id] = step_id
+                self._pending_planning_uids = [
+                    (u, n) for u, n in self._pending_planning_uids if u != action_id
+                ]
+                mapped = True
+                logger.debug(f"[manus] direct mapped UID {action_id} → {step_id} (action={action_name})")
+        # Fallback: if direct mapping failed, try pending buffer from _act_out_2_plan
+        if not mapped and self._pending_planning_uids:
+            uid, pname = self._pending_planning_uids.pop(0)
+            self._planning_uid_to_step_id[uid] = step_id
+            logger.debug(f"[manus] fallback mapped UID {uid} → {step_id} (pending_action={pname}, step_action={action_name})")
+
         # 添加到对应阶段分组
         section = self._get_or_create_section(phase)
         section.steps.append(step)
 
         return step
+
+    # Regex to extract JSON from ```d-sql-query\n{...}\n``` VIS tag
+    _VIS_SQL_QUERY_RE = re.compile(
+        r'```d-sql-query\s*\n(.*?)\n```', re.DOTALL
+    )
+
+    def _extract_sql_query_data(self, act_out) -> Optional[Dict[str, Any]]:
+        """Extract structured SQL query data from ActionOutput.
+
+        The execute_sql tool returns a d-sql-query VIS tag in its view/content.
+        We parse the JSON from it to pass structured data to the frontend.
+        """
+        # Try all possible fields that might contain the d-sql-query VIS tag
+        for attr in ('view', 'simple_view', 'observations', 'content'):
+            val = getattr(act_out, attr, None) if hasattr(act_out, attr) else (
+                act_out.get(attr) if isinstance(act_out, dict) else None
+            )
+            if not val or not isinstance(val, str):
+                continue
+            match = self._VIS_SQL_QUERY_RE.search(val)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            # Also try parsing as direct JSON (in case content is pure JSON)
+            if '"columns"' in val and '"rows"' in val:
+                try:
+                    data = json.loads(val)
+                    if isinstance(data, dict) and 'columns' in data and 'rows' in data:
+                        return data
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        return None
 
     def _extract_artifacts(self, step_id: str, step_type: str, content: Any):
         """从步骤输出中提取产物"""
@@ -590,12 +681,52 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             elif active_step_info.type == ManusStepType.SKILL.value:
                 panel_view = ManusPanelView.SKILL_PREVIEW.value
 
+        # Build steps_map: planning UID → step data for click-to-switch
+        # Also index by step_id so left panel clicks (which use step_id) work too
+        steps_map: Dict[str, Dict[str, Any]] = {}
+        for planning_uid, sid in self._planning_uid_to_step_id.items():
+            step = self._steps.get(sid)
+            if step:
+                step_info = ManusActiveStepInfo(
+                    id=step.id,
+                    type=step.type,
+                    title=step.title,
+                    subtitle=step.subtitle,
+                    status=step.status,
+                    detail=step.description,
+                )
+                step_data = {
+                    "active_step": step_info.to_dict(),
+                    "outputs": [o.to_dict() for o in self._outputs.get(sid, [])],
+                }
+                steps_map[planning_uid] = step_data
+                # Also register by step_id for left panel click-to-switch
+                if sid not in steps_map:
+                    steps_map[sid] = step_data
+
+        # Also add steps that have no planning_uid mapping (e.g. streaming steps)
+        for sid, step in self._steps.items():
+            if sid not in steps_map:
+                step_info = ManusActiveStepInfo(
+                    id=step.id,
+                    type=step.type,
+                    title=step.title,
+                    subtitle=step.subtitle,
+                    status=step.status,
+                    detail=step.description,
+                )
+                steps_map[sid] = {
+                    "active_step": step_info.to_dict(),
+                    "outputs": [o.to_dict() for o in self._outputs.get(sid, [])],
+                }
+
         return ManusRightPanelData(
             active_step=active_step_info,
             outputs=outputs,
             is_running=is_running,
             artifacts=self._artifacts,
             panel_view=panel_view,
+            steps_map=steps_map,
         )
 
     def _generate_vis_tag_output(
@@ -725,6 +856,44 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 await self._process_stream_message(stream_msg, is_first_chunk)
 
             right_panel = self._build_right_panel_data(is_running=is_working)
+
+            # 收集任务文件和交付文件（增量推送时也需要）
+            if messages:
+                task_files, deliverable_files = self._collect_files_from_messages(messages)
+                right_panel.task_files = task_files
+                right_panel.deliverable_files = deliverable_files
+
+                # 任务结束时设置摘要和自动切换视图
+                if not is_working:
+                    # 提取摘要内容
+                    for msg in reversed(messages):
+                        if msg.role == HUMAN_ROLE:
+                            continue
+                        if msg.action_report:
+                            for act_out in msg.action_report:
+                                obs = getattr(act_out, 'observations', None)
+                                cnt = getattr(act_out, 'content', None)
+                                candidate = obs or cnt
+                                if candidate and isinstance(candidate, str) and candidate.strip():
+                                    right_panel.summary_content = candidate
+                                    break
+                        if right_panel.summary_content:
+                            break
+
+                    if deliverable_files:
+                        right_panel.panel_view = ManusPanelView.DELIVERABLE.value
+                    elif right_panel.summary_content:
+                        right_panel.panel_view = ManusPanelView.SUMMARY.value
+
+            # DEBUG: log deliverable files before serialization
+            if right_panel.deliverable_files:
+                for df in right_panel.deliverable_files:
+                    logger.info(
+                        f"[ManusConverter] RIGHT PANEL deliverable: "
+                        f"file_name={df.file_name}, content_url={df.content_url}, "
+                        f"download_url={df.download_url}, render_type={df.render_type}"
+                    )
+
             running_window = self._generate_vis_tag_output(
                 tag=ManusRightPanel.vis_tag(),
                 uid="manus_right_panel",
@@ -755,16 +924,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             try:
                 stream_msg = json.loads(stream_msg)
             except (json.JSONDecodeError, TypeError):
-                # 纯文本流式内容 - 追加到当前步骤
-                if self._active_step_id:
-                    outputs = self._outputs.setdefault(self._active_step_id, [])
-                    if outputs and outputs[-1].output_type == ManusOutputType.MARKDOWN.value:
-                        outputs[-1].content = (outputs[-1].content or "") + stream_msg
-                    else:
-                        outputs.append(ManusExecutionOutput(
-                            output_type=ManusOutputType.MARKDOWN.value,
-                            content=stream_msg,
-                        ))
+                # 纯文本流式内容 - LLM 输出，不追加到右面板执行步骤
+                # 右面板只展示工具执行结果，LLM 文本在左面板展示
                 return
 
         if not isinstance(stream_msg, dict):
@@ -787,32 +948,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if action_report:
                 self._process_v1_action_report(action_report)
 
-            # 处理 content（非工具执行的文本内容）
-            content = stream_msg.get("content")
-            if content and not action_report:
-                if not self._active_step_id:
-                    # 没有活跃步骤，创建一个通用响应步骤
-                    self._step_counter += 1
-                    step_id = f"step_{self._step_counter}"
-                    step = ManusExecutionStep(
-                        id=step_id,
-                        type=ManusStepType.OTHER.value,
-                        title="回复",
-                        status=ManusStepStatus.RUNNING.value,
-                    )
-                    self._steps[step_id] = step
-                    self._active_step_id = step_id
-                    section = self._get_or_create_section(None)
-                    section.steps.append(step)
-
-                outputs = self._outputs.setdefault(self._active_step_id, [])
-                if outputs and outputs[-1].output_type == ManusOutputType.MARKDOWN.value:
-                    outputs[-1].content = (outputs[-1].content or "") + content
-                else:
-                    outputs.append(ManusExecutionOutput(
-                        output_type=ManusOutputType.MARKDOWN.value,
-                        content=content,
-                    ))
+            # content 字段（非工具执行的文本内容）是 LLM 输出
+            # 右面板只展示工具执行结果，LLM 文本在左面板展示，不追加到右面板
             return
 
         # ============================================================
@@ -864,17 +1001,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         )
                     )
 
-        elif msg_type == "response" or "content" in stream_msg:
-            content = stream_msg.get("content", "")
-            if self._active_step_id and content:
-                outputs = self._outputs.setdefault(self._active_step_id, [])
-                if outputs and outputs[-1].output_type == ManusOutputType.MARKDOWN.value:
-                    outputs[-1].content = (outputs[-1].content or "") + content
-                else:
-                    outputs.append(ManusExecutionOutput(
-                        output_type=ManusOutputType.MARKDOWN.value,
-                        content=content,
-                    ))
+        elif msg_type == "response":
+            # LLM response 文本不追加到右面板执行步骤，只在左面板展示
+            pass
 
     def _process_v1_action_report(self, action_report: Any):
         """处理 V1 Agent 的 action_report
@@ -908,13 +1037,19 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if not action_name:
                 continue
 
-            # BlankAction 显示为 "任务完成"
+            # BlankAction — 跳过，不在执行步骤中展示
             is_blank = action_name == BlankAction.name
             if not is_blank:
                 report_name = getattr(report, 'name', '') if hasattr(report, 'name') else (report.get('name', '') if isinstance(report, dict) else '')
                 is_blank = report_name == BlankAction.name
+            if not is_blank:
+                is_terminate = getattr(report, 'terminate', False) if hasattr(report, 'terminate') else (report.get('terminate', False) if isinstance(report, dict) else False)
+                is_blank = is_terminate
 
-            display_title = "任务完成" if is_blank else action_name
+            if is_blank:
+                continue
+
+            display_title = action_name
 
             # 创建新步骤
             self._step_counter += 1
@@ -930,6 +1065,21 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             self._steps[step_id] = step
             self._active_step_id = step_id
 
+            # Map planning UID → step_id for click-to-switch (direct by action_id)
+            mapped = False
+            report_action_id = getattr(report, 'action_id', None) if hasattr(report, 'action_id') else (report.get('action_id') if isinstance(report, dict) else None)
+            if report_action_id:
+                self._planning_uid_to_step_id[report_action_id] = step_id
+                self._pending_planning_uids = [
+                    (u, n) for u, n in self._pending_planning_uids if u != report_action_id
+                ]
+                mapped = True
+                logger.debug(f"[manus] direct mapped UID {report_action_id} → {step_id} (action={action_name})")
+            if not mapped and self._pending_planning_uids:
+                uid, pname = self._pending_planning_uids.pop(0)
+                self._planning_uid_to_step_id[uid] = step_id
+                logger.debug(f"[manus] fallback mapped UID {uid} → {step_id} (pending_action={pname}, step_action={action_name})")
+
             section = self._get_or_create_section(None)
             section.steps.append(step)
 
@@ -937,17 +1087,146 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if thought:
                 self._step_thoughts[step_id] = thought
 
-            # 提取输出 - 使用 observations/content（实际工具结果），不使用 view（VIS 标记）
+            # 提取输出
+            # SQL 步骤特殊处理：提取 d-sql-query VIS tag 中的结构化数据
+            if step_type == ManusStepType.SQL.value:
+                sql_data = self._extract_sql_query_data(report)
+                if sql_data:
+                    self._outputs.setdefault(step_id, []).append(
+                        ManusExecutionOutput(output_type=ManusOutputType.SQL_QUERY.value, content=sql_data)
+                    )
+                    continue
+
+            # 使用 observations/content（实际工具结果），不使用 view（VIS 标记）
             display_content = observations or content
             if display_content:
                 out_type = ManusOutputType.TEXT.value
-                if step_type in (ManusStepType.PYTHON.value, ManusStepType.SQL.value):
+                if step_type in (ManusStepType.PYTHON.value,):
                     out_type = ManusOutputType.CODE.value
                 elif step_type == ManusStepType.HTML.value:
                     out_type = ManusOutputType.HTML.value
                 self._outputs.setdefault(step_id, []).append(
                     ManusExecutionOutput(output_type=out_type, content=display_content)
                 )
+
+    async def _render_terminate_files(
+        self,
+        messages: List["GptsMessage"],
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        """覆写父类方法 - Manus 布局的文件展示由右面板 tab 负责，不走 d-attach-list"""
+        return None
+
+    @staticmethod
+    def _determine_render_type(file_name: str, mime_type: Optional[str] = None) -> str:
+        """根据文件名和 mime_type 确定渲染类型"""
+        name_lower = (file_name or "").lower()
+        mime_lower = (mime_type or "").lower()
+
+        # HTML
+        if name_lower.endswith(".html") or name_lower.endswith(".htm") or "text/html" in mime_lower:
+            return "iframe"
+        # Markdown
+        if name_lower.endswith(".md") or "text/markdown" in mime_lower:
+            return "markdown"
+        # Image
+        if any(name_lower.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
+            return "image"
+        if mime_lower.startswith("image/"):
+            return "image"
+        # PDF
+        if name_lower.endswith(".pdf") or "application/pdf" in mime_lower:
+            return "pdf"
+        # Code
+        code_exts = (".py", ".js", ".ts", ".java", ".go", ".rs", ".sql", ".yaml", ".yml", ".json", ".xml", ".css", ".sh")
+        if any(name_lower.endswith(ext) for ext in code_exts):
+            return "code"
+        # Plain text
+        if name_lower.endswith(".txt") or name_lower.endswith(".log") or "text/plain" in mime_lower:
+            return "text"
+        # Default
+        return "iframe"
+
+    def _collect_files_from_messages(
+        self, messages: List["GptsMessage"]
+    ) -> tuple:
+        """从所有消息的 action_report[].output_files 中提取文件信息
+
+        Returns:
+            (task_files: List[ManusTaskFileItem], deliverable_files: List[ManusDeliverableFile])
+        """
+        task_files: List[ManusTaskFileItem] = []
+        deliverable_files: List[ManusDeliverableFile] = []
+        seen_file_ids = set()
+
+        for msg in messages:
+            if not msg.action_report:
+                continue
+            for action_out in msg.action_report:
+                if isinstance(action_out, dict):
+                    output_files = action_out.get("output_files") or []
+                else:
+                    output_files = getattr(action_out, "output_files", None) or []
+
+                for file_info in output_files:
+                    if not isinstance(file_info, dict):
+                        continue
+                    file_id = file_info.get("file_id", "")
+                    if not file_id or file_id in seen_file_ids:
+                        continue
+                    seen_file_ids.add(file_id)
+
+                    file_name = file_info.get("file_name", "")
+                    file_type = file_info.get("file_type", "")
+                    mime_type = file_info.get("mime_type")
+
+                    # 所有文件都加入 task_files
+                    task_files.append(ManusTaskFileItem(
+                        file_id=file_id,
+                        file_name=file_name,
+                        file_type=file_type,
+                        file_size=file_info.get("file_size", 0),
+                        mime_type=mime_type,
+                        oss_url=file_info.get("oss_url"),
+                        preview_url=file_info.get("preview_url"),
+                        download_url=file_info.get("download_url"),
+                        description=file_info.get("description"),
+                        created_at=file_info.get("created_at"),
+                        object_path=file_info.get("object_path"),
+                    ))
+
+                    # 仅 deliverable 类型的文件获得独立 tab
+                    if file_type == "deliverable":
+                        # 优先使用 derisk-fs:// URI 作为 content_url，
+                        # 前端通过 /api/v2/serve/file/files/preview 代理加载，
+                        # 避免直接用 OSS HTTPS URL 在 iframe 中受 X-Frame-Options 限制。
+                        oss_url = file_info.get("oss_url")
+                        preview_url = file_info.get("preview_url")
+                        if oss_url and oss_url.startswith("derisk-fs://"):
+                            content_url = oss_url
+                        else:
+                            content_url = preview_url or oss_url
+                        logger.info(
+                            f"[ManusConverter] deliverable file_info keys: "
+                            f"file_name={file_name}, file_type={file_type}, "
+                            f"preview_url={preview_url}, "
+                            f"oss_url={oss_url}, "
+                            f"download_url={file_info.get('download_url')}, "
+                            f"object_path={file_info.get('object_path')}, "
+                            f"content_url(resolved)={content_url}"
+                        )
+                        deliverable_files.append(ManusDeliverableFile(
+                            file_id=file_id,
+                            file_name=file_name,
+                            mime_type=mime_type,
+                            file_size=file_info.get("file_size", 0),
+                            content_url=content_url,
+                            download_url=file_info.get("download_url") or preview_url,
+                            object_path=file_info.get("object_path"),
+                            render_type=self._determine_render_type(file_name, mime_type),
+                        ))
+
+        return task_files, deliverable_files
 
     async def final_view(
         self,
@@ -969,6 +1248,12 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
 
         # 构建 manus right panel 数据
         right_panel = self._build_right_panel_data(is_running=False)
+
+        # 收集任务文件和交付文件
+        task_files, deliverable_files = self._collect_files_from_messages(messages)
+        right_panel.task_files = task_files
+        right_panel.deliverable_files = deliverable_files
+
         if messages:
             last_msg = messages[-1]
             if last_msg.role != HUMAN_ROLE:
@@ -987,7 +1272,12 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     summary = last_msg.content
                 if summary:
                     right_panel.summary_content = summary
-                    right_panel.panel_view = ManusPanelView.SUMMARY.value
+
+        # 确定 panel_view：交付文件优先 > 摘要
+        if deliverable_files:
+            right_panel.panel_view = ManusPanelView.DELIVERABLE.value
+        elif right_panel.summary_content:
+            right_panel.panel_view = ManusPanelView.SUMMARY.value
 
         right_vis = self._generate_vis_tag_output(
             tag=ManusRightPanel.vis_tag(),

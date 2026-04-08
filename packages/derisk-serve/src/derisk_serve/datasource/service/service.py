@@ -70,6 +70,45 @@ class Service(
 
     def after_start(self):
         """Execute after the application starts"""
+        try:
+            self._recover_stale_tasks()
+        except Exception as e:
+            logger.error(f"[RECOVERY] Failed to recover stale tasks: {e}")
+
+    def _recover_stale_tasks(self):
+        """Auto-recover learning tasks that were interrupted by a crash/restart."""
+        from derisk_serve.datasource.manages.learning_task_db import DbLearningTaskDao
+
+        task_dao = DbLearningTaskDao()
+        timeout = self.learning_service._subtask_stale_timeout
+        stale_tasks = task_dao.get_stale_active_tasks(stale_seconds=timeout)
+        if not stale_tasks:
+            return
+
+        logger.info(f"[RECOVERY] Found {len(stale_tasks)} stale learning tasks")
+
+        executor = self._system_app.get_component(
+            ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
+        ).create()  # type: ignore
+
+        for task in stale_tasks:
+            ds_id = task["datasource_id"]
+            db_config = self._dao.get_one({"id": ds_id})
+            if not db_config:
+                logger.warning(
+                    f"[RECOVERY] Datasource {ds_id} not found, skipping task {task['id']}"
+                )
+                continue
+            logger.info(
+                f"[RECOVERY] Resuming task {task['id']} for datasource {ds_id}"
+            )
+            executor.submit(
+                self.learning_service.resume_stale_task,
+                task["id"],
+                ds_id,
+                db_config.db_name,
+                db_config.db_type,
+            )
 
     @property
     def dao(
@@ -263,6 +302,7 @@ class Service(
             params=param_dict,
             description=res.comment,
             id=res.id,
+            db_name=res.db_name,
             gmt_created=res.gmt_created,
             gmt_modified=res.gmt_modified,
         )
@@ -342,7 +382,11 @@ class Service(
         task_type: str = "full_learn",
         table_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Trigger a schema learning task."""
+        """Trigger a schema learning task.
+
+        For full_learn: if a task is already running, this node joins as
+        a worker to help process remaining subtasks (distributed mode).
+        """
         db_config = self._dao.get_one({"id": datasource_id})
         if not db_config:
             raise HTTPException(status_code=404, detail="datasource not found")
@@ -372,9 +416,26 @@ class Service(
                 "gmt_modified": None,
             }
         else:
+            # Check if a task is already running — join as worker
+            existing = self.learning_service.get_learning_status(ds_id)
+            if existing and existing.get("status") in ("running", "finalizing"):
+                executor = self._system_app.get_component(
+                    ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
+                ).create()  # type: ignore
+                executor.submit(
+                    self.learning_service.join_worker,
+                    ds_id,
+                    db_config.db_name,
+                    db_config.db_type,
+                )
+                return existing
             return self.learning_service.learn_database(
                 ds_id, db_config.db_name, db_config.db_type, "manual"
             )
+
+    def cancel_learning(self, datasource_id: str) -> Dict[str, Any]:
+        """Cancel a running learning task for the datasource."""
+        return self.learning_service.cancel_task(int(datasource_id))
 
     def get_learning_status(
         self, datasource_id: str
@@ -428,11 +489,10 @@ class Service(
             return rows
 
         # Total count
+        qt = connector.quote_identifier(table_name)
         total = 0
         try:
-            count_result = connector.run(
-                f"SELECT COUNT(*) FROM `{table_name}`"
-            )
+            count_result = connector.run(f"SELECT COUNT(*) FROM {qt}")
             if count_result and len(count_result) > 1:
                 row_val = tuple(count_result[1])
                 if len(row_val) > 0:
@@ -447,28 +507,25 @@ class Service(
         # First 5 rows + Last 5 rows (no overlap)
         first_rows = []
         last_rows = []
+        base_select = f"SELECT * FROM {qt}"
         if total <= 5:
             # Show all rows as first_rows only
             try:
-                result = connector.run(
-                    f"SELECT * FROM `{table_name}` LIMIT 5"
-                )
+                result = connector.run(connector.limit_sql(base_select, 5))
                 first_rows = _extract_rows(result)
             except Exception:
                 pass
         elif total <= 10:
             # Split: first N rows + remaining rows, no overlap
             try:
-                result = connector.run(
-                    f"SELECT * FROM `{table_name}` LIMIT 5"
-                )
+                result = connector.run(connector.limit_sql(base_select, 5))
                 first_rows = _extract_rows(result)
             except Exception:
                 pass
             try:
                 remaining = total - 5
                 result = connector.run(
-                    f"SELECT * FROM `{table_name}` LIMIT {remaining} OFFSET 5"
+                    connector.limit_sql(base_select, remaining, 5)
                 )
                 last_rows = _extract_rows(result)
             except Exception:
@@ -476,16 +533,14 @@ class Service(
         else:
             # total > 10: first 5 + last 5, guaranteed no overlap
             try:
-                result = connector.run(
-                    f"SELECT * FROM `{table_name}` LIMIT 5"
-                )
+                result = connector.run(connector.limit_sql(base_select, 5))
                 first_rows = _extract_rows(result)
             except Exception:
                 pass
             try:
                 offset = total - 5
                 result = connector.run(
-                    f"SELECT * FROM `{table_name}` LIMIT 5 OFFSET {offset}"
+                    connector.limit_sql(base_select, 5, offset)
                 )
                 last_rows = _extract_rows(result)
             except Exception:

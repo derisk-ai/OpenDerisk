@@ -43,6 +43,9 @@ class DatasourceDBParameters(DBParameters):
     """The DB parameters for the datasource."""
 
     db_name: str = dataclasses.field(metadata={"help": "DB name"})
+    db_id: Optional[int] = dataclasses.field(
+        default=None, metadata={"help": "DB config id for fallback lookup"}
+    )
 
     @classmethod
     def _resource_version(cls) -> str:
@@ -81,6 +84,10 @@ class DatasourceDBParameters(DBParameters):
         copied_data = data.copy()
         if "db_name" not in copied_data and "value" in copied_data:
             copied_data["db_name"] = copied_data.pop("value")
+        if "name" not in copied_data:
+            copied_data["name"] = "datasource"
+        if "id" in copied_data and "db_id" not in copied_data:
+            copied_data["db_id"] = copied_data.pop("id")
         return super().from_dict(copied_data, ignore_extra_fields=ignore_extra_fields)
 
 
@@ -123,11 +130,11 @@ class DatasourceDBParameters(DBParameters):
     ],
 )
 class DatasourceResource(RDBMSConnectorResource):
-    def __init__(self, name: str, db_name: Optional[str] = None, **kwargs):
-        conn = CFG.local_db_manager.get_connector(db_name)
+    def __init__(self, name: str, db_name: Optional[str] = None, db_id=None, **kwargs):
+        conn = CFG.local_db_manager.get_connector(db_name, db_id=db_id)
         self._spec_service = None
         self._schema_link_service = None
-        self._datasource_id = None
+        self._datasource_id = db_id
         super().__init__(name, connector=conn, db_name=db_name, **kwargs)
 
     @classmethod

@@ -2,8 +2,8 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { 
-  ArrowUpOutlined, 
+import {
+  ArrowUpOutlined,
   PaperClipOutlined,
   DownOutlined,
   PauseCircleOutlined,
@@ -16,12 +16,18 @@ import {
   LoadingOutlined,
   FileOutlined,
   FolderAddOutlined,
-  DatabaseOutlined
+  DatabaseOutlined,
+  PlusOutlined,
+  ThunderboltOutlined,
+  LeftOutlined,
+  BookOutlined,
+  UploadOutlined,
+  ApiOutlined,
 } from '@ant-design/icons';
-import { 
-  Button, 
-  Input, 
-  Popover, 
+import {
+  Button,
+  Input,
+  Popover,
   Tooltip,
   Upload,
   Modal,
@@ -30,10 +36,11 @@ import {
   Spin,
   Select,
   App,
+  Badge,
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
-import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2 } from '@/client/api';
+import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2, getDbList, getSpaceList, getSkillList, getMCPList } from '@/client/api';
 import { ChatContentContext, SelectedSkill } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
@@ -42,6 +49,7 @@ import { MEDIA_RESOURCE_TYPES } from '@/app/application/app/components/chat-layo
 import { parseResourceValue, transformFileUrl } from '@/utils';
 import { useSearchParams } from 'next/navigation';
 import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
+import { ConnectorsModal } from '@/components/chat/connectors-modal';
 
 const { Panel } = Collapse;
 
@@ -104,6 +112,21 @@ const getAcceptTypes = (type: string) => {
       return '';
   }
 };
+
+// 数据源规范化 - 处理不同API返回格式
+function normalizeDatasource(raw: any) {
+  const params = raw.params || {};
+  return {
+    ...raw,
+    db_type: raw.db_type || raw.type || '',
+    db_name: raw.db_name || params.database || params.db_name || raw.name ||
+             (params.path ? params.path.split('/').pop()?.replace(/\.\w+$/, '') : '') || '',
+    db_host: raw.db_host || params.host || '',
+    db_port: raw.db_port || params.port || 0,
+    db_path: raw.db_path || params.path || '',
+    comment: raw.comment || raw.description || '',
+  };
+}
 
 // 模型参数配置弹窗
 interface ModelParamsModalProps {
@@ -256,7 +279,28 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
   
   // 上传中的文件列表
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
-  
+
+  // "+" 按钮相关
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [plusMenuView, setPlusMenuView] = useState<'main' | 'datasource' | 'knowledge'>('main');
+  const [dbList, setDbList] = useState<any[]>([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [spaceList, setSpaceList] = useState<any[]>([]);
+  const [spaceLoading, setSpaceLoading] = useState(false);
+  const [selectedDataSources, setSelectedDataSources] = useState<any[]>([]);
+  const [selectedKnowledgeBases, setSelectedKnowledgeBases] = useState<any[]>([]);
+  const [dbSearch, setDbSearch] = useState('');
+  const [kbSearch, setKbSearch] = useState('');
+  const uploadRef = useRef<any>(null);
+
+  // 闪电按钮相关 (Skills/MCP)
+  const [isLightningOpen, setIsLightningOpen] = useState(false);
+  const [lightningSearch, setLightningSearch] = useState('');
+  const [skillList, setSkillList] = useState<any[]>([]);
+  const [mcpList, setMcpList] = useState<any[]>([]);
+  const [selectedMcps, setSelectedMcps] = useState<any[]>([]);
+  const [isConnectorsModalOpen, setIsConnectorsModalOpen] = useState(false);
+
   // 动态资源选择相关
   const [resourceOptions, setResourceOptions] = useState<{ label: string; value: string; [key: string]: unknown }[]>([]);
   const searchParams = useSearchParams();
@@ -291,9 +335,189 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     }
   );
 
+  // 获取技能列表
+  useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getSkillList({ filter: '' }, { page: '1', page_size: '50' }));
+      return data as any;
+    },
+    {
+      onSuccess: (data: any) => {
+        if (data?.items && Array.isArray(data.items)) {
+          setSkillList(data.items);
+        }
+      },
+    },
+  );
+
+  // 获取MCP列表
+  useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getMCPList({ filter: '' }, { page: '1', page_size: '50' }));
+      return data as any;
+    },
+    {
+      onSuccess: (data: any) => {
+        if (data?.items && Array.isArray(data.items)) {
+          setMcpList(data.items);
+        }
+      },
+    },
+  );
+
+  // 获取数据源列表（延迟加载）
+  const fetchDbList = useCallback(async () => {
+    if (dbList.length > 0) return;
+    setDbLoading(true);
+    try {
+      const [, data] = await apiInterceptors(getDbList());
+      if (data) setDbList((data as any[]).map(normalizeDatasource));
+    } finally {
+      setDbLoading(false);
+    }
+  }, [dbList.length]);
+
+  // 获取知识库列表（延迟加载）
+  const fetchSpaceList = useCallback(async () => {
+    if (spaceList.length > 0) return;
+    setSpaceLoading(true);
+    try {
+      const [, data] = await apiInterceptors(getSpaceList());
+      if (data) setSpaceList(data);
+    } finally {
+      setSpaceLoading(false);
+    }
+  }, [spaceList.length]);
+
   const paramKey: string[] = useMemo(() => {
     return appInfo?.layout?.chat_in_layout?.map((i: ChatInLayoutItem) => i.param_type) || [];
   }, [appInfo?.layout?.chat_in_layout]);
+
+  // 从应用配置加载默认绑定的 Skills/MCP
+  const defaultBoundSkills = useMemo(() => {
+    const tools = appInfo?.resource_tool || [];
+    return tools
+      .filter((item: any) => {
+        const type = item.type || '';
+        return type === 'skill' || type === 'skill(derisk)';
+      })
+      .map((item: any) => {
+        try {
+          const parsed = JSON.parse(item.value || '{}');
+          return {
+            skill_code: parsed.key || parsed.skillCode || parsed.skill_code || item.name,
+            name: parsed.name || parsed.label || item.name,
+            description: parsed.description || parsed.skill_description || '',
+            icon: parsed.icon,
+            author: parsed.author || parsed.skill_author,
+            type: 'skill',
+            _isDefault: true,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, [appInfo?.resource_tool]);
+
+  const defaultBoundMcps = useMemo(() => {
+    const tools = appInfo?.resource_tool || [];
+    return tools
+      .filter((item: any) => {
+        const type = item.type || '';
+        return type === 'mcp(derisk)' || type === 'mcp';
+      })
+      .map((item: any) => {
+        try {
+          const parsed = JSON.parse(item.value || '{}');
+          return {
+            id: parsed.key || parsed.mcp_code || item.name,
+            name: parsed.name || parsed.label || item.name,
+            description: parsed.description || '',
+            icon: parsed.icon,
+            available: parsed.available,
+            _isDefault: true,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, [appInfo?.resource_tool]);
+
+  const defaultBoundKnowledgeBases = useMemo(() => {
+    const resourceKnowledge = appInfo?.resource_knowledge?.[0]?.value;
+    if (!resourceKnowledge) return [];
+    try {
+      const parsed = JSON.parse(resourceKnowledge);
+      return (parsed?.knowledges || []).map((k: any) => ({
+        id: k.knowledge_id,
+        name: k.knowledge_name || k.knowledge_id,
+        _isDefault: true,
+      }));
+    } catch {
+      return [];
+    }
+  }, [appInfo?.resource_knowledge]);
+
+  const defaultBoundDatabases = useMemo(() => {
+    const tools = appInfo?.resource_tool || [];
+    return tools
+      .filter((item: any) => item.type === 'datasource')
+      .map((item: any) => {
+        try {
+          const parsed = JSON.parse(item.value || '{}');
+          return {
+            db_name: parsed.db_name,
+            db_type: parsed.db_type,
+            id: parsed.id,
+            _isDefault: true,
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }, [appInfo?.resource_tool]);
+
+  // 初始化默认绑定 - 只在 appInfo 加载后执行一次
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  useEffect(() => {
+    if (defaultsInitialized) return;
+    if (!appInfo?.app_code) return;
+
+    let changed = false;
+    if (defaultBoundSkills.length > 0 && (!selectedSkills || selectedSkills.length === 0)) {
+      setSelectedSkills(defaultBoundSkills);
+      changed = true;
+    }
+    if (defaultBoundMcps.length > 0 && selectedMcps.length === 0) {
+      setSelectedMcps(defaultBoundMcps);
+      changed = true;
+    }
+    if (defaultBoundKnowledgeBases.length > 0 && selectedKnowledgeBases.length === 0) {
+      setSelectedKnowledgeBases(defaultBoundKnowledgeBases);
+      changed = true;
+    }
+    if (defaultBoundDatabases.length > 0 && selectedDataSources.length === 0) {
+      setSelectedDataSources(defaultBoundDatabases);
+      changed = true;
+    }
+    if (changed || defaultBoundSkills.length === 0) {
+      setDefaultsInitialized(true);
+    }
+  }, [appInfo?.app_code, defaultBoundSkills, defaultBoundMcps, defaultBoundKnowledgeBases, defaultBoundDatabases, defaultsInitialized]);
+
+  // 合并默认绑定 + 动态选择的总数（用于 badge 显示）
+  const allSelectedSkills = useMemo(() => {
+    if (!selectedSkills || selectedSkills.length === 0) return defaultBoundSkills;
+    return selectedSkills;
+  }, [selectedSkills, defaultBoundSkills]);
+
+  const allSelectedMcps = useMemo(() => {
+    if (selectedMcps.length === 0) return defaultBoundMcps;
+    return selectedMcps;
+  }, [selectedMcps, defaultBoundMcps]);
 
   // 获取resource配置
   const resourceConfig = useMemo(
@@ -373,6 +597,184 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     ];
     setChatInParams(newChatInParams);
   }, [resourceConfig, resourceOptions, extendedChatInParams, setResourceValue, setChatInParams]);
+
+  // 处理数据源选择
+  const handleDataSourceSelect = useCallback((ds: any) => {
+    const isSelected = selectedDataSources.some(s => s.id === ds.id);
+    if (isSelected) {
+      setSelectedDataSources(prev => prev.filter(s => s.id !== ds.id));
+    } else {
+      setSelectedDataSources(prev => [...prev, ds]);
+    }
+  }, [selectedDataSources]);
+
+  // 处理知识库选择
+  const handleKnowledgeBaseSelect = useCallback((kb: any) => {
+    const isSelected = selectedKnowledgeBases.some(s => (s.id || s.name) === (kb.id || kb.name));
+    if (isSelected) {
+      setSelectedKnowledgeBases(prev => prev.filter(s => (s.id || s.name) !== (kb.id || kb.name)));
+    } else {
+      setSelectedKnowledgeBases(prev => [...prev, kb]);
+    }
+  }, [selectedKnowledgeBases]);
+
+  // 处理闪电按钮中的 skill 切换
+  const handleLightningSkillToggle = useCallback((skill: any) => {
+    const isSelected = selectedSkills?.some((s: SelectedSkill) => s.skill_code === skill.skill_code);
+    if (isSelected) {
+      const newSkills = selectedSkills.filter((s: SelectedSkill) => s.skill_code !== skill.skill_code);
+      setSelectedSkills(newSkills);
+    } else {
+      setSelectedSkills([...(selectedSkills || []), skill]);
+    }
+  }, [selectedSkills, setSelectedSkills]);
+
+  // 处理闪电按钮中的 MCP 切换
+  const handleLightningMcpToggle = useCallback((mcp: any) => {
+    const mcpId = mcp.id || mcp.uuid || mcp.name;
+    const isSelected = selectedMcps.some((m: any) => (m.id || m.uuid || m.name) === mcpId);
+    if (isSelected) {
+      setSelectedMcps(prev => prev.filter((m: any) => (m.id || m.uuid || m.name) !== mcpId));
+    } else {
+      setSelectedMcps(prev => [...prev, mcp]);
+    }
+  }, [selectedMcps]);
+
+  // 闪电按钮 - 过滤后的列表
+  const filteredSkillList = useMemo(() => {
+    if (!lightningSearch) return skillList;
+    const search = lightningSearch.toLowerCase();
+    return skillList.filter((s: any) =>
+      s.name?.toLowerCase().includes(search) || s.description?.toLowerCase().includes(search)
+    );
+  }, [skillList, lightningSearch]);
+
+  const filteredMcpList = useMemo(() => {
+    if (!lightningSearch) return mcpList;
+    const search = lightningSearch.toLowerCase();
+    return mcpList.filter((m: any) =>
+      m.name?.toLowerCase().includes(search) || m.description?.toLowerCase().includes(search)
+    );
+  }, [mcpList, lightningSearch]);
+
+  const lightningBadgeCount = (allSelectedSkills?.length || 0) + allSelectedMcps.length;
+
+  // 闪电按钮弹出内容 - Skills/MCP 选择
+  const lightningContent = useMemo(() => (
+    <div className="w-80 flex flex-col max-h-[450px]">
+      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+        <Input
+          prefix={<SearchOutlined className="text-gray-400" />}
+          placeholder={t('search_skills', '搜索技能...')}
+          bordered={false}
+          className="!bg-gray-50 dark:!bg-gray-800 rounded-lg"
+          size="small"
+          value={lightningSearch}
+          onChange={(e) => setLightningSearch(e.target.value)}
+          allowClear
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto py-1 px-2">
+        {/* Skills 区域 */}
+        {filteredSkillList.length > 0 && (
+          <>
+            <div className="px-2 py-1.5 text-xs text-gray-400 font-medium">{t('skills', '技能')}</div>
+            {filteredSkillList.map((skill: any) => {
+              const isSelected = selectedSkills?.some((s: SelectedSkill) => s.skill_code === skill.skill_code);
+              return (
+                <div
+                  key={skill.skill_code}
+                  className={classNames(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5',
+                    isSelected
+                      ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                  )}
+                  onClick={() => handleLightningSkillToggle(skill)}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                    {skill.icon ? (
+                      <img src={skill.icon} className="w-5 h-5 rounded" alt={skill.name} />
+                    ) : (
+                      <ThunderboltOutlined className="text-white text-sm" />
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{skill.name}</span>
+                      {skill.type && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 flex-shrink-0">{t('official', '官方')}</span>
+                      )}
+                    </div>
+                    {skill.description && (
+                      <div className="text-xs text-gray-400 truncate mt-0.5">{skill.description}</div>
+                    )}
+                  </div>
+                  {isSelected && <CheckOutlined className="text-purple-500 text-sm flex-shrink-0" />}
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {/* MCP 区域 */}
+        {filteredMcpList.length > 0 && (
+          <>
+            <div className="px-2 py-1.5 text-xs text-gray-400 font-medium mt-1">{t('mcp_servers', 'MCP 服务')}</div>
+            {filteredMcpList.map((mcp: any) => {
+              const mcpId = mcp.id || mcp.uuid || mcp.name;
+              const isSelected = selectedMcps.some((m: any) => (m.id || m.uuid || m.name) === mcpId);
+              return (
+                <div
+                  key={mcpId}
+                  className={classNames(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5',
+                    isSelected
+                      ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                  )}
+                  onClick={() => handleLightningMcpToggle(mcp)}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center flex-shrink-0">
+                    {mcp.icon ? (
+                      <img src={mcp.icon} className="w-5 h-5 rounded" alt={mcp.name} />
+                    ) : (
+                      <ApiOutlined className="text-white text-sm" />
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{mcp.name}</span>
+                      {mcp.available && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 flex-shrink-0">Active</span>
+                      )}
+                    </div>
+                    {mcp.description && (
+                      <div className="text-xs text-gray-400 truncate mt-0.5">{mcp.description}</div>
+                    )}
+                  </div>
+                  {isSelected && <CheckOutlined className="text-purple-500 text-sm flex-shrink-0" />}
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {filteredSkillList.length === 0 && filteredMcpList.length === 0 && (
+          <div className="text-center text-gray-400 text-xs py-8">{t('no_skills_found', '未找到相关技能')}</div>
+        )}
+      </div>
+      <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 dark:border-gray-700">
+        <span className="text-xs text-gray-400">{skillList.length + mcpList.length} {t('skills_available', '个可用')}</span>
+        <button
+          className="text-xs text-indigo-500 hover:text-indigo-600 font-medium"
+          onClick={() => { setIsLightningOpen(false); setIsConnectorsModalOpen(true); }}
+        >
+          {t('manage_skills', '管理技能')} →
+        </button>
+      </div>
+    </div>
+  ), [lightningSearch, filteredSkillList, filteredMcpList, selectedSkills, selectedMcps, skillList.length, mcpList.length, t, handleLightningSkillToggle, handleLightningMcpToggle]);
 
   // 处理多文件上传 - 保持与 parseResourceValue 兼容的格式
   const handleFileUpload = useCallback(async (file: File) => {
@@ -549,6 +951,172 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       message.error(t('upload_failed', '上传失败'));
     }
   }, [chatId, scene, selectedModel, modelValue, temperatureValue, maxNewTokensValue, resourceConfig, extendedChatInParams, setChatInParams, setResourceValue, resourceValue]);
+
+  // "+" 按钮弹出菜单内容
+  const plusMenuContent = useMemo(() => {
+    // 过滤数据源
+    const filteredDbList = dbSearch
+      ? dbList.filter((ds: any) => ds.db_name?.toLowerCase().includes(dbSearch.toLowerCase()) || ds.comment?.toLowerCase().includes(dbSearch.toLowerCase()))
+      : dbList;
+
+    // 过滤知识库
+    const filteredSpaceList = kbSearch
+      ? spaceList.filter((kb: any) => kb.name?.toLowerCase().includes(kbSearch.toLowerCase()) || kb.desc?.toLowerCase().includes(kbSearch.toLowerCase()))
+      : spaceList;
+
+    if (plusMenuView === 'datasource') {
+      return (
+        <div className="w-72 flex flex-col max-h-[400px]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+            <button
+              onClick={() => { setPlusMenuView('main'); setDbSearch(''); }}
+              className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            >
+              <LeftOutlined className="text-xs" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('select_datasource', '选择数据源')}</span>
+          </div>
+          <div className="px-3 py-2">
+            <Input
+              prefix={<SearchOutlined className="text-gray-400" />}
+              placeholder={t('search_datasource', '搜索数据源...')}
+              bordered={false}
+              className="!bg-gray-50 dark:!bg-gray-800 rounded-lg"
+              size="small"
+              value={dbSearch}
+              onChange={(e) => setDbSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {dbLoading ? (
+              <div className="flex items-center justify-center py-8"><Spin size="small" /></div>
+            ) : filteredDbList.length === 0 ? (
+              <div className="text-center text-gray-400 text-xs py-8">{t('no_datasource', '暂无数据源')}</div>
+            ) : (
+              filteredDbList.map((ds: any) => {
+                const isSelected = selectedDataSources.some(s => s.id === ds.id);
+                return (
+                  <div
+                    key={ds.id}
+                    className={classNames(
+                      'flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors mb-1',
+                      isSelected ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                    )}
+                    onClick={() => handleDataSourceSelect(ds)}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <DatabaseOutlined className={classNames('text-sm flex-shrink-0', isSelected ? 'text-green-500' : 'text-gray-400')} />
+                      <div className="overflow-hidden">
+                        <div className="text-sm text-gray-700 dark:text-gray-200 truncate">{ds.db_name}</div>
+                        {ds.comment && <div className="text-xs text-gray-400 truncate">{ds.comment}</div>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">{ds.db_type}</span>
+                      {isSelected && <CheckOutlined className="text-green-500 text-xs" />}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (plusMenuView === 'knowledge') {
+      return (
+        <div className="w-72 flex flex-col max-h-[400px]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+            <button
+              onClick={() => { setPlusMenuView('main'); setKbSearch(''); }}
+              className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+            >
+              <LeftOutlined className="text-xs" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('select_knowledge_base', '选择知识库')}</span>
+          </div>
+          <div className="px-3 py-2">
+            <Input
+              prefix={<SearchOutlined className="text-gray-400" />}
+              placeholder={t('search_knowledge_base', '搜索知识库...')}
+              bordered={false}
+              className="!bg-gray-50 dark:!bg-gray-800 rounded-lg"
+              size="small"
+              value={kbSearch}
+              onChange={(e) => setKbSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {spaceLoading ? (
+              <div className="flex items-center justify-center py-8"><Spin size="small" /></div>
+            ) : filteredSpaceList.length === 0 ? (
+              <div className="text-center text-gray-400 text-xs py-8">{t('no_knowledge_base', '暂无知识库')}</div>
+            ) : (
+              filteredSpaceList.map((kb: any) => {
+                const isSelected = selectedKnowledgeBases.some(s => (s.id || s.name) === (kb.id || kb.name));
+                return (
+                  <div
+                    key={kb.id || kb.name}
+                    className={classNames(
+                      'flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors mb-1',
+                      isSelected ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                    )}
+                    onClick={() => handleKnowledgeBaseSelect(kb)}
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <BookOutlined className={classNames('text-sm flex-shrink-0', isSelected ? 'text-amber-500' : 'text-gray-400')} />
+                      <div className="overflow-hidden">
+                        <div className="text-sm text-gray-700 dark:text-gray-200 truncate">{kb.name}</div>
+                        {kb.desc && <div className="text-xs text-gray-400 truncate">{kb.desc}</div>}
+                      </div>
+                    </div>
+                    {isSelected && <CheckOutlined className="text-amber-500 text-xs flex-shrink-0" />}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // main view
+    return (
+      <div className="w-56 p-1">
+        <Upload
+          ref={uploadRef}
+          name="file"
+          accept={getAcceptTypes(resourceConfig?.sub_type || 'common_file')}
+          showUploadList={false}
+          beforeUpload={(file) => {
+            handleFileUpload(file);
+            setIsPlusMenuOpen(false);
+            return false;
+          }}
+        >
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200 w-full">
+            <UploadOutlined className="text-base text-gray-500" />
+            <span className="text-sm">{t('upload_file', '上传文件')}</span>
+          </div>
+        </Upload>
+        <div
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
+          onClick={() => { setPlusMenuView('datasource'); fetchDbList(); }}
+        >
+          <DatabaseOutlined className="text-base text-gray-500" />
+          <span className="text-sm">{t('select_datasource', '选择数据源')}</span>
+        </div>
+        <div
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200"
+          onClick={() => { setPlusMenuView('knowledge'); fetchSpaceList(); }}
+        >
+          <BookOutlined className="text-base text-gray-500" />
+          <span className="text-sm">{t('select_knowledge_base', '选择知识库')}</span>
+        </div>
+      </div>
+    );
+  }, [plusMenuView, dbList, spaceList, dbLoading, spaceLoading, selectedDataSources, selectedKnowledgeBases, dbSearch, kbSearch, resourceConfig, t, handleFileUpload, handleDataSourceSelect, handleKnowledgeBaseSelect, fetchDbList, fetchSpaceList]);
 
   const groupedModels = useMemo(() => {
     const groups: Record<string, string[]> = {};
@@ -999,6 +1567,68 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     );
   };
 
+  // 已选资源展示（数据源、知识库、MCP）
+  const SelectedResourcesDisplay = () => {
+    const hasResources = selectedDataSources.length > 0 || selectedKnowledgeBases.length > 0 || selectedMcps.length > 0;
+    if (!hasResources) return null;
+
+    return (
+      <div className="flex flex-wrap gap-2 mb-3 px-4 pt-1">
+        {/* 数据源标签 */}
+        {selectedDataSources.map((ds: any) => (
+          <div
+            key={ds.id}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/20 text-sm"
+          >
+            <DatabaseOutlined className="text-green-500 text-xs" />
+            <span className="text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{ds.db_name}</span>
+            <button
+              onClick={() => setSelectedDataSources(prev => prev.filter(s => s.id !== ds.id))}
+              className="ml-1 text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <CloseOutlined className="text-xs" />
+            </button>
+          </div>
+        ))}
+        {/* 知识库标签 */}
+        {selectedKnowledgeBases.map((kb: any) => (
+          <div
+            key={kb.id || kb.name}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 text-sm"
+          >
+            <BookOutlined className="text-amber-500 text-xs" />
+            <span className="text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{kb.name}</span>
+            <button
+              onClick={() => setSelectedKnowledgeBases(prev => prev.filter(s => (s.id || s.name) !== (kb.id || kb.name)))}
+              className="ml-1 text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <CloseOutlined className="text-xs" />
+            </button>
+          </div>
+        ))}
+        {/* MCP标签 */}
+        {selectedMcps.map((mcp: any) => {
+          const mcpId = mcp.id || mcp.uuid || mcp.name;
+          return (
+            <div
+              key={mcpId}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 text-sm"
+            >
+              <ApiOutlined className="text-emerald-500 text-xs" />
+              <span className="text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{mcp.name}</span>
+              <button
+                onClick={() => setSelectedMcps(prev => prev.filter(m => (m.id || m.uuid || m.name) !== mcpId))}
+                className="ml-1 text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <CloseOutlined className="text-xs" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   // 拖拽上传处理 - 支持多文件
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -1074,13 +1704,32 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       newUserInput = userInput;
     }
 
-    const currentChatInParams = chatInParams;
-    
+    // Inject dynamically selected datasources and knowledge bases into chat_in_params
+    // Only pass non-default (dynamically added) resources; defaults are already in app config
+    const dynamicResourceParams: ChatInParamItem[] = [];
+    for (const ds of selectedDataSources) {
+      if ((ds as any)._isDefault) continue;
+      dynamicResourceParams.push({
+        param_type: 'resource',
+        param_value: JSON.stringify({ db_name: ds.db_name, db_type: ds.db_type, id: ds.id }),
+        sub_type: 'database',
+      });
+    }
+    for (const kb of selectedKnowledgeBases) {
+      if ((kb as any)._isDefault) continue;
+      dynamicResourceParams.push({
+        param_type: 'resource',
+        param_value: JSON.stringify({ name: kb.name, id: kb.id }),
+        sub_type: 'knowledge',
+      });
+    }
+    const currentChatInParams = [...chatInParams, ...dynamicResourceParams];
+
     setUserInput('');
     setResourceValue(null);
-    setChatInParams(chatInParams.filter((i: ChatInParamItem) => 
-      i.param_type !== 'resource' || 
-      i.sub_type === 'skill(derisk)' || 
+    setChatInParams(chatInParams.filter((i: ChatInParamItem) =>
+      i.param_type !== 'resource' ||
+      i.sub_type === 'skill(derisk)' ||
       i.sub_type === 'mcp(derisk)'
     ));
 
@@ -1202,7 +1851,10 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       >
         {/* 已选技能预览 */}
         <SelectedSkillsDisplay />
-        
+
+        {/* 已选资源预览 - 数据源、知识库、MCP */}
+        <SelectedResourcesDisplay />
+
         {/* 已选资源预览 - 统一展示上传的文件 */}
         <ResourceItemsDisplay />
 
@@ -1235,52 +1887,46 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
           />
         </div>
 
-        {/* 底部工具栏 - 首页样式：左侧资源选择/模型选择，右侧文件上传和发送 */}
+        {/* 底部工具栏 */}
         <div className="flex items-center justify-between gap-2 px-3 pb-3 min-w-0">
-          {/* 左侧工具区 - 可收缩 */}
-          <div className="flex items-center gap-1.5 min-w-0 flex-shrink overflow-hidden">
-            {/* 动态资源选择器 - 根据chat_in_layout配置渲染 */}
-            {shouldShowResourceSelect && (
-              <Select
-                className="min-w-[80px] max-w-[130px] h-9 flex-shrink [&_.ant-select-selector]:!pr-6 [&_.ant-select-selection-item]:!max-w-[70px] [&_.ant-select-selection-item]:!truncate"
-                placeholder={resourceConfig?.param_description || t('select_resource', '选择资源')}
-                value={(resourceValue?.value || resourceValue?.key) as string | undefined}
-                onChange={handleResourceSelectChange}
-                loading={fetchResourceLoading}
-                options={resourceOptions}
-                suffixIcon={<DatabaseOutlined className="text-gray-400 text-xs" />}
-                variant="borderless"
-                style={{ 
-                  backgroundColor: 'rgb(249 250 251 / 1)',
-                  borderRadius: '9999px',
-                }}
-                popupMatchSelectWidth={false}
-              />
-            )}
+          {/* 左侧工具区 */}
+          <div className="flex items-center gap-2 min-w-0 flex-shrink overflow-visible">
+            {/* "+" 按钮 - 文件上传/数据源/知识库 */}
+            <Popover
+              content={plusMenuContent}
+              trigger="click"
+              placement="topLeft"
+              open={isPlusMenuOpen}
+              onOpenChange={(open) => {
+                setIsPlusMenuOpen(open);
+                if (!open) { setPlusMenuView('main'); setDbSearch(''); setKbSearch(''); }
+              }}
+              arrow={false}
+              overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-xl [&_.ant-popover-inner]:!shadow-xl"
+            >
+              <Badge count={selectedDataSources.length + selectedKnowledgeBases.length} size="small" offset={[-4, 4]} color="#16a34a">
+                <button className="h-8 w-8 rounded-full flex items-center justify-center border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:text-indigo-500 hover:border-indigo-300 dark:hover:border-indigo-600 transition-all hover:bg-indigo-50 dark:hover:bg-indigo-900/20 flex-shrink-0">
+                  <PlusOutlined className="text-sm" />
+                </button>
+              </Badge>
+            </Popover>
 
-            {/* 媒体类型文件上传按钮 */}
-            {shouldShowFileUpload && (
-              <Upload
-                name="file"
-                accept={getAcceptTypes(resourceConfig?.sub_type || '')}
-                showUploadList={false}
-                beforeUpload={(file) => {
-                  handleFileUpload(file);
-                  return false;
-                }}
-              >
-                <Tooltip title={resourceConfig?.param_description || t('upload_file', '上传文件')}>
-                  <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all flex-shrink-0">
-                    <FolderAddOutlined className="text-sm" />
-                  </button>
-                </Tooltip>
-              </Upload>
-            )}
-
-            {/* 分隔线 - 仅当有资源配置时显示 */}
-            {(shouldShowResourceSelect || shouldShowFileUpload) && (
-              <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0" />
-            )}
+            {/* 闪电按钮 - Skills/MCP 选择 */}
+            <Popover
+              content={lightningContent}
+              trigger="click"
+              placement="topLeft"
+              open={isLightningOpen}
+              onOpenChange={(open) => { setIsLightningOpen(open); if (!open) setLightningSearch(''); }}
+              arrow={false}
+              overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-xl [&_.ant-popover-inner]:!shadow-xl"
+            >
+              <Badge count={lightningBadgeCount} size="small" offset={[-4, 4]} color="#7c3aed">
+                <button className="h-8 w-8 rounded-full flex items-center justify-center bg-purple-50 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 hover:border-purple-400 transition-all flex-shrink-0">
+                  <ThunderboltOutlined className="text-sm" />
+                </button>
+              </Badge>
+            </Popover>
 
             {/* 模型选择器 */}
             <Popover
@@ -1300,38 +1946,10 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
                 <DownOutlined className="text-[10px] text-gray-400 group-hover:text-indigo-500 transition-colors" />
               </div>
             </Popover>
-
-            {/* 模型参数配置按钮 */}
-            <Tooltip title={t('model_params', '模型参数')}>
-              <button
-                onClick={() => setIsParamsModalOpen(true)}
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-indigo-500 transition-all flex-shrink-0"
-              >
-                <SlidersOutlined className="text-sm" />
-              </button>
-            </Tooltip>
           </div>
 
-          {/* 右侧：文件上传和发送按钮 - 固定不收缩 */}
+          {/* 右侧：发送按钮 */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* 文件上传 - 首页位置（右侧），统一使用与左侧相同的处理逻辑 */}
-            <Upload
-              name="file"
-              accept={getAcceptTypes(resourceConfig?.sub_type || 'common_file')}
-              showUploadList={false}
-              beforeUpload={(file) => {
-                handleFileUpload(file);
-                return false;
-              }}
-            >
-              <Tooltip title={t('upload_file', '上传文件')}>
-                <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all">
-                  <PaperClipOutlined className="text-sm" />
-                </button>
-              </Tooltip>
-            </Upload>
-
-            {/* 发送按钮 */}
             <Button
               type="primary"
               shape="circle"
@@ -1362,6 +1980,17 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         onTemperatureChange={setTemperatureValue}
         maxTokens={maxNewTokensValue}
         onMaxTokensChange={setMaxNewTokensValue}
+      />
+
+      {/* Connectors 弹窗 - 管理技能/MCP */}
+      <ConnectorsModal
+        open={isConnectorsModalOpen}
+        onCancel={() => setIsConnectorsModalOpen(false)}
+        defaultTab="skill"
+        selectedSkills={selectedSkills}
+        onSkillsChange={setSelectedSkills}
+        selectedMcps={selectedMcps}
+        onMcpsChange={setSelectedMcps}
       />
     </div>
   );

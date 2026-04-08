@@ -1,5 +1,6 @@
 """Connection manager."""
 
+import json
 import logging
 import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Type
@@ -179,13 +180,14 @@ class ConnectorManager(BaseComponent):
             raise ValueError("Unsupported Db Type！" + db_type)
         return result
 
-    def get_connector(self, db_name: str):
+    def get_connector(self, db_name: str, db_id=None):
         """Create a new connection instance.
 
         Args:
             db_name (str): database name
+            db_id (int, optional): database config id, used as fallback
         """
-        db_config = self.storage.get_db_config(db_name)
+        db_config = self.storage.get_db_config(db_name, db_id=db_id)
         db_type = DBType.of_db_type(db_config.get("db_type"))
         if not db_type:
             raise ValueError("Unsupported Db Type！" + db_config.get("db_type"))
@@ -201,6 +203,35 @@ class ConnectorManager(BaseComponent):
             db_port = db_config.get("db_port")
             db_user = db_config.get("db_user")
             db_pwd = db_config.get("db_pwd")
+
+            # Parse ext_config for database-specific parameters (e.g. Oracle
+            # sid/service_name)
+            ext_config = db_config.get("ext_config")
+            if ext_config and isinstance(ext_config, str):
+                try:
+                    ext_config = json.loads(ext_config)
+                except (json.JSONDecodeError, TypeError):
+                    ext_config = {}
+            if not isinstance(ext_config, dict):
+                ext_config = {}
+
+            # Oracle requires sid or service_name instead of db_name.
+            # Fall back to db_name (stored from the "database" field) when
+            # neither sid nor service_name is in ext_config.
+            if db_type == DBType.Oracle:
+                ora_sid = ext_config.get("sid")
+                ora_svc = ext_config.get("service_name")
+                if not ora_sid and not ora_svc:
+                    ora_svc = db_name
+                return connect_instance.from_uri_db(  # type: ignore
+                    host=db_host,
+                    port=db_port,
+                    user=db_user,
+                    pwd=db_pwd,
+                    sid=ora_sid,
+                    service_name=ora_svc,
+                )
+
             return connect_instance.from_uri_db(  # type: ignore
                 host=db_host, port=db_port, user=db_user, pwd=db_pwd, db_name=db_name
             )
@@ -291,7 +322,86 @@ class ConnectorManager(BaseComponent):
             return True
         except Exception as e:
             logger.error(f"Test connection Failure!{str(e)}")
-            raise ValueError(f"Test connection Failure!{str(e)}")
+            raise ValueError(self._friendly_connection_error(str(e), request.type))
+
+    @staticmethod
+    def _friendly_connection_error(raw_msg: str, db_type: str) -> str:
+        """Translate raw connection exceptions into user-friendly messages."""
+        msg = raw_msg.lower()
+
+        # --- Network / host unreachable ---
+        if any(k in msg for k in (
+            "could not connect", "connection refused", "timed out",
+            "can't connect", "cannot connect", "unreachable",
+            "no route to host", "network is unreachable",
+            "getaddrinfo failed", "name or service not known",
+        )):
+            return (
+                f"Unable to connect to the {db_type} server. "
+                f"Please verify the host address and port are correct and "
+                f"the database server is running.\n"
+                f"Detail: {raw_msg}"
+            )
+
+        # --- Authentication ---
+        if any(k in msg for k in (
+            "access denied", "authentication failed", "login failed",
+            "invalid username/password", "logon denied",
+            "password authentication failed", "ora-01017",
+        )):
+            return (
+                f"Authentication failed. "
+                f"Please check your username and password.\n"
+                f"Detail: {raw_msg}"
+            )
+
+        # --- Database / service not found ---
+        if any(k in msg for k in (
+            "unknown database", "does not exist", "not found",
+            "ora-12514", "ora-12505", "could not resolve",
+            "service_name", "sid",
+            "tns:listener does not currently know",
+        )):
+            return (
+                f"Database or service not found. "
+                f"Please verify the database name"
+                f"{' / service_name / SID' if db_type == 'oracle' else ''}.\n"
+                f"Detail: {raw_msg}"
+            )
+
+        # --- Driver / dependency missing ---
+        if any(k in msg for k in (
+            "no module named", "modulenotfounderror", "import error",
+            "can't load plugin", "driver not found",
+        )):
+            return (
+                f"Database driver is not installed. "
+                f"Please install the required Python driver for {db_type}.\n"
+                f"Detail: {raw_msg}"
+            )
+
+        # --- Permission ---
+        if any(k in msg for k in (
+            "permission denied", "insufficient privileges",
+            "ora-01031", "ora-00942",
+        )):
+            return (
+                f"Insufficient privileges. "
+                f"The database user does not have the required permissions.\n"
+                f"Detail: {raw_msg}"
+            )
+
+        # --- Parameter validation ---
+        if any(k in msg for k in (
+            "must be provided", "is required", "invalid",
+            "missing required", "cannot be empty",
+        )):
+            return (
+                f"Configuration error: {raw_msg}"
+            )
+
+        # --- Fallback ---
+        return f"Connection failed: {raw_msg}"
 
     def get_db_list(self, db_name: Optional[str] = None, user_id: Optional[str] = None):
         """Get db list."""

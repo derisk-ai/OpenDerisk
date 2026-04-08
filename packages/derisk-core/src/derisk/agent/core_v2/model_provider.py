@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
+import json
 import uuid
 import asyncio
 import logging
@@ -277,6 +278,11 @@ class OpenAIProvider(ModelProvider):
         try:
             call_params = self._build_call_params(messages, options, kwargs)
 
+            logger.debug(
+                f"[OpenAIProvider] generate request params: "
+                f"{json.dumps(call_params, ensure_ascii=False, default=str)}"
+            )
+
             response = await self._client.chat.completions.create(**call_params)
 
             latency = time.time() - start_time
@@ -319,6 +325,11 @@ class OpenAIProvider(ModelProvider):
         self._call_count += 1
         call_params = self._build_call_params(messages, options, kwargs)
         call_params["stream"] = True
+
+        logger.debug(
+            f"[OpenAIProvider] stream request params: "
+            f"{json.dumps(call_params, ensure_ascii=False, default=str)}"
+        )
 
         try:
             response_id = str(uuid.uuid4().hex)
@@ -437,6 +448,11 @@ class AnthropicProvider(ModelProvider):
             if system_msg:
                 call_params["system"] = system_msg
 
+            logger.debug(
+                f"[AnthropicProvider] generate request params: "
+                f"{json.dumps(call_params, ensure_ascii=False, default=str)}"
+            )
+
             response = await self._client.messages.create(**call_params)
 
             latency = time.time() - start_time
@@ -496,6 +512,11 @@ class AnthropicProvider(ModelProvider):
                 call_params["system"] = system_msg
 
             response_id = str(uuid.uuid4().hex)
+
+            logger.debug(
+                f"[AnthropicProvider] stream request params: "
+                f"{json.dumps(call_params, ensure_ascii=False, default=str)}"
+            )
 
             async with self._client.messages.stream(**call_params) as stream:
                 async for text in stream.text_stream:

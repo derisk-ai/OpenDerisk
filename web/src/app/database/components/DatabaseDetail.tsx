@@ -8,6 +8,7 @@ import {
   getDbLearnStatus,
   getDbTableData,
   postDbLearn,
+  cancelDbLearn,
   getSensitiveColumns,
   addSensitiveColumn,
   toggleSensitiveColumn,
@@ -28,6 +29,7 @@ import {
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
+  StopOutlined,
   SyncOutlined,
   TableOutlined,
   DatabaseOutlined,
@@ -57,7 +59,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
 const { Text } = Typography;
 
@@ -213,6 +215,61 @@ export default function DatabaseDetail({
       },
     },
   );
+
+  // Cancel learning task
+  const { run: runCancel, loading: cancelLoading } = useRequest(
+    async () => {
+      const [err, res] = await apiInterceptors(cancelDbLearn(datasourceId));
+      if (err) throw err;
+      return res;
+    },
+    {
+      manual: true,
+      onSuccess: (data) => {
+        if (data?.cancelled) {
+          message.success('Learning task cancelled');
+        } else {
+          message.warning(data?.reason || 'No active task to cancel');
+        }
+        refreshLearning();
+      },
+      onError: () => {
+        message.error('Failed to cancel learning task');
+      },
+    },
+  );
+
+  // Auto-poll learning status when task is active
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isActive = learningStatus?.status === 'running' || learningStatus?.status === 'finalizing' || learningStatus?.status === 'pending';
+
+  useEffect(() => {
+    if (isActive) {
+      pollingRef.current = setInterval(() => {
+        refreshLearning();
+      }, 3000);
+    }
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [isActive, refreshLearning]);
+
+  // When learning completes, refresh spec and tables
+  const prevStatusRef = useRef(learningStatus?.status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const curr = learningStatus?.status;
+    prevStatusRef.current = curr;
+    if (prev && prev !== curr && (curr === 'completed' || curr === 'failed' || curr === 'cancelled')) {
+      refreshSpec();
+      refreshTables();
+      refreshSensitive();
+      onRefresh?.();
+    }
+  }, [learningStatus?.status, refreshSpec, refreshTables, refreshSensitive, onRefresh]);
 
   // Auto-detect sensitive columns for a table
   const { run: runDetect, loading: detectLoading } = useRequest(
@@ -437,31 +494,71 @@ export default function DatabaseDetail({
   };
 
   const renderLearningStatus = () => {
+    const canCancel = learningStatus?.status === 'running' || learningStatus?.status === 'finalizing';
+
+    const statusColorMap: Record<string, string> = {
+      completed: 'success',
+      running: 'processing',
+      finalizing: 'processing',
+      pending: 'default',
+      failed: 'error',
+      cancelled: 'warning',
+    };
+
+    const progressStatusMap: Record<string, 'active' | 'success' | 'exception' | 'normal'> = {
+      completed: 'success',
+      failed: 'exception',
+      cancelled: 'exception',
+      running: 'active',
+      finalizing: 'active',
+      pending: 'normal',
+    };
+
     return (
       <div>
         <Space direction="vertical" className="w-full">
-          <Button
-            type="primary"
-            icon={<SyncOutlined />}
-            loading={learnLoading}
-            onClick={runLearn}
-          >
-            Learn Schema Now
-          </Button>
+          <Space>
+            <Button
+              type="primary"
+              icon={<SyncOutlined />}
+              loading={learnLoading}
+              onClick={runLearn}
+              disabled={canCancel}
+            >
+              Learn Schema Now
+            </Button>
+            {canCancel && (
+              <Button
+                danger
+                icon={<StopOutlined />}
+                loading={cancelLoading}
+                onClick={() => {
+                  Modal.confirm({
+                    title: 'Cancel Learning Task',
+                    content: 'Are you sure you want to cancel the running learning task? Tables already processed will be kept.',
+                    okText: 'Cancel Task',
+                    okButtonProps: { danger: true },
+                    onOk: runCancel,
+                  });
+                }}
+              >
+                Cancel Task
+              </Button>
+            )}
+          </Space>
 
           {learningStatus && (
             <Card title="Latest Learning Task" size="small">
               <Descriptions column={2} size="small">
                 <Descriptions.Item label="Status">
                   <Tag
-                    color={
-                      learningStatus.status === 'completed'
-                        ? 'success'
-                        : learningStatus.status === 'running'
-                          ? 'processing'
-                          : learningStatus.status === 'failed'
-                            ? 'error'
-                            : 'default'
+                    color={statusColorMap[learningStatus.status] || 'default'}
+                    icon={
+                      learningStatus.status === 'running' || learningStatus.status === 'finalizing'
+                        ? <SyncOutlined spin />
+                        : learningStatus.status === 'cancelled'
+                          ? <StopOutlined />
+                          : undefined
                     }
                   >
                     {learningStatus.status}
@@ -474,13 +571,7 @@ export default function DatabaseDetail({
                   <Progress
                     percent={learningStatus.progress}
                     size="small"
-                    status={
-                      learningStatus.status === 'failed'
-                        ? 'exception'
-                        : learningStatus.status === 'completed'
-                          ? 'success'
-                          : 'active'
-                    }
+                    status={progressStatusMap[learningStatus.status] || 'normal'}
                   />
                 </Descriptions.Item>
                 <Descriptions.Item label="Tables">

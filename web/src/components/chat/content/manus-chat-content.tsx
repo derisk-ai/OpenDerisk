@@ -5,7 +5,6 @@ import { ChatContentContext } from '@/contexts';
 import { IChatDialogueMessageSchema } from '@/types/chat';
 import { cloneDeep } from 'lodash';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { v4 as uuid } from 'uuid';
 import ChatHeader from '../header/chat-header';
 import UnifiedChatInput from '../input/unified-chat-input';
 import { Tooltip } from 'antd';
@@ -75,9 +74,9 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
     const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
     return tempMessage
       .filter((item) => ['view', 'human'].includes(item.role))
-      .map((item) => ({
+      .map((item, index) => ({
         ...item,
-        key: uuid(),
+        key: `${item.role}_${item.order ?? index}`,
       }));
   }, [history]);
 
@@ -131,8 +130,8 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
           {hasMessages ? (
             <div className="w-full px-3 py-3">
               <div className="w-full space-y-2">
-                {showMessages.map((content, index) => (
-                  <div key={index}>
+                {showMessages.map((content) => (
+                  <div key={content.key}>
                     <ChatContent content={content} messages={showMessages} />
                   </div>
                 ))}
@@ -198,46 +197,54 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
  * Same pattern as ChatDetailContent for vis_window3
  */
 const ManusRightPanelContainer: React.FC<{ runningWindow: string }> = memo(({ runningWindow }) => {
+  const { appInfo } = useContext(ChatContentContext);
   const handleClose = useCallback(() => {
     ee.emit(EVENTS.CLOSE_PANEL);
   }, []);
 
+  const headerTitle = useMemo(() => {
+    const name = appInfo?.app_name;
+    return name ? `${name}的电脑` : 'OpenDerisk Computer';
+  }, [appInfo?.app_name]);
+
   return (
-    <div className="flex flex-col h-full bg-[#f8f9fc] rounded-xl overflow-hidden shadow-sm">
-      {/* macOS-style Terminal Header */}
-      <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+    <div className="flex flex-col h-full bg-white rounded-xl overflow-hidden border border-gray-200/80">
+      {/* macOS-style header bar */}
+      <div className="flex items-center px-4 py-2.5 bg-[#f8f8fa] border-b border-gray-200/60">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <div
-              className="w-3 h-3 rounded-full bg-red-500 cursor-pointer hover:brightness-90 transition-all"
+              className="w-3 h-3 rounded-full bg-[#ff5f57] cursor-pointer hover:brightness-90 transition-all"
               onClick={handleClose}
             />
-            <div className="w-3 h-3 rounded-full bg-yellow-500" />
-            <div className="w-3 h-3 rounded-full bg-green-500" />
+            <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#28c840]" />
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-700 font-medium">
-            <DesktopOutlined className="text-gray-500" />
-            <span>OpenDerisk Computer</span>
+          <div className="flex items-center gap-1.5 ml-2 text-[13px] text-gray-600">
+            <DesktopOutlined className="text-gray-400 text-xs" />
+            <span>{headerTitle}</span>
           </div>
         </div>
       </div>
 
       {/* Content area - render running_window VIS tags via GPTVis */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-hidden">
         {runningWindow ? (
-          <GPTVis
-            components={markdownComponents}
-            {...markdownPlugins}
-          >
-            {runningWindow}
-          </GPTVis>
+          <div className="h-full [&>div]:h-full [&>div>div]:h-full">
+            <GPTVis
+              components={markdownComponents}
+              {...markdownPlugins}
+            >
+              {runningWindow}
+            </GPTVis>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
-            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-              <span className="text-3xl text-gray-300">&#128421;</span>
+            <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mb-4">
+              <DesktopOutlined className="text-3xl text-gray-300" />
             </div>
-            <div className="text-sm font-medium text-gray-500 mb-1">Workspace</div>
-            <div className="text-xs text-gray-400">
+            <div className="text-sm font-medium text-gray-400 mb-1">Workspace</div>
+            <div className="text-xs text-gray-300">
               等待执行...
             </div>
           </div>

@@ -62,15 +62,10 @@ class QueueIterator:
     避免因后台任务卡死或异常导致的无限等待。
     """
 
-    DEFAULT_TIMEOUT = 30.0
-    MAX_TIMEOUT_COUNT = 3  # 最大连续超时次数，超过后抛出异常
-
     def __init__(self, queue: asyncio.Queue, timeout: Optional[float] = None):
         self.queue = queue
-        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
         self._error: Optional[Exception] = None
         self._stopped = False
-        self._timeout_count = 0  # 连续超时计数器
 
     def set_error(self, error: Exception):
         """设置错误状态，将在下次迭代时抛出。"""
@@ -92,8 +87,6 @@ class QueueIterator:
         return self
 
     async def __anext__(self):
-        start = time.perf_counter()
-
         while True:
             if self._error:
                 raise self._error
@@ -101,28 +94,7 @@ class QueueIterator:
             if self._stopped:
                 raise StopAsyncIteration
 
-            try:
-                item = await asyncio.wait_for(self.queue.get(), timeout=self.timeout)
-                self._timeout_count = 0  # 成功获取消息，重置超时计数
-            except asyncio.TimeoutError:
-                self._timeout_count += 1
-                wait_time = time.perf_counter() - start
-
-                if self._timeout_count >= self.MAX_TIMEOUT_COUNT:
-                    logger.error(
-                        f"Queue timeout exceeded max retries ({self.MAX_TIMEOUT_COUNT}), "
-                        f"total wait: {wait_time:.2f}s. Terminating to prevent infinite wait."
-                    )
-                    raise TimeoutError(
-                        f"对话响应超时，已等待 {wait_time:.1f} 秒。"
-                        f"请检查后端服务状态或稍后重试。"
-                    )
-
-                logger.warning(
-                    f"Queue wait timeout ({self._timeout_count}/{self.MAX_TIMEOUT_COUNT}) "
-                    f"after {wait_time:.2f}s, continuing to wait... (queue size: {self.queue.qsize()})"
-                )
-                continue
+            item = await self.queue.get()
 
             if item == "[DONE]":
                 self.queue.task_done()
@@ -134,7 +106,6 @@ class QueueIterator:
                 self.queue.task_done()
                 continue
 
-            logger.debug(f"Queue wait: {(time.perf_counter() - start) * 1000:.2f}ms")
             try:
                 return item
             finally:

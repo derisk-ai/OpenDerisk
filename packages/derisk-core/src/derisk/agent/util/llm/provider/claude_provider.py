@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import AsyncIterator, List, Optional
 
 from derisk.agent.util.llm.provider.base import LLMProvider
@@ -86,8 +87,8 @@ class ClaudeProvider(LLMProvider):
                 "tools": request.tools,
                 "tool_choice": request.tool_choice,
             }
-            logger.info(f"ClaudeProvider generate request: {json.dumps(log_params, ensure_ascii=False)}")
-            
+            logger.info(f"ClaudeProvider generate request params: {json.dumps(log_params, ensure_ascii=False)}")
+
             response = await self.client.messages.create(**params)
             
             content_text = ""
@@ -149,13 +150,29 @@ class ClaudeProvider(LLMProvider):
                 "tool_choice": request.tool_choice,
                 "stream": True,
             }
-            logger.info(f"ClaudeProvider generate_stream request: {json.dumps(log_params, ensure_ascii=False)}")
+            logger.info(f"ClaudeProvider generate_stream request params: {json.dumps(log_params, ensure_ascii=False)}")
 
             accumulated_content = ""
             accumulated_tool_calls = []
-            
+            _last_progress_time = time.time()
+
             async with self.client.messages.stream(**params) as stream:
                 async for event in stream:
+                    # Progress log every 10s
+                    _now = time.time()
+                    if _now - _last_progress_time >= 10:
+                        _tc_lens = [
+                            len(tc["function"]["arguments"])
+                            for tc in accumulated_tool_calls
+                        ]
+                        logger.info(
+                            f"ClaudeProvider stream progress: "
+                            f"content_len={len(accumulated_content)}, "
+                            f"tool_args_len={_tc_lens}, "
+                            f"elapsed={_now - _last_progress_time:.1f}s"
+                        )
+                        _last_progress_time = _now
+
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
                         accumulated_content += event.delta.text
                         yield ModelOutput(

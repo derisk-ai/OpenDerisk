@@ -1,10 +1,11 @@
 """Oracle connector using python-oracledb."""
 
+import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Type
-from urllib.parse import quote_plus
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Type
+from urllib.parse import quote, quote_plus
 
-from sqlalchemy import text
+from sqlalchemy import MetaData, text
 
 from derisk.core.awel.flow import (
     TAGS_ORDER_HIGH,
@@ -13,6 +14,8 @@ from derisk.core.awel.flow import (
 )
 from derisk.datasource.rdbms.base import RDBMSConnector, RDBMSDatasourceParameters
 from derisk.util.i18n_utils import _
+
+logger = logging.getLogger(__name__)
 
 
 @auto_register_resource(
@@ -51,20 +54,36 @@ class OracleParameters(RDBMSDatasourceParameters):
     )
 
     def db_url(self, ssl: bool = False, charset: Optional[str] = None) -> str:
-        if self.service_name:
+        # Resolve effective service_name / sid.  When neither is explicitly
+        # set, fall back to the inherited ``database`` field so that users
+        # who simply fill in the "database" input on the UI still get a
+        # working connection (treated as service_name).
+        effective_service_name = self.service_name
+        effective_sid = self.sid
+        if not effective_service_name and not effective_sid:
+            if getattr(self, "database", None):
+                effective_service_name = self.database
+            else:
+                raise ValueError(
+                    "Either service_name, sid, or database must be provided "
+                    "for Oracle."
+                )
+
+        if effective_service_name:
             dsn = (
                 f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={self.host})"
-                f"(PORT={self.port}))(CONNECT_DATA=(SERVICE_NAME={self.service_name})))"
-            )
-        elif self.sid:
-            dsn = (
-                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={self.host})"
-                f"(PORT={self.port}))(CONNECT_DATA=(SID={self.sid})))"
+                f"(PORT={self.port}))"
+                f"(CONNECT_DATA=(SERVICE_NAME={effective_service_name})))"
             )
         else:
-            raise ValueError("Either service_name or sid must be provided for Oracle.")
+            dsn = (
+                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={self.host})"
+                f"(PORT={self.port}))(CONNECT_DATA=(SID={effective_sid})))"
+            )
 
-        return f"{self.driver}://{self.user}:{self.password}@{dsn}"
+        return (
+            f"{self.driver}://{quote(self.user)}:{quote_plus(self.password)}@{dsn}"
+        )
 
     def create_connector(self) -> "OracleConnector":
         return OracleConnector.from_parameters(self)
@@ -97,7 +116,8 @@ class OracleConnector(RDBMSConnector):
         if service_name:
             dsn = (
                 f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)"
-                f"(HOST={host})(PORT={port}))(CONNECT_DATA=(SERVICE_NAME={service_name})))"
+                f"(HOST={host})(PORT={port}))"
+                f"(CONNECT_DATA=(SERVICE_NAME={service_name})))"
             )
         else:
             dsn = (
@@ -106,9 +126,118 @@ class OracleConnector(RDBMSConnector):
             )
 
         bm_pwd = quote_plus(pwd)
-        db_url = f"{cls.driver}://{user}:{bm_pwd}@{dsn}"
+        bm_user = quote(user)
+        db_url = f"{cls.driver}://{bm_user}:{bm_pwd}@{dsn}"
 
         return cls.from_uri(db_url, engine_args=engine_args, **kwargs)
+
+    # ================================================================
+    # Dialect-specific overrides
+    # ================================================================
+
+    def quote_identifier(self, identifier: str) -> str:
+        """Oracle uses double-quote for identifier quoting."""
+        return f'"{identifier}"'
+
+    def limit_sql(self, sql: str, limit: int, offset: int = 0) -> str:
+        """Oracle 12c+ row-limiting clause."""
+        if offset > 0:
+            return f"{sql} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        return f"{sql} FETCH FIRST {limit} ROWS ONLY"
+
+    def _get_schema_for_inspection(self) -> Optional[str]:
+        """Oracle: use connected user's default schema (None lets SQLAlchemy decide)."""
+        return None
+
+    def _switch_to_db(self, session, db_name: str):
+        """Oracle does not support USE statement. No-op."""
+        pass
+
+    def _sync_tables_from_db(self) -> Iterable[str]:
+        """Read table information from Oracle using user_tables/user_views."""
+        with self.session_scope() as session:
+            table_results = session.execute(
+                text("SELECT table_name FROM user_tables")
+            )
+            tables: Set[str] = {row[0] for row in table_results}
+
+            if self.view_support:
+                view_results = session.execute(
+                    text("SELECT view_name FROM user_views")
+                )
+                tables.update(row[0] for row in view_results)
+
+        self._all_tables = tables
+        self._metadata = MetaData()
+        self._metadata.reflect(bind=self._engine)
+        return self._all_tables
+
+    def get_current_db_name(self) -> str:
+        """Get current database name for Oracle."""
+        with self.session_scope() as session:
+            cursor = session.execute(
+                text("SELECT sys_context('USERENV', 'DB_NAME') FROM dual")
+            )
+            return cursor.scalar()
+
+    def table_simple_info(self):
+        """Return table simple info using Oracle-specific SQL."""
+        _sql = """
+            SELECT table_name || '(' || LISTAGG(column_name, ',')
+                   WITHIN GROUP (ORDER BY column_id) || ')' AS schema_info
+            FROM user_tab_columns
+            GROUP BY table_name
+        """
+        with self.session_scope() as session:
+            cursor = session.execute(text(_sql))
+            return cursor.fetchall()
+
+    def get_show_create_table(self, table_name: str) -> str:
+        """Synthesize CREATE TABLE DDL from Oracle metadata."""
+        with self.session_scope() as session:
+            cursor = session.execute(text(f"""
+                SELECT column_name, data_type, data_length, data_precision,
+                       data_scale, nullable, data_default
+                FROM user_tab_columns
+                WHERE table_name = '{table_name.upper()}'
+                ORDER BY column_id
+            """))
+            rows = cursor.fetchall()
+
+        if not rows:
+            return f'-- Table "{table_name.upper()}" not found or no columns'
+
+        lines = []
+        for row in rows:
+            col_name = row[0]
+            data_type = row[1]
+            data_length = row[2]
+            data_precision = row[3]
+            data_scale = row[4]
+            nullable = row[5]
+            data_default = row[6]
+
+            if data_precision is not None:
+                if data_scale is not None and data_scale > 0:
+                    data_type = f"{data_type}({data_precision},{data_scale})"
+                else:
+                    data_type = f"{data_type}({data_precision})"
+            elif data_length and data_type in (
+                "VARCHAR2", "CHAR", "NVARCHAR2", "NCHAR", "RAW",
+            ):
+                data_type = f"{data_type}({data_length})"
+
+            parts = [f'    "{col_name}" {data_type}']
+            if data_default:
+                parts.append(f"DEFAULT {str(data_default).strip()}")
+            if nullable == "N":
+                parts.append("NOT NULL")
+            lines.append(" ".join(parts))
+
+        create_table = f'CREATE TABLE "{table_name.upper()}" (\n'
+        create_table += ",\n".join(lines)
+        create_table += "\n)"
+        return create_table
 
     def get_simple_fields(self, table_name):
         """Get column fields about specified table."""
@@ -130,6 +259,20 @@ class OracleConnector(RDBMSConnector):
             """
             result = session.execute(text(query))
             return result.fetchall()
+
+    def _write(self, write_sql: str):
+        """Oracle write: no db-switch needed after commit."""
+        logger.info(f"Write[{write_sql}]")
+        with self.session_scope(commit=False) as session:
+            result = session.execute(text(write_sql))
+            session.commit()
+            logger.info(f"SQL[{write_sql}], result:{result.rowcount}")
+            return result.rowcount
+
+    def query_table_schema(self, table_name: str):
+        """Query table schema with Oracle row-limiting syntax."""
+        sql = f'SELECT * FROM "{table_name.upper()}" FETCH FIRST 1 ROWS ONLY'
+        return self._query(sql)
 
     def get_charset(self) -> str:
         with self.session_scope() as session:
@@ -153,7 +296,14 @@ class OracleConnector(RDBMSConnector):
 
     def get_database_names(self) -> List[str]:
         with self.session_scope() as session:
-            is_cdb = session.execute(text("SELECT CDB FROM V$DATABASE")).fetchone()[0]
+            try:
+                is_cdb = session.execute(
+                    text("SELECT CDB FROM V$DATABASE")
+                ).fetchone()[0]
+            except Exception:
+                # Non-DBA user may lack access to V$DATABASE
+                return [self.get_current_db_name()]
+
             if is_cdb == "YES":
                 pdbs = session.execute(
                     text("SELECT NAME FROM V$PDBS WHERE OPEN_MODE = 'READ WRITE'")
@@ -162,7 +312,9 @@ class OracleConnector(RDBMSConnector):
             else:
                 return [
                     session.execute(
-                        text("SELECT sys_context('USERENV', 'CON_NAME') FROM dual")
+                        text(
+                            "SELECT sys_context('USERENV', 'CON_NAME') FROM dual"
+                        )
                     ).fetchone()[0]
                 ]
 

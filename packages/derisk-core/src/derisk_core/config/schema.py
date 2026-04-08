@@ -235,6 +235,17 @@ class DistributedConfig(BaseModel):
     heartbeat_interval: int = 10
 
 
+class DatasourceConfig(BaseModel):
+    """数据源配置"""
+
+    learning_worker_concurrency: int = Field(
+        5, description="单节点 schema learning 并发 worker 数", ge=1, le=20
+    )
+    learning_subtask_timeout: int = Field(
+        300, description="subtask 超时回收时间（秒）", ge=60, le=3600
+    )
+
+
 class SystemConfig(BaseModel):
     """系统配置"""
 
@@ -295,6 +306,7 @@ class AppConfig(BaseModel):
     agents: Dict[str, AgentConfig] = Field(default_factory=_get_default_system_agents)
 
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    datasource: DatasourceConfig = Field(default_factory=DatasourceConfig)
     file_service: FileServiceConfig = Field(default_factory=FileServiceConfig)
 
     oauth2: Optional[OAuth2Config] = Field(default_factory=OAuth2Config)

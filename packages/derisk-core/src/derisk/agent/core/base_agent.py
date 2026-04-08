@@ -819,10 +819,11 @@ class ConversableAgent(Role, Agent):
             )
 
     async def _inject_resource_based_tools(self):
-        """根据绑定资源注入知识和 Agent 系统工具"""
+        """根据绑定资源注入知识、Agent 和数据库系统工具"""
         from ..expand.actions.knowledge_action import KnowledgeSearch
         from ..resource import RetrieverResource
         from ..resource.app import AppResource
+        from ..resource.database import DBResource
 
         if self._check_have_resource(AppResource):
             logger.info("注入Agent工具！")
@@ -834,6 +835,42 @@ class ConversableAgent(Role, Agent):
             logger.info("注入知识工具！")
             knowledge_tool = KnowledgeSearch()
             self.available_system_tools[knowledge_tool.name] = knowledge_tool
+        if self._check_have_resource(DBResource):
+            logger.info("注入数据库工具！")
+            self._inject_database_tools()
+
+    def _inject_database_tools(self):
+        """注入数据库相关工具（get_table_spec, execute_sql, list_tables）"""
+        from ..tools.registry import tool_registry
+
+        db_tool_names = ["get_table_spec", "execute_sql", "list_tables"]
+
+        # 尝试导入 db_tools 模块以触发 @tool 装饰器自动注册
+        try:
+            import derisk_serve.agent.resource.db_tools  # noqa: F401
+        except ImportError:
+            logger.debug(
+                "[_inject_database_tools] derisk_serve.agent.resource.db_tools "
+                "not available, skipping import"
+            )
+
+        # 从 registry 中获取已注册的数据库工具并注入
+        injected = 0
+        for name in db_tool_names:
+            tool = tool_registry.get(name)
+            if tool and name not in self.available_system_tools:
+                self.available_system_tools[name] = tool
+                injected += 1
+
+        if injected:
+            logger.info(
+                f"[_inject_database_tools] Injected {injected} database tools"
+            )
+        else:
+            logger.warning(
+                "[_inject_database_tools] No database tools found in registry. "
+                "Ensure db_tools module is importable."
+            )
 
     async def agent_state(self):
         if len(self.received_message_state) > 0:
@@ -1194,6 +1231,10 @@ class ConversableAgent(Role, Agent):
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
                             break
+                        ## ask_user需要跳出循环，等待用户输入后重新开启循环
+                        if any([act_out.ask_user for act_out in act_outs]):
+                            logger.info(f"Agent {self.name} paused for user input (ask_user)")
+                            break
                     else:
                         # 记录action的成功消息
                         if action_system_message:
@@ -1226,6 +1267,10 @@ class ConversableAgent(Role, Agent):
                             break
                         ## Action明确结束的，成功后直接退出
                         if any([act_out.terminate for act_out in act_outs]):
+                            break
+                        ## ask_user需要跳出循环，等待用户输入后重新开启循环
+                        if any([act_out.ask_user for act_out in act_outs]):
+                            logger.info(f"Agent {self.name} paused for user input (ask_user)")
                             break
 
             reply_message.success = is_success

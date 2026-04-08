@@ -400,7 +400,7 @@ class OpenAIAdapter(LLMAdapter):
             
             logger.info(f"[OpenAIAdapter] ========== 开始流式调用模型 ==========")
             logger.info(f"[OpenAIAdapter] 模型: {self.config.model}")
-            logger.info(f"[OpenAIAdapter] 消息数量: {len(messages)}")
+            logger.info(f"[OpenAIAdapter] 消息数量: {len(messages)}, 请求参数: {json.dumps(params, ensure_ascii=False, default=str)}")
 
             response = await self._client.chat.completions.create(**params)
             
@@ -469,7 +469,7 @@ class AnthropicAdapter(LLMAdapter):
             
             logger.info(f"[AnthropicAdapter] ========== 开始调用模型 ==========")
             logger.info(f"[AnthropicAdapter] 模型: {self.config.model}")
-            logger.info(f"[AnthropicAdapter] 请求参数: max_tokens={params.get('max_tokens')}")
+            logger.info(f"[AnthropicAdapter] 请求参数: {json.dumps(params, ensure_ascii=False, default=str)}")
             logger.info(f"[AnthropicAdapter] 消息数量: {len(messages)}")
             for i, msg in enumerate(messages):
                 logger.info(f"[AnthropicAdapter] 消息[{i}]: role={msg.role}, content={msg.content}")

@@ -383,7 +383,10 @@ class LocalFileClient(FileClient):
                     status="completed",
                 )
             except Exception as e:
-                logger.warning(f"Failed to upload via FileStorageClient: {e}")
+                logger.error(
+                    f"Failed to upload via FileStorageClient: {e}. "
+                    f"File: {file_path}. Falling back to legacy OSS or local:// URL."
+                )
 
         if self.oss and self.oss.bucket_name:
             try:
@@ -401,6 +404,12 @@ class LocalFileClient(FileClient):
             except Exception as e:
                 logger.warning(f"Failed to upload to OSS: {e}")
 
+        logger.error(
+            f"All storage backends failed for file: {file_path}. "
+            f"Returning local:// URL as last resort. "
+            f"This URL is not accessible from frontend. "
+            f"Please check FileStorageClient and storage configuration."
+        )
         return OSSFile(
             object_name=file_name,
             object_url=f"local://{file_path}",

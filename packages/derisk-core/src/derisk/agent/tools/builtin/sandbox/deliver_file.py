@@ -295,13 +295,13 @@ class DeliverFileTool(SandboxToolBase):
         # 检查 OSS 是否成功上传
         if not oss_temp_url:
             logger.warning(
-                f"[deliver_file] OSS upload failed for {sandbox_path}. "
+                f"[deliver_file] Storage upload failed for {sandbox_path}. "
                 f"File exists in sandbox but is not accessible via web URL. "
-                f"Please check OSS configuration."
+                f"Please check storage configuration."
             )
             result_parts.append(
                 "\n⚠️ **注意：文件已标记，但无法生成可访问的预览/下载链接。**\n"
-                "请检查 OSS 配置是否正确。"
+                "请检查存储配置是否正确。"
             )
         return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
 
@@ -367,7 +367,7 @@ class DeliverFileTool(SandboxToolBase):
         if not oss_temp_url:
             result_parts.append(
                 "\n⚠️ **注意：文件已标记，但无法生成可访问的预览/下载链接。**\n"
-                "请检查 OSS 配置是否正确。"
+                "请检查存储配置是否正确。"
             )
             return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
 

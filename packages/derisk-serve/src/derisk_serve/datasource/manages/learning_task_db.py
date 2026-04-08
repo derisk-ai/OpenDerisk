@@ -1,8 +1,8 @@
 """DB Model for database learning tasks."""
 
 import logging
-from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Union
 
 from sqlalchemy import (
     Column,
@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 
 from derisk.storage.metadata import BaseDao, Model
@@ -38,7 +39,7 @@ class DbLearningTaskEntity(Model):
     )
     status = Column(
         String(32), nullable=False, default="pending",
-        comment="Status: pending, running, completed, failed",
+        comment="Status: pending, running, finalizing, completed, failed, cancelled",
     )
     progress = Column(
         Integer, nullable=False, default=0, comment="Progress 0-100"
@@ -153,6 +154,57 @@ class DbLearningTaskDao(BaseDao):
         if error_message is not None:
             update_data["error_message"] = error_message
         self.update({"id": task_id}, update_data)
+
+    def get_stale_active_tasks(
+        self, stale_seconds: int = 300
+    ) -> List[Dict[str, Any]]:
+        """Get tasks in running/finalizing that haven't been updated recently.
+
+        Used for crash recovery on server restart.
+        """
+        cutoff = (datetime.now() - timedelta(seconds=stale_seconds)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        with self.session(commit=False) as session:
+            rows = session.execute(text("""
+                SELECT id, datasource_id, task_type, status, progress,
+                       total_tables, processed_tables, trigger_type
+                FROM db_learning_task
+                WHERE status IN ('running', 'finalizing')
+                  AND gmt_modified < :cutoff
+            """), {"cutoff": cutoff}).fetchall()
+            return [
+                {
+                    "id": r[0], "datasource_id": r[1], "task_type": r[2],
+                    "status": r[3], "progress": r[4], "total_tables": r[5],
+                    "processed_tables": r[6], "trigger_type": r[7],
+                }
+                for r in rows
+            ]
+
+    def cancel_task(self, task_id: int) -> bool:
+        """Atomically set task status to cancelled.
+
+        Only succeeds if the task is currently running or finalizing.
+        Returns True if the transition succeeded.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.session() as session:
+            result = session.execute(text("""
+                UPDATE db_learning_task
+                SET status = 'cancelled', gmt_modified = :now
+                WHERE id = :task_id
+                  AND status IN ('running', 'finalizing')
+            """), {"task_id": task_id, "now": now})
+            return result.rowcount > 0
+
+    def is_cancelled(self, task_id: int) -> bool:
+        """Check if a task has been cancelled (single-row PK lookup)."""
+        with self.session(commit=False) as session:
+            row = session.execute(text("""
+                SELECT status FROM db_learning_task WHERE id = :task_id
+            """), {"task_id": task_id}).fetchone()
+            return row is not None and row[0] == "cancelled"
 
     def delete_by_datasource_id(self, datasource_id: int) -> None:
         """Delete all learning tasks for a datasource."""

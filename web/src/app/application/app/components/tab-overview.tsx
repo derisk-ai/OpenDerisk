@@ -3,13 +3,13 @@ import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, 
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { useRequest } from 'ahooks';
-import { Checkbox, Form, Input, Select, Tag, Modal, Radio, Space, Typography, Card, Switch, Tooltip } from 'antd';
+import { Checkbox, Form, Input, InputNumber, Select, Tag, Modal, Radio, Space, Typography, Card, Switch, Tooltip } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ChatLayoutConfig from './chat-layout-config';
-import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { EditOutlined, PictureOutlined, ThunderboltOutlined, RocketOutlined, CloudServerOutlined, HomeOutlined, HeartOutlined, CodeOutlined, SwapOutlined, DatabaseOutlined, AlertOutlined, GlobalOutlined, SafetyOutlined, DashboardOutlined, BugOutlined, ApiOutlined } from '@ant-design/icons';
 import { SmartPluginIcon } from '@/components/icons/smart-plugin-icon';
 
 const { Text, Paragraph } = Typography;
@@ -44,6 +44,34 @@ const V2_AGENT_ICONS: Record<string, string> = {
   simple_chat: '💬',
 };
 
+// 首页场景图标预设
+const HOME_SCENE_ICON_OPTIONS = [
+  { value: 'HeartOutlined', label: '健康', Icon: HeartOutlined },
+  { value: 'CodeOutlined', label: '代码', Icon: CodeOutlined },
+  { value: 'CloudServerOutlined', label: '云服务', Icon: CloudServerOutlined },
+  { value: 'SwapOutlined', label: '变更', Icon: SwapOutlined },
+  { value: 'DatabaseOutlined', label: '数据库', Icon: DatabaseOutlined },
+  { value: 'AlertOutlined', label: '告警', Icon: AlertOutlined },
+  { value: 'GlobalOutlined', label: '全球', Icon: GlobalOutlined },
+  { value: 'SafetyOutlined', label: '安全', Icon: SafetyOutlined },
+  { value: 'DashboardOutlined', label: '仪表盘', Icon: DashboardOutlined },
+  { value: 'ThunderboltOutlined', label: '闪电', Icon: ThunderboltOutlined },
+  { value: 'BugOutlined', label: 'Bug', Icon: BugOutlined },
+  { value: 'ApiOutlined', label: 'API', Icon: ApiOutlined },
+];
+
+// 首页场景背景色预设
+const HOME_SCENE_COLOR_OPTIONS = [
+  { value: 'from-blue-400 to-blue-500', label: '蓝色' },
+  { value: 'from-orange-400 to-amber-500', label: '橙色' },
+  { value: 'from-red-400 to-red-500', label: '红色' },
+  { value: 'from-emerald-400 to-green-500', label: '绿色' },
+  { value: 'from-teal-400 to-cyan-500', label: '青色' },
+  { value: 'from-orange-500 to-red-500', label: '橙红' },
+  { value: 'from-slate-400 to-gray-500', label: '灰色' },
+  { value: 'from-purple-400 to-indigo-500', label: '紫色' },
+];
+
 export default function TabOverview() {
   const { t } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
@@ -52,6 +80,7 @@ export default function TabOverview() {
   const [isIconModalOpen, setIsIconModalOpen] = useState(false);
   const [resourceOptions, setResourceOptions] = useState<any[]>([]);
   const [agentVersion, setAgentVersion] = useState<string>(appInfo?.agent_version || 'v1');
+  const [homeSceneFeatured, setHomeSceneFeatured] = useState<boolean>(appInfo?.ext_config?.home_scene?.featured ?? false);
 
   // Initialize form values from appInfo
   useEffect(() => {
@@ -88,7 +117,8 @@ export default function TabOverview() {
         ? (appInfo.agent || defaultV1Agent) 
         : undefined;
       
-      form.setFieldsValue({
+      const homeScene = appInfo?.ext_config?.home_scene;
+      const formValues: any = {
         app_name: appInfo.app_name,
         app_describe: appInfo.app_describe,
         agent: v1AgentValue,
@@ -101,8 +131,17 @@ export default function TabOverview() {
         reasoning_engine: engineItemValue?.key ?? engineItemValue?.name,
         use_sandbox: parsedTeamContext?.use_sandbox ?? false,
         ...chat_in_layout_obj,
-      });
-      
+      };
+      // 仅当后端返回了 ext_config 时才更新 home_scene 表单值，避免空响应覆盖用户操作
+      if (appInfo?.ext_config !== undefined) {
+        formValues.home_scene_featured = homeScene?.featured ?? false;
+        formValues.home_scene_position = homeScene?.position ?? 0;
+        formValues.home_scene_icon = homeScene?.icon_type || 'HeartOutlined';
+        formValues.home_scene_color = homeScene?.bg_color || 'from-blue-400 to-blue-500';
+        setHomeSceneFeatured(homeScene?.featured ?? false);
+      }
+      form.setFieldsValue(formValues);
+
       setAgentVersion(currentAgentVersion);
       setSelectedIcon(appInfo.icon || 'smart-plugin');
       
@@ -292,6 +331,20 @@ export default function TabOverview() {
       console.log('[SandboxToggle] Calling fetchUpdateApp with team_context');
       // 确保顶层 agent_version 也正确设置，后端需要根据这个字段决定如何解析 team_context
       fetchUpdateApp({ ...appInfo, agent_version: agentVersion, team_context: newTeamContext });
+    } else if (['home_scene_featured', 'home_scene_position', 'home_scene_icon', 'home_scene_color'].includes(fieldName)) {
+      const currentExtConfig = appInfo?.ext_config || {};
+      const currentHomeScene = currentExtConfig.home_scene || {};
+      const newHomeScene = { ...currentHomeScene };
+
+      if (fieldName === 'home_scene_featured') {
+        newHomeScene.featured = fieldValue as boolean;
+        setHomeSceneFeatured(fieldValue as boolean);
+      }
+      if (fieldName === 'home_scene_position') newHomeScene.position = fieldValue as number;
+      if (fieldName === 'home_scene_icon') newHomeScene.icon_type = fieldValue as string;
+      if (fieldName === 'home_scene_color') newHomeScene.bg_color = fieldValue as string;
+
+      fetchUpdateApp({ ...appInfo, ext_config: { ...currentExtConfig, home_scene: newHomeScene } });
     }
   };
 
@@ -376,6 +429,71 @@ export default function TabOverview() {
                   </div>
                 </Tooltip>
               </div>
+            </div>
+
+            {/* 入驻首页场景 */}
+            <div className="mt-5 pt-5 border-t border-gray-100">
+              <div className="flex items-center justify-between group">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 flex items-center justify-center">
+                    <HomeOutlined className="text-amber-500 text-lg" />
+                  </div>
+                  <div>
+                    <div className="text-[13px] font-medium text-gray-800">入驻首页场景</div>
+                    <div className="text-[11px] text-gray-500">开启后该应用将显示在首页快捷入口</div>
+                  </div>
+                </div>
+                <Tooltip title="启用后，该应用将作为场景卡片展示在首页对话框下方，用户可以一键切换到此 Agent" placement="left">
+                  <div>
+                    <Form.Item name="home_scene_featured" valuePropName="checked" className="mb-0" noStyle>
+                      <Switch
+                        checkedChildren="已入驻"
+                        unCheckedChildren="未入驻"
+                        className="scale-110"
+                      />
+                    </Form.Item>
+                  </div>
+                </Tooltip>
+              </div>
+
+              {/* 入驻详细配置 - 仅在开启时显示 */}
+              {homeSceneFeatured && (
+                <div className="mt-4 pl-12 space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <Form.Item name="home_scene_icon" label={<span className="text-gray-500 text-[11px]">场景图标</span>} className="mb-0">
+                      <Select
+                        className="w-full [&_.ant-select-selector]:!rounded-lg"
+                        options={HOME_SCENE_ICON_OPTIONS.map(opt => ({
+                          value: opt.value,
+                          label: (
+                            <div className="flex items-center gap-2">
+                              <opt.Icon className="text-sm" />
+                              <span>{opt.label}</span>
+                            </div>
+                          ),
+                        }))}
+                      />
+                    </Form.Item>
+                    <Form.Item name="home_scene_color" label={<span className="text-gray-500 text-[11px]">背景颜色</span>} className="mb-0">
+                      <Select
+                        className="w-full [&_.ant-select-selector]:!rounded-lg"
+                        options={HOME_SCENE_COLOR_OPTIONS.map(opt => ({
+                          value: opt.value,
+                          label: (
+                            <div className="flex items-center gap-2">
+                              <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${opt.value}`} />
+                              <span>{opt.label}</span>
+                            </div>
+                          ),
+                        }))}
+                      />
+                    </Form.Item>
+                    <Form.Item name="home_scene_position" label={<span className="text-gray-500 text-[11px]">排序位置</span>} className="mb-0">
+                      <InputNumber min={0} max={99} className="w-full [&]:!rounded-lg" placeholder="0" />
+                    </Form.Item>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

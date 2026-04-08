@@ -467,6 +467,10 @@ class PromptAssembler:
             skills_info = self._extract_skills_info(resource_context)
             context["available_skills"] = skills_info
 
+            # 提取数据库列表
+            database_info = self._extract_database_info(resource_context)
+            context["available_databases"] = database_info
+
         # 合并其他变量（允许覆盖）
         context.update(kwargs)
 
@@ -533,6 +537,28 @@ class PromptAssembler:
   <path>{path}</path>
   <branch>{branch}</branch>
 </skill>""")
+
+        return "\n".join(lines)
+
+    def _extract_database_info(self, ctx: ResourceContext) -> str:
+        """从 ResourceContext 提取数据库信息（XML 格式字符串）"""
+        resources = ctx.get_resources(ResourceType.DATABASE)
+        if not resources:
+            return ""
+
+        lines = []
+        for r in resources:
+            db_name = r.metadata.get("db_name", r.code)
+            db_type = r.metadata.get("db_type", "")
+            dialect = r.metadata.get("dialect", db_type)
+            db_block = f"""- <database>
+  <name>{r.name}</name>
+  <db_name>{db_name}</db_name>
+  <db_type>{db_type}</db_type>
+  <dialect>{dialect}</dialect>
+  <description>{r.description}</description>
+</database>"""
+            lines.append(db_block)
 
         return "\n".join(lines)
 

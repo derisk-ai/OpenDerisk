@@ -226,10 +226,7 @@ class RDBMSConnector(BaseConnector):
         """Read table information from database."""
         # TODO Use a background thread to refresh periodically
 
-        # SQL will raise error with schema
-        _schema = (
-            None if self.db_type == DBType.SQLite.value() else self._engine.url.database
-        )
+        _schema = self._get_schema_for_inspection()
         # including view support by adding the views as well as tables to the all
         # tables list if view_support is True
         self._all_tables = set(
@@ -291,6 +288,39 @@ class RDBMSConnector(BaseConnector):
         self._sessions.add(session)
 
         return session
+
+    def quote_identifier(self, identifier: str) -> str:
+        """Quote a table or column identifier in dialect-appropriate syntax.
+
+        Default uses backticks (MySQL). Override for other dialects.
+        """
+        return f"`{identifier}`"
+
+    def limit_sql(self, sql: str, limit: int, offset: int = 0) -> str:
+        """Wrap a SQL statement with dialect-appropriate row limiting.
+
+        Default uses MySQL LIMIT/OFFSET syntax. Override for other dialects.
+        """
+        if offset > 0:
+            return f"{sql} LIMIT {limit} OFFSET {offset}"
+        return f"{sql} LIMIT {limit}"
+
+    def _get_schema_for_inspection(self) -> Optional[str]:
+        """Return the schema name for table inspection.
+
+        Default returns engine.url.database (works for MySQL, PostgreSQL).
+        Override for databases where url.database is not a schema name.
+        """
+        if self.db_type == DBType.SQLite.value():
+            return None
+        return self._engine.url.database
+
+    def _switch_to_db(self, session, db_name: str):
+        """Switch session context to the given database after a write.
+
+        Default uses MySQL USE statement. Override for other dialects.
+        """
+        session.execute(text(f"use `{db_name}`"))
 
     def get_current_db_name(self) -> str:
         """Get current database name.
@@ -437,7 +467,7 @@ class RDBMSConnector(BaseConnector):
             session.commit()
             # TODO  Subsequent optimization of dynamically specified database submission
             #  loss target problem
-            session.execute(text(f"use `{db_cache}`"))
+            self._switch_to_db(session, db_cache)
             logger.info(f"SQL[{write_sql}], result:{result.rowcount}")
             return result.rowcount
 
@@ -473,7 +503,9 @@ class RDBMSConnector(BaseConnector):
         Args:
             table_name (str): table name
         """
-        sql = f"select * from {table_name} limit 1"
+        sql = self.limit_sql(
+            f"select * from {self.quote_identifier(table_name)}", 1
+        )
         return self._query(sql)
 
     async def query(self, query_sql: str, params: Union[Dict, Tuple, None] = None, fetch: str = "all",
@@ -587,6 +619,23 @@ class RDBMSConnector(BaseConnector):
                         sql_with_timeout = sql.execution_options(timeout=int(timeout))
                         return _execute_query(session, sql_with_timeout)
 
+                    elif self.dialect == "oracle":
+                        # Oracle: Use call_timeout on raw oracledb connection
+                        try:
+                            raw_conn = (
+                                session.connection().connection.dbapi_connection
+                            )
+                            raw_conn.call_timeout = int(timeout * 1000)
+                            result = _execute_query(session, sql)
+                            raw_conn.call_timeout = 0
+                            return result
+                        except Exception as e:
+                            if "timeout" in str(e).lower():
+                                raise TimeoutError(
+                                    f"Query exceeded timeout of {timeout} seconds"
+                                )
+                            raise
+
                     elif self.dialect == "duckdb":
                         # DuckDB: Use ThreadPoolExecutor for timeout
                         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -626,6 +675,11 @@ class RDBMSConnector(BaseConnector):
                             session.execute(
                                 text("SET SESSION ob_query_timeout = 10000000")
                             )  # Reset to default 10s
+                        elif self.dialect == "oracle":
+                            raw_conn = (
+                                session.connection().connection.dbapi_connection
+                            )
+                            raw_conn.call_timeout = 0
                         # MSSQL and DuckDB don't need reset as timeout is handled at
                         # execution level
                     except Exception as reset_error:

@@ -1,5 +1,5 @@
 'use client';
-import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList, getMCPList } from '@/client/api';
+import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList, getMCPList, getDbList, getSpaceList } from '@/client/api';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { transformFileUrl } from '@/utils';
 import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
@@ -31,7 +31,10 @@ import {
   SafetyOutlined,
   ThunderboltOutlined,
   CloseOutlined,
-  FolderAddOutlined
+  FolderAddOutlined,
+  BookOutlined,
+  UploadOutlined,
+  LeftOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import {
@@ -46,6 +49,7 @@ import {
   List,
   Space,
   Collapse,
+  Spin,
   theme
 } from 'antd';
 import ModelIcon from '@/components/icons/model-icon';
@@ -60,6 +64,21 @@ import { IModelData } from '@/types/model';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
+
+// 首页场景图标名称 → 组件映射
+const HOME_SCENE_ICON_MAP: Record<string, React.ComponentType<any>> = {
+  HeartOutlined,
+  CodeOutlined,
+  CloudServerOutlined,
+  SwapOutlined,
+  DatabaseOutlined,
+  AlertOutlined,
+  GlobalOutlined,
+  SafetyOutlined,
+  DashboardOutlined,
+  ThunderboltOutlined,
+  RobotOutlined,
+};
 
 // 文件类型颜色主题
 const getFileTypeTheme = (fileName: string) => {
@@ -248,6 +267,20 @@ const FileListDisplay = ({
   );
 };
 
+function normalizeDatasource(raw: any) {
+  const params = raw.params || {};
+  return {
+    ...raw,
+    db_type: raw.db_type || raw.type || '',
+    db_name: raw.db_name || params.database || params.db_name || raw.name ||
+             (params.path ? params.path.split('/').pop()?.replace(/\.\w+$/, '') : '') || '',
+    db_host: raw.db_host || params.host || '',
+    db_port: raw.db_port || params.port || 0,
+    db_path: raw.db_path || params.path || '',
+    comment: raw.comment || raw.description || '',
+  };
+}
+
 export default function HomeChat() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -272,6 +305,22 @@ const [appDetail, setAppDetail] = useState<IApp | null>(null);
   const [recommendedSkills, setRecommendedSkills] = useState<any[]>([]);
   const [recommendedTools, setRecommendedTools] = useState<any[]>([]);
 const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
+
+  // "+" 按钮相关
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [plusMenuView, setPlusMenuView] = useState<'main' | 'datasource' | 'knowledge'>('main');
+  const [dbList, setDbList] = useState<any[]>([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [spaceListData, setSpaceListData] = useState<any[]>([]);
+  const [spaceLoading, setSpaceLoading] = useState(false);
+  const [selectedDataSources, setSelectedDataSources] = useState<any[]>([]);
+  const [selectedKnowledgeBases, setSelectedKnowledgeBases] = useState<any[]>([]);
+  const [dbSearch, setDbSearch] = useState('');
+  const [kbSearch, setKbSearch] = useState('');
+
+  // 闪电按钮相关
+  const [isLightningOpen, setIsLightningOpen] = useState(false);
+  const [lightningSearch, setLightningSearch] = useState('');
 
   // Compact skill chip - same size as + button
   const SkillChip = ({ skill, onRemove }: { skill: any; onRemove: () => void }) => {
@@ -712,6 +761,218 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     },
   );
 
+  // 获取完整技能列表（用于闪电按钮）
+  const [fullSkillList, setFullSkillList] = useState<any[]>([]);
+  const [fullMcpList, setFullMcpList] = useState<any[]>([]);
+
+  useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getSkillList({ filter: '' }, { page: '1', page_size: '50' }));
+      return data as any;
+    },
+    {
+      onSuccess: (data: any) => {
+        if (data?.items && Array.isArray(data.items)) {
+          setFullSkillList(data.items);
+        }
+      },
+    },
+  );
+
+  useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getMCPList({ filter: '' }, { page: '1', page_size: '50' }));
+      return data as any;
+    },
+    {
+      onSuccess: (data: any) => {
+        if (data?.items && Array.isArray(data.items)) {
+          setFullMcpList(data.items);
+        }
+      },
+    },
+  );
+
+  // 获取数据源列表（延迟加载）
+  const fetchDbList = useCallback(async () => {
+    if (dbList.length > 0) return;
+    setDbLoading(true);
+    try {
+      const [, data] = await apiInterceptors(getDbList());
+      if (data) setDbList(data.map(normalizeDatasource));
+    } finally {
+      setDbLoading(false);
+    }
+  }, [dbList.length]);
+
+  // 获取知识库列表（延迟加载）
+  const fetchSpaceListData = useCallback(async () => {
+    if (spaceListData.length > 0) return;
+    setSpaceLoading(true);
+    try {
+      const [, data] = await apiInterceptors(getSpaceList());
+      if (data) setSpaceListData(data);
+    } finally {
+      setSpaceLoading(false);
+    }
+  }, [spaceListData.length]);
+
+  // 处理数据源选择
+  const handleDataSourceSelect = useCallback((ds: any) => {
+    const isSelected = selectedDataSources.some(s => s.id === ds.id);
+    if (isSelected) {
+      setSelectedDataSources(prev => prev.filter(s => s.id !== ds.id));
+    } else {
+      setSelectedDataSources(prev => [...prev, ds]);
+    }
+  }, [selectedDataSources]);
+
+  // 处理知识库选择
+  const handleKnowledgeBaseSelect = useCallback((kb: any) => {
+    const isSelected = selectedKnowledgeBases.some(s => (s.id || s.name) === (kb.id || kb.name));
+    if (isSelected) {
+      setSelectedKnowledgeBases(prev => prev.filter(s => (s.id || s.name) !== (kb.id || kb.name)));
+    } else {
+      setSelectedKnowledgeBases(prev => [...prev, kb]);
+    }
+  }, [selectedKnowledgeBases]);
+
+  // 闪电按钮 - Skill 切换
+  const handleLightningSkillToggle = useCallback((skill: any) => {
+    const isSelected = selectedSkills.some((s: any) => s.skill_code === skill.skill_code);
+    if (isSelected) {
+      setSelectedSkills(prev => prev.filter((s: any) => s.skill_code !== skill.skill_code));
+    } else {
+      setSelectedSkills(prev => [...prev, skill]);
+    }
+  }, [selectedSkills]);
+
+  // 闪电按钮 - MCP 切换
+  const handleLightningMcpToggle = useCallback((mcp: any) => {
+    const mcpId = mcp.id || mcp.uuid || mcp.name;
+    const isSelected = selectedMcps.some((m: any) => (m.id || m.uuid || m.name) === mcpId);
+    if (isSelected) {
+      setSelectedMcps(prev => prev.filter((m: any) => (m.id || m.uuid || m.name) !== mcpId));
+    } else {
+      setSelectedMcps(prev => [...prev, mcp]);
+    }
+  }, [selectedMcps]);
+
+  // 闪电按钮 - 过滤后的列表
+  const filteredLightningSkills = useMemo(() => {
+    if (!lightningSearch) return fullSkillList;
+    const search = lightningSearch.toLowerCase();
+    return fullSkillList.filter((s: any) =>
+      s.name?.toLowerCase().includes(search) || s.description?.toLowerCase().includes(search)
+    );
+  }, [fullSkillList, lightningSearch]);
+
+  const filteredLightningMcps = useMemo(() => {
+    if (!lightningSearch) return fullMcpList;
+    const search = lightningSearch.toLowerCase();
+    return fullMcpList.filter((m: any) =>
+      m.name?.toLowerCase().includes(search) || m.description?.toLowerCase().includes(search)
+    );
+  }, [fullMcpList, lightningSearch]);
+
+  // 默认绑定 - 从应用配置中提取
+  const defaultBoundSkills = useMemo(() => {
+    const tools = appDetail?.resource_tool || [];
+    return tools
+      .filter((item: any) => {
+        const type = item.type || '';
+        return type === 'skill' || type === 'skill(derisk)';
+      })
+      .map((item: any) => {
+        try {
+          const parsed = JSON.parse(item.value || '{}');
+          return {
+            skill_code: parsed.key || parsed.skillCode || parsed.skill_code || item.name,
+            name: parsed.name || parsed.label || item.name,
+            description: parsed.description || parsed.skill_description || '',
+            icon: parsed.icon,
+            author: parsed.author || parsed.skill_author,
+            type: 'skill',
+            _isDefault: true,
+          };
+        } catch { return null; }
+      }).filter(Boolean);
+  }, [appDetail?.resource_tool]);
+
+  const defaultBoundMcps = useMemo(() => {
+    const tools = appDetail?.resource_tool || [];
+    return tools
+      .filter((item: any) => {
+        const type = item.type || '';
+        return type === 'mcp' || type === 'mcp(derisk)';
+      })
+      .map((item: any) => {
+        try {
+          const parsed = JSON.parse(item.value || '{}');
+          return {
+            id: parsed.key || parsed.mcp_code || item.name,
+            name: parsed.name || parsed.label || item.name,
+            description: parsed.description || '',
+            icon: parsed.icon,
+            available: parsed.available,
+            type: 'mcp',
+            _isDefault: true,
+          };
+        } catch { return null; }
+      }).filter(Boolean);
+  }, [appDetail?.resource_tool]);
+
+  const defaultBoundKnowledgeBases = useMemo(() => {
+    const knowledgeResources = appDetail?.resource_knowledge || [];
+    const kbs: any[] = [];
+    knowledgeResources.forEach((item: any) => {
+      try {
+        const parsed = JSON.parse(item.value || '{}');
+        if (parsed.knowledges && Array.isArray(parsed.knowledges)) {
+          parsed.knowledges.forEach((kb: any) => {
+            kbs.push({
+              id: kb.knowledge_id,
+              name: kb.knowledge_name || kb.name,
+              _isDefault: true,
+            });
+          });
+        }
+      } catch { /* ignore */ }
+    });
+    return kbs;
+  }, [appDetail?.resource_knowledge]);
+
+  // 初始化默认绑定
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  useEffect(() => {
+    if (!appDetail || defaultsInitialized) return;
+    if (defaultBoundSkills.length > 0) {
+      setSelectedSkills(prev => {
+        const existingCodes = new Set(prev.map((s: any) => s.skill_code));
+        const newDefaults = defaultBoundSkills.filter((s: any) => !existingCodes.has(s.skill_code));
+        return newDefaults.length > 0 ? [...prev, ...newDefaults] : prev;
+      });
+    }
+    if (defaultBoundMcps.length > 0) {
+      setSelectedMcps(prev => {
+        const existingIds = new Set(prev.map((m: any) => m.id || m.uuid || m.name));
+        const newDefaults = defaultBoundMcps.filter((m: any) => !existingIds.has(m.id || m.uuid || m.name));
+        return newDefaults.length > 0 ? [...prev, ...newDefaults] : prev;
+      });
+    }
+    if (defaultBoundKnowledgeBases.length > 0) {
+      setSelectedKnowledgeBases(prev => {
+        const existingIds = new Set(prev.map((kb: any) => kb.id || kb.name));
+        const newDefaults = defaultBoundKnowledgeBases.filter((kb: any) => !existingIds.has(kb.id || kb.name));
+        return newDefaults.length > 0 ? [...prev, ...newDefaults] : prev;
+      });
+    }
+    setDefaultsInitialized(true);
+  }, [appDetail, defaultBoundSkills, defaultBoundMcps, defaultBoundKnowledgeBases, defaultsInitialized]);
+
+  const lightningBadgeCount = selectedSkills.length + selectedMcps.length;
+  const plusBadgeCount = selectedDataSources.length + selectedKnowledgeBases.length;
+
   // Get default model from app configuration
   const getDefaultModelFromApp = (app: IApp | null, llmModels: IModelData[]): string => {
     if (!app) return '';
@@ -909,6 +1170,8 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           model: selectedModel, 
           skills: selectedSkills.length > 0 ? selectedSkills : undefined,
           mcps: selectedMcps.length > 0 ? selectedMcps : undefined,
+          dataSources: selectedDataSources.length > 0 ? selectedDataSources : undefined,
+          knowledgeBases: selectedKnowledgeBases.length > 0 ? selectedKnowledgeBases : undefined,
         }),
       );
       router.push(`/chat/?app_code=${appCode}&conv_uid=${convUid}`);
@@ -919,7 +1182,31 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     setPendingConvUid('');
     setSelectedSkills([]);
     setSelectedMcps([]);
+    setSelectedDataSources([]);
+    setSelectedKnowledgeBases([]);
   };
+
+  // 从 appList 中过滤出入驻首页的应用
+  const homeSceneApps = useMemo(() => {
+    return appList
+      .filter(app => app.ext_config?.home_scene?.featured)
+      .sort((a, b) => (a.ext_config?.home_scene?.position ?? 99) - (b.ext_config?.home_scene?.position ?? 99));
+  }, [appList]);
+
+  // Agent 场景切换
+  const handleAgentSelect = useCallback((app: IApp) => {
+    // 切回默认（toggle）
+    if (selectedApp?.app_code === app.app_code) {
+      const defaultApp = appList.find(a => a.app_code === 'chat_normal') || null;
+      setSelectedApp(defaultApp);
+      setPendingConvUid('');
+      return;
+    }
+    setSelectedApp(app);
+    setPendingConvUid('');
+    setUploadedResources([]);
+    setUploadingFiles([]);
+  }, [appList, selectedApp]);
 
   const uploadProps: UploadProps = {
     showUploadList: false,
@@ -929,31 +1216,52 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     },
   };
 
-  const QuickActionButton = ({ 
-    icon, 
-    text, 
+  const QuickActionButton = ({
+    icon,
+    text,
     bgColor = 'bg-gray-100',
     iconColor = 'text-gray-600',
     isOutline = false,
+    isSelected = false,
+    disabled = false,
     onClick
-  }: { 
-    icon: React.ReactNode; 
+  }: {
+    icon: React.ReactNode;
     text: string;
     bgColor?: string;
     iconColor?: string;
     isOutline?: boolean;
+    isSelected?: boolean;
+    disabled?: boolean;
     onClick?: () => void;
   }) => (
-    <div className="flex flex-col items-center gap-2 cursor-pointer group" onClick={onClick}>
+    <div
+      className={cls(
+        "flex flex-col items-center gap-2 cursor-pointer group transition-all duration-200",
+        disabled && "opacity-50 pointer-events-none"
+      )}
+      onClick={onClick}
+    >
       <div className={cls(
-        "w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 group-hover:scale-110 group-hover:shadow-lg",
-        isOutline 
-          ? "bg-white dark:bg-[#232734] border-2 border-dashed border-gray-300 dark:border-gray-600" 
-          : bgColor
+        "w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 group-hover:scale-110 group-hover:shadow-lg relative",
+        isOutline
+          ? "bg-white dark:bg-[#232734] border-2 border-dashed border-gray-300 dark:border-gray-600"
+          : bgColor,
+        isSelected && "ring-2 ring-offset-2 ring-blue-500 scale-110 shadow-lg shadow-blue-200/50 dark:shadow-blue-900/50 dark:ring-offset-gray-900"
       )}>
         <span className={cls("text-xl", iconColor)}>{icon}</span>
+        {isSelected && (
+          <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center border-2 border-white dark:border-gray-900 shadow-sm">
+            <CheckOutlined className="text-white text-[10px]" />
+          </div>
+        )}
       </div>
-      <span className="text-xs text-gray-600 dark:text-gray-400 text-center max-w-[80px] leading-tight group-hover:text-gray-900 dark:group-hover:text-gray-200 transition-colors">
+      <span className={cls(
+        "text-xs text-center max-w-[80px] leading-tight transition-colors",
+        isSelected
+          ? "text-blue-600 dark:text-blue-400 font-medium"
+          : "text-gray-600 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-gray-200"
+      )}>
         {text}
       </span>
     </div>
@@ -986,112 +1294,178 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     })),
   }), [appList]);
 
-  const plusMenuContent = useMemo(() => (
-    <div className="flex flex-col gap-1 w-52 p-1">
-      {recommendedSkills.length > 0 && (
-        <>
-          <div className="px-3 py-2 text-xs text-gray-400 font-medium">推荐技能</div>
-          {recommendedSkills.slice(0, 1).map((skill) => {
-            const isSelected = selectedSkills.some(s => s.skill_code === skill.skill_code);
-            return (
-              <div
-                key={skill.skill_code}
-                className={cls(
-                  "flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
-                  isSelected
-                    ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
-                )}
-                onClick={() => {
-                  if (isSelected) {
-                    handleSkillsChange(selectedSkills.filter(s => s.skill_code !== skill.skill_code));
-                  } else {
-                    handleSkillsChange([...selectedSkills, skill]);
-                  }
-                }}
-              >
-                <div className="flex items-center gap-2 overflow-hidden">
-                  {skill.icon ? (
-                    <img src={skill.icon} className="w-4 h-4 flex-shrink-0" />
-                  ) : (
-                    <span className={cls("text-sm font-semibold w-4 h-4 flex items-center justify-center flex-shrink-0", isSelected ? "text-blue-500" : "")}>{skill.name ? skill.name.charAt(0).toUpperCase() : 'S'}</span>
-                  )}
-                  <span className="text-sm truncate">{skill.name}</span>
+  // "+" 按钮弹出菜单
+  const plusMenuContent = useMemo(() => {
+    const filteredDbList = dbSearch
+      ? dbList.filter((ds: any) => ds.db_name?.toLowerCase().includes(dbSearch.toLowerCase()) || ds.comment?.toLowerCase().includes(dbSearch.toLowerCase()))
+      : dbList;
+    const filteredSpaces = kbSearch
+      ? spaceListData.filter((kb: any) => kb.name?.toLowerCase().includes(kbSearch.toLowerCase()) || kb.desc?.toLowerCase().includes(kbSearch.toLowerCase()))
+      : spaceListData;
+
+    if (plusMenuView === 'datasource') {
+      return (
+        <div className="w-72 flex flex-col max-h-[400px]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+            <button onClick={() => { setPlusMenuView('main'); setDbSearch(''); }} className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500">
+              <LeftOutlined className="text-xs" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('select_datasource', '选择数据源')}</span>
+          </div>
+          <div className="px-3 py-2">
+            <Input prefix={<SearchOutlined className="text-gray-400" />} placeholder={t('search_datasource', '搜索数据源...')} bordered={false} className="!bg-gray-50 dark:!bg-gray-800 rounded-lg" size="small" value={dbSearch} onChange={(e) => setDbSearch(e.target.value)} />
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {dbLoading ? (
+              <div className="flex items-center justify-center py-8"><Spin size="small" /></div>
+            ) : filteredDbList.length === 0 ? (
+              <div className="text-center text-gray-400 text-xs py-8">{t('no_datasource', '暂无数据源')}</div>
+            ) : filteredDbList.map((ds: any) => {
+              const isSelected = selectedDataSources.some(s => s.id === ds.id);
+              return (
+                <div key={ds.id} className={cls('flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors mb-1', isSelected ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800')} onClick={() => handleDataSourceSelect(ds)}>
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <DatabaseOutlined className={cls('text-sm flex-shrink-0', isSelected ? 'text-green-500' : 'text-gray-400')} />
+                    <div className="overflow-hidden">
+                      <div className="text-sm text-gray-700 dark:text-gray-200 truncate">{ds.db_name}</div>
+                      {ds.comment && <div className="text-xs text-gray-400 truncate">{ds.comment}</div>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500">{ds.db_type}</span>
+                    {isSelected && <CheckOutlined className="text-green-500 text-xs" />}
+                  </div>
                 </div>
-                {isSelected && <CheckOutlined className="text-blue-500 text-sm flex-shrink-0" />}
-              </div>
-            );
-          })}
-        </>
-      )}
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
 
-      {recommendedMcps.length > 0 && (
-        <>
-          <div className="px-3 py-2 text-xs text-gray-400 font-medium mt-1">推荐MCP服务</div>
-          {recommendedMcps.slice(0, 1).map((mcp) => {
-            const mcpId = mcp.id || mcp.uuid || mcp.name;
-            const isSelected = selectedMcps.some((m: any) => (m.id || m.uuid || m.name) === mcpId);
-            return (
-              <div
-                key={mcpId}
-                className={cls(
-                  "flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
-                  isSelected
-                    ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
-                )}
-                onClick={() => {
-                  if (isSelected) {
-                    setSelectedMcps(selectedMcps.filter((m: any) => (m.id || m.uuid || m.name) !== mcpId));
-                  } else {
-                    setSelectedMcps([...selectedMcps, mcp]);
-                  }
-                }}
-              >
-                <div className="flex items-center gap-2 overflow-hidden">
-                  {mcp.icon ? (
-                    <img src={mcp.icon} className="w-4 h-4 flex-shrink-0" />
-                  ) : (
-                    <ApiOutlined className={cls("text-sm flex-shrink-0", isSelected ? "text-green-500" : "")} />
-                  )}
-                  <span className="text-sm truncate">{mcp.name}</span>
+    if (plusMenuView === 'knowledge') {
+      return (
+        <div className="w-72 flex flex-col max-h-[400px]">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+            <button onClick={() => { setPlusMenuView('main'); setKbSearch(''); }} className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500">
+              <LeftOutlined className="text-xs" />
+            </button>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('select_knowledge_base', '选择知识库')}</span>
+          </div>
+          <div className="px-3 py-2">
+            <Input prefix={<SearchOutlined className="text-gray-400" />} placeholder={t('search_knowledge_base', '搜索知识库...')} bordered={false} className="!bg-gray-50 dark:!bg-gray-800 rounded-lg" size="small" value={kbSearch} onChange={(e) => setKbSearch(e.target.value)} />
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {spaceLoading ? (
+              <div className="flex items-center justify-center py-8"><Spin size="small" /></div>
+            ) : filteredSpaces.length === 0 ? (
+              <div className="text-center text-gray-400 text-xs py-8">{t('no_knowledge_base', '暂无知识库')}</div>
+            ) : filteredSpaces.map((kb: any) => {
+              const isSelected = selectedKnowledgeBases.some(s => (s.id || s.name) === (kb.id || kb.name));
+              return (
+                <div key={kb.id || kb.name} className={cls('flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors mb-1', isSelected ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800')} onClick={() => handleKnowledgeBaseSelect(kb)}>
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <BookOutlined className={cls('text-sm flex-shrink-0', isSelected ? 'text-amber-500' : 'text-gray-400')} />
+                    <div className="overflow-hidden">
+                      <div className="text-sm text-gray-700 dark:text-gray-200 truncate">{kb.name}</div>
+                      {kb.desc && <div className="text-xs text-gray-400 truncate">{kb.desc}</div>}
+                    </div>
+                  </div>
+                  {isSelected && <CheckOutlined className="text-amber-500 text-xs flex-shrink-0" />}
                 </div>
-                {isSelected && <CheckOutlined className="text-green-500 text-sm flex-shrink-0" />}
-              </div>
-            );
-          })}
-        </>
-      )}
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
 
-      {recommendedTools.length > 0 && (
-        <>
-          <div className="px-3 py-2 text-xs text-gray-400 font-medium mt-1">推荐工具</div>
-          {recommendedTools.slice(0, 1).map((tool) => (
-            <div
-              key={tool.tool_id}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
-              onClick={() => {
-                openConnectorsModal('local');
-              }}
-            >
-              <ToolOutlined className="text-lg" />
-              <span className="text-sm truncate">{tool.tool_name}</span>
-            </div>
-          ))}
-        </>
-      )}
+    return (
+      <div className="w-56 p-1">
+        <Upload showUploadList={false} beforeUpload={(file) => { handleFileUpload(file); setIsPlusMenuOpen(false); return false; }}>
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200 w-full">
+            <UploadOutlined className="text-base text-gray-500" />
+            <span className="text-sm">{t('upload_file', '上传文件')}</span>
+          </div>
+        </Upload>
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200" onClick={() => { setPlusMenuView('datasource'); fetchDbList(); }}>
+          <DatabaseOutlined className="text-base text-gray-500" />
+          <span className="text-sm">{t('select_datasource', '选择数据源')}</span>
+        </div>
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-gray-700 dark:text-gray-200" onClick={() => { setPlusMenuView('knowledge'); fetchSpaceListData(); }}>
+          <BookOutlined className="text-base text-gray-500" />
+          <span className="text-sm">{t('select_knowledge_base', '选择知识库')}</span>
+        </div>
+      </div>
+    );
+  }, [plusMenuView, dbList, spaceListData, dbLoading, spaceLoading, selectedDataSources, selectedKnowledgeBases, dbSearch, kbSearch, t, handleFileUpload, handleDataSourceSelect, handleKnowledgeBaseSelect, fetchDbList, fetchSpaceListData]);
 
-      <div className="h-[1px] bg-gray-100 dark:bg-gray-800 my-1 mx-2" />
-
-      <div
-        className="flex items-center gap-3 px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors text-gray-700 dark:text-gray-200"
-        onClick={() => openConnectorsModal('skill')}
-      >
-        <ApiOutlined className="text-lg" />
-        <span className="text-sm">更多</span>
+  // 闪电按钮弹出内容
+  const lightningContent = useMemo(() => (
+    <div className="w-80 flex flex-col max-h-[450px]">
+      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+        <Input prefix={<SearchOutlined className="text-gray-400" />} placeholder={t('search_skills', '搜索技能...')} bordered={false} className="!bg-gray-50 dark:!bg-gray-800 rounded-lg" size="small" value={lightningSearch} onChange={(e) => setLightningSearch(e.target.value)} allowClear />
+      </div>
+      <div className="flex-1 overflow-y-auto py-1 px-2">
+        {filteredLightningSkills.length > 0 && (
+          <>
+            <div className="px-2 py-1.5 text-xs text-gray-400 font-medium">{t('skills', '技能')}</div>
+            {filteredLightningSkills.map((skill: any) => {
+              const isSelected = selectedSkills.some((s: any) => s.skill_code === skill.skill_code);
+              return (
+                <div key={skill.skill_code} className={cls('flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5', isSelected ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800')} onClick={() => handleLightningSkillToggle(skill)}>
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                    {skill.icon ? <img src={skill.icon} className="w-5 h-5 rounded" alt={skill.name} /> : <ThunderboltOutlined className="text-white text-sm" />}
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{skill.name}</span>
+                      {skill.type && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 flex-shrink-0">{t('official', '官方')}</span>}
+                    </div>
+                    {skill.description && <div className="text-xs text-gray-400 truncate mt-0.5">{skill.description}</div>}
+                  </div>
+                  {isSelected && <CheckOutlined className="text-purple-500 text-sm flex-shrink-0" />}
+                </div>
+              );
+            })}
+          </>
+        )}
+        {filteredLightningMcps.length > 0 && (
+          <>
+            <div className="px-2 py-1.5 text-xs text-gray-400 font-medium mt-1">{t('mcp_servers', 'MCP 服务')}</div>
+            {filteredLightningMcps.map((mcp: any) => {
+              const mcpId = mcp.id || mcp.uuid || mcp.name;
+              const isSelected = selectedMcps.some((m: any) => (m.id || m.uuid || m.name) === mcpId);
+              return (
+                <div key={mcpId} className={cls('flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors mb-0.5', isSelected ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800')} onClick={() => handleLightningMcpToggle(mcp)}>
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center flex-shrink-0">
+                    {mcp.icon ? <img src={mcp.icon} className="w-5 h-5 rounded" alt={mcp.name} /> : <ApiOutlined className="text-white text-sm" />}
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{mcp.name}</span>
+                      {mcp.available && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400 flex-shrink-0">Active</span>}
+                    </div>
+                    {mcp.description && <div className="text-xs text-gray-400 truncate mt-0.5">{mcp.description}</div>}
+                  </div>
+                  {isSelected && <CheckOutlined className="text-purple-500 text-sm flex-shrink-0" />}
+                </div>
+              );
+            })}
+          </>
+        )}
+        {filteredLightningSkills.length === 0 && filteredLightningMcps.length === 0 && (
+          <div className="text-center text-gray-400 text-xs py-8">{t('no_skills_found', '未找到相关技能')}</div>
+        )}
+      </div>
+      <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 dark:border-gray-700">
+        <span className="text-xs text-gray-400">{fullSkillList.length + fullMcpList.length} {t('skills_available', '个可用')}</span>
+        <button className="text-xs text-indigo-500 hover:text-indigo-600 font-medium" onClick={() => { setIsLightningOpen(false); openConnectorsModal('skill'); }}>
+          {t('manage_skills', '管理技能')} →
+        </button>
       </div>
     </div>
-  ), [recommendedSkills, recommendedMcps, recommendedTools, selectedSkills, selectedMcps, handleSkillsChange]);
+  ), [lightningSearch, filteredLightningSkills, filteredLightningMcps, selectedSkills, selectedMcps, fullSkillList.length, fullMcpList.length, t, handleLightningSkillToggle, handleLightningMcpToggle]);
 
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -1150,6 +1524,34 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           </p>
         </div>
 
+        {/* Active Agent Indicator */}
+        {selectedApp && selectedApp.app_code !== 'chat_normal' && (
+          <div className="flex items-center justify-center mb-3 transition-all duration-300">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 shadow-sm">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center">
+                {selectedApp.icon ? (
+                  <img src={selectedApp.icon} className="w-4 h-4 rounded-full object-cover" alt="" />
+                ) : (
+                  <RobotOutlined className="text-white text-[10px]" />
+                )}
+              </div>
+              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                当前智能体：{selectedApp.app_name}
+              </span>
+              <button
+                onClick={() => {
+                  const defaultApp = appList.find(a => a.app_code === 'chat_normal') || null;
+                  setSelectedApp(defaultApp);
+                  setPendingConvUid('');
+                }}
+                className="ml-1 w-5 h-5 rounded-full flex items-center justify-center text-blue-400 hover:text-white hover:bg-blue-500 transition-all duration-200"
+              >
+                <CloseOutlined className="text-[10px]" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Input Box Area */}
         <div
           className={cls(
@@ -1188,6 +1590,43 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
               }}
             />
 
+            {/* 已选资源标签展示 */}
+            {(selectedSkills.length > 0 || selectedMcps.length > 0 || selectedDataSources.length > 0 || selectedKnowledgeBases.length > 0) && (
+              <div className="flex flex-wrap gap-2 pb-3 px-2">
+                {selectedSkills.map((skill: any) => (
+                  <div key={skill.skill_code} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 text-sm">
+                    {skill.icon ? <img src={skill.icon} className="w-4 h-4 rounded" alt={skill.name} /> : <ThunderboltOutlined className="text-blue-500 text-xs" />}
+                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{skill.name}</span>
+                    <button onClick={() => handleSkillRemove(skill.skill_code)} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
+                  </div>
+                ))}
+                {selectedMcps.map((mcp: any) => {
+                  const mcpId = mcp.id || mcp.uuid || mcp.name;
+                  return (
+                    <div key={mcpId} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 text-sm">
+                      <ApiOutlined className="text-emerald-500 text-xs" />
+                      <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{mcp.name}</span>
+                      <button onClick={() => setSelectedMcps(prev => prev.filter((m: any) => (m.id || m.uuid || m.name) !== mcpId))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
+                    </div>
+                  );
+                })}
+                {selectedDataSources.map((ds: any) => (
+                  <div key={ds.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/20 text-sm">
+                    <DatabaseOutlined className="text-green-500 text-xs" />
+                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{ds.db_name}</span>
+                    <button onClick={() => setSelectedDataSources(prev => prev.filter(s => s.id !== ds.id))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
+                  </div>
+                ))}
+                {selectedKnowledgeBases.map((kb: any) => (
+                  <div key={kb.id || kb.name} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 text-sm">
+                    <BookOutlined className="text-amber-500 text-xs" />
+                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{kb.name}</span>
+                    <button onClick={() => setSelectedKnowledgeBases(prev => prev.filter(s => (s.id || s.name) !== (kb.id || kb.name)))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <Input.TextArea
               placeholder="分配一个任务或提问任何问题"
               className="!text-lg !bg-transparent !border-0 !resize-none placeholder:!text-gray-400 !text-gray-800 dark:!text-gray-200 !shadow-none !p-2 mb-4"
@@ -1205,78 +1644,77 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
               }}
             />
 
-              <div className="flex items-center justify-between px-2 pb-1">
-                <div className="flex items-center gap-2">
-                  {/* + Button for Skills/Tools */}
-                  <Popover
-                    content={plusMenuContent}
-                    trigger="click"
-                    placement="topLeft"
-                    overlayClassName="!p-0"
-                  >
-                    <button className="h-7 w-7 rounded-full flex items-center justify-center border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-500 hover:border-blue-300 dark:hover:border-blue-600 transition-all hover:bg-blue-50 dark:hover:bg-blue-900/20">
+            {/* 底部工具栏 */}
+            <div className="flex items-center justify-between px-2 pb-1">
+              <div className="flex items-center gap-2">
+                {/* "+" 按钮 - 文件上传/数据源/知识库 */}
+                <Popover
+                  content={plusMenuContent}
+                  trigger="click"
+                  placement="topLeft"
+                  open={isPlusMenuOpen}
+                  onOpenChange={(open) => {
+                    setIsPlusMenuOpen(open);
+                    if (!open) { setPlusMenuView('main'); setDbSearch(''); setKbSearch(''); }
+                  }}
+                  arrow={false}
+                  overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-xl [&_.ant-popover-inner]:!shadow-xl"
+                >
+                  <Badge count={plusBadgeCount} size="small" offset={[-4, 4]} color="#10b981">
+                    <button className={cls(
+                      "h-8 w-8 rounded-full flex items-center justify-center border transition-all",
+                      plusBadgeCount > 0
+                        ? "border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
+                        : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:text-indigo-500 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+                    )}>
                       <PlusOutlined className="text-sm" />
                     </button>
-                  </Popover>
+                  </Badge>
+                </Popover>
 
-                  {/* Selected Skills Display */}
-                  <SelectedSkillsBar />
+                {/* 闪电按钮 - Skills/MCP */}
+                <Popover
+                  content={lightningContent}
+                  trigger="click"
+                  placement="topLeft"
+                  open={isLightningOpen}
+                  onOpenChange={(open) => { setIsLightningOpen(open); if (!open) setLightningSearch(''); }}
+                  arrow={false}
+                  overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-xl [&_.ant-popover-inner]:!shadow-xl"
+                >
+                  <Badge count={lightningBadgeCount} size="small" offset={[-4, 4]} color="#7c3aed">
+                    <button className="h-8 w-8 rounded-full flex items-center justify-center bg-purple-50 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/50 hover:border-purple-400 transition-all">
+                      <ThunderboltOutlined className="text-sm" />
+                    </button>
+                  </Badge>
+                </Popover>
 
-                  {/* Selected MCPs Display */}
-                  <SelectedMcpsBar />
-
-                  {/* Agent Selector */}
-                  <Dropdown menu={appMenuProps} trigger={['click']} placement="bottomLeft">
-                    <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                      <span className="text-base">
-                        {selectedApp?.icon ? (
-                          <img src={selectedApp.icon} className="w-4 h-4" />
-                        ) : (
-                          '🤖'
-                        )}
-                      </span>
-                      <span className="text-sm text-gray-700 dark:text-gray-300 font-medium max-w-[100px] truncate">
-                        {selectedApp?.app_name || t('select_app', 'Select App')}
-                      </span>
-                      <DownOutlined className="text-xs text-gray-400" />
-                    </div>
-                  </Dropdown>
-
-                  {/* Spacer */}
-                  <div className="w-4" />
-
-                  {/* Model Selector */}
-                  <Popover
-                    content={modelContent}
-                    trigger="click"
-                    placement="topLeft"
-                    open={isModelOpen}
-                    onOpenChange={setIsModelOpen}
-                    arrow={false}
-                    overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-lg [&_.ant-popover-inner]:!shadow-lg"
-                    zIndex={1000}
-                  >
-                    <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group">
-                      <ModelIcon model={selectedModel} width={18} height={18} />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-200 max-w-[120px] truncate group-hover:text-blue-500 transition-colors">
-                        {selectedModel || t('select_model', 'Select Model')}
-                      </span>
-                      <DownOutlined className="text-xs text-gray-400 group-hover:text-blue-500 transition-colors" />
-                    </div>
-                  </Popover>
+                {/* 模型选择器 */}
+                <Popover
+                  content={modelContent}
+                  trigger="click"
+                  placement="topLeft"
+                  open={isModelOpen}
+                  onOpenChange={setIsModelOpen}
+                  arrow={false}
+                  overlayClassName="[&_.ant-popover-inner]:!p-0 [&_.ant-popover-inner]:!rounded-lg [&_.ant-popover-inner]:!shadow-lg"
+                  zIndex={1000}
+                >
+                  <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/50 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors group">
+                    <ModelIcon model={selectedModel} width={18} height={18} />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-200 max-w-[120px] truncate group-hover:text-blue-500 transition-colors">
+                      {selectedModel || t('select_model', 'Select Model')}
+                    </span>
+                    <DownOutlined className="text-xs text-gray-400 group-hover:text-blue-500 transition-colors" />
+                  </div>
+                </Popover>
               </div>
 
+              {/* 右侧：发送按钮 */}
               <div className="flex items-center gap-3">
-                {/* File Upload Icon Button */}
-                <Upload {...uploadProps} showUploadList={false}>
-                  <button className="h-7 w-7 rounded-full flex items-center justify-center border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-all hover:bg-gray-100 dark:hover:bg-gray-800">
-                    <PaperClipOutlined className="text-sm" />
-                  </button>
-                </Upload>
-
                 <button
                   className={cls(
-                    'h-8 w-8 rounded-full flex items-center justify-center transition-all',
+                    'h-9 w-9 rounded-full flex items-center justify-center transition-all',
                     userInput.trim() || uploadedResources.length > 0 || uploadingFiles.length > 0
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white shadow-md hover:shadow-lg'
                       : 'bg-gray-100 text-gray-400 border-none dark:bg-gray-800 dark:text-gray-600',
@@ -1288,58 +1726,32 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
                 </button>
               </div>
             </div>
-
-            {/* Selected Files List (Removed old list) */}
           </div>
         </div>
 
-        {/* Quick Actions - SRE Domain Scenarios */}
+        {/* Quick Actions - 动态场景入口 */}
         <div className="flex flex-wrap justify-center gap-10 mt-10 max-w-4xl">
-          <QuickActionButton 
-            icon={<HeartOutlined />} 
-            text="AI应用健康" 
-            bgColor="bg-gradient-to-br from-blue-400 to-blue-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<CodeOutlined />} 
-            text="AI代码风险" 
-            bgColor="bg-gradient-to-br from-orange-400 to-amber-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<CloudServerOutlined />} 
-            text="AI基础设施" 
-            bgColor="bg-gradient-to-br from-red-400 to-red-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<SwapOutlined />} 
-            text="AI变更风险" 
-            bgColor="bg-gradient-to-br from-emerald-400 to-green-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<DatabaseOutlined />} 
-            text="AI存储容量" 
-            bgColor="bg-gradient-to-br from-teal-400 to-cyan-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<AlertOutlined />} 
-            text="AI应急风险" 
-            bgColor="bg-gradient-to-br from-orange-500 to-red-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<GlobalOutlined />} 
-            text="AI环境风险" 
-            bgColor="bg-gradient-to-br from-slate-400 to-gray-500"
-            iconColor="text-white"
-          />
-          <QuickActionButton 
-            icon={<RobotOutlined />} 
-            text="自定义智能体" 
+          {homeSceneApps.map((app) => {
+            const homeScene = app.ext_config?.home_scene;
+            const IconComp = HOME_SCENE_ICON_MAP[homeScene?.icon_type || ''] || RobotOutlined;
+            const bgColor = homeScene?.bg_color
+              ? `bg-gradient-to-br ${homeScene.bg_color}`
+              : 'bg-gradient-to-br from-blue-400 to-blue-500';
+            return (
+              <QuickActionButton
+                key={app.app_code}
+                icon={<IconComp />}
+                text={app.app_name}
+                bgColor={bgColor}
+                iconColor="text-white"
+                isSelected={selectedApp?.app_code === app.app_code}
+                onClick={() => handleAgentSelect(app)}
+              />
+            );
+          })}
+          <QuickActionButton
+            icon={<RobotOutlined />}
+            text="自定义智能体"
             isOutline={true}
             iconColor="text-gray-400 dark:text-gray-500"
             onClick={() => router.push('/application/app')}

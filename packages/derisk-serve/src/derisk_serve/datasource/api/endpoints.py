@@ -253,14 +253,14 @@ async def test_connection(
 
     Returns:
         Result[bool]: The test result, True if connection is successful
-
-    Raises:
-        HTTPException: When the connection test fails
     """
-    res = await blocking_func_to_async(
-        global_system_app, service.test_connection, request
-    )
-    return Result.succ(res)
+    try:
+        res = await blocking_func_to_async(
+            global_system_app, service.test_connection, request
+        )
+        return Result.succ(res)
+    except Exception as e:
+        return Result.failed(msg=str(e), err_code="E0003")
 
 
 @router.post(
@@ -322,6 +322,22 @@ async def trigger_learning(
         table_name,
     )
     return Result.succ(LearningTaskResponse(**result))
+
+
+@router.post(
+    "/datasources/{datasource_id}/learn/cancel",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[dict],
+)
+async def cancel_learning(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Cancel a running learning task for a datasource."""
+    result = await blocking_func_to_async(
+        global_system_app, service.cancel_learning, datasource_id
+    )
+    return Result.succ(result)
 
 
 @router.get(

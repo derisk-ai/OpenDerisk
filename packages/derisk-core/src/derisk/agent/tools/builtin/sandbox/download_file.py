@@ -1,9 +1,10 @@
 """
 DownloadFileTool - 从沙箱下载文件工具
 
-从沙箱中下载文件，返回 OSS 下载链接
+从沙箱中下载文件，返回下载链接
 """
 
+import os
 from typing import Dict, Any, Optional
 import logging
 
@@ -15,7 +16,7 @@ from ...result import ToolResult
 
 logger = logging.getLogger(__name__)
 
-_DOWNLOAD_FILE_PROMPT = """从沙箱中下载文件。返回文件的OSS下载链接。
+_DOWNLOAD_FILE_PROMPT = """从沙箱中下载文件。返回文件的下载链接。
 
 隐私合规政策:
 - 遵循"隐藏具体判罚原因""可追溯但不可识别"与"安全指令限制"原则
@@ -95,18 +96,73 @@ class DownloadFileTool(SandboxToolBase):
         except ValueError as exc:
             return ToolResult.fail(error=f"错误: {exc}", tool_name=self.name)
 
-        # 上传到 OSS 并获取链接
-        try:
-            oss_file = await client.file.upload_to_oss(sandbox_path)
-            if oss_file and oss_file.temp_url:
-                return ToolResult.ok(output=oss_file.temp_url, tool_name=self.name)
-            else:
-                return ToolResult.fail(
-                    error=f"错误: 获取文件下载链接失败 ({sandbox_path})",
-                    tool_name=self.name,
+        file_name = os.path.basename(sandbox_path)
+        download_url = None
+        oss_object_path = None
+
+        # 1. 优先通过 AgentFileSystem 保存并获取 URL
+        if hasattr(client, "agent_file_system") and client.agent_file_system:
+            try:
+                from derisk.agent.core.memory.gpts.file_base import FileType
+
+                afs = client.agent_file_system
+                file_metadata = await afs.save_file_from_sandbox(
+                    sandbox_path=sandbox_path,
+                    file_type=FileType.DELIVERABLE,
+                    is_deliverable=False,
+                    description=f"下载文件: {file_name}",
+                    tool_name="download_file",
                 )
-        except Exception as exc:
+                if file_metadata:
+                    download_url = file_metadata.preview_url
+                    oss_object_path = (
+                        file_metadata.metadata.get("object_path")
+                        if file_metadata.metadata
+                        else None
+                    )
+                    logger.info(
+                        f"[download_file] File registered via AFS: "
+                        f"file_name={file_name}, url={download_url}"
+                    )
+            except Exception as e:
+                logger.warning(f"[download_file] AFS save failed: {e}")
+
+        # 2. 回退到 upload_to_oss
+        if not download_url:
+            try:
+                oss_file = await client.file.upload_to_oss(sandbox_path)
+                if oss_file and oss_file.temp_url:
+                    download_url = oss_file.temp_url
+                    oss_object_path = oss_file.object_name
+            except Exception as exc:
+                logger.warning(f"[download_file] upload_to_oss failed: {exc}")
+
+        # 3. 校验 URL 有效性
+        if not download_url or not download_url.startswith(("http://", "https://")):
             return ToolResult.fail(
-                error=f"错误: 下载文件失败 ({sandbox_path}): {exc}",
+                error=(
+                    f"错误: 文件已存在于沙箱中 ({sandbox_path})，"
+                    f"但无法生成可访问的下载链接。请检查存储配置是否正确。"
+                ),
                 tool_name=self.name,
             )
+
+        # 4. 构建返回信息并渲染 d-attach 组件
+        result_parts = [f"✅ 文件下载链接已生成: {sandbox_path}"]
+        try:
+            from derisk.agent.core.file_system.dattach_utils import render_dattach
+
+            dattach_content = render_dattach(
+                file_name=file_name,
+                file_url=download_url,
+                file_type="download",
+                object_path=oss_object_path,
+                preview_url=download_url,
+                download_url=download_url,
+            )
+            result_parts.append("\n\n**下载文件:**")
+            result_parts.append(dattach_content)
+        except Exception:
+            result_parts.append(f"\n\n**下载链接:** {download_url}")
+
+        return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)

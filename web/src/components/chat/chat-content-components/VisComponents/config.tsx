@@ -41,6 +41,8 @@ import VisConfirmResponse from './VisConfirmResponse';
 import VisSystemEvents from './VisSystemEvents';
 import VisManusLeftPanel from './VisManusLeftPanel';
 import VisManusRightPanel from './VisManusRightPanel';
+import VisSqlQuery from './VisSqlQuery';
+import { ee, EVENTS } from '@/utils/event-emitter';
 import {
   OutputRenderer,
   TerminalRenderer,
@@ -600,7 +602,13 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       const data = parseFirstJson(content);
       return (
         <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-left-panel" />}>
-          <VisManusLeftPanel data={data} />
+          <VisManusLeftPanel
+            data={data}
+            onStepClick={(stepId) => {
+              ee.emit(EVENTS.CLICK_FOLDER, { uid: stepId });
+              ee.emit(EVENTS.OPEN_PANEL);
+            }}
+          />
         </ErrorBoundary>
       );
     } catch (e) {
@@ -696,6 +704,19 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="manus-skill-card" />;
+    }
+  },
+  'd-sql-query': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-sql-query" />}>
+          <VisSqlQuery data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="d-sql-query" />;
     }
   },
 };

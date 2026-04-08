@@ -8,7 +8,8 @@ import useChat from '@/hooks/use-chat';
 import ChatContentContainer from '@/components/chat/chat-content-container';
 import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
-import { Flex, Layout, Spin } from 'antd';
+import { Flex, Layout } from 'antd';
+import ChatPageSkeleton from '@/components/chat/content/chat-page-skeleton';
 import { useSearchParams } from 'next/navigation';
 import { ChatContentContext, SelectedSkill, ContextMetricsProvider } from '@/contexts';
 import HomeChat from '@/components/chat/content/home-chat';
@@ -423,16 +424,24 @@ if (initMessage.model) {
   }, [chatId, getInitMessage(), appInfo, chatInParams]);
 
   const contentRender = () => {
-      return isChatDefault ? (
-        <Content>
-          <HomeChat />
-        </Content>
-      ) : (
-        <Spin spinning={appInfoLoading}  wrapperClassName='w-full h-full'>
-          <Content className='flex flex-col h-full'>
-            <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
+      if (isChatDefault) {
+        return (
+          <Content>
+            <HomeChat />
           </Content>
-        </Spin>
+        );
+      }
+      if (!Object.keys(appInfo).length) {
+        return (
+          <Content className='flex flex-col h-full'>
+            <ChatPageSkeleton />
+          </Content>
+        );
+      }
+      return (
+        <Content className='flex flex-col h-full min-h-0 overflow-hidden'>
+          <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
+        </Content>
       );
   };
 

@@ -224,7 +224,7 @@ class CreateFileTool(SandboxToolBase):
         # 4. 检查 OSS 是否成功
         if not oss_temp_url:
             logger.warning(
-                f"[create_file] OSS upload failed for {sandbox_path}. "
+                f"[create_file] Storage upload failed for {sandbox_path}. "
                 f"File was created in sandbox but is not accessible via web URL. "
                 f"Please check storage configuration."
             )

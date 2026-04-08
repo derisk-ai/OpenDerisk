@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-03-30 22:06:22
+-- Generated: 2026-04-08 18:05:21
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -543,6 +543,94 @@ CREATE TABLE IF NOT EXISTS `connect_config` (
   KEY `idx_q_db_type` (`db_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Table: db_spec
+-- Source Model: DbSpecEntity
+CREATE TABLE IF NOT EXISTS `db_spec` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `datasource_id` INT NOT NULL COMMENT 'FK to connect_config.id',
+  `db_name` VARCHAR(255) NOT NULL COMMENT 'Database name',
+  `db_type` VARCHAR(64) NOT NULL COMMENT 'Database type',
+  `spec_content` TEXT NOT NULL COMMENT 'JSON: table list index with summaries',
+  `table_count` INT NULL COMMENT 'Total number of tables',
+  `group_config` TEXT NULL COMMENT 'JSON: table grouping configuration',
+  `relations` TEXT NULL COMMENT 'JSON: detected table relationships',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: ready, generating, failed',
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_db_spec_datasource` (`datasource_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: db_learning_subtask
+-- Source Model: DbLearningSubtaskEntity
+CREATE TABLE IF NOT EXISTS `db_learning_subtask` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `task_id` INT NOT NULL COMMENT 'FK to db_learning_task.id',
+  `datasource_id` INT NOT NULL COMMENT 'FK to connect_config.id (denormalized)',
+  `table_name` VARCHAR(255) NOT NULL COMMENT 'Table name to learn',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: pending, claimed, completed, failed, cancelled',
+  `worker_id` VARCHAR(128) NULL COMMENT 'hostname:pid:thread that claimed this subtask',
+  `attempt_count` INT NOT NULL DEFAULT 0 COMMENT 'Number of claim attempts',
+  `max_attempts` INT NOT NULL DEFAULT 3 COMMENT 'Max retry attempts',
+  `error_message` TEXT NULL COMMENT 'Error details on failure',
+  `claimed_at` DATETIME NULL COMMENT 'When a worker claimed this subtask',
+  `completed_at` DATETIME NULL COMMENT 'When the subtask finished',
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_subtask_task_table` (`task_id`, `table_name`),
+  KEY `idx_subtask_task_status` (`task_id`, `status`),
+  KEY `idx_subtask_ds` (`datasource_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: db_learning_task
+-- Source Model: DbLearningTaskEntity
+CREATE TABLE IF NOT EXISTS `db_learning_task` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `datasource_id` INT NOT NULL COMMENT 'FK to connect_config.id',
+  `task_type` VARCHAR(32) NOT NULL COMMENT 'Task type: full_learn, single_table',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: pending, running, finalizing, completed, failed, cancelled',
+  `progress` INT NOT NULL DEFAULT 0 COMMENT 'Progress 0-100',
+  `total_tables` INT NULL COMMENT 'Total number of tables to process',
+  `processed_tables` INT NOT NULL DEFAULT 0 COMMENT 'Number of tables processed',
+  `error_message` TEXT NULL COMMENT 'Error message if task failed',
+  `trigger_type` VARCHAR(32) NOT NULL COMMENT 'Trigger type: manual, auto_on_create, scheduled',
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_learning_task_ds` (`datasource_id`),
+  KEY `idx_learning_task_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: table_spec
+-- Source Model: TableSpecEntity
+CREATE TABLE IF NOT EXISTS `table_spec` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `datasource_id` INT NOT NULL COMMENT 'FK to connect_config.id',
+  `table_name` VARCHAR(255) NOT NULL COMMENT 'Table name',
+  `table_comment` TEXT NULL COMMENT 'Table comment/description',
+  `row_count` INT NULL COMMENT 'Approximate row count',
+  `columns_json` TEXT NOT NULL COMMENT 'JSON: array of column definitions ',
+  `indexes_json` TEXT NULL COMMENT 'JSON: array of index definitions (name, columns, unique)',
+  `sample_data_json` TEXT NULL COMMENT 'JSON: sample rows from the table',
+  `create_ddl` TEXT NULL COMMENT 'CREATE TABLE DDL statement',
+  `foreign_keys_json` TEXT NULL COMMENT 'JSON: array of foreign key definitions ',
+  `group_name` VARCHAR(128) NULL COMMENT 'Table group name for categorization',
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_table_spec_ds_table` (`datasource_id`, `table_name`),
+  KEY `idx_table_spec_ds` (`datasource_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Table: evaluate_manage
 -- Source Model: ServeEntity
 CREATE TABLE IF NOT EXISTS `evaluate_manage` (
@@ -872,6 +960,57 @@ CREATE TABLE IF NOT EXISTS `skill_sync_task` (
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: sql_audit_log
+-- Source Model: SqlAuditLogEntity
+CREATE TABLE IF NOT EXISTS `sql_audit_log` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto-increment ID',
+  `user_id` VARCHAR(255) NULL COMMENT 'User identifier',
+  `session_id` VARCHAR(255) NULL COMMENT 'Session identifier',
+  `datasource_id` INT NULL COMMENT 'Datasource ID',
+  `db_name` VARCHAR(255) NULL COMMENT 'Database name',
+  `agent_name` VARCHAR(255) NULL COMMENT 'Agent name',
+  `sql_text` TEXT NULL COMMENT 'SQL statement (truncated)',
+  `sql_type` VARCHAR(32) NULL COMMENT 'SQL type (SELECT/INSERT/...)',
+  `guard_mode` VARCHAR(32) NULL COMMENT 'Guard mode (readonly/readwrite/admin)',
+  `check_result` VARCHAR(16) NULL COMMENT 'Check result (allowed/blocked/warning)',
+  `risk_level` VARCHAR(16) NULL COMMENT 'Risk level',
+  `risk_score` INT NULL COMMENT 'Risk score (0-100)',
+  `blocked_rules` TEXT NULL COMMENT 'Blocked rule names (comma-separated)',
+  `execution_time_ms` FLOAT NULL COMMENT 'SQL execution time in milliseconds',
+  `row_count` INT NULL COMMENT 'Result row count',
+  `error_message` TEXT NULL COMMENT 'Error message if failed',
+  `duration_ms` FLOAT NULL COMMENT 'Guard check duration in ms',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'When the audit log was created',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_sql_audit_user` (`user_id`),
+  KEY `idx_sql_audit_ds` (`datasource_id`),
+  KEY `idx_sql_audit_time` (`created_at`),
+  KEY `idx_sql_audit_session` (`session_id`),
+  KEY `idx_sql_audit_result` (`check_result`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: sensitive_column_config
+-- Source Model: SensitiveColumnEntity
+CREATE TABLE IF NOT EXISTS `sensitive_column_config` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'Auto-increment ID',
+  `datasource_id` INT NOT NULL COMMENT 'Datasource ID',
+  `table_name` VARCHAR(255) NOT NULL COMMENT 'Table name',
+  `column_name` VARCHAR(255) NOT NULL COMMENT 'Column name',
+  `sensitive_type` VARCHAR(32) NOT NULL COMMENT 'Sensitive type: phone/email/id_card/bank_card/address/name/password/token/custom',
+  `masking_mode` VARCHAR(16) NOT NULL COMMENT 'Masking mode: mask/token/none',
+  `confidence` FLOAT NULL COMMENT 'Auto-detection confidence (0-1), null if manually configured',
+  `source` VARCHAR(16) NOT NULL COMMENT 'Config source: auto (detected) / manual (user-configured)',
+  `enabled` INT NOT NULL DEFAULT 1 COMMENT 'Whether masking is active for this column',
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_sensitive_col` (`datasource_id`, `table_name`, `column_name`),
+  KEY `idx_sensitive_col_ds` (`datasource_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -46,6 +46,7 @@ class ManusOutputType(str, Enum):
     HTML = "html"
     IMAGE = "image"
     THOUGHT = "thought"
+    SQL_QUERY = "sql_query"
 
 
 class ManusArtifactType(str, Enum):
@@ -68,6 +69,7 @@ class ManusPanelView(str, Enum):
     IMAGE_PREVIEW = "image-preview"
     SKILL_PREVIEW = "skill-preview"
     SUMMARY = "summary"
+    DELIVERABLE = "deliverable"
 
 
 @dataclass
@@ -138,6 +140,50 @@ class ManusArtifactItem:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ManusArtifactItem":
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class ManusTaskFileItem:
+    """任务文件项 - AgentFileSystem 中的所有文件"""
+    file_id: str
+    file_name: str
+    file_type: str = ""
+    file_size: int = 0
+    mime_type: Optional[str] = None
+    oss_url: Optional[str] = None
+    preview_url: Optional[str] = None
+    download_url: Optional[str] = None
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+    object_path: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ManusTaskFileItem":
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
+class ManusDeliverableFile:
+    """交付文件 - 获得独立 tab 的明确交付物"""
+    file_id: str
+    file_name: str
+    mime_type: Optional[str] = None
+    file_size: int = 0
+    content_url: Optional[str] = None
+    download_url: Optional[str] = None
+    content: Optional[str] = None
+    object_path: Optional[str] = None
+    render_type: str = "iframe"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ManusDeliverableFile":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
@@ -241,6 +287,10 @@ class ManusRightPanelData:
     panel_view: str = ManusPanelView.EXECUTION.value
     summary_content: Optional[str] = None
     is_summary_streaming: bool = False
+    task_files: List[ManusTaskFileItem] = field(default_factory=list)
+    deliverable_files: List[ManusDeliverableFile] = field(default_factory=list)
+    # Map from planning_window UID (action_id) to step data for click-to-switch
+    steps_map: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -251,6 +301,9 @@ class ManusRightPanelData:
             "panel_view": self.panel_view,
             "summary_content": self.summary_content,
             "is_summary_streaming": self.is_summary_streaming,
+            "task_files": [f.to_dict() for f in self.task_files],
+            "deliverable_files": [f.to_dict() for f in self.deliverable_files],
+            "steps_map": self.steps_map,
         }
 
     @classmethod
@@ -260,6 +313,8 @@ class ManusRightPanelData:
             active_step = ManusActiveStepInfo.from_dict(data["active_step"])
         outputs = [ManusExecutionOutput.from_dict(o) for o in data.get("outputs", [])]
         artifacts = [ManusArtifactItem.from_dict(a) for a in data.get("artifacts", [])]
+        task_files = [ManusTaskFileItem.from_dict(f) for f in data.get("task_files", [])]
+        deliverable_files = [ManusDeliverableFile.from_dict(f) for f in data.get("deliverable_files", [])]
         return cls(
             active_step=active_step,
             outputs=outputs,
@@ -268,6 +323,9 @@ class ManusRightPanelData:
             panel_view=data.get("panel_view", ManusPanelView.EXECUTION.value),
             summary_content=data.get("summary_content"),
             is_summary_streaming=data.get("is_summary_streaming", False),
+            task_files=task_files,
+            deliverable_files=deliverable_files,
+            steps_map=data.get("steps_map", {}),
         )
 
 
@@ -323,6 +381,7 @@ ACTION_TO_STEP_TYPE = {
     "load_skill": ManusStepType.SKILL,
     "select_skill": ManusStepType.SKILL,
     "sql_query": ManusStepType.SQL,
+    "execute_sql": ManusStepType.SQL,
     "python": ManusStepType.PYTHON,
     "code_action": ManusStepType.PYTHON,
     "read_file": ManusStepType.READ,

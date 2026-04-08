@@ -5,7 +5,6 @@ import { ChatContentContext } from '@/contexts';
 import { IChatDialogueMessageSchema } from '@/types/chat';
 import { cloneDeep } from 'lodash';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { v4 as uuid } from 'uuid';
 import ChatHeader from '../header/chat-header';
 import ChatContent from './chat-content';
 
@@ -23,9 +22,9 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
     const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
     return tempMessage
       .filter(item => ['view', 'human'].includes(item.role))
-      .map(item => ({
+      .map((item, index) => ({
         ...item,
-        key: uuid(),
+        key: `${item.role}_${item.order ?? index}`,
       }));
   }, [history]);
 
@@ -50,8 +49,8 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
         {hasMessages && (
           <div className="w-full px-3 py-4">
             <div className="w-full">
-              {showMessages.map((content, index) => (
-                <div key={index} className="mb-4">
+              {showMessages.map((content) => (
+                <div key={content.key} className="mb-4">
                   <ChatContent
                     content={content}
                     onLinkClick={() => {

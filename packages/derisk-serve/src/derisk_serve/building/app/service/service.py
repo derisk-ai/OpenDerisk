@@ -3,7 +3,7 @@ import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 from sqlalchemy import or_
 
 from derisk._private.config import Config
@@ -571,6 +571,50 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 app_info = self.dao.to_response(app_entity)
                 apps.append(app_info)
 
+            # Batch query ext_config from config table for all apps
+            if apps:
+                try:
+                    from derisk_serve.building.config.models.models import (
+                        ServeEntity as AppConfigEntity,
+                    )
+
+                    app_codes = [a.app_code for a in apps if a.app_code]
+                    async with self.dao.a_session(commit=False) as config_session:
+                        # For each app, get the latest config's ext_config
+                        # Prefer temp config (is_published=0), fallback to published
+                        config_stmt = (
+                            select(
+                                AppConfigEntity.app_code,
+                                AppConfigEntity.ext_config,
+                            )
+                            .where(AppConfigEntity.app_code.in_(app_codes))
+                            .order_by(
+                                AppConfigEntity.app_code,
+                                AppConfigEntity.is_published.asc(),  # temp first
+                                AppConfigEntity.id.desc(),
+                            )
+                        )
+                        config_result = await config_session.execute(config_stmt)
+                        config_rows = config_result.all()
+
+                        # Build map: app_code -> ext_config (first match wins)
+                        ext_config_map: Dict = {}
+                        for row in config_rows:
+                            if row.app_code not in ext_config_map and row.ext_config:
+                                try:
+                                    ext_config_map[row.app_code] = json.loads(
+                                        row.ext_config
+                                    )
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+
+                        # Attach ext_config to each app
+                        for app_info in apps:
+                            if app_info.app_code in ext_config_map:
+                                app_info.ext_config = ext_config_map[app_info.app_code]
+                except Exception as e:
+                    logger.warning(f"Failed to batch load ext_config for app list: {e}")
+
             app_resp = GptsAppResponse()
             app_resp.total_count = total_count
             app_resp.app_list = apps
@@ -817,6 +861,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             app_resp.custom_variables = app_config.custom_variables
 
             app_resp.llm_config = app_config.llm_config
+            app_resp.ext_config = app_config.ext_config
 
             app_resp.context_config = build_by_agent_config(app_config.context_config)
 

@@ -694,7 +694,7 @@ function SideBar() {
         <div className='flex flex-col w-full space-y-1 mb-6'>
           {functions.map(item => {
             if (item?.children) {
-              return <MenuList value={item} isStow={false} key={item.key} defaultOpen={item.key === 'configuration_management'} />;
+              return <MenuList value={item} isStow={false} key={item.key} defaultOpen={item.key === 'application'} />;
             }
 
             // 应用列表项单独处理点击事件

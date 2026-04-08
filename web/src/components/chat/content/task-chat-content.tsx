@@ -5,7 +5,6 @@ import { ChatContentContext } from "@/contexts";
 import { IChatDialogueMessageSchema } from "@/types/chat";
 import { cloneDeep } from "lodash";
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { v4 as uuid } from "uuid";
 import { useDetailPanel } from "./chat-detail-content";
 import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
@@ -31,9 +30,9 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
     const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
     return tempMessage
       .filter((item) => ["view", "human"].includes(item.role))
-      .map((item) => ({
+      .map((item, index) => ({
         ...item,
-        key: uuid(),
+        key: `${item.role}_${item.order ?? index}`,
       }));
   }, [history]);
 
@@ -102,8 +101,8 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
           {hasMessages ? (
             <div className="w-full px-3 py-3">
               <div className="w-full space-y-2">
-                {showMessages.map((content, index) => (
-                  <div key={index}>
+                {showMessages.map((content) => (
+                  <div key={content.key}>
                     <ChatContent content={content} messages={showMessages} />
                   </div>
                 ))}

@@ -9,6 +9,11 @@ export interface DistributedConfig {
   heartbeat_interval: number;
 }
 
+export interface DatasourceConfig {
+  learning_worker_concurrency: number;
+  learning_subtask_timeout: number;
+}
+
 export interface SystemConfig {
   language: string;
   log_level: string;
@@ -178,6 +183,7 @@ export interface AppConfig {
   sse: SSEConfig;
   agents: Record<string, AgentConfig>;
   sandbox: SandboxConfig;
+  datasource: DatasourceConfig;
   file_service: FileServiceConfig;
   oauth2: OAuth2Config;
   feature_plugins?: Record<string, FeaturePluginEntry>;
@@ -217,6 +223,11 @@ class ConfigService {
 
   async updateSandboxConfig(config: Partial<SandboxConfig>): Promise<SandboxConfig> {
     const response = await axios.post(`${API_BASE}/config/sandbox`, config);
+    return response.data.data;
+  }
+
+  async updateDatasourceConfig(config: Partial<DatasourceConfig>): Promise<DatasourceConfig> {
+    const response = await axios.post(`${API_BASE}/config/datasource`, config);
     return response.data.data;
   }
 

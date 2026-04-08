@@ -67,6 +67,15 @@ class ConnectConfigDao(BaseDao):
         session.close()
         return result
 
+    def get_by_id(self, db_id: int) -> Optional[ConnectConfigEntity]:
+        """Get db connect info by id."""
+        session = self.get_raw_session()
+        result = session.query(ConnectConfigEntity).filter(
+            ConnectConfigEntity.id == db_id
+        ).first()
+        session.close()
+        return result
+
     def add_url_db(
         self,
         db_name,
@@ -199,9 +208,12 @@ class ConnectConfigDao(BaseDao):
             return True
         raise ValueError(f"{db_name} not have config info!")
 
-    def get_db_config(self, db_name):
-        """Return db connect info by name."""
+    def get_db_config(self, db_name, db_id=None):
+        """Return db connect info by name, fallback to id if name not found."""
         session = self.get_raw_session()
+        if not db_name and not db_id:
+            raise ValueError("Cannot get database config: both db_name and db_id are empty")
+
         if db_name:
             select_statement = text(
                 """
@@ -216,16 +228,34 @@ class ConnectConfigDao(BaseDao):
             params = {"db_name": db_name}
             result = session.execute(select_statement, params)
 
-        else:
-            raise ValueError("Cannot get database by name" + db_name)
+            fields = [field[0] for field in result.cursor.description]
+            rows = result.cursor.fetchall()
+            if rows:
+                row_dict = {}
+                row_1 = list(rows[0])
+                for i, field in enumerate(fields):
+                    row_dict[field] = row_1[i]
+                return row_dict
 
-        logger.info(f"Result: {result}")
-        fields = [field[0] for field in result.cursor.description]
-        row_dict = {}
-        row_1 = list(result.cursor.fetchall()[0])
-        for i, field in enumerate(fields):
-            row_dict[field] = row_1[i]
-        return row_dict
+        # Fallback: lookup by id
+        if db_id:
+            logger.info(f"db_name '{db_name}' not found, falling back to id={db_id}")
+            select_statement = text(
+                "SELECT * FROM connect_config WHERE id = :db_id"
+            )
+            result = session.execute(select_statement, {"db_id": db_id})
+            fields = [field[0] for field in result.cursor.description]
+            rows = result.cursor.fetchall()
+            if rows:
+                row_dict = {}
+                row_1 = list(rows[0])
+                for i, field in enumerate(fields):
+                    row_dict[field] = row_1[i]
+                return row_dict
+
+        raise ValueError(
+            f"Database config not found for db_name: {db_name}, db_id: {db_id}"
+        )
 
     def get_db_list(self, db_name: Optional[str] = None, user_id: Optional[str] = None):
         """Get db list."""

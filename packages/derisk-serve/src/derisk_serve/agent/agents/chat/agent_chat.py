@@ -857,11 +857,26 @@ class AgentChat(BaseComponent, ABC):
                             yield task, f"data: {str(e)}\n\n", agent_conv_id
                     stream_complete = True
 
-                if not stream_complete and task.done() and task.exception():
-                    logger.exception(f"agent chat exception!{conv_id}")
-                    raise task.exception()
-                else:
-                    yield task, _format_vis_msg("[DONE]"), agent_conv_id
+                # Wait for task to finish if it hasn't already
+                if not task.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(task), timeout=2.0
+                        )
+                    except (asyncio.TimeoutError, Exception):
+                        pass
+
+                if task.done() and task.exception():
+                    if not stream_complete:
+                        logger.exception(f"agent chat exception!{conv_id}")
+                        raise task.exception()
+                    else:
+                        # Error was already pushed to queue and yielded,
+                        # just log and send DONE
+                        logger.warning(
+                            f"Task had exception but messages were streamed: {task.exception()}"
+                        )
+                yield task, _format_vis_msg("[DONE]"), agent_conv_id
             else:
                 logger.info("非流式消息输出!")
                 last_chunk = None, None, None
@@ -1481,6 +1496,29 @@ class AgentChat(BaseComponent, ABC):
                 unique_resources.append(resource)
         return unique_resources
 
+    def _extract_default_datasources(
+        self, gpts_app: GptsApp
+    ) -> List[AgentResource]:
+        """Extract default bound datasource resources from app's resource_tool.
+
+        These are databases bound in the app editing page (not dynamically
+        added via chat_in_params). We extract them here so they go through the
+        same dynamic_resources path as chat_in_params resources, ensuring
+        proper prompt injection and tool registration.
+        """
+        results = []
+        if not gpts_app.resource_tool:
+            return results
+        for tool_resource in gpts_app.resource_tool:
+            if tool_resource.type == "datasource":
+                results.append(tool_resource)
+        if results:
+            logger.info(
+                f"[AgentChat] Extracted {len(results)} default datasource "
+                f"resources from app config resource_tool"
+            )
+        return results
+
     async def chat_in_params_to_resource(
         self,
         chat_in_params: Optional[List[ChatInParamValue]],
@@ -1991,6 +2029,21 @@ class AgentChat(BaseComponent, ABC):
             dynamic_resources = await self.chat_in_params_to_resource(
                 chat_in_params, ext_info
             )
+
+            ### 提取应用配置中默认绑定的数据库资源，走和动态资源相同的加载路径
+            default_db_resources = self._extract_default_datasources(gpts_app)
+            if default_db_resources:
+                if not dynamic_resources:
+                    dynamic_resources = []
+                dynamic_resources.extend(default_db_resources)
+                # 从 all_resources 中移除已提取的 datasource，避免重复实例化
+                if gpts_app.all_resources:
+                    gpts_app.all_resources = [
+                        r
+                        for r in gpts_app.all_resources
+                        if r.type != "datasource"
+                    ]
+
             if dynamic_resources:
                 ext_info["dynamic_resources"] = dynamic_resources
 

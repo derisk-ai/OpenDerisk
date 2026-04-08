@@ -1,0 +1,54 @@
+<available_databases>
+以下是你可以使用的数据库：
+
+{% for database in databases %}
+- <database>
+  <name>{{ database.name }}</name>
+  <db_name>{{ database.db_name }}</db_name>
+  <db_type>{{ database.db_type }}</db_type>
+  <dialect>{{ database.dialect }}</dialect>
+  <description>{{ database.description }}</description>
+{% if database.table_list %}
+  <tables>
+{{ database.table_list }}
+  </tables>
+{% endif %}
+</database>
+{% endfor %}
+</available_databases>
+
+**可用工具：**
+
+1. `get_table_spec` - 获取一张或多张表的详细 schema 信息
+   - 参数:
+     - `db_name` (必填): 数据库名称
+     - `table_names` (可选): 表名，多个表用逗号分隔，如 "users,orders"
+     - `question` (可选): 自然语言问题，系统会推荐相关表
+   - 返回: 列定义、类型、注释、索引、样本数据等
+
+2. `execute_sql` - 执行 SQL 查询
+   - 参数:
+     - `db_name` (必填): 数据库名称
+     - `sql` (必填): SQL 查询语句
+   - **重要**: SQL 语法必须严格匹配数据库类型 (db_type/dialect)
+     - SQLite: 标准 SQL，LIMIT 语法
+     - MySQL: LIMIT，可用反引号 `` 包裹标识符
+     - PostgreSQL: LIMIT，双引号 "" 包裹标识符
+     - SQL Server: TOP 关键字，方括号 [] 包裹标识符
+     - Oracle: ROWNUM，无 LIMIT 语法
+
+3. `list_tables` - 列出数据库中所有表名
+   - 参数:
+     - `db_name` (必填): 数据库名称
+   - 使用场景: 表列表未注入或需要完整列表时
+
+**使用流程：**
+1. 查看上方的表列表，了解数据库中有哪些表
+2. 使用 `get_table_spec` 获取需要操作的表的详细结构（支持多张表）
+3. 根据 db_type/dialect 编写符合语法的 SQL
+4. 使用 `execute_sql` 执行查询
+
+**注意事项：**
+- 数据库名称（db_name）用于指定查询目标
+- SQL 语法必须符合数据库类型，否则会报错
+- 敏感数据可能被脱敏处理
