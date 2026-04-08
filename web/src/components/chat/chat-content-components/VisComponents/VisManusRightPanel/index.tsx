@@ -453,15 +453,13 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
   switch (render_type) {
     case 'iframe':
       return (
-        <div className="h-full flex flex-col">
-          {resolvedUrl ? (
-            <iframe src={resolvedUrl} className="flex-1 w-full border-0" sandbox="allow-scripts allow-same-origin" style={{ minHeight: '500px' }} />
-          ) : content ? (
-            <iframe srcDoc={content} className="flex-1 w-full border-0" sandbox="allow-scripts allow-same-origin" style={{ minHeight: '500px' }} />
-          ) : (
-            <div className="flex items-center justify-center h-48 text-gray-400 text-sm">无法加载内容</div>
-          )}
-        </div>
+        <iframe
+          src={resolvedUrl || undefined}
+          srcDoc={!resolvedUrl && content ? content : undefined}
+          className="w-full border-0"
+          style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}
+          sandbox="allow-scripts allow-same-origin"
+        />
       );
     case 'markdown':
       return (
@@ -608,6 +606,49 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
 
   /* ── PDF export handlers ── */
   const handleExportPDF = useCallback(async () => {
+    // For deliverable files (iframe), fetch content and generate PDF from it
+    if (matchedDeliverable) {
+      const url = resolveFileUrl(matchedDeliverable);
+      if (url) {
+        setExporting(true);
+        try {
+          const resp = await fetch(url);
+          const htmlContent = await resp.text();
+          // Open content in hidden iframe for html2canvas capture
+          const tempIframe = document.createElement('iframe');
+          tempIframe.style.cssText = 'position:fixed;left:-9999px;width:1200px;height:auto;border:none;';
+          document.body.appendChild(tempIframe);
+          tempIframe.contentDocument?.open();
+          tempIframe.contentDocument?.write(htmlContent);
+          tempIframe.contentDocument?.close();
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for charts to render
+          const body = tempIframe.contentDocument?.body;
+          if (body) {
+            const canvas = await html2canvas(body, { useCORS: true, scale: 2, backgroundColor: '#ffffff', width: 1200 });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const imgWidth = pdf.internal.pageSize.getWidth() - 20;
+            const pageHeight = pdf.internal.pageSize.getHeight() - 20;
+            const imgHeight = (canvas.height * imgWidth) / canvas.width;
+            const totalPages = Math.ceil(imgHeight / pageHeight);
+            for (let i = 0; i < totalPages; i++) {
+              if (i > 0) pdf.addPage();
+              pdf.addImage(imgData, 'PNG', 10, -pageHeight * i + 10, imgWidth, imgHeight);
+            }
+            pdf.save(matchedDeliverable.file_name?.replace(/\.html?$/i, '.pdf') || 'report.pdf');
+            message.success('PDF 导出成功');
+          }
+          document.body.removeChild(tempIframe);
+        } catch (error) {
+          console.error('PDF export error:', error);
+          message.error('PDF 导出失败');
+        } finally {
+          setExporting(false);
+        }
+        return;
+      }
+    }
+    // Fallback: capture current tab content directly
     const container = contentRef.current;
     if (!container) return;
     setExporting(true);
@@ -631,9 +672,25 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     } finally {
       setExporting(false);
     }
-  }, []);
+  }, [matchedDeliverable]);
 
   const handlePrint = useCallback(() => {
+    // For deliverable files (iframe), open source URL directly for printing
+    if (matchedDeliverable) {
+      const url = resolveFileUrl(matchedDeliverable);
+      if (url) {
+        const printWindow = window.open(url, '_blank');
+        if (printWindow) {
+          printWindow.onload = () => {
+            setTimeout(() => printWindow.print(), 1000);
+          };
+        } else {
+          message.error('无法打开打印窗口，请检查浏览器弹窗设置');
+        }
+        return;
+      }
+    }
+    // Fallback: print current tab content
     const container = contentRef.current;
     if (!container) return;
     const printWindow = window.open('', '_blank');
@@ -648,7 +705,7 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     );
     printWindow.document.close();
     printWindow.onload = () => printWindow.print();
-  }, []);
+  }, [matchedDeliverable]);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     { key: 'export', icon: <DownloadOutlined />, label: '导出文件', onClick: handleExportPDF },
@@ -729,7 +786,7 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
       </div>
 
       {/* ── Tab content ── */}
-      <div className={classNames("flex-1 bg-white", matchedDeliverable ? "overflow-hidden" : "overflow-y-auto")} ref={contentRef}>
+      <div className="flex-1 overflow-y-auto bg-white" ref={contentRef}>
         {activeTab === 'task_files' && hasTaskFiles ? (
           <TaskFilesView files={task_files} />
         ) : activeTab === 'summary' && hasSummary ? (

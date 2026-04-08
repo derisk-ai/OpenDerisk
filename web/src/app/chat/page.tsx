@@ -268,11 +268,21 @@ export default function Chat() {
           onDone: () => {
             setReplyLoading(false);
             setCanAbort(false);
+            if (!tempHistory[index].context && tempHistory[index].thinking) {
+              tempHistory[index].context = '对话发生错误，请稍后重试';
+              tempHistory[index].thinking = false;
+              setHistory([...tempHistory]);
+            }
             resolve();
           },
           onClose: () => {
             setReplyLoading(false);
             setCanAbort(false);
+            if (!tempHistory[index].context && tempHistory[index].thinking) {
+              tempHistory[index].context = '对话发生错误，请稍后重试';
+              tempHistory[index].thinking = false;
+              setHistory([...tempHistory]);
+            }
             resolve();
           },
           onError: message => {

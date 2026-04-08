@@ -2335,6 +2335,7 @@ class AgentChat(BaseComponent, ABC):
             gpts_status = Status.FAILED.value
             self.gpts_conversations.update(conv_uid, gpts_status)
 
+            error_pushed = False
             try:
                 error_msg = {
                     "type": "error",
@@ -2345,8 +2346,23 @@ class AgentChat(BaseComponent, ABC):
                     conv_id=conv_uid,
                     stream_msg=error_msg,
                 )
+                error_pushed = True
             except Exception as push_error:
-                logger.error(f"Failed to push error message: {push_error}")
+                logger.error(f"Failed to push error message via vis converter: {push_error}")
+
+            # Fallback: push error directly to queue bypassing vis converter
+            if not error_pushed:
+                try:
+                    cache = await self.memory._get_cache(conv_uid)
+                    if cache:
+                        error_view = json.dumps(
+                            {"type": "error", "content": f"对话发生错误: {str(e)}"},
+                            ensure_ascii=False,
+                        )
+                        cache.channel.put_nowait(error_view)
+                        logger.info(f"Pushed error directly to queue for {conv_uid}")
+                except Exception as direct_push_error:
+                    logger.error(f"Failed to push error directly to queue: {direct_push_error}")
 
             raise ValueError(f"The conversation is abnormal! {str(e)}")
         finally:
@@ -2363,23 +2379,29 @@ class AgentChat(BaseComponent, ABC):
 
         If a task is provided and it fails during iteration, the error will be raised.
         Also handles timeout cases to prevent infinite waiting.
+        Items are yielded BEFORE checking task status so that error messages
+        pushed to the queue are properly forwarded to the consumer.
         """
         if not (iterator := await self.memory.queue_iterator(conv_id)):
             return
 
         try:
             async for item in iterator:
+                # Yield the item first, so error messages from the queue
+                # are forwarded even when the task has already failed
+                yield item
+                await asyncio.sleep(0)
+                # Then check task status - if failed, raise on next iteration
                 if task and task.done():
                     exc = task.exception()
                     if exc:
                         import traceback
 
                         logger.error(
-                            f"Background task failed: {exc}\n{traceback.format_exception(type(exc), exc, exc.__traceback__)}"
+                            f"Background task failed: {exc}\n"
+                            f"{traceback.format_exception(type(exc), exc, exc.__traceback__)}"
                         )
                         raise exc
-                yield item
-                await asyncio.sleep(0)
         except Exception as e:
             import traceback
 

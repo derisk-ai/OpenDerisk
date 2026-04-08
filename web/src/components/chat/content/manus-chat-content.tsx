@@ -230,7 +230,7 @@ const ManusRightPanelContainer: React.FC<{ runningWindow: string }> = memo(({ ru
       {/* Content area - render running_window VIS tags via GPTVis */}
       <div className="flex-1 overflow-hidden">
         {runningWindow ? (
-          <div className="h-full [&>div]:h-full [&>div>div]:h-full">
+          <div className="h-full [&>div]:h-full [&>div>div]:h-full [&>div>div>div]:h-full">
             <GPTVis
               components={markdownComponents}
               {...markdownPlugins}

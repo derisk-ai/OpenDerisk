@@ -285,11 +285,23 @@ class ResourceManager(BaseComponent):
                         if return_resource
                         else {"name": real_resource_name}
                     )
+            if ignore_missing:
+                logger.warning(
+                    f"Resource {real_resource_name} not found in {type_unique_key}, "
+                    f"skipping (ignore_missing=True)"
+                )
+                return None
             raise ValueError(
                 f"Resource {real_resource_name} not found in {type_unique_key}"
             )
             # return cast(Resource, inst_items[0].resource_instance)
         elif len(inst_items) > 1:
+            if ignore_missing:
+                logger.warning(
+                    f"Multiple instances of resource {type_unique_key} found, "
+                    f"skipping (ignore_missing=True)"
+                )
+                return None
             raise ValueError(
                 f"Multiple instances of resource {type_unique_key} found, "
                 f"please specify the resource name."
@@ -309,6 +321,13 @@ class ResourceManager(BaseComponent):
                 resource_inst = single_item.resource_cls(**param_dict)
                 return resource_inst
             except Exception as e:
+                if ignore_missing:
+                    logger.warning(
+                        f"Failed to build resource {single_item.key}: {str(e)}, "
+                        f"skipping (ignore_missing=True). "
+                        f"Resource: type={type_unique_key}, name={agent_resource.name}"
+                    )
+                    return None
                 logger.warning(f"Failed to build resource {single_item.key}: {str(e)}")
                 raise ValueError(
                     f"Failed to build resource {single_item.key}: {str(e)}"

@@ -63,7 +63,7 @@ function CssWrapper({ children }: { children: React.ReactElement }) {
 
   if (!mounted) return <>{children}</>;
 
-  return <div>{children}</div>;
+  return <div className="h-screen overflow-hidden">{children}</div>;
 }
 
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
