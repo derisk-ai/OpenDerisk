@@ -227,6 +227,8 @@ class AgentContext:
     conv_session_id: str
     staff_no: Optional[str] = None
     user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    conv_start_time: Optional[str] = None
     trace_id: Optional[str] = None
     rpc_id: Optional[str] = None
     ## 当前对话的主Agent(应用)信息

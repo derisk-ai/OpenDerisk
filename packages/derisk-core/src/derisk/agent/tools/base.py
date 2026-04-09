@@ -42,6 +42,7 @@ class ToolCategory(str, Enum):
     UTILITY = "utility"
     MEDIA_GEN = "media_gen"
     PLUGIN = "plugin"
+    SKILL = "skill"
     CUSTOM = "custom"
 
 

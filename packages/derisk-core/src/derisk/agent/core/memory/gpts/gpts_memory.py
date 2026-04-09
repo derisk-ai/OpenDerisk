@@ -623,6 +623,172 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
                 for p in plans:
                     cache.plans[p.task_uid] = p
 
+    async def load_full_session_history(
+        self,
+        conv_id: str,
+        conv_session_id: str,
+        cold_storage: Optional[Any] = None,
+        cold_conv_ids: Optional[List[str]] = None,
+    ):
+        """
+        加载会话历史（配合压缩范围）
+
+        恢复策略：
+        1. 已压缩的对话 (cold_conv_ids)：从 ColdStorage 加载摘要，不进入 GptsMemory
+        2. 未压缩的对话：从数据库加载完整数据，进入 GptsMemory
+
+        Args:
+            conv_id: 当前对话轮次的 ID（cache key）
+            conv_session_id: 会话 ID
+            cold_storage: Cold 层存储
+            cold_conv_ids: 已压缩的 conv_id 列表
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            logger.warning(
+                f"load_full_session_history: cache not found for conv_id={conv_id}"
+            )
+            return
+
+        cold_conv_ids = set(cold_conv_ids or [])
+
+        logger.info(
+            f"load_full_session_history: session_id={conv_session_id}, "
+            f"cold_conv_ids={len(cold_conv_ids)}, "
+            f"cold_storage={cold_storage is not None}"
+        )
+
+        all_messages = await blocking_func_to_async(
+            self._executor,
+            self._message_memory.get_by_session_id,
+            conv_session_id,
+        )
+
+        if not all_messages:
+            logger.warning(
+                f"load_full_session_history: no messages found for session_id={conv_session_id}"
+            )
+            return
+
+        hot_warm_messages = [
+            msg for msg in all_messages if msg.conv_id not in cold_conv_ids
+        ]
+
+        if hot_warm_messages:
+            await self._cache_messages(conv_id, hot_warm_messages)
+
+            hot_warm_conv_ids = set(
+                msg.conv_id for msg in hot_warm_messages if msg.conv_id
+            )
+            for cid in hot_warm_conv_ids:
+                plans = await self._plans_memory.get_by_conv_id(cid)
+                if plans:
+                    async with await self._get_conv_lock(conv_id):
+                        for p in plans:
+                            if p.task_uid not in cache.plans:
+                                cache.plans[p.task_uid] = p
+
+            work_entries = await self._load_work_entries_for_session(
+                conv_session_id, list(hot_warm_conv_ids)
+            )
+
+            legacy_entries_without_message_id = []
+            for entry in work_entries:
+                if entry.message_id:
+                    if entry.message_id not in cache.work_entries_by_message:
+                        cache.work_entries_by_message[entry.message_id] = []
+                    cache.work_entries_by_message[entry.message_id].append(entry)
+                else:
+                    legacy_entries_without_message_id.append(entry)
+
+            if legacy_entries_without_message_id:
+                self._associate_legacy_work_entries(
+                    cache, legacy_entries_without_message_id, hot_warm_messages
+                )
+
+            cache.work_logs.extend(work_entries)
+
+        cold_data = None
+        if cold_storage and cold_conv_ids:
+            cold_data = await cold_storage.get_session_cold_data(
+                session_id=conv_session_id,
+                exclude_conv_ids=[conv_id],
+            )
+
+        logger.info(
+            f"load_full_session_history: "
+            f"hot_warm={len(hot_warm_messages)} messages, "
+            f"cold={len(cold_data.summaries) if cold_data else 0} summaries"
+        )
+
+        return {
+            "hot_warm_count": len(hot_warm_messages),
+            "cold_count": len(cold_data.summaries) if cold_data else 0,
+            "cold_data": cold_data,
+        }
+
+    async def _load_work_entries_for_session(
+        self,
+        session_id: str,
+        conv_ids: List[str],
+    ) -> List:
+        """加载指定 conv_ids 的 WorkEntry"""
+        if not self._work_log_db_storage or not conv_ids:
+            return []
+
+        all_entries = []
+        for conv_id in conv_ids:
+            try:
+                entries = await self._work_log_db_storage.get_work_log(conv_id)
+                if entries:
+                    all_entries.extend(entries)
+            except Exception as e:
+                logger.error(f"Failed to load work entries for {conv_id}: {e}")
+
+        return all_entries
+
+    def _associate_legacy_work_entries(
+        self,
+        cache: "ConversationCache",
+        legacy_entries: List,
+        messages: List[GptsMessage],
+    ):
+        """关联老数据 WorkEntry（没有 message_id）到 GptsMessage"""
+        ai_messages = [m for m in messages if m.role == "assistant" and m.tool_calls]
+
+        for entry in legacy_entries:
+            matched_message_id = None
+
+            if entry.tool_call_id:
+                for msg in ai_messages:
+                    if msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            if tc.get("id") == entry.tool_call_id:
+                                matched_message_id = msg.message_id
+                                break
+                    if matched_message_id:
+                        break
+
+            if not matched_message_id and entry.conv_id:
+                conv_ai_messages = [
+                    m for m in ai_messages if m.conv_id == entry.conv_id
+                ]
+                if conv_ai_messages:
+                    matched_message_id = conv_ai_messages[0].message_id
+
+            if matched_message_id:
+                entry.message_id = matched_message_id
+                if matched_message_id not in cache.work_entries_by_message:
+                    cache.work_entries_by_message[matched_message_id] = []
+                cache.work_entries_by_message[matched_message_id].append(entry)
+            else:
+                cache.work_logs.append(entry)
+
+        logger.info(
+            f"Associated {len(legacy_entries)} legacy work entries "
+            f"(without message_id) for session"
+        )
+
     # --------------------------
     # 内部功能方法区
     # --------------------------
@@ -875,6 +1041,7 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         self,
         conv_id: str,
         message: GptsMessage,
+        work_entries: Optional[List] = None,
         incremental: bool = False,
         save_db: bool = True,
         sender: Optional["ConversableAgent"] = None,  # type:ignore
@@ -899,6 +1066,13 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             cache.messages[message.message_id] = message
             if message.message_id not in cache.message_ids:
                 cache.message_ids.append(message.message_id)
+
+            # 关联 work_entries 到消息和缓存
+            if work_entries:
+                cache.work_entries_by_message[message.message_id] = work_entries
+                message.set_work_entries(work_entries)
+                cache.work_logs.extend(work_entries)
+
             ## 更新action数据
             if message.action_report:
                 for act_out in message.action_report:

@@ -393,6 +393,17 @@ class HistoryMessageBuilder:
         """
         messages: List[Dict[str, Any]] = []
 
+        # 构建辅助索引: tool_name -> [entry] (按时间排序，用于 fallback)
+        tool_name_lookup: Dict[str, List[Any]] = {}
+        for entry in worklog_lookup.values():
+            tname = getattr(entry, "tool", "")
+            if tname:
+                if tname not in tool_name_lookup:
+                    tool_name_lookup[tname] = []
+                tool_name_lookup[tname].append(entry)
+        # 跟踪已消费的 fallback 索引
+        tool_name_consumed: Dict[str, int] = {}
+
         for msg in gpts_msgs:
             role = (
                 getattr(msg, "role", None) or getattr(msg, "sender", None) or ""
@@ -428,13 +439,28 @@ class HistoryMessageBuilder:
                         tc_id = tc.get("id")
                         if not tc_id:
                             continue
+
                         entry = worklog_lookup.get(tc_id)
+
+                        # Fallback 1: 按 tool_name 顺序匹配
+                        if not entry:
+                            func = tc.get("function", {})
+                            tc_name = func.get("name", "") if isinstance(func, dict) else ""
+                            if tc_name and tc_name in tool_name_lookup:
+                                idx = tool_name_consumed.get(tc_name, 0)
+                                candidates = tool_name_lookup[tc_name]
+                                if idx < len(candidates):
+                                    entry = candidates[idx]
+                                    tool_name_consumed[tc_name] = idx + 1
+
+                        # Fallback 2: 从 gpts_message 的 action_report 获取
                         if entry:
                             result = self._compress_tool_result(
                                 entry, compression_level
                             )
                         else:
-                            result = "[result not available]"
+                            result = self._get_tool_result_from_gpts_msg(msg, tc_id)
+
                         messages.append(
                             {
                                 "role": ModelMessageRoleType.TOOL,
@@ -452,6 +478,31 @@ class HistoryMessageBuilder:
                     )
 
         return messages
+
+    def _get_tool_result_from_gpts_msg(
+        self, msg: "GptsMessage", tool_call_id: str
+    ) -> str:
+        """从 GptsMessage 的 action_report / observation 中提取工具结果（fallback）。"""
+        # 尝试 action_report
+        action_report = getattr(msg, "action_report", None)
+        if action_report and isinstance(action_report, list):
+            for report in action_report:
+                content = getattr(report, "content", None) or getattr(
+                    report, "observations", None
+                )
+                if content:
+                    return str(content)
+
+        # 尝试 observation
+        obs = getattr(msg, "observation", None)
+        if obs:
+            return str(obs)
+
+        logger.warning(
+            f"[HistoryMessageBuilder] No result found for tool_call_id={tool_call_id}, "
+            f"message_id={getattr(msg, 'message_id', 'unknown')}"
+        )
+        return "[tool execution result not recorded]"
 
     def _compress_tool_result(self, entry: Any, level: str = "hot") -> str:
         """根据压缩级别处理工具结果。
@@ -2084,8 +2135,22 @@ class HistoryMessageBuilder:
         gpts_memory = self.gpts_memory
         if gpts_memory:
             try:
+                # 1. 先尝试从缓存按 session_id 获取（load_full_session_history 已预加载时）
                 gpts_msgs = await gpts_memory.get_messages(session_id)
                 if not gpts_msgs:
+                    # 2. 缓存未命中：从 DB 按 session_id 加载全部轮次消息
+                    if hasattr(gpts_memory, "get_session_messages"):
+                        gpts_msgs = await gpts_memory.get_session_messages(session_id)
+                        if gpts_msgs:
+                            logger.info(
+                                f"[HistoryMessageBuilder] Loaded {len(gpts_msgs)} msgs "
+                                f"from get_session_messages({session_id})"
+                            )
+                            # 缓存到当前 conv_id 以便后续访问
+                            if hasattr(gpts_memory, "_cache_messages"):
+                                await gpts_memory._cache_messages(conv_id, gpts_msgs)
+                if not gpts_msgs:
+                    # 3. 最后兜底：按当前 conv_id 获取（仅当前轮）
                     gpts_msgs = await gpts_memory.get_messages(conv_id)
 
                 if gpts_msgs:

@@ -202,3 +202,62 @@ table {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== Print styles ===== */
+@media print {
+  /* Hide sidebar, navigation, and non-essential UI */
+  nav,
+  aside,
+  .ant-layout-sider,
+  [class*="sidebar"],
+  [class*="Sidebar"] {
+    display: none !important;
+  }
+
+  /* Hide chat input, header actions, toggle buttons */
+  [class*="UnifiedChatInput"],
+  [class*="chat-input"],
+  .fixed {
+    display: none !important;
+  }
+
+  /* Remove overflow constraints so content flows across pages */
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  * {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Remove background gradients for cleaner printing */
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Make containers full-width and remove fixed heights */
+  .flex.h-full.w-full {
+    display: block !important;
+    height: auto !important;
+    background: white !important;
+  }
+
+  /* Ensure page breaks work properly */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+
+  table, figure, img {
+    page-break-inside: avoid;
+  }
+
+  /* Remove shadows and borders for clean print */
+  [style*="boxShadow"],
+  [style*="box-shadow"] {
+    box-shadow: none !important;
+  }
+}

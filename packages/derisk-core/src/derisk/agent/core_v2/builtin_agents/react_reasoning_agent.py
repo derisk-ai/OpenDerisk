@@ -977,8 +977,10 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         result = await self.execute_tool(tool_name, tool_args)
 
         # Layer 1: 使用 UnifiedCompactionPipeline 截断（优先）
+        # skill_read/skill_list 返回完整 Skill 内容，不截断
+        _SKIP_TRUNCATION_TOOLS = {"skill_read", "skill_list"}
         pipeline = await self._ensure_compaction_pipeline()
-        if pipeline and result.output:
+        if pipeline and result.output and tool_name not in _SKIP_TRUNCATION_TOOLS:
             try:
                 tr = await pipeline.truncate_output(result.output, tool_name, tool_args)
                 result.output = tr.content
@@ -1008,7 +1010,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         }
                         if truncation_result.suggestion:
                             result.output += truncation_result.suggestion
-        elif self._output_truncator and result.output:
+        elif self._output_truncator and result.output and tool_name not in _SKIP_TRUNCATION_TOOLS:
             # Fallback: legacy OutputTruncator when pipeline not available
             truncation_result = self._output_truncator.truncate(
                 result.output, tool_name=tool_name

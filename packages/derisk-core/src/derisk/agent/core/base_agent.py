@@ -2160,9 +2160,31 @@ class ConversableAgent(Role, Agent):
             else:
                 return None
 
+        @self._vm.register("now", "当前日期")
+        def var_now(instance):
+            return datetime.now().strftime("%Y-%m-%d")
+
         @self._vm.register("now_time", "当前时间")
         def var_now_time(instance):
             return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        @self._vm.register("conv_start_time", "对话开始时间")
+        def var_conv_start_time(instance, agent_context=None):
+            if agent_context and getattr(agent_context, "conv_start_time", None):
+                return agent_context.conv_start_time
+            return None
+
+        @self._vm.register("user_name", "用户名")
+        def var_user_name(instance, agent_context=None):
+            if agent_context and getattr(agent_context, "user_name", None):
+                return agent_context.user_name
+            return None
+
+        @self._vm.register("user_id", "用户ID")
+        def var_user_id(instance, agent_context=None):
+            if agent_context and getattr(agent_context, "user_id", None):
+                return agent_context.user_id
+            return None
 
         @self._vm.register("resource_prompt", "绑定资源Prompt")
         def var_resource_info(resource_prompt: Optional[str] = None):

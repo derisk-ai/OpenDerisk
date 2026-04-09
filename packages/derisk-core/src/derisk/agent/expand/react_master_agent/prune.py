@@ -127,6 +127,9 @@ class MessageClassifier:
                 return True
             if message.context.get("is_compaction_summary"):
                 return True
+            # Skill 内容需要保护，不被修剪
+            if message.context.get("is_skill_content"):
+                return True
 
         return False
 

@@ -696,22 +696,59 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     }
   }, [matchedDeliverable]);
 
-  const handlePrint = useCallback(() => {
-    const container = contentRef.current;
-    if (!container) return;
-
-    // For iframe deliverables, call print on the iframe's contentWindow directly
-    const iframe = container.querySelector('iframe');
-    if (iframe?.contentWindow) {
-      try {
-        iframe.contentWindow.print();
-        return;
-      } catch {
-        // Cross-origin fallback below
+  const handlePrint = useCallback(async () => {
+    // For deliverable files (iframe), use a temp full-height iframe for accurate printing
+    if (matchedDeliverable) {
+      const url = resolveFileUrl(matchedDeliverable);
+      if (url) {
+        try {
+          const resp = await fetch(url);
+          const htmlContent = await resp.text();
+          // Create hidden full-height iframe with the complete HTML content
+          const tempIframe = document.createElement('iframe');
+          tempIframe.style.cssText = 'position:fixed;left:-9999px;width:1200px;height:auto;border:none;';
+          document.body.appendChild(tempIframe);
+          const iframeDoc = tempIframe.contentDocument;
+          if (iframeDoc) {
+            iframeDoc.open();
+            iframeDoc.write(htmlContent);
+            iframeDoc.close();
+            // Inject print styles
+            const printStyle = iframeDoc.createElement('style');
+            printStyle.textContent = `
+              @media print {
+                html, body {
+                  height: auto !important;
+                  overflow: visible !important;
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+                * { max-height: none !important; }
+                h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
+                table, figure, img { page-break-inside: avoid; }
+              }
+            `;
+            iframeDoc.head.appendChild(printStyle);
+          }
+          // Wait for charts/images to render
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          tempIframe.contentWindow?.print();
+          // Cleanup after print dialog closes
+          setTimeout(() => {
+            try { document.body.removeChild(tempIframe); } catch {}
+          }, 1000);
+          return;
+        } catch (e) {
+          console.error('Print via temp iframe failed:', e);
+          // Fall through to fallback
+        }
       }
     }
 
-    // Fallback: use window.print() with print-only styles to hide everything else
+    // Fallback: print current container content
+    const container = contentRef.current;
+    if (!container) return;
+
     const printId = 'manus-print-area';
     container.setAttribute('id', printId);
     const style = document.createElement('style');
@@ -719,16 +756,31 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     style.textContent = `
       @media print {
         body * { visibility: hidden !important; }
-        #${printId}, #${printId} * { visibility: visible !important; }
-        #${printId} { position: absolute; left: 0; top: 0; width: 100%; }
+        #${printId}, #${printId} * {
+          visibility: visible !important;
+          overflow: visible !important;
+          max-height: none !important;
+          height: auto !important;
+        }
+        #${printId} {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: auto !important;
+          overflow: visible !important;
+        }
+        html, body {
+          height: auto !important;
+          overflow: visible !important;
+        }
       }
     `;
     document.head.appendChild(style);
     window.print();
-    // Cleanup after print dialog closes
     document.head.removeChild(style);
     container.removeAttribute('id');
-  }, []);
+  }, [matchedDeliverable]);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     { key: 'export', icon: <DownloadOutlined />, label: '导出文件', onClick: handleExportPDF },

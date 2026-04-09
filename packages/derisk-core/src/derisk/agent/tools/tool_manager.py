@@ -162,9 +162,14 @@ class ToolManager:
         "webfetch",  # 网页获取
         "websearch",  # 网络搜索
         "python",  # Python执行
-        "skill",  # 技能调用
+        "skill_read",  # 读取 Skill 内容
+        "skill_exec",  # 执行 Skill 脚本
+        "skill_list",  # 列出可用 Skill
         "knowledge_search",  # 知识库搜索
         "download_file",  # 沙箱下载文件（手动绑定）
+        "get_table_spec",  # 数据库表结构查询
+        "execute_sql",  # SQL执行
+        "list_tables",  # 数据库表列表
     ]
 
     # 浏览器工具列表（暂不注册，后续按需启用）
@@ -700,6 +705,11 @@ class ToolManager:
         bindings: Dict[str, ToolBindingConfig] = {}
         persisted_set = set(persisted_tool_ids)
 
+        # 判断持久化数据是否来自工具管理页面（包含默认工具）还是仅来自应用配置（只有自定义工具）
+        # 如果持久化列表中不包含任何默认工具，说明数据来自应用配置，应自动补充默认工具
+        default_tool_ids = set(self.BUILTIN_CORE_TOOLS) | set(self.BASIC_TOOLS)
+        has_default_tools_in_persisted = bool(persisted_set & default_tool_ids)
+
         # 1. 处理所有已注册的工具
         all_tools = tool_registry.list_all()
         for tool in all_tools:
@@ -709,7 +719,12 @@ class ToolManager:
             is_default_required = group_type == ToolBindingType.BUILTIN_REQUIRED
 
             # resource_tool 是完整绑定清单，只有在列表中的才绑定
-            is_bound = tool_id in persisted_set
+            # 但如果持久化数据中没有任何默认工具，说明是旧的应用配置数据，
+            # 此时默认工具应自动绑定
+            if not has_default_tools_in_persisted and is_default_required:
+                is_bound = True
+            else:
+                is_bound = tool_id in persisted_set
 
             bindings[tool_id] = ToolBindingConfig(
                 tool_id=tool_id,

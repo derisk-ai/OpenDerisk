@@ -8,12 +8,11 @@ import React, { memo, useContext, useEffect, useMemo, useRef, useState, useCallb
 import ChatHeader from '../header/chat-header';
 import UnifiedChatInput from '../input/unified-chat-input';
 import { Tooltip } from 'antd';
-import { LeftOutlined, DesktopOutlined, FileTextOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { LeftOutlined, DesktopOutlined } from '@ant-design/icons';
 import classNames from 'classnames';
 import { ee, EVENTS } from '@/utils/event-emitter';
 import markdownComponents, { markdownPlugins } from '@/components/chat/chat-content-components/config';
 import { GPTVis } from '@antv/gpt-vis';
-import type { ManusDeliverableFile } from '@/types/manus';
 import { useSearchParams } from 'next/navigation';
 
 type ShareMode = 'conversation' | 'process' | 'report' | null;
@@ -22,27 +21,21 @@ interface ManusChatContentProps {
   ctrl: AbortController;
 }
 
-/** Per-message deliverable info */
-interface MessageDeliverableInfo {
-  runningWindow: string;
-  deliverableFiles: Pick<ManusDeliverableFile, 'file_id' | 'file_name'>[];
-  hasTaskFiles: boolean;
-}
-
 /**
- * Extract running_window + deliverable files for EACH view message.
- * Returns a map keyed by message key, plus the latest running_window for the right panel default.
+ * Extract the latest running_window and build a deliverable file_id → running_window map
+ * for cross-round tab switching.
  */
-function usePerMessageDeliverables(
+function useRunningWindows(
   showMessages: Array<IChatDialogueMessageSchema & { key: string }>
 ): {
-  deliverablesMap: Map<string, MessageDeliverableInfo>;
   latestRunningWindow: string;
   latestHasData: boolean;
+  /** Maps deliverable file_id (and 'task_files') to the running_window that contains it */
+  fileRunningWindowMap: Map<string, string>;
 } {
   return useMemo(() => {
-    const map = new Map<string, MessageDeliverableInfo>();
     let latestRunningWindow = '';
+    const fileMap = new Map<string, string>();
 
     for (const msg of showMessages) {
       if (msg.role !== 'view') continue;
@@ -52,22 +45,22 @@ function usePerMessageDeliverables(
         const rw = context.running_window || '';
         if (!rw) continue;
 
-        // Track latest running_window
         latestRunningWindow = rw;
 
-        // Parse manus-right-panel VIS tag for deliverable/task files
+        // Parse manus-right-panel to index deliverable file_ids → this running_window
         const match = rw.match(/```manus-right-panel\s*\n([\s\S]*?)\n```/);
-        if (!match) continue;
-
-        const data = JSON.parse(match[1]);
-        const deliverableFiles = (data.deliverable_files || []).map((f: any) => ({
-          file_id: f.file_id,
-          file_name: f.file_name,
-        }));
-        const hasTaskFiles = (data.task_files || []).length > 0;
-
-        if (deliverableFiles.length > 0 || hasTaskFiles) {
-          map.set(msg.key, { runningWindow: rw, deliverableFiles, hasTaskFiles });
+        if (match) {
+          try {
+            const data = JSON.parse(match[1]);
+            for (const f of data.deliverable_files || []) {
+              if (f.file_id) fileMap.set(f.file_id, rw);
+            }
+            if ((data.task_files || []).length > 0) {
+              fileMap.set('task_files', rw);
+            }
+          } catch {
+            // skip
+          }
         }
       } catch {
         // Skip parse errors
@@ -75,9 +68,9 @@ function usePerMessageDeliverables(
     }
 
     return {
-      deliverablesMap: map,
       latestRunningWindow,
       latestHasData: !!latestRunningWindow,
+      fileRunningWindowMap: fileMap,
     };
   }, [showMessages]);
 }
@@ -89,7 +82,6 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   const isSharedView = !!shareMode;
   const { history, replyLoading } = useContext(ChatContentContext);
   const [userClosedPanel, setUserClosedPanel] = useState(false);
-  // Tracks which round's running_window to show in right panel (null = follow latest)
   const [overrideRunningWindow, setOverrideRunningWindow] = useState<string | null>(null);
 
   const showMessages = useMemo(() => {
@@ -102,9 +94,9 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
       }));
   }, [history]);
 
-  const { deliverablesMap, latestRunningWindow, latestHasData } = usePerMessageDeliverables(showMessages);
+  const { latestRunningWindow, latestHasData, fileRunningWindowMap } = useRunningWindows(showMessages);
 
-  // The running window shown in right panel: user override or latest
+  // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
 
   // Listen for panel open/close events
@@ -119,7 +111,32 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
     };
   }, []);
 
-  // When new streaming data arrives, reset override to follow latest
+  // Listen for SWITCH_TAB to route deliverable clicks to the correct round's running_window
+  useEffect(() => {
+    const handleSwitchTab = (payload: { tab?: string }) => {
+      if (!payload?.tab) return;
+      const tab = payload.tab;
+      // Check if this is a deliverable or task_files tab that needs a running_window switch
+      if (tab.startsWith('deliverable_')) {
+        const fileId = tab.replace('deliverable_', '');
+        const rw = fileRunningWindowMap.get(fileId);
+        if (rw && rw !== displayRunningWindow) {
+          setOverrideRunningWindow(rw);
+        }
+      } else if (tab === 'task_files') {
+        const rw = fileRunningWindowMap.get('task_files');
+        if (rw && rw !== displayRunningWindow) {
+          setOverrideRunningWindow(rw);
+        }
+      }
+    };
+    ee.on(EVENTS.SWITCH_TAB, handleSwitchTab);
+    return () => {
+      ee.off(EVENTS.SWITCH_TAB, handleSwitchTab);
+    };
+  }, [fileRunningWindowMap, displayRunningWindow]);
+
+  // When new streaming data arrives, auto-open panel and reset override
   const prevLatestRef = useRef(latestRunningWindow);
   useEffect(() => {
     if (prevLatestRef.current !== latestRunningWindow) {
@@ -151,27 +168,9 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   const showLeftPanel = shareMode !== 'report';
   const showInput = !isSharedView;
 
-  // Handler: click deliverable from any round → switch right panel to that round
-  const handleDeliverableClick = useCallback((runningWindow: string, fileId: string) => {
-    setOverrideRunningWindow(runningWindow);
-    setTimeout(() => {
-      ee.emit(EVENTS.SWITCH_TAB, { tab: `deliverable_${fileId}` });
-      ee.emit(EVENTS.OPEN_PANEL);
-    }, 50);
-  }, []);
-
-  // Handler: click task files from any round
-  const handleTaskFilesClick = useCallback((runningWindow: string) => {
-    setOverrideRunningWindow(runningWindow);
-    setTimeout(() => {
-      ee.emit(EVENTS.SWITCH_TAB, { tab: 'task_files' });
-      ee.emit(EVENTS.OPEN_PANEL);
-    }, 50);
-  }, []);
-
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: 'linear-gradient(160deg, #fdfcfb 0%, #fbfaf8 40%, #faf9f6 100%)' }}>
-      {/* ═══ Left panel — conversation on gray canvas ═══ */}
+      {/* ═══ Left panel — conversation on canvas ═══ */}
       {showLeftPanel && (
         <div className={classNames(
           'flex flex-col h-full transition-all duration-300 ease-out',
@@ -193,48 +192,11 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
             {hasMessages ? (
               <div className={classNames("w-full px-4 py-4", !isRightPanelVisible && "max-w-3xl mx-auto")}>
                 <div className="w-full space-y-3">
-                  {showMessages.map((content) => {
-                    const deliverableInfo = deliverablesMap.get(content.key);
-                    const isViewMsg = content.role === 'view';
-
-                    return (
-                      <div key={content.key}>
-                        <ChatContent content={content} messages={showMessages} />
-                        {isViewMsg && deliverableInfo && (
-                          <div className="flex flex-wrap gap-3 mt-4 ml-11">
-                            {deliverableInfo.deliverableFiles.map((f) => (
-                              <button
-                                key={f.file_id}
-                                className="flex items-center gap-4 px-5 py-4 rounded-xl bg-white/90 border border-gray-200/70 hover:border-blue-300 hover:bg-white cursor-pointer transition-all text-left group shadow-sm min-w-[200px]"
-                                onClick={() => handleDeliverableClick(deliverableInfo.runningWindow, f.file_id)}
-                              >
-                                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                                  <DesktopOutlined className="text-blue-500 text-lg" />
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-[14px] font-medium text-gray-800 truncate max-w-[200px] group-hover:text-blue-600 transition-colors">{f.file_name}</span>
-                                  <span className="text-[12px] text-gray-400 mt-0.5">网页报告</span>
-                                </div>
-                              </button>
-                            ))}
-                            {deliverableInfo.hasTaskFiles && (
-                              <button
-                                className="flex items-center gap-4 px-5 py-4 rounded-xl bg-white/90 border border-gray-200/70 hover:border-amber-300 hover:bg-white cursor-pointer transition-all text-left group shadow-sm min-w-[240px]"
-                                onClick={() => handleTaskFilesClick(deliverableInfo.runningWindow)}
-                              >
-                                <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-                                  <FolderOpenOutlined className="text-amber-500 text-lg" />
-                                </div>
-                                <div className="flex flex-col">
-                                  <span className="text-[14px] font-medium text-gray-800 group-hover:text-amber-600 transition-colors">查看此任务中的所有文件</span>
-                                </div>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {showMessages.map((content) => (
+                    <div key={content.key}>
+                      <ChatContent content={content} messages={showMessages} />
+                    </div>
+                  ))}
                   <div className="h-8" />
                 </div>
               </div>
@@ -260,7 +222,7 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
         </div>
       )}
 
-      {/* ═══ Right panel — floating white card on shared gray canvas ═══ */}
+      {/* ═══ Right panel — floating white card ═══ */}
       {isRightPanelVisible && (
         <div
           className={classNames(

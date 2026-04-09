@@ -10,6 +10,7 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
 """
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 
@@ -1563,6 +1564,10 @@ class ReActMasterAgent(ConversableAgent):
         from datetime import datetime
         from derisk.agent.core.base_agent import _new_system_message
 
+        # ========== 确保核心组件已初始化 ==========
+        await self._ensure_work_log_manager()
+        await self._ensure_history_message_builder()
+
         # ========== 获取基本上下文 ==========
         conv_id = "default"
         session_id = "default"
@@ -1587,9 +1592,6 @@ class ReActMasterAgent(ConversableAgent):
                 )
             except Exception as e:
                 logger.warning(f"Failed to record user message to work_log: {e}")
-
-        # ========== 确保 HistoryMessageBuilder 已初始化 ==========
-        await self._ensure_history_message_builder()
 
         # ========== 确保工具列表每轮刷新 ==========
         if self.current_retry_counter > 0:
@@ -1700,8 +1702,21 @@ class ReActMasterAgent(ConversableAgent):
         llm_messages = []
 
         # 1. System message
-        if prompt:
-            llm_messages.extend(_new_system_message(prompt))
+        # prompt 参数优先；若无，从 reply_message.system_prompt 获取（load_thinking_messages 设置）；
+        # 再无，从 messages 参数中提取第一个 system 消息
+        system_prompt_text = prompt
+        if not system_prompt_text and reply_message:
+            system_prompt_text = getattr(reply_message, "system_prompt", None)
+        if not system_prompt_text and messages:
+            for m in messages:
+                m_role = getattr(m, "role", None) or (m.get("role") if isinstance(m, dict) else None)
+                if m_role and str(m_role).lower() in ("system", ModelMessageRoleType.SYSTEM):
+                    m_content = getattr(m, "content", None) or (m.get("content") if isinstance(m, dict) else None)
+                    if m_content:
+                        system_prompt_text = str(m_content)
+                    break
+        if system_prompt_text:
+            llm_messages.extend(_new_system_message(system_prompt_text))
 
         # 2. 所有对话消息（历史 + 当前）
         if all_conversation_messages:
@@ -2054,6 +2069,14 @@ class ReActMasterAgent(ConversableAgent):
                         failed_output.view = f"❌ **工具执行失败**\n\n工具 `{tool_name_for_tracking}` 已连续失败多次，系统已自动终止该工具的执行。\n\n**错误信息**: {str(result)}\n\n请尝试使用其他工具或修改参数后重试。"
 
                     act_outs.append(failed_output)
+
+                    # 失败也要记录到 WorkLog（确保消息列表中有对应的 tool result）
+                    if isinstance(real_action, (FunctionTool, ToolAction)):
+                        tc_id_fail = getattr(real_action, "action_uid", None)
+                        await self._record_action_to_work_log(
+                            tool_name_for_tracking, {}, failed_output,
+                            tool_call_id=tc_id_fail,
+                        )
                 else:
                     if result:
                         # 提取工具信息
@@ -2101,12 +2124,23 @@ class ReActMasterAgent(ConversableAgent):
                         # BlankAction 不是工具，它只是 LLM 返回纯文本时的占位 Action
                         # 记录非工具会导致生成假的 tool_calls 消息，引发 OpenAI API 错误
                         if isinstance(real_action, (FunctionTool, ToolAction)):
-                            logger.info(
-                                f"📝 Calling _record_action_to_work_log for {tool_name}..."
-                            )
-                            await self._record_action_to_work_log(
-                                tool_name, tool_args, result
-                            )
+                            # WAITING 状态区分两种场景：
+                            # 1. 工具授权 WAITING：工具尚未执行，等待用户授权 → 不记录 work_log
+                            # 2. ask_user WAITING：工具已执行（问题已推送给用户），等待用户回复 → 需要记录
+                            is_waiting = getattr(result, "state", None) == Status.WAITING.value
+                            is_ask_user = getattr(result, "ask_user", False)
+                            if is_waiting and not is_ask_user:
+                                logger.info(
+                                    f"📝 Skipping WorkLog for {tool_name} (WAITING for authorization)"
+                                )
+                            else:
+                                tc_id = getattr(real_action, "action_uid", None) or getattr(result, "action_id", None)
+                                assistant_content = message.content if message else None
+                                await self._record_action_to_work_log(
+                                    tool_name, tool_args, result,
+                                    tool_call_id=tc_id,
+                                    assistant_content=assistant_content,
+                                )
                         else:
                             logger.info(
                                 f"📝 Skipping WorkLog record for {real_action.__class__.__name__} (not a tool)"
@@ -2983,22 +3017,22 @@ class ReActMasterAgent(ConversableAgent):
         tool_name: str,
         args: Optional[Dict[str, Any]],
         action_output: ActionOutput,
+        tool_call_id: Optional[str] = None,
+        assistant_content: Optional[str] = None,
     ):
-        """记录操作到 WorkLog"""
-        logger.info(
-            f"_record_action_to_work_log: start, tool={tool_name}, enable_work_log={self.enable_work_log}"
-        )
+        """记录操作到 WorkLog
 
+        Args:
+            tool_name: 工具名称
+            args: 工具参数
+            action_output: 工具执行结果
+            tool_call_id: LLM 返回的 tool_call id（用于与消息列表中的 tool_calls 关联）
+            assistant_content: LLM 生成的 assistant 消息内容
+        """
         if not self.enable_work_log:
-            logger.info("_record_action_to_work_log: work_log disabled, returning")
             return
 
-        # 确保工作日志管理器已初始化
-        logger.info("_record_action_to_work_log: calling _ensure_work_log_manager...")
         await self._ensure_work_log_manager()
-        logger.info(
-            f"_record_action_to_work_log: _ensure_work_log_manager done, manager={self._work_log_manager is not None}, initialized={self._work_log_initialized}"
-        )
 
         if not self._work_log_manager:
             logger.warning(
@@ -3012,18 +3046,24 @@ class ReActMasterAgent(ConversableAgent):
         if action_output.content and len(action_output.content) > 10000:
             tags.append("large_output")
 
+        # 获取当前 conv_id
+        conv_id = None
+        if self.not_null_agent_context:
+            conv_id = self.not_null_agent_context.conv_id
+
         try:
-            logger.info(
-                f"_record_action_to_work_log: calling record_action for {tool_name}..."
-            )
             entry = await self._work_log_manager.record_action(
                 tool_name=tool_name,
                 args=args if args is not None else {},
                 action_output=action_output,
                 tags=tags,
+                tool_call_id=tool_call_id,
+                assistant_content=assistant_content,
+                conv_id=conv_id,
             )
             logger.info(
-                f"✅ Recorded work log: tool={tool_name}, success={action_output.is_exe_success}, "
+                f"Recorded work log: tool={tool_name}, tool_call_id={tool_call_id}, "
+                f"conv_id={conv_id}, success={action_output.is_exe_success}, "
                 f"total_entries={len(self._work_log_manager.work_log)}"
             )
         except Exception as e:

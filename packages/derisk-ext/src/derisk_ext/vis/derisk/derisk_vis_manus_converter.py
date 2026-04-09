@@ -72,6 +72,7 @@ from .derisk_vis_window3_converter import DeriskIncrVisWindow3Converter
 from derisk_ext.vis.derisk.derisk_vis_converter import DrskVisTagPackage
 from derisk_ext.vis.derisk.tags.manus_left_panel import ManusLeftPanel
 from derisk_ext.vis.derisk.tags.manus_right_panel import ManusRightPanel
+from derisk_ext.vis.derisk.tags.drsk_deliverable import DrskDeliverable
 from derisk_ext.vis.vis_protocol_data import UpdateType
 
 logger = logging.getLogger(__name__)
@@ -901,6 +902,30 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 update_type=UpdateType.ALL.value,
             )
 
+            # 追加 drsk-deliverable VIS 标签到 planning_window
+            if right_panel.deliverable_files or right_panel.task_files:
+                deliverable_data = {
+                    "deliverable_files": [
+                        {
+                            "file_id": f.file_id,
+                            "file_name": f.file_name,
+                            "render_type": f.render_type,
+                        }
+                        for f in right_panel.deliverable_files
+                    ],
+                    "task_files_count": len(right_panel.task_files),
+                }
+                deliverable_vis = self._generate_vis_tag_output(
+                    tag=DrskDeliverable.vis_tag(),
+                    uid="deliverable_card",
+                    data=deliverable_data,
+                    update_type=UpdateType.ALL.value,
+                )
+                if planning_window:
+                    planning_window = planning_window + "\n" + deliverable_vis
+                else:
+                    planning_window = deliverable_vis
+
             if planning_window or running_window:
                 return json.dumps(
                     {"planning_window": planning_window, "running_window": running_window},
@@ -1286,17 +1311,47 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             update_type=UpdateType.ALL.value,
         )
 
+        # 构建 drsk-deliverable VIS 标签追加到 planning_window
+        deliverable_vis = ""
+        if deliverable_files or task_files:
+            deliverable_data = {
+                "deliverable_files": [
+                    {
+                        "file_id": f.file_id,
+                        "file_name": f.file_name,
+                        "render_type": f.render_type,
+                    }
+                    for f in deliverable_files
+                ],
+                "task_files_count": len(task_files),
+            }
+            deliverable_vis = self._generate_vis_tag_output(
+                tag=DrskDeliverable.vis_tag(),
+                uid="deliverable_card",
+                data=deliverable_data,
+                update_type=UpdateType.ALL.value,
+            )
+
         # 替换 running_window 为 manus right panel
         if parent_result:
             try:
                 result_data = json.loads(parent_result)
                 result_data["running_window"] = right_vis
+                # 追加 deliverable VIS 标签到 planning_window
+                if deliverable_vis:
+                    pw = result_data.get("planning_window") or ""
+                    result_data["planning_window"] = (
+                        pw + "\n" + deliverable_vis if pw else deliverable_vis
+                    )
                 return json.dumps(result_data, ensure_ascii=False)
             except (json.JSONDecodeError, TypeError):
                 pass
 
         return json.dumps(
-            {"planning_window": "", "running_window": right_vis},
+            {
+                "planning_window": deliverable_vis,
+                "running_window": right_vis,
+            },
             ensure_ascii=False,
         )
 

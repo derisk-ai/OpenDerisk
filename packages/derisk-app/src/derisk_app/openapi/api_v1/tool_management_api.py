@@ -34,6 +34,14 @@ def ensure_tools_initialized():
     if not hasattr(tool_registry, "_initialized") or not tool_registry._initialized:
         register_builtin_tools()
 
+        # 注册数据库工具（通过导入模块触发 @tool 装饰器自动注册）
+        try:
+            import derisk_serve.agent.resource.db_tools  # noqa: F401
+
+            logger.info("[ToolMgmt] Database tools registered successfully")
+        except Exception as e:
+            logger.warning(f"[ToolMgmt] Failed to register database tools: {e}")
+
     # 注册持久化加载回调（只注册一次）
     global _load_callback_registered
     if not _load_callback_registered:

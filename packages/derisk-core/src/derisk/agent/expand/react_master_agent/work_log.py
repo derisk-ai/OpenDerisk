@@ -56,6 +56,35 @@ class WorkLogCompressionCache:
         return total_entries - self.last_total_entries >= new_entries_threshold
 
 
+def format_entry_for_prompt(entry: WorkEntry, max_length: int = 500) -> str:
+    """格式化工作日志条目为 prompt 文本"""
+    time_str = time.strftime("%H:%M:%S", time.localtime(entry.timestamp))
+
+    lines = [f"[{time_str}] {entry.tool}"]
+
+    if entry.args:
+        important_args = {
+            k: v
+            for k, v in entry.args.items()
+            if k in ["file_key", "path", "query", "pattern", "offset", "limit"]
+        }
+        if important_args:
+            lines.append(f"  参数: {important_args}")
+
+    if entry.result:
+        result_lines = entry.result.split("\n")[:10]
+        preview = "\n".join(result_lines)
+        if len(preview) > max_length:
+            preview = preview[:max_length] + "... (已截断)"
+        if len(entry.result.split("\n")) > 10:
+            preview += "\n  ... (共 {} 行)".format(len(entry.result.split("\n")))
+        lines.append(f"  {preview}")
+    elif getattr(entry, "full_result_archive", None):
+        lines.append(f"  完整结果已归档: {entry.full_result_archive}")
+
+    return "\n".join(lines)
+
+
 class WorkLogManager:
     """
     工作日志管理器 - 集成增量分层
@@ -623,6 +652,48 @@ class WorkLogManager:
 
         if cleaned > 0:
             logger.info(f"[WorkLog] Cleaned {cleaned} archive files")
+
+    async def get_context_for_prompt(
+        self,
+        max_entries: int = 50,
+        include_summaries: bool = True,
+    ) -> str:
+        """获取用于 prompt 的工作日志上下文。
+
+        Args:
+            max_entries: 最大条目数
+            include_summaries: 是否包含压缩摘要
+
+        Returns:
+            格式化的上下文文本
+        """
+        async with self._lock:
+            if not self._loaded:
+                await self.initialize()
+
+            if not self.work_log:
+                return "\n暂无工作日志记录。"
+
+            lines = ["## 工作日志", ""]
+
+            # 添加压缩缓存中的摘要
+            if include_summaries and self.compression_cache:
+                for conv_id, cache in self.compression_cache.items():
+                    if cache.layer3_summary:
+                        lines.append("### 历史摘要")
+                        lines.append(cache.layer3_summary)
+                        lines.append("")
+
+            # 添加活跃日志
+            if self.work_log:
+                lines.append("### 最近的工作")
+                recent_entries = self.work_log[-max_entries:]
+                for entry in recent_entries:
+                    if getattr(entry, "status", WorkLogStatus.ACTIVE.value) == WorkLogStatus.ACTIVE.value:
+                        lines.append(format_entry_for_prompt(entry))
+                lines.append("")
+
+            return "\n".join(lines)
 
     def trim_work_log(self, evictable_message_ids: Optional[set] = None):
         """裁剪 work_log 列表，移除已被 Cold/Warm 层处理的旧条目。

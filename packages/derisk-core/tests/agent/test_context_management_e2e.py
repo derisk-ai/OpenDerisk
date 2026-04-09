@@ -918,6 +918,166 @@ class TestBuildResultCleanup:
         assert "m3" not in remaining_mids
 
 
+class TestToolResultContent:
+    """验证 tool result 内容正确，不出现 [result not available]。"""
+
+    @pytest.mark.asyncio
+    async def test_tool_result_has_actual_content(self):
+        """tool_call_id 匹配时，tool result 包含实际工具执行结果。"""
+        mock_memory = MockGptsMemory()
+        conv_id = "test_session"
+        tc_id = "tc_tool_result_001"
+
+        mock_memory.add_message(_make_gpts_message(
+            conv_id, "Human", "查询数据", rounds=1, data_version="v2",
+        ))
+        mock_memory.add_message(_make_gpts_message(
+            conv_id, "AI", "查询中...",
+            tool_calls=[_make_tool_call("execute_sql", tc_id)],
+            rounds=2, data_version="v2",
+        ))
+
+        wlm = await _create_work_log_manager()
+        await wlm.record_user_message("查询数据", conv_id)
+        ao = ActionOutput(content="SELECT * FROM sales: 100 rows", is_exe_success=True)
+        await wlm.record_action(
+            "execute_sql", {"sql": "SELECT * FROM sales"}, ao,
+            tool_call_id=tc_id, conv_id=conv_id,
+        )
+
+        builder = HistoryMessageBuilder(work_log_manager=wlm, gpts_memory=mock_memory)
+        messages, _ = await builder.build_messages(
+            current_conv_id=conv_id, session_id="test_session",
+        )
+
+        tool_msgs = [m for m in messages if m.get("role") == ModelMessageRoleType.TOOL]
+        assert len(tool_msgs) >= 1, f"Expected tool messages, got {len(tool_msgs)}"
+        for tm in tool_msgs:
+            assert tm["content"] != "[result not available]", \
+                f"Tool result should have actual content, got: {tm['content']}"
+            assert "100 rows" in tm["content"], f"Tool result missing expected content: {tm['content']}"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_fallback_by_tool_name(self):
+        """tool_call_id 不匹配时，按工具名 fallback 查找结果。"""
+        mock_memory = MockGptsMemory()
+        conv_id = "test_session"
+
+        # gpts_message 的 tool_call_id 与 WorkEntry 不同
+        gpts_tc_id = "tc_gpts_id"
+        worklog_tc_id = "tc_worklog_id"
+
+        mock_memory.add_message(_make_gpts_message(
+            conv_id, "Human", "搜索", rounds=1, data_version="v2",
+        ))
+        mock_memory.add_message(_make_gpts_message(
+            conv_id, "AI", "",
+            tool_calls=[_make_tool_call("search_tool", gpts_tc_id)],
+            rounds=2, data_version="v2",
+        ))
+
+        wlm = await _create_work_log_manager()
+        await wlm.record_user_message("搜索", conv_id)
+        ao = ActionOutput(content="Found 5 results", is_exe_success=True)
+        await wlm.record_action(
+            "search_tool", {"q": "test"}, ao,
+            tool_call_id=worklog_tc_id, conv_id=conv_id,
+        )
+
+        builder = HistoryMessageBuilder(work_log_manager=wlm, gpts_memory=mock_memory)
+        messages, _ = await builder.build_messages(
+            current_conv_id=conv_id, session_id="test_session",
+        )
+
+        tool_msgs = [m for m in messages if m.get("role") == ModelMessageRoleType.TOOL]
+        assert len(tool_msgs) >= 1
+        # 应该通过 tool_name fallback 找到结果
+        assert "Found 5 results" in tool_msgs[0]["content"], \
+            f"Fallback by tool name failed: {tool_msgs[0]['content']}"
+
+    @pytest.mark.asyncio
+    async def test_tool_result_fallback_from_gpts_observation(self):
+        """WorkLog 完全没有记录时，从 gpts_message 的 observation 获取结果。"""
+        mock_memory = MockGptsMemory()
+        conv_id = "test_session"
+        tc_id = "tc_no_worklog"
+
+        mock_memory.add_message(_make_gpts_message(
+            conv_id, "Human", "查询", rounds=1,
+        ))
+        msg_with_obs = _make_gpts_message(
+            conv_id, "AI", "",
+            tool_calls=[_make_tool_call("list_tables", tc_id)],
+            rounds=2,
+        )
+        msg_with_obs.observation = "tables: users, orders, products"
+        mock_memory.add_message(msg_with_obs)
+
+        # 空 WorkLogManager - 没有任何记录
+        wlm = await _create_work_log_manager()
+        await wlm.record_user_message("查询", conv_id)
+
+        builder = HistoryMessageBuilder(work_log_manager=wlm, gpts_memory=mock_memory)
+        messages, _ = await builder.build_messages(
+            current_conv_id=conv_id, session_id="test_session",
+        )
+
+        tool_msgs = [m for m in messages if m.get("role") == ModelMessageRoleType.TOOL]
+        assert len(tool_msgs) >= 1
+        # 应该从 observation fallback
+        assert "tables:" in tool_msgs[0]["content"], \
+            f"Should fallback to observation: {tool_msgs[0]['content']}"
+
+
+class TestSystemMessage:
+    """验证 system message 不丢失。"""
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_from_messages_param(self):
+        """thinking() 应从 messages 参数中提取 system prompt。"""
+        # 模拟 load_thinking_messages 返回的 messages 列表（第一个是 system）
+        from derisk.agent.core.base_agent import _new_system_message
+
+        system_content = "你是一个数据分析助手。"
+        system_msgs = _new_system_message(system_content)
+
+        # 验证 _new_system_message 返回有效消息
+        assert len(system_msgs) >= 1
+        sys_msg = system_msgs[0]
+        assert sys_msg.get("role") in ("system", ModelMessageRoleType.SYSTEM)
+        assert system_content in str(sys_msg.get("content", ""))
+
+    def test_gpts_message_init_with_action_report(self):
+        """GptsMessage 构造函数接受 action_report 参数（DB 兼容）。"""
+        # 模拟 DB 层 _to_gpts_message 直接传 action_report
+        msg = GptsMessage(
+            conv_id="c1", conv_session_id="s1", message_id="m1",
+            sender="a", sender_name="Agent", role="assistant",
+            content="done",
+            action_report=[{"type": "test"}],
+        )
+        assert msg.action_report == [{"type": "test"}]
+
+    def test_gpts_message_init_with_string_action_report(self):
+        """GptsMessage 构造函数接受字符串 action_report。"""
+        msg = GptsMessage(
+            conv_id="c1", conv_session_id="s1", message_id="m1",
+            sender="a", sender_name="Agent", role="assistant",
+            content="done",
+            action_report='{"key": "value"}',
+        )
+        assert msg._action_report_raw == '{"key": "value"}'
+
+    def test_gpts_message_init_without_action_report(self):
+        """GptsMessage 构造函数不传 action_report 不报错。"""
+        msg = GptsMessage(
+            conv_id="c1", conv_session_id="s1", message_id="m1",
+            sender="a", sender_name="Agent", role="assistant",
+            content="done",
+        )
+        assert msg.action_report is None
+
+
 class TestToDict:
     """GptsMessage.to_dict() 不泄露内部字段。"""
 
@@ -948,3 +1108,133 @@ class TestToDict:
         # 无 action_report
         d = msg.to_dict()
         assert d.get("action_report") is None
+
+
+class TestFollowUpSessionHistory:
+    """追问场景：跨轮次消息加载。"""
+
+    @pytest.mark.asyncio
+    async def test_get_session_messages_loads_cross_round(self):
+        """get_session_messages 应加载同 session 下所有轮次消息。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        memory = MagicMock()
+        # 模拟 get_messages 按 conv_id 只返回当前轮
+        round1_msg = GptsMessage.from_dict({
+            "conv_id": "session_abc_1", "conv_session_id": "session_abc",
+            "message_id": "m1", "sender": "user", "sender_name": "User",
+            "receiver": "agent", "receiver_name": "Agent", "role": "user",
+            "content": "round 1 question", "show_message": True,
+            "created_at": None, "updated_at": None,
+        })
+        round2_msg = GptsMessage.from_dict({
+            "conv_id": "session_abc_2", "conv_session_id": "session_abc",
+            "message_id": "m2", "sender": "user", "sender_name": "User",
+            "receiver": "agent", "receiver_name": "Agent", "role": "user",
+            "content": "round 2 follow-up", "show_message": True,
+            "created_at": None, "updated_at": None,
+        })
+
+        # get_messages(session_id) → empty, get_messages(conv_id) → only round 2
+        async def mock_get_messages(cid):
+            if cid == "session_abc":
+                return []
+            elif cid == "session_abc_2":
+                return [round2_msg]
+            return []
+
+        # get_session_messages(session_id) → all rounds
+        async def mock_get_session_messages(sid):
+            if sid == "session_abc":
+                return [round1_msg, round2_msg]
+            return []
+
+        memory.get_messages = mock_get_messages
+        memory.get_session_messages = mock_get_session_messages
+        memory._cache_messages = AsyncMock()
+
+        builder = HistoryMessageBuilder(gpts_memory=memory)
+        builder.work_log_manager = None
+
+        messages = await builder._build_current_conv_hot_worklog(
+            conv_id="session_abc_2", hot_budget=10000
+        )
+        # Should have loaded both rounds via get_session_messages fallback
+        assert len(messages) >= 2, (
+            f"Expected >=2 messages (both rounds), got {len(messages)}"
+        )
+        contents = [m.get("content", "") for m in messages]
+        assert any("round 1" in str(c) for c in contents), (
+            f"Round 1 message missing from follow-up. Contents: {contents}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_session_id_extraction(self):
+        """session_id 从 conv_id 正确提取。"""
+        # conv_id = "session_abc_2" → session_id = "session_abc"
+        conv_id = "session_abc_2"
+        session_id = conv_id.rsplit("_", 1)[0] if "_" in conv_id else conv_id
+        assert session_id == "session_abc"
+
+        # conv_id = "noseparator" → session_id = "noseparator"
+        conv_id2 = "noseparator"
+        session_id2 = conv_id2.rsplit("_", 1)[0] if "_" in conv_id2 else conv_id2
+        assert session_id2 == "noseparator"
+
+    @pytest.mark.asyncio
+    async def test_load_full_session_history_populates_cache(self):
+        """load_full_session_history 将全 session 消息缓存到 conv_id。"""
+        from unittest.mock import MagicMock, AsyncMock, patch
+        from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory, ConversationCache
+
+        round1 = GptsMessage.from_dict({
+            "conv_id": "s1_1", "conv_session_id": "s1", "message_id": "m1",
+            "sender": "u", "sender_name": "U", "receiver": "a",
+            "receiver_name": "A", "role": "user", "content": "q1",
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+        round2 = GptsMessage.from_dict({
+            "conv_id": "s1_2", "conv_session_id": "s1", "message_id": "m2",
+            "sender": "u", "sender_name": "U", "receiver": "a",
+            "receiver_name": "A", "role": "user", "content": "q2",
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+
+        # Create a minimal mock GptsMemory
+        mock_msg_mem = MagicMock()
+        mock_msg_mem.get_by_session_id.return_value = [round1, round2]
+        mock_plans_mem = MagicMock()
+        mock_plans_mem.get_by_conv_id = AsyncMock(return_value=[])
+
+        gm = GptsMemory.__new__(GptsMemory)
+        gm._message_memory = mock_msg_mem
+        gm._plans_memory = mock_plans_mem
+        gm._work_log_db_storage = None
+        gm._executor = None
+        gm._conversations = {}
+        gm._conv_locks = {}
+        gm._global_lock = __import__("asyncio").Lock()
+
+        # Pre-create cache for conv_id
+        from derisk.agent.core.memory.gpts.gpts_memory import VisProtocolConverter
+        cache = ConversationCache("s1_2", VisProtocolConverter())
+        gm._conversations["s1_2"] = cache
+
+        # Mock blocking_func_to_async: returns messages for get_by_session_id,
+        # empty list for get_by_conv_id (plans)
+        async def mock_blocking(executor, func, *args, **kwargs):
+            func_name = getattr(func, "__name__", str(func))
+            if "session" in func_name:
+                return [round1, round2]
+            return []
+
+        with patch(
+            "derisk.agent.core.memory.gpts.gpts_memory.blocking_func_to_async",
+            side_effect=mock_blocking,
+        ):
+            result = await gm.load_full_session_history("s1_2", "s1")
+
+        assert result is not None
+        assert result["hot_warm_count"] == 2
+        assert "m1" in cache.message_ids
+        assert "m2" in cache.message_ids

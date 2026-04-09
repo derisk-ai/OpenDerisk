@@ -144,6 +144,9 @@ class GptsMessage:
 
     data_version: Optional[str] = None
 
+    # InitVar: 接受 DB 层传入的 action_report 参数，__post_init__ 路由到内部字段
+    action_report: dataclasses.InitVar[Optional[Any]] = None
+
     _action_report_raw: Optional[str] = dataclasses.field(default=None, repr=False)
     _action_report_cache: Optional[ActionReportType] = dataclasses.field(
         default=None, repr=False
@@ -151,6 +154,14 @@ class GptsMessage:
     _work_entries: Optional[List] = dataclasses.field(
         default=None, repr=False
     )
+
+    def __post_init__(self, action_report):
+        """将构造函数的 action_report 参数路由到内部字段。"""
+        if action_report is not None:
+            if isinstance(action_report, str):
+                self._action_report_raw = action_report
+            elif isinstance(action_report, list):
+                self._action_report_cache = action_report
 
     @property
     def is_new_format(self) -> bool:

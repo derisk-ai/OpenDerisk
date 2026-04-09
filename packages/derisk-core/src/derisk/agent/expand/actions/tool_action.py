@@ -485,7 +485,7 @@ class ToolAction(Action[ToolInput]):
             result_content
             and agent_file_system
             and isinstance(result_content, str)
-            and tool_info.name not in ("read_file", "view")  # 跳过 read_file 和 view
+            and tool_info.name not in ("read_file", "view", "skill_read", "skill_list")  # 跳过 read_file/view/skill 工具
         )
 
         if should_truncate:

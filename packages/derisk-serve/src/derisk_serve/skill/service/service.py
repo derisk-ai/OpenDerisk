@@ -460,9 +460,28 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             metadata_start_line = -1
             metadata_indent = 0
             in_metadata_section = False
+            # Track multi-line string values (YAML | or > syntax)
+            multiline_key = None
+            multiline_indent = None
+            multiline_lines = []
 
             for i, line in enumerate(lines):
                 stripped = line.strip()
+
+                # Check if we're collecting multi-line string content
+                if multiline_key is not None:
+                    current_indent = len(line) - len(line.lstrip())
+                    if stripped and current_indent >= multiline_indent:
+                        multiline_lines.append(stripped)
+                        continue
+                    else:
+                        # End of multi-line value
+                        data[multiline_key] = " ".join(multiline_lines)
+                        multiline_key = None
+                        multiline_indent = None
+                        multiline_lines = []
+                        if not stripped:
+                            continue
 
                 # Skip empty lines and comments
                 if not stripped or stripped.startswith("#"):
@@ -502,6 +521,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     if not value:
                         continue
 
+                    # Handle YAML multi-line string indicators (| or >)
+                    if value in ("|", ">", "|-", ">-", "|+", ">+"):
+                        multiline_key = key
+                        key_indent = len(line) - len(line.lstrip())
+                        multiline_indent = key_indent + 2
+                        multiline_lines = []
+                        continue
+
                     # Clean up quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
@@ -510,6 +537,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
                     # Store the value - this flattens the nested metadata structure
                     data[key] = value
+
+            # Flush any remaining multi-line value
+            if multiline_key is not None and multiline_lines:
+                data[multiline_key] = " ".join(multiline_lines)
 
             return data if data else None
 

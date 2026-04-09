@@ -42,6 +42,7 @@ import VisSystemEvents from './VisSystemEvents';
 import VisManusLeftPanel from './VisManusLeftPanel';
 import VisManusRightPanel from './VisManusRightPanel';
 import VisSqlQuery from './VisSqlQuery';
+import VisDeliverable from './VisDeliverable';
 import { ee, EVENTS } from '@/utils/event-emitter';
 import {
   OutputRenderer,
@@ -626,6 +627,19 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
       );
     } catch (e) {
       return <VisParseError content={content} error={e} componentName="manus-right-panel" />;
+    }
+  },
+  'drsk-deliverable': ({ children }) => {
+    const content = String(children);
+    try {
+      const data = parseFirstJson(content);
+      return (
+        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-deliverable" />}>
+          <VisDeliverable data={data} />
+        </ErrorBoundary>
+      );
+    } catch (e) {
+      return <VisParseError content={content} error={e} componentName="drsk-deliverable" />;
     }
   },
   'manus-output': ({ children }) => {
