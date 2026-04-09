@@ -16,6 +16,14 @@ import {
   SyncOutlined,
   UpOutlined,
   FlagFilled,
+  DatabaseOutlined,
+  CodeOutlined,
+  GlobalOutlined,
+  FileTextOutlined,
+  ApiOutlined,
+  SearchOutlined,
+  CloudOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Tooltip } from 'antd';
 import { ee, EVENTS } from '@/utils/event-emitter';
@@ -78,6 +86,31 @@ const taskTypeLabels: Record<string, string> = {
 const getTaskIcon = (taskType: string): string => {
   const normalizedType = String(taskType).toLowerCase();
   return iconUrlMap[normalizedType] || iconUrlMap.default;
+};
+
+/**
+ * Map tool names to specific Ant Design icons for visual differentiation.
+ * Returns a React node if a match is found, null otherwise (falls back to image icon).
+ */
+const toolNameIconMap: Array<{ keywords: string[]; icon: React.ReactNode; label: string }> = [
+  { keywords: ['sql', 'database', 'db_', 'mysql', 'postgres', 'sqlite', 'query', 'table_spec', 'table_info', 'schema', 'get_table'], icon: <DatabaseOutlined style={{ fontSize: 13, color: '#1677ff' }} />, label: 'SQL' },
+  { keywords: ['shell', 'bash', 'terminal', 'command', 'exec_command', 'ssh'], icon: <CodeOutlined style={{ fontSize: 13, color: '#52c41a' }} />, label: '终端' },
+  { keywords: ['browser', 'web', 'http', 'url', 'crawl', 'scrape', 'fetch_url'], icon: <GlobalOutlined style={{ fontSize: 13, color: '#722ed1' }} />, label: '浏览器' },
+  { keywords: ['file', 'read_file', 'write_file', 'write', 'read', 'upload', 'download', 'document', 'csv', 'excel', 'pdf', 'save', 'mkdir', 'copy', 'move', 'rename', 'delete_file'], icon: <FileTextOutlined style={{ fontSize: 13, color: '#fa8c16' }} />, label: '文件' },
+  { keywords: ['api', 'rest', 'graphql', 'endpoint'], icon: <ApiOutlined style={{ fontSize: 13, color: '#13c2c2' }} />, label: 'API' },
+  { keywords: ['search', 'retrieve', 'lookup', 'find'], icon: <SearchOutlined style={{ fontSize: 13, color: '#eb2f96' }} />, label: '搜索' },
+  { keywords: ['cloud', 'deploy', 'server', 'container', 'docker'], icon: <CloudOutlined style={{ fontSize: 13, color: '#2f54eb' }} />, label: '云服务' },
+];
+
+const getToolNameIcon = (toolName?: string, title?: string): React.ReactNode | null => {
+  if (!toolName && !title) return null;
+  const text = `${toolName || ''} ${title || ''}`.toLowerCase();
+  for (const entry of toolNameIconMap) {
+    if (entry.keywords.some((kw) => text.includes(kw))) {
+      return entry.icon;
+    }
+  }
+  return null;
 };
 
 const getTaskLabel = (taskType: string): string => {
@@ -235,15 +268,24 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
                   <div className="task-icon stage-icon-wrapper">
                      <FlagFilled style={{ color: '#1677ff', fontSize: 14 }} />
                   </div>
-                ) : (
-                  <Tooltip title={getTaskLabel(String(data?.task_type))}>
-                    <img
-                      className="task-icon"
-                      src={getTaskIcon(String(data?.task_type))}
-                      alt={getTaskLabel(String(data?.task_type))}
-                    />
-                  </Tooltip>
-                )
+                ) : (() => {
+                  const toolIcon = getToolNameIcon(data?.tool_name as string, data?.title as string);
+                  return toolIcon ? (
+                    <Tooltip title={getTaskLabel(String(data?.task_type))}>
+                      <span className="task-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {toolIcon}
+                      </span>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title={getTaskLabel(String(data?.task_type))}>
+                      <img
+                        className="task-icon"
+                        src={getTaskIcon(String(data?.task_type))}
+                        alt={getTaskLabel(String(data?.task_type))}
+                      />
+                    </Tooltip>
+                  );
+                })()
               )}
               {!isAgent && (
                 <div

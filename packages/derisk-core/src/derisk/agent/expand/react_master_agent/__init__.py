@@ -100,6 +100,7 @@ from .work_log import (
     WorkEntry,
     WorkLogSummary,
     WorkLogStatus,
+    WorkLogCompressionCache,
 )
 
 from .phase_manager import (

@@ -61,6 +61,12 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 
 # 新增模块导入
 from .work_log import WorkLogManager, create_work_log_manager
+from .history_message_builder import (
+    HistoryMessageBuilder,
+    create_history_message_builder,
+    CompressionConfig,
+    BuildResult,
+)
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
 from .kanban_manager import (
@@ -233,6 +239,12 @@ class ReActMasterAgent(ConversableAgent):
 
     # SystemEventManager 系统事件管理器（用于 VIS 渲染）
     _system_event_manager: Optional[SystemEventManager] = PrivateAttr(default=None)
+
+    # HistoryMessageBuilder 历史消息构建器（统一三层压缩）
+    _history_message_builder: Optional[Any] = PrivateAttr(default=None)
+    _history_builder_initialized: bool = PrivateAttr(default=False)
+    _last_budget_event_data: Optional[Dict] = PrivateAttr(default=None)
+    _budget_event_min_change_ratio: float = PrivateAttr(default=0.05)
 
     available_system_tools: Dict[str, FunctionTool] = Field(
         default_factory=dict, description="available system tools"
@@ -640,7 +652,23 @@ class ReActMasterAgent(ConversableAgent):
                 tool_item: BaseTool = tool
                 functions.append(_tool_to_function(tool_item))
 
-        logger.info(f"function_calling_params: total functions count={len(functions)}")
+        system_tool_count = len(self.available_system_tools)
+        resource_tool_count = len(functions) - system_tool_count
+        logger.info(
+            f"function_calling_params: total={len(functions)} "
+            f"(system={system_tool_count}, resource={resource_tool_count})"
+        )
+
+        if system_tool_count == 0 and resource_tool_count > 0:
+            logger.warning(
+                "function_calling_params: system tools are EMPTY! "
+                "Only resource tools available. Check preload_resource() was called."
+            )
+        elif system_tool_count > 0 and resource_tool_count == 0:
+            logger.warning(
+                "function_calling_params: resource tools are EMPTY! "
+                "Only system tools available. Check resource binding."
+            )
 
         if functions:
             return {
@@ -1458,6 +1486,62 @@ class ReActMasterAgent(ConversableAgent):
             logger.warning(f"Failed to get worklog tool messages: {e}")
             return []
 
+    @staticmethod
+    def _extract_text_from_content(content) -> str:
+        """从 LLM 消息的 content 字段提取纯文本。"""
+        if not content:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif isinstance(item, dict):
+                    obj = item.get("object", {})
+                    if isinstance(obj, dict):
+                        text_parts.append(obj.get("data", ""))
+                elif hasattr(item, "object"):
+                    obj = getattr(item, "object", None)
+                    if obj and hasattr(obj, "data"):
+                        text_parts.append(getattr(obj, "data", ""))
+            return "\n".join(filter(None, text_parts))
+        return str(content)
+
+    def _estimate_context_tokens(
+        self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """估算实际上下文窗口的 token 使用情况"""
+        CHARS_PER_TOKEN = 4
+        message_tokens = 0
+        tool_tokens = 0
+
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                msg_chars = len(content)
+            else:
+                msg_chars = len(str(content))
+
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                msg_chars += len(json.dumps(tool_calls))
+
+            msg_token_estimate = max(1, msg_chars // CHARS_PER_TOKEN)
+            message_tokens += msg_token_estimate
+
+        if tools:
+            tools_json = json.dumps(tools)
+            tool_chars = len(tools_json)
+            tool_tokens = max(1, tool_chars // CHARS_PER_TOKEN)
+
+        return {
+            "total_tokens": message_tokens + tool_tokens,
+            "message_tokens": message_tokens,
+            "tool_tokens": tool_tokens,
+        }
+
     async def thinking(
         self,
         messages: List[AgentMessage],
@@ -1468,54 +1552,167 @@ class ReActMasterAgent(ConversableAgent):
         reply_message: Optional[AgentMessage] = None,
         **kwargs,
     ) -> Optional[AgentLLMOut]:
-        """Override thinking to compact tool_messages from current memory.
+        """重写 thinking 方法 - 使用 Message List 模式注入历史对话。
 
-        In function-calling mode, base_agent accumulates raw tool messages across
-        iterations in all_tool_messages and passes them via kwargs['tool_messages'].
-        These raw messages bypass compaction, defeating context management.
-
-        Fix: when the compaction pipeline is active, apply pruning + compaction
-        to tool_messages before they reach the LLM.
-
-        Note: WorkLog to tool messages conversion is handled by base class generate_reply
-        via _get_worklog_tool_messages method.
+        核心改动：
+        1. 将用户消息记录到 WorkLog
+        2. 通过 HistoryMessageBuilder 从 WorkLog + GptsMessage 统一构建消息列表
+        3. 不使用 base_agent 的 tool_messages 机制，改由 builder 统一管理
+        4. 确保工具列表每轮刷新
         """
-        tool_messages: Optional[List[Dict]] = kwargs.get("tool_messages")
+        from datetime import datetime
+        from derisk.agent.core.base_agent import _new_system_message
 
-        if tool_messages:
-            pipeline = await self._ensure_compaction_pipeline()
-            if pipeline:
-                try:
-                    prune_result = await pipeline.prune_history(tool_messages)
-                    compacted_tool_messages = prune_result.messages
+        # ========== 获取基本上下文 ==========
+        conv_id = "default"
+        session_id = "default"
+        if self.not_null_agent_context:
+            conv_id = self.not_null_agent_context.conv_id or "default"
+            session_id = self.not_null_agent_context.conv_session_id or conv_id
 
-                    compact_result = await pipeline.compact_if_needed(
-                        compacted_tool_messages
-                    )
-                    compacted_tool_messages = compact_result.messages
+        # ========== 提取当前用户消息 ==========
+        current_user_content = None
+        if received_message and received_message.content:
+            current_user_content = self._extract_text_from_content(
+                received_message.content
+            )
 
-                    if compact_result.compaction_triggered:
-                        logger.info(
-                            f"Tool messages compacted: {len(tool_messages)} -> "
-                            f"{len(compacted_tool_messages)} messages"
+        # ========== 记录用户消息到 WorkLog ==========
+        # 仅在首次调用时录入（current_retry_counter == 0）
+        if current_user_content and self._work_log_manager and self.current_retry_counter == 0:
+            try:
+                await self._work_log_manager.record_user_message(
+                    user_content=current_user_content,
+                    conv_id=conv_id,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record user message to work_log: {e}")
+
+        # ========== 确保 HistoryMessageBuilder 已初始化 ==========
+        await self._ensure_history_message_builder()
+
+        # ========== 确保工具列表每轮刷新 ==========
+        if self.current_retry_counter > 0:
+            try:
+                self.function_calling_context = await self.function_calling_params()
+                logger.info(
+                    f"[ToolRefresh] Refreshed function_calling_context on retry {self.current_retry_counter}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to refresh function_calling_context: {e}")
+
+        # ========== 计算上下文预算 ==========
+        context_window = await self.get_agent_llm_context_length()
+        history_budget = int(context_window * 0.85)
+
+        logger.info(
+            f"[ContextBudget] context_window={context_window}, "
+            f"history_budget={history_budget}"
+        )
+
+        # ========== 通过 HistoryMessageBuilder 统一构建消息 ==========
+        all_conversation_messages = []
+        history_layer_tokens = {"hot": 0, "warm": 0, "cold": 0}
+        build_result: Optional[BuildResult] = None
+
+        if self._history_message_builder:
+            try:
+                build_result = await self._history_message_builder.build_messages_with_result(
+                    current_conv_id=conv_id,
+                    session_id=session_id,
+                    context_window=history_budget,
+                    include_current_conversation=True,
+                )
+                all_conversation_messages = build_result.messages
+                history_layer_tokens = build_result.layer_tokens
+
+                logger.info(
+                    f"[HistoryMessageBuilder] Built {len(all_conversation_messages)} total messages, "
+                    f"layer_tokens={history_layer_tokens}"
+                )
+            except Exception as e:
+                logger.error(f"[CRITICAL] Failed to build messages: {e}", exc_info=True)
+
+        # ========== Fallback: 若 builder 不可用，使用 base_agent 的 tool_messages ==========
+        if not all_conversation_messages:
+            logger.info("[Fallback] HistoryMessageBuilder unavailable, using base tool_messages")
+
+            # 异步任务完成通知注入
+            async_notification = await self._collect_async_task_notifications()
+            if async_notification:
+                notification_msg = {"role": "user", "content": async_notification}
+                tool_msgs = kwargs.get("tool_messages") or []
+                tool_msgs.append(notification_msg)
+                kwargs["tool_messages"] = tool_msgs
+
+            if self._system_event_manager:
+                self._system_event_manager.add_event(
+                    event_type=SystemEventType.LLM_THINKING,
+                    title="LLM 思考",
+                    description=f"Agent: {self.name}",
+                )
+
+            return await super().thinking(
+                messages,
+                reply_message_id,
+                sender,
+                prompt=prompt,
+                received_message=received_message,
+                reply_message=reply_message,
+                **kwargs,
+            )
+
+        # ========== 注入 user_prompt 到最后一条 HUMAN 消息 ==========
+        user_prompt = getattr(reply_message, "user_prompt", None) if reply_message else None
+        if user_prompt and user_prompt.strip() and all_conversation_messages:
+            for i in range(len(all_conversation_messages) - 1, -1, -1):
+                role = all_conversation_messages[i].get("role", "")
+                if role in ("human", "user"):
+                    original_content = all_conversation_messages[i].get("content", "")
+                    if isinstance(original_content, list):
+                        new_content = [{"type": "text", "text": user_prompt}]
+                        new_content.extend(
+                            part for part in original_content if part.get("type") != "text"
                         )
-                        if pipeline.has_compacted:
-                            await self._inject_history_tools_if_needed()
+                        all_conversation_messages[i] = {
+                            **all_conversation_messages[i],
+                            "content": new_content,
+                        }
+                    else:
+                        all_conversation_messages[i] = {
+                            **all_conversation_messages[i],
+                            "content": user_prompt,
+                        }
+                    logger.info(
+                        f"[UserPromptInjection] Replaced last human message (index={i})"
+                    )
+                    break
 
-                    kwargs["tool_messages"] = compacted_tool_messages
-                except Exception as e:
-                    logger.warning(f"Failed to compact tool messages: {e}")
-
-        # 异步任务完成通知注入
+        # ========== 异步任务通知注入 ==========
         async_notification = await self._collect_async_task_notifications()
         if async_notification:
-            notification_msg = {"role": "user", "content": async_notification}
-            tool_msgs = kwargs.get("tool_messages") or []
-            tool_msgs.append(notification_msg)
-            kwargs["tool_messages"] = tool_msgs
-            logger.info("[ReActMasterAgent] 注入异步任务完成通知到 thinking 上下文")
+            all_conversation_messages.append(
+                {"role": "user", "content": async_notification}
+            )
+            logger.info("[ReActMasterAgent] 注入异步任务完成通知到消息列表")
 
-        # 记录 LLM 思考事件
+        # ========== 构建最终 LLM 消息列表 ==========
+        llm_messages = []
+
+        # 1. System message
+        if prompt:
+            llm_messages.extend(_new_system_message(prompt))
+
+        # 2. 所有对话消息（历史 + 当前）
+        if all_conversation_messages:
+            llm_messages.extend(all_conversation_messages)
+
+        logger.info(
+            f"[MSG_DEBUG] Final llm_messages: count={len(llm_messages)}, "
+            f"roles={[m.get('role') for m in llm_messages[:10]]}"
+        )
+
+        # ========== 记录 LLM 思考事件 ==========
         if self._system_event_manager:
             self._system_event_manager.add_event(
                 event_type=SystemEventType.LLM_THINKING,
@@ -1523,14 +1720,142 @@ class ReActMasterAgent(ConversableAgent):
                 description=f"Agent: {self.name}",
             )
 
-        return await super().thinking(
-            messages,
-            reply_message_id,
-            sender,
-            prompt=prompt,
-            received_message=received_message,
-            reply_message=reply_message,
-            **kwargs,
+        # ========== 调用 LLM ==========
+        if not self.llm_client:
+            raise ValueError("LLM client is not initialized!")
+
+        last_model = None
+        last_err = None
+        retry_count = 0
+        start_time: datetime = datetime.now()
+        MAX_ATTEMPTS = 3
+
+        while retry_count < MAX_ATTEMPTS:
+            llm_model = None
+            llm_context = None
+            try:
+                llm_model, llm_context = await self.select_llm_model(last_model)
+
+                # 统计上下文使用
+                tools_for_context = None
+                if self.function_calling_context and "tools" in self.function_calling_context:
+                    tools_for_context = self.function_calling_context.get("tools")
+
+                context_stats = self._estimate_context_tokens(
+                    llm_messages, tools_for_context
+                )
+                logger.info(
+                    f"[ContextWindow] Total tokens: {context_stats['total_tokens']}, "
+                    f"messages: {context_stats['message_tokens']}, "
+                    f"tools: {context_stats['tool_tokens']}, "
+                    f"history_layers: {history_layer_tokens}"
+                )
+
+                prev_thinking = ""
+                prev_content = ""
+                agent_llm_out = None
+                thinking_chunk_count = 0
+                content_chunk_count = 0
+                import time as time_mod
+                start_ms = int(time_mod.time() * 1000)
+
+                async for output in self.llm_client.create(
+                    context=llm_messages[-1].pop("context", None) if llm_messages else None,
+                    messages=llm_messages,
+                    llm_model=llm_model,
+                    mist_keys=self.mist_keys,
+                    max_new_tokens=self.not_null_agent_context.max_new_tokens,
+                    temperature=self.not_null_agent_context.temperature,
+                    llm_context=llm_context,
+                    verbose=self.not_null_agent_context.verbose,
+                    trace_id=self.not_null_agent_context.trace_id,
+                    rpc_id=self.not_null_agent_context.rpc_id,
+                    function_calling_context=self.function_calling_context,
+                    staff_no=self.not_null_agent_context.staff_no,
+                ):
+                    agent_llm_out = output
+                    current_thinking = output.thinking_content
+                    current_content = output.content
+
+                    if self.not_null_agent_context.incremental:
+                        res_thinking = current_thinking[len(prev_thinking):]
+                        res_content = current_content[len(prev_content):]
+                        prev_thinking = current_thinking
+                        temp_prev_content = current_content
+                    else:
+                        res_thinking = (
+                            current_thinking.strip().replace("\\n", "\n")
+                            if current_thinking
+                            else current_thinking
+                        )
+                        res_content = (
+                            current_content.strip().replace("\\n", "\n")
+                            if current_content
+                            else current_content
+                        )
+                        prev_thinking = res_thinking
+                        temp_prev_content = res_content
+
+                    if len(prev_thinking) > 0 and len(temp_prev_content) <= 0:
+                        thinking_chunk_count += 1
+                    if len(prev_content) > 0:
+                        content_chunk_count += 1
+                    is_first_chunk = thinking_chunk_count == 1
+                    is_first_content = content_chunk_count == 1
+
+                    await self.listen_thinking_stream(
+                        output,
+                        reply_message_id,
+                        start_time=start_time,
+                        cu_thinking_incr=res_thinking,
+                        cu_content_incr=res_content,
+                        is_first_chunk=is_first_chunk,
+                        is_first_content=is_first_content,
+                        received_message=received_message,
+                        reply_message=reply_message,
+                        sender=sender,
+                        prev_content=prev_content,
+                    )
+
+                    prev_content = temp_prev_content
+
+                if agent_llm_out is None:
+                    raise Exception(f"Model {llm_model} returned empty response")
+
+                logger.info(
+                    f"[LLM_RESPONSE] model={llm_model}, "
+                    f"content_length={len(agent_llm_out.content) if agent_llm_out.content else 0}"
+                )
+
+                # ========== 应用 BuildResult 清理 ==========
+                if build_result and self.memory and hasattr(self.memory, "gpts_memory"):
+                    try:
+                        cleanup_hints = build_result.get_cache_cleanup_hints()
+                        if cleanup_hints.get("can_evict_message_ids") or cleanup_hints.get("can_evict_entry_message_ids"):
+                            cleanup_stats = await self.memory.gpts_memory.apply_build_result_cleanup(
+                                conv_id, cleanup_hints
+                            )
+                            if self._work_log_manager:
+                                evictable = set(cleanup_hints.get("can_evict_entry_message_ids", []))
+                                self._work_log_manager.trim_work_log(evictable)
+                            logger.info(f"[Cleanup] Applied: {cleanup_stats}")
+                    except Exception as cleanup_err:
+                        logger.warning(f"[Cleanup] Failed to apply build result cleanup: {cleanup_err}")
+
+                return agent_llm_out
+
+            except Exception as e:
+                last_model = llm_model
+                last_err = str(e)
+                retry_count += 1
+                logger.warning(
+                    f"[LLM Retry] Attempt {retry_count}/{MAX_ATTEMPTS}, "
+                    f"model {llm_model} failed: {str(e)[:200]}"
+                )
+
+        raise Exception(
+            f"Failed to get response from LLM after {MAX_ATTEMPTS} attempts. "
+            f"Last error: {last_err}"
         )
 
     async def act(
@@ -2542,6 +2867,80 @@ class ReActMasterAgent(ConversableAgent):
             logger.info(
                 f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries"
             )
+
+    async def _ensure_history_message_builder(self):
+        """确保 HistoryMessageBuilder 已初始化。
+
+        依赖 WorkLogManager 已初始化。
+        """
+        if self._history_builder_initialized and self._history_message_builder:
+            return
+
+        if not hasattr(self, "_history_builder_init_lock"):
+            self._history_builder_init_lock = asyncio.Lock()
+
+        async with self._history_builder_init_lock:
+            if self._history_builder_initialized and self._history_message_builder:
+                return
+
+            # 确保 WorkLogManager 先初始化
+            await self._ensure_work_log_manager()
+
+            gpts_memory_ref = (
+                self.memory.gpts_memory if self.memory else None
+            )
+
+            # 初始化 SessionHistoryManager（如果启用）
+            session_history_manager = getattr(self, "_session_history_manager", None)
+            if (
+                getattr(self, "enable_session_history", False)
+                and not session_history_manager
+                and self.agent_context
+            ):
+                try:
+                    from derisk.agent.core.memory.session_history import (
+                        SessionHistoryManager,
+                        SessionHistoryManagerConfig,
+                    )
+
+                    session_history_manager = SessionHistoryManager(
+                        session_id=self.agent_context.conv_session_id,
+                        gpts_memory=gpts_memory_ref,
+                        config=SessionHistoryManagerConfig(
+                            hot_ratio=0.45,
+                            warm_ratio=0.25,
+                            cold_ratio=0.10,
+                        ),
+                        work_log_manager=self._work_log_manager,
+                    )
+                    await session_history_manager.load_session_history()
+                    self._session_history_manager = session_history_manager
+                    logger.info(
+                        f"SessionHistoryManager initialized: "
+                        f"hot={len(session_history_manager.hot_conversations)}"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to init SessionHistoryManager: {e}")
+
+            # 创建 HistoryMessageBuilder
+            try:
+                config = CompressionConfig()
+                llm_client = None
+                if hasattr(self, "llm_client"):
+                    llm_client = self.llm_client
+
+                self._history_message_builder = await create_history_message_builder(
+                    session_history_manager=session_history_manager,
+                    work_log_manager=self._work_log_manager,
+                    config=config,
+                    llm_client=llm_client,
+                    system_event_manager=self._system_event_manager,
+                    gpts_memory=gpts_memory_ref,
+                )
+                self._history_builder_initialized = True
+                logger.info("HistoryMessageBuilder initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to init HistoryMessageBuilder: {e}", exc_info=True)
 
     async def _ensure_system_event_manager(self):
         """确保 SystemEventManager 已初始化并设置到 GptsMemory"""

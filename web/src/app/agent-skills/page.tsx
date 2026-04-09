@@ -153,12 +153,12 @@ const SkillPage: React.FC = () => {
   };
 
   const uploadProps = {
-    accept: '.zip',
+    accept: '.zip,.skill',
     showUploadList: false,
     beforeUpload: (file: File) => {
-      const isZip = file.name.endsWith('.zip');
-      if (!isZip) {
-        message.error('Only ZIP files are supported');
+      const isValid = file.name.endsWith('.zip') || file.name.endsWith('.skill');
+      if (!isValid) {
+        message.error('Only .zip and .skill files are supported');
         return false;
       }
       handleUpload(file);
@@ -325,7 +325,7 @@ const SkillPage: React.FC = () => {
                   icon={<UploadOutlined />}
                   loading={uploading}
                 >
-                  Upload ZIP
+                  Upload Skill
                 </Button>
               </Upload>
               <Button

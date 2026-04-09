@@ -550,6 +550,8 @@ class WorkEntry:
     assistant_content: Optional[str] = None  # 触发工具调用的 AI 消息内容
     round_index: int = 0  # 当前轮次索引
     conv_id: Optional[str] = None  # 对话 ID（用于隔离不同对话的工具调用记录）
+    human_content: Optional[str] = None  # 用户消息内容（用于 __user_message__ 类型条目）
+    message_id: Optional[str] = None  # 关联的 GptsMessage ID
 
     def to_dict(self) -> Dict[str, Any]:
         """序列化为字典."""
@@ -570,6 +572,8 @@ class WorkEntry:
             "assistant_content": self.assistant_content,
             "round_index": self.round_index,
             "conv_id": self.conv_id,
+            "human_content": self.human_content,
+            "message_id": self.message_id,
         }
 
     @classmethod
@@ -579,6 +583,67 @@ class WorkEntry:
         if isinstance(status_data, str):
             pass
         return cls(status=status_data, **data)
+
+    def to_action_output(self) -> "ActionOutput":
+        """
+        转换为 ActionOutput (用于可视化和其他 Agent).
+
+        映射关系:
+        - tool -> action_name
+        - args -> action_input
+        - result -> content / observations
+        - tool_call_id -> action_id
+        - success -> is_exe_success
+        """
+        from derisk.agent.core.action.base import ActionOutput
+
+        view_content = None
+        if self.result:
+            if len(self.result) > 2000:
+                view_content = self.result[:2000] + "\n... (已截断)"
+                if self.full_result_archive:
+                    view_content += f"\n完整结果: {self.full_result_archive}"
+            else:
+                view_content = self.result
+
+        simple_view_content = None
+        if self.result:
+            if len(self.result) > 200:
+                simple_view_content = self.result[:200] + "..."
+            else:
+                simple_view_content = self.result
+
+        extra_data = None
+        if self.full_result_archive or self.tokens > 0:
+            extra_data = {
+                "archive_ref": self.full_result_archive,
+                "tokens": self.tokens,
+                "timestamp": self.timestamp,
+            }
+
+        # ask_user 工具需要恢复 ask_user/ask_type 标记
+        # 否则 _recovery_message() 无法识别 ask_user 场景，导致错误恢复旧消息
+        is_ask_user = self.tool in ("ask_user", "send_message")
+        ask_type_value = None
+        if is_ask_user:
+            from derisk.agent.core.action.base import AskUserType
+
+            ask_type_value = AskUserType.CONCLUSION_INCOMPLETE.value
+
+        return ActionOutput(
+            action_id=self.tool_call_id or "",
+            action_name=self.tool,
+            action=self.tool,
+            action_input=self.args,
+            content=self.result or "",
+            observations=self.result if not self.success else None,
+            is_exe_success=self.success,
+            view=view_content,
+            simple_view=simple_view_content,
+            extra=extra_data,
+            ask_user=is_ask_user,
+            ask_type=ask_type_value,
+        )
 
     @classmethod
     def from_pdca_entry(cls, data: Dict) -> "WorkEntry":

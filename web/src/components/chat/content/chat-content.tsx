@@ -118,7 +118,7 @@ const ChatContent: React.FC<{
           template_introduce: string;
         };
   };
-  onLinkClick: () => void;
+  onLinkClick?: () => void;
   messages: any[];
 }> = ({ content, onLinkClick, messages }) => {
   const { t } = useTranslation();
@@ -217,7 +217,21 @@ const ChatContent: React.FC<{
         // 检查 planning_window 字段是否存在（即使为空字符串也应该使用它，
         // 因为这意味着这是一个多窗口布局的数据格式）
         if ('planning_window' in parsed) {
-          return parsed.planning_window || '';
+          let pw = parsed.planning_window || '';
+          // Strip trailing plain text after the last VIS tag block to avoid
+          // duplicate rendering (vis_final may append a conclusion that already
+          // appears in the structured VIS component or right-panel summary).
+          if (pw.includes('```manus-left-panel') || pw.includes('```manus-right-panel')) {
+            const lastVisClose = pw.lastIndexOf('\n```');
+            if (lastVisClose > 0) {
+              const afterClose = lastVisClose + 4; // length of '\n```'
+              const trailing = pw.substring(afterClose).trim();
+              if (trailing) {
+                pw = pw.substring(0, afterClose);
+              }
+            }
+          }
+          return pw;
         }
         if (parsed?.vis) {
           const visData = typeof parsed.vis === 'string' ? JSON.parse(parsed.vis) : parsed.vis;

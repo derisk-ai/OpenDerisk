@@ -735,14 +735,9 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     { key: 'print', icon: <PrinterOutlined />, label: '打印', onClick: handlePrint },
   ], [handleExportPDF, handlePrint]);
 
-  // No data at all
+  // No data at all — minimal placeholder, parent container already shows the workspace empty state
   if (!displayStep && !hasSummary && !hasTaskFiles && !hasDeliverables) {
-    return (
-      <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-        <GlobalOutlined className="text-3xl text-gray-300 mb-3" />
-        <div className="text-xs text-gray-400">等待执行...</div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -849,9 +844,9 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-              <GlobalOutlined className="text-2xl text-gray-300 mb-3" />
-              <div className="text-xs text-gray-300">等待执行...</div>
+            <div className="flex flex-col items-center justify-center h-48">
+              <LoadingOutlined spin className="text-xl text-gray-300 mb-2" />
+              <div className="text-xs text-gray-300">加载中...</div>
             </div>
           )
         )}

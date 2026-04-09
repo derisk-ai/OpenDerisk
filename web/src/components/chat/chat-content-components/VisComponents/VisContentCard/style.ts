@@ -11,6 +11,7 @@ export const VisContentCardWrap = styled.div`
   justify-content: space-between;
   align-items: start;
   padding: 8px 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(8px);
   white-space: normal;
 `;

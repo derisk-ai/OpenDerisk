@@ -255,6 +255,7 @@ class ConversationCache:
         ## 工作日志缓存
         self.work_logs: List[WorkEntry] = []  # 工作日志条目列表
         self.work_log_summaries: List[WorkLogSummary] = []  # 压缩摘要列表
+        self.work_entries_by_message: Dict[str, List[WorkEntry]] = {}  # message_id -> [WorkEntry] 索引
 
         ## 看板缓存
         self.kanban: Optional[Kanban] = None  # 当前看板
@@ -1098,6 +1099,38 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         messages.sort(key=lambda x: x.rounds)  # 若 append 时保序，可移除此行
         return messages
 
+    async def get_messages_with_work_entries(self, conv_id: str) -> List[GptsMessage]:
+        """获取消息列表，同时为 v2 格式消息关联 WorkEntry。
+
+        v2 消息的 action_report 从 WorkEntry 动态构建，需要在加载后关联。
+        """
+        cache = await self._get_or_create_cache(conv_id)
+        if not cache.message_ids:
+            await self.load_persistent_memory(conv_id)
+        messages = cache.get_messages_ordered()
+        messages.sort(key=lambda x: x.rounds)
+
+        for msg in messages:
+            if (
+                getattr(msg, "role", "") == "assistant"
+                and getattr(msg, "is_new_format", False)
+            ):
+                entries = cache.work_entries_by_message.get(msg.message_id, [])
+                if entries:
+                    msg.set_work_entries(entries)
+                else:
+                    # Fallback: 从 work_logs 按 message_id 查找
+                    related = [
+                        e
+                        for e in cache.work_logs
+                        if getattr(e, "message_id", None) == msg.message_id
+                    ]
+                    if related:
+                        msg.set_work_entries(related)
+                        cache.work_entries_by_message[msg.message_id] = related
+
+        return messages
+
     async def get_session_messages(self, conv_session_id: str) -> List[GptsMessage]:
         return await blocking_func_to_async(
             self._executor, self.message_memory.get_by_session_id, conv_session_id
@@ -1122,6 +1155,72 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             except asyncio.QueueFull:
                 pass  # 队列满，忽略
             logger.info(f"Stopped conversation: {conv_id}")
+
+    async def apply_build_result_cleanup(
+        self,
+        conv_id: str,
+        cleanup_hints: Dict[str, List[str]],
+    ) -> Dict[str, int]:
+        """
+        根据 HistoryMessageBuilder 的构建结果清理内存。
+
+        与 HistoryMessageBuilder 协作：
+        1. HistoryMessageBuilder.build_messages() 返回 BuildResult
+        2. BuildResult.get_cache_cleanup_hints() 告知哪些数据可以清理
+        3. 调用此方法执行清理
+
+        Args:
+            conv_id: 会话 ID
+            cleanup_hints: {
+                "can_evict_message_ids": [...],  # Cold 层消息 ID
+                "can_evict_entry_message_ids": [...],  # Cold + Warm 层 WorkEntry
+            }
+
+        Returns:
+            {"messages_evicted": N, "entries_evicted": M}
+        """
+        cache = await self._get_cache(conv_id)
+        if not cache:
+            return {"messages_evicted": 0, "entries_evicted": 0}
+
+        conv_lock = await self._get_conv_lock(conv_id)
+        async with conv_lock:
+            result = {"messages_evicted": 0, "entries_evicted": 0}
+
+            can_evict_messages = set(cleanup_hints.get("can_evict_message_ids", []))
+            can_evict_entries = set(cleanup_hints.get("can_evict_entry_message_ids", []))
+
+            if can_evict_messages:
+                for mid in list(cache.messages.keys()):
+                    if mid in can_evict_messages:
+                        del cache.messages[mid]
+                        result["messages_evicted"] += 1
+
+                cache.message_ids = [
+                    mid for mid in cache.message_ids if mid not in can_evict_messages
+                ]
+
+            if can_evict_entries:
+                original_count = len(cache.work_logs)
+                cache.work_logs = [
+                    e for e in cache.work_logs
+                    if getattr(e, "message_id", None) not in can_evict_entries
+                ]
+                result["entries_evicted"] = original_count - len(cache.work_logs)
+
+                # 清理 work_entries_by_message 索引
+                for mid in list(cache.work_entries_by_message.keys()):
+                    if mid in can_evict_entries:
+                        del cache.work_entries_by_message[mid]
+
+        if result["messages_evicted"] > 0 or result["entries_evicted"] > 0:
+            logger.info(
+                f"[GptsMemory] Applied build result cleanup for {conv_id}: "
+                f"evicted {result['messages_evicted']} messages, "
+                f"{result['entries_evicted']} entries"
+            )
+
+        return result
 
     async def clear(self, conv_id: str):
         """主动清理会话资源"""
@@ -1474,6 +1573,11 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
 
         async with await self._get_conv_lock(conv_id):
             cache.work_logs.append(entry)
+            # 维护 message_id -> [WorkEntry] 索引
+            if entry.message_id:
+                if entry.message_id not in cache.work_entries_by_message:
+                    cache.work_entries_by_message[entry.message_id] = []
+                cache.work_entries_by_message[entry.message_id].append(entry)
 
         if save_db:
             # 优先保存到数据库存储后端

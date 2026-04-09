@@ -11,6 +11,7 @@ from .base import (  # noqa: F401
     GptsMessageMemory,
     GptsPlan,
     GptsPlansMemory,
+    MESSAGE_DATA_VERSION_V2,
 )
 from .default_gpts_memory import (  # noqa: F401
     DefaultGptsMessageMemory,

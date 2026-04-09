@@ -237,28 +237,30 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .header-plan {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(226, 232, 240, 0.6);
     border-radius: 10px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 
     &:hover {
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.85);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
   }
 
   .header-task {
     width: fit-content;
     max-width: 85%;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(226, 232, 240, 0.5);
     border-radius: 16px;
     padding: 5px 12px;
     transition: all 0.15s ease;
     cursor: pointer;
 
     &:hover {
-      background: #f1f5f9;
+      background: rgba(255, 255, 255, 0.8);
     }
 
     .task-icon {
@@ -298,17 +300,18 @@ export const VisAgentPlanCardWrap = styled.div`
   }
 
   .header-agent {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(226, 232, 240, 0.6);
     border-radius: 10px;
     padding: 10px 12px;
     transition: all 0.15s ease;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 
     &:hover {
-      background: #f8fafc;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+      background: rgba(255, 255, 255, 0.85);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
 
     .task-icon {

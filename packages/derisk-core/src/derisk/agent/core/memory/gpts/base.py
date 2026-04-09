@@ -87,9 +87,25 @@ class GptsPlan:
         return dataclasses.asdict(self)
 
 
+MESSAGE_DATA_VERSION_V2 = "v2"
+
+
 @dataclasses.dataclass
 class GptsMessage:
-    """Gpts message."""
+    """
+    Gpts message - Agent 消息层.
+
+    新架构 (data_version="v2"):
+    - 只管理 Agent 级别的消息 (user/assistant)
+    - 不存储 role="tool" 的消息 (由 WorkEntry 管理)
+    - action_report 动态从 WorkEntry 构建
+    - 移除冗余字段: observation (由 WorkEntry.result 管理)
+
+    老数据兼容:
+    - data_version 为 None 或不存在 = 老数据
+    - 老数据可能包含 role="tool" 的消息
+    - 老数据 action_report 从数据库字段解析
+    """
 
     conv_id: str
     conv_session_id: str
@@ -111,7 +127,6 @@ class GptsMessage:
     goal_id: Optional[str] = None
     current_goal: Optional[str] = None
     context: Optional[MessageContextType] = None
-    action_report: Optional[ActionReportType] = None
     review_info: Optional[AgentReviewInfo] = None
     model_name: Optional[str] = None
     resource_info: Optional[ResourceReferType] = None
@@ -127,10 +142,83 @@ class GptsMessage:
     tool_calls: Optional[List[Dict]] = None
     input_tools: Optional[List[Dict]] = None  # 传给模型的工具列表（输入参数）
 
+    data_version: Optional[str] = None
+
+    _action_report_raw: Optional[str] = dataclasses.field(default=None, repr=False)
+    _action_report_cache: Optional[ActionReportType] = dataclasses.field(
+        default=None, repr=False
+    )
+    _work_entries: Optional[List] = dataclasses.field(
+        default=None, repr=False
+    )
+
+    @property
+    def is_new_format(self) -> bool:
+        """是否新架构数据."""
+        return self.data_version == MESSAGE_DATA_VERSION_V2
+
+    @property
+    def is_legacy_tool_message(self) -> bool:
+        """是否老格式的 tool 消息 (需要特殊处理)."""
+        return self.role == "tool" and not self.is_new_format
+
+    @property
+    def action_report(self) -> Optional[ActionReportType]:
+        """
+        动态获取 action_report (兼容新旧架构).
+
+        优先级:
+        1. 内存缓存: 已解析/已设置的数据
+        2. 新架构: 从 WorkEntry 动态构建
+        3. 老数据: 从 _action_report_raw 解析
+        4. 兜底: 从 observation 构建
+        """
+        if self._action_report_cache is not None:
+            return self._action_report_cache
+
+        if self.is_new_format and self._work_entries:
+            action_outputs = [entry.to_action_output() for entry in self._work_entries]
+            self._action_report_cache = action_outputs
+            return action_outputs
+
+        if self._action_report_raw:
+            from derisk.agent.core.action.base import ActionOutput
+
+            parsed = ActionOutput.parse_action_reports(self._action_report_raw)
+            self._action_report_cache = parsed
+            return parsed
+
+        if self.observation:
+            from derisk.agent.core.action.base import ActionOutput
+
+            legacy_output = ActionOutput(
+                action_id="legacy_tool",
+                content=self.observation,
+                is_exe_success=True,
+            )
+            self._action_report_cache = [legacy_output]
+            return [legacy_output]
+
+        return None
+
+    def set_work_entries(self, entries: List) -> None:
+        """设置关联的 WorkEntry (新架构: 从 WorkLog 恢复)."""
+        self._work_entries = entries
+        self._action_report_cache = None
+
+    def set_action_report_raw(self, raw: Optional[str]) -> None:
+        """设置原始 action_report (数据库读取时使用, 老数据兼容)."""
+        self._action_report_raw = raw
+        self._action_report_cache = None
+
+    def set_action_report_cache(self, report: Optional[ActionReportType]) -> None:
+        """直接设置 action_report 缓存 (from_agent_message 时使用)."""
+        self._action_report_cache = report
+
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "GptsMessage":
         """Create a GptsMessage object from a dictionary."""
-        return GptsMessage(
+        msg = GptsMessage(
             conv_id=d["conv_id"],
             conv_session_id=d["conv_session_id"],
             message_id=d["message_id"],
@@ -140,34 +228,59 @@ class GptsMessage:
             receiver_name=d["receiver_name"],
             role=d["role"],
             avatar=d.get("avatar"),
-            thinking=d["thinking"],
+            thinking=d.get("thinking"),
             content=d["content"],
-            message_type=d["message_type"],
-            rounds=d["rounds"],
-            is_success=d["is_success"],
-            app_code=d["app_code"],
-            app_name=d["app_name"],
-            model_name=d["model_name"],
-            current_goal=d["current_goal"],
-            context=d["context"],
+            message_type=d.get("message_type"),
+            rounds=d.get("rounds", 0),
+            is_success=d.get("is_success", True),
+            app_code=d.get("app_code"),
+            app_name=d.get("app_name"),
+            model_name=d.get("model_name"),
+            current_goal=d.get("current_goal"),
+            context=d.get("context"),
             content_types=d.get("content_types"),
-            review_info=d["review_info"],
-            action_report=d["action_report"],
-            resource_info=d["resource_info"],
-            system_prompt=d["system_prompt"],
-            user_prompt=d["user_prompt"],
-            show_message=d["show_message"],
-            created_at=d["created_at"],
-            updated_at=d["updated_at"],
+            review_info=d.get("review_info"),
+            resource_info=d.get("resource_info"),
+            system_prompt=d.get("system_prompt"),
+            user_prompt=d.get("user_prompt"),
+            show_message=d.get("show_message", True),
+            created_at=d.get("created_at"),
+            updated_at=d.get("updated_at"),
             observation=d.get("observation"),
             metrics=d.get("metrics"),
             tool_calls=d.get("tool_calls"),
             input_tools=d.get("input_tools"),
+            data_version=d.get("data_version"),
         )
+
+        # 老数据: action_report 存在于字典中，设置为 raw 待解析
+        if d.get("action_report"):
+            raw_report = d["action_report"]
+            if isinstance(raw_report, str):
+                msg.set_action_report_raw(raw_report)
+            else:
+                # 已经是解析后的对象列表 (内存缓存场景)
+                msg._action_report_cache = raw_report
+
+        return msg
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a dictionary representation of the GptsMessage object."""
-        return dataclasses.asdict(self)
+        result = dataclasses.asdict(self)
+        # action_report 是 property，不会被 asdict 序列化，需要手动处理
+        # 对于持久化场景，老数据保留 _action_report_raw，新数据不存 action_report
+        if self._action_report_raw:
+            result["action_report"] = self._action_report_raw
+        elif self._action_report_cache and not self.is_new_format:
+            # 老格式且有缓存，需要序列化回去
+            result["action_report"] = self._action_report_cache
+        else:
+            result["action_report"] = None
+        # 清理内部字段
+        result.pop("_action_report_raw", None)
+        result.pop("_action_report_cache", None)
+        result.pop("_work_entries", None)
+        return result
 
     def to_agent_message(self) -> AgentMessage:
         return AgentMessage(
@@ -206,7 +319,7 @@ class GptsMessage:
         receiver: Optional["ConversableAgent"] = None,
         role: Optional[str] = None,
     ) -> GptsMessage:
-        return cls(
+        gpts_msg = cls(
             ## 收发信息
             conv_id=sender.not_null_agent_context.conv_id,
             conv_session_id=sender.not_null_agent_context.conv_session_id,
@@ -229,7 +342,6 @@ class GptsMessage:
             goal_id=message.goal_id,
             current_goal=message.current_goal,
             context=message.context,
-            action_report=message.action_report,
             review_info=message.review_info,
             model_name=message.model_name,
             resource_info=message.resource_info,
@@ -242,7 +354,14 @@ class GptsMessage:
             metrics=message.metrics,
             tool_calls=message.tool_calls,
             input_tools=message.input_tools,
+            data_version=MESSAGE_DATA_VERSION_V2,
         )
+
+        # 新架构: action_report 缓存到内存，不再序列化到数据库
+        if message.action_report:
+            gpts_msg._action_report_cache = message.action_report
+
+        return gpts_msg
 
     def view(self) -> Optional[str]:
         """最终返回给User的结论view"""

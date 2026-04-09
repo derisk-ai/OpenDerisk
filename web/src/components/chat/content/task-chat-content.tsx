@@ -89,10 +89,10 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   const isProcessing = replyLoading || (history.length > 0 && history[history.length - 1]?.thinking);
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-gradient-to-br from-slate-100 to-slate-50">
+    <div className="flex h-full w-full overflow-hidden bg-white">
       {/* Planning Window */}
       <div className={classNames(
-        "flex flex-col h-full transition-all duration-300 ease-out",
+        "flex flex-col h-full transition-all duration-300 ease-out bg-white",
         isRunningWindowVisible && hasRunningWindowData ? "w-[38%] min-w-[340px]" : "flex-1"
       )}>
         <ChatHeader isProcessing={isProcessing} />
@@ -154,9 +154,9 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
 
       {/* Running Window 面板 */}
       {isRunningWindowVisible && hasRunningWindowData && (
-        <div 
+        <div
           className={classNames(
-            "flex flex-col bg-white border-l border-slate-200 transition-all duration-300 ease-out",
+            "flex flex-col transition-all duration-300 ease-out border-l border-gray-100/80",
             "w-[62%] min-w-[480px] h-full"
           )}
         >

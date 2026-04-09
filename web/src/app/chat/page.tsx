@@ -47,6 +47,11 @@ export default function Chat() {
     app_code: app_code || '',
   });
 
+  // 是否是默认小助手（必须在 useChatPolling 之前定义）
+  const isChatDefault = useMemo(() => {
+    return !chatId;
+  }, [chatId]);
+
   // 轮询恢复：重新打开运行中对话时，降级为轮询模式获取 vis_final
   const [isPollingMode, setIsPollingMode] = useState(false);
   const { isPolling, data: pollingData, stopPolling } = useChatPolling({
@@ -140,11 +145,6 @@ export default function Chat() {
         setChatInParams(chatInParam);
     }
   }, [appInfo?.layout?.chat_in_layout, modelName]);
-
-  // 是否是默认小助手
-  const isChatDefault = useMemo(() => {
-    return !chatId;
-  }, [chatId]);
 
   // 获取会话列表
   const {
