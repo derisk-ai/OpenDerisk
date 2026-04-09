@@ -9,6 +9,7 @@ export const EVENTS = {
   ADD_TASK: 'addTask',
   CLOSE_PANEL: 'closePanel',
   OPEN_PANEL: 'openPanel',
+  SWITCH_TAB: 'switchTab',
 };
 
 const DEBUG_EMITTER = false; // 调试 folder/work 联动时打开

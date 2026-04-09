@@ -42,7 +42,12 @@ export function useChatPolling({
       const result = response.data;
       
       if (mountedRef.current) {
-        setData(result);
+        setData(prev => {
+          if (prev?.vis_final === result.vis_final && prev?.state === result.state) {
+            return prev;
+          }
+          return result;
+        });
         setState(result.state as ConversationState);
       }
       
@@ -103,6 +108,13 @@ export function useChatPolling({
       stopPolling();
     };
   }, [stopPolling]);
+
+  // enabled 变为 false 时主动停止轮询（如 SSE 接管）
+  useEffect(() => {
+    if (!enabled && isPolling) {
+      stopPolling();
+    }
+  }, [enabled, isPolling, stopPolling]);
 
   // convId 变化时，检查状态
   useEffect(() => {

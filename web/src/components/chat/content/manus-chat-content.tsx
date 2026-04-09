@@ -8,11 +8,12 @@ import React, { memo, useContext, useEffect, useMemo, useRef, useState, useCallb
 import ChatHeader from '../header/chat-header';
 import UnifiedChatInput from '../input/unified-chat-input';
 import { Tooltip } from 'antd';
-import { LeftOutlined, DesktopOutlined } from '@ant-design/icons';
+import { LeftOutlined, DesktopOutlined, FileTextOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import classNames from 'classnames';
 import { ee, EVENTS } from '@/utils/event-emitter';
 import markdownComponents, { markdownPlugins } from '@/components/chat/chat-content-components/config';
 import { GPTVis } from '@antv/gpt-vis';
+import type { ManusDeliverableFile } from '@/types/manus';
 
 interface ManusChatContentProps {
   ctrl: AbortController;
@@ -63,11 +64,38 @@ function useManusRunningWindow(chatList: any[]): {
   };
 }
 
+/**
+ * Extract deliverable files and task files info from running_window vis tag data
+ */
+function useManusFileLinks(runningWindow: string): {
+  deliverableFiles: Pick<ManusDeliverableFile, 'file_id' | 'file_name'>[];
+  hasTaskFiles: boolean;
+} {
+  return useMemo(() => {
+    if (!runningWindow) return { deliverableFiles: [], hasTaskFiles: false };
+    try {
+      // running_window contains: ```manus-right-panel\n{JSON}\n```
+      const match = runningWindow.match(/```manus-right-panel\s*\n([\s\S]*?)\n```/);
+      if (!match) return { deliverableFiles: [], hasTaskFiles: false };
+      const data = JSON.parse(match[1]);
+      const deliverableFiles = (data.deliverable_files || []).map((f: any) => ({
+        file_id: f.file_id,
+        file_name: f.file_name,
+      }));
+      const hasTaskFiles = (data.task_files || []).length > 0;
+      return { deliverableFiles, hasTaskFiles };
+    } catch {
+      return { deliverableFiles: [], hasTaskFiles: false };
+    }
+  }, [runningWindow]);
+}
+
 const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { history, replyLoading } = useContext(ChatContentContext);
 
   const { runningWindow, hasData } = useManusRunningWindow(history);
+  const { deliverableFiles, hasTaskFiles } = useManusFileLinks(runningWindow);
   const [userClosedPanel, setUserClosedPanel] = useState(false);
 
   const showMessages = useMemo(() => {
@@ -135,6 +163,42 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
                     <ChatContent content={content} messages={showMessages} />
                   </div>
                 ))}
+                {/* Deliverable & task files links — shown when task is done */}
+                {!isProcessing && (deliverableFiles.length > 0 || hasTaskFiles) && (
+                  <div className="flex flex-wrap gap-2 mt-2 px-1">
+                    {deliverableFiles.map((f) => (
+                      <button
+                        key={f.file_id}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm cursor-pointer transition-all text-left"
+                        onClick={() => {
+                          ee.emit(EVENTS.SWITCH_TAB, { tab: `deliverable_${f.file_id}` });
+                          ee.emit(EVENTS.OPEN_PANEL);
+                        }}
+                      >
+                        <FileTextOutlined className="text-blue-500 text-base" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-700 truncate max-w-[140px]">{f.file_name}</div>
+                          <div className="text-[11px] text-slate-400">网页报告</div>
+                        </div>
+                      </button>
+                    ))}
+                    {hasTaskFiles && (
+                      <button
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm cursor-pointer transition-all text-left"
+                        onClick={() => {
+                          ee.emit(EVENTS.SWITCH_TAB, { tab: 'task_files' });
+                          ee.emit(EVENTS.OPEN_PANEL);
+                        }}
+                      >
+                        <FolderOpenOutlined className="text-amber-500 text-base" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-700">查看所有文件</div>
+                          <div className="text-[11px] text-slate-400">任务中的所有文件</div>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="h-8" />
               </div>
             </div>

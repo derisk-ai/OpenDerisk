@@ -593,6 +593,18 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     };
   }, []); // stable — no dependency on steps_map
 
+  // Listen for SWITCH_TAB events from left panel links
+  useEffect(() => {
+    const handler = (payload: { tab?: string }) => {
+      if (payload?.tab) {
+        setActiveTab(payload.tab as ActiveTab);
+        setSelectedStep(null);
+      }
+    };
+    ee.on(EVENTS.SWITCH_TAB, handler);
+    return () => { ee.off(EVENTS.SWITCH_TAB, handler); };
+  }, []);
+
   // Determine which step to display: user-selected or backend-active
   const displayStep = selectedStep?.active_step ?? active_step;
   const displayOutputs = selectedStep?.outputs ?? outputs;

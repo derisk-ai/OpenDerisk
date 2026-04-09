@@ -5,6 +5,7 @@ import { IApp } from '@/types/app';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAsyncEffect, useDebounceFn, useRequest } from 'ahooks';
 import useChat from '@/hooks/use-chat';
+import useChatPolling from '@/hooks/use-chat-polling';
 import ChatContentContainer from '@/components/chat/chat-content-container';
 import { getInitMessage, transformFileMarkDown, transformFileUrl } from '@/utils';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
@@ -45,7 +46,55 @@ export default function Chat() {
   const { chat, ctrl } = useChat({
     app_code: app_code || '',
   });
-  
+
+  // 轮询恢复：重新打开运行中对话时，降级为轮询模式获取 vis_final
+  const [isPollingMode, setIsPollingMode] = useState(false);
+  const { isPolling, data: pollingData, stopPolling } = useChatPolling({
+    convId: chatId || null,
+    enabled: !isChatDefault && !replyLoading,
+    interval: 2500,
+    onComplete: () => {
+      setIsPollingMode(false);
+      setReplyLoading(false);
+      setCanAbort(false);
+      refreshHistory();
+    },
+  });
+
+  // 轮询模式：将 vis_final 写入 history 驱动渲染
+  useEffect(() => {
+    if (!pollingData?.vis_final || !isPolling) return;
+
+    if (!isPollingMode) {
+      setIsPollingMode(true);
+      setReplyLoading(true);
+      setCanAbort(true);
+    }
+
+    setHistory(prev => {
+      const updated = [...prev];
+      const lastViewIndex = updated.map(m => m.role).lastIndexOf('view');
+
+      if (lastViewIndex >= 0) {
+        updated[lastViewIndex] = {
+          ...updated[lastViewIndex],
+          context: pollingData.vis_final,
+          thinking: false,
+        };
+      } else if (updated.length > 0) {
+        updated.push({
+          role: 'view',
+          context: pollingData.vis_final,
+          order: updated[updated.length - 1]?.order || 0,
+          time_stamp: 0,
+          model_name: '',
+          thinking: false,
+        });
+      }
+      return updated;
+    });
+  }, [pollingData, isPolling]);
+
   useEffect(() => {
     if(appInfo?.layout?.chat_in_layout?.length){
       const layout =  appInfo?.layout?.chat_in_layout;
@@ -157,6 +206,11 @@ export default function Chat() {
   const handleChat = useCallback(
     (content: UserChatContent, data?: Record<string, unknown>) => {
       return new Promise<void>(resolve => {
+        // 退出轮询模式，SSE 接管
+        if (isPollingMode) {
+          setIsPollingMode(false);
+          stopPolling();
+        }
         const initMessage = getInitMessage();
         const ctrl = new AbortController();
         setReplyLoading(true);
@@ -296,7 +350,7 @@ export default function Chat() {
         });
       });
     },
-    [history, modelValue, chat, appInfo],
+    [history, modelValue, chat, appInfo, isPollingMode, stopPolling],
   );
 
   useAsyncEffect(async () => {
@@ -492,6 +546,7 @@ return (
           setIsShowDetail,
           setChatInParams,
           chatInParams,
+          isPollingMode,
         }}
       >
         <Flex flex={1} className='min-h-0 overflow-hidden'>
