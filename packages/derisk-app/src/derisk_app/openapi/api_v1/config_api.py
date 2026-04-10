@@ -867,7 +867,7 @@ def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
             agent_llm_conf = getattr(config, "agent_llm", None)
             if agent_llm_conf:
                 agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
-                system_app.config.set("agent.llm", agent_llm_dict)
+                system_app.config.set("agent.llm", agent_llm_dict, overwrite=True)
 
                 # 统计模型数量
                 model_count = 0
@@ -896,10 +896,10 @@ def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
                     if hasattr(default_model, "model_dump")
                     else dict(default_model)
                 )
-                system_app.config.set("agent.default_model", default_model_dict)
+                system_app.config.set("agent.default_model", default_model_dict, overwrite=True)
                 # 同时设置 default_llm 用于兼容
                 if default_model.model_id:
-                    system_app.config.set("agent.default_llm", default_model.model_id)
+                    system_app.config.set("agent.default_llm", default_model.model_id, overwrite=True)
                 logger.info(f"Synced default_model: {default_model.model_id}")
                 sync_status["default_model"] = True
             else:
@@ -919,7 +919,7 @@ def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
                         if hasattr(agent_cfg, "model_dump")
                         else dict(agent_cfg)
                     )
-                system_app.config.set("agent.agents", agents_dict)
+                system_app.config.set("agent.agents", agents_dict, overwrite=True)
                 logger.info(f"Synced agents: {len(agents_dict)} agents")
                 sync_status["agents"] = True
             else:
@@ -937,7 +937,7 @@ def _sync_config_to_system_app(config: AppConfig) -> Dict[str, bool]:
                     if hasattr(sandbox, "model_dump")
                     else dict(sandbox)
                 )
-                system_app.config.set("sandbox", sandbox_dict)
+                system_app.config.set("sandbox", sandbox_dict, overwrite=True)
                 logger.info(f"Synced sandbox config")
                 sync_status["sandbox"] = True
             else:

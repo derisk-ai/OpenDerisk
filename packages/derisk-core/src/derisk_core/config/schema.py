@@ -46,10 +46,12 @@ class SandboxConfig(BaseModel):
     memory_limit: str = "512m"
     timeout: int = 300
     network_enabled: bool = False
-    work_dir: str = "/home/user/workspace"
+    # 为空时使用运行时默认路径: local 模式为 pilot/data/workspace
+    work_dir: str = ""
     agent_name: str = "default"
     user_id: Optional[str] = None
     template_id: Optional[str] = None
+    # 为空时使用运行时默认路径: local 模式为 pilot/data/skill
     skill_dir: Optional[str] = None
     oss_ak: Optional[str] = None
     oss_sk: Optional[str] = None

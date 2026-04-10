@@ -297,7 +297,7 @@ def _sync_app_config_to_system_app():
 
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
 
-        system_app.config.set("agent.llm", agent_llm_dict)
+        system_app.config.set("agent.llm", agent_llm_dict, overwrite=True)
 
         model_configs = parse_provider_configs(agent_llm_dict)
         if model_configs:
@@ -316,9 +316,9 @@ def _sync_app_config_to_system_app():
         default_model = getattr(cfg, "default_model", None)
         if default_model:
             default_model_dict = default_model.model_dump(mode="json")
-            system_app.config.set("agent.default_model", default_model_dict)
+            system_app.config.set("agent.default_model", default_model_dict, overwrite=True)
             if default_model.model_id:
-                system_app.config.set("agent.default_llm", default_model.model_id)
+                system_app.config.set("agent.default_llm", default_model.model_id, overwrite=True)
             logger.info(f"Default model synced: {default_model.model_id}")
 
     except Exception as e:

@@ -40,7 +40,6 @@ import {
   FolderOutlined,
   KeyOutlined,
   LockOutlined,
-  RobotOutlined,
   DatabaseOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
@@ -362,11 +361,6 @@ export default function ConfigPage() {
             key: 'oauth2',
             label: <span><LoginOutlined /> OAuth2 登录</span>,
             children: <OAuth2ConfigSection onChange={loadConfig} />,
-          },
-          {
-            key: 'llm-keys',
-            label: <span><RobotOutlined /> LLM Key 配置</span>,
-            children: <LLMKeyConfigSection onGoToSystem={() => setActiveTab('system')} />,
           },
         ]}
       />
@@ -1020,8 +1014,8 @@ function SandboxConfigSection({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Form.Item name="work_dir" label="工作目录" extra="为空时使用系统默认路径">
-          <Input placeholder="" />
+        <Form.Item name="work_dir" label="工作目录" extra="为空时使用系统默认路径 (pilot/data/workspace)">
+          <Input placeholder="pilot/data/workspace" />
         </Form.Item>
         <Form.Item name="memory_limit" label="内存限制">
           <Input placeholder="512m" />
@@ -1189,28 +1183,3 @@ function SecretsConfigSection({
   );
 }
 
-function LLMKeyConfigSection({
-  onGoToSystem,
-}: {
-  onGoToSystem: () => void;
-}) {
-  return (
-    <Card>
-      <Alert
-        type="info"
-        showIcon
-        message="LLM 配置已整合到系统配置"
-        description={
-          <div>
-            <p>默认模型、多 Provider、模型列表和 API Key 现已统一整合到「系统配置」中的 LLM 配置区域。</p>
-            <p>这里保留为兼容入口，方便你从旧入口跳转过去，不再维护第二套独立配置表单。</p>
-          </div>
-        }
-        className="mb-4"
-      />
-      <Button type="primary" icon={<ApiOutlined />} onClick={onGoToSystem}>
-        前往系统配置中的 LLM 配置
-      </Button>
-    </Card>
-  );
-}

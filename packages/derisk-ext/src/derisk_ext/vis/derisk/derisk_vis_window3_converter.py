@@ -233,6 +233,15 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     cache=kwargs.get("cache"),
                 )
 
+            # 对话结束时推送文件交付列表
+            if gpt_msg and gpt_msg.receiver == HUMAN_ROLE:
+                files_view = await self._render_terminate_files(messages, senders_map)
+                if files_view:
+                    if work_vis:
+                        work_vis = work_vis + "\n" + files_view
+                    else:
+                        work_vis = files_view
+
             planning_window = planning_vis
             if gpt_msg:
                 foot_vis = await self._footer_vis_build(gpt_msg, senders_map)
