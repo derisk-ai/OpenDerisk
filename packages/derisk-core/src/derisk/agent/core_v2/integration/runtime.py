@@ -583,12 +583,17 @@ class V2AgentRuntime:
             yield V2StreamChunk(type="error", content=str(e))
 
         finally:
-            # 记录 Agent 完成事件
+            # 兜底：确保 AGENT_COMPLETE 事件一定被记录（_push_stream_chunk 中可能已添加）
             if context.system_event_manager:
-                context.system_event_manager.add_event(
-                    event_type=SystemEventType.AGENT_COMPLETE,
-                    title="任务执行完成",
+                has_complete = any(
+                    e.event_type == SystemEventType.AGENT_COMPLETE
+                    for e in context.system_event_manager.get_all_events()
                 )
+                if not has_complete:
+                    context.system_event_manager.add_event(
+                        event_type=SystemEventType.AGENT_COMPLETE,
+                        title="任务执行完成",
+                    )
             context.state = RuntimeState.IDLE
 
     async def _get_or_create_agent(
@@ -1292,6 +1297,13 @@ class V2AgentRuntime:
                 session.is_first_chunk = False
 
         if chunk.is_final:
+            # 在生成最终视图前，标记 Agent 完成事件，确保 SystemEvents 停止转圈
+            if session.system_event_manager:
+                session.system_event_manager.add_event(
+                    event_type=SystemEventType.AGENT_COMPLETE,
+                    title="任务执行完成",
+                )
+
             # 生成 vis_window3 最终视图用于持久化
             # 历史会话加载时，前端需要 vis_window3 格式才能正确渲染
             vis_final_content = session.accumulated_content
