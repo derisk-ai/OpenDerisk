@@ -673,7 +673,7 @@ class AgentChat(BaseComponent, ABC):
 
         ########################################################
         app_config = self.system_app.config.configs.get("app_config")
-        web_config = app_config.service.web
+        web_config = app_config.web
 
         app_service = get_app_service()
         gpt_app: GptsApp = await app_service.app_detail(
