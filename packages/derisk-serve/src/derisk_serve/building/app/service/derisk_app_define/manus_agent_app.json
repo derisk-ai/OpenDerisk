@@ -1,8 +1,8 @@
 [
   {
-    "app_code": "manus-agent",
-    "app_name": "Manus Agent",
-    "app_describe": "Manus双面板布局Agent，左面板展示执行步骤和思考过程，右面板展示详细输出（终端/代码/HTML预览/技能等）。",
+    "app_code": "canvas-agent",
+    "app_name": "Canvas Agent",
+    "app_describe": "面向交付的Agent，左面板展示执行步骤和思考过程，右面板作为画布展示数据分析、任务报告、HTML预览等可视化产出物。适用于数据分析、报告生成等需要直接交付成果的场景。",
     "language": "zh",
     "icon": "/agents/agent5.jpg",
     "team_mode": "auto_plan",
