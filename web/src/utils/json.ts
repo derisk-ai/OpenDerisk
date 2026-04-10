@@ -76,7 +76,7 @@ export function parseFirstJson(str: string): any {
 
     for (let i = startIndex; i < sanitizedStr.length; i++) {
       const char = sanitizedStr[i];
-      
+
       if (escape) {
         escape = false;
         continue;
@@ -110,7 +110,10 @@ export function parseFirstJson(str: string): any {
         }
       }
     }
-    // If we reach here, we didn't find a balanced closing brace
-    throw e;
+    // If we reach here, we didn't find a balanced closing brace.
+    // This likely means the JSON was truncated. Return an empty object
+    // instead of throwing, so the component can render gracefully.
+    console.warn('[parseFirstJson] JSON appears truncated (unbalanced braces), returning empty object');
+    return {};
   }
 }

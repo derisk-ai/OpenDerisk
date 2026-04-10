@@ -252,7 +252,7 @@ export const codeComponents = {
         try {
           const data = JSON.parse(content);
           return (
-            <ErrorBoundary fallback={<MarkdownCard content={content} />}>
+            <ErrorBoundary resetKeys={[content]} fallback={<MarkdownCard content={content} />}>
               <FileAttach data={data} />
             </ErrorBoundary>
           );

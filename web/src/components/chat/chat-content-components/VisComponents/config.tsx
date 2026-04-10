@@ -59,7 +59,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-running-window" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-running-window" />}>
           <VisRunningWindow data={data} />
         </ErrorBoundary>
       );
@@ -72,7 +72,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="derisk-running-window" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="derisk-running-window" />}>
           <VisRunningWindow data={data} />
         </ErrorBoundary>
       );
@@ -85,7 +85,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-planning-window" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-planning-window" />}>
           <VisPlanningWindow data={data} />
         </ErrorBoundary>
       );
@@ -99,7 +99,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-content" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-content" />}>
           <VisContentCard data={data} />
         </ErrorBoundary>
       );
@@ -112,7 +112,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="derisk-llm-space" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="derisk-llm-space" />}>
           <VisContentCard data={data} />
         </ErrorBoundary>
       );
@@ -125,7 +125,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-thinking" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-thinking" />}>
           <ThinkCard data={data} />
         </ErrorBoundary>
       );
@@ -138,7 +138,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-report" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-report" />}>
           <VisReportCard data={data} />
         </ErrorBoundary>
       );
@@ -151,7 +151,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-msg" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-msg" />}>
           <VisRunningWindowMsgCard data={data} />
         </ErrorBoundary>
       );
@@ -164,7 +164,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-plan" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-plan" />}>
           <VisPlanCard data={data} />
         </ErrorBoundary>
       );
@@ -177,7 +177,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-steps" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-steps" />}>
           <VisStepListCard propsData={data} />
         </ErrorBoundary>
       );
@@ -190,7 +190,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-step" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="nex-step" />}>
           <VisRunningWindowStepCard data={data} />
         </ErrorBoundary>
       );
@@ -212,7 +212,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-step" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-step" />}>
           <VisStepCard data={data} />
         </ErrorBoundary>
       );
@@ -225,7 +225,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-thinking" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-thinking" />}>
           <DThinkCard data={data} />
         </ErrorBoundary>
       );
@@ -238,7 +238,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-messages" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-messages" />}>
           <VisContentCard data={data} />
         </ErrorBoundary>
       );
@@ -251,7 +251,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-steps" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-steps" />}>
           <VisStepListCard propsData={data} />
         </ErrorBoundary>
       );
@@ -264,7 +264,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-agent-plan" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-agent-plan" />}>
           <VisAgentPlanCard data={data} />
         </ErrorBoundary>
       );
@@ -277,7 +277,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-planning-space" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-planning-space" />}>
           <VisPlanningSpaceCard data={data} />
         </ErrorBoundary>
       );
@@ -290,7 +290,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-attach" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-attach" />}>
           <VisDAttach data={data} />
         </ErrorBoundary>
       );
@@ -303,7 +303,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-attach-list" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-attach-list" />}>
           <VisDAttachList data={data} />
         </ErrorBoundary>
       );
@@ -316,7 +316,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-refs" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-refs" />}>
           <RefsCard data={data} />
         </ErrorBoundary>
       );
@@ -329,7 +329,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-confirm" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-confirm" />}>
           <VisConfirmCard data={data} />
         </ErrorBoundary>
       );
@@ -342,7 +342,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-interact" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-interact" />}>
           <VisInteracCard data={data} />
         </ErrorBoundary>
       );
@@ -355,7 +355,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="vis-code" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="vis-code" />}>
           <VisCode {...data} />
         </ErrorBoundary>
       );
@@ -368,7 +368,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="knowledge-space-window" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="knowledge-space-window" />}>
           <VisKnowledgeSpaceWindow data={data} />
         </ErrorBoundary>
       );
@@ -385,7 +385,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-outline" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-outline" />}>
           <VisDocOutlineCard data={data} />
         </ErrorBoundary>
       );
@@ -398,7 +398,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-ls" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-ls" />}>
           <VisLsCard data={data} />
         </ErrorBoundary>
       );
@@ -411,7 +411,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-read-yuque" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-read-yuque" />}>
           <VisReadYuqueCard data={data} />
         </ErrorBoundary>
       );
@@ -424,7 +424,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-doc" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-doc" />}>
           <VisDocCard data={data} />
         </ErrorBoundary>
       );
@@ -441,7 +441,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-doc-report" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-doc-report" />}>
           <VisDocReportCard data={data} />
         </ErrorBoundary>
       );
@@ -454,7 +454,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-agent-folder" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-agent-folder" />}>
           <VisAgentFolder data={data} />
         </ErrorBoundary>
       );
@@ -467,7 +467,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-work" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-work" />}>
           <VisRunningWindowV2 data={data} />
         </ErrorBoundary>
       );
@@ -480,7 +480,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-code" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-code" />}>
           <VisCodeIde {...data} />
         </ErrorBoundary>
       );
@@ -493,7 +493,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-monitor" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-monitor" />}>
           <VisMonitor {...data} />
         </ErrorBoundary>
       );
@@ -506,7 +506,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-tool" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-tool" />}>
           <VisUtils data={data} />
         </ErrorBoundary>
       );
@@ -519,7 +519,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-llm" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-llm" />}>
           <VisLLM data={data} />
         </ErrorBoundary>
       );
@@ -536,7 +536,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-todo-list" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-todo-list" />}>
           <VisTodoList data={data} />
         </ErrorBoundary>
       );
@@ -549,7 +549,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-status-notification" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-status-notification" />}>
           <VisStatusNotification {...data} />
         </ErrorBoundary>
       );
@@ -562,7 +562,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-confirm-response" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-confirm-response" />}>
           <VisConfirmResponse data={data} />
         </ErrorBoundary>
       );
@@ -575,7 +575,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-authorization" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-authorization" />}>
           <VisAuthorizationCard data={data} />
         </ErrorBoundary>
       );
@@ -588,7 +588,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-system-events" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-system-events" />}>
           <VisSystemEvents data={data} />
         </ErrorBoundary>
       );
@@ -602,7 +602,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-left-panel" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-left-panel" />}>
           <VisManusLeftPanel
             data={data}
             onStepClick={(stepId) => {
@@ -621,7 +621,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-right-panel" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-right-panel" />}>
           <VisManusRightPanel data={data} />
         </ErrorBoundary>
       );
@@ -634,7 +634,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-deliverable" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="drsk-deliverable" />}>
           <VisDeliverable data={data} />
         </ErrorBoundary>
       );
@@ -647,7 +647,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-output" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-output" />}>
           <OutputRenderer outputs={Array.isArray(data.outputs) ? data.outputs : [data]} />
         </ErrorBoundary>
       );
@@ -660,7 +660,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-terminal" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-terminal" />}>
           <TerminalRenderer command={data.command} outputs={data.outputs || []} status={data.status || 'completed'} title={data.title} />
         </ErrorBoundary>
       );
@@ -673,7 +673,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-code-exec" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-code-exec" />}>
           <CodeExecutionRenderer outputs={data.outputs || []} language={data.language} />
         </ErrorBoundary>
       );
@@ -686,7 +686,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-html-preview" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-html-preview" />}>
           <HtmlTabbedRenderer outputs={data.outputs || []} title={data.title} />
         </ErrorBoundary>
       );
@@ -699,7 +699,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-script" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-script" />}>
           <SkillScriptRenderer outputs={data.outputs || []} skillName={data.skillName} scriptName={data.scriptName} />
         </ErrorBoundary>
       );
@@ -712,7 +712,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-card" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="manus-skill-card" />}>
           <SkillCardRenderer outputs={data.outputs || []} skillName={data.skillName} skillDescription={data.skillDescription} />
         </ErrorBoundary>
       );
@@ -725,7 +725,7 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     try {
       const data = parseFirstJson(content);
       return (
-        <ErrorBoundary fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-sql-query" />}>
+        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="d-sql-query" />}>
           <VisSqlQuery data={data} />
         </ErrorBoundary>
       );
