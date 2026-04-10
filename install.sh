@@ -20,7 +20,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/pyproject.toml" ] && grep -q "OpenDerisk\|openderisk\|derisk" "$SCRIPT_DIR/pyproject.toml" 2>/dev/null; then
     LOCAL_MODE=true
     INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
-    log "Detected local source at $INSTALL_DIR, skipping git clone."
 else
     INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
 fi
