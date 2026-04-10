@@ -694,10 +694,27 @@ class ModelRequest:
                     {"role": "user", "content": "Who are your"},
                 ]
         """
-        messages = [
-            m if isinstance(m, ModelMessage) else ModelMessage(**m)
-            for m in self.messages
-        ]
+        def _convert_message(m):
+            if isinstance(m, ModelMessage):
+                return m
+            # Handle OpenAI format messages with multimodal content
+            if isinstance(m, dict):
+                role = m.get("role")
+                content = m.get("content")
+                # If content is a list (multimodal), parse it first
+                if isinstance(content, list):
+                    # Build a fake message dict for parsing
+                    parsed_content = MediaContent.parse_chat_completion_message(
+                        {"role": role, "content": content}
+                    )
+                    if isinstance(parsed_content, MediaContent):
+                        parsed_content = [parsed_content]
+                    return ModelMessage(role=role, content=parsed_content)
+                # Otherwise, create ModelMessage directly
+                return ModelMessage(**m)
+            return ModelMessage(**m)
+
+        messages = [_convert_message(m) for m in self.messages]
         return ModelMessage.to_common_messages(
             messages, support_system_role=support_system_role
         )
