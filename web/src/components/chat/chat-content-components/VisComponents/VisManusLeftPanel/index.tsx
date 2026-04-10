@@ -57,7 +57,7 @@ const StepCard: FC<{
   return (
     <div
       className={`
-        group flex items-start gap-2.5 px-3 py-2 rounded-lg cursor-pointer
+        group flex items-start gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer
         transition-all duration-200 border
         ${isActive
           ? 'bg-blue-50 border-blue-200 shadow-sm'
@@ -68,7 +68,7 @@ const StepCard: FC<{
     >
       {/* Step type icon */}
       <div
-        className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm mt-0.5"
+        className="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-xs mt-0.5"
         style={{ backgroundColor: `${config.color}15`, color: config.color }}
       >
         {config.icon}
@@ -129,10 +129,10 @@ const SectionBlock: FC<{
   const totalCount = section.steps.length;
 
   return (
-    <div className="mb-3">
+    <div className="mb-1">
       {/* Section header */}
       <button
-        className="flex items-center gap-2 w-full px-2 py-1.5 text-left rounded-md hover:bg-slate-100 transition-colors"
+        className="flex items-center gap-2 w-full px-2 py-1 text-left rounded-md hover:bg-slate-100 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (
@@ -153,7 +153,7 @@ const SectionBlock: FC<{
 
       {/* Steps list */}
       {expanded && (
-        <div className="ml-1 mt-1 space-y-1">
+        <div className="ml-1 mt-0.5 space-y-0.5">
           {section.steps.map((step) => (
             <StepCard
               key={step.id}
@@ -226,7 +226,7 @@ const VisManusLeftPanel: FC<IProps> = ({ data, onStepClick, onArtifactClick }) =
       )}
 
       {/* Sections */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
         {sections.length > 0 ? (
           sections.map((section) => (
             <SectionBlock

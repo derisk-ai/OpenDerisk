@@ -5,7 +5,7 @@ export const VisAgentPlanCardWrap = styled.div`
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 3px 0;
+  padding: 1px 0;
 
   &.selected {
     .header-plan {
@@ -17,7 +17,7 @@ export const VisAgentPlanCardWrap = styled.div`
   .header {
     width: 100%;
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 6px 10px;
     color: #334155;
     background: transparent;
     transition: background 0.15s ease;
@@ -123,7 +123,7 @@ export const VisAgentPlanCardWrap = styled.div`
   .markdown-content-wrap {
     width: 100%;
     background: transparent;
-    padding: 6px 0 0 0;
+    padding: 2px 0 0 0;
   }
 
   .markdown-content-wrap-stage {
@@ -304,7 +304,7 @@ export const VisAgentPlanCardWrap = styled.div`
     backdrop-filter: blur(8px);
     border: 1px solid rgba(226, 232, 240, 0.6);
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 8px 12px;
     transition: all 0.15s ease;
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);

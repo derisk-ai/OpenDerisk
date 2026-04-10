@@ -481,13 +481,13 @@ class ToolAction(Action[ToolInput]):
         truncation_result = None
 
         # 跳过特定工具的截断：
-        # - read_file/view/skill_read/skill_list: 避免循环归档
+        # - read/read_file/view/skill_read/skill_list: 避免循环归档，这些工具已自行管理输出大小（分段读取）
         # - execute_sql: 已自行管理输出大小（分页+CSV导出），Truncator 按字节截断会破坏 d-sql-query JSON 结构
         should_truncate = (
             result_content
             and agent_file_system
             and isinstance(result_content, str)
-            and tool_info.name not in ("read_file", "view", "skill_read", "skill_list", "execute_sql")
+            and tool_info.name not in ("read", "read_file", "view", "skill_read", "skill_list", "execute_sql")
         )
 
         if should_truncate:

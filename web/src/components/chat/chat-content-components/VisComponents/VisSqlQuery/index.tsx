@@ -26,6 +26,8 @@ interface SqlQueryData {
   csv_file?: string;
   csv_export_reason?: string;
   raw_result?: string;
+  display_truncated?: boolean;
+  display_row_count?: number;
 }
 
 interface VisSqlQueryProps {
@@ -59,6 +61,8 @@ const VisSqlQuery: FC<VisSqlQueryProps> = ({ data }) => {
     csv_file,
     csv_export_reason,
     raw_result,
+    display_truncated,
+    display_row_count,
   } = data;
 
   const [currentPage, setCurrentPage] = useState(page || 1);
@@ -179,7 +183,9 @@ const VisSqlQuery: FC<VisSqlQueryProps> = ({ data }) => {
       <div className="p-4">
         <div className="mb-3 flex items-center justify-between">
           <span className="text-xs text-gray-500">
-            共 {total_rows} 行{total_pages > 1 && ` · 第 ${currentPage}/${total_pages} 页`}
+            共 {total_rows} 行
+            {display_truncated && ` · 当前展示 ${display_row_count} 行`}
+            {!display_truncated && total_pages > 1 && ` · 第 ${currentPage}/${total_pages} 页`}
           </span>
           {csv_file && (
             <Tooltip title={csv_export_reason}>

@@ -335,23 +335,9 @@ async def execute_sql(
             end_idx = start_idx + PAGE_SIZE
             display_rows = all_rows[start_idx:end_idx]
 
-            # 构建结果
-            result_data = {
-                "sql": sql,
-                "db_name": db_name,
-                "db_type": db_type,
-                "dialect": dialect,
-                "columns": columns,
-                "rows": display_rows,
-                "total_rows": total_rows,
-                "page": page,
-                "total_pages": total_pages,
-                "page_size": PAGE_SIZE,
-                "has_more": page < total_pages,
-            }
-
             # 如果结果超过 MAX_EXPORT_ROWS，需要导出 CSV
             csv_file_path = None
+            csv_export_reason = None
             if total_rows > MAX_EXPORT_ROWS:
                 csv_file_path = await _export_to_csv(
                     columns=columns,
@@ -361,8 +347,79 @@ async def execute_sql(
                     kwargs=kwargs,
                 )
                 if csv_file_path:
-                    result_data["csv_file"] = csv_file_path
-                    result_data["csv_export_reason"] = f"结果超过 {MAX_EXPORT_ROWS} 行，已导出为 CSV 文件"
+                    csv_export_reason = f"结果共 {total_rows} 行，超过 {MAX_EXPORT_ROWS} 行，已导出为 CSV 文件"
+
+            # 智能控制展示行数：确保 d-sql-query JSON 不会过大
+            # （过大会导致嵌入 manus-right-panel 后整体 JSON 被截断）
+            MAX_VIS_OUTPUT_BYTES = 3 * 1024  # 3KB，为 manus-right-panel 留足空间
+            vis_display_rows = display_rows
+            display_truncated = False
+
+            try:
+                test_data = {
+                    "sql": sql, "db_name": db_name, "db_type": db_type,
+                    "dialect": dialect, "columns": columns, "rows": vis_display_rows,
+                }
+                test_json = json.dumps(test_data, ensure_ascii=False)
+                if len(test_json.encode('utf-8')) > MAX_VIS_OUTPUT_BYTES and vis_display_rows:
+                    # 逐步减少展示行数
+                    for limit in [100, 50, 20, 10, 5]:
+                        if limit >= len(vis_display_rows):
+                            continue
+                        test_data["rows"] = vis_display_rows[:limit]
+                        test_json = json.dumps(test_data, ensure_ascii=False)
+                        if len(test_json.encode('utf-8')) <= MAX_VIS_OUTPUT_BYTES:
+                            vis_display_rows = vis_display_rows[:limit]
+                            display_truncated = True
+                            logger.info(
+                                f"[execute_sql] Reduced display rows from {len(display_rows)} to {limit} "
+                                f"to keep d-sql-query output under {MAX_VIS_OUTPUT_BYTES} bytes"
+                            )
+                            break
+                    else:
+                        # 即使最小 limit 也超过阈值，取最少的
+                        vis_display_rows = vis_display_rows[:5]
+                        display_truncated = True
+
+                    # 如果因为展示截断而尚未导出 CSV，则导出完整结果
+                    if display_truncated and not csv_file_path:
+                        csv_file_path = await _export_to_csv(
+                            columns=columns,
+                            rows=all_rows,
+                            db_name=db_name,
+                            sql=sql,
+                            kwargs=kwargs,
+                        )
+                        if csv_file_path:
+                            csv_export_reason = (
+                                f"结果共 {total_rows} 行，展示数据因体积过大已缩减为 {len(vis_display_rows)} 行，"
+                                f"完整数据已导出为 CSV 文件"
+                            )
+            except Exception as e:
+                logger.warning(f"[execute_sql] Failed to check vis output size: {e}")
+
+            # 构建结果
+            result_data = {
+                "sql": sql,
+                "db_name": db_name,
+                "db_type": db_type,
+                "dialect": dialect,
+                "columns": columns,
+                "rows": vis_display_rows,
+                "total_rows": total_rows,
+                "page": page,
+                "total_pages": total_pages,
+                "page_size": PAGE_SIZE,
+                "has_more": page < total_pages,
+            }
+
+            if csv_file_path:
+                result_data["csv_file"] = csv_file_path
+                result_data["csv_export_reason"] = csv_export_reason
+
+            if display_truncated:
+                result_data["display_truncated"] = True
+                result_data["display_row_count"] = len(vis_display_rows)
 
             # 返回结构化结果
             return _format_sql_result(**result_data)
