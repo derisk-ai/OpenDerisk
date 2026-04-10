@@ -1866,12 +1866,101 @@ class HistoryMessageBuilder:
 
         统一使用 WorkEntry 构建消息，WorkLogManager 是权威数据源。
         如果有 gpts_memory 可用，尝试用 gpts_messages 做消息骨架以获得更完整的消息结构。
+
+        追问场景补偿：当 WorkLog 缺少历史轮次（如 round 1 数据未从 DB 加载）时，
+        通过 get_session_messages(session_id) 从 DB 加载全 session 的 gpts_messages，
+        补充缺失的 conv_ids。
         """
         work_log_by_conv = self._group_work_log_by_conv(session_id)
 
+        # ========== 追问补偿：从 gpts_memory 补充缺失的历史轮次 ==========
+        # 优先使用 load_full_session_history（支持 Cold 层压缩过滤），
+        # 降级使用 get_session_messages（加载全部，用 token_budget 兜底）。
+        session_gpts_msgs_by_conv: Dict[str, list] = {}
+        cold_data = None
+        if self.gpts_memory and session_id and current_conv_id:
+            try:
+                loaded_msgs = []
+
+                # 方案 1: load_full_session_history — 压缩感知，只加载 hot/warm
+                if hasattr(self.gpts_memory, "load_full_session_history"):
+                    # 获取已压缩的 conv_ids（来自 WorkLogManager 的压缩缓存）
+                    cold_conv_ids = []
+                    if self.work_log_manager and hasattr(
+                        self.work_log_manager, "compression_cache"
+                    ):
+                        cache = self.work_log_manager.compression_cache
+                        if cache and hasattr(cache, "cold_conv_ids"):
+                            cold_conv_ids = list(cache.cold_conv_ids)
+
+                    result = await self.gpts_memory.load_full_session_history(
+                        conv_id=current_conv_id,
+                        conv_session_id=session_id,
+                        cold_conv_ids=cold_conv_ids,
+                    )
+                    if result:
+                        cold_data = result.get("cold_data")
+                        # 从缓存中获取刚加载的消息
+                        loaded_msgs = await self.gpts_memory.get_messages(
+                            current_conv_id
+                        )
+                        logger.info(
+                            f"[HistoryMessageBuilder] 追问补偿(压缩感知): "
+                            f"hot_warm={result.get('hot_warm_count', 0)}, "
+                            f"cold={result.get('cold_count', 0)}, "
+                            f"loaded_msgs={len(loaded_msgs)}"
+                        )
+
+                # 方案 2: get_session_messages — 无压缩过滤，加载全部
+                if not loaded_msgs and hasattr(
+                    self.gpts_memory, "get_session_messages"
+                ):
+                    loaded_msgs = await self.gpts_memory.get_session_messages(
+                        session_id
+                    )
+                    if loaded_msgs:
+                        logger.info(
+                            f"[HistoryMessageBuilder] 追问补偿(全量): "
+                            f"loaded {len(loaded_msgs)} msgs from DB"
+                        )
+                        if hasattr(self.gpts_memory, "_cache_messages"):
+                            await self.gpts_memory._cache_messages(
+                                current_conv_id, loaded_msgs
+                            )
+
+                if loaded_msgs:
+                    for msg in loaded_msgs:
+                        cid = getattr(msg, "conv_id", None) or "default"
+                        if cid not in session_gpts_msgs_by_conv:
+                            session_gpts_msgs_by_conv[cid] = []
+                        session_gpts_msgs_by_conv[cid].append(msg)
+
+                    # 补充 work_log 中缺失的 conv_ids
+                    missing_cids = set(session_gpts_msgs_by_conv.keys()) - set(
+                        work_log_by_conv.keys()
+                    )
+                    if missing_cids:
+                        logger.info(
+                            f"[HistoryMessageBuilder] 追问补偿: 补充 "
+                            f"{len(missing_cids)} 个历史轮次: {missing_cids}"
+                        )
+                        for cid in missing_cids:
+                            work_log_by_conv[cid] = []
+
+            except Exception as e:
+                logger.warning(
+                    f"[HistoryMessageBuilder] 追问补偿失败: {e}"
+                )
+
         def _sort_key(cid: str):
-            entries = work_log_by_conv[cid]
-            return entries[0].timestamp if entries else 0
+            entries = work_log_by_conv.get(cid, [])
+            if entries:
+                return entries[0].timestamp if entries else 0
+            # 无 WorkEntry 时，用 gpts_message 的 rounds 或 created_at 排序
+            msgs = session_gpts_msgs_by_conv.get(cid, [])
+            if msgs:
+                return getattr(msgs[0], "rounds", 0) or 0
+            return 0
 
         ordered_conv_ids = sorted(work_log_by_conv.keys(), key=_sort_key)
 
@@ -1884,22 +1973,39 @@ class HistoryMessageBuilder:
         messages: List[Dict[str, Any]] = []
         total_tokens = 0
 
+        # Cold 层摘要消息放在最前面（最早的历史）
+        if cold_data and hasattr(cold_data, "to_llm_messages"):
+            cold_messages = cold_data.to_llm_messages()
+            if cold_messages:
+                cold_tokens = self._estimate_tokens(cold_messages)
+                messages.extend(cold_messages)
+                total_tokens += cold_tokens
+                logger.info(
+                    f"[HistoryMessageBuilder] Cold 层摘要: {len(cold_messages)} msgs, "
+                    f"~{cold_tokens} tokens"
+                )
+
         for cid in ordered_conv_ids:
             if cid == current_conv_id and not include_current:
                 continue
 
-            entries = work_log_by_conv[cid]
+            entries = work_log_by_conv.get(cid, [])
 
-            # 尝试用 gpts_messages 做消息骨架（结构更完整）
-            gpts_msgs = await self._get_gpts_messages(cid) if self.gpts_memory else []
+            # 优先使用已加载的 session gpts_msgs，再 fallback 到按 conv_id 查询
+            gpts_msgs = session_gpts_msgs_by_conv.get(cid, [])
+            if not gpts_msgs and self.gpts_memory:
+                gpts_msgs = await self._get_gpts_messages(cid)
+
             if gpts_msgs:
                 worklog_lookup = self._build_worklog_lookup(entries)
                 conv_messages = self._build_messages_from_gpts_and_worklog(
                     gpts_msgs, worklog_lookup, "hot"
                 )
-            else:
+            elif entries:
                 # 纯 work_log 构建（WorkEntry 自包含完整数据）
                 conv_messages = self._build_messages_from_work_entries(entries)
+            else:
+                continue
 
             conv_tokens = self._estimate_tokens(conv_messages)
 

@@ -138,24 +138,18 @@ class ListSkillsTool(SandboxToolBase):
             )
 
         try:
-            if hasattr(client, "shell_exec"):
-                result = await client.shell_exec(
-                    f"ls -d '{skill_dir}'/*/ 2>/dev/null | xargs -I{{}} basename {{}}"
-                )
-                if hasattr(result, "output"):
-                    output = result.output or ""
-                elif isinstance(result, dict):
-                    output = result.get("output", "")
-                else:
-                    output = str(result)
+            import shlex
+            result = await client.shell.exec_command(
+                command=f"ls -d {shlex.quote(skill_dir)}/*/ 2>/dev/null | xargs -I{{}} basename {{}}",
+                work_dir=getattr(client, "work_dir", "/"),
+                timeout=60.0,
+            )
 
-                skill_names = [n.strip() for n in output.strip().splitlines() if n.strip()]
-                return self._format_skill_list(skill_names, skill_dir)
-            else:
-                return ToolResult.fail(
-                    error="Sandbox client does not support shell execution",
-                    tool_name=self.name,
-                )
+            from derisk.sandbox.sandbox_utils import collect_shell_output
+            output = collect_shell_output(result) or ""
+
+            skill_names = [n.strip() for n in output.strip().splitlines() if n.strip()]
+            return self._format_skill_list(skill_names, skill_dir)
         except Exception as e:
             logger.error(f"[ListSkillsTool] Sandbox list failed: {e}")
             return ToolResult.fail(error=str(e), tool_name=self.name)

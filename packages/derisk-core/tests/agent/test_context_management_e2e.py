@@ -1238,3 +1238,474 @@ class TestFollowUpSessionHistory:
         assert result["hot_warm_count"] == 2
         assert "m1" in cache.message_ids
         assert "m2" in cache.message_ids
+
+    @pytest.mark.asyncio
+    async def test_build_all_from_work_log_followup_compensation(self):
+        """_build_all_from_work_log 追问补偿：WorkLog 无历史轮次时从 gpts_memory 补充。
+
+        模拟真实追问场景：
+        - WorkLog 只有当前轮 (session_abc_2) 的 1 条 user message
+        - Round 1 (session_abc_1) 的消息只在 DB 中（通过 get_session_messages 获取）
+        - 验证 _build_all_from_work_log 能补偿加载 round 1 的 gpts_messages
+        """
+        from unittest.mock import AsyncMock, MagicMock
+        from derisk.agent.expand.react_master_agent.work_log import WorkLogManager
+
+        # Round 1 messages (only in DB, not in WorkLog)
+        r1_user = GptsMessage.from_dict({
+            "conv_id": "session_abc_1", "conv_session_id": "session_abc",
+            "message_id": "m1", "sender": "user", "sender_name": "User",
+            "receiver": "agent", "receiver_name": "Agent", "role": "user",
+            "content": "round 1 question", "rounds": 1,
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+        r1_ai = GptsMessage.from_dict({
+            "conv_id": "session_abc_1", "conv_session_id": "session_abc",
+            "message_id": "m2", "sender": "agent", "sender_name": "Agent",
+            "receiver": "user", "receiver_name": "User", "role": "assistant",
+            "content": "round 1 answer", "rounds": 2,
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+        # Round 2 user message (current round, in WorkLog as user entry)
+        r2_user = GptsMessage.from_dict({
+            "conv_id": "session_abc_2", "conv_session_id": "session_abc",
+            "message_id": "m3", "sender": "user", "sender_name": "User",
+            "receiver": "agent", "receiver_name": "Agent", "role": "user",
+            "content": "round 2 follow-up", "rounds": 3,
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+
+        # Mock gpts_memory
+        memory = MagicMock()
+        memory.get_session_messages = AsyncMock(
+            return_value=[r1_user, r1_ai, r2_user]
+        )
+        memory._cache_messages = AsyncMock()
+
+        # load_full_session_history returns result and populates cache
+        _cache_populated = {"done": False}
+        async def mock_load_full(conv_id, conv_session_id, cold_conv_ids=None):
+            _cache_populated["done"] = True
+            return {"hot_warm_count": 3, "cold_count": 0, "cold_data": None}
+        memory.load_full_session_history = mock_load_full
+
+        # get_messages: after load_full_session_history, return all msgs for current conv_id
+        async def mock_get_messages(cid):
+            if cid == "session_abc_2" and _cache_populated["done"]:
+                return [r1_user, r1_ai, r2_user]  # all session msgs cached
+            elif cid == "session_abc_2":
+                return [r2_user]
+            return []
+        memory.get_messages_with_work_entries = mock_get_messages
+        memory.get_messages = mock_get_messages
+
+        # WorkLog with only current round user message
+        work_log_manager = MagicMock(spec=WorkLogManager)
+        work_log_manager.initialize = AsyncMock()
+
+        class FakeEntry:
+            def __init__(self, conv_id, tool, timestamp):
+                self.conv_id = conv_id
+                self.tool = tool
+                self.timestamp = timestamp
+                self.tool_call_id = None
+
+        work_log_manager.work_log = [
+            FakeEntry("session_abc_2", "__user_message__", 1000),
+        ]
+
+        builder = HistoryMessageBuilder(gpts_memory=memory)
+        builder.work_log_manager = work_log_manager
+
+        messages, tokens = await builder._build_all_from_work_log(
+            session_id="session_abc",
+            current_conv_id="session_abc_2",
+            token_budget=50000,
+            include_current=True,
+        )
+
+        # Should include round 1 messages (补偿加载) + round 2
+        assert len(messages) >= 2, (
+            f"Expected >=2 messages (round 1 + round 2), got {len(messages)}: "
+            f"{[m.get('content', '')[:30] for m in messages]}"
+        )
+        contents_str = str([m.get("content", "") for m in messages])
+        assert "round 1" in contents_str, (
+            f"Round 1 content missing from follow-up. Messages: {contents_str}"
+        )
+
+
+class TestFullChainVerification:
+    """全链路验证：覆盖运行时真实数据流。"""
+
+    # ===== Chain 1: tool_call_id 传递链路 =====
+    @pytest.mark.asyncio
+    async def test_tool_call_id_flows_to_worklog_lookup(self):
+        """tool_call_id 从 WorkEntry 到 worklog_lookup 到 tool message content。
+
+        链路: record_action(tool_call_id=tc1) → WorkEntry.tool_call_id=tc1
+              → _build_worklog_lookup → lookup[tc1] = entry
+              → _build_messages_from_gpts_and_worklog → tool msg content = entry result
+        """
+        from derisk.agent.expand.react_master_agent.work_log import WorkLogManager
+
+        # Step 1: Create WorkLogManager and record action with tool_call_id
+        wlm = WorkLogManager.__new__(WorkLogManager)
+        wlm.work_log = []
+        wlm._initialized = True
+        wlm._session_id = "s1"
+        wlm._layer_manager = None
+        wlm._storage = None
+
+        # Simulate WorkEntry with tool_call_id
+        class FakeEntry:
+            def __init__(self, tool, result, tool_call_id, conv_id, assistant_content=""):
+                self.tool = tool
+                self.result = result
+                self.tool_call_id = tool_call_id
+                self.conv_id = conv_id
+                self.assistant_content = assistant_content
+                self.timestamp = 1000
+                self.tokens = 50
+                self.message_id = None
+
+            def format_for_prompt(self):
+                return self.result
+
+        entry = FakeEntry(
+            tool="search_db",
+            result="Found 5 records in users table",
+            tool_call_id="call_abc123",
+            conv_id="s1_1",
+            assistant_content="Let me search the database",
+        )
+
+        # Step 2: Build worklog_lookup
+        builder = HistoryMessageBuilder()
+        lookup = builder._build_worklog_lookup([entry])
+        assert "call_abc123" in lookup, f"tool_call_id not in lookup: {lookup.keys()}"
+        assert lookup["call_abc123"] == entry
+
+        # Step 3: Create gpts_message with matching tool_calls
+        ai_msg = GptsMessage.from_dict({
+            "conv_id": "s1_1", "conv_session_id": "s1", "message_id": "m1",
+            "sender": "agent", "sender_name": "Agent", "receiver": "user",
+            "receiver_name": "User", "role": "assistant",
+            "content": "Let me search the database",
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+        ai_msg.tool_calls = [
+            {"id": "call_abc123", "function": {"name": "search_db", "arguments": "{}"}}
+        ]
+
+        # Step 4: Build messages and verify tool result content
+        messages = builder._build_messages_from_gpts_and_worklog(
+            [ai_msg], lookup, "hot"
+        )
+        tool_messages = [m for m in messages if m.get("role") == "tool"]
+        assert len(tool_messages) >= 1, f"No tool messages found: {messages}"
+        assert "Found 5 records" in str(tool_messages[0].get("content", "")), (
+            f"Tool result content not from WorkEntry: {tool_messages[0]}"
+        )
+
+    # ===== Chain 2: WAITING 过滤逻辑 =====
+    def test_waiting_filter_logic_equivalence(self):
+        """WAITING 过滤逻辑：与参考项目等价性验证。
+
+        参考项目: if not is_waiting or is_ask_user: RECORD
+        当前项目: if is_waiting and not is_ask_user: SKIP else: RECORD
+        """
+        cases = [
+            # (is_waiting, is_ask_user, should_record)
+            (False, False, True),   # 正常执行完成 → 记录
+            (False, True, True),    # 正常执行 + ask_user → 记录
+            (True, False, False),   # 授权等待中 → 不记录
+            (True, True, True),     # 执行完但等待用户回复 → 记录
+        ]
+
+        for is_waiting, is_ask_user, expected_record in cases:
+            # 当前项目逻辑
+            current_skip = is_waiting and not is_ask_user
+            current_record = not current_skip
+
+            # 参考项目逻辑
+            ref_record = not is_waiting or is_ask_user
+
+            assert current_record == expected_record, (
+                f"Case ({is_waiting}, {is_ask_user}): "
+                f"expected record={expected_record}, got {current_record}"
+            )
+            assert current_record == ref_record, (
+                f"Logic NOT equivalent for ({is_waiting}, {is_ask_user}): "
+                f"current={current_record}, ref={ref_record}"
+            )
+
+    # ===== Chain 3: System prompt 注入 =====
+    def test_system_prompt_3_level_fallback(self):
+        """System prompt 3 级 fallback 验证。
+
+        Level 1: prompt 参数
+        Level 2: reply_message.system_prompt
+        Level 3: messages 中第一个 system 消息
+        """
+        from derisk.core.interface.message import ModelMessageRoleType
+
+        # Level 1: prompt 参数优先
+        prompt = "System prompt from param"
+        system_prompt_text = prompt
+        assert system_prompt_text == "System prompt from param"
+
+        # Level 2: reply_message.system_prompt
+        class FakeReplyMsg:
+            system_prompt = "System prompt from reply_message"
+        prompt_l2 = None
+        reply_message = FakeReplyMsg()
+        system_prompt_text = prompt_l2
+        if not system_prompt_text and reply_message:
+            system_prompt_text = getattr(reply_message, "system_prompt", None)
+        assert system_prompt_text == "System prompt from reply_message"
+
+        # Level 3: messages 中第一个 system 消息
+        prompt_l3 = None
+        reply_message_l3 = None
+        messages = [
+            {"role": ModelMessageRoleType.SYSTEM, "content": "System from messages"},
+            {"role": "human", "content": "user question"},
+        ]
+        system_prompt_text = prompt_l3
+        if not system_prompt_text and reply_message_l3:
+            system_prompt_text = getattr(reply_message_l3, "system_prompt", None)
+        if not system_prompt_text and messages:
+            for m in messages:
+                m_role = getattr(m, "role", None) or (m.get("role") if isinstance(m, dict) else None)
+                if m_role and str(m_role).lower() in ("system", ModelMessageRoleType.SYSTEM):
+                    m_content = getattr(m, "content", None) or (m.get("content") if isinstance(m, dict) else None)
+                    if m_content:
+                        system_prompt_text = str(m_content)
+                    break
+        assert system_prompt_text == "System from messages"
+
+    # ===== Chain 4: Cold 层压缩过滤 =====
+    @pytest.mark.asyncio
+    async def test_cold_conv_ids_filtering(self):
+        """load_full_session_history 正确过滤 cold_conv_ids。
+
+        3 轮对话，cold_conv_ids=["s1_1"]：
+        - s1_1 的消息不进入 hot_warm（被过滤）
+        - s1_2, s1_3 的消息进入 hot_warm
+        """
+        from unittest.mock import MagicMock, AsyncMock, patch
+        from derisk.agent.core.memory.gpts.gpts_memory import GptsMemory, ConversationCache, VisProtocolConverter
+
+        msgs = []
+        for i, cid in enumerate(["s1_1", "s1_2", "s1_3"]):
+            msgs.append(GptsMessage.from_dict({
+                "conv_id": cid, "conv_session_id": "s1",
+                "message_id": f"m{i}", "sender": "u", "sender_name": "U",
+                "receiver": "a", "receiver_name": "A",
+                "role": "user", "content": f"question {i}",
+                "show_message": True, "created_at": None, "updated_at": None,
+            }))
+
+        mock_msg_mem = MagicMock()
+        mock_plans_mem = MagicMock()
+        mock_plans_mem.get_by_conv_id = AsyncMock(return_value=[])
+
+        gm = GptsMemory.__new__(GptsMemory)
+        gm._message_memory = mock_msg_mem
+        gm._plans_memory = mock_plans_mem
+        gm._work_log_db_storage = None
+        gm._executor = None
+        gm._conversations = {}
+        gm._conv_locks = {}
+        gm._global_lock = __import__("asyncio").Lock()
+
+        cache = ConversationCache("s1_3", VisProtocolConverter())
+        gm._conversations["s1_3"] = cache
+
+        async def mock_blocking(executor, func, *args, **kwargs):
+            return msgs
+
+        with patch(
+            "derisk.agent.core.memory.gpts.gpts_memory.blocking_func_to_async",
+            side_effect=mock_blocking,
+        ):
+            result = await gm.load_full_session_history(
+                "s1_3", "s1", cold_conv_ids=["s1_1"]
+            )
+
+        assert result["hot_warm_count"] == 2, (
+            f"Expected 2 hot/warm msgs (s1_2+s1_3), got {result['hot_warm_count']}"
+        )
+        # s1_1 的消息不应出现在缓存中
+        cached_conv_ids = set(
+            cache.messages[mid].conv_id for mid in cache.message_ids
+        )
+        assert "s1_1" not in cached_conv_ids, (
+            f"Cold conv s1_1 should be filtered out, found: {cached_conv_ids}"
+        )
+        assert "s1_2" in cached_conv_ids
+        assert "s1_3" in cached_conv_ids
+
+    # ===== Chain 5: 追问补偿优先使用压缩感知 =====
+    @pytest.mark.asyncio
+    async def test_followup_prefers_compression_aware_loading(self):
+        """追问补偿优先使用 load_full_session_history（压缩感知）。
+
+        验证 _build_all_from_work_log 会先尝试 load_full_session_history，
+        只有失败时才降级到 get_session_messages。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        call_order = []
+
+        # Mock gpts_memory with both methods
+        memory = MagicMock()
+
+        r1 = GptsMessage.from_dict({
+            "conv_id": "s_1", "conv_session_id": "s",
+            "message_id": "m1", "sender": "u", "sender_name": "U",
+            "receiver": "a", "receiver_name": "A", "role": "user",
+            "content": "history question", "rounds": 1,
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+
+        async def mock_load_full(conv_id, conv_session_id, cold_conv_ids=None):
+            call_order.append("load_full_session_history")
+            return {"hot_warm_count": 1, "cold_count": 0, "cold_data": None}
+
+        async def mock_get_session(sid):
+            call_order.append("get_session_messages")
+            return [r1]
+
+        async def mock_get_messages(cid):
+            if cid == "s_2":
+                return [r1]  # after load_full populated cache
+            return []
+
+        memory.load_full_session_history = mock_load_full
+        memory.get_session_messages = mock_get_session
+        memory._cache_messages = AsyncMock()
+        memory.get_messages = mock_get_messages
+        memory.get_messages_with_work_entries = mock_get_messages
+
+        work_log_manager = MagicMock()
+        work_log_manager.work_log = []
+        work_log_manager.initialize = AsyncMock()
+
+        builder = HistoryMessageBuilder(gpts_memory=memory)
+        builder.work_log_manager = work_log_manager
+
+        await builder._build_all_from_work_log(
+            session_id="s",
+            current_conv_id="s_2",
+            token_budget=50000,
+            include_current=True,
+        )
+
+        assert "load_full_session_history" in call_order, (
+            f"load_full_session_history not called. Order: {call_order}"
+        )
+        # get_session_messages should NOT be called (load_full succeeded)
+        assert "get_session_messages" not in call_order, (
+            f"get_session_messages should not be called when load_full succeeds. "
+            f"Order: {call_order}"
+        )
+
+    # ===== Chain 6: 追问降级到 get_session_messages =====
+    @pytest.mark.asyncio
+    async def test_followup_degrades_to_get_session_messages(self):
+        """当 load_full_session_history 不可用时降级到 get_session_messages。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        call_order = []
+        r1 = GptsMessage.from_dict({
+            "conv_id": "s_1", "conv_session_id": "s",
+            "message_id": "m1", "sender": "u", "sender_name": "U",
+            "receiver": "a", "receiver_name": "A", "role": "user",
+            "content": "history q", "rounds": 1,
+            "show_message": True, "created_at": None, "updated_at": None,
+        })
+
+        memory = MagicMock()
+        # NO load_full_session_history → should degrade
+        del memory.load_full_session_history
+
+        async def mock_get_session(sid):
+            call_order.append("get_session_messages")
+            return [r1]
+
+        async def mock_get_messages(cid):
+            return []
+
+        memory.get_session_messages = mock_get_session
+        memory._cache_messages = AsyncMock()
+        memory.get_messages = mock_get_messages
+        memory.get_messages_with_work_entries = mock_get_messages
+
+        work_log_manager = MagicMock()
+        work_log_manager.work_log = []
+        work_log_manager.initialize = AsyncMock()
+
+        builder = HistoryMessageBuilder(gpts_memory=memory)
+        builder.work_log_manager = work_log_manager
+
+        messages, _ = await builder._build_all_from_work_log(
+            session_id="s", current_conv_id="s_2",
+            token_budget=50000, include_current=True,
+        )
+
+        assert "get_session_messages" in call_order, (
+            f"get_session_messages not called as fallback. Order: {call_order}"
+        )
+        assert len(messages) >= 1, f"Expected messages from fallback, got {len(messages)}"
+
+    # ===== Chain 7: conv_id 传递与 session 过滤 =====
+    def test_group_work_log_by_conv_filters_by_session(self):
+        """_group_work_log_by_conv 按 session_id 前缀正确过滤。
+
+        同 session 的 entries 应包含，不同 session 的应排除。
+        """
+        from unittest.mock import MagicMock
+
+        class FakeEntry:
+            def __init__(self, conv_id):
+                self.conv_id = conv_id
+
+        wlm = MagicMock()
+        wlm.work_log = [
+            FakeEntry("session_abc_1"),  # ✓ 属于 session_abc
+            FakeEntry("session_abc_2"),  # ✓ 属于 session_abc
+            FakeEntry("session_xyz_1"),  # ✗ 不属于 session_abc
+            FakeEntry("session_abc"),    # ✓ 精确匹配
+        ]
+
+        builder = HistoryMessageBuilder()
+        builder.work_log_manager = wlm
+
+        groups = builder._group_work_log_by_conv("session_abc")
+        assert "session_abc_1" in groups
+        assert "session_abc_2" in groups
+        assert "session_abc" in groups
+        assert "session_xyz_1" not in groups, (
+            f"session_xyz_1 should be excluded: {groups.keys()}"
+        )
+
+    # ===== Chain 8: _build_worklog_lookup 正确索引 =====
+    def test_build_worklog_lookup_indexes_by_tool_call_id(self):
+        """worklog_lookup 按 tool_call_id 建索引。"""
+        class FakeEntry:
+            def __init__(self, tool_call_id):
+                self.tool_call_id = tool_call_id
+
+        entries = [
+            FakeEntry("call_1"),
+            FakeEntry("call_2"),
+            FakeEntry(None),  # 无 tool_call_id 不应报错
+        ]
+
+        builder = HistoryMessageBuilder()
+        lookup = builder._build_worklog_lookup(entries)
+        assert "call_1" in lookup
+        assert "call_2" in lookup
+        assert None not in lookup

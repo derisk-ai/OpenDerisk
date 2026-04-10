@@ -49,6 +49,7 @@ import {
   HtmlTabbedRenderer,
   SkillScriptRenderer,
   SkillCardRenderer,
+  SkillReadRenderer,
   SqlQueryRenderer,
 } from './renderers';
 
@@ -71,7 +72,7 @@ const getStepTypeIcon = (type: ManusStepType) => {
     python: <CodeOutlined className="text-blue-500" />,
     html: <CodeOutlined className="text-orange-500" />,
     task: <PlayCircleOutlined className="text-indigo-500" />,
-    skill: <PlayCircleOutlined className="text-indigo-500" />,
+    skill: <CodeOutlined className="text-violet-500" />,
     sql: <ConsoleSqlOutlined className="text-emerald-600" />,
   };
   return map[type] || <FileTextOutlined className="text-gray-400" />;
@@ -82,7 +83,7 @@ const getIconBgClass = (type: ManusStepType): string => {
     read: 'bg-emerald-50', edit: 'bg-amber-50', write: 'bg-amber-50',
     bash: 'bg-purple-50', grep: 'bg-cyan-50', glob: 'bg-cyan-50',
     python: 'bg-blue-50', html: 'bg-orange-50',
-    task: 'bg-indigo-50', skill: 'bg-indigo-50', sql: 'bg-emerald-50',
+    task: 'bg-indigo-50', skill: 'bg-violet-50', sql: 'bg-emerald-50',
   };
   return map[type] || 'bg-gray-50';
 };
@@ -166,9 +167,10 @@ const StepRenderer: FC<{
     case 'html':
       return <HtmlTabbedRenderer outputs={outputs} title={activeStep.title} />;
     case 'skill':
-      if (action === 'execute_skill_script_file') return <SkillScriptRenderer outputs={outputs} skillName={activeStep.title} />;
-      if (action === 'get_skill_resource' || action === 'load_skill') return <SkillCardRenderer outputs={outputs} skillName={activeStep.title} />;
-      return <OutputRenderer outputs={outputs} />;
+      if (action === 'skill_read') return <SkillReadRenderer outputs={outputs} skillName={activeStep.title} />;
+      if (action === 'skill_exec' || action === 'execute_skill_script_file') return <SkillScriptRenderer outputs={outputs} skillName={activeStep.title} />;
+      if (action === 'skill_list' || action === 'get_skill_resource' || action === 'load_skill') return <SkillCardRenderer outputs={outputs} skillName={activeStep.title} />;
+      return <SkillReadRenderer outputs={outputs} skillName={activeStep.title} />;
     default:
       return <OutputRenderer outputs={outputs} />;
   }

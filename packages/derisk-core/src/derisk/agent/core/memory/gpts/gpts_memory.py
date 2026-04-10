@@ -671,7 +671,8 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             return
 
         hot_warm_messages = [
-            msg for msg in all_messages if msg.conv_id not in cold_conv_ids
+            msg for msg in all_messages
+            if not msg.conv_id or msg.conv_id not in cold_conv_ids
         ]
 
         if hot_warm_messages:

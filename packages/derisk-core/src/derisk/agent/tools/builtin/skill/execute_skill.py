@@ -154,18 +154,23 @@ class ExecuteSkillScriptTool(SandboxToolBase):
             cmd += f" '{script_args}'"
 
         try:
-            if hasattr(client, "shell_exec"):
-                result = await client.shell_exec(cmd)
-                if hasattr(result, "output"):
-                    output = result.output or ""
-                elif isinstance(result, dict):
-                    output = result.get("output", str(result))
-                else:
-                    output = str(result)
-            else:
+            result = await client.shell.exec_command(
+                command=cmd,
+                work_dir=getattr(client, "work_dir", skill_dir),
+                timeout=120.0,
+            )
+
+            # Extract output using the same pattern as view.py
+            from derisk.sandbox.sandbox_utils import collect_shell_output
+            output = collect_shell_output(result) or ""
+
+            status = getattr(result, "status", None)
+            if status != "completed":
+                output = self._truncate_output(output)
                 return ToolResult.fail(
-                    error="Sandbox client does not support shell execution",
+                    error=f"Script execution failed (status: {status})",
                     tool_name=self.name,
+                    output=output,
                 )
 
             # Truncate output if too large

@@ -167,7 +167,7 @@ export const STEP_TYPE_CONFIG: Record<
   grep: { icon: '🔍', color: '#06b6d4', label: '搜索' },
   glob: { icon: '📁', color: '#14b8a6', label: '查找' },
   task: { icon: '📋', color: '#6366f1', label: '任务' },
-  skill: { icon: '⚡', color: '#6366f1', label: '技能' },
+  skill: { icon: '🧩', color: '#8b5cf6', label: '技能' },
   python: { icon: '🐍', color: '#eab308', label: 'Python' },
   html: { icon: '🌐', color: '#f97316', label: 'HTML' },
   sql: { icon: '🗄️', color: '#ec4899', label: 'SQL' },

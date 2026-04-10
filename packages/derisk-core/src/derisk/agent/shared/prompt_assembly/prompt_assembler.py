@@ -76,7 +76,11 @@ class PromptAssemblyConfig:
             "role",
             "name",
             "goal",
+            "now",
             "now_time",
+            "conv_start_time",
+            "user_name",
+            "user_id",
             "language",
             "expand_prompt",
             "agent_name",
@@ -258,7 +262,17 @@ class PromptAssembler:
 
         # 用户问题
         if question:
-            sections.append(f"## 当前用户输入\n\n{question}")
+            user_name = kwargs.get("user_name", "")
+            user_id = kwargs.get("user_id", "")
+            question_section = f"## 当前用户输入\n\n{question}"
+            if user_name or user_id:
+                parts = []
+                if user_name:
+                    parts.append(user_name)
+                if user_id:
+                    parts.append(user_id)
+                question_section += f"\n\n> 以上需求由 {' / '.join(parts)} 提交"
+            sections.append(question_section)
 
         return "\n\n".join(sections) if sections else ""
 
@@ -437,12 +451,17 @@ class PromptAssembler:
         now_time = kwargs.get("now_time") or datetime.now().strftime(
             "%Y-%m-%d %H:%M:%S"
         )
+        now = kwargs.get("now") or datetime.now().strftime("%Y-%m-%d")
 
         context = {
             "role": kwargs.get("role", ""),
             "name": kwargs.get("name", ""),
             "goal": kwargs.get("goal", ""),
+            "now": now,
             "now_time": now_time,
+            "conv_start_time": kwargs.get("conv_start_time", ""),
+            "user_name": kwargs.get("user_name", ""),
+            "user_id": kwargs.get("user_id", ""),
             "language": kwargs.get("language", self.config.language),
             "expand_prompt": kwargs.get("expand_prompt", ""),
             "agent_name": kwargs.get("agent_name", kwargs.get("name", "")),

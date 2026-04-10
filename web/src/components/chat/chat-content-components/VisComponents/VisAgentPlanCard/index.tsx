@@ -100,6 +100,7 @@ const toolNameIconMap: Array<{ keywords: string[]; icon: React.ReactNode; label:
   { keywords: ['api', 'rest', 'graphql', 'endpoint'], icon: <ApiOutlined style={{ fontSize: 13, color: '#13c2c2' }} />, label: 'API' },
   { keywords: ['search', 'retrieve', 'lookup', 'find'], icon: <SearchOutlined style={{ fontSize: 13, color: '#eb2f96' }} />, label: '搜索' },
   { keywords: ['cloud', 'deploy', 'server', 'container', 'docker'], icon: <CloudOutlined style={{ fontSize: 13, color: '#2f54eb' }} />, label: '云服务' },
+  { keywords: ['skill_read', 'skill_exec', 'skill_list', 'skill'], icon: <CodeOutlined style={{ fontSize: 13, color: '#8b5cf6' }} />, label: '技能' },
 ];
 
 const getToolNameIcon = (toolName?: string, title?: string): React.ReactNode | null => {

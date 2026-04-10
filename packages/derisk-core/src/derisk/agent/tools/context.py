@@ -55,6 +55,9 @@ class ToolContext(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict, description="工具配置")
     max_output_bytes: int = Field(50 * 1024, description="最大输出字节数")
     max_output_lines: int = Field(50, description="最大输出行数")
+
+    skill_dir: Optional[str] = Field(None, description="Skill 目录路径")
+    available_skills: Dict[str, str] = Field(default_factory=dict, description="可用技能: name -> path")
     
     class Config:
         arbitrary_types_allowed = True

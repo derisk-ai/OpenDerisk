@@ -69,7 +69,7 @@ class UnifiedCompactionConfig:
     prune_protect_tokens: int = 10000  # 废弃：使用 prune_protect_ratio 替代
     prune_protect_ratio: float = 0.15  # 保留最近 15% 上下文空间的消息
     min_messages_keep: int = 20
-    prune_protected_tools: Tuple[str, ...] = ("skill",)
+    prune_protected_tools: Tuple[str, ...] = ("skill", "skill_read", "skill_exec", "skill_list")
 
     # 自适应剪枝配置
     enable_adaptive_pruning: bool = True
@@ -1266,9 +1266,23 @@ class UnifiedCompactionPipeline:
         if chapter.skill_outputs:
             parts.append("")
             parts.append("=== Active Skill Instructions (Rehydrated) ===")
-            for i, skill_output in enumerate(chapter.skill_outputs):
-                parts.append(f"\n--- Skill Output {i + 1} ---")
-                parts.append(skill_output)
+            total_skills = len(chapter.skill_outputs)
+            # Eviction: keep first 1 + last 2 full, summarize the rest
+            if total_skills <= 3:
+                for i, skill_output in enumerate(chapter.skill_outputs):
+                    parts.append(f"\n--- Skill Output {i + 1} ---")
+                    parts.append(skill_output)
+            else:
+                # First skill (full)
+                parts.append(f"\n--- Skill Output 1 ---")
+                parts.append(chapter.skill_outputs[0])
+                # Evicted middle skills (names only)
+                evicted_count = total_skills - 3
+                parts.append(f"\n[{evicted_count} skill output(s) evicted to save context, use skill_read to reload]")
+                # Last 2 skills (full)
+                for i, skill_output in enumerate(chapter.skill_outputs[-2:], start=total_skills - 1):
+                    parts.append(f"\n--- Skill Output {i} ---")
+                    parts.append(skill_output)
 
         parts.append("")
         parts.append(

@@ -22,20 +22,22 @@ interface ManusChatContentProps {
 }
 
 /**
- * Extract the latest running_window and build a deliverable file_id → running_window map
- * for cross-round tab switching.
+ * Extract the latest running_window and build routing maps for cross-round switching:
+ * - fileRunningWindowMap: deliverable file_id → running_window
+ * - stepRunningWindowMap: step UID (from steps_map keys) → running_window
  */
 function useRunningWindows(
   showMessages: Array<IChatDialogueMessageSchema & { key: string }>
 ): {
   latestRunningWindow: string;
   latestHasData: boolean;
-  /** Maps deliverable file_id (and 'task_files') to the running_window that contains it */
   fileRunningWindowMap: Map<string, string>;
+  stepRunningWindowMap: Map<string, string>;
 } {
   return useMemo(() => {
     let latestRunningWindow = '';
     const fileMap = new Map<string, string>();
+    const stepMap = new Map<string, string>();
 
     for (const msg of showMessages) {
       if (msg.role !== 'view') continue;
@@ -47,16 +49,23 @@ function useRunningWindows(
 
         latestRunningWindow = rw;
 
-        // Parse manus-right-panel to index deliverable file_ids → this running_window
+        // Parse manus-right-panel to index file_ids and step UIDs → this running_window
         const match = rw.match(/```manus-right-panel\s*\n([\s\S]*?)\n```/);
         if (match) {
           try {
             const data = JSON.parse(match[1]);
+            // Index deliverable files
             for (const f of data.deliverable_files || []) {
               if (f.file_id) fileMap.set(f.file_id, rw);
             }
             if ((data.task_files || []).length > 0) {
               fileMap.set('task_files', rw);
+            }
+            // Index step UIDs from steps_map
+            if (data.steps_map) {
+              for (const uid of Object.keys(data.steps_map)) {
+                stepMap.set(uid, rw);
+              }
             }
           } catch {
             // skip
@@ -71,6 +80,7 @@ function useRunningWindows(
       latestRunningWindow,
       latestHasData: !!latestRunningWindow,
       fileRunningWindowMap: fileMap,
+      stepRunningWindowMap: stepMap,
     };
   }, [showMessages]);
 }
@@ -94,7 +104,7 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
       }));
   }, [history]);
 
-  const { latestRunningWindow, latestHasData, fileRunningWindowMap } = useRunningWindows(showMessages);
+  const { latestRunningWindow, latestHasData, fileRunningWindowMap, stepRunningWindowMap } = useRunningWindows(showMessages);
 
   // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
@@ -135,6 +145,21 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
       ee.off(EVENTS.SWITCH_TAB, handleSwitchTab);
     };
   }, [fileRunningWindowMap, displayRunningWindow]);
+
+  // Listen for CLICK_FOLDER to route step clicks to the correct round's running_window
+  useEffect(() => {
+    const handleClickFolder = (payload: { uid?: string }) => {
+      if (!payload?.uid) return;
+      const rw = stepRunningWindowMap.get(payload.uid);
+      if (rw && rw !== displayRunningWindow) {
+        setOverrideRunningWindow(rw);
+      }
+    };
+    ee.on(EVENTS.CLICK_FOLDER, handleClickFolder);
+    return () => {
+      ee.off(EVENTS.CLICK_FOLDER, handleClickFolder);
+    };
+  }, [stepRunningWindowMap, displayRunningWindow]);
 
   // When new streaming data arrives, auto-open panel and reset override
   const prevLatestRef = useRef(latestRunningWindow);

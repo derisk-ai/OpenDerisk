@@ -139,6 +139,9 @@ class ToolManager:
         "write",  # 文件写入（沙箱时委托给 create_file）
         "edit",  # 文件编辑（沙箱时委托给 edit_file）
         "deliver_file",  # 文件交付（标记为交付物并上传到 OSS）
+        "skill_read",  # 读取 Skill 内容（默认注入）
+        "skill_exec",  # 执行 Skill 脚本（默认注入）
+        "skill_list",  # 列出可用 Skill（默认注入）
     ]
 
     # 沙箱专属工具（仅沙箱环境可用，需手动绑定）
@@ -162,9 +165,6 @@ class ToolManager:
         "webfetch",  # 网页获取
         "websearch",  # 网络搜索
         "python",  # Python执行
-        "skill_read",  # 读取 Skill 内容
-        "skill_exec",  # 执行 Skill 脚本
-        "skill_list",  # 列出可用 Skill
         "knowledge_search",  # 知识库搜索
         "download_file",  # 沙箱下载文件（手动绑定）
         "get_table_spec",  # 数据库表结构查询

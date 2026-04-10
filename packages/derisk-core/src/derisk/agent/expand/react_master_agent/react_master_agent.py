@@ -261,6 +261,9 @@ class ReActMasterAgent(ConversableAgent):
         # 初始化交互能力
         self._interaction_extension = None
 
+        # Skill 内容追踪：skill_name -> content（用于 compaction 后重新注入）
+        self._invoked_skills: Dict[str, str] = {}
+
     async def preload_resource(self) -> None:
         """Preload resources and inject system tools.
 
@@ -1252,6 +1255,56 @@ class ReActMasterAgent(ConversableAgent):
                 if pipeline.has_compacted:
                     await self._inject_history_tools_if_needed()
 
+                # 压缩后重新注入已调用的 Skill 内容，防止 Skill 指令丢失
+                # 淘汰策略：保留第 1 个 + 最后 2 个的完整内容，中间的只保留名称摘要
+                if self._invoked_skills:
+                    skill_items = list(self._invoked_skills.items())
+                    total = len(skill_items)
+                    # _MAX_FULL_SKILLS: first 1 + last 2 = 3 slots for full content
+                    _MAX_FULL_SKILLS = 3
+
+                    if total <= _MAX_FULL_SKILLS:
+                        # 少于等于 3 个，全部完整注入
+                        full_inject = skill_items
+                        evicted_names = []
+                    else:
+                        # 保留第 1 个 + 最后 2 个，中间的被淘汰
+                        keep_first = skill_items[:1]
+                        keep_last = skill_items[-2:]
+                        evicted = skill_items[1:-2]
+                        full_inject = keep_first + keep_last
+                        evicted_names = [name for name, _ in evicted]
+
+                    # 注入完整 skill 内容
+                    for sk_name, sk_content in full_inject:
+                        truncated = sk_content[:100_000] if len(sk_content) > 100_000 else sk_content
+                        skill_msg = {
+                            "role": "system",
+                            "content": f'<skill-content name="{sk_name}">\n{truncated}\n</skill-content>',
+                            "context": {"is_skill_content": True, "is_critical": True},
+                        }
+                        messages.append(skill_msg)
+
+                    # 注入被淘汰 skill 的名称摘要（供 Agent 知道曾加载过哪些 skill）
+                    if evicted_names:
+                        summary_msg = {
+                            "role": "system",
+                            "content": (
+                                f"<evicted-skills>\n"
+                                f"The following {len(evicted_names)} skill(s) were previously loaded but their "
+                                f"content was evicted to save context space. Use skill_read to reload if needed:\n"
+                                + "\n".join(f"- {name}" for name in evicted_names)
+                                + "\n</evicted-skills>"
+                            ),
+                            "context": {"is_skill_content": True},
+                        }
+                        messages.append(summary_msg)
+
+                    logger.info(
+                        f"Re-injected {len(full_inject)} skill(s) after compaction"
+                        + (f", evicted {len(evicted_names)}" if evicted_names else "")
+                    )
+
         else:
             # 降级到传统的修剪 + 压缩
             messages = await self._prune_history(messages)
@@ -1309,6 +1362,8 @@ class ReActMasterAgent(ConversableAgent):
 
             # 构建模板变量
             template_vars = getattr(self.profile, "template_vars", None) or {}
+            # 从 agent_context 获取用户信息和对话时间
+            ctx = self.agent_context
             base_vars = {
                 "role": getattr(self.profile, "role", "")
                 if hasattr(self, "profile")
@@ -1322,6 +1377,9 @@ class ReActMasterAgent(ConversableAgent):
                 "language": getattr(self.profile, "language", "zh")
                 if hasattr(self, "profile")
                 else "zh",
+                "user_name": getattr(ctx, "user_name", "") if ctx else "",
+                "user_id": getattr(ctx, "user_id", "") if ctx else "",
+                "conv_start_time": getattr(ctx, "conv_start_time", "") if ctx else "",
             }
             render_vars = {**base_vars, **template_vars}
 
@@ -2091,6 +2149,13 @@ class ReActMasterAgent(ConversableAgent):
                             f"🎯 Tool executed: {tool_name}, success={result.is_exe_success if hasattr(result, 'is_exe_success') else 'unknown'}"
                         )
 
+                        # 追踪 Skill 内容（用于 compaction 后重新注入）
+                        if tool_name == "skill_read" and result.is_exe_success and result.content:
+                            skill_name = tool_args.get("skill_name", "")
+                            if skill_name:
+                                self._invoked_skills[skill_name] = result.content
+                                logger.info(f"📚 Tracked invoked skill: {skill_name}")
+
                         # 记录系统事件
                         if self._system_event_manager:
                             event_type = (
@@ -2595,7 +2660,7 @@ class ReActMasterAgent(ConversableAgent):
                 prompts += (
                     "以下技能存储在沙箱环境中，路径为沙箱内的绝对路径。\n"
                     f"技能目录：{sandbox_skill_dir}\n"
-                    "使用方式：使用 `skill_load` 工具加载技能，或使用 `view` 工具读取技能目录中的 SKILL.md 文件。\n\n"
+                    "使用方式：使用 `skill_read` 工具加载技能的 SKILL.md 指令，使用 `skill_exec` 执行技能目录中的脚本。\n\n"
                 )
 
             for k, v in self.resource_map.items():
@@ -2633,6 +2698,7 @@ class ReActMasterAgent(ConversableAgent):
                             f"<description>{skill_meta.description}</description>"
                             f"<path>{skill_path}</path>"
                             f"<branch>{branch}</branch>"
+                            f"<load_command>skill_read(skill_name=\"{skill_code}\")</load_command>"
                             f"\n</skill>\n"
                         )
 

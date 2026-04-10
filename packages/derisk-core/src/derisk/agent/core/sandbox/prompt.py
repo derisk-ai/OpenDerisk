@@ -18,14 +18,14 @@ AGENT_SKILL_SYSTEM_PROMPT = """<agent_skill_system>
 **Skill** 是经过提炼的专业指令和工作流程知识包，存储在 `{{sandbox.agent_skill_dir}}`。
 
 **使用方法：**
-1. 用 `view` 工具读取 `SKILL.md`
+1. 用 `skill_read` 工具加载技能的 SKILL.md 指令
 2. 内化指令并立即应用于当前任务
 
 **关键原则：**
 - 严格单线程：禁止并发加载多个 Skill
 - 按需延迟加载：只加载解决当前步骤所需的最简知识库
 
-**脚本执行：** Skill 指示运行脚本时，原地执行（组合 SKILL.md 目录与脚本相对路径）。
+**脚本执行：** 使用 `skill_exec` 工具执行技能目录中的脚本。
 </agent_skill_system>"""
 
 sandbox_prompt = """\
