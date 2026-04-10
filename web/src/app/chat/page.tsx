@@ -42,6 +42,7 @@ export default function Chat() {
   const [chatInParams, setChatInParams] = useState<{ param_type: string; param_value: string; sub_type: string; }[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
   const [currentConvSessionId, setCurrentConvSessionId] = useState<string>(chatId);
+  const [sseActive, setSseActive] = useState(false);
   const chatInputRef = useRef<any>(null);
   const { chat, ctrl } = useChat({
     app_code: app_code || '',
@@ -56,7 +57,7 @@ export default function Chat() {
   const [isPollingMode, setIsPollingMode] = useState(false);
   const { isPolling, data: pollingData, stopPolling } = useChatPolling({
     convId: chatId || null,
-    enabled: !isChatDefault && !replyLoading,
+    enabled: !isChatDefault && !sseActive,
     interval: 2500,
     onComplete: () => {
       setIsPollingMode(false);
@@ -153,6 +154,8 @@ export default function Chat() {
     loading: listLoading,
   } = useRequest(async () => {
     return await apiInterceptors(getDialogueList());
+  }, {
+    pollingInterval: isPolling ? 5000 : undefined,
   });
 
   // 获取应用详情
@@ -213,6 +216,7 @@ export default function Chat() {
         }
         const initMessage = getInitMessage();
         const ctrl = new AbortController();
+        setSseActive(true);
         setReplyLoading(true);
         if (history && history.length > 0) {
           const viewList = history?.filter(item => item.role === 'view');
@@ -320,6 +324,7 @@ export default function Chat() {
             }
           },
           onDone: () => {
+            setSseActive(false);
             setReplyLoading(false);
             setCanAbort(false);
             if (!tempHistory[index].context && tempHistory[index].thinking) {
@@ -330,6 +335,7 @@ export default function Chat() {
             resolve();
           },
           onClose: () => {
+            setSseActive(false);
             setReplyLoading(false);
             setCanAbort(false);
             if (!tempHistory[index].context && tempHistory[index].thinking) {
@@ -340,6 +346,7 @@ export default function Chat() {
             resolve();
           },
           onError: message => {
+            setSseActive(false);
             setReplyLoading(false);
             setCanAbort(false);
             tempHistory[index].context = message;
@@ -350,7 +357,7 @@ export default function Chat() {
         });
       });
     },
-    [history, modelValue, chat, appInfo, isPollingMode, stopPolling],
+    [history, modelValue, chat, appInfo, isPollingMode, stopPolling, sseActive],
   );
 
   useAsyncEffect(async () => {
