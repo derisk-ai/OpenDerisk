@@ -13,24 +13,14 @@ REPO_URL="https://github.com/derisk-ai/OpenDerisk.git"
 VERSION="${VERSION:-latest}"
 DEFAULT_CONFIG="derisk-proxy-aliyun.toml"
 
-# Detect local mode: if running from within the project directory, skip clone
-LOCAL_MODE=false
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-if [ -f "$SCRIPT_DIR/pyproject.toml" ] && grep -q "OpenDerisk\|openderisk\|derisk" "$SCRIPT_DIR/pyproject.toml" 2>/dev/null; then
-    LOCAL_MODE=true
-    INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
-else
-    INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
-fi
-
-# Colors
+# Colors - define first to avoid macOS system 'log' command conflict
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Logging functions - must be defined before any usage
 log() {
     echo -e "${BLUE}[OpenDerisk]${NC} $1"
 }
@@ -47,6 +37,18 @@ error() {
 success() {
     echo -e "${GREEN}[Success]${NC} $1"
 }
+
+# Detect local mode: if running from within the project directory, skip clone
+LOCAL_MODE=false
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/pyproject.toml" ] && grep -q "OpenDerisk\|openderisk\|derisk" "$SCRIPT_DIR/pyproject.toml" 2>/dev/null; then
+    LOCAL_MODE=true
+    INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
+    log "Detected local source at $INSTALL_DIR, skipping git clone."
+else
+    INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
+fi
 
 # Detect OS and architecture
 detect_platform() {
