@@ -7,7 +7,7 @@ set -e
 
 set -u
 
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
+INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.openderisk/configs}"
 REPO_URL="https://github.com/derisk-ai/OpenDerisk.git"
@@ -179,30 +179,28 @@ create_wrappers() {
     mkdir -p "$BIN_DIR"
     
     # Create main openderisk command
-    cat > "$BIN_DIR/openderisk" << 'EOF'
+    cat > "$BIN_DIR/openderisk" << EOF
 #!/bin/bash
 # OpenDerisk Launcher
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
 cd "$INSTALL_DIR" || exit 1
-exec uv run derisk "$@"
+exec uv run derisk "\$@"
 EOF
     
     chmod +x "$BIN_DIR/openderisk"
     
     # Create openderisk-server command
-    cat > "$BIN_DIR/openderisk-server" << 'EOF'
+    cat > "$BIN_DIR/openderisk-server" << EOF
 #!/bin/bash
 # OpenDerisk Server Launcher
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.openderisk}"
-DEFAULT_CONFIG="$HOME/.openderisk/configs/derisk-proxy-aliyun.toml"
+DEFAULT_CONFIG="$CONFIG_DIR/$DEFAULT_CONFIG"
 
 cd "$INSTALL_DIR" || exit 1
 
 # If no arguments provided and default config exists, use it
-if [ $# -eq 0 ] && [ -f "$DEFAULT_CONFIG" ]; then
-    exec uv run derisk start webserver -c "$DEFAULT_CONFIG"
+if [ \$# -eq 0 ] && [ -f "\$DEFAULT_CONFIG" ]; then
+    exec uv run derisk start webserver -c "\$DEFAULT_CONFIG"
 else
-    exec uv run derisk start webserver "$@"
+    exec uv run derisk start webserver "\$@"
 fi
 EOF
     
@@ -246,7 +244,7 @@ Usage:
   curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
 
 Environment Variables:
-  INSTALL_DIR    Installation directory (default: $HOME/.openderisk)
+  INSTALL_DIR    Installation directory (default: \$(pwd)/OpenDerisk)
   BIN_DIR        Binary directory (default: $HOME/.local/bin)
   CONFIG_DIR     Configuration directory (default: $HOME/.openderisk/configs)
   VERSION        Version to install (default: latest)
@@ -256,7 +254,7 @@ Options:
   --version      Show version information
 
 After Installation:
-  1. Edit ~/.openderisk/configs/derisk-proxy-aliyun.toml and set your API keys
+  1. Edit config and set your API keys
   2. openderisk-server    Start OpenDerisk Server (uses default config)
   3. openderisk           Start OpenDerisk CLI
 
