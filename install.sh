@@ -7,12 +7,23 @@ set -e
 
 set -u
 
-INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.openderisk/configs}"
 REPO_URL="https://github.com/derisk-ai/OpenDerisk.git"
 VERSION="${VERSION:-latest}"
 DEFAULT_CONFIG="derisk-proxy-aliyun.toml"
+
+# Detect local mode: if running from within the project directory, skip clone
+LOCAL_MODE=false
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/pyproject.toml" ] && grep -q "OpenDerisk\|openderisk\|derisk" "$SCRIPT_DIR/pyproject.toml" 2>/dev/null; then
+    LOCAL_MODE=true
+    INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
+    log "Detected local source at $INSTALL_DIR, skipping git clone."
+else
+    INSTALL_DIR="${INSTALL_DIR:-$(pwd)/OpenDerisk}"
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -118,8 +129,13 @@ ensure_python() {
     success "Python 3.10 installed"
 }
 
-# Clone or update repository
+# Clone or update repository (skipped in local mode)
 clone_repo() {
+    if [ "$LOCAL_MODE" = true ]; then
+        log "Local mode: using source at $INSTALL_DIR (skipping git clone)"
+        return 0
+    fi
+
     if [ -d "$INSTALL_DIR/.git" ]; then
         log "OpenDerisk already exists at $INSTALL_DIR"
         log "Updating to latest version..."
@@ -241,7 +257,11 @@ print_usage() {
 OpenDerisk Installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
+  Remote mode (clone from GitHub):
+    curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
+
+  Local mode (run from project directory, skips git clone):
+    cd /path/to/OpenDerisk && bash install.sh
 
 Environment Variables:
   INSTALL_DIR    Installation directory (default: \$(pwd)/OpenDerisk)
@@ -285,6 +305,11 @@ main() {
     
     log "Starting OpenDerisk installation..."
     log "Platform: $(detect_platform)"
+    if [ "$LOCAL_MODE" = true ]; then
+        log "Mode: local (using existing source)"
+    else
+        log "Mode: remote (cloning from GitHub)"
+    fi
     log "Install directory: $INSTALL_DIR"
     log "Config directory: $CONFIG_DIR"
     log "Binary directory: $BIN_DIR"
