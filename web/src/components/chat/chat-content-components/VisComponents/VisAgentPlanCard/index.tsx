@@ -93,6 +93,7 @@ const getTaskIcon = (taskType: string): string => {
  * Returns a React node if a match is found, null otherwise (falls back to image icon).
  */
 const toolNameIconMap: Array<{ keywords: string[]; icon: React.ReactNode; label: string }> = [
+  { keywords: ['skill_read', 'skill_exec', 'skill_list'], icon: <CodeOutlined style={{ fontSize: 13, color: '#8b5cf6' }} />, label: '技能' },
   { keywords: ['sql', 'database', 'db_', 'mysql', 'postgres', 'sqlite', 'query', 'table_spec', 'table_info', 'schema', 'get_table'], icon: <DatabaseOutlined style={{ fontSize: 13, color: '#1677ff' }} />, label: 'SQL' },
   { keywords: ['shell', 'bash', 'terminal', 'command', 'exec_command', 'ssh'], icon: <CodeOutlined style={{ fontSize: 13, color: '#52c41a' }} />, label: '终端' },
   { keywords: ['browser', 'web', 'http', 'url', 'crawl', 'scrape', 'fetch_url'], icon: <GlobalOutlined style={{ fontSize: 13, color: '#722ed1' }} />, label: '浏览器' },
@@ -100,7 +101,6 @@ const toolNameIconMap: Array<{ keywords: string[]; icon: React.ReactNode; label:
   { keywords: ['api', 'rest', 'graphql', 'endpoint'], icon: <ApiOutlined style={{ fontSize: 13, color: '#13c2c2' }} />, label: 'API' },
   { keywords: ['search', 'retrieve', 'lookup', 'find'], icon: <SearchOutlined style={{ fontSize: 13, color: '#eb2f96' }} />, label: '搜索' },
   { keywords: ['cloud', 'deploy', 'server', 'container', 'docker'], icon: <CloudOutlined style={{ fontSize: 13, color: '#2f54eb' }} />, label: '云服务' },
-  { keywords: ['skill_read', 'skill_exec', 'skill_list', 'skill'], icon: <CodeOutlined style={{ fontSize: 13, color: '#8b5cf6' }} />, label: '技能' },
 ];
 
 const getToolNameIcon = (toolName?: string, title?: string): React.ReactNode | null => {

@@ -31,7 +31,8 @@ interface SkillFrontmatter {
 /** Content type detection */
 type ContentKind = 'markdown' | 'code' | 'directory' | 'text';
 
-/** Parse YAML frontmatter from SKILL.md content */
+/** Parse YAML frontmatter from SKILL.md content.
+ *  Supports block scalars (| and >) for multi-line values like description. */
 function parseFrontmatter(raw: string): { meta: SkillFrontmatter; body: string } {
   const match = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
   if (!match) return { meta: {}, body: raw };
@@ -39,12 +40,18 @@ function parseFrontmatter(raw: string): { meta: SkillFrontmatter; body: string }
   const yamlBlock = match[1];
   const body = match[2];
   const meta: SkillFrontmatter = {};
+  const lines = yamlBlock.split('\n');
 
-  for (const line of yamlBlock.split('\n')) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     const trimmed = line.trim();
+    i++;
+
     if (!trimmed || trimmed.startsWith('#')) continue;
     const colonIdx = trimmed.indexOf(':');
     if (colonIdx < 0) continue;
+
     const key = trimmed.slice(0, colonIdx).trim();
     let value = trimmed.slice(colonIdx + 1).trim();
 
@@ -59,7 +66,24 @@ function parseFrontmatter(raw: string): { meta: SkillFrontmatter; body: string }
         .slice(1, -1)
         .split(',')
         .map((s) => s.trim().replace(/^['"]|['"]$/g, ''));
-    } else if (value && value !== '|' && value !== '>') {
+    } else if (value === '|' || value === '>') {
+      // Block scalar: collect subsequent indented lines
+      const blockLines: string[] = [];
+      while (i < lines.length) {
+        const nextLine = lines[i];
+        // Block continues while line is indented (starts with spaces/tabs) or is empty
+        if (nextLine.match(/^[ \t]/) || nextLine.trim() === '') {
+          blockLines.push(nextLine.replace(/^[ \t]{1,2}/, '')); // strip 1-2 leading spaces
+          i++;
+        } else {
+          break;
+        }
+      }
+      const joined = value === '|'
+        ? blockLines.join('\n').trim()
+        : blockLines.join(' ').replace(/\s+/g, ' ').trim();
+      if (joined) meta[key] = joined;
+    } else if (value) {
       meta[key] = value;
     }
   }
@@ -69,8 +93,9 @@ function parseFrontmatter(raw: string): { meta: SkillFrontmatter; body: string }
 
 /** Detect content kind from the body text */
 function detectContentKind(body: string, filePath?: string): ContentKind {
-  // Directory listing: lines start with "d " or "- " prefixed with spaces, or "Skill directory:" header
-  if (/^Skill directory:/m.test(body) || /^\s+[d-] \S/m.test(body)) {
+  // Directory listing: only match the exact format from _list_local_directory / _render_directory_listing
+  // Pattern: "Skill directory: /path" header followed by "  d dirname" / "  - filename (123 bytes)" lines
+  if (/^Skill directory:/m.test(body) || /^Directory:/m.test(body)) {
     return 'directory';
   }
 
@@ -82,8 +107,8 @@ function detectContentKind(body: string, filePath?: string): ContentKind {
     }
   }
 
-  // Markdown: has headers, lists, links, etc.
-  if (/^#{1,6}\s/m.test(body) || /^\s*[-*]\s/m.test(body) || /\[.*\]\(.*\)/.test(body)) {
+  // Markdown: has headers, lists, links, code fences, etc.
+  if (/^#{1,6}\s/m.test(body) || /^\s*[-*]\s/m.test(body) || /\[.*\]\(.*\)/.test(body) || /^```/m.test(body)) {
     return 'markdown';
   }
 
@@ -277,9 +302,9 @@ const SkillReadRenderer: FC<IProps> = ({ outputs, skillName }) => {
 
   return (
     <div className="space-y-3">
-      {/* YAML frontmatter metadata card */}
-      {Object.keys(meta).length > 0 && (
-        <MetadataCard meta={{ ...meta, name: meta.name || skillName }} />
+      {/* YAML frontmatter metadata card — always show if we have a name */}
+      {(Object.keys(meta).length > 0 || skillName) && (
+        <MetadataCard meta={{ ...meta, name: meta.name || skillName || 'Skill' }} />
       )}
 
       {/* Body content - rendered by type */}

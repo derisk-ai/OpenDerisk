@@ -1355,6 +1355,14 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             ensure_ascii=False,
         )
 
+    async def _footer_vis_build(
+        self,
+        gpt_msg: "GptsMessage",
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[str]:
+        """Manus 布局不在 planning_window 渲染最终结论，结论已在右侧面板 summary tab 展示。"""
+        return None
+
     async def _render_final_conclusion(
         self, output_message: GptsMessage
     ) -> Optional[str]:

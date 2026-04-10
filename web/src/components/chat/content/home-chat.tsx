@@ -1590,42 +1590,6 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
               }}
             />
 
-            {/* 已选资源标签展示 */}
-            {(selectedSkills.length > 0 || selectedMcps.length > 0 || selectedDataSources.length > 0 || selectedKnowledgeBases.length > 0) && (
-              <div className="flex flex-wrap gap-2 pb-3 px-2">
-                {selectedSkills.map((skill: any) => (
-                  <div key={skill.skill_code} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 text-sm">
-                    {skill.icon ? <img src={skill.icon} className="w-4 h-4 rounded" alt={skill.name} /> : <ThunderboltOutlined className="text-blue-500 text-xs" />}
-                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{skill.name}</span>
-                    <button onClick={() => handleSkillRemove(skill.skill_code)} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
-                  </div>
-                ))}
-                {selectedMcps.map((mcp: any) => {
-                  const mcpId = mcp.id || mcp.uuid || mcp.name;
-                  return (
-                    <div key={mcpId} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/20 text-sm">
-                      <ApiOutlined className="text-emerald-500 text-xs" />
-                      <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{mcp.name}</span>
-                      <button onClick={() => setSelectedMcps(prev => prev.filter((m: any) => (m.id || m.uuid || m.name) !== mcpId))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
-                    </div>
-                  );
-                })}
-                {selectedDataSources.map((ds: any) => (
-                  <div key={ds.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/20 text-sm">
-                    <DatabaseOutlined className="text-green-500 text-xs" />
-                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{ds.db_name}</span>
-                    <button onClick={() => setSelectedDataSources(prev => prev.filter(s => s.id !== ds.id))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
-                  </div>
-                ))}
-                {selectedKnowledgeBases.map((kb: any) => (
-                  <div key={kb.id || kb.name} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 text-sm">
-                    <BookOutlined className="text-amber-500 text-xs" />
-                    <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{kb.name}</span>
-                    <button onClick={() => setSelectedKnowledgeBases(prev => prev.filter(s => (s.id || s.name) !== (kb.id || kb.name)))} className="ml-1 text-gray-400 hover:text-red-500 transition-colors"><CloseOutlined className="text-xs" /></button>
-                  </div>
-                ))}
-              </div>
-            )}
 
             <Input.TextArea
               placeholder="分配一个任务或提问任何问题"
