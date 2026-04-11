@@ -380,6 +380,12 @@ class OracleConnector(RDBMSConnector):
             tbl = table_name.upper()
 
         with self.session_scope() as s:
+            # If owner not provided, query the real owner from all_tables
+            if owner is None:
+                real_owner = s.execute(text(f"SELECT owner FROM all_tables WHERE table_name = '{tbl}' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC') ORDER BY owner")).fetchone()
+                if real_owner:
+                    owner = real_owner[0]
+
             # Try DBMS_METADATA.GET_DDL for full CREATE TABLE statement
             try:
                 if owner:
@@ -435,6 +441,12 @@ class OracleConnector(RDBMSConnector):
             tbl = table_name.upper()
 
         with self.session_scope() as s:
+            # If owner not provided, query the real owner from all_tables
+            if owner is None:
+                real_owner = s.execute(text(f"SELECT owner FROM all_tables WHERE table_name = '{tbl}' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC') ORDER BY owner")).fetchone()
+                if real_owner:
+                    owner = real_owner[0]
+
             if owner:
                 return s.execute(text(f"SELECT col.column_name, col.data_type, col.data_default, col.nullable, comm.comments FROM all_tab_columns col LEFT JOIN all_col_comments comm ON col.table_name = comm.table_name AND col.column_name = comm.column_name AND col.owner = comm.owner WHERE col.table_name = '{tbl}' AND col.owner = '{owner}'")).fetchall()
             else:
@@ -458,7 +470,13 @@ class OracleConnector(RDBMSConnector):
             owner, tbl = table_name.split('.', 1)
             return self._query(f'SELECT * FROM "{owner.upper()}"."{tbl.upper()}" FETCH FIRST 1 ROWS ONLY')
         else:
-            return self._query(f'SELECT * FROM "{table_name.upper()}" FETCH FIRST 1 ROWS ONLY')
+            # Query real owner from all_tables if not provided
+            tbl = table_name.upper()
+            with self.session_scope() as s:
+                real_owner = s.execute(text(f"SELECT owner FROM all_tables WHERE table_name = '{tbl}' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC') ORDER BY owner")).fetchone()
+                if real_owner:
+                    return self._query(f'SELECT * FROM "{real_owner[0]}"."{tbl}" FETCH FIRST 1 ROWS ONLY')
+            return self._query(f'SELECT * FROM "{tbl}" FETCH FIRST 1 ROWS ONLY')
 
     def get_charset(self) -> str:
         with self.session_scope() as s:
@@ -502,6 +520,12 @@ class OracleConnector(RDBMSConnector):
             tbl = table_name.upper()
 
         with self.session_scope() as s:
+            # If owner not provided, query the real owner from all_tables
+            if owner is None:
+                real_owner = s.execute(text(f"SELECT owner FROM all_tables WHERE table_name = '{tbl}' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC') ORDER BY owner")).fetchone()
+                if real_owner:
+                    owner = real_owner[0]
+
             if owner:
                 r = s.execute(text(f"SELECT comments FROM all_tab_comments WHERE table_name = '{tbl}' AND owner = '{owner}'")).fetchone()
             else:
@@ -524,6 +548,12 @@ class OracleConnector(RDBMSConnector):
             tbl = table_name.upper()
 
         with self.session_scope() as s:
+            # If owner not provided, query the real owner from all_tables
+            if owner is None:
+                real_owner = s.execute(text(f"SELECT owner FROM all_tables WHERE table_name = '{tbl}' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC') ORDER BY owner")).fetchone()
+                if real_owner:
+                    owner = real_owner[0]
+
             if owner:
                 return [(r[0], r[1]) for r in s.execute(text(f"SELECT column_name, comments FROM all_col_comments WHERE table_name = '{tbl}' AND owner = '{owner}'")).fetchall()]
             else:
