@@ -57,6 +57,9 @@ datasource_postgres = [
     # "psycopg2", # In production, you can install psycopg2 instead of psycopg2-binary
     "psycopg2-binary",
 ]
+datasource_oracle = [
+    "oracledb>=1.4.0",
+]
 
 datasource_duckdb = [
     "duckdb",
