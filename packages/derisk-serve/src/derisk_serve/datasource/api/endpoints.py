@@ -12,8 +12,15 @@ from derisk_serve.datasource.api.schemas import (
     DatasourceQueryResponse,
     DatasourceServeRequest,
     DbSpecResponse,
+    FailedTableInfo,
+    FileLearningRequest,
+    FileLearningResponse,
     LearningTaskRequest,
     LearningTaskResponse,
+    ParsedTablePreview,
+    SchemaFilePreviewResponse,
+    SchemaFileUploadResponse,
+    SupportedFileType,
     TableDataPreviewResponse,
     TableSpecDetailResponse,
     TableSpecSummaryResponse,
@@ -448,6 +455,94 @@ async def preview_table_data(
         table_name,
     )
     return Result.succ(TableDataPreviewResponse(**result))
+
+
+# ==============================================================
+# Schema File Learning Endpoints
+# ==============================================================
+
+
+@router.get(
+    "/schema-files/types",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[List[SupportedFileType]],
+)
+async def get_supported_file_types(
+    service: Service = Depends(get_service),
+) -> Result[List[SupportedFileType]]:
+    """Get list of supported schema file types."""
+    from derisk_serve.datasource.file_learning import get_supported_types
+    types = get_supported_types()
+    return Result.succ([SupportedFileType(**t) for t in types])
+
+
+@router.post(
+    "/schema-files/upload",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[SchemaFileUploadResponse],
+)
+async def upload_schema_file(
+    file: UploadFile,
+    service: Service = Depends(get_service),
+) -> Result[SchemaFileUploadResponse]:
+    """Upload a schema design file (PDM, DDL, PDMan).
+
+    Returns file_id for subsequent learning operations.
+    """
+    content = await file.read()
+    result = service.file_learning.upload_schema_file(content, file.filename or "unknown")
+    return Result.succ(SchemaFileUploadResponse(**result))
+
+
+@router.post(
+    "/schema-files/{file_id}/preview",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[SchemaFilePreviewResponse],
+)
+async def preview_schema_file(
+    file_id: str,
+    service: Service = Depends(get_service),
+) -> Result[SchemaFilePreviewResponse]:
+    """Preview parsed tables from uploaded schema file.
+
+    Returns list of tables/views that will be learned.
+    """
+    file_path = service.file_learning.get_file_path(file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"File {file_id} not found")
+
+    result = service.file_learning.preview_parsed_tables(file_path)
+    return Result.succ(SchemaFilePreviewResponse(**result))
+
+
+@router.post(
+    "/schema-files/{file_id}/learn",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[FileLearningResponse],
+)
+async def learn_from_schema_file(
+    file_id: str,
+    request: FileLearningRequest,
+    service: Service = Depends(get_service),
+) -> Result[FileLearningResponse]:
+    """Learn schema from uploaded file and link to datasource.
+
+    Creates table_specs with structure from file, and sample data
+    from the linked datasource.
+    """
+    file_path = service.file_learning.get_file_path(file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"File {file_id} not found")
+
+    result = await blocking_func_to_async(
+        global_system_app,
+        service.file_learning.learn_from_file,
+        file_path,
+        request.datasource_id,
+        request.file_type,
+        request.options,
+    )
+    return Result.succ(FileLearningResponse(**result))
 
 
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:

@@ -215,3 +215,86 @@ class TableDataPreviewResponse(BaseModel):
     first_rows: List[List[Any]] = Field(default_factory=list, description="First 5 rows")
     last_rows: List[List[Any]] = Field(default_factory=list, description="Last 5 rows")
     total: int = Field(0, description="Total row count")
+
+
+# ==============================================================
+# File Learning Schemas
+# ==============================================================
+
+
+class SchemaFileUploadResponse(BaseModel):
+    """Response for schema file upload."""
+
+    file_id: str = Field(..., description="Unique file identifier")
+    file_path: str = Field(..., description="Server-side file path")
+    file_type: str = Field(..., description="Detected file type (pdm, ddl, pdman)")
+    original_name: str = Field(..., description="Original filename")
+
+
+class ParsedTablePreview(BaseModel):
+    """Preview info for a parsed table."""
+
+    name: str = Field(..., description="Table name")
+    comment: Optional[str] = Field(None, description="Table comment")
+    column_count: int = Field(0, description="Number of columns")
+    has_fk: bool = Field(False, description="Has foreign keys")
+
+
+class SchemaFilePreviewResponse(BaseModel):
+    """Response for schema file preview."""
+
+    tables: List[ParsedTablePreview] = Field(
+        default_factory=list, description="Parsed tables"
+    )
+    views: List[ParsedTablePreview] = Field(
+        default_factory=list, description="Parsed views"
+    )
+    source_type: str = Field(..., description="Source file type")
+    total_count: int = Field(0, description="Total tables/views count")
+
+
+class FileLearningRequest(BaseModel):
+    """Request for file-based schema learning."""
+
+    datasource_id: int = Field(
+        ..., description="ID of datasource to link for sample data"
+    )
+    file_type: Optional[str] = Field(
+        None, description="Override file type detection"
+    )
+    options: Optional[Dict[str, Any]] = Field(
+        None, description="Additional learning options"
+    )
+
+
+class FailedTableInfo(BaseModel):
+    """Info about a failed table during learning."""
+
+    table_name: str = Field(..., description="Table name")
+    error: str = Field(..., description="Error message")
+
+
+class FileLearningResponse(BaseModel):
+    """Response for file-based schema learning."""
+
+    datasource_id: int = Field(..., description="Linked datasource ID")
+    source_file: str = Field(..., description="Source file path")
+    source_type: str = Field(..., description="Source file type")
+    total_tables: int = Field(0, description="Total tables in file")
+    processed_tables: int = Field(0, description="Successfully processed tables")
+    failed_tables: List[FailedTableInfo] = Field(
+        default_factory=list, description="Failed tables"
+    )
+    status: str = Field(
+        ..., description="Learning status: completed, partial, or failed"
+    )
+
+
+class SupportedFileType(BaseModel):
+    """Info about a supported file type."""
+
+    type: str = Field(..., description="Type identifier")
+    description: str = Field(..., description="Human-readable description")
+    extensions: List[str] = Field(
+        default_factory=list, description="Supported file extensions"
+    )

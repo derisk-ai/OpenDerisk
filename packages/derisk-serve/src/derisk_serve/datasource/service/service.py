@@ -54,6 +54,7 @@ class Service(
         self._serve_config = config
         self._learning_service: Optional[SchemaLearningService] = None
         self._spec_service: Optional[DbSpecService] = None
+        self._file_learning: Optional[Any] = None
 
         super().__init__(system_app)
 
@@ -148,6 +149,14 @@ class Service(
         if not self._spec_service:
             self._spec_service = DbSpecService()
         return self._spec_service
+
+    @property
+    def file_learning(self):
+        """Get FileLearningService instance."""
+        if not self._file_learning:
+            from derisk_serve.datasource.file_learning.service import FileLearningService
+            self._file_learning = FileLearningService(self._system_app)
+        return self._file_learning
 
     def create(
         self, request: Union[DatasourceCreateRequest, DatasourceServeRequest]
