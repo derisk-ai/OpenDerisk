@@ -333,6 +333,10 @@ class OracleConnector(RDBMSConnector):
 
     # --- Dialect overrides (from upstream) ---
     def quote_identifier(self, id: str) -> str:
+        """Quote identifier, handling 'owner.table_name' format."""
+        if '.' in id:
+            owner, tbl = id.split('.', 1)
+            return f'"{owner}"."{tbl}"'
         return f'"{id}"'
 
     def limit_sql(self, sql: str, limit: int, offset: int = 0) -> str:
