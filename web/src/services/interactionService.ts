@@ -478,7 +478,14 @@ export class InteractionService {
 
   private getWsBaseUrl(): string {
     if (typeof window === 'undefined') {
-      return 'ws://localhost:7777';
+      // SSR context: use env var or default to relative path
+      const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+      if (apiBase) {
+        const url = new URL(apiBase);
+        const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${url.host}`;
+      }
+      return 'ws://127.0.0.1:7777';
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

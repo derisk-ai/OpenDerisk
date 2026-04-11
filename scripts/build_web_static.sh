@@ -59,6 +59,8 @@ cd $WORK_DIR/web
 
 source_env=".env"
 tmp_env=".env.copy"
+source_env_local=".env.local"
+tmp_env_local=".env.local.copy"
 
 print_header "Environment Setup"
 print_step "Checking environment files..."
@@ -68,6 +70,13 @@ if [ -e "$source_env" ]; then
     rm -rf "$source_env"
 else
     print_warning ".env file not found"
+fi
+if [ -e "$source_env_local" ]; then
+    print_info "Found .env.local file, creating backup..."
+    cp "$source_env_local" "$tmp_env_local"
+    rm -rf "$source_env_local"
+else
+    print_warning ".env.local file not found"
 fi
 
 print_header "Build Process"
@@ -116,6 +125,10 @@ print_step "Finalizing environment..."
 if [ -e "$tmp_env" ]; then
     cp "$tmp_env" "$source_env"
     rm -rf "$tmp_env"
+fi
+if [ -e "$tmp_env_local" ]; then
+    cp "$tmp_env_local" "$source_env_local"
+    rm -rf "$tmp_env_local"
 fi
 
 # 记录脚本结束时间
