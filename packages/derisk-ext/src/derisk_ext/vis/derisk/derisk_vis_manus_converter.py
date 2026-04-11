@@ -658,6 +658,45 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         )
 
     MAX_STEP_OUTPUT_CHARS = 500
+    MAX_STEP_OUTPUT_ROWS = 20
+
+    @staticmethod
+    def _truncate_dict_content(content: dict, max_chars: int, max_rows: int) -> Any:
+        """Truncate dict content while preserving structure.
+
+        For structured data (e.g. SQL query results with columns/rows),
+        reduce rows instead of cutting the serialized JSON string.
+        """
+        # SQL query result: truncate by reducing rows to preserve structure
+        if "columns" in content and "rows" in content:
+            rows = content.get("rows") or []
+            if len(rows) > max_rows:
+                truncated = dict(content)
+                truncated["rows"] = rows[:max_rows]
+                truncated["has_more"] = True
+                return truncated
+            # Even if rows are few, check total size
+            serialized = json.dumps(content, ensure_ascii=False)
+            if len(serialized) <= max_chars:
+                return content
+            # Still too large — progressively reduce rows
+            truncated = dict(content)
+            for limit in (max_rows // 2, 5, 1):
+                truncated["rows"] = rows[:limit]
+                truncated["has_more"] = True
+                if len(json.dumps(truncated, ensure_ascii=False)) <= max_chars:
+                    return truncated
+            # Extreme case: no rows, just keep schema
+            truncated["rows"] = []
+            truncated["has_more"] = True
+            return truncated
+
+        # Generic dict: check size, only truncate if necessary
+        serialized = json.dumps(content, ensure_ascii=False)
+        if len(serialized) <= max_chars:
+            return content
+        # For generic dicts, fall back to string truncation
+        return serialized[:max_chars] + "\n... (truncated)"
 
     @staticmethod
     def _truncate_outputs_for_map(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
@@ -667,18 +706,22 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         large tool outputs (e.g. file contents, command results) can cause the total
         manus-right-panel JSON to exceed storage limits, resulting in truncated JSON
         on the frontend and a blank right panel.
+
+        For structured content (e.g. SQL query results), rows are reduced
+        instead of cutting the serialized string, preserving valid JSON structure.
         """
         result = []
         max_chars = DeriskIncrVisManusConverter.MAX_STEP_OUTPUT_CHARS
+        max_rows = DeriskIncrVisManusConverter.MAX_STEP_OUTPUT_ROWS
         for o in outputs:
             d = o.to_dict()
             content = d.get("content")
             if isinstance(content, str) and len(content) > max_chars:
                 d["content"] = content[:max_chars] + "\n... (truncated)"
             elif isinstance(content, dict):
-                serialized = json.dumps(content, ensure_ascii=False)
-                if len(serialized) > max_chars:
-                    d["content"] = serialized[:max_chars] + "\n... (truncated)"
+                d["content"] = DeriskIncrVisManusConverter._truncate_dict_content(
+                    content, max_chars, max_rows
+                )
             result.append(d)
         return result
 

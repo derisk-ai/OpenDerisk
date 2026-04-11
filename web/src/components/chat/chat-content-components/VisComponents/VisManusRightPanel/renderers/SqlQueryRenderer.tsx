@@ -59,6 +59,41 @@ const SqlQueryRenderer: FC<IProps> = ({ outputs }) => {
   const [currentPage, setCurrentPage] = useState(sqlData?.page || 1);
   const [copied, setCopied] = useState(false);
 
+  // Build table columns — must be called before any early return to satisfy React hooks rules
+  const tableColumns: ColumnsType<any> = useMemo(() => {
+    const cols = sqlData?.columns;
+    if (!cols || cols.length === 0) return [];
+    return cols.map((col) => ({
+      title: col,
+      dataIndex: col,
+      key: col,
+      ellipsis: true,
+      render: (value: any) => {
+        if (value === null || value === undefined) {
+          return <span className="text-gray-400 italic text-xs">NULL</span>;
+        }
+        if (typeof value === 'object') {
+          return <code className="text-xs bg-gray-50 px-1 rounded">{JSON.stringify(value)}</code>;
+        }
+        return <span className="text-xs">{String(value)}</span>;
+      },
+    }));
+  }, [sqlData?.columns]);
+
+  // Build table data
+  const tableData = useMemo(() => {
+    const rows = sqlData?.rows;
+    const cols = sqlData?.columns;
+    if (!rows || rows.length === 0) return [];
+    return rows.map((row, index) => {
+      const record: Record<string, any> = { _key: index };
+      cols?.forEach((col, colIndex) => {
+        record[col] = row[colIndex];
+      });
+      return record;
+    });
+  }, [sqlData?.rows, sqlData?.columns]);
+
   if (!sqlData) {
     // Fallback: show raw output as text
     const text = outputs.map((o) => String(o.content || '')).join('\n');
@@ -95,38 +130,6 @@ const SqlQueryRenderer: FC<IProps> = ({ outputs }) => {
       console.error('Failed to copy SQL:', err);
     }
   };
-
-  // Build table columns
-  const tableColumns: ColumnsType<any> = useMemo(() => {
-    if (!columns || columns.length === 0) return [];
-    return columns.map((col) => ({
-      title: col,
-      dataIndex: col,
-      key: col,
-      ellipsis: true,
-      render: (value: any) => {
-        if (value === null || value === undefined) {
-          return <span className="text-gray-400 italic text-xs">NULL</span>;
-        }
-        if (typeof value === 'object') {
-          return <code className="text-xs bg-gray-50 px-1 rounded">{JSON.stringify(value)}</code>;
-        }
-        return <span className="text-xs">{String(value)}</span>;
-      },
-    }));
-  }, [columns]);
-
-  // Build table data
-  const tableData = useMemo(() => {
-    if (!rows || rows.length === 0) return [];
-    return rows.map((row, index) => {
-      const record: Record<string, any> = { _key: index };
-      columns?.forEach((col, colIndex) => {
-        record[col] = row[colIndex];
-      });
-      return record;
-    });
-  }, [rows, columns]);
 
   // No tabular data — show raw result
   if (!columns || columns.length === 0) {
