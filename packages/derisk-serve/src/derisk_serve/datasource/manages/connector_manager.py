@@ -223,7 +223,7 @@ class ConnectorManager(BaseComponent):
                 ora_sid = ext_config.get("sid")
                 ora_svc = ext_config.get("service_name")
                 ora_client_lib = ext_config.get("oracle_client_lib")
-                force_thick = ext_config.get("force_thick_mode", False)
+                force_thick = ext_config.get("force_thick_mode")  # None = auto detect
                 if not ora_sid and not ora_svc:
                     ora_svc = db_name
                 return connect_instance.from_uri_db(  # type: ignore
