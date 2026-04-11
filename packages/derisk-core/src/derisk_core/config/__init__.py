@@ -13,6 +13,7 @@ from .schema import (
     FileBackendConfig,
     FileServiceConfig,
 )
+from .home import get_derisk_home
 from .loader import ConfigLoader, ConfigManager
 from .validator import ConfigValidator
 
@@ -30,6 +31,7 @@ __all__ = [
     "FileBackendType",
     "FileBackendConfig",
     "FileServiceConfig",
+    "get_derisk_home",
     "ConfigLoader",
     "ConfigManager",
     "ConfigValidator",

@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from typing import Optional, Dict, Any
+from .home import get_derisk_home
 from .schema import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -14,12 +15,12 @@ class ConfigLoader:
 
     DEFAULT_CONFIG_NAME = "derisk.json"
     # 默认配置文件路径优先级：用户目录下的 .derisk/derisk.json
-    DEFAULT_CONFIG_PATH = Path.home() / ".derisk" / "derisk.json"
+    DEFAULT_CONFIG_PATH = get_derisk_home() / "derisk.json"
 
     DEFAULT_LOCATIONS = [
-        Path.home() / ".derisk" / "derisk.json",  # 优先级最高
+        get_derisk_home() / "derisk.json",  # 优先级最高
         Path.cwd() / "derisk.json",
-        Path.home() / ".derisk" / "config.json",
+        get_derisk_home() / "config.json",
     ]
 
     @classmethod

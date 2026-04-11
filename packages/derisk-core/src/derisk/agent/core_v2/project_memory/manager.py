@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 import logging
 
+from derisk_core.config.home import get_derisk_home
+
 from . import (
     MemoryPriority,
     MemorySource,
@@ -56,7 +58,7 @@ class ProjectMemoryManager(ProjectMemoryInterface):
     }
 
     # User memory location
-    USER_MEMORY_DIR = Path.home() / ".derisk"
+    USER_MEMORY_DIR = get_derisk_home()
 
     def __init__(self):
         """Initialize the memory manager."""

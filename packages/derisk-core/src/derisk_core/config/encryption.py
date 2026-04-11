@@ -7,6 +7,8 @@ import logging
 from pathlib import Path
 from typing import Optional, Any, Dict
 
+from .home import get_derisk_home
+
 logger = logging.getLogger(__name__)
 
 SECRETS_FILE_NAME = "secrets.enc"
@@ -49,7 +51,7 @@ class SecretsEncryption:
             self._fernet = None
 
     def _get_master_key_path(self) -> Path:
-        return Path.home() / ".derisk" / "master.key"
+        return get_derisk_home() / "master.key"
 
     def _derive_key(self, password: str) -> bytes:
         """从密码派生 Fernet 密钥"""
@@ -140,7 +142,7 @@ _secrets_cache: Dict[str, str] = {}
 
 
 def get_secrets_file_path() -> Path:
-    return Path.home() / ".derisk" / SECRETS_FILE_NAME
+    return get_derisk_home() / SECRETS_FILE_NAME
 
 
 def load_secrets() -> Dict[str, str]:
