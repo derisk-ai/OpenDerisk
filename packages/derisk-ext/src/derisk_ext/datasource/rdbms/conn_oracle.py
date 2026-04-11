@@ -52,32 +52,60 @@ DEFAULT_INSTANT_CLIENT_PATHS = {
 }
 
 
+# Parent directories to search for instantclient subdirectories
+SEARCH_PARENT_DIRS = {
+    "Darwin": ["/opt/oracle", "/usr/local/lib", "/usr/lib", "/opt"],
+    "Linux": ["/opt/oracle", "/usr/lib/oracle", "/usr/local/lib/oracle", "/opt", "/usr/lib"],
+    "Windows": ["C:\\Oracle", "C:\\Program Files\\Oracle", "D:\\Oracle"],
+}
+
+
 def _find_instant_client_paths() -> list:
-    """Find potential Oracle Instant Client paths."""
+    """Find potential Oracle Instant Client paths.
+
+    Searches in order:
+    1. Environment variables (ORACLE_INSTANT_CLIENT_HOME, ORACLE_HOME)
+    2. Library path (LD_LIBRARY_PATH, DYLD_LIBRARY_PATH)
+    3. Parent directories for instantclient_* subdirs (e.g. /opt/oracle/instantclient_11_2)
+    4. Default fixed paths
+    """
     paths = []
-
-    # 1. Environment variables
-    env_path = os.environ.get("ORACLE_INSTANT_CLIENT_HOME")
-    if env_path and os.path.isdir(env_path):
-        paths.append(env_path)
-
-    oracle_home = os.environ.get("ORACLE_HOME")
-    if oracle_home and os.path.isdir(oracle_home):
-        paths.append(oracle_home)
-
-    # 2. Platform defaults
     system = platform.system()
-    for p in DEFAULT_INSTANT_CLIENT_PATHS.get(system, []):
-        expanded = os.path.expanduser(p)
-        if os.path.isdir(expanded):
-            paths.append(expanded)
 
-    # 3. Library path
-    lib_path = os.environ.get("DYLD_LIBRARY_PATH" if system == "Darwin" else "LD_LIBRARY_PATH")
+    # 1. Environment variables (highest priority)
+    for env_var in ["ORACLE_INSTANT_CLIENT_HOME", "ORACLE_HOME"]:
+        env_path = os.environ.get(env_var)
+        if env_path and os.path.isdir(env_path):
+            paths.append(env_path)
+
+    # 2. Library path
+    lib_path_env = "DYLD_LIBRARY_PATH" if system == "Darwin" else "LD_LIBRARY_PATH"
+    lib_path = os.environ.get(lib_path_env)
     if lib_path:
         for p in lib_path.split(":"):
+            p = p.strip()
             if p and os.path.isdir(p) and "oracle" in p.lower():
                 paths.append(p)
+
+    # 3. Search parent directories for instantclient subdirs
+    # This handles paths like /opt/oracle/instantclient_11_2, /opt/oracle/instantclient_19_8, etc.
+    for parent_dir in SEARCH_PARENT_DIRS.get(system, []):
+        if not os.path.isdir(parent_dir):
+            continue
+        try:
+            for entry in os.listdir(parent_dir):
+                full_path = os.path.join(parent_dir, entry)
+                # Match instantclient_11_2, instantclient_19_8, instantclient-basic, etc.
+                if "instantclient" in entry.lower() and os.path.isdir(full_path):
+                    paths.append(full_path)
+        except (PermissionError, OSError):
+            continue
+
+    # 4. Default fixed paths (fallback)
+    for p in DEFAULT_INSTANT_CLIENT_PATHS.get(system, []):
+        expanded = os.path.expanduser(p)
+        if os.path.isdir(expanded) and expanded not in paths:
+            paths.append(expanded)
 
     return paths
 
@@ -207,15 +235,56 @@ class OracleConnector(RDBMSConnector):
         return OracleParameters
 
     @classmethod
-    def from_uri_db(cls, host, port, user, pwd, sid=None, service_name=None, engine_args=None, oracle_client_lib=None, force_thick_mode=False, **kwargs) -> "OracleConnector":
+    def from_uri_db(cls, host, port, user, pwd, sid=None, service_name=None, engine_args=None, oracle_client_lib=None, force_thick_mode=None, auto_detect=True, **kwargs) -> "OracleConnector":
+        """Create connector from URI params with auto version detection.
+
+        Args:
+            host: Database host
+            port: Database port
+            user: Database user
+            pwd: Database password
+            sid: Oracle SID
+            service_name: Oracle service name
+            engine_args: SQLAlchemy engine args
+            oracle_client_lib: Optional Instant Client path
+            force_thick_mode: Force thick mode (None = auto detect)
+            auto_detect: If True and force_thick_mode is None, auto detect version
+        """
         if not sid and not service_name:
             raise ValueError("sid or service_name required")
 
-        if force_thick_mode and not _init_thick_mode(oracle_client_lib):
-            raise ValueError("Thick mode init failed. Install Instant Client.")
-        cls._using_thick_mode = force_thick_mode
-
         svc = service_name or sid
+
+        # If force_thick_mode is explicitly set, use it
+        if force_thick_mode is True:
+            if not _init_thick_mode(oracle_client_lib):
+                raise ValueError("Thick mode init failed. Install Instant Client.")
+            cls._using_thick_mode = True
+        elif force_thick_mode is None and auto_detect:
+            # Auto detect version and switch to thick mode if needed
+            logger.info(f"Auto-detecting Oracle version: {host}:{port}/{svc}")
+            ok, ver, err = _test_connection(host, port, user, pwd, svc)
+            if ok:
+                cls._oracle_version = _parse_version(ver)
+                logger.info(f"Thin mode OK, Oracle version: {ver}")
+            elif err == "version_not_supported":
+                logger.info("Oracle version requires thick mode, switching...")
+                if not _init_thick_mode(oracle_client_lib):
+                    raise ValueError(
+                        "Oracle <12c needs thick mode. Install Instant Client or "
+                        "set ORACLE_INSTANT_CLIENT_HOME env variable."
+                    )
+                ok, ver, err = _test_connection(host, port, user, pwd, svc, use_thick=True, lib_dir=oracle_client_lib)
+                if ok:
+                    cls._oracle_version = _parse_version(ver)
+                    cls._using_thick_mode = True
+                    logger.info(f"Thick mode OK, Oracle version: {ver}")
+                else:
+                    raise ValueError(f"Thick mode connection failed: {err}")
+            else:
+                raise ValueError(f"Connection test failed: {err}")
+
+        # Build connection URL
         dsn = f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SERVICE_NAME={svc})))" if service_name else f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SID={sid})))"
         url = f"{cls.driver}://{quote(user)}:{quote_plus(pwd)}@{dsn}"
         return cls.from_uri(url, engine_args=engine_args, **kwargs)
