@@ -657,6 +657,31 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             artifacts=self._artifacts,
         )
 
+    MAX_STEP_OUTPUT_CHARS = 500
+
+    @staticmethod
+    def _truncate_outputs_for_map(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
+        """Truncate output content for steps_map to reduce JSON size.
+
+        The steps_map includes data for ALL historical steps. Without truncation,
+        large tool outputs (e.g. file contents, command results) can cause the total
+        manus-right-panel JSON to exceed storage limits, resulting in truncated JSON
+        on the frontend and a blank right panel.
+        """
+        result = []
+        max_chars = DeriskIncrVisManusConverter.MAX_STEP_OUTPUT_CHARS
+        for o in outputs:
+            d = o.to_dict()
+            content = d.get("content")
+            if isinstance(content, str) and len(content) > max_chars:
+                d["content"] = content[:max_chars] + "\n... (truncated)"
+            elif isinstance(content, dict):
+                serialized = json.dumps(content, ensure_ascii=False)
+                if len(serialized) > max_chars:
+                    d["content"] = serialized[:max_chars] + "\n... (truncated)"
+            result.append(d)
+        return result
+
     def _build_right_panel_data(self, is_running: bool = False) -> ManusRightPanelData:
         """构建右面板数据"""
         active_step_info = None
@@ -698,7 +723,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 )
                 step_data = {
                     "active_step": step_info.to_dict(),
-                    "outputs": [o.to_dict() for o in self._outputs.get(sid, [])],
+                    "outputs": self._truncate_outputs_for_map(self._outputs.get(sid, [])),
                 }
                 steps_map[planning_uid] = step_data
                 # Also register by step_id for left panel click-to-switch
@@ -718,7 +743,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 )
                 steps_map[sid] = {
                     "active_step": step_info.to_dict(),
-                    "outputs": [o.to_dict() for o in self._outputs.get(sid, [])],
+                    "outputs": self._truncate_outputs_for_map(self._outputs.get(sid, [])),
                 }
 
         return ManusRightPanelData(
