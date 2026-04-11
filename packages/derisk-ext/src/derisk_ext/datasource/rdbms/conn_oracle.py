@@ -52,32 +52,60 @@ DEFAULT_INSTANT_CLIENT_PATHS = {
 }
 
 
+# Parent directories to search for instantclient subdirectories
+SEARCH_PARENT_DIRS = {
+    "Darwin": ["/opt/oracle", "/usr/local/lib", "/usr/lib", "/opt"],
+    "Linux": ["/opt/oracle", "/usr/lib/oracle", "/usr/local/lib/oracle", "/opt", "/usr/lib"],
+    "Windows": ["C:\\Oracle", "C:\\Program Files\\Oracle", "D:\\Oracle"],
+}
+
+
 def _find_instant_client_paths() -> list:
-    """Find potential Oracle Instant Client paths."""
+    """Find potential Oracle Instant Client paths.
+
+    Searches in order:
+    1. Environment variables (ORACLE_INSTANT_CLIENT_HOME, ORACLE_HOME)
+    2. Library path (LD_LIBRARY_PATH, DYLD_LIBRARY_PATH)
+    3. Parent directories for instantclient_* subdirs (e.g. /opt/oracle/instantclient_11_2)
+    4. Default fixed paths
+    """
     paths = []
-
-    # 1. Environment variables
-    env_path = os.environ.get("ORACLE_INSTANT_CLIENT_HOME")
-    if env_path and os.path.isdir(env_path):
-        paths.append(env_path)
-
-    oracle_home = os.environ.get("ORACLE_HOME")
-    if oracle_home and os.path.isdir(oracle_home):
-        paths.append(oracle_home)
-
-    # 2. Platform defaults
     system = platform.system()
-    for p in DEFAULT_INSTANT_CLIENT_PATHS.get(system, []):
-        expanded = os.path.expanduser(p)
-        if os.path.isdir(expanded):
-            paths.append(expanded)
 
-    # 3. Library path
-    lib_path = os.environ.get("DYLD_LIBRARY_PATH" if system == "Darwin" else "LD_LIBRARY_PATH")
+    # 1. Environment variables (highest priority)
+    for env_var in ["ORACLE_INSTANT_CLIENT_HOME", "ORACLE_HOME"]:
+        env_path = os.environ.get(env_var)
+        if env_path and os.path.isdir(env_path):
+            paths.append(env_path)
+
+    # 2. Library path
+    lib_path_env = "DYLD_LIBRARY_PATH" if system == "Darwin" else "LD_LIBRARY_PATH"
+    lib_path = os.environ.get(lib_path_env)
     if lib_path:
         for p in lib_path.split(":"):
+            p = p.strip()
             if p and os.path.isdir(p) and "oracle" in p.lower():
                 paths.append(p)
+
+    # 3. Search parent directories for instantclient subdirs
+    # This handles paths like /opt/oracle/instantclient_11_2, /opt/oracle/instantclient_19_8, etc.
+    for parent_dir in SEARCH_PARENT_DIRS.get(system, []):
+        if not os.path.isdir(parent_dir):
+            continue
+        try:
+            for entry in os.listdir(parent_dir):
+                full_path = os.path.join(parent_dir, entry)
+                # Match instantclient_11_2, instantclient_19_8, instantclient-basic, etc.
+                if "instantclient" in entry.lower() and os.path.isdir(full_path):
+                    paths.append(full_path)
+        except (PermissionError, OSError):
+            continue
+
+    # 4. Default fixed paths (fallback)
+    for p in DEFAULT_INSTANT_CLIENT_PATHS.get(system, []):
+        expanded = os.path.expanduser(p)
+        if os.path.isdir(expanded) and expanded not in paths:
+            paths.append(expanded)
 
     return paths
 
