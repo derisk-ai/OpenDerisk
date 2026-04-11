@@ -346,9 +346,10 @@ class OracleConnector(RDBMSConnector):
 
     def _sync_tables_from_db(self) -> Iterable[str]:
         with self.session_scope() as s:
-            tables = {r[0] for r in s.execute(text("SELECT table_name FROM user_tables"))}
+            # Use all_tables to get tables from all accessible schemas
+            tables = {f"{r[0]}.{r[1]}" for r in s.execute(text("SELECT owner, table_name FROM all_tables WHERE owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC')"))}
             if self.view_support:
-                tables.update(r[0] for r in s.execute(text("SELECT view_name FROM user_views")))
+                tables.update(f"{r[0]}.{r[1]}" for r in s.execute(text("SELECT owner, view_name FROM all_views WHERE owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC')")))
         self._all_tables = tables
         self._metadata = MetaData()
         self._metadata.reflect(bind=self._engine)
@@ -360,13 +361,45 @@ class OracleConnector(RDBMSConnector):
 
     def table_simple_info(self):
         with self.session_scope() as s:
-            return s.execute(text("SELECT table_name FROM user_tables WHERE table_name NOT LIKE 'BIN$%'")).fetchall()
+            # Use all_tables to get tables from all accessible schemas
+            return s.execute(text("SELECT owner, table_name FROM all_tables WHERE table_name NOT LIKE 'BIN$%' AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC')")).fetchall()
 
     def get_show_create_table(self, table_name: str) -> str:
+        """Get CREATE TABLE statement using Oracle DBMS_METADATA.
+
+        Args:
+            table_name: Can be just table_name or 'owner.table_name' format
+        """
+        # Parse owner and table_name
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            owner = owner.upper()
+            tbl = tbl.upper()
+        else:
+            owner = None
+            tbl = table_name.upper()
+
         with self.session_scope() as s:
-            rows = s.execute(text(f"SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default FROM user_tab_columns WHERE table_name = '{table_name.upper()}' ORDER BY column_id")).fetchall()
+            # Try DBMS_METADATA.GET_DDL for full CREATE TABLE statement
+            try:
+                if owner:
+                    result = s.execute(text(f"SELECT DBMS_METADATA.GET_DDL('TABLE', '{tbl}', '{owner}') FROM dual")).fetchone()
+                else:
+                    result = s.execute(text(f"SELECT DBMS_METADATA.GET_DDL('TABLE', '{tbl}') FROM dual")).fetchone()
+                if result and result[0]:
+                    return str(result[0].read()) if hasattr(result[0], 'read') else str(result[0])
+            except Exception as e:
+                logger.warning(f"DBMS_METADATA.GET_DDL failed: {e}, falling back to manual method")
+
+            # Fallback: manual column info from all_tab_columns
+            if owner:
+                rows = s.execute(text(f"SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default FROM all_tab_columns WHERE table_name = '{tbl}' AND owner = '{owner}' ORDER BY column_id")).fetchall()
+            else:
+                rows = s.execute(text(f"SELECT column_name, data_type, data_length, data_precision, data_scale, nullable, data_default FROM user_tab_columns WHERE table_name = '{tbl}' ORDER BY column_id")).fetchall()
+
         if not rows:
-            return f'-- Table "{table_name.upper()}" not found'
+            return f'-- Table "{tbl}" not found'
+
         lines = []
         for r in rows:
             dt = r[1]
@@ -380,14 +413,32 @@ class OracleConnector(RDBMSConnector):
             if r[5] == "N":
                 parts.append("NOT NULL")
             lines.append(" ".join(parts))
-        return f'CREATE TABLE "{table_name.upper()}" (\n' + ",\n".join(lines) + "\n)"
+        return f'CREATE TABLE "{tbl}" (\n' + ",\n".join(lines) + "\n)"
 
     def get_simple_fields(self, table_name):
         return self.get_fields(table_name)
 
     def get_fields(self, table_name: str, db_name=None) -> List[Tuple]:
+        """Get field information for a table.
+
+        Args:
+            table_name: Can be just table_name or 'owner.table_name' format
+            db_name: Optional owner/schema name
+        """
+        # Parse owner and table_name
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            owner = owner.upper()
+            tbl = tbl.upper()
+        else:
+            owner = db_name.upper() if db_name else None
+            tbl = table_name.upper()
+
         with self.session_scope() as s:
-            return s.execute(text(f"SELECT col.column_name, col.data_type, col.data_default, col.nullable, comm.comments FROM user_tab_columns col LEFT JOIN user_col_comments comm ON col.table_name = comm.table_name AND col.column_name = comm.column_name WHERE col.table_name = '{table_name.upper()}'")).fetchall()
+            if owner:
+                return s.execute(text(f"SELECT col.column_name, col.data_type, col.data_default, col.nullable, comm.comments FROM all_tab_columns col LEFT JOIN all_col_comments comm ON col.table_name = comm.table_name AND col.column_name = comm.column_name AND col.owner = comm.owner WHERE col.table_name = '{tbl}' AND col.owner = '{owner}'")).fetchall()
+            else:
+                return s.execute(text(f"SELECT col.column_name, col.data_type, col.data_default, col.nullable, comm.comments FROM user_tab_columns col LEFT JOIN user_col_comments comm ON col.table_name = comm.table_name AND col.column_name = comm.column_name WHERE col.table_name = '{tbl}'")).fetchall()
 
     def _write(self, sql: str):
         logger.info(f"Write[{sql}]")
@@ -398,7 +449,16 @@ class OracleConnector(RDBMSConnector):
             return r.rowcount
 
     def query_table_schema(self, table_name: str):
-        return self._query(f'SELECT * FROM "{table_name.upper()}" FETCH FIRST 1 ROWS ONLY')
+        """Query table schema by selecting first row.
+
+        Args:
+            table_name: Can be just table_name or 'owner.table_name' format
+        """
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            return self._query(f'SELECT * FROM "{owner.upper()}"."{tbl.upper()}" FETCH FIRST 1 ROWS ONLY')
+        else:
+            return self._query(f'SELECT * FROM "{table_name.upper()}" FETCH FIRST 1 ROWS ONLY')
 
     def get_charset(self) -> str:
         with self.session_scope() as s:
@@ -423,17 +483,51 @@ class OracleConnector(RDBMSConnector):
             return [s.execute(text("SELECT sys_context('USERENV', 'CON_NAME') FROM dual")).fetchone()[0]]
 
     def get_table_comments(self, db_name: str) -> List[Tuple[str, str]]:
+        """Get table comments for all tables in accessible schemas."""
         with self.session_scope() as s:
-            return [(r[0], r[1]) for r in s.execute(text("SELECT table_name, comments FROM user_tab_comments")).fetchall()]
+            return [(f"{r[0]}.{r[1]}", r[2]) for r in s.execute(text("SELECT owner, table_name, comments FROM all_tab_comments WHERE comments IS NOT NULL AND owner NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DBSNMP', 'WMSYS', 'ORDDATA', 'ORDSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'FLOWS_FILES', 'APEX_030200', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA', 'OLAPSYS', 'MDSYS', 'PUBLIC')")).fetchall()]
 
     def get_table_comment(self, table_name: str) -> Dict:
+        """Get comment for a specific table.
+
+        Args:
+            table_name: Can be just table_name or 'owner.table_name' format
+        """
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            owner = owner.upper()
+            tbl = tbl.upper()
+        else:
+            owner = None
+            tbl = table_name.upper()
+
         with self.session_scope() as s:
-            r = s.execute(text(f"SELECT comments FROM user_tab_comments WHERE table_name = '{table_name.upper()}'")).fetchone()
+            if owner:
+                r = s.execute(text(f"SELECT comments FROM all_tab_comments WHERE table_name = '{tbl}' AND owner = '{owner}'")).fetchone()
+            else:
+                r = s.execute(text(f"SELECT comments FROM user_tab_comments WHERE table_name = '{tbl}'")).fetchone()
             return {"text": r[0] if r else ""}
 
     def get_column_comments(self, db_name: str, table_name: str) -> List[Tuple[str, str]]:
+        """Get column comments for a table.
+
+        Args:
+            db_name: Owner/schema name
+            table_name: Can be just table_name or 'owner.table_name' format
+        """
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            owner = owner.upper()
+            tbl = tbl.upper()
+        else:
+            owner = db_name.upper() if db_name else None
+            tbl = table_name.upper()
+
         with self.session_scope() as s:
-            return [(r[0], r[1]) for r in s.execute(text(f"SELECT column_name, comments FROM user_col_comments WHERE table_name = '{table_name.upper()}'")).fetchall()]
+            if owner:
+                return [(r[0], r[1]) for r in s.execute(text(f"SELECT column_name, comments FROM all_col_comments WHERE table_name = '{tbl}' AND owner = '{owner}'")).fetchall()]
+            else:
+                return [(r[0], r[1]) for r in s.execute(text(f"SELECT column_name, comments FROM user_col_comments WHERE table_name = '{tbl}'")).fetchall()]
 
     def get_collation(self) -> str:
         with self.session_scope() as s:
