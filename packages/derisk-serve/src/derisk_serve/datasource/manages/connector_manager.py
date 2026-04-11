@@ -218,9 +218,12 @@ class ConnectorManager(BaseComponent):
             # Oracle requires sid or service_name instead of db_name.
             # Fall back to db_name (stored from the "database" field) when
             # neither sid nor service_name is in ext_config.
+            # Also support auto version detection with oracle_client_lib and force_thick_mode.
             if db_type == DBType.Oracle:
                 ora_sid = ext_config.get("sid")
                 ora_svc = ext_config.get("service_name")
+                ora_client_lib = ext_config.get("oracle_client_lib")
+                force_thick = ext_config.get("force_thick_mode", False)
                 if not ora_sid and not ora_svc:
                     ora_svc = db_name
                 return connect_instance.from_uri_db(  # type: ignore
@@ -230,6 +233,8 @@ class ConnectorManager(BaseComponent):
                     pwd=db_pwd,
                     sid=ora_sid,
                     service_name=ora_svc,
+                    oracle_client_lib=ora_client_lib,
+                    force_thick_mode=force_thick,
                 )
 
             return connect_instance.from_uri_db(  # type: ignore
