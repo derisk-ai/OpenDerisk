@@ -319,7 +319,9 @@ class AppConfig(BaseModel):
 
     secrets: SecretsConfig = Field(default_factory=_get_default_secrets_config)
 
-    workspace: str = str(get_derisk_home() / "workspace")
+    workspace: str = Field(
+        default_factory=lambda: str(get_derisk_home() / "workspace")
+    )
 
     class Config:
         extra = "allow"

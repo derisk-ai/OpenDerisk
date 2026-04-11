@@ -23,14 +23,19 @@ DEFAULT_JSON_CONFIG_PATH = get_derisk_home() / "derisk.json"
 def init_json_config_manager():
     """Initialize the JSON config manager for UI configuration"""
     try:
+        config_path = str(DEFAULT_JSON_CONFIG_PATH)
+        logger.info(f"Initializing JSON config manager at: {config_path}")
+
         from derisk_core.config import ConfigManager
 
-        ConfigManager.init(str(DEFAULT_JSON_CONFIG_PATH))
+        ConfigManager.init(config_path)
         logger.info(
             f"JSON config manager initialized: {ConfigManager.get_config_path()}"
         )
     except Exception as e:
-        logger.warning(f"Failed to initialize JSON config manager: {e}")
+        logger.error(
+            f"Failed to initialize JSON config manager: {e}", exc_info=True
+        )
 
 
 def run_uvicorn(creator: AppCreator):

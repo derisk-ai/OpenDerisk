@@ -14,14 +14,20 @@ class ConfigLoader:
     """配置加载器 - 简化配置体验"""
 
     DEFAULT_CONFIG_NAME = "derisk.json"
-    # 默认配置文件路径优先级：用户目录下的 .derisk/derisk.json
-    DEFAULT_CONFIG_PATH = get_derisk_home() / "derisk.json"
 
-    DEFAULT_LOCATIONS = [
-        get_derisk_home() / "derisk.json",  # 优先级最高
-        Path.cwd() / "derisk.json",
-        get_derisk_home() / "config.json",
-    ]
+    @classmethod
+    def get_default_config_path(cls) -> Path:
+        """获取默认配置文件路径（动态计算，支持运行时 DERISK_HOME）"""
+        return get_derisk_home() / "derisk.json"
+
+    @classmethod
+    def get_default_locations(cls) -> list:
+        """获取默认配置文件搜索路径列表（动态计算）"""
+        return [
+            get_derisk_home() / "derisk.json",  # 优先级最高
+            Path.cwd() / "derisk.json",
+            get_derisk_home() / "config.json",
+        ]
 
     @classmethod
     def load(cls, path: Optional[str] = None) -> AppConfig:
@@ -36,7 +42,7 @@ class ConfigLoader:
         if path:
             return cls._load_from_path(Path(path))
 
-        for location in cls.DEFAULT_LOCATIONS:
+        for location in cls.get_default_locations():
             if location.exists():
                 return cls._load_from_path(location)
 
@@ -120,14 +126,14 @@ class ConfigManager:
     @classmethod
     def get_default_config_path(cls) -> str:
         """获取默认配置文件路径"""
-        return str(ConfigLoader.DEFAULT_CONFIG_PATH)
+        return str(ConfigLoader.get_default_config_path())
 
     @classmethod
     def get(cls) -> AppConfig:
         """获取当前配置"""
         if cls._config is None:
             loaded_path = None
-            for location in ConfigLoader.DEFAULT_LOCATIONS:
+            for location in ConfigLoader.get_default_locations():
                 if location.exists():
                     cls._config_path = str(location)
                     loaded_path = location
