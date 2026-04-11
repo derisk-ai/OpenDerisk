@@ -378,7 +378,25 @@ class OracleConnector(RDBMSConnector):
         return f'"{id}"'
 
     def limit_sql(self, sql: str, limit: int, offset: int = 0) -> str:
-        return f"{sql} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY" if offset else f"{sql} FETCH FIRST {limit} ROWS ONLY"
+        """Limit SQL based on Oracle version.
+
+        Oracle 12c+: use FETCH FIRST syntax
+        Oracle 11g and earlier: use ROWNUM with subquery
+        """
+        # Get version from instance or class attribute
+        version = getattr(self, '_oracle_version', None) or OracleConnector._oracle_version or (0, 0)
+
+        if version >= (12, 1):
+            # Oracle 12c+ supports ANSI FETCH syntax
+            if offset:
+                return f"{sql} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+            return f"{sql} FETCH FIRST {limit} ROWS ONLY"
+        else:
+            # Oracle 11g and earlier: use ROWNUM
+            if offset:
+                # Need nested subquery for offset
+                return f"SELECT * FROM (SELECT a.*, ROWNUM rnum FROM ({sql}) a WHERE ROWNUM <= {offset + limit}) WHERE rnum > {offset}"
+            return f"SELECT * FROM ({sql}) WHERE ROWNUM <= {limit}"
 
     def _get_schema_for_inspection(self) -> Optional[str]:
         return None
