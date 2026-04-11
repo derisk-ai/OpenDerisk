@@ -612,7 +612,7 @@ class SchemaLearningService:
         # Primary key columns
         pk_columns = set()
         try:
-            pk_info = connector._inspector.get_pk_constraint(table_name)
+            pk_info = connector.get_pk_constraint(table_name)
             if pk_info and pk_info.get("constrained_columns"):
                 pk_columns = set(pk_info["constrained_columns"])
         except Exception:
@@ -621,7 +621,7 @@ class SchemaLearningService:
         # Foreign keys
         foreign_keys = []
         try:
-            fk_list = connector._inspector.get_foreign_keys(table_name)
+            fk_list = connector.get_foreign_keys(table_name)
             for fk in (fk_list or []):
                 foreign_keys.append({
                     "constrained_columns": fk.get("constrained_columns", []),

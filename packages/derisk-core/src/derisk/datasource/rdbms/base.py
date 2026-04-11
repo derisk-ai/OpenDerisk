@@ -411,6 +411,28 @@ class RDBMSConnector(BaseConnector):
         """
         return self._inspector.get_columns(table_name)
 
+    def get_pk_constraint(self, table_name: str) -> Dict:
+        """Get primary key constraint for specified table.
+
+        Args:
+            table_name (str): table name
+
+        Returns:
+            Dict with constrained_columns and name keys
+        """
+        return self._inspector.get_pk_constraint(table_name)
+
+    def get_foreign_keys(self, table_name: str) -> List[Dict]:
+        """Get foreign keys for specified table.
+
+        Args:
+            table_name (str): table name
+
+        Returns:
+            List of foreign key dicts
+        """
+        return self._inspector.get_foreign_keys(table_name)
+
     def _get_sample_rows(self, table: Table) -> str:
         # build the select command
         command = select(table).limit(self._sample_rows_in_table_info)

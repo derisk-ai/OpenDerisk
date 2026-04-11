@@ -567,3 +567,49 @@ class OracleConnector(RDBMSConnector):
         with self.session_scope() as s:
             rows = s.execute(text("SELECT PRODUCT, VERSION, STATUS FROM PRODUCT_COMPONENT_VERSION WHERE PRODUCT LIKE 'Oracle%' OR PRODUCT LIKE 'PL/SQL%'")).fetchall()
             return {"components": [{"product": r[0], "version": r[1], "status": r[2]} for r in rows], "major_version": self._oracle_version, "using_thick_mode": self._using_thick_mode}
+
+    def _parse_table_name_with_schema(self, table_name: str) -> Tuple[str, Optional[str]]:
+        """Parse table_name that may contain owner prefix.
+
+        Args:
+            table_name: Either 'table_name' or 'owner.table_name' format
+
+        Returns:
+            Tuple of (pure_table_name, owner/schema or None)
+        """
+        if '.' in table_name:
+            owner, tbl = table_name.split('.', 1)
+            return tbl.upper(), owner.upper()
+        return table_name.upper(), None
+
+    def get_columns(self, table_name: str) -> List[Dict]:
+        """Get columns about specified table.
+
+        Handles 'owner.table_name' format by passing schema to SQLAlchemy inspector.
+        """
+        tbl, schema = self._parse_table_name_with_schema(table_name)
+        return self._inspector.get_columns(tbl, schema=schema)
+
+    def get_indexes(self, table_name: str) -> List[Dict]:
+        """Get indexes about specified table.
+
+        Handles 'owner.table_name' format by passing schema to SQLAlchemy inspector.
+        """
+        tbl, schema = self._parse_table_name_with_schema(table_name)
+        return self._inspector.get_indexes(tbl, schema=schema)
+
+    def get_pk_constraint(self, table_name: str) -> Dict:
+        """Get primary key constraint for specified table.
+
+        Handles 'owner.table_name' format by passing schema to SQLAlchemy inspector.
+        """
+        tbl, schema = self._parse_table_name_with_schema(table_name)
+        return self._inspector.get_pk_constraint(tbl, schema=schema)
+
+    def get_foreign_keys(self, table_name: str) -> List[Dict]:
+        """Get foreign keys for specified table.
+
+        Handles 'owner.table_name' format by passing schema to SQLAlchemy inspector.
+        """
+        tbl, schema = self._parse_table_name_with_schema(table_name)
+        return self._inspector.get_foreign_keys(tbl, schema=schema)
