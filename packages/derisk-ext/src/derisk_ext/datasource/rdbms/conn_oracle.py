@@ -262,25 +262,48 @@ class OracleConnector(RDBMSConnector):
             cls._using_thick_mode = True
         elif force_thick_mode is None and auto_detect:
             # Auto detect version and switch to thick mode if needed
+            # IMPORTANT: Try thick mode FIRST for older Oracle versions
+            # because init_oracle_client() can only be called ONCE before any connection
+            # Once thick mode is initialized, ALL subsequent connections will use thick mode
+
             logger.info(f"Auto-detecting Oracle version: {host}:{port}/{svc}")
-            ok, ver, err = _test_connection(host, port, user, pwd, svc)
-            if ok:
-                cls._oracle_version = _parse_version(ver)
-                logger.info(f"Thin mode OK, Oracle version: {ver}")
-            elif err == "version_not_supported":
-                logger.info("Oracle version requires thick mode, switching...")
-                if not _init_thick_mode(oracle_client_lib):
-                    raise ValueError(
-                        "Oracle <12c needs thick mode. Install Instant Client or "
-                        "set ORACLE_INSTANT_CLIENT_HOME env variable."
-                    )
+
+            # Step 1: Check if Instant Client is available
+            # If available, initialize thick mode (this can only be done ONCE per process)
+            thick_initialized = _init_thick_mode(oracle_client_lib)
+
+            if thick_initialized:
+                # Thick mode is now permanently enabled for this process
+                # Test connection with thick mode
                 ok, ver, err = _test_connection(host, port, user, pwd, svc, use_thick=True, lib_dir=oracle_client_lib)
                 if ok:
                     cls._oracle_version = _parse_version(ver)
                     cls._using_thick_mode = True
                     logger.info(f"Thick mode OK, Oracle version: {ver}")
+                    # Build connection URL - all subsequent connections will use thick mode
+                    dsn = f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SERVICE_NAME={svc})))" if service_name else f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST={host})(PORT={port}))(CONNECT_DATA=(SID={sid})))"
+                    url = f"{cls.driver}://{quote(user)}:{quote_plus(pwd)}@{dsn}"
+                    return cls.from_uri(url, engine_args=engine_args, **kwargs)
                 else:
-                    raise ValueError(f"Thick mode connection failed: {err}")
+                    # Thick mode initialized but connection failed
+                    # This could be due to wrong credentials or other issues
+                    logger.error(f"Thick mode initialized but connection test failed: {err}")
+                    raise ValueError(f"Connection test failed after thick mode init: {err}")
+
+            # Step 2: Thick mode not available (Instant Client not found)
+            # Try thin mode (for Oracle 12c+)
+            logger.info("Thick mode not available (Instant Client not found), trying thin mode...")
+            ok, ver, err = _test_connection(host, port, user, pwd, svc)
+            if ok:
+                cls._oracle_version = _parse_version(ver)
+                logger.info(f"Thin mode OK, Oracle version: {ver}")
+            elif err == "version_not_supported":
+                # Oracle version requires thick mode but thick mode not available
+                raise ValueError(
+                    "Oracle <12c needs thick mode but Instant Client not found. "
+                    "Install Instant Client or set ORACLE_INSTANT_CLIENT_HOME env variable, "
+                    "or set force_thick_mode=True and oracle_client_lib parameter."
+                )
             else:
                 raise ValueError(f"Connection test failed: {err}")
 
@@ -302,25 +325,40 @@ class OracleConnector(RDBMSConnector):
             cls._using_thick_mode = True
             return cls.from_uri_db(params.host, params.port, params.user, params.password, params.sid, params.service_name, params.engine_args(), force_thick_mode=True)
 
-        # Try thin mode
+        # IMPORTANT: Try thick mode FIRST for older Oracle versions
+        # because init_oracle_client() can only be called ONCE before any connection
+
+        logger.info(f"Auto-detecting Oracle version for params: {params.host}:{params.port}/{svc}")
+
+        # Step 1: Check if Instant Client is available
+        thick_initialized = _init_thick_mode(params.oracle_client_lib)
+
+        if thick_initialized:
+            # Thick mode is now permanently enabled for this process
+            ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc, use_thick=True, lib_dir=params.oracle_client_lib)
+            if ok:
+                cls._oracle_version = _parse_version(ver)
+                cls._using_thick_mode = True
+                logger.info(f"Thick mode OK, version: {ver}")
+                return cls.from_uri_db(params.host, params.port, params.user, params.password, params.sid, params.service_name, params.engine_args())
+            else:
+                logger.error(f"Thick mode initialized but connection test failed: {err}")
+                raise ValueError(f"Connection test failed after thick mode init: {err}")
+
+        # Step 2: Thick mode not available, try thin mode
+        logger.info("Thick mode not available (Instant Client not found), trying thin mode...")
         ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc)
         if ok:
             cls._oracle_version = _parse_version(ver)
             logger.info(f"Thin mode OK, version: {ver}")
             return cls.from_uri_db(params.host, params.port, params.user, params.password, params.sid, params.service_name, params.engine_args())
 
-        # Switch to thick mode
+        # Thin mode failed
         if err == "version_not_supported":
-            logger.info("Switching to thick mode")
-            if not _init_thick_mode(params.oracle_client_lib):
-                raise ValueError("Oracle <12c needs thick mode. Install Instant Client or set ORACLE_INSTANT_CLIENT_HOME.")
-            ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc, use_thick=True, lib_dir=params.oracle_client_lib)
-            if ok:
-                cls._oracle_version = _parse_version(ver)
-                cls._using_thick_mode = True
-                logger.info(f"Thick mode OK, version: {ver}")
-                return cls.from_uri_db(params.host, params.port, params.user, params.password, params.sid, params.service_name, params.engine_args(), force_thick_mode=True)
-            raise ValueError(f"Thick mode failed: {err}")
+            raise ValueError(
+                "Oracle <12c needs thick mode but Instant Client not found. "
+                "Install Instant Client or set ORACLE_INSTANT_CLIENT_HOME env variable."
+            )
         raise ValueError(f"Connection failed: {err}")
 
     @property
