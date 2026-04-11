@@ -41,6 +41,41 @@ warn() { echo -e "${YELLOW}[Warning]${NC} $1"; }
 error() { echo -e "${RED}[Error]${NC} $1" >&2; exit 1; }
 success() { echo -e "${GREEN}[Success]${NC} $1"; }
 
+# Auto-detect system environment and setup DERISK_HOME
+setup_derisk_env() {
+    local os_type
+    os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    info "Platform: $os_type ($(uname -m))"
+
+    # If DERISK_HOME already set by user, use it directly
+    if [ -n "${DERISK_HOME:-}" ]; then
+        mkdir -p "$DERISK_HOME" 2>/dev/null || true
+        info "Config directory: $DERISK_HOME (DERISK_HOME)"
+        export DERISK_HOME
+        return 0
+    fi
+
+    # Try default ~/.derisk
+    local default_home="${HOME:-}/.derisk"
+    if [ -n "${HOME:-}" ] && mkdir -p "$default_home" 2>/dev/null; then
+        info "Config directory: $default_home"
+        return 0
+    fi
+
+    # Fallback for Linux servers without writable HOME
+    warn "HOME directory not writable, auto-selecting DERISK_HOME..."
+    for candidate in "/opt/derisk" "/var/lib/derisk" "/tmp/derisk"; do
+        if mkdir -p "$candidate" 2>/dev/null; then
+            export DERISK_HOME="$candidate"
+            success "Using DERISK_HOME=$DERISK_HOME (auto-detected)"
+            return 0
+        fi
+    done
+
+    error "Cannot find writable directory for config. Set DERISK_HOME manually."
+}
+
 # Detect if running in project directory
 is_project_dir() {
     [ -f "pyproject.toml" ] && [ -d "packages" ] && [ -f "install.sh" ]
@@ -245,6 +280,9 @@ main() {
         info "Will clone to: $INSTALL_DIR"
         clone_repo
     fi
+
+    # Auto-detect system and setup config directory
+    setup_derisk_env
 
     # Ensure dependencies for both modes
     install_uv

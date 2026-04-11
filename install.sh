@@ -90,6 +90,41 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Auto-detect system environment and setup DERISK_HOME
+setup_derisk_env() {
+    local os_type
+    os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    log "Platform: $os_type ($(uname -m))"
+
+    # If DERISK_HOME already set by user, use it directly
+    if [ -n "${DERISK_HOME:-}" ]; then
+        mkdir -p "$DERISK_HOME" 2>/dev/null || true
+        log "Config directory: $DERISK_HOME (DERISK_HOME)"
+        export DERISK_HOME
+        return 0
+    fi
+
+    # Try default ~/.derisk
+    local default_home="${HOME:-}/.derisk"
+    if [ -n "${HOME:-}" ] && mkdir -p "$default_home" 2>/dev/null; then
+        log "Config directory: $default_home"
+        return 0
+    fi
+
+    # Fallback for Linux servers without writable HOME
+    warn "HOME directory not writable, auto-selecting DERISK_HOME..."
+    for candidate in "/opt/derisk" "/var/lib/derisk" "/tmp/derisk"; do
+        if mkdir -p "$candidate" 2>/dev/null; then
+            export DERISK_HOME="$candidate"
+            success "Using DERISK_HOME=$DERISK_HOME (auto-detected)"
+            return 0
+        fi
+    done
+
+    error "Cannot find writable directory for config. Set DERISK_HOME manually."
+}
+
 # Install uv if not present
 install_uv() {
     if command_exists uv; then
@@ -196,9 +231,15 @@ create_wrappers() {
     mkdir -p "$BIN_DIR"
     
     # Create main openderisk command
+    local derisk_home_line=""
+    if [ -n "${DERISK_HOME:-}" ]; then
+        derisk_home_line="export DERISK_HOME=\"$DERISK_HOME\""
+    fi
+
     cat > "$BIN_DIR/openderisk" << EOF
 #!/bin/bash
 # OpenDerisk Launcher
+$derisk_home_line
 cd "$INSTALL_DIR" || exit 1
 exec uv run derisk "\$@"
 EOF
@@ -209,6 +250,7 @@ EOF
     cat > "$BIN_DIR/openderisk-server" << EOF
 #!/bin/bash
 # OpenDerisk Server Launcher
+$derisk_home_line
 DEFAULT_CONFIG="$CONFIG_DIR/$DEFAULT_CONFIG"
 
 cd "$INSTALL_DIR" || exit 1
@@ -247,8 +289,13 @@ add_to_path() {
         if ! grep -q "$BIN_DIR" "$shell_config" 2>/dev/null; then
             log "Adding $BIN_DIR to PATH in $shell_config"
             echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$shell_config"
-            warn "Please restart your shell or run: source $shell_config"
         fi
+        # Persist DERISK_HOME if it was auto-detected
+        if [ -n "${DERISK_HOME:-}" ] && ! grep -q "DERISK_HOME" "$shell_config" 2>/dev/null; then
+            log "Adding DERISK_HOME=$DERISK_HOME to $shell_config"
+            echo "export DERISK_HOME=\"$DERISK_HOME\"" >> "$shell_config"
+        fi
+        warn "Please restart your shell or run: source $shell_config"
     fi
 }
 
@@ -315,6 +362,9 @@ main() {
     log "Config directory: $CONFIG_DIR"
     log "Binary directory: $BIN_DIR"
     
+    # Auto-detect system and setup config directory
+    setup_derisk_env
+
     # Installation steps
     install_uv
     ensure_python
