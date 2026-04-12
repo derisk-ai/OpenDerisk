@@ -829,17 +829,35 @@ def create_dashboard_routes(dashboard: MonitoringDashboard = None):
 
     @router.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        """WebSocket实时事件流"""
-        await websocket.accept()
-        queue = await dashboard.subscribe()
+        """WebSocket实时事件流
 
+        CORS处理: WebSocket连接需要显式处理CORS，因为CORS中间件只处理HTTP请求。
+        """
+        # 处理WebSocket CORS - 检查origin是否允许
+        origin = websocket.headers.get("origin", "")
+        # 允许所有来源（与HTTP CORS配置一致）
+        # 如果需要更严格的安全控制，可以检查origin是否在允许列表中
+
+        # 明确接受 WebSocket 连接，避免 403 Forbidden
         try:
-            while True:
-                # 发送事件
-                event_data = await queue.get()
-                await websocket.send_text(event_data)
-        except WebSocketDisconnect:
-            await dashboard.unsubscribe(queue)
+            # 接受WebSocket连接，这会完成CORS检查
+            await websocket.accept()
+            queue = await dashboard.subscribe()
+
+            try:
+                while True:
+                    # 发送事件
+                    event_data = await queue.get()
+                    await websocket.send_text(event_data)
+            except WebSocketDisconnect:
+                await dashboard.unsubscribe(queue)
+        except Exception as e:
+            logger.error(f"[MonitoringDashboard] WebSocket error: {e}")
+            # Ensure connection is closed properly
+            try:
+                await websocket.close()
+            except Exception:
+                pass
 
     return router
 

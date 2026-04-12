@@ -14,6 +14,7 @@ class PriorityAPIRouter(APIRouter):
     """A router with priority.
 
     The route with higher priority will be put in the front of the route list.
+    WebSocket routes are given higher priority by default to ensure proper routing.
     """
 
     def __init__(self, *args, **kwargs):
@@ -37,15 +38,46 @@ class PriorityAPIRouter(APIRouter):
         # Sort the routes by priority.
         self.sort_routes_by_priority()
 
-    def sort_routes_by_priority(self):
-        """Sort the routes by priority."""
+    def add_api_websocket_route(
+        self, path: str, endpoint: Callable, *, priority: int = 10, **kwargs: Any
+    ):
+        """Add a WebSocket route with priority.
 
-        def my_func(route):
+        WebSocket routes get higher priority by default (10) to ensure they are
+        matched before HTTP routes, preventing 403 Forbidden errors.
+
+        Args:
+            path (str): The path of the WebSocket route.
+            endpoint (Callable): The WebSocket endpoint.
+            priority (int, optional): The priority. Defaults to 10 for WebSocket routes.
+            **kwargs (Any): Other arguments.
+        """
+        super().add_api_websocket_route(path, endpoint, **kwargs)
+        self.route_priority[path] = priority
+        # Sort the routes by priority to ensure WebSocket routes are first.
+        self.sort_routes_by_priority()
+
+    def sort_routes_by_priority(self):
+        """Sort the routes by priority.
+
+        WebSocket routes get higher priority (10) by default to ensure they are
+        matched before HTTP routes, preventing 403 Forbidden errors.
+        """
+
+        def get_priority(route):
+            # Check if route is WebSocket route
+            # WebSocket routes have 'protocol' attribute set to 'websocket' in Starlette
+            # or are instances of WebSocketRoute
+            is_websocket = getattr(route, 'protocol', None) == 'websocket'
+            if is_websocket:
+                # WebSocket routes get higher priority to ensure proper routing
+                return self.route_priority.get(route.path, 10)
+            # Root/static routes get lowest priority
             if route.path in ["", "/"]:
                 return -100
             return self.route_priority.get(route.path, 0)
 
-        self.routes.sort(key=my_func, reverse=True)
+        self.routes.sort(key=get_priority, reverse=True)
 
 
 _HAS_STARTUP = False
