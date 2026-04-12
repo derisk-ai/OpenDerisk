@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import FastAPI
 from fastapi.routing import APIRouter
+from starlette.routing import WebSocketRoute
 
 _FASTAPI_VERSION = metadata.version("fastapi")
 
@@ -65,11 +66,9 @@ class PriorityAPIRouter(APIRouter):
         """
 
         def get_priority(route):
-            # Check if route is WebSocket route
-            # WebSocket routes have 'protocol' attribute set to 'websocket' in Starlette
-            # or are instances of WebSocketRoute
-            is_websocket = getattr(route, 'protocol', None) == 'websocket'
-            if is_websocket:
+            # Check if route is WebSocket route using isinstance
+            # WebSocketRoute is from starlette.routing
+            if isinstance(route, WebSocketRoute):
                 # WebSocket routes get higher priority to ensure proper routing
                 return self.route_priority.get(route.path, 10)
             # Root/static routes get lowest priority
