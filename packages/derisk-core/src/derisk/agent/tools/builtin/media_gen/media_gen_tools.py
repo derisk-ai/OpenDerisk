@@ -20,41 +20,81 @@ logger = logging.getLogger(__name__)
 _GENERATE_IMAGE_PROMPT = """使用 AI 模型生成图片。
 
 **使用场景：**
-- 根据文字描述生成图片 (如 DALL-E 3, Stable Diffusion, Flux)
+- 根据文字描述生成图片 (如 DALL-E 3, 万相 wan2.7, Stable Diffusion, Flux)
 - 生成数据可视化、插图、概念图等
+- 图像编辑 (图生图、多图参考)
+- 组图生成 (多张一致性图片)
 - 生成的图片会自动保存并交付给用户
 
 **推荐用法：**
 ```
-# 生成一张图片
+# 文生图 (DALL-E)
 generate_image(prompt="一只在星空下弹吉他的猫，赛博朋克风格", model="dall-e-3", size="1024x1024")
 
-# 生成高质量图片
-generate_image(prompt="产品界面设计图", model="dall-e-3", quality="hd", size="1792x1024")
+# 文生图 (万相 - 推荐，支持中文)
+generate_image(prompt="无人机俯瞰城市夜景，霓虹灯光闪烁", provider="aliyun_wan", model="wan2.7-image-pro", size="2K", thinking_mode=true)
+
+# 高质量文生图 (万相4K)
+generate_image(prompt="精致的产品设计图", provider="aliyun_wan", model="wan2.7-image-pro", size="4K", thinking_mode=true)
+
+# 组图生成 (多张一致性图片)
+generate_image(prompt="四季变化，同一只猫在不同季节", provider="aliyun_wan", enable_sequential=true, n=4)
+
+# 图像编辑 (多图参考)
+generate_image(prompt="把图2的风格应用到图1", provider="aliyun_wan", images=["url1", "url2"])
 ```
+
+**万相 (wan2.7) 特殊参数：**
+- thinking_mode: 开启思考模式提升质量
+- size: 1K/2K/4K (wan2.7-image-pro 文生图支持4K)
+- images: 参考图片URL列表 (用于图生图/编辑)
+- enable_sequential: 组图模式
+- bbox_list: 框选区域 (交互式编辑)
+- color_palette: 自定义颜色主题
 
 **注意事项：**
 - 生成图片需要消耗 API 配额，请合理使用
 - 图片生成通常需要 10-30 秒
+- 万相支持中文提示词，效果更佳
 - 生成的图片会自动上传到存储并生成交付链接
 """
 
 _GENERATE_VIDEO_PROMPT = """使用 AI 模型生成视频。
 
 **使用场景：**
-- 根据文字描述生成短视频 (如 Sora, Runway)
+- 根据文字描述生成短视频 (如 Sora, doubao-seedance)
+- 基于首帧图片生成视频 (图生视频)
 - 生成产品演示、概念视频等
 - 生成的视频会自动保存并交付给用户
 
 **推荐用法：**
 ```
-# 生成一段视频
+# 纯文生视频
 generate_video(prompt="日落时分海浪拍打沙滩的慢镜头", model="sora", duration=5)
+
+# 基于首帧图片生成视频 (火山引擎 Seedance - 推荐)
+generate_video(
+    prompt="无人机缓缓下降穿越城市建筑",
+    provider="volcengine",
+    model="doubao-seedance-1-5-pro-251215",
+    first_frame_image_url="https://...",
+    duration=5
+)
+
+# 长视频生成
+generate_video(prompt="城市夜景航拍", provider="volcengine", duration=10)
 ```
+
+**Seedance 特殊参数：**
+- first_frame_image_url: 首帧图片URL (图生视频)
+- duration: 视频时长 (秒)
+- camerafixed: 是否固定镜头
+- watermark: 是否添加水印
 
 **注意事项：**
 - 视频生成需要较长时间 (通常 1-5 分钟)
 - 视频生成消耗较多 API 配额
+- 首帧图片质量直接影响视频效果
 - 生成的视频会自动上传到存储并生成交付链接
 """
 
@@ -154,35 +194,78 @@ class GenerateImageTool(ToolBase):
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "图片描述 (英文效果更佳)",
+                    "description": "图片描述 (支持中文和英文，万相推荐中文)",
                 },
                 "provider": {
                     "type": "string",
                     "description": "生成服务提供商",
-                    "default": "openai",
+                    "enum": ["openai", "aliyun_wan"],
+                    "default": "aliyun_wan",
                 },
                 "model": {
                     "type": "string",
-                    "description": "模型名称 (dall-e-3, dall-e-2, gpt-image-1 等)",
-                    "default": "dall-e-3",
+                    "description": "模型名称 (dall-e-3, wan2.7-image-pro, wan2.7-image 等)",
+                    "default": "wan2.7-image-pro",
                 },
                 "size": {
                     "type": "string",
-                    "enum": ["1024x1024", "1024x1792", "1792x1024", "512x512", "256x256"],
-                    "description": "图片尺寸",
-                    "default": "1024x1024",
+                    "description": "图片尺寸或分辨率规格。OpenAI: 1024x1024 等。万相: 1K/2K/4K",
+                    "default": "2K",
                 },
                 "quality": {
                     "type": "string",
                     "enum": ["standard", "hd"],
-                    "description": "图片质量 (dall-e-3 支持 hd)",
+                    "description": "图片质量 (OpenAI dall-e-3 支持 hd)",
                     "default": "standard",
                 },
                 "style": {
                     "type": "string",
                     "enum": ["vivid", "natural"],
-                    "description": "图片风格 (dall-e-3 支持)",
+                    "description": "图片风格 (OpenAI dall-e-3 支持)",
                     "default": "vivid",
+                },
+                # 万相特殊参数
+                "images": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "参考图片 URL 列表 (万相图生图/图像编辑场景)",
+                },
+                "bbox_list": {
+                    "type": "array",
+                    "description": "框选区域列表 (万相交互式编辑)",
+                },
+                "enable_sequential": {
+                    "type": "boolean",
+                    "description": "启用组图模式 (万相组图生成)",
+                    "default": False,
+                },
+                "n": {
+                    "type": "integer",
+                    "description": "生成数量。普通模式1-4，组图模式1-12",
+                    "default": 1,
+                },
+                "thinking_mode": {
+                    "type": "boolean",
+                    "description": "开启思考模式 (万相提升质量)",
+                    "default": True,
+                },
+                "watermark": {
+                    "type": "boolean",
+                    "description": "是否添加水印",
+                    "default": False,
+                },
+                "color_palette": {
+                    "type": "array",
+                    "description": "自定义颜色主题 (万相)",
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "随机种子 (可复现)",
+                },
+                "async_mode": {
+                    "type": "boolean",
+                    "description": "异步生成模式 (长耗时任务)",
+                    "default": False,
                 },
                 "description": {
                     "type": "string",
@@ -199,8 +282,8 @@ class GenerateImageTool(ToolBase):
         if not prompt:
             return ToolResult.fail(error="prompt 不能为空", tool_name=self.name)
 
-        provider_name = args.get("provider", "openai")
-        model = args.get("model", "dall-e-3")
+        provider_name = args.get("provider", "aliyun_wan")
+        model = args.get("model", "wan2.7-image-pro" if provider_name == "aliyun_wan" else "dall-e-3")
         description = args.get("description", "").strip() or f"AI 生成图片: {prompt[:50]}"
 
         # Resolve provider
@@ -225,11 +308,17 @@ class GenerateImageTool(ToolBase):
 
         # Generate image
         try:
-            gen_kwargs = {
-                k: v
-                for k, v in args.items()
-                if k in ("size", "quality", "style") and v
-            }
+            # Build kwargs for all supported parameters
+            gen_kwargs = {}
+            for k in [
+                "size", "quality", "style",  # OpenAI params
+                "images", "bbox_list", "enable_sequential", "n",  # Wan params
+                "thinking_mode", "watermark", "color_palette", "seed",  # Wan params
+                "async_mode", "timeout",  # Async params
+            ]:
+                if k in args and args[k] is not None:
+                    gen_kwargs[k] = args[k]
+
             result = await provider.generate_image(prompt, model, **gen_kwargs)
         except NotImplementedError:
             return ToolResult.fail(
@@ -367,17 +456,22 @@ class GenerateVideoTool(ToolBase):
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "视频描述 (英文效果更佳)",
+                    "description": "视频描述 (支持中文和英文)",
                 },
                 "provider": {
                     "type": "string",
                     "description": "生成服务提供商",
-                    "default": "openai_video",
+                    "enum": ["openai_video", "volcengine"],
+                    "default": "volcengine",
                 },
                 "model": {
                     "type": "string",
-                    "description": "模型名称 (sora 等)",
-                    "default": "sora",
+                    "description": "模型名称 (sora, doubao-seedance-1-5-pro-251215 等)",
+                    "default": "doubao-seedance-1-5-pro-251215",
+                },
+                "first_frame_image_url": {
+                    "type": "string",
+                    "description": "首帧图片 URL (火山引擎 Seedance 图生视频)",
                 },
                 "duration": {
                     "type": "integer",
@@ -398,6 +492,22 @@ class GenerateVideoTool(ToolBase):
                     "description": "视频宽高比",
                     "default": "16:9",
                 },
+                # 火山引擎 Seedance 特殊参数
+                "camerafixed": {
+                    "type": "boolean",
+                    "description": "是否固定镜头 (火山引擎)",
+                    "default": False,
+                },
+                "watermark": {
+                    "type": "boolean",
+                    "description": "是否添加水印",
+                    "default": False,
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "最大等待时间 (秒)",
+                    "default": 300,
+                },
                 "description": {
                     "type": "string",
                     "description": "交付文件描述 (可选)",
@@ -413,8 +523,8 @@ class GenerateVideoTool(ToolBase):
         if not prompt:
             return ToolResult.fail(error="prompt 不能为空", tool_name=self.name)
 
-        provider_name = args.get("provider", "openai_video")
-        model = args.get("model", "sora")
+        provider_name = args.get("provider", "volcengine")
+        model = args.get("model", "doubao-seedance-1-5-pro-251215" if provider_name == "volcengine" else "sora")
         description = args.get("description", "").strip() or f"AI 生成视频: {prompt[:50]}"
 
         from derisk.agent.util.media_gen.provider_registry import MediaGenProviderRegistry
@@ -438,11 +548,16 @@ class GenerateVideoTool(ToolBase):
 
         # Generate video
         try:
-            gen_kwargs = {
-                k: v
-                for k, v in args.items()
-                if k in ("duration", "resolution", "aspect_ratio") and v
-            }
+            # Build kwargs for all supported parameters
+            gen_kwargs = {}
+            for k in [
+                "duration", "resolution", "aspect_ratio",  # Common params
+                "first_frame_image_url", "camerafixed", "watermark",  # Volcengine params
+                "timeout",  # Timeout
+            ]:
+                if k in args and args[k] is not None:
+                    gen_kwargs[k] = args[k]
+
             result = await provider.generate_video(prompt, model, **gen_kwargs)
         except NotImplementedError:
             return ToolResult.fail(
