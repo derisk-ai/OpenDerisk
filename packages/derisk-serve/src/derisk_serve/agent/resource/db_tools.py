@@ -10,7 +10,8 @@ import csv
 import io
 import json
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from derisk.agent.tools.decorators import tool, ToolCategory
 from derisk.vis import Vis
@@ -21,6 +22,81 @@ logger = logging.getLogger(__name__)
 MAX_DISPLAY_ROWS = 200  # 默认显示行数
 MAX_EXPORT_ROWS = 200  # 超过此行数导出为 CSV
 PAGE_SIZE = 200  # 分页大小
+
+# SQL 写操作类型（DML 和 DDL）
+WRITE_SQL_TYPES = {
+    # DML - 数据修改
+    "INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE", "UPSERT",
+    # DDL - 结构修改
+    "CREATE", "DROP", "ALTER", "TRUNCATE", "RENAME", "GRANT", "REVOKE",
+}
+
+
+def _detect_sql_type(sql: str) -> Tuple[str, bool]:
+    """检测 SQL 语句类型，判断是否是写操作。
+
+    Args:
+        sql: SQL 语句字符串
+
+    Returns:
+        (sql_type, is_write): SQL 类型字符串，是否是写操作
+    """
+    sql = sql.strip().upper()
+
+    # 移除注释
+    sql = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
+    sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.DOTALL)
+    sql = sql.strip()
+
+    if not sql:
+        return ("EMPTY", False)
+
+    # 获取第一个关键字
+    first_word = sql.split()[0] if sql.split() else ""
+
+    # 检查是否是写操作
+    is_write = first_word in WRITE_SQL_TYPES
+
+    return (first_word, is_write)
+
+
+def _check_write_permission(sql_type: str) -> Tuple[bool, str]:
+    """检查写操作权限。
+
+    Args:
+        sql_type: SQL 类型（INSERT/UPDATE/DELETE/CREATE 等）
+
+    Returns:
+        (allowed, error_message): 是否允许执行，错误消息（如果不允许）
+    """
+    from derisk._private.config import Config
+
+    CFG = Config()
+
+    # DDL 类型检查
+    ddl_types = {"CREATE", "DROP", "ALTER", "TRUNCATE", "RENAME", "GRANT", "REVOKE"}
+    dml_write_types = {"INSERT", "UPDATE", "DELETE", "MERGE", "REPLACE", "UPSERT"}
+
+    if sql_type in ddl_types:
+        if not CFG.NATIVE_SQL_CAN_RUN_DDL:
+            return (
+                False,
+                f"DDL 操作 '{sql_type}' 已被禁用。"
+                f"\n当前处于只读模式，只允许执行 SELECT 查询。"
+                f"\n如需开启 DDL 权限，请设置环境变量 NATIVE_SQL_CAN_RUN_DDL=true"
+                f"\n或联系管理员修改系统配置。"
+            )
+    elif sql_type in dml_write_types:
+        if not CFG.NATIVE_SQL_CAN_RUN_WRITE:
+            return (
+                False,
+                f"数据修改操作 '{sql_type}' 已被禁用。"
+                f"\n当前处于只读模式，只允许执行 SELECT 查询。"
+                f"\n如需开启写操作权限，请设置环境变量 NATIVE_SQL_CAN_RUN_WRITE=true"
+                f"\n或联系管理员修改系统配置。"
+            )
+
+    return (True, "")
 
 
 def _resolve_db_from_agent(db_name: str, kwargs: Dict) -> tuple:
@@ -67,8 +143,9 @@ def _resolve_db_from_agent(db_name: str, kwargs: Dict) -> tuple:
 @tool(
     "get_table_spec",
     description=(
-        "获取一个或多个表的详细 schema 信息，包括列定义、类型、注释、索引、样本数据等。"
-        "支持两种模式：(1) 指定表名获取多张表的详细信息；(2) 传入问题让 AI 推荐相关表。"
+        "获取表的详细 schema 信息，包括列定义、类型、注释、索引、样本数据等。"
+        "**限制**: 每次最多查询 3 张表，避免输出过大。"
+        "如果需要更多表，请分多次调用。"
     ),
     args={
         "db_name": {
@@ -81,8 +158,9 @@ def _resolve_db_from_agent(db_name: str, kwargs: Dict) -> tuple:
         "table_names": {
             "type": "string",
             "description": (
-                "要查询的表名，支持多张表，用逗号分隔。"
+                "要查询的表名，最多支持 3 张表，用逗号分隔。"
                 "例如: 'users,orders,products'。"
+                "超过 3 张表时只会返回前 3 张的详细信息。"
                 "如果不指定，则使用 question 参数让系统推荐相关表。"
             ),
             "required": False,
@@ -90,7 +168,7 @@ def _resolve_db_from_agent(db_name: str, kwargs: Dict) -> tuple:
         "question": {
             "type": "string",
             "description": (
-                "自然语言问题，系统会根据问题推荐相关的表。"
+                "自然语言问题，系统会根据问题推荐相关的表（最多 3 张）。"
                 "当你不确定需要查询哪些表时使用此参数。"
             ),
             "required": False,
@@ -186,9 +264,18 @@ async def get_table_spec(
             except Exception as e:
                 logger.warning(f"Schema linking failed, falling back: {e}")
 
-        # Exact mode: parse table names
+        # Exact mode: parse table names (limit to 3 tables max)
         if table_names:
             names = [n.strip() for n in table_names.split(",") if n.strip()]
+            # 限制最多查询 3 张表，避免输出过大超过上下文限制
+            MAX_TABLES_PER_QUERY = 3
+            if len(names) > MAX_TABLES_PER_QUERY:
+                logger.warning(
+                    f"[get_table_spec] Too many tables requested ({len(names)}), "
+                    f"limiting to {MAX_TABLES_PER_QUERY}. "
+                    f"Requested: {names}, Returned: {names[:MAX_TABLES_PER_QUERY]}"
+                )
+                names = names[:MAX_TABLES_PER_QUERY]
         else:
             return (
                 "Error: Please provide either 'table_names' or 'question'. "
@@ -278,6 +365,14 @@ async def execute_sql(
         from derisk._private.config import Config
 
         CFG = Config()
+
+        # 检测 SQL 类型并拦截写操作（安全检查）
+        sql_type, is_write = _detect_sql_type(sql)
+        if is_write:
+            allowed, error_msg = _check_write_permission(sql_type)
+            if not allowed:
+                logger.warning(f"[execute_sql] Blocked write operation: {sql_type} on {db_name}")
+                return _format_error(error_msg, db_type="unknown", sql_type=sql_type)
 
         # 优先从 agent 的 resource_map 中获取已初始化的 connector
         agent_connector, _ = _resolve_db_from_agent(db_name, kwargs)
@@ -639,13 +734,27 @@ def _format_markdown_table(
     return "\n".join(lines)
 
 
-def _format_error(error_msg: str, db_type: str) -> str:
+def _format_error(error_msg: str, db_type: str, sql_type: Optional[str] = None) -> str:
     """格式化错误信息"""
 
     lines = ["❌ **SQL 执行错误**", ""]
     lines.append(f"**数据库类型**: {db_type}")
+    if sql_type:
+        lines.append(f"**SQL 类型**: {sql_type}")
     lines.append(f"**错误信息**: {error_msg}")
     lines.append("")
+
+    # 写操作被拦截的特殊提示
+    if sql_type and sql_type in WRITE_SQL_TYPES:
+        lines.append("**安全提示**: 当前系统处于只读模式，禁止执行数据修改操作。")
+        lines.append("")
+        lines.append("只允许的操作：")
+        lines.append("- SELECT - 查询数据")
+        lines.append("")
+        lines.append("如需开启写操作权限，请联系管理员设置以下环境变量：")
+        lines.append("- NATIVE_SQL_CAN_RUN_WRITE=true (允许 INSERT/UPDATE/DELETE)")
+        lines.append("- NATIVE_SQL_CAN_RUN_DDL=true (允许 CREATE/DROP/ALTER)")
+        return "\n".join(lines)
 
     # 提供语法提示
     if "syntax" in error_msg.lower() or "parse" in error_msg.lower():
@@ -668,9 +777,9 @@ def _format_error(error_msg: str, db_type: str) -> str:
 @tool(
     "list_tables",
     description=(
-        "列出指定数据库中的所有表名。"
+        "列出指定数据库中的所有表名，支持按分组筛选和分页。"
         "使用场景：(1) 表列表未注入到 system prompt；(2) 表太多需要完整列表；"
-        "(3) 需要确认数据库中有哪些表。"
+        "(3) 需要查看特定分组的表；(4) 确认数据库中有哪些表。"
         "获取表名后使用 get_table_spec 查看详细结构。"
     ),
     args={
@@ -681,25 +790,55 @@ def _format_error(error_msg: str, db_type: str) -> str:
             ),
             "required": True,
         },
+        "group": {
+            "type": "string",
+            "description": (
+                "可选的分组名称，只列出该分组的表。"
+                "如果不指定，列出所有表。"
+            ),
+            "required": False,
+        },
+        "page": {
+            "type": "integer",
+            "description": (
+                "分页页码，从 1 开始，默认为 1。"
+                "当表数量很多时，使用分页查看。"
+            ),
+            "required": False,
+        },
+        "page_size": {
+            "type": "integer",
+            "description": (
+                "每页显示的表数量，默认为 100。"
+            ),
+            "required": False,
+        },
     },
     category=ToolCategory.UTILITY,
 )
 async def list_tables(
     db_name: str,
+    group: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 100,
     **kwargs,
 ) -> str:
-    """List all tables in the specified database.
+    """List all tables in the specified database with optional group filter and pagination.
 
     Use this tool when:
     1. Table list was not injected into the system prompt
     2. There are too many tables and you need a complete list
-    3. You need to confirm what tables exist in the database
+    3. You need to view tables in a specific group
+    4. You need to confirm what tables exist in the database
 
     Args:
         db_name: The database name from the available databases list
+        group: Optional group name to filter tables
+        page: Page number for pagination (starts from 1)
+        page_size: Number of tables per page (default 100)
 
     Returns:
-        A list of table names in the database
+        A list of table names in the database, optionally filtered by group
     """
     try:
         from derisk._private.config import Config
@@ -707,29 +846,538 @@ async def list_tables(
         CFG = Config()
 
         # 优先从 agent 的 resource_map 中获取已初始化的 connector
-        agent_connector, _ = _resolve_db_from_agent(db_name, kwargs)
-        connector = agent_connector
-        if not connector:
-            connector = CFG.local_db_manager.get_connector(db_name)
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        ds_id = agent_ds_id
+
+        # Resolve datasource_id if not from agent
+        if not ds_id:
+            try:
+                from derisk_serve.datasource.manages.connect_config_db import (
+                    ConnectConfigDao,
+                )
+                dao = ConnectConfigDao()
+                entity = dao.get_by_names(db_name)
+                if entity:
+                    ds_id = entity.id
+            except ImportError:
+                pass
+
+        # Try spec service for structured table list (preferred)
+        if ds_id:
+            try:
+                from derisk_serve.datasource.service.spec_service import DbSpecService
+
+                spec_service = DbSpecService()
+
+                if spec_service.has_spec(ds_id):
+                    stats = spec_service.get_db_stats(ds_id)
+                    all_specs = spec_service.get_all_table_specs(ds_id)
+
+                    # Filter by group if specified
+                    if group:
+                        filtered = [
+                            t for t in all_specs
+                            if t.get("group_name") == group or t.get("group") == group
+                        ]
+                        if not filtered:
+                            available_groups = list(stats.get("groups", {}).keys())
+                            return (
+                                f"No tables found in group '{group}'.\n"
+                                f"Available groups: {', '.join(available_groups)}"
+                            )
+                        all_specs = filtered
+
+                    total = len(all_specs)
+                    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+                    page = max(1, min(page, total_pages))
+                    start = (page - 1) * page_size
+                    display = all_specs[start:start + page_size]
+
+                    lines = [f"**Tables in '{db_name}'**"]
+                    if group:
+                        lines.append(f"(Group: {group})")
+                    lines.append("")
+
+                    for i, t in enumerate(display, start + 1):
+                        name = t.get("table_name", "")
+                        comment = ""
+                        # Get comment from table_comment or comment field
+                        tc = t.get("table_comment", "") or t.get("comment", "")
+                        if tc:
+                            comment = tc[:50] + "..." if len(tc) > 50 else tc
+                        lines.append(f"{i}. `{name}`" + (f" - {comment}" if comment else ""))
+
+                    lines.append("")
+                    lines.append(f"**Total: {total} tables**")
+                    if total_pages > 1:
+                        lines.append(f"Page {page}/{total_pages} (page_size={page_size})")
+
+                    # Show available groups
+                    if stats.get("groups") and not group:
+                        lines.append("")
+                        lines.append("**Available groups:**")
+                        for g_name, g_count in sorted(
+                            stats["groups"].items(), key=lambda x: -x[1]
+                        ):
+                            lines.append(f"- {g_name}: {g_count} tables")
+
+                    lines.append("")
+                    lines.append("_Use `get_table_spec` to get detailed schema for specific tables._")
+
+                    return "\n".join(lines)
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to get table list from spec_service: {e}")
+
+        # Fallback: use connector
+        connector = agent_connector or CFG.local_db_manager.get_connector(db_name)
         if not connector:
             return f"Error: Database '{db_name}' not found. Please check the db_name."
 
-        # Get table names
         table_names = connector.get_table_names()
 
         if not table_names:
             return f"No tables found in database '{db_name}'."
 
-        # Format output
+        # Apply pagination to connector results
+        total = len(table_names)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * page_size
+        display = table_names[start:start + page_size]
+
         lines = [f"**Tables in database '{db_name}'**:", ""]
-        for i, name in enumerate(table_names, 1):
+        for i, name in enumerate(display, start + 1):
             lines.append(f"{i}. `{name}`")
 
-        lines.append(f"\n**Total: {len(table_names)} tables**")
-        lines.append("\n_Use `get_table_spec` to get detailed schema for specific tables._")
+        lines.append("")
+        lines.append(f"**Total: {total} tables**")
+        if total_pages > 1:
+            lines.append(f"Page {page}/{total_pages} (page_size={page_size})")
+
+        lines.append("")
+        lines.append("_Use `get_table_spec` to get detailed schema for specific tables._")
 
         return "\n".join(lines)
 
     except Exception as e:
         logger.error(f"Error listing tables for {db_name}: {e}")
         return f"Error listing tables: {str(e)}"
+
+
+@tool(
+    "search_tables",
+    description=(
+        "根据自然语言问题或多个检索意图搜索数据库中相关的表。"
+        "适用于大型数据库（表数量多）或不确定需要查询哪些表的情况。"
+        "\n\n**三种检索模式：**"
+        "\n1. 关键词模式（question）: 根据关键词匹配表名、列名、注释"
+        "\n2. 多意图模式（intents）: 支持多个检索维度，如 ['销售记录', '天气数据']"
+        "\n3. LLM模式（use_llm=true）: 让LLM根据所有表的名称和简介智能筛选"
+        "\n\n**使用场景：**"
+        "\n- 用户问题涉及多方面数据时，用 intents 参数拆分检索意图"
+        "\n- 表数量很多且关键词匹配不准时，用 use_llm=true 开启LLM智能筛选"
+    ),
+    args={
+        "db_name": {
+            "type": "string",
+            "description": (
+                "数据库名称，使用可用数据库列表中的 db_name 字段值。"
+            ),
+            "required": True,
+        },
+        "question": {
+            "type": "string",
+            "description": (
+                "自然语言描述，例如：'用户订单相关的表'。"
+                "如果不指定，则必须提供 intents 参数。"
+            ),
+            "required": False,
+        },
+        "intents": {
+            "type": "string",
+            "description": (
+                "多个检索意图/标签，用逗号分隔。"
+                "例如：'销售记录,天气数据,用户信息'。"
+                "适用于问题涉及多方面数据时，系统会对每个意图分别检索并合并结果。"
+                "这样可以找到隐藏在问题外的信息维度相关的表。"
+            ),
+            "required": False,
+        },
+        "use_llm": {
+            "type": "boolean",
+            "description": (
+                "是否使用LLM进行智能筛选（默认false）。"
+                "开启后，系统会将所有表的名称和简介发送给LLM，"
+                "LLM根据问题/意图智能返回相关表名列表。"
+                "适用于表数量很多且关键词匹配不准的场景。"
+            ),
+            "required": False,
+        },
+        "max_results": {
+            "type": "integer",
+            "description": "返回的最大表数量，默认为 15。",
+            "required": False,
+        },
+    },
+    category=ToolCategory.UTILITY,
+)
+async def search_tables(
+    db_name: str,
+    question: Optional[str] = None,
+    intents: Optional[str] = None,
+    use_llm: bool = False,
+    max_results: int = 15,
+    **kwargs,
+) -> str:
+    """Search for relevant tables based on natural language question or multiple intents.
+
+    Supports three search modes:
+    1. Keyword mode (question): Match against table names, column names, comments
+    2. Multi-intent mode (intents): Support multiple search dimensions
+    3. LLM mode (use_llm=True): Let LLM intelligently filter based on all table info
+
+    Args:
+        db_name: The database name from the available databases list
+        question: Natural language question describing what tables you need
+        intents: Multiple search intents separated by comma, e.g., "sales,weather,user"
+        use_llm: Whether to use LLM for intelligent filtering
+        max_results: Maximum number of tables to return (default 15)
+
+    Returns:
+        A list of recommended tables with match scores and reasons
+    """
+    try:
+        from derisk._private.config import Config
+
+        CFG = Config()
+
+        # 优先从 agent 的 resource_map 中获取 datasource_id
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        ds_id = agent_ds_id
+
+        # Resolve datasource_id if not from agent
+        if not ds_id:
+            try:
+                from derisk_serve.datasource.manages.connect_config_db import (
+                    ConnectConfigDao,
+                )
+                dao = ConnectConfigDao()
+                entity = dao.get_by_names(db_name)
+                if entity:
+                    ds_id = entity.id
+            except ImportError:
+                pass
+
+        if not ds_id:
+            return f"Error: Could not resolve datasource ID for '{db_name}'. " \
+                   f"Please ensure the database is registered."
+
+        # Parse intents if provided
+        intent_list = []
+        if intents:
+            intent_list = [i.strip() for i in intents.split(",") if i.strip()]
+
+        # Build search queries: combine question and intents
+        search_queries = []
+        if question:
+            search_queries.append(question)
+        if intent_list:
+            search_queries.extend(intent_list)
+
+        if not search_queries:
+            return (
+                "Error: Please provide either 'question' or 'intents' parameter.\n\n"
+                "Examples:\n"
+                "- question: '用户订单相关的表'\n"
+                "- intents: '销售记录,天气数据,用户信息'\n"
+                "- Both: question='分析运营数据', intents='销售,用户,订单'"
+            )
+
+        # LLM Mode: Use LLM for intelligent filtering
+        if use_llm:
+            return await _search_tables_with_llm(
+                db_name, ds_id, search_queries, max_results, kwargs
+            )
+
+        # Keyword Mode: Use Schema Linking service
+        try:
+            from derisk_serve.datasource.service.schema_link_service import (
+                SchemaLinkService,
+            )
+
+            link_service = SchemaLinkService()
+
+            # Collect all recommendations from each query
+            all_recommendations = {}  # table_name -> (score, reasons, matched_queries)
+
+            for query in search_queries:
+                recs = link_service.suggest_tables(ds_id, query, max_results=max_results)
+                for rec in recs:
+                    if rec.table_name in all_recommendations:
+                        # Merge: add score and reason
+                        existing = all_recommendations[rec.table_name]
+                        existing[0] += rec.score  # Accumulate score
+                        existing[1].extend(rec.reasons[:2])  # Add reasons
+                        existing[2].append(query)  # Track which query matched
+                    else:
+                        all_recommendations[rec.table_name] = [
+                            rec.score,
+                            list(rec.reasons[:3]),
+                            [query],
+                            rec.group
+                        ]
+
+            if not all_recommendations:
+                return (
+                    f"**搜索结果**\n\n"
+                    f"检索意图: {', '.join(search_queries)}\n\n"
+                    f"No matching tables found.\n\n"
+                    f"_Suggestions:\n"
+                    f"- Try different keywords or intents\n"
+                    f"- Use `list_tables` to see all available tables\n"
+                    f"- Try use_llm=true for LLM intelligent filtering_"
+                )
+
+            # Sort by score and limit results
+            sorted_tables = sorted(
+                all_recommendations.items(),
+                key=lambda x: -x[1][0]
+            )[:max_results]
+
+            # Build output
+            lines = [f"**搜索结果**"]
+            if len(search_queries) > 1:
+                lines.append(f"检索意图: \"{', '.join(search_queries)}\"")
+            else:
+                lines.append(f"问题: \"{search_queries[0]}\"")
+            lines.append(f"找到 {len(sorted_tables)} 张相关表：")
+            lines.append("")
+
+            for i, (table_name, info) in enumerate(sorted_tables, 1):
+                score, reasons, matched_queries, group = info
+                score_display = f"{score:.1f}"
+                reason_str = "; ".join(reasons[:3])
+                lines.append(f"{i}. **{table_name}**")
+                lines.append(f"   - 匹配分数: {score_display}")
+                if len(matched_queries) > 1:
+                    lines.append(f"   - 匹配意图: {', '.join(matched_queries)}")
+                lines.append(f"   - 匹配原因: {reason_str}")
+                if group and group != "default":
+                    lines.append(f"   - 所属分组: {group}")
+                lines.append("")  # Add spacing
+
+            # Provide recommended table names for easy copy
+            top_names = [t[0] for t in sorted_tables]
+            lines.append("**推荐的表名（可直接用于 get_table_spec）:**")
+            lines.append(f"`{', '.join(top_names)}`")
+            lines.append("")
+            lines.append("_使用 `get_table_spec(db_name, table_names)` 获取表的详细结构_")
+
+            return "\n".join(lines)
+
+        except ImportError:
+            return (
+                "Error: Schema Linking service not available.\n"
+                "Please use `list_tables` to see all available tables."
+            )
+        except Exception as e:
+            logger.error(f"Error in Schema Linking search: {e}")
+            return f"Error searching tables: {str(e)}\n\n" \
+                   f"_Fallback: Use `list_tables` to see all available tables._"
+
+    except Exception as e:
+        logger.error(f"Error in search_tables: {e}")
+        return f"Error: {str(e)}"
+
+
+async def _search_tables_with_llm(
+    db_name: str,
+    ds_id: int,
+    search_queries: List[str],
+    max_results: int,
+    kwargs: Dict,
+) -> str:
+    """Use LLM to intelligently filter relevant tables.
+
+    This mode sends all table names and descriptions to LLM,
+    and asks LLM to return the most relevant tables.
+    """
+    try:
+        from derisk_serve.datasource.service.spec_service import DbSpecService
+
+        spec_service = DbSpecService()
+
+        if not spec_service.has_spec(ds_id):
+            return (
+                "**LLM搜索模式**\n\n"
+                f"Error: Database spec not available for '{db_name}'.\n"
+                "LLM mode requires generated database spec.\n\n"
+                "_Fallback: Use keyword mode (use_llm=false) or `list_tables`_"
+            )
+
+        # Get all table info
+        all_specs = spec_service.get_all_table_specs(ds_id)
+
+        if not all_specs:
+            return f"No tables found in database '{db_name}'."
+
+        # Build table list for LLM prompt
+        table_info_lines = []
+        for spec in all_specs:
+            table_name = spec.get("table_name", "")
+            comment = spec.get("table_comment", "") or spec.get("comment", "")
+            group = spec.get("group_name", "") or spec.get("group", "")
+            # Include column names for better matching
+            columns = spec.get("columns", [])
+            col_names = [c.get("name", "") for c in columns[:10] if c.get("name")]
+            col_str = ", ".join(col_names) if col_names else ""
+
+            line = f"- {table_name}"
+            if comment:
+                line += f": {comment[:80]}"
+            if group and group != "default":
+                line += f" [group:{group}]"
+            if col_str:
+                line += f" (columns: {col_str})"
+            table_info_lines.append(line)
+
+        tables_text = "\n".join(table_info_lines)
+
+        # Build LLM prompt
+        search_context = ", ".join(search_queries)
+        llm_prompt = f"""你是一个数据库专家。用户需要查找数据库中与以下需求相关的表：
+
+需求/意图：{search_context}
+
+数据库中的所有表（共{len(all_specs)}张）：
+{tables_text}
+
+请根据以上表信息，找出与用户需求最相关的表。返回格式要求：
+1. 只返回表名列表，用逗号分隔
+2. 最多返回{max_results}张表
+3. 按相关性排序，最相关的表在前
+4. 不要返回任何解释，只返回表名
+
+示例输出格式：
+orders,customers,products,order_items
+
+你的回答："""
+
+        # Get agent's LLM client if available
+        agent = kwargs.get("agent")
+        llm_client = None
+
+        if agent and hasattr(agent, "not_null_llm_client"):
+            try:
+                llm_client = agent.not_null_llm_client
+            except Exception:
+                pass
+
+        # Try to get LLM client from Config
+        if not llm_client:
+            try:
+                from derisk.model import DefaultLLMClient
+                from derisk.model.cluster import WorkerManagerFactory
+                from derisk.component import ComponentType
+
+                # Try to get from system app if available
+                system_app = kwargs.get("context", {}).get("system_app") if kwargs.get("context") else None
+                if system_app:
+                    worker_manager = system_app.get_component(
+                        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
+                    ).create()
+                    llm_client = DefaultLLMClient(worker_manager, auto_convert_message=True)
+            except Exception as e:
+                logger.warning(f"Failed to get LLM client: {e}")
+
+        if not llm_client:
+            return (
+                "**LLM搜索模式**\n\n"
+                "Error: LLM client not available.\n"
+                "Please use keyword mode (use_llm=false) instead.\n\n"
+                f"_关键词搜索: search_tables(db_name='{db_name}', question='{search_context}')_"
+            )
+
+        # Call LLM
+        from derisk.core import ModelRequest
+
+        model_request = ModelRequest(
+            model="",  # Use default model
+            messages=[{"role": "user", "content": llm_prompt}],
+            temperature=0.1,  # Low temperature for deterministic output
+        )
+
+        llm_response = ""
+        async for output in llm_client.generate_stream(model_request):
+            llm_response += output.text or ""
+
+        # Parse LLM response - extract table names
+        llm_response = llm_response.strip()
+
+        # Remove potential markdown formatting
+        if llm_response.startswith("```"):
+            lines = llm_response.split("\n")
+            llm_response = "\n".join(lines[1:-1] if len(lines) > 2 else lines)
+
+        # Parse table names from response
+        suggested_tables = []
+        for part in llm_response.replace("\n", ",").split(","):
+            table_name = part.strip()
+            # Clean up table name (remove quotes, brackets, etc.)
+            table_name = table_name.replace("`", "").replace("'", "").replace('"', "")
+            table_name = table_name.replace("[", "").replace("]", "")
+            table_name = table_name.strip()
+            if table_name and table_name in [s.get("table_name") for s in all_specs]:
+                suggested_tables.append(table_name)
+
+        if not suggested_tables:
+            # Fallback: try to extract any table-like names
+            import re
+            potential_names = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', llm_response)
+            all_table_names = [s.get("table_name") for s in all_specs]
+            suggested_tables = [n for n in potential_names if n in all_table_names][:max_results]
+
+        if not suggested_tables:
+            return (
+                f"**LLM搜索结果**\n\n"
+                f"检索意图: {search_context}\n\n"
+                f"LLM未能识别相关表名。\n"
+                f"LLM回答: {llm_response[:200]}\n\n"
+                f"_Fallback: Use keyword mode (use_llm=false)_"
+            )
+
+        # Build output
+        lines = [f"**LLM智能搜索结果**"]
+        lines.append(f"检索意图: \"{search_context}\"")
+        lines.append(f"数据库表总数: {len(all_specs)}")
+        lines.append(f"LLM推荐: {len(suggested_tables)} 张表")
+        lines.append("")
+
+        for i, table_name in enumerate(suggested_tables, 1):
+            # Get table info for display
+            spec = next((s for s in all_specs if s.get("table_name") == table_name), None)
+            if spec:
+                comment = spec.get("table_comment", "") or spec.get("comment", "")
+                group = spec.get("group_name", "") or spec.get("group", "")
+                lines.append(f"{i}. **{table_name}**")
+                if comment:
+                    lines.append(f"   - 简介: {comment[:80]}")
+                if group and group != "default":
+                    lines.append(f"   - 分组: {group}")
+            else:
+                lines.append(f"{i}. **{table_name}**")
+            lines.append("")  # Add spacing
+
+        lines.append("**推荐的表名（可直接用于 get_table_spec）:**")
+        lines.append(f"`{', '.join(suggested_tables)}`")
+        lines.append("")
+        lines.append("_使用 `get_table_spec(db_name, table_names)` 获取表的详细结构_")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error in LLM search: {e}")
+        return f"Error in LLM search: {str(e)}\n\n" \
+               f"_Fallback: Use keyword mode (use_llm=false)_"
