@@ -58,6 +58,30 @@ class PriorityAPIRouter(APIRouter):
         # Sort the routes by priority to ensure WebSocket routes are first.
         self.sort_routes_by_priority()
 
+    def add_websocket_route(
+        self,
+        path: str,
+        endpoint: Callable,
+        name: Optional[str] = None,
+        *,
+        priority: int = 10,
+    ):
+        """Add a WebSocket route with priority.
+
+        This method is called by include_router for starlette.routing.WebSocketRoute.
+        WebSocket routes get higher priority by default (10).
+
+        Args:
+            path (str): The path of the WebSocket route.
+            endpoint (Callable): The WebSocket endpoint.
+            name (str, optional): The name of the route.
+            priority (int, optional): The priority. Defaults to 10.
+        """
+        super().add_websocket_route(path, endpoint, name=name)
+        self.route_priority[path] = priority
+        # Sort the routes by priority to ensure WebSocket routes are first.
+        self.sort_routes_by_priority()
+
     def sort_routes_by_priority(self):
         """Sort the routes by priority.
 
