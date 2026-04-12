@@ -86,10 +86,12 @@ class Config(metaclass=Singleton):
         self.message_dir = os.getenv("MESSAGE_HISTORY_DIR", "../../message")
 
         # Native SQL Execution Capability Control Configuration
-        # DDL operations (CREATE/DROP/ALTER) are allowed by default
-        # DML write operations (INSERT/UPDATE/DELETE) are blocked by default for safety
+        # All write operations are blocked by default for safety:
+        # - DDL write (CREATE/DROP/ALTER/TRUNCATE): blocked
+        # - DML write (INSERT/UPDATE/DELETE): blocked
+        # Read operations (SELECT/SHOW/DESCRIBE) are always allowed
         self.NATIVE_SQL_CAN_RUN_DDL = (
-                os.getenv("NATIVE_SQL_CAN_RUN_DDL", "True").lower() == "true"
+                os.getenv("NATIVE_SQL_CAN_RUN_DDL", "False").lower() == "true"
         )
         self.NATIVE_SQL_CAN_RUN_WRITE = (
                 os.getenv("NATIVE_SQL_CAN_RUN_WRITE", "False").lower() == "true"
