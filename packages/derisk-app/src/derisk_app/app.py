@@ -9,12 +9,18 @@ from fastapi.staticfiles import StaticFiles
 
 
 class WebSocketAwareStaticFiles(StaticFiles):
-    """StaticFiles that gracefully handles WebSocket connections."""
+    """StaticFiles that gracefully handles WebSocket connections.
+
+    For WebSocket connections that don't match static files, we need to
+    return a proper response. The 403 Forbidden occurs when WebSocket
+    reaches this mount without being handled properly.
+    """
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "websocket":
-            # WebSocket connections should not reach static files
-            # Let them fall through to 404 or other handlers
+            # WebSocket connections should not be handled by static files
+            # Send a close frame and return - the connection will be closed
+            # If there's another WebSocket handler, it should have matched first
             await send({"type": "websocket.close", "code": 1000})
             return
         await super().__call__(scope, receive, send)

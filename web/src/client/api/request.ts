@@ -19,6 +19,8 @@ import {
   UserParamResponse,
 } from '@/types/chat';
 import {
+  BatchMaskingConfigRequest,
+  BatchMaskingConfigResponse,
   ChatFeedBackSchema,
   DbListResponse,
   DbSpecResponse,
@@ -225,6 +227,15 @@ export const detectSensitiveColumns = (
   return POST<{ table_names?: string[] } | undefined, SensitiveColumnConfig[]>(
     `/api/v2/serve/sql-guard/masking/${datasourceId}/detect`,
     tableNames ? { table_names: tableNames } : undefined,
+  );
+};
+export const batchAddMaskingConfig = (
+  datasourceId: string | number,
+  data: BatchMaskingConfigRequest,
+) => {
+  return POST<BatchMaskingConfigRequest, BatchMaskingConfigResponse>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/batch`,
+    data,
   );
 };
 

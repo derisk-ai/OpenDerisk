@@ -43,6 +43,7 @@ import {
   PlusOutlined,
   SearchOutlined,
   EditOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import {
@@ -65,6 +66,7 @@ import {
   Typography,
 } from 'antd';
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import BatchMaskingModal from './BatchMaskingModal';
 
 const { Text } = Typography;
 
@@ -98,6 +100,7 @@ export default function DatabaseDetail({
   const [addSensitiveModalOpen, setAddSensitiveModalOpen] = useState(false);
   const [editSensitiveModalOpen, setEditSensitiveModalOpen] = useState(false);
   const [editingColumn, setEditingColumn] = useState<SensitiveColumnConfig | null>(null);
+  const [batchMaskingModalOpen, setBatchMaskingModalOpen] = useState(false);
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
@@ -1312,19 +1315,30 @@ export default function DatabaseDetail({
               </span>
             ),
             children: (
-              <Table
-                columns={tableColumns}
-                dataSource={tableSpecs}
-                rowKey="table_name"
-                loading={tablesLoading}
-                size="small"
-                pagination={{ pageSize: 20 }}
-                locale={{
-                  emptyText: (
-                    <Empty description="No table specs. Run schema learning first." />
-                  ),
-                }}
-              />
+              <div>
+                <Space className="mb-4">
+                  <Button
+                    icon={<SafetyCertificateOutlined />}
+                    onClick={() => setBatchMaskingModalOpen(true)}
+                    size="small"
+                  >
+                    Batch Masking
+                  </Button>
+                </Space>
+                <Table
+                  columns={tableColumns}
+                  dataSource={tableSpecs}
+                  rowKey="table_name"
+                  loading={tablesLoading}
+                  size="small"
+                  pagination={{ pageSize: 20 }}
+                  locale={{
+                    emptyText: (
+                      <Empty description="No table specs. Run schema learning first." />
+                    ),
+                  }}
+                />
+              </div>
             ),
           },
           {
@@ -1355,6 +1369,17 @@ export default function DatabaseDetail({
       >
         {renderTableDetail()}
       </Drawer>
+
+      {/* Batch Masking Modal */}
+      <BatchMaskingModal
+        open={batchMaskingModalOpen}
+        datasourceId={Number(datasourceId)}
+        onCancel={() => setBatchMaskingModalOpen(false)}
+        onSuccess={() => {
+          refreshSensitive();
+          refreshTables();
+        }}
+      />
     </div>
   );
 }

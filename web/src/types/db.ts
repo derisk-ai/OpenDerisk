@@ -198,3 +198,49 @@ export const SENSITIVE_TYPES = [
 ] as const;
 
 export const MASKING_MODES = ['mask', 'token', 'none'] as const;
+
+// ============================================================
+// Batch Masking Configuration Types
+// ============================================================
+
+export type BatchMaskingConfigRequest = {
+  column_names: string[];
+  sensitive_type: string;
+  masking_mode: string;
+  ignore_case: boolean;
+};
+
+export type BatchMaskingConfigResponse = {
+  total_tables_scanned: number;
+  total_columns_matched: number;
+  total_configs_added: number;
+  matched_columns: Array<{ table: string; column: string }>;
+  errors: string[];
+};
+
+export type SensitiveTypeLabel = {
+  value: string;
+  label: string;
+  labelEn: string;
+};
+
+// 敏感类型的中文映射
+export const SENSITIVE_TYPE_OPTIONS: SensitiveTypeLabel[] = [
+  { value: 'phone', label: '手机号', labelEn: 'Phone' },
+  { value: 'email', label: '邮箱', labelEn: 'Email' },
+  { value: 'id_card', label: '身份证', labelEn: 'ID Card' },
+  { value: 'bank_card', label: '银行卡', labelEn: 'Bank Card' },
+  { value: 'address', label: '地址', labelEn: 'Address' },
+  { value: 'name', label: '姓名', labelEn: 'Name' },
+  { value: 'password', label: '密码', labelEn: 'Password' },
+  { value: 'token', label: '令牌', labelEn: 'Token' },
+  { value: 'ip_address', label: 'IP 地址', labelEn: 'IP Address' },
+  { value: 'custom', label: '自定义', labelEn: 'Custom' },
+];
+
+// 脱敏模式的中文映射
+export const MASKING_MODE_OPTIONS = [
+  { value: 'mask', label: '部分掩码', labelEn: 'Partial Mask' },
+  { value: 'token', label: '标记化', labelEn: 'Tokenize' },
+  { value: 'none', label: '无脱敏', labelEn: 'None' },
+];
