@@ -628,6 +628,17 @@ class OracleConnector(RDBMSConnector):
             rows = s.execute(text("SELECT PRODUCT, VERSION, STATUS FROM PRODUCT_COMPONENT_VERSION WHERE PRODUCT LIKE 'Oracle%' OR PRODUCT LIKE 'PL/SQL%'")).fetchall()
             return {"components": [{"product": r[0], "version": r[1], "status": r[2]} for r in rows], "major_version": self._oracle_version, "using_thick_mode": self._using_thick_mode}
 
+    def get_db_version(self) -> Optional[str]:
+        """Get Oracle database version string.
+
+        Returns:
+            Version string (e.g., '11.2', '12.1', '19.0') or None.
+        """
+        version = getattr(self, '_oracle_version', None) or OracleConnector._oracle_version
+        if version and version != (0, 0):
+            return f"{version[0]}.{version[1]}"
+        return None
+
     def _parse_table_name_with_schema(self, table_name: str) -> Tuple[str, Optional[str]]:
         """Parse table_name that may contain owner prefix.
 

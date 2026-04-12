@@ -433,6 +433,15 @@ class RDBMSConnector(BaseConnector):
         """
         return self._inspector.get_foreign_keys(table_name)
 
+    def get_db_version(self) -> Optional[str]:
+        """Get database version string.
+
+        Returns:
+            Version string (e.g., '11.2', '12.1', '19.0') or None if not available.
+            Override in subclasses for specific databases.
+        """
+        return None
+
     def _get_sample_rows(self, table: Table) -> str:
         # build the select command
         command = select(table).limit(self._sample_rows_in_table_info)

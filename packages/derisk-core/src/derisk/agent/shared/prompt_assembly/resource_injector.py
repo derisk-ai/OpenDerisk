@@ -521,22 +521,35 @@ class ResourceContext:
             dialect = getattr(item, "_dialect", None) or getattr(item, "dialect", "") or db_type
             name = getattr(item, "name", "") or db_name or key
 
+            # 获取 datasource_id (用于分级注入策略)
+            datasource_id = getattr(item, "_datasource_id", None)
+
             logger.info(
                 f"_extract_database_info: extracting from item, key={key}, "
-                f"db_name={db_name}, db_type={db_type}, dialect={dialect}, name={name}"
+                f"db_name={db_name}, db_type={db_type}, dialect={dialect}, name={name}, "
+                f"datasource_id={datasource_id}"
             )
 
             # 获取 connector 信息（如果有）
             connector = getattr(item, "_connector", None) or getattr(item, "connector", None)
             connector_type = ""
+            db_version = None
             if connector:
                 connector_type = getattr(connector, "db_type", "") or ""
-                logger.debug(f"_extract_database_info: found connector, connector_type={connector_type}")
+                # 获取数据库版本
+                if hasattr(connector, "get_db_version"):
+                    try:
+                        db_version = connector.get_db_version()
+                    except Exception as e:
+                        logger.debug(f"Failed to get db version: {e}")
+                logger.debug(f"_extract_database_info: found connector, connector_type={connector_type}, version={db_version}")
 
             # 组合描述信息
             description = f"{db_type} database: {db_name}"
             if dialect and dialect != db_type:
                 description += f" (dialect: {dialect})"
+            if db_version:
+                description += f" [version: {db_version}]"
 
             return ResourceInfo(
                 resource_type=ResourceType.DATABASE,
@@ -548,6 +561,8 @@ class ResourceContext:
                     "db_type": db_type or connector_type,
                     "dialect": dialect or db_type or connector_type,
                     "connector_type": connector_type,
+                    "db_version": db_version,  # 添加版本信息
+                    "datasource_id": datasource_id,  # 用于分级注入策略
                     # 保存原始资源引用，用于获取表列表
                     "_resource": item,
                 },
@@ -797,7 +812,91 @@ class ResourceInjector:
         return self._format_database_default(resources, databases_with_tables)
 
     async def _get_database_table_list(self, resource_info: ResourceInfo) -> str:
-        """获取数据库的表列表
+        """获取数据库的表列表 - 应用分级策略
+
+        策略：
+        - <100 tables: 完整列表（含摘要）
+        - 100-500 tables: 紧凑列表（仅名称）
+        - >500 tables: 统计信息 + 工具指引
+        """
+        db_name = resource_info.metadata.get("db_name", "")
+        original_resource = resource_info.metadata.get("_resource")
+        datasource_id = resource_info.metadata.get("datasource_id")
+
+        # Try to import config for tiered strategy
+        try:
+            from derisk_serve.datasource.service.injection_config import (
+                get_injection_mode,
+                INJECTION_MODE_SMALL,
+                INJECTION_MODE_MEDIUM,
+                INJECTION_MODE_LARGE,
+                MAX_MEDIUM_TABLE_DISPLAY,
+                LARGE_DB_GUIDANCE_TEMPLATE,
+                format_group_stats,
+            )
+            use_tiered = True
+        except ImportError:
+            use_tiered = False
+            logger.debug("injection_config not available, using legacy mode")
+
+        # Resolve datasource_id if not in metadata
+        if not datasource_id:
+            try:
+                from derisk_serve.datasource.manages.connect_config_db import ConnectConfigDao
+                dao = ConnectConfigDao()
+                entity = dao.get_by_names(db_name)
+                if entity:
+                    datasource_id = entity.id
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to resolve datasource_id for {db_name}: {e}")
+
+        # Apply tiered strategy if config available and datasource_id resolved
+        if use_tiered and datasource_id:
+            try:
+                from derisk_serve.datasource.service.spec_service import DbSpecService
+                spec_service = DbSpecService()
+
+                # Get table stats
+                stats = spec_service.get_db_stats(datasource_id)
+                table_count = stats.get("total_tables", 0)
+                injection_mode = get_injection_mode(table_count)
+
+                logger.info(
+                    f"_get_database_table_list: db={db_name}, "
+                    f"tables={table_count}, mode={injection_mode}"
+                )
+
+                # Large DB: stats + guidance
+                if injection_mode == INJECTION_MODE_LARGE:
+                    table_list = spec_service.format_db_spec_for_prompt(
+                        datasource_id, mode="large"
+                    )
+                    guidance = LARGE_DB_GUIDANCE_TEMPLATE.format(
+                        total_tables=table_count,
+                        group_stats=format_group_stats(stats.get("groups", {})),
+                        db_name=db_name,
+                    )
+                    return table_list + "\n\n" + guidance
+
+                # Medium DB: compact list
+                elif injection_mode == INJECTION_MODE_MEDIUM:
+                    if spec_service.has_spec(datasource_id):
+                        return spec_service.format_db_spec_for_prompt(
+                            datasource_id, mode="medium",
+                            max_tables=MAX_MEDIUM_TABLE_DISPLAY
+                        )
+
+                # Small DB: full list (continue to legacy flow)
+            except Exception as e:
+                logger.warning(f"Tiered strategy failed for {db_name}: {e}")
+
+        # Legacy flow: full table list
+        return await self._get_database_table_list_legacy(resource_info)
+
+    async def _get_database_table_list_legacy(self, resource_info: ResourceInfo) -> str:
+        """获取数据库的表列表 - 传统方式（完整列表）
 
         优先级：
         1. 从 DBResource.get_prompt() 获取（包含表结构定义）
@@ -827,7 +926,9 @@ class ResourceInjector:
             if entity:
                 spec_service = DbSpecService()
                 if spec_service.has_spec(entity.id):
-                    table_list = spec_service.format_db_spec_for_prompt(entity.id)
+                    table_list = spec_service.format_db_spec_for_prompt(
+                        entity.id, mode="small"
+                    )
                     if table_list:
                         logger.info(f"Got table list from spec_service for {db_name}")
                         return table_list
@@ -1038,16 +1139,29 @@ class ResourceInjector:
         """默认数据库格式，包含表列表"""
         lines = ["<available_databases>", "以下是你可以使用的数据库：", ""]
 
+        # 收集数据库类型信息，用于生成语法提示
+        db_types_with_versions = set()
+
         # 使用包含表列表的数据
         if databases_with_tables:
             for db in databases_with_tables:
                 lines.append(f"- <database>")
                 lines.append(f"  <name>{db.get('name', '')}</name>")
                 lines.append(f"  <db_name>{db.get('db_name', '')}</db_name>")
-                if db.get('db_type'):
-                    lines.append(f"  <db_type>{db.get('db_type')}</db_type>")
-                if db.get('dialect'):
-                    lines.append(f"  <dialect>{db.get('dialect')}</dialect>")
+                db_type = db.get('db_type', '')
+                dialect = db.get('dialect', db_type)
+                db_version = db.get('db_version')
+
+                if db_type:
+                    lines.append(f"  <db_type>{db_type}</db_type>")
+                if dialect:
+                    lines.append(f"  <dialect>{dialect}</dialect>")
+                if db_version:
+                    lines.append(f"  <version>{db_version}</version>")
+                    db_types_with_versions.add((db_type or dialect, db_version))
+                elif db_type or dialect:
+                    db_types_with_versions.add((db_type or dialect, None))
+
                 if db.get('description'):
                     lines.append(f"  <description>{db.get('description')}</description>")
 
@@ -1064,6 +1178,7 @@ class ResourceInjector:
                 db_name = r.metadata.get("db_name", r.code)
                 db_type = r.metadata.get("db_type", "")
                 dialect = r.metadata.get("dialect", db_type)
+                db_version = r.metadata.get("db_version")
 
                 lines.append(f"- <database>")
                 lines.append(f"  <name>{r.name}</name>")
@@ -1072,6 +1187,11 @@ class ResourceInjector:
                     lines.append(f"  <db_type>{db_type}</db_type>")
                 if dialect:
                     lines.append(f"  <dialect>{dialect}</dialect>")
+                if db_version:
+                    lines.append(f"  <version>{db_version}</version>")
+                    db_types_with_versions.add((db_type or dialect, db_version))
+                elif db_type or dialect:
+                    db_types_with_versions.add((db_type or dialect, None))
                 lines.append(f"  <description>{r.description}</description>")
                 lines.append(f"</database>")
 
@@ -1085,17 +1205,89 @@ class ResourceInjector:
         lines.append("")
         lines.append("2. `execute_sql` - 执行 SQL 查询")
         lines.append("   - 参数: db_name (必填), sql (必填)")
-        lines.append("   - **重要**: SQL 语法必须匹配数据库类型 (db_type/dialect)")
-        lines.append("     - SQLite: 标准 SQL，LIMIT 语法")
-        lines.append("     - MySQL: LIMIT，反引号 ``")
-        lines.append("     - PostgreSQL: LIMIT，双引号 \"\"")
-        lines.append("     - SQL Server: TOP，方括号 []")
-        lines.append("     - Oracle: ROWNUM，无 LIMIT")
+        lines.append("   - **重要**: SQL 语法必须严格匹配数据库类型和版本！")
+        lines.append("")
+
+        # 根据数据库类型和版本生成针对性语法提示
+        sql_syntax_hints = self._generate_sql_syntax_hints(db_types_with_versions)
+        lines.extend(sql_syntax_hints)
+
         lines.append("")
         lines.append("3. `list_tables` - 列出数据库所有表名")
         lines.append("   - 使用场景: 表列表未注入或需要完整列表时")
         lines.append("")
         lines.append("**使用流程：**")
+        lines.append("1. 查看上方的表列表和数据库版本信息")
+        lines.append("2. 使用 `get_table_spec` 获取表的详细结构（支持多张表）")
+        lines.append("3. 根据数据库类型和版本编写符合语法的 SQL")
+        lines.append("4. 使用 `execute_sql` 执行查询")
+
+        return "\n".join(lines)
+
+    def _generate_sql_syntax_hints(self, db_types_with_versions: set) -> List[str]:
+        """根据数据库类型和版本生成 SQL 语法提示"""
+        hints = ["**SQL 语法要求（必须严格遵守）：**", ""]
+
+        for db_type, version in db_types_with_versions:
+            db_type_lower = (db_type or "").lower()
+
+            if db_type_lower == "oracle":
+                # Oracle 版本相关的语法提示
+                if version:
+                    try:
+                        major, minor = map(int, version.split('.')[:2])
+                        if (major, minor) >= (12, 1):
+                            hints.append(f"Oracle {version}: 使用 FETCH FIRST n ROWS ONLY（12c+ 新语法）")
+                            hints.append("   示例: SELECT * FROM table FETCH FIRST 10 ROWS ONLY")
+                        else:
+                            hints.append(f"Oracle {version}: 使用 ROWNUM（11g 及更早版本）")
+                            hints.append("   示例: SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
+                    except (ValueError, AttributeError):
+                        hints.append(f"Oracle {version}: 优先使用 ROWNUM，兼容所有版本")
+                        hints.append("   示例: SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
+                else:
+                    hints.append("Oracle: 使用 ROWNUM（兼容所有版本）")
+                    hints.append("   示例: SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
+                hints.append("   注意: 表名格式 'OWNER.TABLE_NAME'，使用双引号: \"OWNER\".\"TABLE_NAME\"")
+                hints.append("   注意: 无 LIMIT 关键字，日期函数使用 TO_DATE()")
+                hints.append("")
+
+            elif db_type_lower == "mysql":
+                hints.append("MySQL: 使用 LIMIT，标识符用反引号 ``")
+                hints.append("   示例: SELECT * FROM `table` LIMIT 10")
+                hints.append("")
+
+            elif db_type_lower in ("postgresql", "postgres"):
+                hints.append("PostgreSQL: 使用 LIMIT/OFFSET，标识符用双引号 \"\"")
+                hints.append("   示例: SELECT * FROM \"table\" LIMIT 10 OFFSET 5")
+                hints.append("")
+
+            elif db_type_lower in ("mssql", "sqlserver", "sql server"):
+                hints.append("SQL Server: 使用 TOP 或 OFFSET FETCH，标识符用方括号 []")
+                hints.append("   示例: SELECT TOP 10 * FROM [table]")
+                hints.append("   或: SELECT * FROM [table] ORDER BY col OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY")
+                hints.append("")
+
+            elif db_type_lower == "sqlite":
+                hints.append("SQLite: 标准 SQL，使用 LIMIT/OFFSET")
+                hints.append("   示例: SELECT * FROM table LIMIT 10")
+                hints.append("")
+
+            else:
+                hints.append(f"{db_type}: 请查询该数据库的特定语法要求")
+                hints.append("")
+
+        if not db_types_with_versions:
+            # 默认提示所有常见数据库
+            hints.extend([
+                "- SQLite: 标准 SQL，LIMIT 语法",
+                "- MySQL: LIMIT，反引号 ``",
+                "- PostgreSQL: LIMIT/OFFSET，双引号 \"\"",
+                "- SQL Server: TOP 或 OFFSET FETCH，方括号 []",
+                "- Oracle: ROWNUM（11g）或 FETCH FIRST（12c+），双引号 \"\"，无 LIMIT",
+            ])
+
+        return hints
         lines.append("1. 查看上方的表列表")
         lines.append("2. 使用 `get_table_spec` 获取表的详细结构（支持多张表）")
         lines.append("3. 根据 db_type 编写符合语法的 SQL")
