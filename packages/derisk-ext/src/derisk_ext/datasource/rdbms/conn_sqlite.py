@@ -80,6 +80,13 @@ class SQLiteConnector(RDBMSConnector):
         """Return parameter class."""
         return SQLiteConnectorParameters
 
+    def quote_identifier(self, identifier: str) -> str:
+        """Quote a table or column identifier for SQLite.
+
+        SQLite uses double quotes for identifiers.
+        """
+        return f'"{identifier}"'
+
     @classmethod
     def from_parameters(
         cls, parameters: SQLiteConnectorParameters
