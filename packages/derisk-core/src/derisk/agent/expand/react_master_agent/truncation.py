@@ -45,7 +45,7 @@ class TruncationResult:
 class TruncationConfig:
     """截断配置"""
 
-    DEFAULT_MAX_LINES = 50
+    DEFAULT_MAX_LINES = 500
     DEFAULT_MAX_BYTES = 5 * 1024
 
     TRUNCATION_SUGGESTION_TEMPLATE = """

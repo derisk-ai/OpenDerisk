@@ -978,7 +978,8 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
         # Layer 1: 使用 UnifiedCompactionPipeline 截断（优先）
         # skill_read/skill_list 返回完整 Skill 内容，不截断
-        _SKIP_TRUNCATION_TOOLS = {"skill_read", "skill_list"}
+        # get_table_spec 返回结构化表 spec，截断会破坏格式；工具已限制最多 3 张表
+        _SKIP_TRUNCATION_TOOLS = {"skill_read", "skill_list", "get_table_spec"}
         pipeline = await self._ensure_compaction_pipeline()
         if pipeline and result.output and tool_name not in _SKIP_TRUNCATION_TOOLS:
             try:
@@ -1001,6 +1002,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                         result.output, tool_name=tool_name
                     )
                     if truncation_result.is_truncated:
+                        # truncation_result.content 已包含 suggestion，无需重复添加
                         result.output = truncation_result.content
                         result.metadata["truncated"] = True
                         result.metadata["truncation_info"] = {
@@ -1008,8 +1010,6 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                             "truncated_lines": truncation_result.truncated_lines,
                             "temp_file": truncation_result.temp_file_path,
                         }
-                        if truncation_result.suggestion:
-                            result.output += truncation_result.suggestion
         elif self._output_truncator and result.output and tool_name not in _SKIP_TRUNCATION_TOOLS:
             # Fallback: legacy OutputTruncator when pipeline not available
             truncation_result = self._output_truncator.truncate(
@@ -1017,6 +1017,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             )
 
             if truncation_result.is_truncated:
+                # truncation_result.content 已包含 suggestion，无需重复添加
                 result.output = truncation_result.content
                 result.metadata["truncated"] = True
                 result.metadata["truncation_info"] = {
@@ -1024,9 +1025,6 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                     "truncated_lines": truncation_result.truncated_lines,
                     "temp_file": truncation_result.temp_file_path,
                 }
-
-                if truncation_result.suggestion:
-                    result.output += truncation_result.suggestion
 
         # Record to WorkLog
         if self._work_log_storage and pipeline:

@@ -39,7 +39,7 @@ class DbLearningTaskEntity(Model):
     )
     status = Column(
         String(32), nullable=False, default="pending",
-        comment="Status: pending, running, finalizing, completed, failed, cancelled",
+        comment="Status: pending, running, paused, finalizing, completed, failed, cancelled",
     )
     progress = Column(
         Integer, nullable=False, default=0, comment="Progress 0-100"
@@ -205,6 +205,54 @@ class DbLearningTaskDao(BaseDao):
                 SELECT status FROM db_learning_task WHERE id = :task_id
             """), {"task_id": task_id}).fetchone()
             return row is not None and row[0] == "cancelled"
+
+    def is_paused(self, task_id: int) -> bool:
+        """Check if a task has been paused (single-row PK lookup)."""
+        with self.session(commit=False) as session:
+            row = session.execute(text("""
+                SELECT status FROM db_learning_task WHERE id = :task_id
+            """), {"task_id": task_id}).fetchone()
+            return row is not None and row[0] == "paused"
+
+    def pause_task(self, task_id: int) -> bool:
+        """Atomically set task status to paused.
+
+        Only succeeds if the task is currently running.
+        Returns True if the transition succeeded.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.session() as session:
+            result = session.execute(text("""
+                UPDATE db_learning_task
+                SET status = 'paused', gmt_modified = :now
+                WHERE id = :task_id
+                  AND status = 'running'
+            """), {"task_id": task_id, "now": now})
+            return result.rowcount > 0
+
+    def resume_task(self, task_id: int) -> bool:
+        """Atomically set task status to running from paused.
+
+        Returns True if the transition succeeded.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.session() as session:
+            result = session.execute(text("""
+                UPDATE db_learning_task
+                SET status = 'running', gmt_modified = :now
+                WHERE id = :task_id
+                  AND status = 'paused'
+            """), {"task_id": task_id, "now": now})
+            return result.rowcount > 0
+
+    def get_paused_by_datasource(
+        self, datasource_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """Get a paused learning task for a datasource if one exists."""
+        return self.get_one({
+            "datasource_id": datasource_id,
+            "status": "paused",
+        })
 
     def delete_by_datasource_id(self, datasource_id: int) -> None:
         """Delete all learning tasks for a datasource."""

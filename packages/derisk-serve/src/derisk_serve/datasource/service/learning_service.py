@@ -207,6 +207,76 @@ class SchemaLearningService:
             }
         return {"cancelled": False, "reason": "task already completed"}
 
+    def pause_task(self, datasource_id: int) -> Dict[str, Any]:
+        """Pause a running learning task for a datasource.
+
+        Sets the task status to 'paused' atomically. Workers will exit
+        the loop gracefully when they detect the paused status. Subtasks
+        remain in pending/claimed state and can be resumed later.
+
+        Returns:
+            Dict with 'paused' bool and details.
+        """
+        running = self._learning_task_dao.get_running_by_datasource(
+            datasource_id
+        )
+        if not running:
+            return {"paused": False, "reason": "no running task"}
+
+        task_id = running["id"]
+        success = self._learning_task_dao.pause_task(task_id)
+        if success:
+            logger.info(f"[PAUSE] Task {task_id} paused")
+            return {
+                "paused": True,
+                "task_id": task_id,
+            }
+        return {"paused": False, "reason": "task not in running status"}
+
+    def resume_task(self, datasource_id: int) -> Dict[str, Any]:
+        """Resume a paused learning task for a datasource.
+
+        Sets the task status to 'running' atomically and reclaims stale
+        subtasks. Workers will be spawned to continue processing.
+
+        Returns:
+            Dict with 'resumed' bool and details.
+        """
+        paused = self._learning_task_dao.get_paused_by_datasource(
+            datasource_id
+        )
+        if not paused:
+            return {"resumed": False, "reason": "no paused task"}
+
+        task_id = paused["id"]
+        success = self._learning_task_dao.resume_task(task_id)
+        if success:
+            # Reclaim stale subtasks and spawn workers to continue
+            self._subtask_dao.reclaim_stale(task_id, self._subtask_stale_timeout)
+            logger.info(f"[RESUME] Task {task_id} resumed")
+            # Spawn worker in background thread
+            from derisk.util.executor_utils import ExecutorFactory
+            from derisk.component import ComponentType
+            try:
+                executor = self._system_app.get_component(
+                    ComponentType.EXECUTOR_DEFAULT, ExecutorFactory
+                ).create()
+                # Get db_name and db_type from the latest spec
+                db_spec = self._db_spec_dao.get_by_datasource_id(datasource_id)
+                if db_spec:
+                    executor.submit(
+                        self._run_worker_loop,
+                        task_id, datasource_id, db_spec["db_name"], db_spec["db_type"],
+                        None, {}  # connector and context will be built inside
+                    )
+            except Exception as e:
+                logger.warning(f"[RESUME] Could not spawn worker: {e}")
+            return {
+                "resumed": True,
+                "task_id": task_id,
+            }
+        return {"resumed": False, "reason": "task not in paused status"}
+
     def resume_stale_task(
         self,
         task_id: int,
@@ -420,6 +490,14 @@ class SchemaLearningService:
                 )
                 break
 
+            # Check pause
+            if self._learning_task_dao.is_paused(task_id):
+                logger.info(
+                    f"[WORKER] Task {task_id} paused, exiting "
+                    f"(processed {processed})"
+                )
+                break
+
             # Reclaim stale subtasks periodically
             self._subtask_dao.reclaim_stale(task_id, self._subtask_stale_timeout)
 
@@ -482,7 +560,11 @@ class SchemaLearningService:
         db_type: str,
     ) -> None:
         """Run post-processing. Only one node succeeds via atomic UPDATE."""
-        # Atomic: running → finalizing (cancelled tasks get rowcount=0)
+        # Skip finalization if task was paused
+        if self._learning_task_dao.is_paused(task_id):
+            logger.info(f"[FINALIZE] Task {task_id} is paused, skipping finalization")
+            return
+        # Atomic: running → finalizing (cancelled/paused tasks get rowcount=0)
         with self._learning_task_dao.session() as session:
             result = session.execute(sa_text("""
                 UPDATE db_learning_task
@@ -494,7 +576,7 @@ class SchemaLearningService:
                 "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             })
             if result.rowcount == 0:
-                return  # Another node is finalizing, or task was cancelled
+                return  # Another node is finalizing, or task was cancelled/paused
 
         self._do_finalize(task_id, datasource_id, db_name, db_type)
 
@@ -1417,6 +1499,56 @@ class SchemaLearningService:
         self._regenerate_db_spec(datasource_id, db_name)
 
         return result
+
+    def refresh_sample_data(
+        self, datasource_id: int, connector, table_name: str
+    ) -> Dict[str, Any]:
+        """Refresh sample data for a single table.
+
+        Re-collects sample rows (first 2 + last 2) from the database
+        and updates the table spec's sample_data_json field.
+        Does NOT change other spec fields (columns, indexes, etc.).
+
+        Args:
+            datasource_id: The datasource config ID.
+            connector: The database connector.
+            table_name: The table name to refresh.
+
+        Returns:
+            The updated table spec dict.
+        """
+        # Get columns info and row count
+        columns = connector.get_columns(table_name)
+        row_count = self._get_row_count(connector, table_name)
+
+        # Collect new sample data
+        sample_data_json = self._collect_sample_data(
+            connector, table_name, columns, row_count
+        )
+
+        # Update only sample_data_json and row_count
+        self._table_spec_dao.upsert(datasource_id, table_name, {
+            "sample_data_json": sample_data_json,
+            "row_count": row_count,
+        })
+
+        # Return updated spec
+        return self._table_spec_dao.get_by_datasource_and_table(
+            datasource_id, table_name
+        )
+
+    def _get_row_count(self, connector, table_name: str) -> int:
+        """Get approximate row count for a table."""
+        try:
+            quoted = connector.quote_identifier(table_name)
+            result = connector.run(f"SELECT COUNT(*) FROM {quoted}")
+            if result and len(result) > 1:
+                row = tuple(result[1])
+                if row:
+                    return int(row[0])
+        except Exception as e:
+            logger.debug(f"[LEARN] Failed to get row count for '{table_name}': {e}")
+        return 0
 
     def _regenerate_db_spec(
         self, datasource_id: int, db_name: str

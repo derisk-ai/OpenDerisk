@@ -446,6 +446,14 @@ class Service(
         """Cancel a running learning task for the datasource."""
         return self.learning_service.cancel_task(int(datasource_id))
 
+    def pause_learning(self, datasource_id: str) -> Dict[str, Any]:
+        """Pause a running learning task for the datasource."""
+        return self.learning_service.pause_task(int(datasource_id))
+
+    def resume_learning(self, datasource_id: str) -> Dict[str, Any]:
+        """Resume a paused learning task for the datasource."""
+        return self.learning_service.resume_task(int(datasource_id))
+
     def get_learning_status(
         self, datasource_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -561,3 +569,31 @@ class Service(
             "last_rows": last_rows,
             "total": total,
         }
+
+    def refresh_table_sample_data(
+        self,
+        datasource_id: str,
+        table_name: str,
+    ) -> Dict[str, Any]:
+        """Refresh sample data for a single table.
+
+        Re-collects sample rows (first 2 + last 2) from the database
+        and updates the table spec's sample_data_json field.
+
+        Args:
+            datasource_id: The datasource ID
+            table_name: The table name to refresh
+
+        Returns:
+            Updated table spec dict
+        """
+        db_config = self._dao.get_one({"id": datasource_id})
+        if not db_config:
+            raise HTTPException(status_code=404, detail="datasource not found")
+
+        ds_id = int(datasource_id)
+        connector = self.datasource_manager.get_connector(db_config.db_name)
+
+        return self.learning_service.refresh_sample_data(
+            ds_id, connector, table_name
+        )

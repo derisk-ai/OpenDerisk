@@ -483,11 +483,12 @@ class ToolAction(Action[ToolInput]):
         # 跳过特定工具的截断：
         # - read/read_file/view/skill_read/skill_list: 避免循环归档，这些工具已自行管理输出大小（分段读取）
         # - execute_sql: 已自行管理输出大小（分页+CSV导出），Truncator 按字节截断会破坏 d-sql-query JSON 结构
+        # - get_table_spec: 输出是结构化的表 spec，截断会破坏格式；工具已限制最多 3 张表
         should_truncate = (
             result_content
             and agent_file_system
             and isinstance(result_content, str)
-            and tool_info.name not in ("read", "read_file", "view", "skill_read", "skill_list", "execute_sql")
+            and tool_info.name not in ("read", "read_file", "view", "skill_read", "skill_list", "execute_sql", "get_table_spec")
         )
 
         if should_truncate:

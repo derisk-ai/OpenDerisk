@@ -167,3 +167,38 @@ class SensitiveColumnDetectRequest(BaseModel):
     """Request to trigger auto-detection of sensitive columns."""
 
     table_names: Optional[List[str]] = None
+
+
+class BatchMaskingConfigRequest(BaseModel):
+    """Request to batch add masking config for columns matching by name.
+
+    This allows adding masking rules for all tables in a datasource
+    that have columns matching the specified names.
+
+    Example:
+        column_names: ["phone", "mobile", "email"]
+        sensitive_type: "phone"
+        masking_mode: "mask"
+
+    This will add masking config for all columns named "phone" or "mobile"
+    across all tables in the datasource, treating them as phone numbers.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    column_names: List[str]
+    sensitive_type: str
+    masking_mode: str = "mask"
+    ignore_case: bool = True  # Match column names case-insensitively
+
+
+class BatchMaskingConfigResponse(BaseModel):
+    """Response for batch masking config operation."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    total_tables_scanned: int
+    total_columns_matched: int
+    total_configs_added: int
+    matched_columns: List[Dict[str, str]]  # [{"table": "users", "column": "phone"}, ...]
+    errors: List[str] = []

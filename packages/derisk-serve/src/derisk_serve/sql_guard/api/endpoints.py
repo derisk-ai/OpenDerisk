@@ -12,6 +12,8 @@ from derisk_serve.core import Result
 from .schemas import (
     AuditLogResponse,
     AuditStatsResponse,
+    BatchMaskingConfigRequest,
+    BatchMaskingConfigResponse,
     GuardConfigResponse,
     GuardConfigUpdateRequest,
     RuleInfo,
@@ -395,3 +397,101 @@ def _reload_masker_config(datasource_id: int) -> None:
             ))
     except Exception as e:
         logger.warning(f"Failed to reload masker config: {e}")
+
+
+@router.post(
+    "/sql-guard/masking/{datasource_id}/batch",
+    response_model=Result[BatchMaskingConfigResponse],
+)
+async def batch_add_masking_config(
+    datasource_id: int,
+    request: BatchMaskingConfigRequest,
+) -> Result[BatchMaskingConfigResponse]:
+    """Batch add masking config for columns matching by name across all tables.
+
+    This allows adding masking rules for all tables in a datasource
+    that have columns matching the specified names.
+
+    Example usage:
+    - Add masking for all "phone" and "mobile" columns across all tables:
+        {"column_names": ["phone", "mobile"], "sensitive_type": "phone"}
+    - Add masking for all "email" columns:
+        {"column_names": ["email"], "sensitive_type": "email"}
+    """
+    from derisk_serve.datasource.manages.table_spec_db import TableSpecDao
+    from derisk_serve.sql_guard.masking.config_db import SensitiveColumnDao
+
+    table_spec_dao = TableSpecDao()
+    sensitive_dao = SensitiveColumnDao()
+
+    # Get all table specs for the datasource
+    table_specs = table_spec_dao.get_all_by_datasource(datasource_id)
+
+    # Build column name set for matching
+    column_names_set = set(request.column_names)
+    if request.ignore_case:
+        column_names_lower = {name.lower() for name in request.column_names}
+    else:
+        column_names_lower = None
+
+    # Scan all tables and find matching columns
+    matched_columns = []
+    errors = []
+
+    for table_spec in table_specs:
+        table_name = table_spec.get("table_name", "")
+        columns = table_spec.get("columns", [])
+
+        if not columns:
+            continue
+
+        for col in columns:
+            col_name = col.get("name", "")
+            if not col_name:
+                continue
+
+            # Match column name
+            is_match = False
+            if request.ignore_case:
+                is_match = col_name.lower() in column_names_lower
+            else:
+                is_match = col_name in column_names_set
+
+            if is_match:
+                matched_columns.append({
+                    "table": table_name,
+                    "column": col_name,
+                })
+
+    # Add masking config for each matched column
+    total_configs_added = 0
+    for match in matched_columns:
+        try:
+            sensitive_dao.upsert(
+                datasource_id=datasource_id,
+                table_name=match["table"],
+                column_name=match["column"],
+                data={
+                    "sensitive_type": request.sensitive_type,
+                    "masking_mode": request.masking_mode,
+                    "confidence": None,
+                    "source": "batch",
+                    "enabled": 1,
+                },
+            )
+            total_configs_added += 1
+        except Exception as e:
+            errors.append(f"{match['table']}.{match['column']}: {str(e)}")
+
+    # Reload masker config
+    _reload_masker_config(datasource_id)
+
+    return Result.succ(
+        BatchMaskingConfigResponse(
+            total_tables_scanned=len(table_specs),
+            total_columns_matched=len(matched_columns),
+            total_configs_added=total_configs_added,
+            matched_columns=matched_columns,
+            errors=errors,
+        )
+    )

@@ -347,6 +347,38 @@ async def cancel_learning(
     return Result.succ(result)
 
 
+@router.post(
+    "/datasources/{datasource_id}/learn/pause",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[dict],
+)
+async def pause_learning(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Pause a running learning task for a datasource."""
+    result = await blocking_func_to_async(
+        global_system_app, service.pause_learning, datasource_id
+    )
+    return Result.succ(result)
+
+
+@router.post(
+    "/datasources/{datasource_id}/learn/resume",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[dict],
+)
+async def resume_learning(
+    datasource_id: str,
+    service: Service = Depends(get_service),
+) -> Result[dict]:
+    """Resume a paused learning task for a datasource."""
+    result = await blocking_func_to_async(
+        global_system_app, service.resume_learning, datasource_id
+    )
+    return Result.succ(result)
+
+
 @router.get(
     "/datasources/{datasource_id}/learn/status",
     dependencies=[Depends(check_api_key)],
@@ -455,6 +487,32 @@ async def preview_table_data(
         table_name,
     )
     return Result.succ(TableDataPreviewResponse(**result))
+
+
+@router.post(
+    "/datasources/{datasource_id}/tables/{table_name}/refresh-sample",
+    dependencies=[Depends(check_api_key)],
+    response_model=Result[TableSpecDetailResponse],
+)
+async def refresh_table_sample_data(
+    datasource_id: str,
+    table_name: str,
+    service: Service = Depends(get_service),
+) -> Result[TableSpecDetailResponse]:
+    """Refresh sample data for a single table.
+
+    Re-collects sample rows (first 2 + last 2) from the database
+    and updates the table spec. Use this when:
+    - Data has changed significantly
+    - Want to ensure sample data reflects current state
+    """
+    result = await blocking_func_to_async(
+        global_system_app,
+        service.refresh_table_sample_data,
+        datasource_id,
+        table_name,
+    )
+    return Result.succ(TableSpecDetailResponse(**result))
 
 
 # ==============================================================

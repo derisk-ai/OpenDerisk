@@ -40,45 +40,47 @@ class SensitiveColumnInfo:
 
 # Name patterns → (SensitiveType, confidence, masking_strategy)
 _NAME_PATTERNS: List[tuple] = [
-    # Phone
-    (re.compile(r"(phone|mobile|tel|cellphone|手机|电话|联系方式)", re.I),
-     SensitiveType.PHONE, 0.9, "partial"),
-    # Email
-    (re.compile(r"(email|e_mail|邮箱|邮件)", re.I),
+    # Phone - 扩展常见变体
+    (re.compile(r"(phone|mobile|tel|cellphone|cell|联系电话|联系电话|手机号|手机号码|电话号码|联系方式|contact_phone|phone_number)", re.I),
+     SensitiveType.PHONE, 0.85, "partial"),
+    # Email - 扩展常见变体
+    (re.compile(r"(email|e_mail|mail|邮箱|邮件|电子邮箱|email_address)", re.I),
      SensitiveType.EMAIL, 0.9, "partial"),
-    # ID card
-    (re.compile(r"(id_card|idcard|identity|身份证|证件号|id_number|id_no)", re.I),
+    # ID card - 扩展常见变体（身份证）
+    (re.compile(r"(id_card|idcard|identity|身份证|证件号|id_number|id_no|card_id|sfz|sfzh|idcard_no|identity_card|身份证号|证件号码|idcode)", re.I),
      SensitiveType.ID_CARD, 0.95, "partial"),
-    # Bank card
-    (re.compile(r"(bank_card|bankcard|card_no|card_number|银行卡|卡号)", re.I),
+    # Bank card - 扩展常见变体
+    (re.compile(r"(bank_card|bankcard|card_no|card_number|银行卡|卡号|bankcard_no|bank_card_no|credit_card|debit_card)", re.I),
      SensitiveType.BANK_CARD, 0.9, "partial"),
-    # Address
-    (re.compile(r"(address|addr|地址|住址|居住地)", re.I),
+    # Address - 扩展常见变体
+    (re.compile(r"(address|addr|地址|住址|居住地|详细地址|location|street|home_address|work_address)", re.I),
      SensitiveType.ADDRESS, 0.7, "partial"),
-    # Name (common patterns, lower confidence since "name" is generic)
-    (re.compile(r"(real_name|true_name|full_name|姓名|真实姓名)", re.I),
-     SensitiveType.NAME, 0.8, "partial"),
-    (re.compile(r"^(user_name|username|nick_name)$", re.I),
-     SensitiveType.NAME, 0.5, "partial"),
-    # Password / secret
-    (re.compile(r"(password|passwd|pwd|secret|密码|口令)", re.I),
+    # Name - 扩展常见变体（人名）
+    (re.compile(r"(real_name|true_name|full_name|姓名|真实姓名|姓名|cn_name|customer_name|user_name|person_name|contact_name|member_name|employee_name|staff_name|patient_name|client_name|subscriber_name)", re.I),
+     SensitiveType.NAME, 0.85, "partial"),
+    # Name - 更通用的模式（置信度略低）
+    (re.compile(r"^(name|cn|nick_name|nickname|nick|first_name|last_name|given_name|family_name|surname)$", re.I),
+     SensitiveType.NAME, 0.65, "partial"),
+    # Password / secret - 扩展常见变体
+    (re.compile(r"(password|passwd|pwd|secret|密码|口令|登录密码|pass|user_password)", re.I),
      SensitiveType.PASSWORD, 0.95, "full"),
-    # Token / key
-    (re.compile(r"(token|api_key|access_key|secret_key|密钥)", re.I),
+    # Token / key - 扩展常见变体
+    (re.compile(r"(token|api_key|access_key|secret_key|密钥|auth_token|refresh_token|session_token|private_key|api_token)", re.I),
      SensitiveType.TOKEN, 0.95, "full"),
-    # IP address
-    (re.compile(r"(ip_addr|ip_address|client_ip|remote_ip)", re.I),
+    # IP address - 扩展常见变体
+    (re.compile(r"(ip_addr|ip_address|client_ip|remote_ip|ip|user_ip|source_ip|dest_ip|host_ip|server_ip)", re.I),
      SensitiveType.IP_ADDRESS, 0.7, "partial"),
 ]
 
-# Comment patterns (Chinese + English)
+# Comment patterns (Chinese + English) - 扩展常见注释
 _COMMENT_PATTERNS: List[tuple] = [
-    (re.compile(r"(手机|电话|phone|mobile)", re.I), SensitiveType.PHONE, 0.8),
-    (re.compile(r"(邮箱|email)", re.I), SensitiveType.EMAIL, 0.8),
-    (re.compile(r"(身份证|证件|identity|id.?card)", re.I), SensitiveType.ID_CARD, 0.85),
-    (re.compile(r"(银行卡|card.?no)", re.I), SensitiveType.BANK_CARD, 0.85),
-    (re.compile(r"(地址|address)", re.I), SensitiveType.ADDRESS, 0.6),
-    (re.compile(r"(密码|password|secret)", re.I), SensitiveType.PASSWORD, 0.9),
+    (re.compile(r"(手机|电话|phone|mobile|联系方式|联系电话|手机号)", re.I), SensitiveType.PHONE, 0.8),
+    (re.compile(r"(邮箱|email|邮件地址|电子邮箱)", re.I), SensitiveType.EMAIL, 0.8),
+    (re.compile(r"(身份证|证件|identity|id.?card|身份证号|证件号|证件号码|身份证号码)", re.I), SensitiveType.ID_CARD, 0.85),
+    (re.compile(r"(银行卡|card.?no|银行卡号|卡号|信用卡|借记卡)", re.I), SensitiveType.BANK_CARD, 0.85),
+    (re.compile(r"(地址|address|详细地址|居住地址|联系地址)", re.I), SensitiveType.ADDRESS, 0.6),
+    (re.compile(r"(姓名|名字|真实姓名|用户名|联系人|姓名)", re.I), SensitiveType.NAME, 0.75),
+    (re.compile(r"(密码|password|secret|登录密码|用户密码)", re.I), SensitiveType.PASSWORD, 0.9),
 ]
 
 # Sample value patterns (for validating detections)
@@ -263,6 +265,75 @@ class SensitiveColumnDetector:
                                 f"; {match_count}/{len(sample_values)} "
                                 f"samples match value pattern"
                             )
+
+        # Strategy 4: Heuristic detection from sample data (when name/comment don't match)
+        # Detect sensitive data by analyzing sample value patterns
+        if not candidates and sample_cols and sample_rows:
+            col_idx = None
+            for i, sc in enumerate(sample_cols):
+                if sc == col_name:
+                    col_idx = i
+                    break
+
+            if col_idx is not None:
+                sample_values = [
+                    str(row[col_idx])
+                    for row in sample_rows
+                    if row and col_idx < len(row) and row[col_idx] is not None
+                    and str(row[col_idx]) != "NULL" and str(row[col_idx]).strip()
+                ]
+
+                if sample_values:
+                    # Check each value pattern type
+                    for stype, vp in _VALUE_PATTERNS.items():
+                        if stype == SensitiveType.BANK_CARD.value:
+                            continue  # Bank card is too generic (13-19 digits)
+
+                        match_count = sum(
+                            1 for v in sample_values if vp.match(v)
+                        )
+                        if match_count > 0:
+                            ratio = match_count / len(sample_values)
+                            # Require at least half of samples to match for heuristics
+                            if ratio >= 0.5:
+                                candidates.append(SensitiveColumnInfo(
+                                    table_name=table_name,
+                                    column_name=col_name,
+                                    sensitive_type=stype,
+                                    confidence=0.5 + ratio * 0.3,  # 0.5 ~ 0.8
+                                    detection_reason=(
+                                        f"sample data heuristic: {match_count}/{len(sample_values)} "
+                                        f"values match {stype} pattern"
+                                    ),
+                                    masking_strategy="partial",
+                                ))
+                                break
+
+                    # Heuristic for Chinese names (2-4 Chinese characters)
+                    chinese_name_pattern = re.compile(r"^[\\u4e00-\\u9fa5]{2,4}$")
+                    name_match_count = sum(
+                        1 for v in sample_values if chinese_name_pattern.match(v)
+                    )
+                    if name_match_count > 0:
+                        ratio = name_match_count / len(sample_values)
+                        if ratio >= 0.5:
+                            # Only add if not already detected
+                            existing_name = next(
+                                (c for c in candidates if c.sensitive_type == SensitiveType.NAME.value),
+                                None,
+                            )
+                            if not existing_name:
+                                candidates.append(SensitiveColumnInfo(
+                                    table_name=table_name,
+                                    column_name=col_name,
+                                    sensitive_type=SensitiveType.NAME.value,
+                                    confidence=0.5 + ratio * 0.25,  # 0.5 ~ 0.75
+                                    detection_reason=(
+                                        f"sample data heuristic: {name_match_count}/{len(sample_values)} "
+                                        f"values look like Chinese names"
+                                    ),
+                                    masking_strategy="partial",
+                                ))
 
         # Return highest confidence candidate
         if candidates:

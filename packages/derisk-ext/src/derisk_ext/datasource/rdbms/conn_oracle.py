@@ -166,15 +166,30 @@ def _parse_version(version_string: str) -> tuple:
     return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
 
 
-def _test_connection(host, port, user, pwd, service, use_thick=False, lib_dir=None) -> tuple:
-    """Test connection and get version."""
+def _test_connection(host, port, user, pwd, service, use_thick=False, lib_dir=None, is_sid=False) -> tuple:
+    """Test connection and get version.
+
+    Args:
+        host: Database host
+        port: Database port
+        user: Database user
+        pwd: Database password
+        service: Service name or SID
+        use_thick: Whether to use thick mode
+        lib_dir: Oracle Instant Client path
+        is_sid: If True, use SID instead of service_name
+    """
     try:
         import oracledb
 
         if use_thick and not _init_thick_mode(lib_dir):
             return (False, "", "thick_init_failed")
 
-        params = oracledb.ConnectParams(host=host, port=port, user=user, password=pwd, service_name=service)
+        # Use correct parameter based on whether it's SID or service_name
+        if is_sid:
+            params = oracledb.ConnectParams(host=host, port=port, user=user, password=pwd, sid=service)
+        else:
+            params = oracledb.ConnectParams(host=host, port=port, user=user, password=pwd, service_name=service)
         with oracledb.connect(params=params) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT VERSION FROM PRODUCT_COMPONENT_VERSION WHERE PRODUCT LIKE 'Oracle%'")
@@ -254,6 +269,8 @@ class OracleConnector(RDBMSConnector):
             raise ValueError("sid or service_name required")
 
         svc = service_name or sid
+        # Determine if svc is SID or service_name for connection testing
+        is_sid_param = sid is not None and service_name is None
 
         # If force_thick_mode is explicitly set, use it
         if force_thick_mode is True:
@@ -274,8 +291,8 @@ class OracleConnector(RDBMSConnector):
 
             if thick_initialized:
                 # Thick mode is now permanently enabled for this process
-                # Test connection with thick mode
-                ok, ver, err = _test_connection(host, port, user, pwd, svc, use_thick=True, lib_dir=oracle_client_lib)
+                # Test connection with thick mode (use correct SID/service_name parameter)
+                ok, ver, err = _test_connection(host, port, user, pwd, svc, use_thick=True, lib_dir=oracle_client_lib, is_sid=is_sid_param)
                 if ok:
                     cls._oracle_version = _parse_version(ver)
                     cls._using_thick_mode = True
@@ -293,7 +310,7 @@ class OracleConnector(RDBMSConnector):
             # Step 2: Thick mode not available (Instant Client not found)
             # Try thin mode (for Oracle 12c+)
             logger.info("Thick mode not available (Instant Client not found), trying thin mode...")
-            ok, ver, err = _test_connection(host, port, user, pwd, svc)
+            ok, ver, err = _test_connection(host, port, user, pwd, svc, is_sid=is_sid_param)
             if ok:
                 cls._oracle_version = _parse_version(ver)
                 logger.info(f"Thin mode OK, Oracle version: {ver}")
@@ -319,6 +336,9 @@ class OracleConnector(RDBMSConnector):
         if not svc:
             raise ValueError("service_name/sid/database required")
 
+        # Determine if svc is SID or service_name for connection testing
+        is_sid_param = params.sid is not None and params.service_name is None
+
         if params.force_thick_mode:
             if not _init_thick_mode(params.oracle_client_lib):
                 raise ValueError("Thick mode failed. Install Instant Client.")
@@ -335,7 +355,7 @@ class OracleConnector(RDBMSConnector):
 
         if thick_initialized:
             # Thick mode is now permanently enabled for this process
-            ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc, use_thick=True, lib_dir=params.oracle_client_lib)
+            ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc, use_thick=True, lib_dir=params.oracle_client_lib, is_sid=is_sid_param)
             if ok:
                 cls._oracle_version = _parse_version(ver)
                 cls._using_thick_mode = True
@@ -347,7 +367,7 @@ class OracleConnector(RDBMSConnector):
 
         # Step 2: Thick mode not available, try thin mode
         logger.info("Thick mode not available (Instant Client not found), trying thin mode...")
-        ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc)
+        ok, ver, err = _test_connection(params.host, params.port, params.user, params.password, svc, is_sid=is_sid_param)
         if ok:
             cls._oracle_version = _parse_version(ver)
             logger.info(f"Thin mode OK, version: {ver}")

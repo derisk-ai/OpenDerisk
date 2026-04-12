@@ -55,13 +55,67 @@ class DbSpecService:
             return True
         return False
 
-    def format_db_spec_for_prompt(self, datasource_id: int) -> str:
+    def get_db_stats(self, datasource_id: int) -> Dict[str, Any]:
+        """Get database statistics including table count and group distribution.
+
+        Returns:
+            Dict with keys:
+            - total_tables: Total number of tables
+            - groups: Dict of group_name -> table_count
+            - has_spec: Whether spec document exists
+            - spec_status: Status of spec document
+        """
+        spec = self._db_spec_dao.get_by_datasource_id(datasource_id)
+
+        if not spec:
+            return {
+                "total_tables": 0,
+                "groups": {},
+                "has_spec": False,
+                "spec_status": "not_found",
+            }
+
+        spec_content = spec.get("spec_content", [])
+        if isinstance(spec_content, str):
+            try:
+                spec_content = json.loads(spec_content)
+            except (json.JSONDecodeError, TypeError):
+                spec_content = []
+
+        # Count tables by group
+        groups: Dict[str, int] = {}
+        for table_info in spec_content:
+            group = table_info.get("group", "default")
+            groups[group] = groups.get(group, 0) + 1
+
+        return {
+            "total_tables": len(spec_content),
+            "groups": groups,
+            "has_spec": spec.get("status") == "ready",
+            "spec_status": spec.get("status", "unknown"),
+        }
+
+    def format_db_spec_for_prompt(
+        self,
+        datasource_id: int,
+        mode: str = "small",
+        max_tables: Optional[int] = None,
+    ) -> str:
         """Format the database spec for injection into agent prompt.
 
-        Returns a compact table list: ``table_name: description``.
-        The outer prompt template already provides ``Database type: ...``,
-        so this method only produces the table listing.
+        Args:
+            datasource_id: The datasource ID
+            mode: Injection mode - "small" (full), "medium" (compact), "large" (stats)
+            max_tables: Maximum tables to display (for medium mode truncation)
+
+        Returns:
+            Formatted table list or stats summary based on mode
         """
+        # Large mode: return stats only
+        if mode == "large":
+            stats = self.get_db_stats(datasource_id)
+            return self._format_db_stats(stats)
+
         spec = self._db_spec_dao.get_by_datasource_id(datasource_id)
         if not spec:
             return ""
@@ -69,6 +123,11 @@ class DbSpecService:
         spec_content = spec.get("spec_content", [])
         if not spec_content:
             return ""
+
+        # Apply truncation for medium mode
+        total_tables = len(spec_content)
+        if mode == "medium" and max_tables:
+            spec_content = spec_content[:max_tables]
 
         # Group tables
         groups: Dict[str, List[Dict]] = {}
@@ -80,34 +139,62 @@ class DbSpecService:
 
         lines: List[str] = []
 
-        def _fmt_table(t: Dict) -> str:
+        def _fmt_table(t: Dict, compact: bool = False) -> str:
             name = t.get("table_name", "")
+            if compact:
+                return f"- {name}"
             summary = t.get("summary", "")
             if summary:
                 return f"- {name}: {summary}"
             return f"- {name}"
 
+        compact = mode == "medium"
+
         if len(groups) == 1 and "default" in groups:
             for t in groups["default"]:
-                lines.append(_fmt_table(t))
+                lines.append(_fmt_table(t, compact))
         else:
             for group_name, tables in groups.items():
                 lines.append(f"\n[{group_name}]")
                 for t in tables:
-                    lines.append(_fmt_table(t))
+                    lines.append(_fmt_table(t, compact))
 
-        # Compact relations
-        relations = spec.get("relations", [])
-        if relations:
-            lines.append("\nRelations:")
-            for rel in relations:
-                from_t = rel.get("from_table", "")
-                to_t = rel.get("to_table", "")
-                col = rel.get("column", "")
-                if col:
-                    lines.append(f"- {from_t}.{col} -> {to_t}")
-                else:
-                    lines.append(f"- {from_t} -> {to_t}")
+        # Add truncation notice for medium mode
+        if mode == "medium" and max_tables and total_tables > max_tables:
+            lines.append(f"\n... (共 {total_tables} 张表，显示前 {max_tables} 张)")
+            lines.append("_使用 list_tables 或 search_tables 工具查看完整列表_")
+
+        # Relations only in small mode
+        if mode == "small":
+            relations = spec.get("relations", [])
+            if relations:
+                lines.append("\nRelations:")
+                for rel in relations:
+                    from_t = rel.get("from_table", "")
+                    to_t = rel.get("to_table", "")
+                    col = rel.get("column", "")
+                    if col:
+                        lines.append(f"- {from_t}.{col} -> {to_t}")
+                    else:
+                        lines.append(f"- {from_t} -> {to_t}")
+
+        return "\n".join(lines)
+
+    def _format_db_stats(self, stats: Dict[str, Any]) -> str:
+        """Format database stats for large DB injection."""
+        if not stats.get("has_spec"):
+            return "（数据库规格文档尚未生成，请使用 list_tables 工具获取表列表）"
+
+        total = stats.get("total_tables", 0)
+        groups = stats.get("groups", {})
+
+        lines = [f"**数据库统计信息**"]
+        lines.append(f"- 总表数: {total}")
+
+        if groups:
+            lines.append("- 表分组统计:")
+            for group_name, count in sorted(groups.items(), key=lambda x: -x[1]):
+                lines.append(f"  - {group_name}: {count} 张表")
 
         return "\n".join(lines)
 
@@ -236,14 +323,18 @@ class DbSpecService:
                         f"  - ({src_cols}) -> {ref_table}({ref_cols})"
                     )
 
-            # Sample data
+            # Sample data - 应用隐私策略脱敏
             if sample_data:
                 sample_cols = sample_data.get("columns", [])
                 sample_rows = sample_data.get("rows", [])
                 if sample_cols and sample_rows:
+                    # 应用脱敏
+                    masked_rows = self._mask_sample_data(
+                        sample_cols, sample_rows, table_name, sensitive_map
+                    )
                     lines.append(f"\nSample data ({len(sample_rows)} rows):")
                     lines.append(" | ".join(str(c) for c in sample_cols))
-                    for row in sample_rows:
+                    for row in masked_rows:
                         lines.append(
                             " | ".join(str(v) for v in row)
                         )
@@ -256,3 +347,54 @@ class DbSpecService:
         """Delete all specs for a datasource."""
         self._db_spec_dao.delete_by_datasource_id(datasource_id)
         self._table_spec_dao.delete_by_datasource_id(datasource_id)
+
+    def _mask_sample_data(
+        self,
+        columns: List[str],
+        rows: List[List],
+        table_name: str,
+        sensitive_map: Dict[str, Dict[str, str]],
+    ) -> List[List]:
+        """Mask sensitive columns in sample data.
+
+        Uses DataMasker._partial_mask static method to apply format-preserving
+        masking to sensitive column values (phone, email, id_card, etc.).
+
+        Args:
+            columns: Column name list
+            rows: Data rows list
+            table_name: Table name for config lookup
+            sensitive_map: Dict mapping "table.column" -> {sensitive_type, masking_mode}
+
+        Returns:
+            List of masked rows
+        """
+        # Import DataMasker for partial_mask method
+        try:
+            from derisk_serve.sql_guard.masking.masker import DataMasker
+        except ImportError:
+            return rows  # Masker not available, return original
+
+        # Build column index -> sensitive_type mapping
+        mask_plan = {}
+        for idx, col_name in enumerate(columns):
+            key = f"{table_name}.{col_name}"
+            if key in sensitive_map:
+                mask_plan[idx] = sensitive_map[key]["sensitive_type"]
+
+        if not mask_plan:
+            return rows  # No sensitive columns, return original
+
+        # Apply masking
+        masked_rows = []
+        for row in rows:
+            masked_row = list(row)
+            for idx, sensitive_type in mask_plan.items():
+                if idx < len(masked_row) and masked_row[idx] is not None:
+                    # Apply format-preserving partial masking
+                    masked_row[idx] = DataMasker._partial_mask(
+                        str(masked_row[idx]), sensitive_type
+                    )
+            masked_rows.append(masked_row)
+
+        return masked_rows

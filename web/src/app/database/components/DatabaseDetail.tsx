@@ -9,11 +9,14 @@ import {
   getDbTableData,
   postDbLearn,
   cancelDbLearn,
+  pauseDbLearn,
+  resumeDbLearn,
   getSensitiveColumns,
   addSensitiveColumn,
   toggleSensitiveColumn,
   updateSensitiveColumn,
   detectSensitiveColumns,
+  refreshTableSampleData,
 } from '@/client/api';
 import {
   IChatDbSchema,
@@ -30,6 +33,8 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   StopOutlined,
+  PauseOutlined,
+  PlayCircleOutlined,
   SyncOutlined,
   TableOutlined,
   DatabaseOutlined,
@@ -196,8 +201,11 @@ export default function DatabaseDetail({
 
   // Trigger learning
   const { run: runLearn, loading: learnLoading } = useRequest(
-    async () => {
-      const [err] = await apiInterceptors(postDbLearn(datasourceId));
+    async (taskType?: string, tableName?: string) => {
+      const [err] = await apiInterceptors(postDbLearn(datasourceId, {
+        task_type: taskType as any,
+        table_name: tableName,
+      }));
       if (err) throw err;
     },
     {
@@ -212,6 +220,52 @@ export default function DatabaseDetail({
       },
       onError: () => {
         message.error('Failed to start learning');
+      },
+    },
+  );
+
+  // Trigger incremental learning
+  const { run: runIncrementalLearn, loading: incrementalLoading } = useRequest(
+    async () => {
+      const [err] = await apiInterceptors(postDbLearn(datasourceId, {
+        task_type: 'incremental',
+      }));
+      if (err) throw err;
+    },
+    {
+      manual: true,
+      onSuccess: () => {
+        message.success('Incremental learning task started');
+        refreshLearning();
+        refreshSpec();
+        refreshTables();
+        refreshSensitive();
+        onRefresh?.();
+      },
+      onError: () => {
+        message.error('Failed to start incremental learning');
+      },
+    },
+  );
+
+  // Refresh sample data for a single table
+  const { run: runRefreshSample, loading: refreshSampleLoading } = useRequest(
+    async () => {
+      if (!selectedTableName) return;
+      const [err] = await apiInterceptors(
+        refreshTableSampleData(datasourceId, selectedTableName),
+      );
+      if (err) throw err;
+    },
+    {
+      manual: true,
+      onSuccess: () => {
+        message.success('Sample data refreshed');
+        fetchTableDetail(selectedTableName);
+        fetchTableData(selectedTableName);
+      },
+      onError: () => {
+        message.error('Failed to refresh sample data');
       },
     },
   );
@@ -239,9 +293,55 @@ export default function DatabaseDetail({
     },
   );
 
+  // Pause learning task
+  const { run: runPause, loading: pauseLoading } = useRequest(
+    async () => {
+      const [err, res] = await apiInterceptors(pauseDbLearn(datasourceId));
+      if (err) throw err;
+      return res;
+    },
+    {
+      manual: true,
+      onSuccess: (data) => {
+        if (data?.paused) {
+          message.success('Learning task paused');
+        } else {
+          message.warning(data?.reason || 'No running task to pause');
+        }
+        refreshLearning();
+      },
+      onError: () => {
+        message.error('Failed to pause learning task');
+      },
+    },
+  );
+
+  // Resume learning task
+  const { run: runResume, loading: resumeLoading } = useRequest(
+    async () => {
+      const [err, res] = await apiInterceptors(resumeDbLearn(datasourceId));
+      if (err) throw err;
+      return res;
+    },
+    {
+      manual: true,
+      onSuccess: (data) => {
+        if (data?.resumed) {
+          message.success('Learning task resumed');
+        } else {
+          message.warning(data?.reason || 'No paused task to resume');
+        }
+        refreshLearning();
+      },
+      onError: () => {
+        message.error('Failed to resume learning task');
+      },
+    },
+  );
+
   // Auto-poll learning status when task is active
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isActive = learningStatus?.status === 'running' || learningStatus?.status === 'finalizing' || learningStatus?.status === 'pending';
+  const isActive = learningStatus?.status === 'running' || learningStatus?.status === 'finalizing' || learningStatus?.status === 'pending' || learningStatus?.status === 'paused';
 
   useEffect(() => {
     if (isActive) {
@@ -495,12 +595,15 @@ export default function DatabaseDetail({
 
   const renderLearningStatus = () => {
     const canCancel = learningStatus?.status === 'running' || learningStatus?.status === 'finalizing';
+    const canLearn = !canCancel && learningStatus?.status !== 'paused' && dbSpec?.status !== 'generating';
+    const canIncremental = canLearn && dbSpec?.status === 'ready';
 
     const statusColorMap: Record<string, string> = {
       completed: 'success',
       running: 'processing',
       finalizing: 'processing',
       pending: 'default',
+      paused: 'warning',
       failed: 'error',
       cancelled: 'warning',
     };
@@ -517,15 +620,23 @@ export default function DatabaseDetail({
     return (
       <div>
         <Space direction="vertical" className="w-full">
-          <Space>
+          <Space wrap>
             <Button
               type="primary"
               icon={<SyncOutlined />}
               loading={learnLoading}
-              onClick={runLearn}
+              onClick={() => runLearn('full_learn')}
               disabled={canCancel}
             >
-              Learn Schema Now
+              Full Learn
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={incrementalLoading}
+              onClick={runIncrementalLearn}
+              disabled={!canIncremental}
+            >
+              Incremental Learn
             </Button>
             {canCancel && (
               <Button
@@ -545,7 +656,51 @@ export default function DatabaseDetail({
                 Cancel Task
               </Button>
             )}
+            {learningStatus?.status === 'running' && (
+              <Button
+                icon={<PauseOutlined />}
+                loading={pauseLoading}
+                onClick={() => {
+                  Modal.confirm({
+                    title: 'Pause Learning Task',
+                    content: 'The task will be paused. You can resume it later.',
+                    okText: 'Pause',
+                    onOk: runPause,
+                  });
+                }}
+              >
+                Pause
+              </Button>
+            )}
+            {learningStatus?.status === 'paused' && (
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                loading={resumeLoading}
+                onClick={() => {
+                  Modal.confirm({
+                    title: 'Resume Learning Task',
+                    content: 'Resume the paused learning task.',
+                    okText: 'Resume',
+                    onOk: runResume,
+                  });
+                }}
+              >
+                Resume
+              </Button>
+            )}
           </Space>
+
+          {!canLearn && !canCancel && (
+            <Text type="secondary">
+              Learning is already in progress. Wait for completion or cancel to start new task.
+            </Text>
+          )}
+          {!canIncremental && dbSpec?.status !== 'ready' && (
+            <Text type="secondary">
+              Incremental learning requires existing spec. Run full learn first.
+            </Text>
+          )}
 
           {learningStatus && (
             <Card title="Latest Learning Task" size="small">
@@ -558,7 +713,9 @@ export default function DatabaseDetail({
                         ? <SyncOutlined spin />
                         : learningStatus.status === 'cancelled'
                           ? <StopOutlined />
-                          : undefined
+                          : learningStatus.status === 'paused'
+                            ? <PauseOutlined />
+                            : undefined
                     }
                   >
                     {learningStatus.status}
@@ -842,6 +999,26 @@ export default function DatabaseDetail({
             label: 'Schema',
             children: (
               <div>
+                {/* Table actions */}
+                <Space className="mb-4">
+                  <Button
+                    icon={<SyncOutlined />}
+                    loading={learnLoading}
+                    onClick={() => runLearn('single_table', selectedTableName)}
+                    size="small"
+                  >
+                    Refresh Schema
+                  </Button>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    loading={refreshSampleLoading}
+                    onClick={runRefreshSample}
+                    size="small"
+                  >
+                    Refresh Sample Data
+                  </Button>
+                </Space>
+
                 <Descriptions bordered column={2} size="small" className="mb-4">
                   <Descriptions.Item label="Table">{tableDetail.table_name}</Descriptions.Item>
                   <Descriptions.Item label="Comment">
@@ -1029,6 +1206,17 @@ export default function DatabaseDetail({
             label: 'Data Preview',
             children: (
               <div>
+                {/* Refresh sample data button */}
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={refreshSampleLoading}
+                  onClick={runRefreshSample}
+                  size="small"
+                  className="mb-3"
+                >
+                  Refresh Sample Data
+                </Button>
+
                 {tableDataLoading && <Empty description="Loading..." />}
                 {tableData && (
                   <>

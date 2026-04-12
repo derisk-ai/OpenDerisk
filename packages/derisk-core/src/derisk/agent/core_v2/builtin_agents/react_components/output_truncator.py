@@ -5,6 +5,7 @@
 """
 
 import hashlib
+import json
 import logging
 import os
 import tempfile
@@ -155,6 +156,7 @@ class OutputTruncator:
             original_lines=original_lines,
             original_bytes=original_bytes,
             temp_file_path=temp_file_path,
+            tool_name=tool_name,
         )
 
         compression_ratio = (
@@ -166,8 +168,11 @@ class OutputTruncator:
             f"compression_ratio={compression_ratio:.1%} | saved={original_bytes - truncated_bytes}B"
         )
 
+        # 组合截断内容和 suggestion（类似 Truncator 的做法）
+        final_content = truncated_content + suggestion
+
         return TruncationResult(
-            content=truncated_content,
+            content=final_content,
             is_truncated=True,
             original_lines=original_lines,
             truncated_lines=truncated_lines_count,
@@ -209,15 +214,57 @@ class OutputTruncator:
         original_lines: int,
         original_bytes: int,
         temp_file_path: Optional[str],
+        tool_name: str = "unknown",
     ) -> str:
-        """生成建议信息"""
+        """生成建议信息，包含 d-attach 组件"""
+
+        # 基础截断提示
         message = f"\n[输出已截断]\n"
         message += f"原始输出: {original_lines}行, {original_bytes}字节\n"
 
         if temp_file_path:
-            message += f"完整输出已保存: {temp_file_path}\n"
+            message += f"完整输出已保存至: {temp_file_path}\n"
+            message += f"\n**使用 read 工具读取完整内容:**\n"
+            message += f'{"path": "{temp_file_path}"}\n'
+            message += f"\n如需分页读取（内容较大时）:\n"
+            message += f'{"path": "{temp_file_path}", "offset": 1, "limit": 500"}\n'
+
+            # 生成 d-attach 组件标签
+            dattach_tag = self._generate_dattach_tag(
+                file_name=f"{tool_name}_output.txt",
+                file_path=temp_file_path,
+                file_size=original_bytes,
+                tool_name=tool_name,
+            )
+            message += dattach_tag
 
         return message
+
+    def _generate_dattach_tag(
+        self,
+        file_name: str,
+        file_path: str,
+        file_size: int,
+        tool_name: str = "unknown",
+    ) -> str:
+        """生成 d-attach 组件标签"""
+        try:
+            attach_data = {
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_type": "truncated_output",
+                "oss_url": file_path,
+                "preview_url": file_path,
+                "download_url": file_path,
+                "mime_type": "text/plain",
+                "description": f"工具 {tool_name} 的完整输出（已截断）",
+            }
+
+            content = json.dumps([attach_data], ensure_ascii=False)
+            return f"\n\n```d-attach\n{content}\n```\n"
+        except Exception as e:
+            logger.warning(f"[OutputTruncator] Failed to generate d-attach tag: {e}")
+            return f"\n\n完整输出文件: {file_path}"
 
     def cleanup(self):
         logger.info(

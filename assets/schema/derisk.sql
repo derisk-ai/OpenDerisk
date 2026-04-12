@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-04-11 17:58:33
+-- Generated: 2026-04-11 19:44:53
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -593,7 +593,7 @@ CREATE TABLE IF NOT EXISTS `db_learning_task` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
   `datasource_id` INT NOT NULL COMMENT 'FK to connect_config.id',
   `task_type` VARCHAR(32) NOT NULL COMMENT 'Task type: full_learn, single_table',
-  `status` VARCHAR(32) NOT NULL COMMENT 'Status: pending, running, finalizing, completed, failed, cancelled',
+  `status` VARCHAR(32) NOT NULL COMMENT 'Status: pending, running, paused, finalizing, completed, failed, cancelled',
   `progress` INT NOT NULL DEFAULT 0 COMMENT 'Progress 0-100',
   `total_tables` INT NULL COMMENT 'Total number of tables to process',
   `processed_tables` INT NOT NULL DEFAULT 0 COMMENT 'Number of tables processed',

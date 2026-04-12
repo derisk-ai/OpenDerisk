@@ -133,6 +133,16 @@ export const cancelDbLearn = (id: string | number) => {
     `/api/v2/serve/datasources/${id}/learn/cancel`,
   );
 };
+export const pauseDbLearn = (id: string | number) => {
+  return POST<undefined, { paused: boolean; task_id?: number; reason?: string }>(
+    `/api/v2/serve/datasources/${id}/learn/pause`,
+  );
+};
+export const resumeDbLearn = (id: string | number) => {
+  return POST<undefined, { resumed: boolean; task_id?: number; reason?: string }>(
+    `/api/v2/serve/datasources/${id}/learn/resume`,
+  );
+};
 export const getDbLearnStatus = (id: string | number) => {
   return GET<null, LearningTaskResponse | null>(
     `/api/v2/serve/datasources/${id}/learn/status`,
@@ -161,6 +171,14 @@ export const getDbTableData = (
 ) => {
   return GET<null, TableDataPreview>(
     `/api/v2/serve/datasources/${id}/tables/${tableName}/data`,
+  );
+};
+export const refreshTableSampleData = (
+  id: string | number,
+  tableName: string,
+) => {
+  return POST<null, TableSpecDetail>(
+    `/api/v2/serve/datasources/${id}/tables/${tableName}/refresh-sample`,
   );
 };
 

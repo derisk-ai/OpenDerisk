@@ -19,17 +19,33 @@
 
 **可用工具：**
 
-1. `get_table_spec` - 获取一张或多张表的详细 schema 信息
+1. `search_tables` - 根据自然语言或多个意图搜索相关表
+   - 参数:
+     - `db_name` (必填): 数据库名称
+     - `question` (可选): 自然语言描述，如"用户订单相关表"
+     - `intents` (可选): 多个检索意图，逗号分隔，如"销售记录,天气数据,用户信息"
+     - `use_llm` (可选): 是否使用LLM智能筛选，默认false
+     - `max_results` (可选): 最大返回数量，默认 15
+   - **三种检索模式**:
+     - 关键词模式: 使用 question 参数，基于关键词匹配
+     - 多意图模式: 使用 intents 参数，对每个意图分别检索并合并
+     - LLM模式: 设置 use_llm=true，让LLM根据所有表信息智能筛选
+   - 使用场景:
+     - 用户问题涉及多方面数据 → 用 intents 参数拆分检索意图
+     - 表数量很多且关键词匹配不准 → 用 use_llm=true 开启LLM智能筛选
+
+2. `get_table_spec` - 获取一张或多张表的详细 schema 信息
    - 参数:
      - `db_name` (必填): 数据库名称
      - `table_names` (可选): 表名，多个表用逗号分隔，如 "users,orders"
      - `question` (可选): 自然语言问题，系统会推荐相关表
    - 返回: 列定义、类型、注释、索引、样本数据等
 
-2. `execute_sql` - 执行 SQL 查询
+3. `execute_sql` - 执行 SQL 查询
    - 参数:
      - `db_name` (必填): 数据库名称
      - `sql` (必填): SQL 查询语句
+     - `page` (可选): 分页页码，从 1 开始
    - **重要**: SQL 语法必须严格匹配数据库类型 (db_type/dialect)
      - SQLite: 标准 SQL，LIMIT 语法
      - MySQL: LIMIT，可用反引号 `` 包裹标识符
@@ -37,18 +53,33 @@
      - SQL Server: TOP 关键字，方括号 [] 包裹标识符
      - Oracle: ROWNUM，无 LIMIT 语法
 
-3. `list_tables` - 列出数据库中所有表名
+4. `list_tables` - 列出数据库中的表名（支持分组和分页）
    - 参数:
      - `db_name` (必填): 数据库名称
-   - 使用场景: 表列表未注入或需要完整列表时
+     - `group` (可选): 分组名称，只列出该分组的表
+     - `page` (可选): 分页页码，从 1 开始
+     - `page_size` (可选): 每页显示数量，默认 100
+   - 使用场景: 表列表未注入或需要查看特定分组时
 
-**使用流程：**
+**使用流程（小型数据库，表已注入）：**
 1. 查看上方的表列表，了解数据库中有哪些表
-2. 使用 `get_table_spec` 获取需要操作的表的详细结构（支持多张表）
+2. 使用 `get_table_spec` 获取需要操作的表的详细结构
 3. 根据 db_type/dialect 编写符合语法的 SQL
 4. 使用 `execute_sql` 执行查询
+
+**使用流程（大型数据库，表列表未注入）：**
+1. 分析用户问题，拆解可能涉及的数据维度
+2. 使用 `search_tables(db_name, intents="维度1,维度2,...")` 搜索相关表
+   - 例如：`search_tables(db_name, intents="销售记录,天气数据")`
+   - 或开启LLM模式：`search_tables(db_name, question="运营数据", use_llm=true)`
+3. 查看搜索结果中的推荐表名和匹配原因
+4. 使用 `get_table_spec(db_name, table_names)` 获取推荐表的详细结构
+5. 编写 SQL 并使用 `execute_sql` 执行
+6. 如需查看所有表，使用 `list_tables`（支持分组筛选和分页）
 
 **注意事项：**
 - 数据库名称（db_name）用于指定查询目标
 - SQL 语法必须符合数据库类型，否则会报错
 - 敏感数据可能被脱敏处理
+- 大型数据库建议先用 search_tables 找相关表，避免盲目遍历
+- 多意图模式(intents)适合查找隐藏在问题外的信息维度相关的表

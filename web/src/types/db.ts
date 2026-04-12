@@ -81,7 +81,7 @@ export type PostDbRefreshParams = {
 // ============================================================
 
 export type LearningTaskRequest = {
-  task_type?: 'full_learn' | 'single_table';
+  task_type?: 'full_learn' | 'incremental' | 'single_table';
   table_name?: string;
 };
 
