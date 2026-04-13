@@ -37,6 +37,7 @@ export type ManusArtifactType =
   | 'table'
   | 'chart'
   | 'image'
+  | 'video'
   | 'code'
   | 'markdown'
   | 'summary'
@@ -47,6 +48,7 @@ export type ManusPanelView =
   | 'files'
   | 'html-preview'
   | 'image-preview'
+  | 'video-preview'
   | 'skill-preview'
   | 'summary'
   | 'deliverable';
@@ -133,7 +135,7 @@ export interface ManusDeliverableFile {
   download_url?: string;
   content?: string;
   object_path?: string;
-  render_type: 'iframe' | 'markdown' | 'code' | 'image' | 'pdf' | 'text';
+  render_type: 'iframe' | 'markdown' | 'code' | 'image' | 'video' | 'pdf' | 'text';
 }
 
 export interface ManusStepData {

@@ -105,13 +105,20 @@ def run():
     default="0.0.0.0",
     help="Server host (default: 0.0.0.0)",
 )
-def quickstart(config: str, port: int, host: str):
+@click.option(
+    "-d",
+    "--daemon",
+    is_flag=True,
+    help="Run in daemon mode (background)",
+)
+def quickstart(config: str, port: int, host: str, daemon: bool):
     """Quick start DeRisk server with zero configuration.
 
     Examples:
         derisk quickstart                    # Start with zero config
         derisk quickstart -p 8888            # Start on port 8888
         derisk quickstart -c config.toml     # Start with config file
+        derisk quickstart -d                 # Start in background (daemon mode)
 
     After starting, open http://localhost:7777 to configure models and settings.
     """
@@ -124,6 +131,15 @@ def quickstart(config: str, port: int, host: str):
         os.environ["DERISK_WEB_PORT"] = str(port)
     if host != "0.0.0.0":
         os.environ["DERISK_WEB_HOST"] = host
+
+    if daemon:
+        from derisk.configs.model_config import LOGDIR
+        from derisk.util.command_utils import _run_current_with_daemon
+
+        log_file = os.path.join(LOGDIR, "quickstart.log")
+        click.echo(f"Starting DeRisk in daemon mode, log file: {log_file}")
+        _run_current_with_daemon("QuickStart", log_file)
+        return
 
     try:
         from derisk_app.derisk_server import run_webserver

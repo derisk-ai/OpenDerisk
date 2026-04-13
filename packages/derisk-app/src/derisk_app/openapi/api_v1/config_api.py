@@ -108,6 +108,21 @@ _BUILTIN_LLM_PROVIDER_KEYS: Dict[str, Dict[str, Any]] = {
         "primary_secret_name": "anthropic_api_key",
         "description": "Claude API Key",
     },
+    "aliyun_wan": {
+        "secret_names": ["dashscope_api_key", "aliyun_wan_api_key"],
+        "primary_secret_name": "dashscope_api_key",
+        "description": "阿里云万相 API Key (图片生成)",
+    },
+    "volcengine": {
+        "secret_names": ["ark_api_key", "volcengine_api_key"],
+        "primary_secret_name": "ark_api_key",
+        "description": "火山引擎 ARK API Key (视频生成 Seedance)",
+    },
+    "deepseek": {
+        "secret_names": ["deepseek_api_key"],
+        "primary_secret_name": "deepseek_api_key",
+        "description": "DeepSeek API Key",
+    },
 }
 
 _CUSTOM_LLM_SECRET_PREFIX = "llm_provider_"

@@ -1167,7 +1167,7 @@ function SecretsConfigSection({
           description="请确保在安全环境下输入密钥值。密钥将被加密存储。"
           className="mb-4"
         />
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" onFinish={handleSaveSecret}>
           <Form.Item name="name" label="密钥名称">
             <Input disabled />
           </Form.Item>

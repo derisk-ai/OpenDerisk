@@ -268,6 +268,19 @@ class CoreV2Component(BaseComponent):
                     from derisk.agent.core_v2.builtin_agents import CodingAgent
 
                     return CodingAgent.create(name=agent_name, **kwargs)
+                elif agent_name == "frame_gen":
+                    from derisk_ext.agent.agents import FrameGenAgent
+
+                    return FrameGenAgent.create(name=agent_name, **kwargs)
+                elif agent_name == "video_gen":
+                    from derisk_ext.agent.agents import VideoGenAgent
+
+                    return VideoGenAgent.create(name=agent_name, **kwargs)
+                elif agent_name == "video_creation":
+                    # video_creation 使用 ReactReasoningAgent 配合 video_creation skill
+                    from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
+
+                    return ReActReasoningAgent.create(name=agent_name, **kwargs)
 
                 # simple_chat 使用通用创建
                 return create_v2_agent(

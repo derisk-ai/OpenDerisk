@@ -51,11 +51,16 @@ const BUILTIN_PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI" },
   { value: "alibaba", label: "Alibaba / DashScope" },
   { value: "anthropic", label: "Anthropic / Claude" },
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "aliyun_wan", label: "阿里云万相 (图片生成)" },
+  { value: "volcengine", label: "火山引擎 Seedance (视频生成)" },
 ];
 
 const PROVIDER_ALIASES: Record<string, string> = {
   dashscope: "alibaba",
   claude: "anthropic",
+  volcengine_ark: "volcengine",
+  aliyun_wanxiang: "aliyun_wan",
 };
 
 function normalizeProviderName(value?: string) {
@@ -144,9 +149,8 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
     configuredProviders.forEach((item: any) => {
       if (item?.provider) {
         const normalized = normalizeProviderName(item.provider);
-        if (!["openai", "alibaba", "anthropic"].includes(normalized)) {
-          values.add(normalized);
-        }
+        // Allow all providers to be added to options
+        values.add(normalized);
       }
     });
     return Array.from(values)
