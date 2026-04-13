@@ -348,6 +348,7 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     try:
         from derisk_ext.datasource.rdbms.conn_oracle import _init_thick_mode
 
+        logger.info(f"[OracleInit] Calling _init_thick_mode with instant_client_path={instant_client_path}")
         logger.info("[OracleInit] Initializing Oracle thick mode at startup...")
         success = _init_thick_mode(instant_client_path)
         if success:

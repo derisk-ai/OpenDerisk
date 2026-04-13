@@ -161,19 +161,22 @@ def _init_thick_mode(lib_dir: Optional[str] = None) -> bool:
 
         # Attempt to initialize thick mode
         # Use provided lib_dir
+        logger.info(f"[ThickMode] Checking lib_dir={lib_dir}, is_dir={os.path.isdir(lib_dir) if lib_dir else 'N/A'}")
         if lib_dir and os.path.isdir(lib_dir):
             try:
                 oracledb.init_oracle_client(lib_dir=lib_dir)
-                logger.info(f"Oracle thick mode initialized with lib_dir: {lib_dir}")
+                logger.info(f"[ThickMode] Oracle thick mode initialized with lib_dir: {lib_dir}")
                 _thick_mode_initialized = True
                 return True
             except Exception as e:
                 # Check if error indicates thick mode is already initialized
                 if "already initialized" in str(e).lower() or "can only be called once" in str(e).lower():
-                    logger.info("Oracle thick mode already initialized (detected via error)")
+                    logger.info("[ThickMode] Oracle thick mode already initialized (detected via error)")
                     _thick_mode_initialized = True
                     return True
-                logger.warning(f"Failed to init thick mode with lib_dir={lib_dir}: {e}")
+                logger.warning(f"[ThickMode] Failed to init thick mode with lib_dir={lib_dir}: {e}")
+        elif lib_dir:
+            logger.warning(f"[ThickMode] Provided lib_dir={lib_dir} is not a valid directory or does not exist")
 
         # Auto-find Instant Client
         found_paths = _find_instant_client_paths()
