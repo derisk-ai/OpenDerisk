@@ -225,61 +225,74 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     For Oracle 11g and earlier, thick mode is required because
     python-oracledb thin mode doesn't support these versions.
 
-    Configuration via System Config Management (数据源配置):
-    - oracle_enable_thick_mode: 启用 thick mode（默认 False）
-    - oracle_instant_client_path: Instant Client 路径（可选）
-
-    Or via environment variable:
-    - ORACLE_ENABLE_THICK_MODE=true: Enable thick mode
-    - ORACLE_INSTANT_CLIENT_HOME: Path to Instant Client
+    Configuration sources (in order of priority):
+    1. Environment variable: ORACLE_ENABLE_THICK_MODE=true (highest priority)
+    2. derisk.json file: datasource.oracle_enable_thick_mode
+    3. Database config (System Config Management): oracle_enable_thick_mode
 
     IMPORTANT: Once thick mode is initialized, ALL subsequent Oracle connections
     in this process will use thick mode automatically. No need to configure each connection.
 
     For multi-worker deployments: Each worker process initializes thick mode independently.
-    The global state is per-process, so all workers will have thick mode enabled.
+    The global state is per-process, not shared.
     """
-    # Get datasource config from derisk.json (managed by System Config Management)
-    from derisk_core.config import ConfigManager
-
     logger.info("[OracleInit] Starting Oracle thick mode initialization check...")
-
-    try:
-        manager = ConfigManager
-        config = manager.get()
-        logger.info(f"[OracleInit] ConfigManager.get() returned config, type={type(config)}")
-        datasource_config = getattr(config, 'datasource', None)
-        logger.info(f"[OracleInit] datasource_config={datasource_config}, type={type(datasource_config)}")
-        if datasource_config:
-            logger.info(
-                f"[OracleInit] DatasourceConfig attributes: "
-                f"oracle_enable_thick_mode={getattr(datasource_config, 'oracle_enable_thick_mode', 'NOT_FOUND')}, "
-                f"oracle_instant_client_path={getattr(datasource_config, 'oracle_instant_client_path', 'NOT_FOUND')}"
-            )
-    except Exception as e:
-        logger.warning(f"[OracleInit] Failed to read config: {e}")
-        datasource_config = None
 
     # Default values
     enable_thick_mode = False
     instant_client_path = None
 
-    # Read from datasource config
-    if datasource_config:
-        enable_thick_mode = getattr(datasource_config, 'oracle_enable_thick_mode', False)
-        instant_client_path = getattr(datasource_config, 'oracle_instant_client_path', None)
-
-    # Also check environment variable as override
+    # 1. Check environment variables (highest priority)
     env_enable = os.environ.get('ORACLE_ENABLE_THICK_MODE', '').lower() in ('true', '1', 'yes')
     if env_enable:
         enable_thick_mode = True
         logger.info("[OracleInit] Environment variable ORACLE_ENABLE_THICK_MODE=true detected")
 
-    # Environment variable for instant client path
     env_client_path = os.environ.get('ORACLE_INSTANT_CLIENT_HOME')
     if env_client_path:
         instant_client_path = env_client_path
         logger.info(f"[OracleInit] Environment variable ORACLE_INSTANT_CLIENT_HOME={env_client_path} detected")
+
+    # 2. Check derisk.json file (main config source)
+    if not enable_thick_mode:
+        try:
+            from derisk_core.config import ConfigManager
+            config = ConfigManager.get()
+            datasource_config = getattr(config, 'datasource', None)
+            logger.info(f"[OracleInit] derisk.json datasource_config: {datasource_config}")
+            if datasource_config:
+                file_enable = getattr(datasource_config, 'oracle_enable_thick_mode', False)
+                file_client_path = getattr(datasource_config, 'oracle_instant_client_path', None)
+                logger.info(
+                    f"[OracleInit] derisk.json config values: "
+                    f"oracle_enable_thick_mode={file_enable}, oracle_instant_client_path={file_client_path}"
+                )
+                if file_enable:
+                    enable_thick_mode = True
+                    logger.info("[OracleInit] derisk.json oracle_enable_thick_mode=true detected")
+                if not instant_client_path and file_client_path:
+                    instant_client_path = file_client_path
+        except Exception as e:
+            logger.warning(f"[OracleInit] Failed to read derisk.json config: {e}")
+
+    # 3. Check database config (System Config Management) as fallback
+    if not enable_thick_mode:
+        try:
+            from derisk_serve.config.service.service import get_config_by_key
+
+            db_config_value = get_config_by_key('oracle_enable_thick_mode')
+            logger.info(f"[OracleInit] Database config oracle_enable_thick_mode={db_config_value}")
+            if db_config_value and db_config_value.lower() in ('true', '1', 'yes'):
+                enable_thick_mode = True
+                logger.info("[OracleInit] Database config oracle_enable_thick_mode=true detected")
+
+            if not instant_client_path:
+                db_client_path = get_config_by_key('oracle_instant_client_path')
+                if db_client_path:
+                    instant_client_path = db_client_path
+                    logger.info(f"[OracleInit] Database config oracle_instant_client_path={instant_client_path}")
+        except Exception as e:
+            logger.debug(f"[OracleInit] Failed to read database config: {e}")
 
     logger.info(
         f"[OracleInit] Final thick mode decision: enable_thick_mode={enable_thick_mode}, "
@@ -289,7 +302,7 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     if not enable_thick_mode:
         logger.info(
             "[OracleInit] Thick mode disabled. "
-            "Enable via System Config Management (数据源配置 -> oracle_enable_thick_mode) "
+            "Enable via derisk.json (datasource.oracle_enable_thick_mode=true) "
             "or set ORACLE_ENABLE_THICK_MODE=true for Oracle 11g support."
         )
         return
@@ -308,7 +321,7 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
             logger.warning(
                 "[OracleInit] Oracle thick mode initialization failed. "
                 "Please install Oracle Instant Client and set oracle_instant_client_path "
-                "in System Config Management or ORACLE_INSTANT_CLIENT_HOME environment variable."
+                "in derisk.json or ORACLE_INSTANT_CLIENT_HOME environment variable."
             )
     except ImportError:
         logger.debug("[OracleInit] derisk_ext not available, skipping Oracle thick mode init")
