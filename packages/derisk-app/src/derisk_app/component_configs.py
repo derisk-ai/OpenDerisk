@@ -256,24 +256,62 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     # 2. Check derisk.json file (main config source)
     if not enable_thick_mode:
         try:
-            from derisk_core.config import ConfigManager
+            from derisk_core.config import ConfigManager, ConfigLoader
+            from derisk_core.config.home import get_derisk_home
+
+            # Log the config file search paths
+            config_paths = ConfigLoader.get_default_locations()
+            derisk_home = get_derisk_home()
+            logger.info(f"[OracleInit] DERISK_HOME={derisk_home}")
+            logger.info(f"[OracleInit] Config search paths: {config_paths}")
+
+            for path in config_paths:
+                exists = path.exists()
+                logger.info(f"[OracleInit] Checking config path: {path}, exists={exists}")
+                if exists:
+                    logger.info(f"[OracleInit] Found config file at: {path}")
+
             config = ConfigManager.get()
-            datasource_config = getattr(config, 'datasource', None)
-            logger.info(f"[OracleInit] derisk.json datasource_config: {datasource_config}")
-            if datasource_config:
-                file_enable = getattr(datasource_config, 'oracle_enable_thick_mode', False)
-                file_client_path = getattr(datasource_config, 'oracle_instant_client_path', None)
-                logger.info(
-                    f"[OracleInit] derisk.json config values: "
-                    f"oracle_enable_thick_mode={file_enable}, oracle_instant_client_path={file_client_path}"
-                )
-                if file_enable:
-                    enable_thick_mode = True
-                    logger.info("[OracleInit] derisk.json oracle_enable_thick_mode=true detected")
-                if not instant_client_path and file_client_path:
-                    instant_client_path = file_client_path
+            logger.info(f"[OracleInit] ConfigManager.get() returned: {config}")
+            logger.info(f"[OracleInit] config type: {type(config)}")
+
+            if config:
+                logger.info(f"[OracleInit] config.datasource: {config.datasource}")
+                logger.info(f"[OracleInit] config.datasource type: {type(config.datasource)}")
+
+                datasource_config = getattr(config, 'datasource', None)
+                logger.info(f"[OracleInit] getattr(config, 'datasource', None): {datasource_config}")
+
+                if datasource_config:
+                    # Try to get oracle_enable_thick_mode
+                    file_enable = getattr(datasource_config, 'oracle_enable_thick_mode', None)
+                    logger.info(f"[OracleInit] getattr(datasource_config, 'oracle_enable_thick_mode', None): {file_enable}")
+
+                    # Also check if it's in model_dump
+                    config_dict = datasource_config.model_dump() if hasattr(datasource_config, 'model_dump') else {}
+                    logger.info(f"[OracleInit] datasource_config.model_dump(): {config_dict}")
+                    dict_enable = config_dict.get('oracle_enable_thick_mode')
+                    logger.info(f"[OracleInit] config_dict.get('oracle_enable_thick_mode'): {dict_enable}")
+
+                    file_client_path = getattr(datasource_config, 'oracle_instant_client_path', None)
+                    logger.info(f"[OracleInit] getattr(datasource_config, 'oracle_instant_client_path', None): {file_client_path}")
+
+                    # Use the value from model_dump if getattr returns None
+                    if file_enable is None and dict_enable is not None:
+                        file_enable = dict_enable
+                        logger.info(f"[OracleInit] Using oracle_enable_thick_mode from model_dump: {file_enable}")
+
+                    if file_enable:
+                        enable_thick_mode = True
+                        logger.info("[OracleInit] derisk.json oracle_enable_thick_mode=true detected")
+                    if not instant_client_path and file_client_path:
+                        instant_client_path = file_client_path
+                else:
+                    logger.warning("[OracleInit] config.datasource is None!")
         except Exception as e:
             logger.warning(f"[OracleInit] Failed to read derisk.json config: {e}")
+            import traceback
+            logger.warning(f"[OracleInit] Traceback: {traceback.format_exc()}")
 
     # 3. Check database config (System Config Management) as fallback
     if not enable_thick_mode:
