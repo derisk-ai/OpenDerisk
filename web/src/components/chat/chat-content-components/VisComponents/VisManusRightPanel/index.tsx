@@ -500,6 +500,22 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
           <img src={resolvedUrl || content || ''} alt={file_name} className="max-w-full max-h-[600px] rounded-lg shadow-sm" />
         </div>
       );
+    case 'video':
+      return (
+        <div className="flex flex-col items-center justify-center p-6">
+          <video
+            src={resolvedUrl || content || ''}
+            controls
+            className="max-w-full max-h-[600px] rounded-lg shadow-sm"
+            style={{ background: '#000' }}
+          >
+            您的浏览器不支持视频播放
+          </video>
+          <div className="mt-3 text-sm text-gray-500">
+            {file_name}
+          </div>
+        </div>
+      );
     case 'pdf':
       return (
         <div className="h-full flex flex-col">

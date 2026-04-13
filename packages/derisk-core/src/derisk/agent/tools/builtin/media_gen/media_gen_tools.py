@@ -662,9 +662,9 @@ class GenerateVideoTool(ToolBase):
 
         artifact = Artifact(
             name=file_name,
-            type="file",
+            type="video",
             url=preview_url,
-            mime_type=result.mime_type,
+            mime_type=result.mime_type or "video/mp4",
             size=len(result.data),
             metadata=result.metadata,
         )

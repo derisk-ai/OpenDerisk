@@ -3,8 +3,31 @@
 # DeRisk Quick Start Script
 # This script starts DeRisk server with zero configuration
 # Automatically detects OS and adapts startup behavior
+#
+# Usage:
+#   ./start.sh              # Start in foreground
+#   ./start.sh -d           # Start in daemon mode (background)
+#   ./start.sh -p 8888      # Start on port 8888
+#   ./start.sh -c config.toml  # Start with config file
 
 set -e
+
+# Parse arguments
+DAEMON_MODE=false
+EXTRA_ARGS=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -d|--daemon)
+            DAEMON_MODE=true
+            shift
+            ;;
+        *)
+            EXTRA_ARGS="$EXTRA_ARGS $1"
+            shift
+            ;;
+    esac
+done
 
 # Auto-detect system environment and setup DERISK_HOME
 setup_derisk_env() {
@@ -62,16 +85,28 @@ if [ -d ".venv" ]; then
 fi
 
 echo ""
-echo "  Service: http://localhost:7777"
-echo ""
-echo "  After starting, you can:"
-echo "    1. Open http://localhost:7777 in your browser"
-echo "    2. Configure models through the web UI"
-echo "    3. All configurations will be saved automatically"
-echo ""
-echo "  Press Ctrl+C to stop the server"
-echo "================================"
-echo ""
 
-# Run the server
-derisk quickstart "$@"
+if [ "$DAEMON_MODE" = true ]; then
+    echo "  Mode:     Daemon (background)"
+    echo "  Service:  http://localhost:7777"
+    echo "  Log:      logs/quickstart.log"
+    echo ""
+    echo "  To stop the server: derisk stop webserver"
+    echo "================================"
+    echo ""
+    # Run in daemon mode
+    derisk quickstart -d $EXTRA_ARGS
+else
+    echo "  Service: http://localhost:7777"
+    echo ""
+    echo "  After starting, you can:"
+    echo "    1. Open http://localhost:7777 in your browser"
+    echo "    2. Configure models through the web UI"
+    echo "    3. All configurations will be saved automatically"
+    echo ""
+    echo "  Press Ctrl+C to stop the server"
+    echo "================================"
+    echo ""
+    # Run the server in foreground
+    derisk quickstart $EXTRA_ARGS
+fi

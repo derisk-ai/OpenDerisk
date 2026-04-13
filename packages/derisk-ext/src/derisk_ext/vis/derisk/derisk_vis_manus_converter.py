@@ -1222,6 +1222,11 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # Markdown
         if name_lower.endswith(".md") or "text/markdown" in mime_lower:
             return "markdown"
+        # Video
+        if any(name_lower.endswith(ext) for ext in (".mp4", ".mov", ".avi", ".webm", ".mkv", ".flv")):
+            return "video"
+        if mime_lower.startswith("video/"):
+            return "video"
         # Image
         if any(name_lower.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
             return "image"

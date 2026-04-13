@@ -274,6 +274,11 @@ class V2AgentTemplate(str, Enum):
     # 简单对话 - 无工具调用
     SIMPLE_CHAT = "simple_chat"
 
+    # 多模态视频创作 Agent
+    FRAME_GEN = "frame_gen"
+    VIDEO_GEN = "video_gen"
+    VIDEO_CREATION = "video_creation"
+
 
 V2_AGENT_TEMPLATES = {
     # ============ 核心通用 Agent（推荐）============
@@ -309,6 +314,32 @@ V2_AGENT_TEMPLATES = {
         "description": "基础对话Agent，无工具调用能力，适用于简单问答场景",
         "mode": "primary",
         "tools": [],
+    },
+    # ============ 多模态视频创作 Agent ============
+    V2AgentTemplate.FRAME_GEN: {
+        "name": "frame_gen",
+        "display_name": "首帧图片生成Agent",
+        "description": "专门生成视频首帧图片的Agent，使用阿里云万相(wan2.7)模型，适用于视频创作场景",
+        "mode": "primary",
+        "tools": ["generate_image"],
+        "capabilities": ["高质量图片生成", "首帧优化", "提示词优化", "风格一致性"],
+    },
+    V2AgentTemplate.VIDEO_GEN: {
+        "name": "video_gen",
+        "display_name": "视频生成Agent",
+        "description": "基于首帧图片生成视频的Agent，使用火山引擎Seedance模型，适用于视频创作场景",
+        "mode": "primary",
+        "tools": ["generate_video"],
+        "capabilities": ["图生视频", "运动描述", "镜头控制", "时长调节"],
+    },
+    V2AgentTemplate.VIDEO_CREATION: {
+        "name": "video_creation",
+        "display_name": "视频创作Agent",
+        "description": "完整的视频创作Agent，支持需求分析、首帧生成、视频生成、视频合成全流程",
+        "mode": "primary",
+        "tools": ["generate_image", "generate_video", "analyze_image", "composite_video"],
+        "capabilities": ["需求分析", "场景分解", "首帧生成", "视频生成", "视频合成", "多Agent协作"],
+        "recommended": False,
     },
 }
 

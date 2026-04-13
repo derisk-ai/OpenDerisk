@@ -1,11 +1,11 @@
 import React, { useCallback } from 'react';
-import { DesktopOutlined, FolderOpenOutlined, FileTextOutlined, FileImageOutlined, FilePdfOutlined, CodeOutlined } from '@ant-design/icons';
+import { DesktopOutlined, FolderOpenOutlined, FileTextOutlined, FileImageOutlined, FilePdfOutlined, CodeOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { ee, EVENTS } from '@/utils/event-emitter';
 
 interface DeliverableFile {
   file_id: string;
   file_name: string;
-  render_type?: 'iframe' | 'markdown' | 'code' | 'image' | 'pdf' | 'text';
+  render_type?: 'iframe' | 'markdown' | 'code' | 'image' | 'video' | 'pdf' | 'text';
 }
 
 interface DeliverableData {
@@ -19,6 +19,7 @@ const renderTypeConfig: Record<string, { icon: React.ReactNode; label: string }>
   markdown: { icon: <FileTextOutlined style={{ fontSize: 20, color: '#52c41a' }} />, label: 'Markdown 文档' },
   code: { icon: <CodeOutlined style={{ fontSize: 20, color: '#722ed1' }} />, label: '代码文件' },
   image: { icon: <FileImageOutlined style={{ fontSize: 20, color: '#fa8c16' }} />, label: '图片' },
+  video: { icon: <PlayCircleOutlined style={{ fontSize: 20, color: '#eb2f96' }} />, label: '视频' },
   pdf: { icon: <FilePdfOutlined style={{ fontSize: 20, color: '#f5222d' }} />, label: 'PDF 文档' },
   text: { icon: <FileTextOutlined style={{ fontSize: 20, color: '#8c8c8c' }} />, label: '文本文件' },
 };
