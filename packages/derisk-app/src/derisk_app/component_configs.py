@@ -242,11 +242,22 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     # Get datasource config from derisk.json (managed by System Config Management)
     from derisk_core.config import ConfigManager
 
+    logger.info("[OracleInit] Starting Oracle thick mode initialization check...")
+
     try:
         manager = ConfigManager
         config = manager.get()
+        logger.info(f"[OracleInit] ConfigManager.get() returned config, type={type(config)}")
         datasource_config = getattr(config, 'datasource', None)
-    except Exception:
+        logger.info(f"[OracleInit] datasource_config={datasource_config}, type={type(datasource_config)}")
+        if datasource_config:
+            logger.info(
+                f"[OracleInit] DatasourceConfig attributes: "
+                f"oracle_enable_thick_mode={getattr(datasource_config, 'oracle_enable_thick_mode', 'NOT_FOUND')}, "
+                f"oracle_instant_client_path={getattr(datasource_config, 'oracle_instant_client_path', 'NOT_FOUND')}"
+            )
+    except Exception as e:
+        logger.warning(f"[OracleInit] Failed to read config: {e}")
         datasource_config = None
 
     # Default values
@@ -262,11 +273,18 @@ def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
     env_enable = os.environ.get('ORACLE_ENABLE_THICK_MODE', '').lower() in ('true', '1', 'yes')
     if env_enable:
         enable_thick_mode = True
+        logger.info("[OracleInit] Environment variable ORACLE_ENABLE_THICK_MODE=true detected")
 
     # Environment variable for instant client path
     env_client_path = os.environ.get('ORACLE_INSTANT_CLIENT_HOME')
     if env_client_path:
         instant_client_path = env_client_path
+        logger.info(f"[OracleInit] Environment variable ORACLE_INSTANT_CLIENT_HOME={env_client_path} detected")
+
+    logger.info(
+        f"[OracleInit] Final thick mode decision: enable_thick_mode={enable_thick_mode}, "
+        f"instant_client_path={instant_client_path}"
+    )
 
     if not enable_thick_mode:
         logger.info(

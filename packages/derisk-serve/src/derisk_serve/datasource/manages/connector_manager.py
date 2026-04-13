@@ -224,6 +224,33 @@ class ConnectorManager(BaseComponent):
                 ora_svc = ext_config.get("service_name")
                 ora_client_lib = ext_config.get("oracle_client_lib")
                 force_thick = ext_config.get("force_thick_mode")  # None = auto detect
+
+                # If force_thick_mode is not set in ext_config, check global config
+                if force_thick is None:
+                    try:
+                        from derisk_core.config import ConfigManager
+                        config = ConfigManager.get()
+                        if config and config.datasource:
+                            force_thick = config.datasource.oracle_enable_thick_mode
+                            ora_client_lib_global = config.datasource.oracle_instant_client_path
+                            # Use global instant_client_path if ext_config doesn't have one
+                            if not ora_client_lib and ora_client_lib_global:
+                                ora_client_lib = ora_client_lib_global
+                            logger.info(
+                                f"[OracleConnector] Global config check: "
+                                f"oracle_enable_thick_mode={force_thick}, "
+                                f"oracle_instant_client_path={ora_client_lib_global}, "
+                                f"using_client_lib={ora_client_lib}"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[OracleConnector] Failed to read global config: {e}")
+
+                logger.info(
+                    f"[OracleConnector] Creating connection: host={db_host}, port={db_port}, "
+                    f"service_name={ora_svc}, sid={ora_sid}, force_thick_mode={force_thick}, "
+                    f"oracle_client_lib={ora_client_lib}"
+                )
+
                 if not ora_sid and not ora_svc:
                     ora_svc = db_name
                 return connect_instance.from_uri_db(  # type: ignore

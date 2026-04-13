@@ -129,28 +129,35 @@ def _init_thick_mode(lib_dir: Optional[str] = None) -> bool:
     """
     global _thick_mode_initialized, _thick_mode_failed
 
+    logger.info(f"[ThickMode] _init_thick_mode called with lib_dir={lib_dir}")
+    logger.info(f"[ThickMode] Current state: initialized={_thick_mode_initialized}, failed={_thick_mode_failed}")
+
     # Check if already initialized in this process
     if _thick_mode_initialized:
-        logger.debug(f"Oracle thick mode already initialized in this process")
+        logger.info("[ThickMode] Already initialized in this process, returning True")
         return True
     if _thick_mode_failed:
-        logger.debug(f"Oracle thick mode previously failed in this process, skipping")
+        logger.info("[ThickMode] Previously failed in this process, returning False")
         return False
 
     try:
         import oracledb
+
+        logger.info(f"[ThickMode] oracledb imported, version={oracledb.__version__}")
 
         # Check if thick mode is already active (via library state, not just Python global)
         # This handles cases where init was called in parent process before fork
         try:
             # is_thin_mode() returns False if thick mode is active
             if hasattr(oracledb, 'is_thin_mode'):
-                if not oracledb.is_thin_mode():
-                    logger.info("Oracle thick mode already active (detected via is_thin_mode)")
+                is_thin = oracledb.is_thin_mode()
+                logger.info(f"[ThickMode] oracledb.is_thin_mode() = {is_thin}")
+                if not is_thin:
+                    logger.info("[ThickMode] Thick mode already active (detected via is_thin_mode)")
                     _thick_mode_initialized = True
                     return True
         except Exception as e:
-            logger.debug(f"Could not check is_thin_mode: {e}")
+            logger.debug(f"[ThickMode] Could not check is_thin_mode: {e}")
 
         # Attempt to initialize thick mode
         # Use provided lib_dir
@@ -289,6 +296,23 @@ class OracleParameters(RDBMSDatasourceParameters):
         return f"{self.driver}://{quote(self.user)}:{quote_plus(self.password)}@{dsn}"
 
     def create_connector(self) -> "OracleConnector":
+        # Check if force_thick_mode is explicitly set to True
+        # If not, check global config from ConfigManager
+        if not self.force_thick_mode:
+            try:
+                from derisk_core.config import ConfigManager
+                config = ConfigManager.get()
+                if config and config.datasource and config.datasource.oracle_enable_thick_mode:
+                    self.force_thick_mode = True
+                    logger.info(
+                        "[OracleParameters] Using global thick mode config "
+                        "(oracle_enable_thick_mode=True from System Config)"
+                    )
+                    # Also set oracle_client_lib from global config if not set
+                    if not self.oracle_client_lib and config.datasource.oracle_instant_client_path:
+                        self.oracle_client_lib = config.datasource.oracle_instant_client_path
+            except Exception as e:
+                logger.debug(f"[OracleParameters] Failed to read global config: {e}")
         return OracleConnector.from_parameters_auto(self)
 
 
