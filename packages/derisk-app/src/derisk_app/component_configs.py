@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 from derisk.agent.resource.agent_skills import AgentSkillResource
 from derisk.agent.resource.workflow import WorkflowResource
@@ -32,6 +33,9 @@ def initialize_components(
     from derisk_serve.datasource.manages.connector_manager import ConnectorManager
     from derisk.sandbox import initialize_sandbox_adapter
     from derisk_serve.agent.agents.controller import multi_agents
+
+    # Initialize Oracle thick mode at startup (for Oracle 11g support)
+    _initialize_oracle_thick_mode(param)
 
     web_config = param.service.web
     default_embedding_name = param.models.default_embedding
@@ -107,7 +111,7 @@ def _initialize_agent(system_app: SystemApp):
 def _initialize_resource_manager(system_app: SystemApp):
     from derisk.agent.expand.resources.derisk_tool import list_derisk_support_models
     from derisk.agent.resource.base import ResourceType
-    from derisk.agent.resource.manage import get_resource_manager, initialize_resource
+    from derisk.agent.resource.manage import get_resource_manager, initialize_resource, _SYSTEM_APP as check_system_app
     from derisk_serve.agent.resource.app import GptAppResource
     from derisk_serve.agent.resource.datasource import DatasourceResource
     from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
@@ -116,14 +120,24 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk.agent.resource.memory import MemoryResource
     from derisk.agent.expand.resources.fetch_tool import fetch
 
+    logger.info(
+        f"[ResourceInit] _initialize_resource_manager called, "
+        f"system_app_id={id(system_app)}, "
+        f"_SYSTEM_APP_before={id(check_system_app) if check_system_app else 'None'}"
+    )
+
     initialize_resource(system_app)
     rm = get_resource_manager(system_app)
+    logger.info(
+        f"[ResourceInit] ResourceManager instance created, "
+        f"system_app_id={id(system_app)}, rm_id={id(rm)}"
+    )
     rm.register_resource(
         DatasourceResource, resource_type_alias="datasource"
     )
     logger.info(
         f"[ResourceInit] DatasourceResource registered with alias='datasource', "
-        f"registered_keys={list(rm._resources.keys())}"
+        f"type_to_resources_keys={list(rm._type_to_resources.keys())}"
     )
     rm.register_resource(KnowledgeSpaceRetrieverResource)
     rm.register_resource(GptAppResource)
@@ -166,6 +180,13 @@ def _initialize_resource_manager(system_app: SystemApp):
 
     rm.register_resource(OpenRcaSceneResource)
 
+    # Final summary of all registered types
+    logger.info(
+        f"[ResourceInit] All resources registered, "
+        f"final_type_to_resources_keys={list(rm._type_to_resources.keys())}, "
+        f"rm_id={id(rm)}, system_app_id={id(system_app)}"
+    )
+
     # Register mock tool 在页面上注册工具
     # from derisk_ext.agent.agents.smartTestUI.tool.image_find_static_bug_tools import find_image_bugs
     # from derisk_ext.agent.agents.smartTestUI.tool.test_analysis_tools import generate_analysis_tool
@@ -195,6 +216,86 @@ def _initialize_resource_manager(system_app: SystemApp):
     # rm.register_resource(resource_instance=select_important_feature_key)
     # rm.register_resource(resource_instance=select_important_feature_key_value_list)
     # rm.register_resource(resource_instance=pair_feature)
+
+
+def _initialize_oracle_thick_mode(param: ApplicationConfig = None):
+    """Initialize Oracle thick mode at server startup.
+
+    This must be called BEFORE any Oracle connection is made.
+    For Oracle 11g and earlier, thick mode is required because
+    python-oracledb thin mode doesn't support these versions.
+
+    Configuration via System Config Management (数据源配置):
+    - oracle_enable_thick_mode: 启用 thick mode（默认 False）
+    - oracle_instant_client_path: Instant Client 路径（可选）
+
+    Or via environment variable:
+    - ORACLE_ENABLE_THICK_MODE=true: Enable thick mode
+    - ORACLE_INSTANT_CLIENT_HOME: Path to Instant Client
+
+    IMPORTANT: Once thick mode is initialized, ALL subsequent Oracle connections
+    in this process will use thick mode automatically. No need to configure each connection.
+
+    For multi-worker deployments: Each worker process initializes thick mode independently.
+    The global state is per-process, so all workers will have thick mode enabled.
+    """
+    # Get datasource config from derisk.json (managed by System Config Management)
+    from derisk_core.config import ConfigManager
+
+    try:
+        manager = ConfigManager
+        config = manager.get()
+        datasource_config = getattr(config, 'datasource', None)
+    except Exception:
+        datasource_config = None
+
+    # Default values
+    enable_thick_mode = False
+    instant_client_path = None
+
+    # Read from datasource config
+    if datasource_config:
+        enable_thick_mode = getattr(datasource_config, 'oracle_enable_thick_mode', False)
+        instant_client_path = getattr(datasource_config, 'oracle_instant_client_path', None)
+
+    # Also check environment variable as override
+    env_enable = os.environ.get('ORACLE_ENABLE_THICK_MODE', '').lower() in ('true', '1', 'yes')
+    if env_enable:
+        enable_thick_mode = True
+
+    # Environment variable for instant client path
+    env_client_path = os.environ.get('ORACLE_INSTANT_CLIENT_HOME')
+    if env_client_path:
+        instant_client_path = env_client_path
+
+    if not enable_thick_mode:
+        logger.info(
+            "[OracleInit] Thick mode disabled. "
+            "Enable via System Config Management (数据源配置 -> oracle_enable_thick_mode) "
+            "or set ORACLE_ENABLE_THICK_MODE=true for Oracle 11g support."
+        )
+        return
+
+    try:
+        from derisk_ext.datasource.rdbms.conn_oracle import _init_thick_mode
+
+        logger.info("[OracleInit] Initializing Oracle thick mode at startup...")
+        success = _init_thick_mode(instant_client_path)
+        if success:
+            logger.info(
+                "[OracleInit] Oracle thick mode initialized successfully. "
+                "All Oracle connections in this process will use thick mode."
+            )
+        else:
+            logger.warning(
+                "[OracleInit] Oracle thick mode initialization failed. "
+                "Please install Oracle Instant Client and set oracle_instant_client_path "
+                "in System Config Management or ORACLE_INSTANT_CLIENT_HOME environment variable."
+            )
+    except ImportError:
+        logger.debug("[OracleInit] derisk_ext not available, skipping Oracle thick mode init")
+    except Exception as e:
+        logger.warning(f"[OracleInit] Failed to initialize Oracle thick mode: {e}")
 
 
 def _initialize_openapi(system_app: SystemApp):

@@ -1024,6 +1024,12 @@ class AgentChat(BaseComponent, ABC):
             context.conv_id, gpts_app.app_name
         )
         resource_manager: ResourceManager = get_resource_manager()
+        logger.info(
+            f"[AgentChat] get_resource_manager() called, "
+            f"_SYSTEM_APP is None: {get_resource_manager.__module__}, "
+            f"rm_id={id(resource_manager)}, "
+            f"type_to_resources_keys={list(resource_manager._type_to_resources.keys())}"
+        )
         return await self._build_agent_by_gpts(
             context=context,
             agent_memory=agent_memory,
@@ -1193,7 +1199,9 @@ class AgentChat(BaseComponent, ABC):
                     )
                     logger.info(
                         f"[AgentChat] depend_resource after build: "
-                        f"{type(depend_resource).__name__ if depend_resource else None}"
+                        f"{type(depend_resource).__name__ if depend_resource else 'None'}, "
+                        f"is_pack={depend_resource.is_pack if depend_resource else 'N/A'}, "
+                        f"sub_resources_count={len(depend_resource.sub_resources) if depend_resource and hasattr(depend_resource, 'sub_resources') else 'N/A'}"
                     )
 
                     agent_context = deepcopy(context)

@@ -249,6 +249,16 @@ class DatasourceConfig(BaseModel):
         300, description="subtask 超时回收时间（秒）", ge=60, le=3600
     )
 
+    # Oracle thick mode 配置（用于 Oracle 11g 及更早版本）
+    oracle_enable_thick_mode: bool = Field(
+        False,
+        description="启用 Oracle thick mode。Oracle 11g 及更早版本需要开启此选项。开启后所有 Oracle 连接将使用 thick mode。需要安装 Oracle Instant Client。",
+    )
+    oracle_instant_client_path: Optional[str] = Field(
+        None,
+        description="Oracle Instant Client 路径。不设置则自动检测（ORACLE_INSTANT_CLIENT_HOME 环境变量或常见安装路径）。",
+    )
+
 
 class SystemConfig(BaseModel):
     """系统配置"""

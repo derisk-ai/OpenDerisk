@@ -111,44 +111,100 @@ def _find_instant_client_paths() -> list:
 
 
 def _init_thick_mode(lib_dir: Optional[str] = None) -> bool:
-    """Initialize Oracle thick mode."""
+    """Initialize Oracle thick mode.
+
+    IMPORTANT: This can only be called ONCE per process, BEFORE any Oracle connection.
+    Once initialized, ALL subsequent connections in this process will use thick mode.
+
+    For multi-worker deployments (e.g., uvicorn --workers N):
+    - Each worker process is independent and needs its own initialization
+    - This function is called during component initialization, which runs in each worker
+    - The global state _thick_mode_initialized is per-process, not shared
+
+    Args:
+        lib_dir: Optional path to Oracle Instant Client directory
+
+    Returns:
+        True if thick mode is available (initialized or already was), False otherwise
+    """
     global _thick_mode_initialized, _thick_mode_failed
 
+    # Check if already initialized in this process
     if _thick_mode_initialized:
+        logger.debug(f"Oracle thick mode already initialized in this process")
         return True
     if _thick_mode_failed:
+        logger.debug(f"Oracle thick mode previously failed in this process, skipping")
         return False
 
     try:
         import oracledb
 
+        # Check if thick mode is already active (via library state, not just Python global)
+        # This handles cases where init was called in parent process before fork
+        try:
+            # is_thin_mode() returns False if thick mode is active
+            if hasattr(oracledb, 'is_thin_mode'):
+                if not oracledb.is_thin_mode():
+                    logger.info("Oracle thick mode already active (detected via is_thin_mode)")
+                    _thick_mode_initialized = True
+                    return True
+        except Exception as e:
+            logger.debug(f"Could not check is_thin_mode: {e}")
+
+        # Attempt to initialize thick mode
         # Use provided lib_dir
         if lib_dir and os.path.isdir(lib_dir):
-            oracledb.init_oracle_client(lib_dir=lib_dir)
-            logger.info(f"Oracle thick mode initialized: {lib_dir}")
-            _thick_mode_initialized = True
-            return True
-
-        # Auto-find
-        for path in _find_instant_client_paths():
             try:
-                oracledb.init_oracle_client(lib_dir=path)
-                logger.info(f"Oracle thick mode auto-detected: {path}")
+                oracledb.init_oracle_client(lib_dir=lib_dir)
+                logger.info(f"Oracle thick mode initialized with lib_dir: {lib_dir}")
                 _thick_mode_initialized = True
                 return True
-            except Exception:
+            except Exception as e:
+                # Check if error indicates thick mode is already initialized
+                if "already initialized" in str(e).lower() or "can only be called once" in str(e).lower():
+                    logger.info("Oracle thick mode already initialized (detected via error)")
+                    _thick_mode_initialized = True
+                    return True
+                logger.warning(f"Failed to init thick mode with lib_dir={lib_dir}: {e}")
+
+        # Auto-find Instant Client
+        found_paths = _find_instant_client_paths()
+        logger.debug(f"Found potential Instant Client paths: {found_paths}")
+        for path in found_paths:
+            try:
+                oracledb.init_oracle_client(lib_dir=path)
+                logger.info(f"Oracle thick mode auto-detected at: {path}")
+                _thick_mode_initialized = True
+                return True
+            except Exception as e:
+                # Check if error indicates thick mode is already initialized
+                if "already initialized" in str(e).lower() or "can only be called once" in str(e).lower():
+                    logger.info("Oracle thick mode already initialized (detected via error)")
+                    _thick_mode_initialized = True
+                    return True
+                logger.debug(f"Failed to init thick mode at {path}: {e}")
                 continue
 
-        # Try system default
+        # Try system default (no lib_dir specified)
         try:
             oracledb.init_oracle_client()
-            logger.info("Oracle thick mode: system default")
+            logger.info("Oracle thick mode initialized with system default")
             _thick_mode_initialized = True
             return True
-        except Exception:
-            pass
+        except Exception as e:
+            # Check if error indicates thick mode is already initialized
+            if "already initialized" in str(e).lower() or "can only be called once" in str(e).lower():
+                logger.info("Oracle thick mode already initialized (detected via error)")
+                _thick_mode_initialized = True
+                return True
+            logger.warning(f"Failed to init thick mode with system default: {e}")
 
-        logger.warning("Could not init thick mode. Install Oracle Instant Client.")
+        logger.warning(
+            "Could not initialize Oracle thick mode. "
+            "For Oracle 11g and earlier, please install Oracle Instant Client "
+            "and set ORACLE_INSTANT_CLIENT_HOME environment variable."
+        )
         _thick_mode_failed = True
         return False
 

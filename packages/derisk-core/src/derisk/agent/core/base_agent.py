@@ -287,11 +287,20 @@ class ConversableAgent(Role, Agent):
 
     async def preload_resource(self) -> None:
         """Preload resources before agent initialization."""
+        logger.info(
+            f"[base_agent.preload_resource] agent={self.agent_context.agent_app_code if self.agent_context else 'unknown'}, "
+            f"resource_type={type(self.resource).__name__ if self.resource else 'None'}, "
+            f"resource_is_pack={self.resource.is_pack if self.resource and hasattr(self.resource, 'is_pack') else 'N/A'}"
+        )
         if self.resource:
             root_tracer.set_current_agent_id(self.agent_context.agent_app_code)
             await self.resource.preload_resource()
         # tidy resource
         self.resource_map = await self._tidy_resource(self.resource)
+        logger.info(
+            f"[base_agent.preload_resource] after _tidy_resource: "
+            f"resource_map_keys={list(self.resource_map.keys()) if self.resource_map else []}"
+        )
 
     async def build(self) -> "ConversableAgent":
         """Build the agent."""
@@ -329,6 +338,11 @@ class ConversableAgent(Role, Agent):
                 merged[k].extend(v)
             return dict(merged)
 
+        logger.debug(
+            f"[base_agent._tidy_resource] resource_class={resource.__class__.__name__ if resource else 'None'}, "
+            f"is_pack={resource.is_pack if resource and hasattr(resource, 'is_pack') else 'N/A'}"
+        )
+
         if not resource:
             return {}
 
@@ -337,6 +351,9 @@ class ConversableAgent(Role, Agent):
         if resource.is_pack:
             # 只有 is_pack=True 时才访问 sub_resources
             sub_resources = resource.sub_resources
+            logger.debug(
+                f"[base_agent._tidy_resource] is_pack=True, sub_resources_count={len(sub_resources) if sub_resources else 0}"
+            )
             if sub_resources:  # 允许为空列表
                 for item in sub_resources:
                     sub_map = await self._tidy_resource(item)
@@ -345,10 +362,20 @@ class ConversableAgent(Role, Agent):
         else:
             # is_pack=False → 必为叶子节点
             r_type = resource.type()
+            # 处理 ResourceType 枚举类型
+            if hasattr(r_type, "value"):
+                r_type = r_type.value
             if not isinstance(r_type, str):
                 raise TypeError(f"Expected resource type to be str, got {type(r_type)}")
             resources_map[r_type].append(resource)
+            logger.debug(
+                f"[base_agent._tidy_resource] added resource to map: "
+                f"type={r_type}, resource_class={resource.__class__.__name__}"
+            )
 
+        logger.debug(
+            f"[base_agent._tidy_resource] result_keys={list(resources_map.keys())}"
+        )
         return dict(resources_map)
 
     def update_profile(self, profile: ProfileConfig):

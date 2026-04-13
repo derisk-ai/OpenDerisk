@@ -247,9 +247,10 @@ class ResourceManager(BaseComponent):
             Resource instance, dict, or None if ignore_missing=True and resource not found
         """
         logger.info(
-            f"[ResourceManager] build_resource_by_type called: "
-            f"type_key='{type_unique_key}', resource_name='{agent_resource.name}', "
-            f"available_type_keys={list(self._type_to_resources.keys())}"
+            f"[ResourceManager.build_resource_by_type] type_key='{type_unique_key}', "
+            f"resource_name='{agent_resource.name}', "
+            f"available_type_keys={list(self._type_to_resources.keys())}, "
+            f"rm_id={id(self)}"
         )
         item = self._type_to_resources.get(type_unique_key)
         if not item:
