@@ -518,8 +518,35 @@ function DatasourceConfigSection({
           <InputNumber min={60} max={3600} step={60} style={{ width: '100%' }} />
         </Form.Item>
       </div>
+
+      {/* Oracle Thick Mode Configuration */}
+      <div className="mt-6 mb-2 border-b pb-2">
+        <span className="font-semibold text-gray-600">Oracle Thick Mode 配置（用于 Oracle 11g）</span>
+      </div>
+      <div className="mb-4 text-gray-500 text-sm">
+        Oracle 11g 及更早版本需要启用 thick mode。启用后需安装 Oracle Instant Client 并重启服务。
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Form.Item
+          name="oracle_enable_thick_mode"
+          label="启用 Oracle Thick Mode"
+          tooltip="启用后所有 Oracle 连接将使用 thick mode。需要安装 Oracle Instant Client。修改后需重启服务生效。"
+          valuePropName="checked"
+        >
+          <Switch />
+        </Form.Item>
+        <Form.Item
+          name="oracle_instant_client_path"
+          label="Instant Client 路径"
+          tooltip="Oracle Instant Client 安装路径。不设置则自动检测（ORACLE_INSTANT_CLIENT_HOME 环境变量或常见路径）"
+        >
+          <Input placeholder="/opt/oracle/instantclient_11_2" />
+        </Form.Item>
+      </div>
+
       <Form.Item>
         <Button type="primary" htmlType="submit">保存</Button>
+        <span className="ml-4 text-gray-500 text-sm">* Oracle 配置修改后需要重启服务生效</span>
       </Form.Item>
     </Form>
   );
