@@ -26,6 +26,7 @@ class TableRecommendation:
     score: float = 0.0
     reasons: List[str] = field(default_factory=list)
     group: str = "default"
+    row_count: Optional[int] = None  # 表行数，用于过滤空表
 
 
 @dataclass
@@ -149,6 +150,7 @@ class SchemaLinkService:
                 scores[tname] += 0.5
 
         # Sort and return
+        table_row_counts = index.get("table_row_counts", {})
         recommendations = []
         for tname, score in sorted(
             scores.items(), key=lambda x: x[1], reverse=True
@@ -159,6 +161,7 @@ class SchemaLinkService:
                     score=score,
                     reasons=reasons.get(tname, []),
                     group=table_groups.get(tname, "default"),
+                    row_count=table_row_counts.get(tname),  # 添加行数信息
                 )
             )
 
@@ -169,11 +172,12 @@ class SchemaLinkService:
 
         Returns:
             Index dict with keys:
-            - tables: {table_name: {comment, columns, group}}
+            - tables: {table_name: {comment, columns, group, row_count}}
             - column_to_tables: {column_name: [table_name, ...]}
             - keyword_to_tables: {keyword: [table_name, ...]}
             - relations: [{from_table, to_table, type, column}]
             - table_groups: {table_name: group_name}
+            - table_row_counts: {table_name: row_count} - 用于过滤空表
         """
         table_specs = self._table_spec_dao.get_all_by_datasource(datasource_id)
         db_spec = self._db_spec_dao.get_by_datasource_id(datasource_id)
@@ -182,6 +186,7 @@ class SchemaLinkService:
         column_to_tables: Dict[str, Set[str]] = defaultdict(set)
         keyword_to_tables: Dict[str, Set[str]] = defaultdict(set)
         table_groups: Dict[str, str] = {}
+        table_row_counts: Dict[str, int] = {}  # 新增：记录表的行数
 
         # Parse db spec for group info
         if db_spec and db_spec.get("spec_content"):
@@ -199,6 +204,17 @@ class SchemaLinkService:
             if not tname:
                 continue
 
+            # 新增：过滤空表（row_count = 0 或 None）
+            row_count = spec.get("row_count", 0)
+            if row_count is None:
+                row_count = 0
+            if row_count == 0:
+                logger.debug(f"[SchemaLink] Skipping empty table: {tname} (row_count=0)")
+                continue
+
+            # 记录行数
+            table_row_counts[tname] = row_count
+
             comment = spec.get("table_comment", "") or ""
             columns = spec.get("columns", []) or []
             col_names = [c.get("name", "") for c in columns]
@@ -207,6 +223,7 @@ class SchemaLinkService:
                 "comment": comment,
                 "columns": col_names,
                 "group": table_groups.get(tname, "default"),
+                "row_count": row_count,  # 新增：行数信息
             }
 
             # Column index
@@ -236,7 +253,13 @@ class SchemaLinkService:
             "keyword_to_tables": {k: list(v) for k, v in keyword_to_tables.items()},
             "relations": relations,
             "table_groups": table_groups,
+            "table_row_counts": table_row_counts,  # 新增：行数映射
         }
+
+        logger.info(
+            f"[SchemaLink] Built index for datasource {datasource_id}: "
+            f"{len(tables)} tables (filtered empty tables)"
+        )
 
         # Cache
         self._index_cache[datasource_id] = index

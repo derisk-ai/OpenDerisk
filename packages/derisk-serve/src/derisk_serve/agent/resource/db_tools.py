@@ -242,9 +242,11 @@ async def get_table_spec(
                     rec_lines = ["Recommended tables based on your question:"]
                     for rec in recommendations:
                         reason_str = "; ".join(rec.reasons[:3])
+                        # 添加行数信息显示
+                        row_info = f", rows: {rec.row_count}" if rec.row_count else ""
                         rec_lines.append(
-                            f"  - {rec.table_name} (score: {rec.score:.1f}, "
-                            f"reasons: {reason_str})"
+                            f"  - {rec.table_name} (score: {rec.score:.1f}"
+                            f"{row_info}, reasons: {reason_str})"
                         )
                     rec_header = "\n".join(rec_lines) + "\n\n"
 
@@ -388,6 +390,14 @@ async def execute_sql(
         # Get database type for error messages
         db_type = getattr(connector, 'db_type', 'unknown')
         dialect = getattr(connector, 'dialect', db_type)
+
+        # Get database version for version-specific syntax hints
+        db_version = None
+        if hasattr(connector, 'get_db_version'):
+            try:
+                db_version = connector.get_db_version()
+            except Exception as e:
+                logger.debug(f"Failed to get db version: {e}")
 
         # Execute the query
         result = connector.run(sql)
@@ -534,7 +544,11 @@ async def execute_sql(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error executing SQL on {db_name}: {error_msg}")
-        return _format_error(error_msg, db_type=dialect if 'dialect' in dir() else 'unknown')
+        return _format_error(
+            error_msg,
+            db_type=dialect if 'dialect' in dir() else 'unknown',
+            db_version=db_version if 'db_version' in dir() else None
+        )
 
 
 async def _export_to_csv(
@@ -734,11 +748,18 @@ def _format_markdown_table(
     return "\n".join(lines)
 
 
-def _format_error(error_msg: str, db_type: str, sql_type: Optional[str] = None) -> str:
+def _format_error(
+    error_msg: str,
+    db_type: str,
+    sql_type: Optional[str] = None,
+    db_version: Optional[str] = None,
+) -> str:
     """格式化错误信息"""
 
     lines = ["❌ **SQL 执行错误**", ""]
     lines.append(f"**数据库类型**: {db_type}")
+    if db_version:
+        lines.append(f"**数据库版本**: {db_version}")
     if sql_type:
         lines.append(f"**SQL 类型**: {sql_type}")
     lines.append(f"**错误信息**: {error_msg}")
@@ -754,6 +775,82 @@ def _format_error(error_msg: str, db_type: str, sql_type: Optional[str] = None) 
         lines.append("如需开启写操作权限，请联系管理员设置以下环境变量：")
         lines.append("- NATIVE_SQL_CAN_RUN_WRITE=true (允许 INSERT/UPDATE/DELETE)")
         lines.append("- NATIVE_SQL_CAN_RUN_DDL=true (允许 CREATE/DROP/ALTER)")
+        return "\n".join(lines)
+
+    # Oracle 特定语法提示
+    db_type_lower = db_type.lower() if db_type else ""
+    if db_type_lower == "oracle":
+        lines.append("**Oracle SQL 语法规范**:")
+        lines.append("")
+        # 针对常见 Oracle 错误的具体提示
+        error_lower = error_msg.lower()
+
+        # ORA-00904: invalid identifier（如 COUNT 作为标识符）
+        if "ora-00904" in error_lower or "invalid identifier" in error_lower:
+            lines.append("错误原因: 使用了无效的标识符（可能是保留字或函数名）")
+            lines.append("")
+            lines.append("**常见问题修复**:")
+            lines.append("- ❌ ORDER BY COUNT DESC → ✅ ORDER BY COUNT(*) DESC")
+            lines.append("- ❌ ORDER BY SUM DESC → ✅ ORDER BY SUM(*) DESC")
+            lines.append("- ❌ 列别名使用 COUNT → ✅ 使用非保留字作为别名，如 cnt 或 人数")
+            lines.append("")
+            lines.append("正确示例:")
+            lines.append("```sql")
+            lines.append("SELECT")
+            lines.append("  CASE WHEN ... END AS 类别,")
+            lines.append("  COUNT(*) AS 人数  -- 使用非保留字作为别名")
+            lines.append("FROM table")
+            lines.append("ORDER BY 人数 DESC  -- 按别名排序")
+            lines.append("或 ORDER BY COUNT(*) DESC  -- 使用完整函数")
+            lines.append("```")
+
+        # ORA-00923: FROM keyword not found（语法错误）
+        elif "ora-00923" in error_lower or "from keyword" in error_lower:
+            lines.append("错误原因: SQL 语法错误，FROM 关键字位置不正确")
+            lines.append("")
+            lines.append("**常见问题修复**:")
+            lines.append("- Oracle 不支持 LIMIT，使用 ROWNUM 或 FETCH FIRST")
+            lines.append("- ❌ SELECT * FROM table LIMIT 10")
+            lines.append("- ✅ SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
+
+        # ORA-00933: SQL command not properly ended
+        elif "ora-00933" in error_lower or "not properly ended" in error_lower:
+            lines.append("错误原因: SQL 语句结束位置有问题")
+            lines.append("")
+            lines.append("**常见问题修复**:")
+            lines.append("- 检查是否有不支持的语法（如 LIMIT）")
+            lines.append("- Oracle 11g: 使用 ROWNUM 代替 LIMIT")
+            lines.append("- Oracle 12c+: 使用 FETCH FIRST n ROWS ONLY")
+
+        # 通用 Oracle 语法提示
+        else:
+            lines.append("**Oracle 语法要点**:")
+            if db_version:
+                try:
+                    major, minor = map(int, db_version.split('.')[:2])
+                    if (major, minor) >= (12, 1):
+                        lines.append(f"- Oracle {db_version} (12c+): 使用 FETCH FIRST 代替 LIMIT")
+                        lines.append("  示例: SELECT * FROM table FETCH FIRST 10 ROWS ONLY")
+                    else:
+                        lines.append(f"- Oracle {db_version} (11g 及更早): 使用 ROWNUM 代替 LIMIT")
+                        lines.append("  示例: SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
+                except (ValueError, AttributeError):
+                    lines.append(f"- Oracle {db_version}: 优先使用 ROWNUM（兼容所有版本）")
+            else:
+                lines.append("- Oracle 11g 及更早: 使用 ROWNUM（无 LIMIT 关键字）")
+                lines.append("- Oracle 12c+: 可使用 FETCH FIRST n ROWS ONLY")
+
+            lines.append("")
+            lines.append("**ORDER BY 聚合函数**:")
+            lines.append("- ❌ ORDER BY COUNT DESC（错误：COUNT 是保留字）")
+            lines.append("- ✅ ORDER BY COUNT(*) DESC（正确：完整函数名）")
+            lines.append("- ✅ ORDER BY 别名 DESC（正确：先定义别名再排序）")
+            lines.append("")
+            lines.append("**标识符引用**:")
+            lines.append("- 表名格式: OWNER.TABLE_NAME")
+            lines.append("- 使用双引号: \"OWNER\".\"TABLE_NAME\"")
+            lines.append("- 日期函数: TO_DATE('YYYY-MM-DD', 'YYYY-MM-DD')")
+
         return "\n".join(lines)
 
     # 提供语法提示
@@ -1110,7 +1207,7 @@ async def search_tables(
             link_service = SchemaLinkService()
 
             # Collect all recommendations from each query
-            all_recommendations = {}  # table_name -> (score, reasons, matched_queries)
+            all_recommendations = {}  # table_name -> (score, reasons, matched_queries, group, row_count)
 
             for query in search_queries:
                 recs = link_service.suggest_tables(ds_id, query, max_results=max_results)
@@ -1126,7 +1223,8 @@ async def search_tables(
                             rec.score,
                             list(rec.reasons[:3]),
                             [query],
-                            rec.group
+                            rec.group,
+                            rec.row_count  # 新增：行数信息
                         ]
 
             if not all_recommendations:
@@ -1156,11 +1254,13 @@ async def search_tables(
             lines.append("")
 
             for i, (table_name, info) in enumerate(sorted_tables, 1):
-                score, reasons, matched_queries, group = info
+                score, reasons, matched_queries, group, row_count = info
                 score_display = f"{score:.1f}"
                 reason_str = "; ".join(reasons[:3])
                 lines.append(f"{i}. **{table_name}**")
                 lines.append(f"   - 匹配分数: {score_display}")
+                if row_count:
+                    lines.append(f"   - 数据行数: {row_count}")
                 if len(matched_queries) > 1:
                     lines.append(f"   - 匹配意图: {', '.join(matched_queries)}")
                 lines.append(f"   - 匹配原因: {reason_str}")

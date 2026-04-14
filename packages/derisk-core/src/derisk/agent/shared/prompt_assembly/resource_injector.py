@@ -1248,8 +1248,19 @@ class ResourceInjector:
                 else:
                     hints.append("Oracle: 使用 ROWNUM（兼容所有版本）")
                     hints.append("   示例: SELECT * FROM (SELECT * FROM table) WHERE ROWNUM <= 10")
-                hints.append("   注意: 表名格式 'OWNER.TABLE_NAME'，使用双引号: \"OWNER\".\"TABLE_NAME\"")
-                hints.append("   注意: 无 LIMIT 关键字，日期函数使用 TO_DATE()")
+
+                # Oracle 特定语法规范（重要！）
+                hints.append("")
+                hints.append("   **Oracle SQL 特殊语法规范**:")
+                hints.append("   - 表名格式: 'OWNER.TABLE_NAME'，使用双引号: \"OWNER\".\"TABLE_NAME\"")
+                hints.append("   - 无 LIMIT 关键字，日期函数使用 TO_DATE('YYYY-MM-DD', 'YYYY-MM-DD')")
+                hints.append("   - **ORDER BY 聚合函数**:")
+                hints.append("     ❌ ORDER BY COUNT DESC（错误！COUNT 是保留字，不能直接使用）")
+                hints.append("     ✅ ORDER BY COUNT(*) DESC（正确！使用完整函数名）")
+                hints.append("     ✅ ORDER BY 人数 DESC（正确！使用定义的别名）")
+                hints.append("   - **列别名避免使用保留字**:")
+                hints.append("     ❌ COUNT(*) AS COUNT（错误！COUNT 是保留字）")
+                hints.append("     ✅ COUNT(*) AS cnt 或 人数（正确！使用非保留字）")
                 hints.append("")
 
             elif db_type_lower == "mysql":
@@ -1285,15 +1296,10 @@ class ResourceInjector:
                 "- PostgreSQL: LIMIT/OFFSET，双引号 \"\"",
                 "- SQL Server: TOP 或 OFFSET FETCH，方括号 []",
                 "- Oracle: ROWNUM（11g）或 FETCH FIRST（12c+），双引号 \"\"，无 LIMIT",
+                "- Oracle: ORDER BY 聚合函数必须写完整（如 ORDER BY COUNT(*) DESC）",
             ])
 
         return hints
-        lines.append("1. 查看上方的表列表")
-        lines.append("2. 使用 `get_table_spec` 获取表的详细结构（支持多张表）")
-        lines.append("3. 根据 db_type 编写符合语法的 SQL")
-        lines.append("4. 使用 `execute_sql` 执行查询")
-
-        return "\n".join(lines)
 
     def _format_custom_default(self, resources: List[ResourceInfo]) -> str:
         lines = ["<other_resources>", "以下是其他可用资源：", ""]
