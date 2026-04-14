@@ -405,17 +405,29 @@ class ToolOutputFormatterHook(SceneHook):
     
     async def on_after_tool(self, ctx: HookContext) -> HookResult:
         """格式化工具输出"""
+        # 豁免特定工具的截断：
+        # - skill_read/skill_list: Skill 内容不应截断，保持完整指令
+        # - get_table_spec: 表 spec 是结构化数据，截断会破坏格式
+        # - read/read_file/view: 这些工具已自行管理输出大小（分段读取）
+        # - execute_sql: 已自行管理输出大小（分页+CSV导出）
+        TRUNCATION_EXEMPT_TOOLS = {
+            "skill_read", "skill_list", "get_table_spec",
+            "read", "read_file", "view", "execute_sql",
+        }
+
         if ctx.tool_result:
             result_str = str(ctx.tool_result)
-            
-            if len(result_str) > 5000:
-                truncated = result_str[:5000]
-                ctx.tool_result = truncated + f"\n... [truncated, {len(result_str)} total characters]"
-                ctx.metadata["output_truncated"] = True
-            
+
+            # 只对非豁免工具进行截断
+            if ctx.tool_name and ctx.tool_name not in TRUNCATION_EXEMPT_TOOLS:
+                if len(result_str) > 5000:
+                    truncated = result_str[:5000]
+                    ctx.tool_result = truncated + f"\n... [truncated, {len(result_str)} total characters]"
+                    ctx.metadata["output_truncated"] = True
+
             if ctx.tool_name and "read" in ctx.tool_name:
                 ctx.metadata["output_type"] = "file_content"
-        
+
         return HookResult(proceed=True)
 
 
