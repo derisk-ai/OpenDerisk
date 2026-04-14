@@ -657,71 +657,27 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             artifacts=self._artifacts,
         )
 
-    MAX_STEP_OUTPUT_CHARS = 500
-    MAX_STEP_OUTPUT_ROWS = 20
-
     @staticmethod
-    def _truncate_dict_content(content: dict, max_chars: int, max_rows: int) -> Any:
-        """Truncate dict content while preserving structure.
+    def _format_outputs_for_map(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
+        """Format output content for steps_map.
 
-        For structured data (e.g. SQL query results with columns/rows),
-        reduce rows instead of cutting the serialized JSON string.
-        """
-        # SQL query result: truncate by reducing rows to preserve structure
-        if "columns" in content and "rows" in content:
-            rows = content.get("rows") or []
-            if len(rows) > max_rows:
-                truncated = dict(content)
-                truncated["rows"] = rows[:max_rows]
-                truncated["has_more"] = True
-                return truncated
-            # Even if rows are few, check total size
-            serialized = json.dumps(content, ensure_ascii=False)
-            if len(serialized) <= max_chars:
-                return content
-            # Still too large — progressively reduce rows
-            truncated = dict(content)
-            for limit in (max_rows // 2, 5, 1):
-                truncated["rows"] = rows[:limit]
-                truncated["has_more"] = True
-                if len(json.dumps(truncated, ensure_ascii=False)) <= max_chars:
-                    return truncated
-            # Extreme case: no rows, just keep schema
-            truncated["rows"] = []
-            truncated["has_more"] = True
-            return truncated
+        Note: We do NOT truncate here because ToolAction already handles result size:
+        - Large outputs are archived by Truncator (lines 487-516 in tool_action.py)
+        - d-attach VIS tag is generated for users to view full content
+        - execute_sql, get_table_spec, skill_read etc. are explicitly skipped
 
-        # Generic dict: check size, only truncate if necessary
-        serialized = json.dumps(content, ensure_ascii=False)
-        if len(serialized) <= max_chars:
-            return content
-        # For generic dicts, fall back to string truncation
-        return serialized[:max_chars] + "\n... (truncated)"
+        Truncating here would:
+        1. Double-truncate already processed content
+        2. Break structured data (SQL results JSON)
+        3. Confuse users with "... (truncated)" when the full file is already in d-attach
 
-    @staticmethod
-    def _truncate_outputs_for_map(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
-        """Truncate output content for steps_map to reduce JSON size.
-
-        The steps_map includes data for ALL historical steps. Without truncation,
-        large tool outputs (e.g. file contents, command results) can cause the total
-        manus-right-panel JSON to exceed storage limits, resulting in truncated JSON
-        on the frontend and a blank right panel.
-
-        For structured content (e.g. SQL query results), rows are reduced
-        instead of cutting the serialized string, preserving valid JSON structure.
+        The steps_map shows ToolAction's output as-is. If ToolAction archived the content,
+        the result already contains a truncated version + d-attach link.
         """
         result = []
-        max_chars = DeriskIncrVisManusConverter.MAX_STEP_OUTPUT_CHARS
-        max_rows = DeriskIncrVisManusConverter.MAX_STEP_OUTPUT_ROWS
         for o in outputs:
             d = o.to_dict()
-            content = d.get("content")
-            if isinstance(content, str) and len(content) > max_chars:
-                d["content"] = content[:max_chars] + "\n... (truncated)"
-            elif isinstance(content, dict):
-                d["content"] = DeriskIncrVisManusConverter._truncate_dict_content(
-                    content, max_chars, max_rows
-                )
+            # Do NOT truncate - ToolAction already handled size management
             result.append(d)
         return result
 
@@ -766,7 +722,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 )
                 step_data = {
                     "active_step": step_info.to_dict(),
-                    "outputs": self._truncate_outputs_for_map(self._outputs.get(sid, [])),
+                    "outputs": self._format_outputs_for_map(self._outputs.get(sid, [])),
                 }
                 steps_map[planning_uid] = step_data
                 # Also register by step_id for left panel click-to-switch
@@ -786,7 +742,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 )
                 steps_map[sid] = {
                     "active_step": step_info.to_dict(),
-                    "outputs": self._truncate_outputs_for_map(self._outputs.get(sid, [])),
+                    "outputs": self._format_outputs_for_map(self._outputs.get(sid, [])),
                 }
 
         return ManusRightPanelData(
