@@ -1364,6 +1364,19 @@ class ReActMasterAgent(ConversableAgent):
             template_vars = getattr(self.profile, "template_vars", None) or {}
             # 从 agent_context 获取用户信息和对话时间
             ctx = self.agent_context
+
+            # 从 Agent 注册的变量管理器获取时间变量
+            # now: 当前日期 (YYYY-MM-DD)
+            # now_time: 当前时间 (YYYY-MM-DD HH:MM:SS)
+            # conv_start_time: 对话开始时间
+            now_value = ""
+            now_time_value = ""
+            try:
+                now_value = await self._vm.get_value("now", instance=self)
+                now_time_value = await self._vm.get_value("now_time", instance=self)
+            except Exception as e:
+                logger.warning(f"Failed to get time variables from _vm: {e}")
+
             base_vars = {
                 "role": getattr(self.profile, "role", "")
                 if hasattr(self, "profile")
@@ -1380,6 +1393,8 @@ class ReActMasterAgent(ConversableAgent):
                 "user_name": getattr(ctx, "user_name", "") if ctx else "",
                 "user_id": getattr(ctx, "user_id", "") if ctx else "",
                 "conv_start_time": getattr(ctx, "conv_start_time", "") if ctx else "",
+                "now": now_value,
+                "now_time": now_time_value,
             }
             render_vars = {**base_vars, **template_vars}
 

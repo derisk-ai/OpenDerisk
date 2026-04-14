@@ -913,7 +913,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             # DEBUG: log deliverable files before serialization
             if right_panel.deliverable_files:
                 for df in right_panel.deliverable_files:
-                    logger.info(
+                    logger.debug(
                         f"[ManusConverter] RIGHT PANEL deliverable: "
                         f"file_name={df.file_name}, content_url={df.content_url}, "
                         f"download_url={df.download_url}, render_type={df.render_type}"
@@ -1255,14 +1255,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                             content_url = oss_url
                         else:
                             content_url = preview_url or oss_url
-                        logger.info(
-                            f"[ManusConverter] deliverable file_info keys: "
-                            f"file_name={file_name}, file_type={file_type}, "
-                            f"preview_url={preview_url}, "
-                            f"oss_url={oss_url}, "
-                            f"download_url={file_info.get('download_url')}, "
-                            f"object_path={file_info.get('object_path')}, "
-                            f"content_url(resolved)={content_url}"
+                        logger.debug(
+                            f"[ManusConverter] deliverable file: {file_name}, "
+                            f"content_url={content_url}"
                         )
                         deliverable_files.append(ManusDeliverableFile(
                             file_id=file_id,
