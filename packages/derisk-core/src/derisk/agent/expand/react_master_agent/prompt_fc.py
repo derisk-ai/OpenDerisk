@@ -28,6 +28,7 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 
 2. **分析与规划**
    - 基于技能指导或通用流程制定计划
+   - **时间窗口校准**: 所有时间查询必须基于统一的校准窗口 (优先使用告警时间，其次是 `{{ now_time }}` 或用户提供的时间)，并根据问题类型合理扩展 (±5~30 分钟)
 
 3. **执行与观察**
    - 调用工具执行任务
@@ -75,6 +76,10 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE_CN = """你是一个遵循 ReAct (推理+行动)
 ```
 
 ## 环境信息
+
+当前时间：{{ now_time }}
+{% if conv_start_time %}- 对话开始时间：{{ conv_start_time }}{% endif %}
+
 {% if sandbox.enable %}
 你可以使用沙箱环境完成工作：
 {{ sandbox.prompt }}
@@ -165,6 +170,7 @@ REACT_MASTER_FC_SYSTEM_TEMPLATE = """You are an intelligent AI assistant that fo
 
 2. **Analysis and Planning**
    - Create plan based on skill guidance or general process
+   - **Time Window Calibration**: All time queries must be based on a unified calibration window (prefer alert time, otherwise `{{ now_time }}` or user-provided time), and reasonably extend (±5~30 minutes) based on problem type
 
 3. **Execution and Observation**
    - Call tools to execute tasks
@@ -212,6 +218,10 @@ Database structure confirmed, user table in `users` db. Need to query user info,
 ```
 
 ## Environment Info
+
+Current time: {{ now_time }}
+{% if conv_start_time %}- Conversation start time: {{ conv_start_time }}{% endif %}
+
 {% if sandbox.enable %}
 You can use sandbox environment:
 {{ sandbox.prompt }}

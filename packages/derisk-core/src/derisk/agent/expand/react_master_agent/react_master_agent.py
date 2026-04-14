@@ -1435,6 +1435,12 @@ class ReActMasterAgent(ConversableAgent):
             traceback.print_exc()
             try:
                 from derisk.util.template_utils import render
+                from datetime import datetime
+
+                # 获取时间变量（回退时也需要）
+                ctx = self.agent_context
+                now_time_fallback = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                conv_start_time_fallback = getattr(ctx, "conv_start_time", "") if ctx else ""
 
                 system_prompt = render(
                     REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
@@ -1449,6 +1455,8 @@ class ReActMasterAgent(ConversableAgent):
                         "available_agents": "",
                         "available_knowledges": "",
                         "available_skills": "",
+                        "now_time": now_time_fallback,
+                        "conv_start_time": conv_start_time_fallback,
                     },
                 )
             except Exception as render_error:

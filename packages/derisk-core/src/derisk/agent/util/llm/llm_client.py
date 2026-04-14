@@ -590,6 +590,7 @@ class AIWrapper:
                 accumulated_content = ""
                 # 根据 provider 返回的 incremental 属性判断是否需要累积
                 need_accumulate = None  # 延迟判断，根据第一个 chunk 确定
+                logged_tc_ids: set = set()  # 记录已输出的 tool_call IDs，避免重复日志
 
                 async for output in client.generate_stream(request):  # type: ignore
                     model_output: ModelOutput = output
@@ -619,7 +620,7 @@ class AIWrapper:
                     if think_blank and content_blank and not model_output.tool_calls:
                         continue
 
-                    # 详细输出日志：记录 tool_calls
+                    # 详细输出日志：记录 tool_calls（仅首次输出，避免流式重复）
                     if model_output.tool_calls:
                         tool_call_summary = []
                         for tc in model_output.tool_calls:
@@ -633,7 +634,10 @@ class AIWrapper:
                                         else None,
                                     }
                                 )
-                        if tool_call_summary:
+                        # 只在 tool_calls 内容有变化时输出日志（比较 ID 集合）
+                        current_tc_ids = set(tc.get("id") for tc in tool_call_summary if tc.get("id"))
+                        if current_tc_ids and current_tc_ids != logged_tc_ids:
+                            logged_tc_ids = current_tc_ids
                             logger.info(
                                 f"Model Output Tool Calls: {json.dumps(tool_call_summary, ensure_ascii=False)}"
                             )
