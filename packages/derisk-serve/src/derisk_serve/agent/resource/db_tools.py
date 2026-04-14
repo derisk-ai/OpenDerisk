@@ -968,14 +968,32 @@ async def list_tables(
 
                 if spec_service.has_spec(ds_id):
                     stats = spec_service.get_db_stats(ds_id)
+
+                    # Build group_name mapping from db_spec.spec_content
+                    # because table_spec.group_name may not be updated after grouping
+                    db_spec = spec_service.get_db_spec(ds_id)
+                    group_mapping = {}  # table_name -> group_name
+                    if db_spec and db_spec.get("spec_content"):
+                        try:
+                            spec_entries = json.loads(db_spec["spec_content"]) if isinstance(db_spec["spec_content"], str) else db_spec["spec_content"]
+                            for entry in spec_entries:
+                                tname = entry.get("table_name", "")
+                                if tname:
+                                    group_mapping[tname] = entry.get("group", "default")
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
                     all_specs = spec_service.get_all_table_specs(ds_id)
 
                     # Filter by group if specified
                     if group:
-                        filtered = [
-                            t for t in all_specs
-                            if t.get("group_name") == group or t.get("group") == group
-                        ]
+                        filtered = []
+                        for t in all_specs:
+                            tname = t.get("table_name", "")
+                            # Check both sources: table_spec.group_name and db_spec group mapping
+                            t_group = t.get("group_name") or group_mapping.get(tname, "default")
+                            if t_group == group:
+                                filtered.append(t)
                         if not filtered:
                             available_groups = list(stats.get("groups", {}).keys())
                             return (
