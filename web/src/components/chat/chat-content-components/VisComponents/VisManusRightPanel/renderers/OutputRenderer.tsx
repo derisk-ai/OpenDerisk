@@ -30,15 +30,44 @@ const containsVisTag = (text: string): boolean => {
   return /```[a-z][\w-]*\s*\n\s*\{/i.test(text);
 };
 
-/** Terminal-style text output - renders VIS tags via GPTVisLite if present */
+/** Check if content contains markdown formatting (tables, headers, lists, etc.) */
+const containsMarkdown = (text: string): boolean => {
+  // Markdown table: | ... |
+  if (/\|.*\|/.test(text)) return true;
+  // Markdown header: # ## ### etc
+  if (/^#{1,6}\s/.test(text)) return true;
+  // Markdown list: - * 1.
+  if(/^[\-\*]\s|^[\d]+\.\s/.test(text)) return true;
+  // Markdown code block: ```lang
+  if (/```[\w]*\n/.test(text)) return true;
+  // Markdown link: [text](url)
+  if(/\[.*\]\(.*\)/.test(text)) return true;
+  return false;
+};
+
+/** Terminal-style text output - renders markdown or VIS tags via GPTVisLite if present */
 const TextOutput: FC<{ content: string }> = ({ content }) => {
+  // VIS tag markup → markdown render
   if (containsVisTag(content)) {
     return (
-      <div className="text-sm leading-normal max-w-none">
-        <GPTVisLite components={markdownComponents}>{content}</GPTVisLite>
+      <div className="py-2 px-3">
+        <div className="whitespace-normal">
+          <GPTVisLite components={markdownComponents}>{content}</GPTVisLite>
+        </div>
       </div>
     );
   }
+  // Markdown formatting → markdown render (same as SummaryView)
+  if (containsMarkdown(content)) {
+    return (
+      <div className="py-2 px-3">
+        <div className="whitespace-normal">
+          <GPTVisLite components={markdownComponents}>{content}</GPTVisLite>
+        </div>
+      </div>
+    );
+  }
+  // Plain text → terminal style
   return (
     <div className="rounded-lg bg-slate-900 p-3 font-mono text-sm text-green-400 overflow-x-auto whitespace-pre-wrap">
       {content}
@@ -126,10 +155,12 @@ const ImageOutput: FC<{ content: string }> = ({ content }) => (
   </div>
 );
 
-/** Markdown renderer - compact style without prose spacing */
+/** Markdown renderer - same style as SummaryView for consistent rendering */
 const MarkdownOutput: FC<{ content: string }> = ({ content }) => (
-  <div className="text-sm leading-normal max-w-none [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1.5 [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-2.5 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_hr]:my-2">
-    <GPTVisLite components={markdownComponents}>{content}</GPTVisLite>
+  <div className="py-2 px-3">
+    <div className="whitespace-normal">
+      <GPTVisLite components={markdownComponents}>{content}</GPTVisLite>
+    </div>
   </div>
 );
 
@@ -170,7 +201,8 @@ const OutputItem: FC<{ output: ManusExecutionOutput }> = ({ output }) => {
         </div>
       );
     default:
-      return <TextOutput content={String(content)} />;
+      // Use markdown renderer for unknown types - it handles both markdown and plain text well
+      return <MarkdownOutput content={String(content)} />;
   }
 };
 
