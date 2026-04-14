@@ -653,6 +653,8 @@ def _format_sql_result(
     csv_export_reason: Optional[str] = None,
     has_more: bool = False,
     raw_result: Optional[str] = None,
+    display_truncated: bool = False,
+    display_row_count: Optional[int] = None,
 ) -> str:
     """格式化 SQL 查询结果，返回 SQL 查询组件格式"""
 
@@ -676,6 +678,11 @@ def _format_sql_result(
 
     if raw_result:
         result_data["raw_result"] = raw_result
+
+    if display_truncated:
+        result_data["display_truncated"] = True
+        if display_row_count:
+            result_data["display_row_count"] = display_row_count
 
     # 使用 d-sql-query 组件渲染
     try:
