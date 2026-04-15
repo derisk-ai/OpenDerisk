@@ -1201,7 +1201,7 @@ class AgentChat(BaseComponent, ABC):
                         f"[AgentChat] depend_resource after build: "
                         f"{type(depend_resource).__name__ if depend_resource else 'None'}, "
                         f"is_pack={depend_resource.is_pack if depend_resource else 'N/A'}, "
-                        f"sub_resources_count={len(depend_resource.sub_resources) if depend_resource and hasattr(depend_resource, 'sub_resources') else 'N/A'}"
+                        f"sub_resources_count={len(depend_resource.sub_resources) if depend_resource and depend_resource.is_pack else 'N/A'}"
                     )
 
                     agent_context = deepcopy(context)

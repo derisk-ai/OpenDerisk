@@ -106,28 +106,27 @@ from ...shared.prompt_assembly import (
 
 class ReActMasterAgent(ConversableAgent):
     _prompt_assembler: Optional[PromptAssembler] = PrivateAttr(default=None)
-    
+
     def _get_prompt_assembler(self) -> PromptAssembler:
         if self._prompt_assembler is None:
             config = PromptAssemblyConfig(architecture="v1")
             self._prompt_assembler = PromptAssembler(config)
         return self._prompt_assembler
-    
+
     async def load_thinking_messages(self, ...):
         # ... 现有逻辑 ...
-        
-        # 使用 PromptAssembler 组装
+
+        # 使用 PromptAssembler 分层组装
         assembler = self._get_prompt_assembler()
         resource_ctx = ResourceContext.from_v1_agent(self)
-        
+
         user_system_prompt = getattr(self.profile, "system_prompt_template", None)
-        if user_system_prompt and not assembler._is_legacy_mode(user_system_prompt):
-            system_prompt = await assembler.assemble_system_prompt(
-                user_system_prompt=user_system_prompt,
-                resource_context=resource_ctx,
-                role=self.profile.role,
-                name=self.profile.name,
-            )
+        system_prompt = await assembler.assemble_system_prompt(
+            user_system_prompt=user_system_prompt,
+            resource_context=resource_ctx,
+            role=self.profile.role,
+            name=self.profile.name,
+        )
 ```
 
 ### core_v2 (ReActReasoningAgent)
@@ -242,43 +241,6 @@ if app.system_prompt_template is not None:
 if app.user_prompt_template:
     temp_profile.user_prompt_template = app.user_prompt_template
 recipient.bind(temp_profile)
-```
-
-## 新旧兼容
-
-### 兼容检测逻辑
-
-```python
-LEGACY_MARKERS = [
-    "## 核心工作流",
-    "## 异常处理机制",
-    "Doom Loop",
-    "<available_agents>",
-    "<available_knowledges>",
-    "<available_skills>",
-]
-
-def is_legacy_mode(system_prompt_template: str) -> bool:
-    for marker in LEGACY_MARKERS:
-        if marker in system_prompt_template:
-            return True  # 旧模式：直接使用
-    return False  # 新模式：分层组装
-```
-
-### 行为差异
-
-| 模式 | 检测条件 | 处理方式 |
-|------|---------|---------|
-| **旧模式** | 包含流程控制标记 | 直接渲染用户模板 |
-| **新模式** | 不包含标记 | 分层组装 |
-
-### 迁移路径
-
-```
-当前状态：
-├── 旧配置：包含完整模板 → 旧模式兼容 ✓
-├── 新配置：仅身份内容 → 新模式组装 ✓
-└── 无配置：使用默认模板 → 新模式组装 ✓
 ```
 
 ## 资源类型

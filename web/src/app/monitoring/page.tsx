@@ -72,7 +72,7 @@ export default function MonitoringPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const eventsListRef = useRef<HTMLDivElement>(null);
 
-  // Fetch dashboard data
+  // Fetch dashboard data - polling disabled since backend API is disabled
   const {
     data: dashboardData,
     loading: dashboardLoading,
@@ -86,7 +86,8 @@ export default function MonitoringPage() {
       return res;
     },
     {
-      pollingInterval: 5000, // Auto refresh every 5 seconds
+      // pollingInterval: 5000, // Disabled - monitoring API is disabled on backend
+      manual: true, // Only refresh on manual action, not auto-polling
     }
   );
 
@@ -110,39 +111,12 @@ export default function MonitoringPage() {
     }
   );
 
-  // WebSocket connection
+  // WebSocket connection - temporarily disabled
+  // The monitoring WebSocket service is currently disabled on the backend
   useEffect(() => {
-    const connectWebSocket = () => {
-      const ws = createMonitoringWebSocket(
-        (event) => {
-          setEvents((prev) => [event, ...prev].slice(0, 100)); // Keep last 100 events
-          refreshDashboard();
-        },
-        () => {
-          setWsConnected(false);
-          // Reconnect after 3 seconds
-          setTimeout(() => {
-            wsRef.current = connectWebSocket();
-          }, 3000);
-        }
-      );
-
-      ws.onopen = () => {
-        setWsConnected(true);
-      };
-
-      ws.onclose = () => {
-        setWsConnected(false);
-      };
-
-      return ws;
-    };
-
-    wsRef.current = connectWebSocket();
-
-    return () => {
-      wsRef.current?.close();
-    };
+    setWsConnected(false);
+    // No WebSocket connection
+    return () => {};
   }, []);
 
   // Auto scroll to bottom of events list

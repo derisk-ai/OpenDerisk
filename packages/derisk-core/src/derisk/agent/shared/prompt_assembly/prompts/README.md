@@ -2,7 +2,9 @@
 
 本目录包含分层 Prompt 模板，支持 core_v1 和 core_v2 两种架构。
 
-## 启用分层组装
+## 分层组装
+
+系统默认使用分层组装模式，将 Prompt 分为三层：
 
 ### ReActMasterAgent (core_v1)
 
@@ -10,9 +12,7 @@
 from derisk.agent.expand.react_master_agent import ReActMasterAgent
 from derisk.agent import ProfileConfig
 
-# 方式 1: 配置开关
 agent = ReActMasterAgent(
-    use_layered_prompt_assembly=True,  # 启用分层组装
     profile=ProfileConfig(
         name="MyAgent",
         role="AI助手",
@@ -24,18 +24,9 @@ agent = ReActMasterAgent(
 - 数据分析
 - 代码开发
 - 文档处理
-""",  # 仅身份内容，不含流程控制
+""",  # 仅身份内容
     )
 )
-
-# 方式 2: 强制分层组装
-agent = ReActMasterAgent(
-    force_layered_assembly=True  # 忽略旧模式检测，强制分层
-)
-
-# 方式 3: API/前端配置
-# 前端传入不包含流程标记的 system_prompt_template
-# 系统自动检测并使用分层组装
 ```
 
 ### ReActReasoningAgent (core_v2)
@@ -44,7 +35,6 @@ agent = ReActMasterAgent(
 from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
 from derisk.agent.core_v2.agent_info import AgentInfo
 
-# core_v2 默认使用分层组装
 agent = ReActReasoningAgent(
     info=AgentInfo(
         name="ReActAgent",
@@ -91,7 +81,7 @@ prompts/
 │  ├── 用户 system_prompt_template（如果提供）                      │
 │  └── 或默认 identity/default.md                                  │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 2: 资源层 (Resources) - 动态注入                           │
+│  Layer 2: 源层 (Resources) - 动态注入                           │
 │  ├── sandbox.md.j2    (如果有 sandbox_manager)                   │
 │  ├── agents.md.j2     (如果有 AppResource)                       │
 │  ├── knowledge.md.j2  (如果有 RetrieverResource)                 │
@@ -106,37 +96,7 @@ prompts/
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 新旧模式兼容
-
-### 检测逻辑
-
-```python
-LEGACY_MARKERS = [
-    "## 核心工作流",
-    "## 异常处理机制",
-    "Doom Loop",
-    "<available_agents>",
-    "<available_knowledges>",
-    "<available_skills>",
-]
-
-def is_legacy_mode(content: str) -> bool:
-    for marker in LEGACY_MARKERS:
-        if marker in content:
-            return True
-    return False
-```
-
-### 行为对比
-
-| system_prompt_template 内容 | use_layered_prompt_assembly | force_layered_assembly | 实际行为 |
-|---------------------------|----------------------------|----------------------|---------|
-| 包含流程标记 | False | False | 旧模式兼容 |
-| 不含流程标记 | False | False | 分层组装 |
-| 任意内容 | True | False | 分层组装 |
-| 任意内容 | False | True | 强制分层组装 |
-
-### 前端集成
+## 前端集成
 
 前端应用编辑页面 → `system_prompt_template` 字段
 

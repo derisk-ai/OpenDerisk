@@ -6,10 +6,8 @@ from typing import Any, Dict, Optional, Union
 import logging
 from ssl import SSLContext
 
-# 配置日志
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+# 配置日志 - 不使用 logging.basicConfig 以防止重复输出
+# 使用 derisk 统一日志系统
 logger = logging.getLogger(__name__)
 
 

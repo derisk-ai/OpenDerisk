@@ -92,16 +92,14 @@ class AgentToolConfiguration(BaseModel):
         检查工具是否在运行时启用
 
         规则：
-        1. 如果没有绑定配置，默认启用内置工具
-        2. 如果有绑定配置，按配置判断
-        3. 如果工具被标记为 disabled_at_runtime，禁用
+        1. 无绑定配置 → 默认禁用（只有显式绑定的工具才启用）
+        2. 有绑定配置 → 按配置判断 is_bound 且未 disabled_at_runtime
+        3. 用户解绑的默认工具 → is_bound=False，不注入
         """
         binding = self.bindings.get(tool_id)
         if not binding:
-            # 默认启用内置工具，禁用外部工具
-            tool = tool_registry.get(tool_id)
-            if tool and tool.metadata.source in [ToolSource.CORE, ToolSource.SYSTEM]:
-                return True
+            # 无绑定配置，默认禁用
+            # 这样确保只有显式绑定（默认绑定或用户手动绑定）的工具才会被注入
             return False
 
         return binding.is_bound and not binding.disabled_at_runtime
@@ -690,8 +688,8 @@ class ToolManager:
         从持久化的工具ID列表创建配置
 
         resource_tool 是工具绑定的完整清单（全量数据源）：
-        - 在 resource_tool 中的工具 → 已绑定
-        - 不在 resource_tool 中的工具 → 未绑定（包括默认工具）
+        - 在 resource_tool 中的工具 → 已绑定 (is_bound=True)
+        - 不在 resource_tool 中的工具 → 未绑定 (is_bound=False，包括默认工具)
 
         resource_tool 有数据时完全以它为准，不再叠加默认工具。
         这样默认工具的反向解绑才能被持久化。
@@ -705,10 +703,8 @@ class ToolManager:
         bindings: Dict[str, ToolBindingConfig] = {}
         persisted_set = set(persisted_tool_ids)
 
-        # 判断持久化数据是否来自工具管理页面（包含默认工具）还是仅来自应用配置（只有自定义工具）
-        # 如果持久化列表中不包含任何默认工具，说明数据来自应用配置，应自动补充默认工具
+        # 默认工具集合（用于标记 is_default）
         default_tool_ids = set(self.BUILTIN_CORE_TOOLS) | set(self.BASIC_TOOLS)
-        has_default_tools_in_persisted = bool(persisted_set & default_tool_ids)
 
         # 1. 处理所有已注册的工具
         all_tools = tool_registry.list_all()
@@ -718,13 +714,9 @@ class ToolManager:
 
             is_default_required = group_type == ToolBindingType.BUILTIN_REQUIRED
 
-            # resource_tool 是完整绑定清单，只有在列表中的才绑定
-            # 但如果持久化数据中没有任何默认工具，说明是旧的应用配置数据，
-            # 此时默认工具应自动绑定
-            if not has_default_tools_in_persisted and is_default_required:
-                is_bound = True
-            else:
-                is_bound = tool_id in persisted_set
+            # 完全按 persisted_set 判断是否绑定
+            # resource_tool 是完整绑定清单，用户解绑的默认工具不在列表中 → is_bound=False
+            is_bound = tool_id in persisted_set
 
             bindings[tool_id] = ToolBindingConfig(
                 tool_id=tool_id,
@@ -835,12 +827,14 @@ class ToolManager:
         """
         config = self.get_agent_config(app_id, agent_name)
         if not config:
-            # 没有配置，返回所有内置工具
-            return [
-                tool
-                for tool in tool_registry.list_all()
-                if tool.metadata.source in [ToolSource.CORE, ToolSource.SYSTEM]
-            ]
+            # 没有配置，只返回默认工具（BUILTIN_CORE + BASIC_TOOLS）
+            default_tool_ids = set(self.BUILTIN_CORE_TOOLS) | set(self.BASIC_TOOLS)
+            enabled_tools = []
+            for tool_id in default_tool_ids:
+                tool = tool_registry.get(tool_id)
+                if tool:
+                    enabled_tools.append(tool)
+            return enabled_tools
 
         enabled_tools = []
         all_tools = tool_registry.list_all()

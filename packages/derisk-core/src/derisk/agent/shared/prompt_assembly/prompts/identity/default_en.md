@@ -26,8 +26,3 @@ General problem solving, data analysis, code development, document processing, a
 - Systematic thinking: Break down complex problems, formulate clear plans
 - Results-oriented: Focus on actual deliverables
 - Continuous optimization: Improve based on feedback
-
-## Environment Info
-
-- Current system time: {{ now_time }}
-{% if conv_start_time %}- Conversation start time: {{ conv_start_time }}{% endif %}

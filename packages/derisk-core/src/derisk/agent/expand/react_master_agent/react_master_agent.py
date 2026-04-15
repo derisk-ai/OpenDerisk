@@ -181,10 +181,6 @@ class ReActMasterAgent(ConversableAgent):
     enable_history_pruning: bool = True
     prune_protect_tokens: int = 4000
 
-    # Prompt 组装模式配置
-    use_layered_prompt_assembly: bool = False
-    force_layered_assembly: bool = False
-
     # Message List 历史模式（原生格式 vs 文本注入）
     use_message_list_history: bool = True
     message_list_history_max_tokens: int = 30000
@@ -1314,10 +1310,6 @@ class ReActMasterAgent(ConversableAgent):
         await self._ensure_agent_file_system()
 
         # ========== 使用 PromptAssembler 分层组装 Prompt ==========
-        # 配置说明：
-        # - force_layered_assembly=True: 强制使用分层组装，忽略旧模式检测
-        # - use_layered_prompt_assembly=True: 默认使用分层组装
-        # - 默认=False: 按旧模式检测决定（包含流程标记→旧模式，否则→分层组装）
         system_prompt = ""
         user_prompt = ""
 
@@ -1337,46 +1329,11 @@ class ReActMasterAgent(ConversableAgent):
                 user_identity = getattr(self.profile, "system_prompt_template", None)
                 user_prompt_prefix = getattr(self.profile, "user_prompt_template", None)
 
-            # 判断是否使用分层组装
-            use_layered = False
-
-            if self.force_layered_assembly:
-                # 强制使用分层组装
-                use_layered = True
-                logger.info(
-                    "PromptAssembler: force_layered_assembly=True，强制分层组装"
-                )
-            elif self.use_layered_prompt_assembly:
-                # 用户配置启用分层组装
-                use_layered = True
-                logger.info(
-                    "PromptAssembler: use_layered_prompt_assembly=True，使用分层组装"
-                )
-            elif user_identity and assembler._is_legacy_mode(user_identity):
-                # 旧模式兼容：检测到流程控制标记，直接渲染完整模板
-                use_layered = False
-                logger.info("PromptAssembler: 检测到旧模式标记，使用兼容渲染")
-            else:
-                # 默认：对新内容使用分层组装
-                use_layered = True
-
             # 构建模板变量
             template_vars = getattr(self.profile, "template_vars", None) or {}
-            # 从 agent_context 获取用户信息和对话时间
+
+            # 获取用户配置的基本变量
             ctx = self.agent_context
-
-            # 从 Agent 注册的变量管理器获取时间变量
-            # now: 当前日期 (YYYY-MM-DD)
-            # now_time: 当前时间 (YYYY-MM-DD HH:MM:SS)
-            # conv_start_time: 对话开始时间
-            now_value = ""
-            now_time_value = ""
-            try:
-                now_value = await self._vm.get_value("now", instance=self)
-                now_time_value = await self._vm.get_value("now_time", instance=self)
-            except Exception as e:
-                logger.warning(f"Failed to get time variables from _vm: {e}")
-
             base_vars = {
                 "role": getattr(self.profile, "role", "")
                 if hasattr(self, "profile")
@@ -1390,58 +1347,115 @@ class ReActMasterAgent(ConversableAgent):
                 "language": getattr(self.profile, "language", "zh")
                 if hasattr(self, "profile")
                 else "zh",
-                "user_name": getattr(ctx, "user_name", "") if ctx else "",
-                "user_id": getattr(ctx, "user_id", "") if ctx else "",
-                "conv_start_time": getattr(ctx, "conv_start_time", "") if ctx else "",
-                "now": now_value,
-                "now_time": now_time_value,
             }
-            render_vars = {**base_vars, **template_vars}
+
+            # 使用 generate_bind_variables 获取 Agent 注册的所有变量
+            # （包括 now_time、conv_start_time 等 _vm 注册的变量）
+            if received_message and sender:
+                bind_vars = await self.generate_bind_variables(
+                    received_message=received_message,
+                    sender=sender,
+                    rely_messages=rely_messages,
+                    historical_dialogues=None,
+                    context=None,
+                    resource_info=None,
+                )
+                # 合并：base_vars 优先级较低，bind_vars 可以覆盖
+                render_vars = {**base_vars, **bind_vars, **template_vars}
+            else:
+                # 无 received_message 时，直接合并 base_vars 和 template_vars
+                # 需要手动添加时间变量
+                logger.warning("load_thinking_messages: received_message or sender is None")
+                render_vars = {**base_vars, **template_vars}
+                render_vars["user_name"] = getattr(ctx, "user_name", "") if ctx else ""
+                render_vars["user_id"] = getattr(ctx, "user_id", "") if ctx else ""
+                render_vars["conv_start_time"] = getattr(ctx, "conv_start_time", None) if ctx else None
+                # 添加时间变量
+                try:
+                    render_vars["now"] = await self._vm.get_value("now", instance=self)
+                    render_vars["now_time"] = await self._vm.get_value("now_time", instance=self)
+                except Exception as e:
+                    logger.warning(f"Failed to get time variables from _vm: {e}")
+                    from datetime import datetime
+                    render_vars["now"] = datetime.now().strftime("%Y-%m-%d")
+                    render_vars["now_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # 根据 mode 选择组装方式
-            if use_layered:
-                # 新模式：分层组装
-                # - 身份层：用户输入的 system_prompt_template（或默认身份模板）
-                # - 资源层：通过 ResourceInjector 动态注入
-                # - 控制层：从 prompts/ 目录加载（workflow/exceptions/delivery）
+            # ========== system_prompt 组装（独立 try-catch）==========
+            try:
+                # 分层组装：身份层 + 资源层 + 控制层
                 system_prompt = await assembler.assemble_system_prompt(
                     user_system_prompt=user_identity,
                     resource_context=resource_ctx,
                     **render_vars,
                 )
                 logger.info("PromptAssembler: 分层组装完成（身份层 + 资源层 + 控制层）")
-            else:
-                # 旧模式兼容：直接渲染完整模板
-                system_prompt = await assembler.assemble_system_prompt(
-                    user_system_prompt=user_identity,
-                    resource_context=resource_ctx,
-                    **render_vars,
-                )
-                logger.info("PromptAssembler: 旧模式兼容渲染完成")
+            except Exception as e:
+                logger.warning(f"PromptAssembler: system_prompt 组装失败，回退到默认 prompt: {e}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    from derisk.util.template_utils import render
+                    from datetime import datetime
 
-            user_prompt = await assembler.assemble_user_prompt(
-                user_prompt_prefix=user_prompt_prefix,
-                memory_content=None
-                if self.use_message_list_history
-                else memory_content,
-                question=user_question,
-                **render_vars,
-            )
+                    # 获取时间变量（回退时也需要）
+                    ctx = self.agent_context
+                    now_time_fallback = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    conv_start_time_fallback = getattr(ctx, "conv_start_time", "") if ctx else ""
+
+                    system_prompt = render(
+                        REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+                        {
+                            "agent_name": getattr(self.profile, "name", "Assistant")
+                            if hasattr(self, "profile")
+                            else "Assistant",
+                            "max_steps": "20",
+                            "resource_prompt": "",
+                            "sandbox_prompt": "",
+                            "sandbox": {"enable": False, "prompt": ""},
+                            "available_agents": "",
+                            "available_knowledges": "",
+                            "available_skills": "",
+                            "now_time": now_time_fallback,
+                            "conv_start_time": conv_start_time_fallback,
+                        },
+                    )
+                except Exception as render_error:
+                    logger.error(f"回退渲染也失败: {render_error}")
+                    system_prompt = "你是一个 AI 助手，请帮助用户完成任务。"
+
+            # ========== user_prompt 组装（独立 try-catch，不影响 system_prompt）==========
+            try:
+                # 移除 render_vars 中可能存在的 question，避免参数重复
+                # question 在 base_agent.py 的 _vm 中已注册，会出现在 bind_vars 中
+                user_render_vars = {k: v for k, v in render_vars.items() if k != 'question'}
+
+                user_prompt = await assembler.assemble_user_prompt(
+                    user_prompt_prefix=user_prompt_prefix,
+                    memory_content=None
+                    if self.use_message_list_history
+                    else memory_content,
+                    question=user_question,
+                    **user_render_vars,
+                )
+            except Exception as e:
+                logger.warning(f"PromptAssembler: user_prompt 组装失败，使用原始问题: {e}")
+                import traceback
+                traceback.print_exc()
+                # user_prompt 失败不影响 system_prompt，直接使用用户问题
+                user_prompt = user_question
 
         except Exception as e:
-            logger.warning(f"PromptAssembler: 组装失败，回退到默认 prompt: {e}")
+            # 外层异常：初始化阶段失败（assembler 创建、变量准备等）
+            logger.warning(f"PromptAssembler: 初始化阶段失败，回退到默认 prompt: {e}")
             import traceback
-
             traceback.print_exc()
+            from datetime import datetime
+            ctx = self.agent_context
+            now_time_fallback = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conv_start_time_fallback = getattr(ctx, "conv_start_time", "") if ctx else ""
             try:
                 from derisk.util.template_utils import render
-                from datetime import datetime
-
-                # 获取时间变量（回退时也需要）
-                ctx = self.agent_context
-                now_time_fallback = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                conv_start_time_fallback = getattr(ctx, "conv_start_time", "") if ctx else ""
-
                 system_prompt = render(
                     REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
                     {

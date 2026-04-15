@@ -143,6 +143,7 @@ class LoggingParameters(BaseParameters):
 def setup_logging_level(
     logging_level: Optional[str] = None, logger_name: Optional[str] = None
 ):
+    """Setup logging level without using basicConfig to prevent duplicate output."""
     if not logging_level:
         logging_level = _get_logging_level()
     if type(logging_level) is str:
@@ -151,7 +152,9 @@ def setup_logging_level(
         logger = logging.getLogger(logger_name)
         logger.setLevel(cast(str, logging_level))
     else:
-        logging.basicConfig(level=logging_level, encoding="utf-8")
+        # Set root logger level directly instead of using basicConfig
+        # This prevents duplicate handlers from being added
+        logging.getLogger().setLevel(cast(str, logging_level))
 
 
 def setup_logging(
@@ -171,11 +174,20 @@ def setup_logging(
 
     logger = _build_logger(logger_name, log_config, skip_stdout=has_coloredlogs)
 
+    # Only install coloredlogs if logger doesn't already have a console handler
+    # This prevents duplicate log output when logging.basicConfig was called earlier
     if has_coloredlogs:
         import coloredlogs
 
-        color_level = log_config.level if log_config.level else "INFO"
-        coloredlogs.install(level=color_level, logger=logger)
+        # Check if logger already has handlers that output to console
+        has_console_handler = any(
+            isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            for h in logger.handlers
+        )
+
+        if not has_console_handler:
+            color_level = log_config.level if log_config.level else "INFO"
+            coloredlogs.install(level=color_level, logger=logger)
     return logger
 
 
@@ -273,6 +285,18 @@ def _build_logger(
 
     handler = _get_handler()
     with _locker:
+        # For root logger, clear any handlers that might have been added by logging.basicConfig
+        # This prevents duplicate log output
+        if not logger_name:
+            # Remove basicConfig handlers (StreamHandler without specific formatter)
+            handlers_to_remove = [
+                h for h in logger.handlers
+                if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+                and not isinstance(h, DeRiskTimedRotatingFileHandler)
+            ]
+            for h in handlers_to_remove:
+                logger.removeHandler(h)
+
         logger.addHandler(handler)
         logger.setLevel(log_config.level if log_config.level else _get_logging_level())
 

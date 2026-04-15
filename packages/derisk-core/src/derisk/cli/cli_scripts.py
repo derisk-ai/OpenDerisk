@@ -3,12 +3,9 @@ import logging
 
 import click
 
-logging.basicConfig(
-    level=logging.WARNING,
-    encoding="utf-8",
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Removed logging.basicConfig to prevent duplicate log output
+# The actual logging setup is handled by derisk.util.logger.setup_logging
+# which is called during application initialization
 
 logger = logging.getLogger("derisk_cli")
 

@@ -192,11 +192,20 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(agent_selection_router, tags=["Agent Selection"])
     logger.info("[Core_v2] API routes registered at /api/v2")
 
-    # Monitoring Dashboard API routes
-    from derisk.agent.core_v2.monitoring_dashboard import create_dashboard_routes
+    # Monitoring Dashboard API routes - temporarily disabled
+    # from derisk.agent.core_v2.monitoring_dashboard import create_dashboard_routes
+    # app.include_router(create_dashboard_routes(), prefix="/api/v1", tags=["Monitoring"])
+    # logger.info("[Monitoring] Dashboard API routes registered at /api/v1/monitoring")
 
-    app.include_router(create_dashboard_routes(), prefix="/api/v1", tags=["Monitoring"])
-    logger.info("[Monitoring] Dashboard API routes registered at /api/v1/monitoring")
+    # Add a simple WebSocket handler to reject monitoring/ws connections gracefully
+    from fastapi import WebSocket, WebSocketDisconnect
+
+    @app.websocket("/api/v1/monitoring/ws")
+    async def monitoring_ws_reject(websocket: WebSocket):
+        """Gracefully reject monitoring WebSocket connections (service disabled)."""
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Monitoring WebSocket service is disabled"})
+        await websocket.close(code=1000, reason="Service disabled")
 
     # Streaming Configuration API routes
     from derisk_serve.streaming.api import router as streaming_config_router

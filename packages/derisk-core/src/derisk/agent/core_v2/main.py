@@ -144,16 +144,16 @@ class AgentApp:
                 return f"Mock执行: {tool_name}"
         
         return MockAgent(AgentInfo(name="mock-agent", max_steps=10))
-    
+
     async def start(self):
         """启动应用"""
         self._running = True
-        
+
+        # Use derisk's unified logging system instead of logging.basicConfig
+        # This prevents duplicate log output
         log_level = self.config.get("log_level", "INFO")
-        logging.basicConfig(
-            level=getattr(logging, log_level),
-            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-        )
+        from derisk.util.logger import setup_logging, LoggingParameters
+        setup_logging("derisk", LoggingParameters(level=log_level))
         
         logger.info("=" * 60)
         logger.info("[AgentApp] DeRisk Agent V2 正在启动...")

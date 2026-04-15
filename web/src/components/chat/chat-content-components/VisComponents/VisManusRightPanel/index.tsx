@@ -530,6 +530,183 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   Markdown to HTML helper for PDF export
+   ═══════════════════════════════════════════════════════════════ */
+
+/** Generate styled HTML document from markdown content for PDF export.
+ *  Uses GitHub-flavored markdown styling for consistent PDF output. */
+const renderMarkdownToHtml = (markdownContent: string, fileName?: string): string => {
+  // Standard GitHub markdown CSS styles for PDF export
+  const markdownStyles = `
+    /* GitHub Markdown Styles for PDF */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      font-size: 16px;
+      line-height: 1.6;
+      color: #24292f;
+      background: #ffffff;
+      padding: 40px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    h1 { font-size: 32px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
+    h2 { font-size: 24px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
+    h3 { font-size: 20px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+    h4 { font-size: 16px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+    h5 { font-size: 14px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+    h6 { font-size: 12px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; color: #57606a; }
+    p { margin: 0 0 16px; }
+    a { color: #0969da; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+      font-size: 13.6px;
+      padding: 2px 6px;
+      background: rgba(175, 184, 193, 0.2);
+      border-radius: 6px;
+    }
+    pre {
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+      font-size: 13.6px;
+      padding: 16px;
+      overflow-x: auto;
+      background: #f6f8fa;
+      border-radius: 6px;
+      margin: 0 0 16px;
+      line-height: 1.45;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+      font-size: inherit;
+    }
+    blockquote {
+      margin: 0 0 16px;
+      padding: 0 16px;
+      border-left: 4px solid #d0d7de;
+      color: #57606a;
+    }
+    blockquote p { margin: 0; }
+    ul, ol { margin: 0 0 16px; padding-left: 32px; }
+    li { margin: 4px 0; }
+    li + li { margin-top: 4px; }
+    table {
+      border-collapse: collapse;
+      margin: 0 0 16px;
+      width: 100%;
+      overflow: auto;
+    }
+    table th, table td {
+      padding: 6px 13px;
+      border: 1px solid #d0d7de;
+    }
+    table th { font-weight: 600; background: #f6f8fa; }
+    table tr { background: #ffffff; }
+    table tr:nth-child(2n) { background: #f6f8fa; }
+    hr { height: 2px; padding: 0; margin: 24px 0; background-color: #d0d7de; border: 0; }
+    img { max-width: 100%; box-sizing: content-box; background-color: #fff; }
+    .task-list-item { list-style-type: none; }
+    .task-list-item input { margin: 0 8px 0 -20px; vertical-align: middle; }
+    /* Syntax highlighting (light theme for PDF) */
+    .hljs-comment, .hljs-quote { color: #6e7781; }
+    .hljs-keyword, .hljs-selector-tag { color: #cf222e; }
+    .hljs-string, .hljs-attr { color: #0a3069; }
+    .hljs-number, .hljs-literal { color: #0550ae; }
+    .hljs-function, .hljs-title { color: #8250df; }
+    .hljs-variable, .hljs-template-variable { color: #24292f; }
+    .hljs-type, .hljs-class { color: #953800; }
+    /* Print/PDF optimizations */
+    @media print {
+      body { padding: 20px; }
+      pre { white-space: pre-wrap; word-wrap: break-word; }
+      h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
+      table, figure, img, pre { page-break-inside: avoid; }
+      a { color: #24292f !important; }
+    }
+  `;
+
+  // Simple markdown-to-HTML conversion (basic patterns)
+  let html = markdownContent;
+
+  // Escape HTML entities first
+  html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Code blocks (fenced with ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const langClass = lang ? ` class="language-${lang}"` : '';
+    return `<pre><code${langClass}>${code.trim()}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Headers
+  html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
+  html = html.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Bold and italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+  // Images
+  html = html.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+
+  // Blockquotes
+  html = html.replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>');
+
+  // Horizontal rule
+  html = html.replace(/^---$/gm, '<hr>');
+  html = html.replace(/^\*\*\*$/gm, '<hr>');
+
+  // Unordered lists (collect consecutive list items)
+  html = html.replace(/^(?:[-*] .+\n?)+/gm, (match) => {
+    const items = match.trim().split('\n').map(line => `<li>${line.replace(/^[-*] /, '')}</li>`).join('\n');
+    return `<ul>\n${items}\n</ul>`;
+  });
+
+  // Ordered lists (collect consecutive list items)
+  html = html.replace(/^(?:\d+\. .+\n?)+/gm, (match) => {
+    const items = match.trim().split('\n').map(line => `<li>${line.replace(/^\d+\. /, '')}</li>`).join('\n');
+    return `<ol>\n${items}\n</ol>`;
+  });
+
+  // Paragraphs (wrap remaining non-tagged blocks)
+  html = html.split('\n\n').map(block => {
+    const trimmed = block.trim();
+    if (trimmed && !/^<[hpuoblirtc]/.test(trimmed)) {
+      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+    }
+    return block;
+  }).join('\n');
+
+  const title = fileName ? fileName.replace(/\.[^.]+$/, '') : 'Markdown Document';
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <style>${markdownStyles}</style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+};
+
+/* ═══════════════════════════════════════════════════════════════
    Main component
    ═══════════════════════════════════════════════════════════════ */
 
@@ -628,178 +805,6 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     return undefined;
   }, [activeTab, deliverable_files]);
 
-  /* ── Markdown to HTML renderer for PDF export ── */
-  /** Generate styled HTML document from markdown content for PDF export.
-   *  Uses GitHub-flavored markdown styling for consistent PDF output. */
-  const renderMarkdownToHtml = useCallback((markdownContent: string, fileName?: string): string => {
-    // Standard GitHub markdown CSS styles for PDF export
-    const markdownStyles = `
-      /* GitHub Markdown Styles for PDF */
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        font-size: 16px;
-        line-height: 1.6;
-        color: #24292f;
-        background: #ffffff;
-        padding: 40px;
-        max-width: 960px;
-        margin: 0 auto;
-      }
-      h1 { font-size: 32px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
-      h2 { font-size: 24px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
-      h3 { font-size: 20px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
-      h4 { font-size: 16px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
-      h5 { font-size: 14px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
-      h6 { font-size: 12px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; color: #57606a; }
-      p { margin: 0 0 16px; }
-      a { color: #0969da; text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      strong { font-weight: 600; }
-      em { font-style: italic; }
-      code {
-        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-        font-size: 13.6px;
-        padding: 2px 6px;
-        background: rgba(175, 184, 193, 0.2);
-        border-radius: 6px;
-      }
-      pre {
-        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-        font-size: 13.6px;
-        padding: 16px;
-        overflow-x: auto;
-        background: #f6f8fa;
-        border-radius: 6px;
-        margin: 0 0 16px;
-        line-height: 1.45;
-      }
-      pre code {
-        background: transparent;
-        padding: 0;
-        font-size: inherit;
-      }
-      blockquote {
-        margin: 0 0 16px;
-        padding: 0 16px;
-        border-left: 4px solid #d0d7de;
-        color: #57606a;
-      }
-      blockquote p { margin: 0; }
-      ul, ol { margin: 0 0 16px; padding-left: 32px; }
-      li { margin: 4px 0; }
-      li + li { margin-top: 4px; }
-      table {
-        border-collapse: collapse;
-        margin: 0 0 16px;
-        width: 100%;
-        overflow: auto;
-      }
-      table th, table td {
-        padding: 6px 13px;
-        border: 1px solid #d0d7de;
-      }
-      table th { font-weight: 600; background: #f6f8fa; }
-      table tr { background: #ffffff; }
-      table tr:nth-child(2n) { background: #f6f8fa; }
-      hr { height: 2px; padding: 0; margin: 24px 0; background-color: #d0d7de; border: 0; }
-      img { max-width: 100%; box-sizing: content-box; background-color: #fff; }
-      .task-list-item { list-style-type: none; }
-      .task-list-item input { margin: 0 8px 0 -20px; vertical-align: middle; }
-      /* Syntax highlighting (light theme for PDF) */
-      .hljs-comment, .hljs-quote { color: #6e7781; }
-      .hljs-keyword, .hljs-selector-tag { color: #cf222e; }
-      .hljs-string, .hljs-attr { color: #0a3069; }
-      .hljs-number, .hljs-literal { color: #0550ae; }
-      .hljs-function, .hljs-title { color: #8250df; }
-      .hljs-variable, .hljs-template-variable { color: #24292f; }
-      .hljs-type, .hljs-class { color: #953800; }
-      /* Print/PDF optimizations */
-      @media print {
-        body { padding: 20px; }
-        pre { white-space: pre-wrap; word-wrap: break-word; }
-        h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
-        table, figure, img, pre { page-break-inside: avoid; }
-        a { color: #24292f !important; }
-      }
-    `;
-
-    // Simple markdown-to-HTML conversion (basic patterns)
-    // For more complex markdown, GPTVisLite or react-markdown should be used
-    let html = markdownContent;
-
-    // Escape HTML entities first
-    html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-    // Code blocks (fenced with ```)
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-      const langClass = lang ? ` class="language-${lang}"` : '';
-      return `<pre><code${langClass}>${code.trim()}</code></pre>`;
-    });
-
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Headers
-    html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
-    html = html.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
-    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-    // Bold and italic
-    html = html.replace(/\*\*\*(.+)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.+)\*/g, '<em>$1</em>');
-    html = html.replace(/___(.+)___/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/__(.+)__/g, '<strong>$1</strong>');
-    html = html.replace(/_(.+)_/g, '<em>$1</em>');
-
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-
-    // Images
-    html = html.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
-
-    // Blockquotes
-    html = html.replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>');
-
-    // Horizontal rule
-    html = html.replace(/^---$/gm, '<hr>');
-    html = html.replace(/^\*\*\*$ /gm, '<hr>');
-
-    // Unordered lists
-    html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n)+/g, '<ul>$&</ul>');
-
-    // Ordered lists
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-
-    // Paragraphs (wrap remaining lines)
-    html = html.split('\n\n').map(block => {
-      if (block.trim() && !/^<[hpuoblirtc]/.test(block.trim())) {
-        return `<p>${block.trim()}</p>`;
-      }
-      return block;
-    }).join('\n');
-
-    // Convert newlines to proper spacing
-    html = html.replace(/\n\n/g, '\n');
-
-    const title = fileName ? fileName.replace(/\.[^.]+$/, '') : 'Markdown Document';
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${title}</title>
-  <style>${markdownStyles}</style>
-</head>
-<body>
-${html}
-</body>
-</html>`;
-  }, []);
-
   /* ── PDF export handlers ── */
   const handleExportPDF = useCallback(async () => {
     // For deliverable files, fetch content and generate PDF from it
@@ -895,7 +900,7 @@ ${html}
     } finally {
       setExporting(false);
     }
-  }, [matchedDeliverable, renderMarkdownToHtml]);
+  }, [matchedDeliverable]);
 
   const handlePrint = useCallback(async () => {
     // For deliverable files, use a temp full-height iframe for accurate printing
@@ -997,7 +1002,7 @@ ${html}
     window.print();
     document.head.removeChild(style);
     container.removeAttribute('id');
-  }, [matchedDeliverable, renderMarkdownToHtml]);
+  }, [matchedDeliverable]);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     { key: 'export', icon: <DownloadOutlined />, label: '导出文件', onClick: handleExportPDF },

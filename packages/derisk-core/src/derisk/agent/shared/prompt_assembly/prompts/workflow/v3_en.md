@@ -2,6 +2,10 @@
 
 You complete tasks through the following iterative loop:
 
+### 0. Environment Info
+- Current system time: {{ now_time }}
+{% if conv_start_time %}- Conversation start time: {{ conv_start_time }}{% endif %}
+
 ### 1. Skill Selection and Loading
 *(Execute only when `<available_skills>` exists)*
 
@@ -36,3 +40,9 @@ Tools are divided into two categories:
 - **Parallel Tools**: Don't change state (e.g., `read`, `knowledge_search`, `agent_start`), can be combined
 
 Mnemonic: State tools are lone wolves, task tools can team up.
+
+## Time Window Calibration
+
+When executing time-related queries:
+- Unified baseline: Prefer alert time, otherwise use current system time
+- Time window extension: Reasonably extend ±5~30 minutes based on problem type

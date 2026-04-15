@@ -3,8 +3,7 @@ PromptAssembler - Prompt 分层组装器
 
 核心功能：
 1. 分层组装：身份层 + 资源层 + 控制层
-2. 新旧兼容：智能检测旧模式模板，自动适配
-3. 架构适配：支持 core_v1 和 core_v2 两种架构
+2. 架构适配：支持 core_v1 和 core_v2 两种架构
 
 分层结构：
 ┌─────────────────────────────────────────────────────────────────┐
@@ -17,20 +16,14 @@ PromptAssembler - Prompt 分层组装器
 │  Layer 3: 系统控制层（开发者维护的 workflow/exceptions/delivery）  │
 └─────────────────────────────────────────────────────────────────┘
 
-兼容逻辑：
-- 旧模式：检测到流程控制标记 → 直接使用用户模板
-- 新模式：无流程控制标记 → 分层组装
-
 设计原则：
 - 零前端改动：继续使用现有字段
 - 零接口改动：API 保持不变
-- 自动兼容：智能判断新旧模式
 """
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .prompt_registry import get_registry, PromptTemplate
@@ -40,14 +33,6 @@ if TYPE_CHECKING:
     from derisk.util.template_utils import render
 
 logger = logging.getLogger(__name__)
-
-
-class PromptMode(str, Enum):
-    """Prompt 模式"""
-
-    LEGACY = "legacy"  # 旧模式：完整模板直接使用
-    LAYERED = "layered"  # 新模式：分层组装
-    AUTO = "auto"  # 自动检测（默认）
 
 
 @dataclass
@@ -60,9 +45,6 @@ class PromptAssemblyConfig:
 
     # 架构版本
     architecture: str = "v1"  # "v1" or "v2"
-
-    # 模式：auto（自动检测）、legacy（强制旧模式）、layered（强制新模式）
-    mode: PromptMode = PromptMode.AUTO
 
     # 工作流版本
     workflow_version: str = "v3"
@@ -88,24 +70,6 @@ class PromptAssemblyConfig:
             "user_input",
             "context",
             "memory",  # 历史对话记录
-        ]
-    )
-
-    # 旧模式检测标记
-    legacy_markers: List[str] = field(
-        default_factory=lambda: [
-            "## 核心工作流",
-            "## 工作流程",
-            "## 异常处理机制",
-            "## 成果交付规范",
-            "Doom Loop",
-            "死循环检测",
-            "<available_agents>",
-            "<available_knowledges>",
-            "<available_skills>",
-            "### 环境信息",
-            "### 资源空间",
-            "## 资源空间",
         ]
     )
 
@@ -179,26 +143,14 @@ class PromptAssembler:
         组装完整的 System Prompt
 
         Args:
-            user_system_prompt: 用户输入的系统提示模板
-                - 旧模式：完整模板，直接使用
-                - 新模式：身份内容，替换 identity 模板
+            user_system_prompt: 用户输入的系统提示模板（身份层内容）
             resource_context: 资源上下文（用于注入资源层）
             **kwargs: 模板变量
 
         Returns:
             完整的 system prompt
         """
-        # 确定模式
-        mode = self._determine_mode(user_system_prompt)
-
-        if mode == PromptMode.LEGACY:
-            logger.info("Using legacy mode: direct template rendering")
-            return await self._render_legacy_template(
-                user_system_prompt, resource_context=resource_context, **kwargs
-            )
-
-        # 新模式：分层组装
-        logger.info("Using layered mode: assembling layers")
+        logger.info("Assembling system prompt with layered mode")
         sections = []
 
         # Layer 1: 身份层
@@ -316,7 +268,14 @@ class PromptAssembler:
         sections = []
         language = kwargs.get("language", self.config.language)
 
-        # 1. 工作流
+        # 确保时间变量存在（workflow 模板需要）
+        # 如果 kwargs 中没有传入，则自动生成
+        if "now_time" not in kwargs or not kwargs["now_time"]:
+            kwargs["now_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if "now" not in kwargs or not kwargs["now"]:
+            kwargs["now"] = datetime.now().strftime("%Y-%m-%d")
+
+        # 1. 工作流 - 需要渲染模板变量（如 now_time）
         workflow_version = kwargs.get("workflow_version", self.config.workflow_version)
         workflow_name = (
             f"{workflow_version}_{language}" if language != "zh" else workflow_version
@@ -325,7 +284,9 @@ class PromptAssembler:
         if not workflow:
             workflow = self.registry.get("workflow", workflow_version)
         if workflow:
-            sections.append(workflow.content)
+            # 渲染工作流模板，传入时间等变量
+            rendered_workflow = workflow.render(**kwargs)
+            sections.append(rendered_workflow)
         else:
             # 使用内置工作流
             sections.append(self._get_builtin_workflow(**kwargs))
@@ -348,71 +309,7 @@ class PromptAssembler:
 
         return "\n\n".join(sections)
 
-    # ==================== 模式检测与渲染 ====================
-
-    def _determine_mode(self, user_system_prompt: Optional[str]) -> PromptMode:
-        """
-        确定使用哪种模式
-
-        逻辑：
-        1. 如果配置了强制模式，使用配置的模式
-        2. 如果是 auto 模式，检测是否包含旧模式标记
-        """
-        if self.config.mode != PromptMode.AUTO:
-            return self.config.mode
-
-        # 自动检测
-        if self._is_legacy_mode(user_system_prompt):
-            return PromptMode.LEGACY
-
-        return PromptMode.LAYERED
-
-    def _is_legacy_mode(self, system_prompt_template: Optional[str]) -> bool:
-        """
-        判断是否是旧模式（完整模板）
-
-        检测逻辑：
-        - 包含流程控制标记 → 旧模式
-        - 不包含 → 新模式
-        """
-        if not system_prompt_template:
-            return False
-
-        for marker in self.config.legacy_markers:
-            if marker in system_prompt_template:
-                logger.info(f"Detected legacy mode: found marker '{marker}'")
-                return True
-
-        return False
-
-    async def _render_legacy_template(
-        self,
-        template: Optional[str],
-        resource_context: Optional[ResourceContext] = None,
-        **kwargs,
-    ) -> str:
-        """渲染旧模式模板（保持原有逻辑）
-
-        Args:
-            template: 用户提供的完整模板
-            resource_context: 资源上下文，用于提取 sandbox、agents 等变量
-            **kwargs: 其他变量
-        """
-        if not template:
-            return ""
-
-        try:
-            from derisk.util.template_utils import render
-        except ImportError:
-            # 回退到简单替换
-            return await self._render_with_user_variables(template, **kwargs)
-
-        # 构建变量上下文，包含资源变量
-        context = self._build_render_context(
-            resource_context=resource_context, **kwargs
-        )
-
-        return render(template, context)
+    # ==================== 用户变量渲染 ====================
 
     async def _render_with_user_variables(self, content: str, **kwargs) -> str:
         """渲染用户内容，支持完整 Jinja2 语法
@@ -663,7 +560,6 @@ You complete tasks through the following iterative loop:
 
 def create_prompt_assembler(
     architecture: str = "v1",
-    mode: PromptMode = PromptMode.AUTO,
     workflow_version: str = "v3",
     language: str = "zh",
     **kwargs,
@@ -673,7 +569,6 @@ def create_prompt_assembler(
 
     Args:
         architecture: 架构版本 "v1" 或 "v2"
-        mode: 模式 AUTO/LEGACY/LAYERED
         workflow_version: 工作流版本
         language: 语言
         **kwargs: 其他配置
@@ -683,7 +578,6 @@ def create_prompt_assembler(
     """
     config = PromptAssemblyConfig(
         architecture=architecture,
-        mode=mode,
         workflow_version=workflow_version,
         language=language,
         **kwargs,

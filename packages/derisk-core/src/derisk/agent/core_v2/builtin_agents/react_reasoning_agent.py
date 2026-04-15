@@ -694,13 +694,6 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             # 构建资源上下文
             resource_ctx = ResourceContext.from_v2_agent(self)
 
-            # 获取时间变量
-            # core_v2 没有继承 ConversableAgent，所以没有 _vm 变量管理器
-            # 直接生成时间值
-            from datetime import datetime
-            now_value = datetime.now().strftime("%Y-%m-%d")
-            now_time_value = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
             # 使用 PromptAssembler 组装
             system_prompt = await assembler.assemble_system_prompt(
                 user_system_prompt=user_system_prompt,
@@ -708,8 +701,6 @@ class ReActReasoningAgent(BaseBuiltinAgent):
                 agent_name=self.info.name,
                 max_steps=getattr(self.info, "max_steps", 20),
                 language="zh",
-                now=now_value,
-                now_time=now_time_value,
             )
 
             logger.info("[ReActReasoningAgent] 使用 PromptAssembler 分层组装")

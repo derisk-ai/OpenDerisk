@@ -9,8 +9,7 @@ from typing_extensions import Annotated, Doc
 from derisk.agent.resource import tool
 from derisk_serve.agent.resource.func_registry import derisk_tool
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# 使用 derisk 统一日志系统，不调用 logging.basicConfig 以防止重复输出
 logger = logging.getLogger(__name__)
 
 

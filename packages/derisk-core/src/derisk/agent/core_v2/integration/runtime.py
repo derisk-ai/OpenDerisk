@@ -1370,6 +1370,20 @@ class V2AgentRuntime:
                         logger.info(
                             f"[V2Runtime] 生成 vis_window3 最终视图 (含 SystemEvents): {conv_id[:8]}"
                         )
+                        # 🔧 修复：推送最终 SystemEvents 状态到前端，确保停止转圈
+                        # 生成的最终视图包含正确的 is_running=False 状态，需要推送到前端
+                        if self.gpts_memory:
+                            try:
+                                cache = await self.gpts_memory._get_cache(conv_id)
+                                if cache and cache.channel:
+                                    cache.channel.put_nowait(vis_view)
+                                    logger.info(
+                                        f"[V2Runtime] 推送最终 SystemEvents 视图到前端: {conv_id[:8]}"
+                                    )
+                            except Exception as e:
+                                logger.warning(
+                                    f"[V2Runtime] 推送最终 SystemEvents 视图失败: {e}"
+                                )
                 except Exception as e:
                     logger.warning(
                         f"[V2Runtime] 生成 vis_window3 最终视图失败，回退到纯文本: {e}"

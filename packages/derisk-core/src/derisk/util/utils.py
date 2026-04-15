@@ -72,6 +72,7 @@ class LoggingParameters(BaseParameters):
 def setup_logging_level(
     logging_level: Optional[str] = None, logger_name: Optional[str] = None
 ):
+    """Setup logging level without using basicConfig to prevent duplicate output."""
     if not logging_level:
         logging_level = _get_logging_level()
     if type(logging_level) is str:
@@ -80,7 +81,9 @@ def setup_logging_level(
         logger = logging.getLogger(logger_name)
         logger.setLevel(cast(str, logging_level))
     else:
-        logging.basicConfig(level=logging_level, encoding="utf-8")
+        # Set root logger level directly instead of using basicConfig
+        # This prevents duplicate handlers from being added
+        logging.getLogger().setLevel(cast(str, logging_level))
 
 
 def setup_logging(
@@ -100,11 +103,20 @@ def setup_logging(
         logging_level = _get_logging_level()
     logger_filename = resolve_root_path(logger_filename)
     logger = _build_logger(logger_name, logging_level, logger_filename, redirect_stdio)
+
+    # Only install coloredlogs if logger doesn't already have a console handler
+    # This prevents duplicate log output
     try:
         import coloredlogs
 
-        color_level = logging_level if logging_level else "INFO"
-        coloredlogs.install(level=color_level, logger=logger)
+        has_console_handler = any(
+            isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            for h in logger.handlers
+        )
+
+        if not has_console_handler:
+            color_level = logging_level if logging_level else "INFO"
+            coloredlogs.install(level=color_level, logger=logger)
     except ImportError:
         pass
 

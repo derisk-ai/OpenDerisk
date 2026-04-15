@@ -813,37 +813,28 @@ class ConversableAgent(Role, Agent):
         return tool_ids if tool_ids else None
 
     async def _inject_default_tools(self, sandbox_enabled: bool = False):
-        """注入默认工具（当无绑定配置时）"""
+        """注入默认工具（当无绑定配置时）
+
+        只注入 tool_manager.BUILTIN_CORE_TOOLS + BASIC_TOOLS 中定义的默认工具，
+        不注入整个类别的所有工具。
+        """
         from ..tools.registry import tool_registry
-        from ..tools.base import ToolCategory
+        from ..tools.tool_manager import tool_manager
 
-        # 文件系统工具
-        file_tools = tool_registry.get_by_category(ToolCategory.FILE_SYSTEM)
-        for tool in file_tools:
-            if tool.metadata.name not in self.available_system_tools:
+        # 默认工具 = 核心必选工具 + 基础工具
+        default_tool_ids = set(tool_manager.BUILTIN_CORE_TOOLS) | set(tool_manager.BASIC_TOOLS)
+
+        injected_count = 0
+        for tool_id in default_tool_ids:
+            tool = tool_registry.get(tool_id)
+            if tool and tool.metadata.name not in self.available_system_tools:
                 self.available_system_tools[tool.metadata.name] = tool
+                injected_count += 1
+
         logger.info(
-            f"[system_tool_injection] Injected {len(file_tools)} FILE_SYSTEM tools (default)"
+            f"[system_tool_injection] Injected {injected_count} default tools "
+            f"(BUILTIN_CORE + BASIC_TOOLS)"
         )
-
-        # Shell 工具
-        shell_tools = tool_registry.get_by_category(ToolCategory.SHELL)
-        for tool in shell_tools:
-            if tool.metadata.name not in self.available_system_tools:
-                self.available_system_tools[tool.metadata.name] = tool
-        logger.info(
-            f"[system_tool_injection] Injected {len(shell_tools)} SHELL tools (default)"
-        )
-
-        # 网络工具
-        network_tools = tool_registry.get_by_category(ToolCategory.NETWORK)
-        for tool in network_tools:
-            if tool.metadata.name not in self.available_system_tools:
-                self.available_system_tools[tool.metadata.name] = tool
-        if network_tools:
-            logger.info(
-                f"[system_tool_injection] Injected {len(network_tools)} NETWORK tools (default)"
-            )
 
     async def _inject_resource_based_tools(self):
         """根据绑定资源注入知识、Agent 和数据库系统工具"""
@@ -2430,18 +2421,31 @@ class ConversableAgent(Role, Agent):
         agent_variables = self._vm.get_all_variables()
         if agent_variables:
             for k, v in agent_variables.items():
-                variable_values[k] = await self._vm.get_value(
-                    k,
-                    instance=self,
-                    agent_context=self.not_null_agent_context,
-                    received_message=received_message,
-                    sender=sender,
-                    rely_messages=rely_messages,
-                    historical_dialogues=historical_dialogues,
-                    context=context,
-                    resource_info=resource_info,
-                    **kwargs,
-                )
+                try:
+                    variable_values[k] = await self._vm.get_value(
+                        k,
+                        instance=self,
+                        agent_context=self.not_null_agent_context,
+                        received_message=received_message,
+                        sender=sender,
+                        rely_messages=rely_messages,
+                        historical_dialogues=historical_dialogues,
+                        context=context,
+                        resource_info=resource_info,
+                        **kwargs,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to get variable '{k}': {e}")
+                    # 对于时间变量，使用 fallback 值
+                    if k == "now_time":
+                        from datetime import datetime
+                        variable_values[k] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        logger.info(f"Using fallback now_time: {variable_values[k]}")
+                    elif k == "now":
+                        from datetime import datetime
+                        variable_values[k] = datetime.now().strftime("%Y-%m-%d")
+                    elif k == "conv_start_time":
+                        variable_values[k] = getattr(self.agent_context, "conv_start_time", None) if self.agent_context else None
 
         for param in self.dynamic_variables:
             if param.type == DynamicParamType.SYSTEM.value:
