@@ -1,4 +1,5 @@
 export const CommonEn = {
+  logout: 'Logout',
   Knowledge_Space: 'Knowledge',
   space: 'space',
   Vector: 'Vector',
@@ -932,6 +933,7 @@ export const CommonEn = {
 
   // Audit Logs
   audit_logs_title: 'Audit Logs',
+  user_management: 'User Management',
   system_config: 'System Config',
   plugin_market: 'Plugin Market',
   plugin_market_page_desc:
@@ -986,6 +988,9 @@ export const CommonEn = {
   plugin_user_groups_add_by_id: 'Add by ID',
   plugin_user_groups_invalid_user_id: 'Enter a valid positive integer user id',
   plugin_user_groups_already_member: 'User is already in this group',
+  plugin_user_groups_moved_title: 'Group management moved',
+  plugin_user_groups_moved_desc:
+    'To avoid overlap with RBAC, manage groups and members in Settings -> Identity Management -> User Groups. This section now only keeps the plugin switch.',
   audit_logs_description: 'Tool authorization audit trail and security monitoring',
   audit_total_checks: 'Total Checks',
   audit_granted: 'Granted',

@@ -8,6 +8,7 @@ import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Image from 'next/image';
 import { SmartPluginIcon } from '@/components/icons/smart-plugin-icon';
+import { useUserPermissions } from '@/hooks/use-user-permissions';
 
 interface AgentHeaderProps {
   activeTab: string;
@@ -30,6 +31,7 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
   const { t } = useTranslation();
   const { modal } = App.useApp();
   const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const { hasPermission } = useUserPermissions();
   const {
     appInfo,
     refreshAppInfo,
@@ -62,6 +64,8 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
     });
     setPublishModalOpen(false);
   };
+
+  const canPublishAgent = hasPermission('agent', 'write') || hasPermission('agent', 'admin');
 
   const versionItems = useMemo(() => {
     return (
@@ -133,6 +137,7 @@ export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps
             className="border-none shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30 transition-all duration-300 rounded-xl h-9 px-5 font-medium bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600"
             onClick={() => setPublishModalOpen(true)}
             loading={fetchPublishAppLoading}
+            disabled={!canPublishAgent}
           >
             {t('builder_publish')}
           </Button>

@@ -39,6 +39,7 @@ import ChatIcon from '../icons/chat-icon';
 import MenuList from './menlist';
 import UserBar from './user-bar';
 import copy from 'copy-to-clipboard';
+import { useUserPermissions } from '@/hooks/use-user-permissions';
 
 type SettingItem = {
   key: string;
@@ -203,6 +204,7 @@ function SideBar() {
   const [dialogueLists, setDialogueLists] = useState<DialogueListItem[]>([]);
   const [searchValue, setSearchValue] = useState<string>('');
   const [oauthEnabled, setOauthEnabled] = useState(false);
+  const { hasResourceRead } = useUserPermissions();
 
   useEffect(() => {
     authService.getOAuthStatus().then((s) => setOauthEnabled(s.enabled));
@@ -390,125 +392,143 @@ function SideBar() {
 
   const functions = useMemo(() => {
     const currentAppCode = searchParams?.get('app_code');
-    const items: RouteItem[] = [
-      // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
-      // ...appLists, // Remove appList from menu items since we have a new way to start chats
-      // Removed duplicate 'chat_online' item as it is already handled by the "New Dialogue" button
-      // ...appLists, // Remove appList from menu items since we have a new way to start chats
+
+    // Filter application children based on permissions
+    const applicationChildren: RouteItem[] = [
+      // explore_agents requires agent:read
+      ...(hasResourceRead('agent') ? [{
+        key: 'explore',
+        name: t('explore_agents'),
+        isActive: pathname.startsWith('/application/explore'),
+        icon: <SearchOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/application/explore',
+      }] : []),
+      // agents page requires agent:read
+      ...(hasResourceRead('agent') ? [{
+        key: 'agents',
+        name: t('Agents'),
+        isActive: pathname.startsWith('/application/app'),
+        icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/application/app',
+      }] : []),
+      // agent_skills requires tool:read
+      ...(hasResourceRead('tool') ? [{
+        key: 'agent_skills',
+        name: t('agent_skills'),
+        isActive: pathname.startsWith('/agent-skills'),
+        icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/agent-skills',
+      }] : []),
+      // MCP requires tool:read
+      ...(hasResourceRead('tool') ? [{
+        key: 'MCP',
+        name: 'MCP',
+        isActive: pathname.startsWith('/mcp'),
+        icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/mcp',
+      }] : []),
+    ];
+
+    // Filter configuration management children based on permissions
+    const configChildren: RouteItem[] = [
+      // models requires model:read
+      ...(hasResourceRead('model') ? [{
+        key: 'models',
+        name: t('model_manage'),
+        isActive: pathname.startsWith('/models'),
+        icon: (
+          <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
+        ),
+        path: '/models',
+      }] : []),
+      // cron - no specific permission required yet
       {
+        key: 'cron',
+        name: t('cron_page_title'),
+        isActive: pathname.startsWith('/cron'),
+        icon: <ClockCircleOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/cron',
+      },
+      // channel - no specific permission required yet
+      {
+        key: 'channel',
+        name: t('channel_page_title'),
+        isActive: pathname.startsWith('/channel'),
+        icon: <ApiOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/channel',
+      },
+      // vis_merge_test - no specific permission required yet
+      {
+        key: 'vis_merge_test',
+        name: 'GUI',
+        isActive: pathname.startsWith('/vis-merge-test'),
+        icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/vis-merge-test',
+      },
+      // system_config requires admin/system permissions
+      {
+        key: 'system_config',
+        name: t('system_config'),
+        isActive: pathname.startsWith('/settings/config'),
+        icon: <SettingOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/settings/config',
+      },
+      // plugin_market requires tool:read (plugins are tools)
+      ...(hasResourceRead('tool') ? [{
+        key: 'plugin_market',
+        name: t('plugin_market'),
+        isActive: pathname.startsWith('/settings/plugin-market'),
+        icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/settings/plugin-market',
+      }] : []),
+      // audit_logs - admin only
+      {
+        key: 'audit_logs',
+        name: t('audit_logs_title'),
+        isActive: pathname.startsWith('/audit-logs'),
+        icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/audit-logs',
+      },
+      // permissions - admin only (includes user management and custom permissions)
+      {
+        key: 'permissions',
+        name: t('permissions_title'),
+        isActive: pathname.startsWith('/settings/permissions'),
+        icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/settings/permissions',
+      },
+      // monitoring - no specific permission required yet
+      {
+        key: 'monitoring',
+        name: t('monitoring_page_title'),
+        isActive: pathname.startsWith('/monitoring'),
+        icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/monitoring',
+      },
+    ];
+
+    const items: RouteItem[] = [
+      // Only show application section if there are visible children
+      ...(applicationChildren.length > 0 ? [{
         key: 'application',
         name: t('application'),
         icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
         path: '/',
-        children: [
-          {
-            key: 'explore',
-            name: t('explore_agents'),
-            isActive: pathname.startsWith('/application/explore'),
-            icon: <SearchOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/application/explore',
-          },
-          {
-            key: 'agents',
-            name: t('Agents'),
-            isActive: pathname.startsWith('/application/app'),
-            icon: <RobotOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/application/app',
-          },
-          {
-            key: 'agent_skills',
-            name: t('agent_skills'),
-            isActive: pathname.startsWith('/agent-skills'),
-            icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/agent-skills',
-          },
-          {
-            key: 'MCP',
-            name: 'MCP',
-            isActive: pathname.startsWith('/mcp'),
-            icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/mcp',
-          },
-        ],
+        children: applicationChildren,
         isActive: pathname.startsWith('/application') || pathname.startsWith('/agent-skills') || pathname.startsWith('/mcp'),
-      },
+      }] : []),
+      // Always show configuration management (some items are always visible)
       {
         key: 'configuration_management',
         name: t('configuration_management'),
         icon: <SettingOutlined />,
         path: '/',
-        children: [
-          {
-            key: 'models',
-            name: t('model_manage'),
-            isActive: pathname.startsWith('/models'),
-            icon: (
-              <Icon component={ModelSvg} className='w-5 h-5 text-gray-500' />
-            ),
-            path: '/models',
-          },
-          {
-            key: 'cron',
-            name: t('cron_page_title'),
-            isActive: pathname.startsWith('/cron'),
-            icon: <ClockCircleOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/cron',
-          },
-          {
-            key: 'channel',
-            name: t('channel_page_title'),
-            isActive: pathname.startsWith('/channel'),
-            icon: <ApiOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/channel',
-          },
-          {
-            key: 'vis_merge_test',
-            name: 'GUI',
-            isActive: pathname.startsWith('/vis-merge-test'),
-            icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/vis-merge-test',
-          },
-          {
-            key: 'system_config',
-            name: t('system_config'),
-            isActive: pathname.startsWith('/settings/config'),
-            icon: <SettingOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/settings/config',
-          },
-          {
-            key: 'plugin_market',
-            name: t('plugin_market'),
-            isActive: pathname.startsWith('/settings/plugin-market'),
-            icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/settings/plugin-market',
-          },
-          {
-            key: 'audit_logs',
-            name: t('audit_logs_title'),
-            isActive: pathname.startsWith('/audit-logs'),
-            icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/audit-logs',
-          },
-          {
-            key: 'monitoring',
-            name: t('monitoring_page_title'),
-            isActive: pathname.startsWith('/monitoring'),
-            icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/monitoring',
-          },
-          ...(oauthEnabled ? [{
-            key: 'user_management',
-            name: '用户管理',
-            isActive: pathname.startsWith('/users'),
-            icon: <TeamOutlined className='w-5 h-5 text-gray-500' />,
-            path: '/users',
-          }] : []),
-        ],
-        isActive: pathname.startsWith('/models') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring') || (oauthEnabled && pathname.startsWith('/users')),
+        children: configChildren,
+        isActive: pathname.startsWith('/models') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/settings/permissions') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring'),
       },
     ];
     return items;
-  }, [t, pathname, appLists, oauthEnabled]);
+  }, [t, pathname, appLists, oauthEnabled, hasResourceRead]);
 
   useEffect(() => {
     const language = i18n.language;

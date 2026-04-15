@@ -144,6 +144,10 @@ class OAuth2Config(BaseModel):
     admin_users: List[str] = Field(
         default_factory=list,
     )
+    default_role: str = Field(
+        default="viewer",
+        description="新OAuth2用户首次登录时分配的默认角色 (guest/viewer/operator/editor/admin)",
+    )
 
 
 class LLMProviderModelConfig(BaseModel):

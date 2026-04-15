@@ -7,6 +7,7 @@ interface Resources {
 }
 
 export const CommonZh: Resources['translation'] = {
+  logout: '退出登录',
   Knowledge_Space: '知识库',
   space: '知识库',
   Vector: '向量',
@@ -999,6 +1000,7 @@ export const CommonZh: Resources['translation'] = {
   tool_execute_code_param: '代码内容',
   // Audit Logs (审计日志)
   audit_logs_title: '审计日志',
+  user_management: '用户管理',
   system_config: '系统配置',
   plugin_market: '插件市场',
   plugin_market_page_desc: '浏览并启用内置功能扩展；与技能市场 / Git 插件仓不同。',
@@ -1051,6 +1053,9 @@ export const CommonZh: Resources['translation'] = {
   plugin_user_groups_add_by_id: '按 ID 加入',
   plugin_user_groups_invalid_user_id: '请输入有效的用户 ID（正整数）',
   plugin_user_groups_already_member: '该用户已在分组中',
+  plugin_user_groups_moved_title: '权限组管理入口已迁移',
+  plugin_user_groups_moved_desc:
+    '为避免与 RBAC 重复，分组与成员管理请前往「设置 → 身份管理 → 用户组」。本处仅保留插件开关。',
   audit_logs_description: '工具授权审计追踪与安全监控',
   audit_total_checks: '总检查次数',
   audit_granted: '已授权',

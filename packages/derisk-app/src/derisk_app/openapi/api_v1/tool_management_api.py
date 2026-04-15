@@ -7,7 +7,7 @@ Tool Management API - 工具管理API
 import json
 import logging
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,8 @@ from derisk.agent.tools.tool_manager import (
     AgentToolConfiguration,
 )
 from derisk.agent.tools.registry import tool_registry, register_builtin_tools
+from derisk_serve.utils.auth import UserRequest
+from derisk_app.feature_plugins.permissions.checker import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -358,9 +360,12 @@ async def get_agent_tool_config(
 
 
 @router.post("/binding/update")
-async def update_tool_binding(request: ToolBindingUpdateRequest):
+async def update_tool_binding(
+    request: ToolBindingUpdateRequest,
+    user: UserRequest = Depends(require_permission("tool", "manage")),
+):
     """
-    更新单个工具绑定状态
+    更新单个工具绑定状态（需要 tool:manage 权限）
 
     用于绑定或解绑工具
     """
@@ -389,9 +394,12 @@ async def update_tool_binding(request: ToolBindingUpdateRequest):
 
 
 @router.post("/binding/batch-update")
-async def batch_update_tool_bindings(request: BatchToolBindingUpdateRequest):
+async def batch_update_tool_bindings(
+    request: BatchToolBindingUpdateRequest,
+    user: UserRequest = Depends(require_permission("tool", "manage")),
+):
     """
-    批量更新工具绑定状态
+    批量更新工具绑定状态（需要 tool:manage 权限）
 
     用于一次性更新多个工具的绑定状态
     """

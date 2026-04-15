@@ -137,6 +137,7 @@ export interface OAuth2Config {
   enabled: boolean;
   providers: OAuth2ProviderConfig[];
   admin_users?: string[];
+  default_role?: string;
 }
 
 export interface SecretConfig {
@@ -285,6 +286,7 @@ class ConfigService {
     enabled?: boolean;
     settings?: Record<string, unknown>;
   }): Promise<FeaturePluginEntry> {
+    // When updating access_control, the backend will automatically update user_groups and permissions
     const response = await axios.post(`${API_BASE}/config/feature-plugins`, body);
     return response.data.data;
   }
@@ -362,6 +364,53 @@ class ConfigService {
   }
 }
 
+export interface KnowledgeSpace {
+  id: string | number;
+  name: string;
+  desc?: string;
+  vector_type?: string;
+  domain_type?: string;
+}
+
+export interface CachedModels {
+  models: string[];
+  model_keys: string[];
+  total: number;
+}
+
+class KnowledgeService {
+  async listSpaces(): Promise<KnowledgeSpace[]> {
+    const response = await axios.post(`${API_BASE}/knowledge/space/list`, {});
+    return response.data.data || [];
+  }
+}
+
+export interface ModelData {
+  model_name: string;
+  worker_type: string;
+  host: string;
+  port: number;
+  healthy: boolean;
+}
+
+class ModelService {
+  async listModels(): Promise<CachedModels> {
+    const response = await axios.get(`${API_BASE}/config/model-cache/models`);
+    return response.data.data;
+  }
+
+  async getAgentLLMConfig(): Promise<AgentLLMConfig> {
+    const response = await axios.get(`${API_BASE}/config/current`);
+    return response.data.data.agent_llm;
+  }
+
+  // 从模型管理服务获取模型列表（与模型管理界面一致）
+  async getModelList(): Promise<ModelData[]> {
+    const response = await axios.get('/api/v2/serve/model/models');
+    return response.data.data || [];
+  }
+}
+
 class ToolsService {
   async listTools(): Promise<ToolInfo[]> {
     const response = await axios.get(`${API_BASE}/tools/list`);
@@ -409,4 +458,6 @@ class ToolsService {
 }
 
 export const configService = new ConfigService();
+export const knowledgeService = new KnowledgeService();
+export const modelService = new ModelService();
 export const toolsService = new ToolsService();

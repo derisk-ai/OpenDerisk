@@ -63,6 +63,10 @@ class UsersService {
     const res = await axios.patch(`${API_BASE}/users/${id}`, patch);
     return res.data.data as User;
   }
+
+  async deleteUser(id: number): Promise<void> {
+    await axios.delete(`${API_BASE}/users/${id}`);
+  }
 }
 
 export const usersService = new UsersService();

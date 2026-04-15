@@ -40,6 +40,14 @@ const PROVIDER_TYPE_OPTIONS = [
   { value: 'custom', label: <span>自定义 OAuth2</span> },
 ];
 
+const DEFAULT_ROLE_OPTIONS = [
+  { value: 'guest', label: '访客 (Guest) - 仅模型和监控' },
+  { value: 'viewer', label: '观察者 (Viewer) - 只读访问' },
+  { value: 'operator', label: '操作员 (Operator) - 可执行不可配置' },
+  { value: 'editor', label: '编辑者 (Editor) - 读写执行' },
+  { value: 'admin', label: '管理员 (Admin) - 完全权限' },
+];
+
 /** Masked display of a secret */
 function MaskedValue({ value }: { value?: string }) {
   if (!value) return <span className='text-gray-300 italic text-sm'>未填写</span>;
@@ -351,28 +359,38 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     loadOAuth2Config();
   }, []);
 
+  // Debug: log form values when they change
+  const watchedValues = Form.useWatch([], form);
+  useEffect(() => {
+    console.log('Form values changed:', watchedValues);
+  }, [watchedValues]);
+
   const loadOAuth2Config = async () => {
     setLoading(true);
     try {
       const data = await configService.getOAuth2Config();
       const isBuiltInType = (type: string) => type === 'github' || type === 'alibaba-inc';
-      const providers = data.providers?.length
+
+      // Preserve empty providers array from backend - don't create default empty provider
+      // This prevents accidentally overwriting existing config with empty defaults
+      const providers = Array.isArray(data.providers)
         ? data.providers.map(p => ({
             provider_type: p.type || 'github',
             custom_id: !isBuiltInType(p.type) ? p.id : undefined,
-            client_id: p.client_id,
-            client_secret: p.client_secret,
+            client_id: p.client_id || '',
+            client_secret: p.client_secret || '',
             authorization_url: p.authorization_url,
             token_url: p.token_url,
             userinfo_url: p.userinfo_url,
             scope: p.scope,
           }))
-        : [{ provider_type: 'github', client_id: '', client_secret: '' }];
+        : [];
 
       form.setFieldsValue({
-        enabled: data.enabled,
-        providers,
+        enabled: data.enabled ?? false,
+        providers: providers.length > 0 ? providers : [{ provider_type: 'github', client_id: '', client_secret: '' }],
         admin_users_text: (data.admin_users || []).join(', '),
+        default_role: data.default_role || 'viewer',
       });
 
       // Loaded providers with missing credentials start in edit mode; others lock
@@ -388,7 +406,13 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
     }
   };
 
+  const handleSaveFailed = (errorInfo: any) => {
+    console.error('Form validation failed:', errorInfo);
+    message.error('表单验证失败，请检查必填项');
+  };
+
   const handleSave = async (values: any) => {
+    console.log('Form submitted with values:', values);
     setSaving(true);
     try {
       const providers: OAuth2ProviderConfig[] = (values.providers || [])
@@ -422,6 +446,7 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
         enabled: !!values.enabled,
         providers,
         admin_users,
+        default_role: values.default_role || 'viewer',
       });
       message.success('OAuth2 配置已保存');
       try {
@@ -438,7 +463,13 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
   };
 
   return (
-    <Form form={form} layout='vertical' onFinish={handleSave} initialValues={{ enabled: false }}>
+    <Form
+      form={form}
+      layout='vertical'
+      onFinish={handleSave}
+      onFinishFailed={handleSaveFailed}
+      initialValues={{ enabled: false, default_role: 'viewer' }}
+    >
       {/* 总开关 */}
       <div className='flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 mb-5'>
         <div>
@@ -465,6 +496,22 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
             className='mb-5'
           >
             <Input placeholder='user1, user2, user3（逗号分隔 GitHub 用户名）' />
+          </Form.Item>
+
+          <Form.Item
+            name='default_role'
+            label={
+              <span>
+                默认用户角色{' '}
+                <Tooltip title='新用户首次通过 OAuth2 登录时自动分配的角色，已登录用户角色不变'>
+                  <QuestionCircleOutlined className='text-gray-400' />
+                </Tooltip>
+              </span>
+            }
+            rules={[{ required: true, message: '请选择默认用户角色' }]}
+            className='mb-5'
+          >
+            <Select options={DEFAULT_ROLE_OPTIONS} placeholder='请选择默认角色' />
           </Form.Item>
 
           <div className='text-sm font-medium text-gray-700 mb-2'>登录提供商</div>
@@ -516,9 +563,35 @@ export default function OAuth2ConfigSection({ onChange }: OAuth2ConfigSectionPro
         <div className='text-sm text-gray-400 mb-5'>关闭时系统无需登录，使用默认匿名用户访问。</div>
       )}
 
-      <Button type='primary' htmlType='submit' loading={saving}>
-        保存配置
-      </Button>
+      <div className='flex gap-3'>
+        <Button type='primary' htmlType='submit' loading={saving} disabled={loading}>
+          保存配置
+        </Button>
+        <Button
+          onClick={async () => {
+            try {
+              const currentValues = form.getFieldsValue();
+              console.log('Current form values:', currentValues);
+              message.info('表单值已打印到控制台');
+
+              // Test API call
+              const testResult = await configService.updateOAuth2Config({
+                enabled: currentValues.enabled,
+                providers: [],
+                admin_users: [],
+                default_role: currentValues.default_role || 'viewer',
+              });
+              console.log('Test API result:', testResult);
+              message.success('测试保存成功');
+            } catch (e: any) {
+              console.error('Test failed:', e);
+              message.error('测试失败: ' + e.message);
+            }
+          }}
+        >
+          测试保存
+        </Button>
+      </div>
     </Form>
   );
 }
