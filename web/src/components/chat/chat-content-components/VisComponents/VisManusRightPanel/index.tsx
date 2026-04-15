@@ -628,16 +628,213 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     return undefined;
   }, [activeTab, deliverable_files]);
 
+  /* ── Markdown to HTML renderer for PDF export ── */
+  /** Generate styled HTML document from markdown content for PDF export.
+   *  Uses GitHub-flavored markdown styling for consistent PDF output. */
+  const renderMarkdownToHtml = useCallback((markdownContent: string, fileName?: string): string => {
+    // Standard GitHub markdown CSS styles for PDF export
+    const markdownStyles = `
+      /* GitHub Markdown Styles for PDF */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        font-size: 16px;
+        line-height: 1.6;
+        color: #24292f;
+        background: #ffffff;
+        padding: 40px;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1 { font-size: 32px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
+      h2 { font-size: 24px; font-weight: 600; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #d0d7de; line-height: 1.25; }
+      h3 { font-size: 20px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+      h4 { font-size: 16px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+      h5 { font-size: 14px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; }
+      h6 { font-size: 12px; font-weight: 600; margin: 24px 0 16px; line-height: 1.25; color: #57606a; }
+      p { margin: 0 0 16px; }
+      a { color: #0969da; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      strong { font-weight: 600; }
+      em { font-style: italic; }
+      code {
+        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+        font-size: 13.6px;
+        padding: 2px 6px;
+        background: rgba(175, 184, 193, 0.2);
+        border-radius: 6px;
+      }
+      pre {
+        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+        font-size: 13.6px;
+        padding: 16px;
+        overflow-x: auto;
+        background: #f6f8fa;
+        border-radius: 6px;
+        margin: 0 0 16px;
+        line-height: 1.45;
+      }
+      pre code {
+        background: transparent;
+        padding: 0;
+        font-size: inherit;
+      }
+      blockquote {
+        margin: 0 0 16px;
+        padding: 0 16px;
+        border-left: 4px solid #d0d7de;
+        color: #57606a;
+      }
+      blockquote p { margin: 0; }
+      ul, ol { margin: 0 0 16px; padding-left: 32px; }
+      li { margin: 4px 0; }
+      li + li { margin-top: 4px; }
+      table {
+        border-collapse: collapse;
+        margin: 0 0 16px;
+        width: 100%;
+        overflow: auto;
+      }
+      table th, table td {
+        padding: 6px 13px;
+        border: 1px solid #d0d7de;
+      }
+      table th { font-weight: 600; background: #f6f8fa; }
+      table tr { background: #ffffff; }
+      table tr:nth-child(2n) { background: #f6f8fa; }
+      hr { height: 2px; padding: 0; margin: 24px 0; background-color: #d0d7de; border: 0; }
+      img { max-width: 100%; box-sizing: content-box; background-color: #fff; }
+      .task-list-item { list-style-type: none; }
+      .task-list-item input { margin: 0 8px 0 -20px; vertical-align: middle; }
+      /* Syntax highlighting (light theme for PDF) */
+      .hljs-comment, .hljs-quote { color: #6e7781; }
+      .hljs-keyword, .hljs-selector-tag { color: #cf222e; }
+      .hljs-string, .hljs-attr { color: #0a3069; }
+      .hljs-number, .hljs-literal { color: #0550ae; }
+      .hljs-function, .hljs-title { color: #8250df; }
+      .hljs-variable, .hljs-template-variable { color: #24292f; }
+      .hljs-type, .hljs-class { color: #953800; }
+      /* Print/PDF optimizations */
+      @media print {
+        body { padding: 20px; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
+        table, figure, img, pre { page-break-inside: avoid; }
+        a { color: #24292f !important; }
+      }
+    `;
+
+    // Simple markdown-to-HTML conversion (basic patterns)
+    // For more complex markdown, GPTVisLite or react-markdown should be used
+    let html = markdownContent;
+
+    // Escape HTML entities first
+    html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Code blocks (fenced with ```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      const langClass = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langClass}>${code.trim()}</code></pre>`;
+    });
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Headers
+    html = html.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
+    html = html.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Bold and italic
+    html = html.replace(/\*\*\*(.+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+)\*/g, '<em>$1</em>');
+    html = html.replace(/___(.+)___/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/__(.+)__/g, '<strong>$1</strong>');
+    html = html.replace(/_(.+)_/g, '<em>$1</em>');
+
+    // Links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+    // Images
+    html = html.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+
+    // Blockquotes
+    html = html.replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>');
+
+    // Horizontal rule
+    html = html.replace(/^---$/gm, '<hr>');
+    html = html.replace(/^\*\*\*$ /gm, '<hr>');
+
+    // Unordered lists
+    html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n)+/g, '<ul>$&</ul>');
+
+    // Ordered lists
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+    // Paragraphs (wrap remaining lines)
+    html = html.split('\n\n').map(block => {
+      if (block.trim() && !/^<[hpuoblirtc]/.test(block.trim())) {
+        return `<p>${block.trim()}</p>`;
+      }
+      return block;
+    }).join('\n');
+
+    // Convert newlines to proper spacing
+    html = html.replace(/\n\n/g, '\n');
+
+    const title = fileName ? fileName.replace(/\.[^.]+$/, '') : 'Markdown Document';
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <style>${markdownStyles}</style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+  }, []);
+
   /* ── PDF export handlers ── */
   const handleExportPDF = useCallback(async () => {
-    // For deliverable files (iframe), fetch content and generate PDF from it
+    // For deliverable files, fetch content and generate PDF from it
     if (matchedDeliverable) {
       const url = resolveFileUrl(matchedDeliverable);
+      const renderType = matchedDeliverable.render_type;
       if (url) {
         setExporting(true);
         try {
           const resp = await fetch(url);
-          const htmlContent = await resp.text();
+          const rawContent = await resp.text();
+
+          // Determine how to render content based on render_type
+          let htmlContent: string;
+          if (renderType === 'markdown') {
+            // Convert markdown to styled HTML for PDF
+            htmlContent = renderMarkdownToHtml(rawContent, matchedDeliverable.file_name);
+          } else if (renderType === 'code' || renderType === 'text') {
+            // Wrap code/text in a styled HTML document
+            htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; padding: 40px; background: #fff; color: #24292f; white-space: pre-wrap; word-wrap: break-word; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>${rawContent}</body>
+</html>`;
+          } else {
+            // Default: treat as HTML (iframe type or unknown)
+            htmlContent = rawContent;
+          }
+
           // Open content in hidden iframe for html2canvas capture
           const tempIframe = document.createElement('iframe');
           tempIframe.style.cssText = 'position:fixed;left:-9999px;width:1200px;height:auto;border:none;';
@@ -645,7 +842,7 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
           tempIframe.contentDocument?.open();
           tempIframe.contentDocument?.write(htmlContent);
           tempIframe.contentDocument?.close();
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for charts to render
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for content to render
           const body = tempIframe.contentDocument?.body;
           if (body) {
             const canvas = await html2canvas(body, { useCORS: true, scale: 2, backgroundColor: '#ffffff', width: 1200 });
@@ -659,7 +856,9 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
               if (i > 0) pdf.addPage();
               pdf.addImage(imgData, 'PNG', 10, -pageHeight * i + 10, imgWidth, imgHeight);
             }
-            pdf.save(matchedDeliverable.file_name?.replace(/\.html?$/i, '.pdf') || 'report.pdf');
+            // Generate PDF filename based on original file
+            const pdfFileName = matchedDeliverable.file_name?.replace(/\.(md|markdown|txt|html?|py|js|ts)$/i, '.pdf') || 'report.pdf';
+            pdf.save(pdfFileName);
             message.success('PDF 导出成功');
           }
           document.body.removeChild(tempIframe);
@@ -696,16 +895,37 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     } finally {
       setExporting(false);
     }
-  }, [matchedDeliverable]);
+  }, [matchedDeliverable, renderMarkdownToHtml]);
 
   const handlePrint = useCallback(async () => {
-    // For deliverable files (iframe), use a temp full-height iframe for accurate printing
+    // For deliverable files, use a temp full-height iframe for accurate printing
     if (matchedDeliverable) {
       const url = resolveFileUrl(matchedDeliverable);
+      const renderType = matchedDeliverable.render_type;
       if (url) {
         try {
           const resp = await fetch(url);
-          const htmlContent = await resp.text();
+          const rawContent = await resp.text();
+
+          // Determine how to render content based on render_type
+          let htmlContent: string;
+          if (renderType === 'markdown') {
+            htmlContent = renderMarkdownToHtml(rawContent, matchedDeliverable.file_name);
+          } else if (renderType === 'code' || renderType === 'text') {
+            htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; padding: 40px; background: #fff; color: #24292f; white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body>${rawContent}</body>
+</html>`;
+          } else {
+            htmlContent = rawContent;
+          }
+
           // Create hidden full-height iframe with the complete HTML content
           const tempIframe = document.createElement('iframe');
           tempIframe.style.cssText = 'position:fixed;left:-9999px;width:1200px;height:auto;border:none;';
@@ -715,24 +935,19 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
             iframeDoc.open();
             iframeDoc.write(htmlContent);
             iframeDoc.close();
-            // Inject print styles
+            // Inject additional print styles
             const printStyle = iframeDoc.createElement('style');
             printStyle.textContent = `
               @media print {
-                html, body {
-                  height: auto !important;
-                  overflow: visible !important;
-                  -webkit-print-color-adjust: exact;
-                  print-color-adjust: exact;
-                }
+                html, body { height: auto !important; overflow: visible !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 * { max-height: none !important; }
                 h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
-                table, figure, img { page-break-inside: avoid; }
+                table, figure, img, pre { page-break-inside: avoid; }
               }
             `;
             iframeDoc.head.appendChild(printStyle);
           }
-          // Wait for charts/images to render
+          // Wait for content to render
           await new Promise(resolve => setTimeout(resolve, 2000));
           tempIframe.contentWindow?.print();
           // Cleanup after print dialog closes
@@ -782,7 +997,7 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     window.print();
     document.head.removeChild(style);
     container.removeAttribute('id');
-  }, [matchedDeliverable]);
+  }, [matchedDeliverable, renderMarkdownToHtml]);
 
   const pdfMenuItems: MenuProps['items'] = useMemo(() => [
     { key: 'export', icon: <DownloadOutlined />, label: '导出文件', onClick: handleExportPDF },
