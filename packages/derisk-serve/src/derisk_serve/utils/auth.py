@@ -1,7 +1,7 @@
 import logging
-from typing import Optional
+from typing import Dict, List, Optional
 
-from fastapi import Header
+from fastapi import Header, HTTPException, Request
 
 from derisk._private.pydantic import BaseModel
 
@@ -20,19 +20,119 @@ class UserRequest(BaseModel):
     email: Optional[str] = None
     avatar_url: Optional[str] = None
     nick_name_like: Optional[str] = None
+    # 新增字段（插件关闭时为 None，表示不做权限检查）
+    permissions: Optional[Dict[str, List[str]]] = None  # resource_type -> [actions]
+    roles: Optional[List[str]] = None  # 用户拥有的角色名列表
 
 
-def get_user_from_headers(user_id: Optional[str] = Header(None)):
+def _is_permissions_enabled() -> bool:
+    """检查 permissions 插件是否启用（运行时读取配置）"""
     try:
-        # Mock User Info
-        if user_id:
+        from derisk_core.config import ConfigManager
+
+        cfg = ConfigManager.get()
+        entry = (cfg.feature_plugins or {}).get("permissions")
+        if entry is None:
+            return False
+        if hasattr(entry, "enabled"):
+            return bool(entry.enabled)
+        if isinstance(entry, dict):
+            return bool(entry.get("enabled"))
+        return False
+    except Exception:
+        return False
+
+
+def get_user_from_headers(
+    request: Request = None,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    authorization: Optional[str] = Header(None),
+) -> UserRequest:
+    """统一用户解析入口。
+
+    permissions OFF: 返回 mock admin（现有行为，完全不变）
+    permissions ON:  验证 JWT session → 加载 RBAC 权限
+                     但如果 X-User-ID 为 'admin'，则允许 bypass（本地开发模式）
+    """
+    try:
+        if not _is_permissions_enabled():
+            # ===== 插件关闭：保持现有行为 =====
+            if x_user_id:
+                return UserRequest(
+                    user_id=x_user_id,
+                    role="admin",
+                    nick_name=x_user_id,
+                    real_name=x_user_id,
+                )
             return UserRequest(
-                user_id=user_id, role="admin", nick_name=user_id, real_name=user_id
+                user_id="001",
+                role="admin",
+                nick_name="derisk",
+                real_name="derisk",
             )
-        else:
+
+        # ===== 插件开启：优先检查 X-User-ID header (本地开发 bypass) =====
+        # 支持本地开发：设置 X-User-ID: admin 可 bypass OAuth
+        if x_user_id == "admin":
+            from derisk_app.feature_plugins.permissions.service import PermissionService
+            perms = PermissionService().get_user_permissions(3)  # admin user ID=3
             return UserRequest(
-                user_id="001", role="admin", nick_name="derisk", real_name="derisk"
+                user_id="3",
+                user_no="admin",
+                real_name="System Admin",
+                nick_name="System Admin",
+                role="admin",
+                permissions=perms.permissions_map,
+                roles=perms.role_names,
             )
+
+        # ===== 验证 JWT session =====
+        token = None
+        if request:
+            token = request.cookies.get("derisk_session")
+        if not token and authorization:
+            token = authorization.replace("Bearer ", "")
+        if not token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        from derisk_app.auth.session import verify_session_token
+
+        user_data = verify_session_token(token)
+        if not user_data:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+        # 加载用户权限（带 60s 缓存）
+        from derisk_app.feature_plugins.permissions.service import PermissionService
+
+        user_id = user_data.get("id", 0)
+        perms = PermissionService().get_user_permissions(user_id)
+
+        # 获取用户的 role 字段（从数据库）
+        user_role = "normal"
+        try:
+            from derisk_app.auth.user_service import UserEntity
+            from derisk.storage.metadata.db_manager import db
+
+            with db.session(commit=False) as s:
+                user_obj = s.query(UserEntity).filter(UserEntity.id == user_id).first()
+                if user_obj and user_obj.role:
+                    user_role = user_obj.role
+        except Exception:
+            pass
+
+        return UserRequest(
+            user_id=str(user_data.get("id", "")),
+            user_no=str(user_data.get("id", "")),
+            real_name=user_data.get("name", ""),
+            nick_name=user_data.get("name", ""),
+            email=user_data.get("email", ""),
+            avatar_url=user_data.get("avatar", ""),
+            role=user_role,
+            permissions=perms.permissions_map,
+            roles=perms.role_names,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         logging.exception("Authentication failed!")
-        raise Exception(f"Authentication failed. {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")

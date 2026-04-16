@@ -5,7 +5,6 @@ import { Alert, Card, List, Space, Switch, Tag, Typography, App } from 'antd';
 import { AppstoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { configService, type FeaturePluginCatalogItem } from '@/services/config';
-import UserGroupsPluginPanel from '@/components/config/UserGroupsPluginPanel';
 import { getApiErrorMessage, isHttpStatus } from '@/utils/apiError';
 
 const { Text, Paragraph } = Typography;
@@ -103,8 +102,14 @@ export default function FeaturePluginsSection({ onChange }: { onChange?: () => v
                   onChange={(v) => handleToggle(item.id, v)}
                 />
               </div>
-              {item.id === 'user_groups' ? (
-                <UserGroupsPluginPanel catalogEnabled={item.enabled} />
+              {item.id === 'access_control' && item.enabled ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  className="mt-4"
+                  message={t('plugin_user_groups_moved_title')}
+                  description={t('plugin_user_groups_moved_desc')}
+                />
               ) : null}
             </Card>
           </List.Item>

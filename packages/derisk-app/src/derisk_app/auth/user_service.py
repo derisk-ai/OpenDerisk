@@ -79,8 +79,16 @@ class UserDao(BaseDao):
         oauth_id: str,
         user_info: Dict[str, Any],
         role: str = "normal",
+        rbac_default_role: str = "viewer",
     ) -> Dict[str, Any]:
         """Create or update user from OAuth user info, return plain dict.
+
+        Args:
+            provider: OAuth provider ID
+            oauth_id: OAuth provider user ID
+            user_info: User info from OAuth provider
+            role: Legacy role ("admin" or "normal")
+            rbac_default_role: Default RBAC role to assign to new users (e.g., "viewer", "guest")
 
         Returns a dict instead of the ORM entity to avoid DetachedInstanceError
         after the session closes.
@@ -131,6 +139,30 @@ class UserDao(BaseDao):
                 session.add(user)
                 session.commit()
                 session.refresh(user)
+
+                # 自动为新用户分配配置的默认角色
+                try:
+                    from derisk_app.feature_plugins.permissions.dao import PermissionDao
+
+                    dao = PermissionDao()
+                    default_role = dao.get_role_by_name(rbac_default_role)
+                    if default_role:
+                        dao.assign_role_to_user(user.id, default_role["id"])
+                        logger.info(
+                            f"Auto-assigned {rbac_default_role} role to new OAuth2 user: {user.id} ({user.name})"
+                        )
+                    else:
+                        # Fallback to viewer if configured role doesn't exist
+                        viewer_role = dao.get_role_by_name("viewer")
+                        if viewer_role:
+                            dao.assign_role_to_user(user.id, viewer_role["id"])
+                            logger.warning(
+                                f"Configured default role '{rbac_default_role}' not found, "
+                                f"fallback to viewer for new OAuth2 user: {user.id} ({user.name})"
+                            )
+                except Exception as e:
+                    logger.warning(f"Failed to auto-assign default role: {e}")
+
                 return _entity_to_dict(user)
 
     def list_users(
@@ -176,6 +208,24 @@ class UserDao(BaseDao):
             session.refresh(user)
             return _entity_to_dict(user)
 
+    def delete_user(self, user_id: int) -> bool:
+        """Soft delete user by setting is_active=0.
+
+        Args:
+            user_id: User ID to delete
+
+        Returns:
+            True if user was found and deleted, False otherwise
+        """
+        with self.session() as session:
+            user = session.query(UserEntity).filter(UserEntity.id == user_id).first()
+            if not user:
+                return False
+            user.is_active = 0
+            session.commit()
+            logger.info(f"User {user_id} ({user.name}) soft deleted")
+            return True
+
 
 class UserService:
     """Service for user operations."""
@@ -189,11 +239,16 @@ class UserService:
         oauth_id: str,
         user_info: Dict[str, Any],
         role: str = "normal",
+        rbac_default_role: str = "viewer",
     ) -> Optional[Dict[str, Any]]:
         """Get or create user from OAuth info, return user dict for session."""
         try:
             return self._dao.create_or_update_from_oauth(
-                provider, oauth_id, user_info, role=role
+                provider,
+                oauth_id,
+                user_info,
+                role=role,
+                rbac_default_role=rbac_default_role,
             )
         except Exception as e:
             logger.exception(f"Failed to get/create user from OAuth: {e}")
@@ -229,3 +284,18 @@ class UserService:
         except Exception as e:
             logger.exception(f"Failed to update user {user_id}: {e}")
             return None
+
+    def delete_user(self, user_id: int) -> bool:
+        """Delete user (soft delete).
+
+        Args:
+            user_id: User ID to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            return self._dao.delete_user(user_id)
+        except Exception as e:
+            logger.exception(f"Failed to delete user {user_id}: {e}")
+            return False

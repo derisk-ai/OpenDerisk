@@ -13,6 +13,8 @@ from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, Backgroun
 from fastapi.responses import StreamingResponse
 
 from derisk._private.config import Config
+
+from derisk_app.feature_plugins.permissions.checker import require_permission
 from derisk.component import ComponentType, SystemApp
 from derisk.configs import TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE
 from derisk.core import ModelOutput, HumanMessage
@@ -399,7 +401,7 @@ async def chat_query(
 async def chat_completions(
     background_tasks: BackgroundTasks,
     dialogue: ConversationVo = Body(),
-    user_token: UserRequest = Depends(get_user_from_headers),
+    user_token: UserRequest = Depends(require_permission("agent", "chat")),
 ):
     logger.info(
         f"chat_completions:{dialogue.team_mode},{dialogue.select_param},"

@@ -1,46 +1,36 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Avatar, Badge, Button, Input, Modal, Space, Switch, Table, Tag, message } from 'antd';
-import { DeleteOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useRef } from 'react';
+import { Avatar, Button, Input, Modal, Space, Switch, Table, Tag, message, Typography } from 'antd';
+import { DeleteOutlined, SearchOutlined, UserOutlined, ReloadOutlined } from '@ant-design/icons';
 import { usersService, User } from '@/services/users';
 import { authService } from '@/services/auth';
-import { useRouter } from 'next/navigation';
 
+const { Text } = Typography;
 const { Search } = Input;
 
-export default function UsersPage() {
-  const router = useRouter();
+export default function OAuthUserManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [oauthEnabled, setOauthEnabled] = useState<boolean | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const checkedRef = useRef(false);
 
   useEffect(() => {
-    if (checkedRef.current) return;
-    checkedRef.current = true;
-    authService.getOAuthStatus().then((status) => {
-      setOauthEnabled(status.enabled);
-      if (!status.enabled) {
-        router.replace('/');
-      }
-    });
     // Get current user info
     authService.getCurrentUser().then((user) => {
       setCurrentUser(user);
     }).catch(() => {
       // Ignore error
     });
-  }, [router]);
+    fetchUsers();
+  }, []);
 
   useEffect(() => {
-    if (oauthEnabled) fetchUsers();
-  }, [oauthEnabled, page, keyword]);
+    fetchUsers();
+  }, [page, keyword]);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -121,30 +111,36 @@ export default function UsersPage() {
       title: '用户名',
       dataIndex: 'name',
       key: 'name',
+      width: 120,
       render: (v: string) => v || '-',
     },
     {
       title: '全名',
       dataIndex: 'fullname',
       key: 'fullname',
+      width: 120,
       render: (v: string) => v || '-',
     },
     {
       title: '邮箱',
       dataIndex: 'email',
       key: 'email',
+      width: 180,
+      ellipsis: true,
       render: (v: string) => v || '-',
     },
     {
       title: 'OAuth 提供商',
       dataIndex: 'oauth_provider',
       key: 'oauth_provider',
+      width: 100,
       render: (v: string) => v ? <Tag>{v}</Tag> : '-',
     },
     {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
+      width: 100,
       render: (v: string) => (
         <Tag color={v === 'admin' ? 'gold' : 'default'}>
           {v === 'admin' ? '管理员' : '普通用户'}
@@ -155,6 +151,7 @@ export default function UsersPage() {
       title: '状态',
       dataIndex: 'is_active',
       key: 'is_active',
+      width: 100,
       render: (v: number, record: User) => (
         <Switch
           checked={v === 1}
@@ -169,12 +166,14 @@ export default function UsersPage() {
       title: '注册时间',
       dataIndex: 'gmt_create',
       key: 'gmt_create',
+      width: 120,
       render: (v: string | null) =>
         v ? new Date(v).toLocaleDateString('zh-CN') : '-',
     },
     {
       title: '操作',
       key: 'actions',
+      width: 180,
       render: (_: any, record: User) => (
         <Space>
           <Button
@@ -184,7 +183,6 @@ export default function UsersPage() {
           >
             {record.role === 'admin' ? '取消管理员' : '设为管理员'}
           </Button>
-          {/* Show delete button only for admin users, hide for self */}
           {currentUser?.role === 'admin' && currentUser?.id !== record.id && (
             <Button
               size="small"
@@ -200,15 +198,17 @@ export default function UsersPage() {
     },
   ];
 
-  if (oauthEnabled === null) {
-    return null;
-  }
-
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">用户管理</h1>
-        <p className="text-sm text-gray-500">管理通过 OAuth2 登录的用户，设置角色与状态。</p>
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <Text type="secondary">管理通过 OAuth2 登录的用户，设置角色与状态。</Text>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => fetchUsers()}
+          loading={loading}
+        >
+          刷新
+        </Button>
       </div>
 
       <div className="mb-4">
@@ -236,8 +236,8 @@ export default function UsersPage() {
           onChange: (p) => setPage(p),
           showTotal: (t) => `共 ${t} 条`,
         }}
-        scroll={{ x: 900 }}
-        className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-sm"
+        scroll={{ x: 1100 }}
+        size="small"
       />
     </div>
   );

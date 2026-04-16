@@ -1,4 +1,5 @@
 import { ins as axios } from '@/client/api';
+import type { User } from '@/services/users';
 
 const API_BASE = '/api/v1';
 
@@ -40,6 +41,37 @@ class AuthService {
   async getMe(): Promise<MeResponse> {
     const response = await axios.get(`${API_BASE}/auth/me`);
     return response.data;
+  }
+
+  /** Maps /auth/me to the users table shape (for user admin UI). */
+  async getCurrentUser(): Promise<User | null> {
+    try {
+      const me = await this.getMe();
+      const u = me.user;
+      if (u == null || typeof u.id !== 'number') {
+        return null;
+      }
+      const extra = u as AuthUser & {
+        is_active?: number;
+        gmt_create?: string | null;
+        gmt_modify?: string | null;
+      };
+      return {
+        id: u.id,
+        name: u.name ?? '',
+        fullname: u.fullname ?? '',
+        email: u.email ?? '',
+        avatar: u.avatar ?? me.avatar_url ?? '',
+        oauth_provider: u.oauth_provider ?? '',
+        oauth_id: u.oauth_id ?? '',
+        role: me.role ?? 'normal',
+        is_active: typeof extra.is_active === 'number' ? extra.is_active : 1,
+        gmt_create: extra.gmt_create ?? null,
+        gmt_modify: extra.gmt_modify ?? null,
+      };
+    } catch {
+      return null;
+    }
   }
 
   async logout(): Promise<void> {

@@ -1,11 +1,14 @@
 """工具执行 API"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import asyncio
 import json
+
+from derisk_serve.utils.auth import UserRequest
+from derisk_app.feature_plugins.permissions.checker import require_permission
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
@@ -42,8 +45,10 @@ def get_tool_registry():
 
 
 @router.get("/list")
-async def list_tools():
-    """列出所有可用工具"""
+async def list_tools(
+    user: UserRequest = Depends(require_permission("tool", "read")),
+):
+    """列出所有可用工具（需要 tool:read 权限）"""
     registry = get_tool_registry()
     tools = []
 
@@ -101,8 +106,11 @@ async def get_tool_schema(tool_name: str):
 
 
 @router.post("/execute")
-async def execute_tool(request: ToolExecuteRequest):
-    """执行单个工具"""
+async def execute_tool(
+    request: ToolExecuteRequest,
+    user: UserRequest = Depends(require_permission("tool", "execute")),
+):
+    """执行单个工具（需要 tool:execute 权限）"""
     try:
         registry = get_tool_registry()
         tool = registry.get(request.tool_name)

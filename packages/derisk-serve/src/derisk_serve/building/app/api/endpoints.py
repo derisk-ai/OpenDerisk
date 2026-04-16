@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 CFG = Config()
 
+# Import permission checker (optional, keep backward compatibility when plugin absent)
+try:
+    from derisk_app.feature_plugins.permissions.checker import require_permission
+
+    PERMISSIONS_AVAILABLE = True
+except ImportError:
+    PERMISSIONS_AVAILABLE = False
+    require_permission = None
+
 def get_service() -> Service:
     """Get the service instance"""
     return global_system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, Service)
@@ -89,6 +98,28 @@ async def check_api_key(
         return None
 
 
+def _require_agent_read():
+    """Require agent:read permission when RBAC is enabled."""
+    if PERMISSIONS_AVAILABLE and require_permission:
+        return require_permission("agent", "read")
+
+    async def dummy_dependency():
+        return None
+
+    return dummy_dependency
+
+
+def _require_agent_write():
+    """Require agent:write permission when RBAC is enabled."""
+    if PERMISSIONS_AVAILABLE and require_permission:
+        return require_permission("agent", "write")
+
+    async def dummy_dependency():
+        return None
+
+    return dummy_dependency
+
+
 @router.get("/health")
 async def health():
     """Health check endpoint"""
@@ -103,7 +134,10 @@ async def test_auth():
 
 @router.post("/create")
 async def old_create(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     try:
         logger.info(f"old create:{gpts_app}")
@@ -121,7 +155,10 @@ async def old_create(
 
 @router.post("/building/create")
 async def create(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     try:
         gpts_app.user_code = (
@@ -134,7 +171,10 @@ async def create(
 
 @router.post("/building/edit")
 async def building_edit(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     try:
         logger.info(f"building_edit:{gpts_app}")
@@ -151,7 +191,10 @@ async def building_edit(
 
 @router.post("/edit")
 async def old_edit(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     logger.info(f"old edit:{gpts_app}")
     try:
@@ -170,7 +213,9 @@ async def old_edit(
 
 @router.post("/publish", response_model=Result[ServerResponse], dependencies=[Depends(check_api_key)])
 async def update(
-        request: AppConfigPubilsh, service: Service = Depends(get_service)
+        request: AppConfigPubilsh,
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ) -> Result[ServerResponse]:
     """Update a App entity
 
@@ -212,7 +257,9 @@ async def query(
     dependencies=[Depends(check_api_key)],
 )
 async def unpublish(
-    request: ServeRequest, service: Service = Depends(get_service)
+    request: ServeRequest,
+    service: Service = Depends(get_service),
+    user: Optional[UserRequest] = Depends(_require_agent_write()),
 ) -> Result:
     """Unpublish an app (set published=0)
 
@@ -236,7 +283,9 @@ async def unpublish(
     dependencies=[Depends(check_api_key)],
 )
 async def set_publish(
-    request: ServeRequest, service: Service = Depends(get_service)
+    request: ServeRequest,
+    service: Service = Depends(get_service),
+    user: Optional[UserRequest] = Depends(_require_agent_write()),
 ) -> Result:
     """Set app published status
 
@@ -294,6 +343,7 @@ async def app_list(
         page_size: Optional[int] = Query(default=None, description="page size"),
         user_info: UserRequest = Depends(get_user_from_headers),
         service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_read()),
 ):
     try:
 
@@ -319,6 +369,7 @@ async def app_detail(
         building_mode: bool = True,
         config_code: Optional[str] = None,
         service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_read()),
 ):
     logger.info(f"app_detail:{app_code},{config_code},")
     try:
@@ -333,8 +384,11 @@ async def app_detail(
 
 @router.post("/add_hub_code")
 async def add_hub_code(
-        app_code: str, app_hub_code: str, user_info: UserRequest = Depends(get_user_from_headers),
+        app_code: str,
+        app_hub_code: str,
+        user_info: UserRequest = Depends(get_user_from_headers),
         service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     try:
         return Result.succ(service.add_hub_code(app_code, app_hub_code))
@@ -345,7 +399,9 @@ async def add_hub_code(
 
 @router.post("/hot/list")
 async def hot_app_list(
-        query: GptsAppQuery, user_info: UserRequest = Depends(get_user_from_headers)
+        query: GptsAppQuery,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        user: Optional[UserRequest] = Depends(_require_agent_read()),
 ):
     try:
         query.user_code = (
@@ -362,7 +418,10 @@ async def hot_app_list(
 
 @router.post("/detail")
 async def app_list(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_read()),
 ):
     try:
         gpts_app.user_code = (
@@ -376,7 +435,10 @@ async def app_list(
 
 @router.post("/remove", response_model=Result)
 async def delete(
-        gpts_app: ServeRequest, user_info: UserRequest = Depends(get_user_from_headers),  service: Service = Depends(get_service),
+        gpts_app: ServeRequest,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
 ):
     try:
         gpts_app.user_code = (
