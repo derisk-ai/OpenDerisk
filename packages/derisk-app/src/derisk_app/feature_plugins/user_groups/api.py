@@ -1,4 +1,4 @@
-"""HTTP API for user groups (only mounted when feature plugin user_groups is enabled)."""
+"""HTTP API for user groups."""
 
 from typing import List, Optional
 
@@ -6,12 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
-from derisk_serve.utils.auth import UserRequest, get_user_from_headers
+from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.feature_plugins.permissions.service import PermissionService
 from derisk_app.feature_plugins.user_groups.service import UserGroupService
+from derisk_serve.utils.auth import UserRequest
 
 router = APIRouter(prefix="/user-groups", tags=["UserGroups"])
 
 _svc = UserGroupService()
+_perm_svc = PermissionService()
 
 
 class GroupCreateBody(BaseModel):
@@ -29,7 +32,9 @@ class MembersAddBody(BaseModel):
 
 
 @router.get("/groups")
-async def list_groups(_user: UserRequest = Depends(get_user_from_headers)):
+async def list_groups(
+    _user: UserRequest = Depends(require_permission("system", "read")),
+):
     groups = _svc.list_groups()
     for g in groups:
         g["member_count"] = _svc.count_members(g["id"])
@@ -39,7 +44,7 @@ async def list_groups(_user: UserRequest = Depends(get_user_from_headers)):
 @router.post("/groups")
 async def create_group(
     body: GroupCreateBody,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
 ):
     try:
         g = _svc.create_group(body.name, body.description)
@@ -51,7 +56,7 @@ async def create_group(
 @router.get("/groups/{group_id}")
 async def get_group(
     group_id: int,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "read")),
 ):
     g = _svc.get_group(group_id)
     if not g:
@@ -64,7 +69,7 @@ async def get_group(
 async def update_group(
     group_id: int,
     body: GroupUpdateBody,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
 ):
     try:
         g = _svc.update_group(group_id, name=body.name, description=body.description)
@@ -78,18 +83,19 @@ async def update_group(
 @router.delete("/groups/{group_id}")
 async def delete_group(
     group_id: int,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
 ):
     ok = _svc.delete_group(group_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Group not found")
+    _perm_svc.invalidate_cache()
     return {"success": True, "data": None}
 
 
 @router.get("/groups/{group_id}/members")
 async def list_members(
     group_id: int,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "read")),
 ):
     if not _svc.get_group(group_id):
         raise HTTPException(status_code=404, detail="Group not found")
@@ -101,11 +107,13 @@ async def list_members(
 async def add_members(
     group_id: int,
     body: MembersAddBody,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
 ):
     if not _svc.get_group(group_id):
         raise HTTPException(status_code=404, detail="Group not found")
     added, _ = _svc.add_members(group_id, body.user_ids)
+    for user_id in body.user_ids:
+        _perm_svc.invalidate_cache(user_id)
     return {"success": True, "data": {"added": added}}
 
 
@@ -113,9 +121,10 @@ async def add_members(
 async def remove_member(
     group_id: int,
     member_user_id: int,
-    _user: UserRequest = Depends(get_user_from_headers),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
 ):
     ok = _svc.remove_member(group_id, member_user_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Membership not found")
+    _perm_svc.invalidate_cache(member_user_id)
     return {"success": True, "data": None}

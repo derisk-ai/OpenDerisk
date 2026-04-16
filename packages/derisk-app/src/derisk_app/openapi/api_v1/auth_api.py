@@ -7,7 +7,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from derisk_app.auth.oauth import OAuth2Service
-from derisk_app.auth.session import SessionManager, create_session_token, verify_session_token
+from derisk_app.auth.session import (
+    SessionManager,
+    create_session_token,
+    verify_session_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ def _get_config():
     """Get app config with OAuth2 settings."""
     try:
         from derisk_core.config import ConfigManager
+
         config = ConfigManager.get()
         return config
     except Exception:
@@ -50,14 +55,25 @@ def _get_provider_config(provider_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _resolve_role(user_info: Dict[str, Any]) -> str:
-    """Determine role for a new user based on admin_users config."""
+def _resolve_role(user_info: Dict[str, Any]) -> tuple[str, str]:
+    """Determine legacy role and default RBAC role for a new user.
+
+    Returns:
+        tuple: (legacy_role, rbac_default_role) where legacy_role is "admin" or "normal",
+               and rbac_default_role is the configured default role for RBAC assignment
+    """
     oauth_config = _get_oauth_config()
     if not oauth_config:
-        return "normal"
+        return "normal", "viewer"
     admin_users = oauth_config.get("admin_users", [])
     login = user_info.get("login") or user_info.get("username") or ""
-    return "admin" if login and login in admin_users else "normal"
+    is_admin = login and login in admin_users
+    legacy_role = "admin" if is_admin else "normal"
+    # Use configured default_role, fallback to "viewer" for backward compatibility
+    rbac_default_role = (
+        oauth_config.get("default_role", "viewer") if not is_admin else "admin"
+    )
+    return legacy_role, rbac_default_role
 
 
 @router.get("/oauth/status")
@@ -65,10 +81,12 @@ async def oauth_status():
     """Return whether OAuth2 is enabled and available providers (for frontend)."""
     oauth_config = _get_oauth_config()
     if not oauth_config:
-        return JSONResponse(content={
-            "enabled": False,
-            "providers": [],
-        })
+        return JSONResponse(
+            content={
+                "enabled": False,
+                "providers": [],
+            }
+        )
     providers = oauth_config.get("providers", [])
     # Only include providers with client_id configured
     available = [
@@ -76,10 +94,12 @@ async def oauth_status():
         for p in providers
         if p.get("client_id")
     ]
-    return JSONResponse(content={
-        "enabled": True,
-        "providers": available,
-    })
+    return JSONResponse(
+        content={
+            "enabled": True,
+            "providers": available,
+        }
+    )
 
 
 @router.get("/oauth/login")
@@ -148,7 +168,9 @@ async def oauth_callback(
         code=code,
     )
     if not access_token:
-        return RedirectResponse(url="/login?error=token_exchange_failed", status_code=302)
+        return RedirectResponse(
+            url="/login?error=token_exchange_failed", status_code=302
+        )
 
     user_info = await oauth_service.fetch_userinfo(
         provider_id=provider_id,
@@ -159,12 +181,17 @@ async def oauth_callback(
         return RedirectResponse(url="/login?error=userinfo_failed", status_code=302)
 
     oauth_id = str(user_info.get("id", ""))
-    role = _resolve_role(user_info)
+    legacy_role, rbac_default_role = _resolve_role(user_info)
 
     from derisk_app.auth.user_service import UserService
+
     user_service = UserService()
     user = user_service.get_or_create_from_oauth(
-        provider_id, oauth_id, user_info, role=role
+        provider_id,
+        oauth_id,
+        user_info,
+        role=legacy_role,
+        rbac_default_role=rbac_default_role,
     )
     if not user:
         return RedirectResponse(url="/login?error=user_create_failed", status_code=302)
@@ -194,10 +221,9 @@ async def oauth_callback(
 @router.get("/me")
 async def get_current_user(request: Request):
     """Get current logged-in user. Returns 401 if not authenticated."""
-    token = (
-        request.cookies.get("derisk_session")
-        or request.headers.get("Authorization", "").replace("Bearer ", "")
-    )
+    token = request.cookies.get("derisk_session") or request.headers.get(
+        "Authorization", ""
+    ).replace("Bearer ", "")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -205,15 +231,17 @@ async def get_current_user(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    return JSONResponse(content={
-        "user": user,
-        "user_channel": "oauth",
-        "user_no": str(user.get("id", "")),
-        "nick_name": user.get("name", user.get("fullname", "")),
-        "avatar_url": user.get("avatar", ""),
-        "email": user.get("email", ""),
-        "role": user.get("role", "normal"),
-    })
+    return JSONResponse(
+        content={
+            "user": user,
+            "user_channel": "oauth",
+            "user_no": str(user.get("id", "")),
+            "nick_name": user.get("name", user.get("fullname", "")),
+            "avatar_url": user.get("avatar", ""),
+            "email": user.get("email", ""),
+            "role": user.get("role", "normal"),
+        }
+    )
 
 
 @router.post("/logout")

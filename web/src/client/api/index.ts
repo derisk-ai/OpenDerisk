@@ -17,6 +17,7 @@ export type FailedTuple<T = any, D = any> = [Error | AxiosError<T, D>, null, nul
 
 export const ins = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? '/',
+  withCredentials: true, // Send cookies for session-based auth
 });
 
 const LONG_TIME_API: string[] = [

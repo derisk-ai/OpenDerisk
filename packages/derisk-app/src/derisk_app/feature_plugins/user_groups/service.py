@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func
 
 from derisk.storage.metadata.db_manager import db
+from derisk_app.feature_plugins.permissions.models import GroupRoleEntity
 from derisk_app.feature_plugins.user_groups.models import (
     UserGroupEntity,
     UserGroupMemberEntity,
@@ -66,6 +67,10 @@ class UserGroupService:
                     return False
                 s.query(UserGroupMemberEntity).filter(
                     UserGroupMemberEntity.group_id == group_id
+                ).delete()
+                # Also clear RBAC group-role bindings to avoid orphan assignments.
+                s.query(GroupRoleEntity).filter(
+                    GroupRoleEntity.group_id == group_id
                 ).delete()
                 s.delete(g)
                 return True

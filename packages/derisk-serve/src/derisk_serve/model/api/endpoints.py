@@ -20,6 +20,16 @@ from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..service.service import Service
 from .schemas import ModelResponse
 
+# Import permission checker
+try:
+    from derisk_app.feature_plugins.permissions.checker import require_permission
+    from derisk_serve.utils.auth import UserRequest
+    PERMISSIONS_AVAILABLE = True
+except ImportError:
+    PERMISSIONS_AVAILABLE = False
+    require_permission = None
+    UserRequest = None
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -223,8 +233,32 @@ async def model_params(worker_manager: WorkerManager = Depends(get_worker_manage
         return Result.failed(err_code="E000X", msg=f"model types failed {e}")
 
 
+def _require_model_read():
+    """Require model:read permission if permissions are available"""
+    if PERMISSIONS_AVAILABLE and require_permission:
+        return require_permission("model", "read")
+    # Return a dummy dependency that does nothing
+    async def dummy_dependency():
+        return None
+    return dummy_dependency
+
+
+def _require_model_manage():
+    """Require model:manage permission if permissions are available"""
+    if PERMISSIONS_AVAILABLE and require_permission:
+        return require_permission("model", "manage")
+    # Return a dummy dependency that does nothing
+    async def dummy_dependency():
+        return None
+    return dummy_dependency
+
+
 @router.get("/models")
-async def model_list(controller: BaseModelController = Depends(get_model_controller)):
+async def model_list(
+    controller: BaseModelController = Depends(get_model_controller),
+    user: Optional[UserRequest] = Depends(_require_model_read()),
+):
+    """获取模型列表（需要 model:read 权限）"""
     try:
         responses = []
         managers = await controller.get_all_instances(
@@ -370,7 +404,9 @@ async def model_list(controller: BaseModelController = Depends(get_model_control
 async def model_stop(
     request: WorkerStartupRequest,
     worker_manager: WorkerManager = Depends(get_worker_manager),
+    user: Optional[UserRequest] = Depends(_require_model_manage()),
 ):
+    """停止模型（需要 model:manage 权限）"""
     try:
         request.params = {}
         await worker_manager.model_shutdown(request)
@@ -383,8 +419,9 @@ async def model_stop(
 async def create_model(
     request: WorkerStartupRequest,
     worker_manager: WorkerManager = Depends(get_worker_manager),
+    user: Optional[UserRequest] = Depends(_require_model_manage()),
 ):
-    """Create a model.
+    """创建模型（需要 model:manage 权限）.
 
     Must provide the full information of the model, including the host, port,
     model name, worker type, and params.
@@ -402,8 +439,9 @@ async def start_model(
     request: WorkerStartupRequest,
     worker_manager: WorkerManager = Depends(get_worker_manager),
     model_storage: ModelStorage = Depends(get_model_storage),
+    user: Optional[UserRequest] = Depends(_require_model_manage()),
 ):
-    """Start an existing model."""
+    """启动模型（需要 model:manage 权限）"""
 
     try:
         models = model_storage.query_models(

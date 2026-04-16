@@ -43,6 +43,12 @@ class OAuth2ConfigEntity(Model):
         nullable=True,
         comment="Admin users list (JSON array)",
     )
+    default_role = Column(
+        String(32),
+        nullable=True,
+        default="viewer",
+        comment="Default RBAC role for new OAuth2 users",
+    )
     gmt_create = Column(DateTime, nullable=True)
     gmt_modify = Column(DateTime, nullable=True)
 
@@ -54,6 +60,7 @@ class OAuth2ConfigEntity(Model):
             "enabled": bool(self.enabled),
             "providers_json": self.providers_json,
             "admin_users_json": self.admin_users_json,
+            "default_role": self.default_role or "viewer",
         }
 
 
@@ -115,6 +122,7 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
         enabled: bool,
         providers: List[Dict[str, Any]],
         admin_users: List[str],
+        default_role: str = "viewer",
         config_key: str = "global",
     ) -> OAuth2ConfigEntity:
         """Save or update OAuth2 config (stored in plain text, mask on display)."""
@@ -143,6 +151,7 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
                 entity.enabled = 1 if enabled else 0
                 entity.providers_json = providers_json
                 entity.admin_users_json = admin_users_json
+                entity.default_role = default_role
                 entity.gmt_modify = datetime.utcnow()
             else:
                 entity = OAuth2ConfigEntity(
@@ -150,6 +159,7 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
                     enabled=1 if enabled else 0,
                     providers_json=providers_json,
                     admin_users_json=admin_users_json,
+                    default_role=default_role,
                     gmt_create=datetime.utcnow(),
                     gmt_modify=datetime.utcnow(),
                 )
@@ -203,6 +213,7 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
             enabled = bool(entity.enabled)
             admin_users_json = entity.admin_users_json or "[]"
             providers_json = entity.providers_json or "[]"
+            default_role = entity.default_role or "viewer"
 
         try:
             admin_users = json.loads(admin_users_json) if admin_users_json else []
@@ -222,6 +233,7 @@ class OAuth2ConfigDao(BaseDao[OAuth2ConfigEntity, Any, Any]):
             "enabled": enabled,
             "providers": providers,
             "admin_users": admin_users,
+            "default_role": default_role,
         }
 
     def get_config_with_secrets(
@@ -252,15 +264,21 @@ class OAuth2DbStorage:
         return self.dao.get_config_with_secrets("global")
 
     def save(
-        self, enabled: bool, providers: List[Dict], admin_users: List[str]
+        self,
+        enabled: bool,
+        providers: List[Dict],
+        admin_users: List[str],
+        default_role: str = "viewer",
     ) -> bool:
         """Save OAuth2 config to database."""
         try:
-            self.dao.save_or_update(enabled, providers, admin_users, "global")
+            self.dao.save_or_update(
+                enabled, providers, admin_users, default_role, "global"
+            )
             return True
         except Exception as e:
             logger.exception(f"Failed to save OAuth2 config: {e}")
-            return False
+            raise  # Re-raise to let caller handle the error
 
 
 # Singleton instance

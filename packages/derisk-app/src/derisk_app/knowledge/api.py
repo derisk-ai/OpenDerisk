@@ -6,6 +6,8 @@ from typing import List
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from derisk._private.config import Config
+from derisk_serve.utils.auth import UserRequest
+from derisk_app.feature_plugins.permissions.checker import require_permission
 from derisk.configs import TAG_KEY_KNOWLEDGE_FACTORY_DOMAIN_TYPE
 from derisk.configs.model_config import (
     KNOWLEDGE_UPLOAD_ROOT_PATH,
@@ -85,8 +87,11 @@ def get_fs() -> FileStorageClient:
 
 @router.post("/knowledge/space/add")
 async def space_add(
-    request: SpaceServeRequest, service: Service = Depends(get_rag_service)
+    request: SpaceServeRequest,
+    service: Service = Depends(get_rag_service),
+    user: UserRequest = Depends(require_permission("knowledge", "write")),
 ):
+    """创建知识库空间（需要 knowledge:write 权限）"""
     logger.info(f"/space/add params: {request}")
     try:
         await blocking_func_to_async(get_executor(), service.create_space, request)
@@ -97,7 +102,11 @@ async def space_add(
 
 
 @router.post("/knowledge/space/list")
-async def space_list(request: KnowledgeSpaceRequest):
+async def space_list(
+    request: KnowledgeSpaceRequest,
+    user: UserRequest = Depends(require_permission("knowledge", "read")),
+):
+    """列出知识库空间（需要 knowledge:read 权限）"""
     logger.info(f"/space/list params: {request}")
     try:
         res = await blocking_func_to_async(
@@ -146,7 +155,9 @@ async def arguments(space_id: str):
 async def recall_test(
     space_name: str,
     request: DocumentRecallTestRequest,
+    user: UserRequest = Depends(require_permission("knowledge", "query")),
 ):
+    """知识库召回测试（需要 knowledge:query 权限）"""
     logger.info(f"/knowledge/{space_name}/recall_test params: {request}")
     try:
         return Result.succ(
@@ -416,7 +427,9 @@ async def document_upload(
     doc_file: UploadFile = File(...),
     fs: FileStorageClient = Depends(get_fs),
     service: Service = Depends(get_rag_service),
+    user: UserRequest = Depends(require_permission("knowledge", "write")),
 ):
+    """上传知识库文档（需要 knowledge:write 权限）"""
     logger.info(f"/document/upload params: {space_name}")
     try:
         document_request = DocumentServeRequest(

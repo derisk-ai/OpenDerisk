@@ -19,20 +19,38 @@ class FeaturePluginManifest:
     settings_schema: Optional[Dict[str, Any]] = None
     # When True, recommend OAuth2 + admin_users for write operations (enforced in API when configured).
     suggest_oauth2_admin: bool = True
+    # Internal: list of sub-plugins to enable/disable together
+    _internal_plugins: Optional[List[str]] = None
 
 
 _MANIFESTS: Dict[str, FeaturePluginManifest] = {
-    "user_groups": FeaturePluginManifest(
-        id="user_groups",
-        title="用户权限组",
+    "access_control": FeaturePluginManifest(
+        id="access_control",
+        title="权限控制系统",
         description=(
-            "面向登录用户的分组与成员管理（RBAC 数据面）；"
-            "后续可基于权限组对 Agent、工具等做访问控制。"
+            "完整的 RBAC 权限管理系统，包含用户权限组和角色权限管理。"
+            "启用后需配合 OAuth2 登录使用。"
         ),
         category="access_control",
         requires_restart=True,
-        settings_schema=None,
+        settings_schema={
+            "type": "object",
+            "properties": {
+                "default_policy": {
+                    "type": "string",
+                    "enum": ["allow_authenticated", "deny_all"],
+                    "default": "allow_authenticated",
+                    "description": "默认策略：allow_authenticated=已认证用户允许访问，deny_all=默认拒绝",
+                },
+                "superadmin_users": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "绕过所有权限检查的用户登录名列表",
+                },
+            },
+        },
         suggest_oauth2_admin=True,
+        _internal_plugins=["user_groups", "permissions"],
     ),
 }
 
@@ -65,10 +83,28 @@ def _entry_enabled_and_settings(
 def merge_catalog_with_state(
     feature_plugins: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """Merge manifests with persisted enabled/settings for API responses."""
+    """Merge manifests with persisted enabled/settings for API responses.
+
+    For unified plugins (like access_control), the enabled state is computed
+    from its sub-plugins (user_groups and permissions).
+    """
     out: List[Dict[str, Any]] = []
     for m in list_manifests():
-        en, st = _entry_enabled_and_settings(feature_plugins.get(m.id))
+        # For unified plugins, compute enabled state from sub-plugins
+        if m._internal_plugins:
+            # Check if any sub-plugin is enabled
+            any_enabled = any(
+                _entry_enabled_and_settings(feature_plugins.get(sub_id))[0]
+                for sub_id in m._internal_plugins
+            )
+            # Merge settings from all sub-plugins
+            merged_settings: Dict[str, Any] = {}
+            for sub_id in m._internal_plugins:
+                _, sub_settings = _entry_enabled_and_settings(feature_plugins.get(sub_id))
+                merged_settings.update(sub_settings)
+            en, st = any_enabled, merged_settings
+        else:
+            en, st = _entry_enabled_and_settings(feature_plugins.get(m.id))
         out.append(
             {
                 "id": m.id,
