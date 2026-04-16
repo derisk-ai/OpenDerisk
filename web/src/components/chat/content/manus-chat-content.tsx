@@ -3,12 +3,11 @@
 import ChatContent from './chat-content';
 import { ChatContentContext } from '@/contexts';
 import { IChatDialogueMessageSchema } from '@/types/chat';
-import { cloneDeep } from 'lodash';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import ChatHeader from '../header/chat-header';
 import UnifiedChatInput from '../input/unified-chat-input';
 import { Tooltip } from 'antd';
-import { LeftOutlined, DesktopOutlined } from '@ant-design/icons';
+import { LeftOutlined, DesktopOutlined, WarningOutlined } from '@ant-design/icons';
 import classNames from 'classnames';
 import { ee, EVENTS } from '@/utils/event-emitter';
 import markdownComponents, { markdownPlugins } from '@/components/chat/chat-content-components/config';
@@ -21,10 +20,32 @@ interface ManusChatContentProps {
   ctrl: AbortController;
 }
 
+// Data size limits to prevent browser crash
+const MAX_HISTORY_COUNT = 500;        // Maximum number of messages to render
+const MAX_CONTEXT_SIZE = 10_000_000; // Maximum characters per message context (10MB)
+const MAX_TOTAL_SIZE = 50_000_000;   // Maximum total context size for all messages (50MB)
+
+/**
+ * Check if conversation data is too large to safely render
+ */
+const isDataTooLarge = (messages: IChatDialogueMessageSchema[]): boolean => {
+  if (messages.length > MAX_HISTORY_COUNT) return true;
+  const totalSize = messages.reduce((sum, m) => sum + (m.context && typeof m.context === 'string' ? m.context.length : 0), 0);
+  if (totalSize > MAX_TOTAL_SIZE) return true;
+  for (const msg of messages) {
+    if (msg.context && typeof msg.context === 'string' && msg.context.length > MAX_CONTEXT_SIZE) {
+      return true;
+    }
+  }
+  return false;
+};
+
 /**
  * Extract the latest running_window and build routing maps for cross-round switching:
  * - fileRunningWindowMap: deliverable file_id → running_window
  * - stepRunningWindowMap: step UID (from steps_map keys) → running_window
+ *
+ * Optimized: only scan the last N messages to reduce parsing overhead
  */
 function useRunningWindows(
   showMessages: Array<IChatDialogueMessageSchema & { key: string }>
@@ -39,11 +60,17 @@ function useRunningWindows(
     const fileMap = new Map<string, string>();
     const stepMap = new Map<string, string>();
 
-    for (const msg of showMessages) {
+    // Only scan the last 50 messages to reduce overhead
+    const messagesToScan = showMessages.slice(-50);
+
+    for (const msg of messagesToScan) {
       if (msg.role !== 'view') continue;
       try {
-        if (typeof msg.context !== 'string' || !msg.context.trim().startsWith('{')) continue;
-        const context = JSON.parse(msg.context);
+        const contextStr = msg.context;
+        if (typeof contextStr !== 'string' || !contextStr.trim().startsWith('{')) continue;
+        // Skip if context is too large to parse safely
+        if (contextStr.length > MAX_CONTEXT_SIZE) continue;
+        const context = JSON.parse(contextStr);
         const rw = context.running_window || '';
         if (!rw) continue;
 
@@ -94,20 +121,36 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   const [userClosedPanel, setUserClosedPanel] = useState(false);
   const [overrideRunningWindow, setOverrideRunningWindow] = useState<string | null>(null);
 
+  // Check if data is too large
+  const dataTooLarge = useMemo(() => isDataTooLarge(history), [history]);
+
+  // Use shallow copy instead of cloneDeep
   const showMessages = useMemo(() => {
-    const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
-    return tempMessage
+    if (dataTooLarge) return [];
+    return history
       .filter((item) => ['view', 'human'].includes(item.role))
       .map((item, index) => ({
         ...item,
         key: `${item.role}_${item.order ?? index}`,
       }));
-  }, [history]);
+  }, [history, dataTooLarge]);
 
   const { latestRunningWindow, latestHasData, fileRunningWindowMap, stepRunningWindowMap } = useRunningWindows(showMessages);
 
   // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
+
+  // Cleanup: remove all event listeners when conversation changes (chatId changes)
+  useEffect(() => {
+    // This effect runs on mount and when conversation changes
+    // Cleanup function removes all listeners to prevent memory leaks
+    return () => {
+      ee.off(EVENTS.CLOSE_PANEL);
+      ee.off(EVENTS.OPEN_PANEL);
+      ee.off(EVENTS.SWITCH_TAB);
+      ee.off(EVENTS.CLICK_FOLDER);
+    };
+  }, [history]);
 
   // Listen for panel open/close events
   useEffect(() => {
@@ -192,6 +235,35 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
     : !userClosedPanel;
   const showLeftPanel = shareMode !== 'report';
   const showInput = !isSharedView;
+
+  // Show warning if data is too large
+  if (dataTooLarge) {
+    return (
+      <div className="flex h-full w-full overflow-hidden" style={{ background: 'linear-gradient(160deg, #fdfcfb 0%, #fbfaf8 40%, #faf9f6 100%)' }}>
+        <div className="flex flex-col h-full flex-1">
+          <ChatHeader isProcessing={false} />
+          <div className="flex-1 flex flex-col items-center justify-center p-8">
+            <WarningOutlined className="text-4xl text-orange-500 mb-4" />
+            <h3 className="text-lg font-medium text-gray-700 mb-2">
+              会话数据过大
+            </h3>
+            <p className="text-sm text-gray-500 mb-4 text-center max-w-md">
+              当前会话包含 {history.length} 条消息，数据量过大可能导致浏览器崩溃。
+              为保护系统稳定性，已暂停渲染此会话。
+            </p>
+            <p className="text-xs text-gray-400">
+              建议导出会话记录查看历史内容，或联系管理员处理
+            </p>
+          </div>
+          {showInput && (
+            <div className="flex-shrink-0 pb-4 pt-2 px-4 max-w-3xl mx-auto w-full">
+              <UnifiedChatInput ctrl={ctrl} showFloatingActions={false} />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: 'linear-gradient(160deg, #fdfcfb 0%, #fbfaf8 40%, #faf9f6 100%)' }}>

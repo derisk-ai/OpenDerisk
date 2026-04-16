@@ -210,8 +210,15 @@ const ChatContent: React.FC<{
     [cachePluginContext]
   );
 
+  const MAX_CONTEXT_PARSE_SIZE = 10_000_000; // 10MB limit for JSON parsing
+
   const _context = useMemo(() => {
     if (typeof value === 'string' && value.trim().startsWith('{')) {
+      // Size check: skip parsing if context is too large
+      if (value.length > MAX_CONTEXT_PARSE_SIZE) {
+        console.warn(`[ChatContent] Context too large (${value.length} chars), returning raw value`);
+        return value;
+      }
       try {
         const parsed = JSON.parse(value);
         // 检查 planning_window 字段是否存在（即使为空字符串也应该使用它，

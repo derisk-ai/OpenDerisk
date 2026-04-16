@@ -374,12 +374,33 @@ function SideBar() {
     }));
   }, [appList, pathname, searchParams]);
 
+  /**
+   * Extract readable user text from user_input.
+   * user_input may be a plain string or a JSON stringified object
+   * like {"type":"human","data":{"content":"...",...}} from V2 conversations.
+   */
+  const extractUserText = (raw: string | undefined): string => {
+    if (!raw) return '';
+    // If it starts with '{', try to parse as JSON and extract the text content
+    if (raw.startsWith('{')) {
+      try {
+        const obj = JSON.parse(raw);
+        if (obj.data?.content) return obj.data.content;
+        if (obj.content) return obj.content;
+        return raw;
+      } catch {
+        return raw;
+      }
+    }
+    return raw;
+  };
+
   useEffect(() => {
      if (dialogueList && dialogueList[1]) {
       const di =  (dialogueList[1] as unknown as Dialogue[]).map(
         (dialogue: Dialogue): DialogueListItem => ({
           key: dialogue?.conv_uid,
-          name: dialogue.user_input || dialogue.select_param,
+          name: extractUserText(dialogue.user_input) || dialogue.select_param,
           path: '/',
           dialogue: dialogue,
         }),
@@ -537,7 +558,7 @@ function SideBar() {
         const di = (dialogueList[1] as unknown as Dialogue[]).map(
           (dialogue: Dialogue): DialogueListItem => ({
             key: dialogue?.conv_uid,
-            name: dialogue.user_input || dialogue.select_param,
+            name: extractUserText(dialogue.user_input) || dialogue.select_param,
             path: '/',
             dialogue: dialogue,
           }),
@@ -583,9 +604,23 @@ function SideBar() {
     }, {} as GroupedDialogues);
   };
 
+  // Sort items within each group by created time descending
+  const sortGroupedDialogues = (grouped: GroupedDialogues): GroupedDialogues => {
+    const sorted: GroupedDialogues = {};
+    for (const [key, items] of Object.entries(grouped)) {
+      sorted[key] = [...items].sort((a, b) => {
+        const aTime = a.dialogue.gmt_created || a.dialogue.gmt_modified || '';
+        const bTime = b.dialogue.gmt_created || b.dialogue.gmt_modified || '';
+        return bTime.localeCompare(aTime);
+      });
+    }
+    return sorted;
+  };
+
   const renderGroupedDialogues = (dialogues: DialogueListItem[]) => {
     const grouped = groupDialoguesByWeek(dialogues);
-    const sortedGroups = Object.entries(grouped).sort((a, b) => {
+    const sorted = sortGroupedDialogues(grouped);
+    const sortedGroups = Object.entries(sorted).sort((a, b) => {
       const order = [t('this_week'), t('last_week'), t('weeks_ago'), t('unknown')];
       const aIndex = order.findIndex(k => a[0].startsWith(k));
       const bIndex = order.findIndex(k => b[0].startsWith(k));

@@ -17,6 +17,16 @@ const DEBUG_EMITTER = false; // 调试 folder/work 联动时打开
 const rawEE = new EE();
 
 /**
+ * 清理所有事件监听器（用于对话切换时的内存清理）
+ */
+export const clearAllEventListeners = () => {
+  // Remove all listeners for all defined events
+  Object.values(EVENTS).forEach(event => {
+    rawEE.off(event);
+  });
+};
+
+/**
  * 用于全局通信，谨慎使用
  * 调试时包装 emit/on，打日志看是否有监听者、是否触发
  */
@@ -34,5 +44,12 @@ export const ee = DEBUG_EMITTER
         console.log('[ee] emit', event, args);
         return rawEE.emit(event, ...args);
       },
+      clearAll: () => {
+        console.log('[ee] clearAll');
+        return clearAllEventListeners();
+      },
     }
-  : rawEE;
+  : {
+      ...rawEE,
+      clearAll: clearAllEventListeners,
+    };
