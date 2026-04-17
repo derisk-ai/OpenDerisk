@@ -15,6 +15,7 @@ import { useSearchParams } from 'next/navigation';
 import { ChatContentContext, SelectedSkill, ContextMetricsProvider } from '@/contexts';
 import HomeChat from '@/components/chat/content/home-chat';
 import { useTranslation } from 'react-i18next';
+import { clearAllEventListeners } from '@/utils/event-emitter';
 
 const { Content } = Layout;
 
@@ -370,6 +371,10 @@ export default function Chat() {
       return;
     }
     if(chatId) {
+      // Memory cleanup: clear old history and event listeners before loading new conversation
+      // This prevents memory buildup when switching between large conversations
+      setHistory([]);
+      clearAllEventListeners();
       await getHistory();
     }
   }, [chatId, getHistory, app_code]);
