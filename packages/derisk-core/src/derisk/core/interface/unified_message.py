@@ -274,13 +274,16 @@ class UnifiedMessage:
 @dataclass
 class UnifiedConversationSummary:
     """统一对话摘要模型
-    
+
     用于统一Core V1（chat_history）和Core V2（gpts_conversations）的对话列表格式
     """
-    
-    # 基础字段（必须有默认值的放后面）
+
+    # 基础字段（没有默认值的必须放在前面）
     conv_id: str
     user_id: str
+
+    # 可选字段（有默认值的放后面）
+    conv_session_id: Optional[str] = None  # 会话ID，用于获取整个会话的消息
     goal: Optional[str] = None
     chat_mode: str = "chat_normal"
     state: str = "active"
@@ -289,15 +292,16 @@ class UnifiedConversationSummary:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     source: str = "unknown"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于序列化）
-        
+
         Returns:
             字典格式的对话摘要数据
         """
         return {
             "conv_id": self.conv_id,
+            "conv_session_id": self.conv_session_id,
             "user_id": self.user_id,
             "goal": self.goal,
             "chat_mode": self.chat_mode,
@@ -308,28 +312,29 @@ class UnifiedConversationSummary:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "source": self.source
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'UnifiedConversationSummary':
         """从字典创建实例
-        
+
         Args:
             data: 字典数据
-            
+
         Returns:
             UnifiedConversationSummary实例
         """
         created_at = data.get('created_at')
         if isinstance(created_at, str):
             created_at = datetime.fromisoformat(created_at)
-        
+
         updated_at = data.get('updated_at')
         if isinstance(updated_at, str):
             updated_at = datetime.fromisoformat(updated_at)
-        
+
         return cls(
             conv_id=data['conv_id'],
             user_id=data.get('user_id', ''),
+            conv_session_id=data.get('conv_session_id'),
             goal=data.get('goal'),
             chat_mode=data.get('chat_mode', 'chat_normal'),
             state=data.get('state', 'active'),

@@ -230,6 +230,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             items = [
                 ServerResponse(
                     conv_uid=item.conv_id,
+                    conv_session_id=item.conv_session_id,
                     user_input=item.goal,
                     chat_mode=item.chat_mode,
                     app_code=item.app_code,
@@ -370,7 +371,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         """从gpts_messages表读取消息（Core V2）
 
         Args:
-            conv_uid: 对话ID
+            conv_uid: 对话ID，可能是 conv_id 或 conv_session_id
 
         Returns:
             MessageVo列表，如果没有消息返回空列表
@@ -385,11 +386,37 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
             msg_dao = GptsMessagesDao()
 
-            _step_start = time.time()
-            gpts_messages = msg_dao.get_by_conv_id_sync(conv_uid)
-            logger.info(
-                f"[MESSAGES_HISTORY][PERF] 查询gpts_messages耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(gpts_messages)}"
-            )
+            # conv_id 格式: uuid_数字 (如 b63fbb0e-38d8-11f1-8578-b5920cfbee2e_2)
+            # conv_session_id 格式: 纯 uuid (如 b63fbb0e-38d8-11f1-8578-b5920cfbee2e)
+            # 前端传入的 conv_uid 可能是 conv_id (带 _数字 后缀)，需要提取 conv_session_id
+
+            # 判断是否是 conv_id 格式（带 _数字 后缀）
+            is_conv_id_format = "_" in conv_uid and conv_uid.split("_")[-1].isdigit()
+
+            # 提取 conv_session_id（去掉 _数字 后缀）
+            if is_conv_id_format:
+                # conv_id 格式，提取 conv_session_id
+                conv_session_id = conv_uid.rsplit("_", 1)[0]
+                _step_start = time.time()
+                # 先尝试用 conv_session_id 查询（获取整个会话的所有消息）
+                gpts_messages = msg_dao.get_by_conv_session_id(conv_session_id)
+                logger.info(
+                    f"[MESSAGES_HISTORY][PERF] 查询gpts_messages(conv_session_id={conv_session_id})耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(gpts_messages)}"
+                )
+                # 如果没有找到，再尝试用原始 conv_id 查询
+                if not gpts_messages:
+                    _step_start = time.time()
+                    gpts_messages = msg_dao.get_by_conv_id_sync(conv_uid)
+                    logger.info(
+                        f"[MESSAGES_HISTORY][PERF] 回退查询gpts_messages(conv_id={conv_uid})耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(gpts_messages)}"
+                    )
+            else:
+                # conv_session_id 格式，直接查询
+                _step_start = time.time()
+                gpts_messages = msg_dao.get_by_conv_session_id(conv_uid)
+                logger.info(
+                    f"[MESSAGES_HISTORY][PERF] 查询gpts_messages(conv_session_id={conv_uid})耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(gpts_messages)}"
+                )
 
             if not gpts_messages:
                 logger.info(

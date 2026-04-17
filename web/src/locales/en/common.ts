@@ -1215,4 +1215,6 @@ export const CommonEn = {
   port: 'Port',
   db_name: 'Database Name',
   Refresh: 'Refresh',
+  user: 'User',
+  created_time: 'Created Time',
 } as const;

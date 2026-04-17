@@ -1218,4 +1218,6 @@ export const CommonZh: Resources['translation'] = {
   port: '端口',
   db_name: '数据库名',
   Refresh: '刷新',
+  user: '用户',
+  created_time: '创建时间',
 } as const;

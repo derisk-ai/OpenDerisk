@@ -114,6 +114,8 @@ const MenuItem: React.FC<{
         if (historyLoading) {
           return;
         }
+        // 使用 conv_session_id（如果有）作为 URL 参数，否则使用 conv_uid
+        const sessionParam = item.conv_session_id || item.conv_uid;
         !item.default &&
           setCurrentDialogInfo?.({
             chat_scene: item.chat_mode,
@@ -125,7 +127,7 @@ const MenuItem: React.FC<{
             app_code: item.app_code,
           }),
         );
-        router.push(item.default ? '/chat' : `?conv_uid=${item.conv_uid}&app_code=${item.app_code}`);
+        router.push(item.default ? '/chat' : `?conv_uid=${sessionParam}&app_code=${item.app_code}`);
       }}
     >
       <Tooltip title={item.chat_mode}>

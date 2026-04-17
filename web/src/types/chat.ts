@@ -57,6 +57,7 @@ export type ChatHistoryResponse = IChatDialogueMessageSchema[];
 
 export type IChatDialogueSchema = {
   conv_uid: string;
+  conv_session_id?: string; // 会话ID，用于获取整个会话的消息
   user_input: UserChatContent;
   user_name: string;
   chat_mode:
@@ -75,6 +76,8 @@ export type IChatDialogueSchema = {
   team_model?: string; // 添加team_model字段
   icon?: string; // 添加icon字段
   state?: 'RUNNING' | 'COMPLETE' | 'FAILED' | 'WAITING' | (string & {});
+  gmt_created?: string; // 创建时间
+  gmt_modified?: string; // 修改时间
 };
 
 export type UserParam = {

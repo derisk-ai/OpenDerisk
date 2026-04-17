@@ -530,6 +530,7 @@ class UnifiedMessageDAO:
                         UnifiedConversationSummary(
                             conv_id=entity.conv_id,
                             user_id=entity.user_code or "",
+                            conv_session_id=entity.conv_session_id,
                             goal=entity.user_goal,
                             chat_mode=entity.team_mode or "gpts_v2",
                             state=entity.state or "active",

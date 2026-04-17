@@ -67,6 +67,7 @@ export type RouteItem = {
 interface Dialogue {
   chat_mode: string;
   conv_uid: string;
+  conv_session_id?: string; // 会话ID，用于获取整个会话的消息
   user_input?: string;
   select_param?: string;
   app_code?: string;
@@ -137,61 +138,83 @@ const MenuItem: React.FC<{
   }
   const isActive = chatId === item.conv_uid && appCode === item.app_code;
 
+  // 构建Tooltip内容：显示用户和创建时间
+  const tooltipContent = (
+    <div className='flex flex-col gap-1'>
+      {item.user_name && (
+        <div className='flex items-center gap-2'>
+          <span className='text-gray-400'>{t('user')}:</span>
+          <span>{item.user_name}</span>
+        </div>
+      )}
+      {item.gmt_created && (
+        <div className='flex items-center gap-2'>
+          <span className='text-gray-400'>{t('created_time')}:</span>
+          <span>{moment(item.gmt_created).format('YYYY-MM-DD HH:mm')}</span>
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <Flex
-      align='center'
-      className={cls(`group/item w-full cursor-pointer relative max-w-full my-0.5`)}
-      onClick={() => {
-        if (historyLoading) {
-          return;
-        }
-        router.push(`/chat/?conv_uid=${item.conv_uid}&app_code=${item.app_code}`);
-      }}
-    >
-      <div className={cls('flex-1 flex flex-row min-w-0 overflow-hidden hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg px-3 py-2 transition-colors duration-200', {
-        'bg-gray-100 dark:bg-gray-800': isActive,
-      })}>
-        <div className='mr-3 flex-shrink-0'>
-          <ChatIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-        </div>
-        <div className='flex-1 min-w-0 overflow-hidden'>
-          <Typography.Text
-            ellipsis={{
-              tooltip: true,
-            }}
-            className={cls('block text-sm font-normal', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
-          >
-            {item.label}
-          </Typography.Text>
-        </div>
-        <div className='flex gap-1 ml-1 flex-shrink-0 items-center'>
-          <div
-            className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
-            onClick={e => {
-              e.stopPropagation();
-            }}
-          >
-            <ShareAltOutlined
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              style={{ fontSize: 14 }}
-              onClick={() => {
-                const success = copy(`${location.origin}/chat?scene=${item.chat_mode}&id=${item.conv_uid}`);
-                message[success ? 'success' : 'error'](success ? t('copy_success') : t('copy_failed'));
+    <Tooltip title={tooltipContent} placement='right'>
+      <Flex
+        align='center'
+        className={cls(`group/item w-full cursor-pointer relative max-w-full my-0.5`)}
+        onClick={() => {
+          if (historyLoading) {
+            return;
+          }
+          // 使用 conv_session_id（如果有）作为 URL 参数，否则使用 conv_uid
+        const sessionParam = item.conv_session_id || item.conv_uid;
+        router.push(`/chat/?conv_uid=${sessionParam}&app_code=${item.app_code}`);
+        }}
+      >
+        <div className={cls('flex-1 flex flex-row min-w-0 overflow-hidden hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg px-3 py-2 transition-colors duration-200', {
+          'bg-gray-100 dark:bg-gray-800': isActive,
+        })}>
+          <div className='mr-3 flex-shrink-0'>
+            <ChatIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </div>
+          <div className='flex-1 min-w-0 overflow-hidden'>
+            <Typography.Text
+              ellipsis={{
+                tooltip: false, // 禁用Typography自己的tooltip，使用外层Tooltip
               }}
-            />
+              className={cls('block text-sm font-normal', isActive ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400')}
+            >
+              {item.label}
+            </Typography.Text>
           </div>
-          <div
-            className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
-            onClick={e => {
-              e.stopPropagation();
-              handleDelChat();
-            }}
-          >
-            <DeleteOutlined className="text-gray-400 hover:text-red-500" style={{ fontSize: 14 }} />
+          <div className='flex gap-1 ml-1 flex-shrink-0 items-center'>
+            <div
+              className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <ShareAltOutlined
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                style={{ fontSize: 14 }}
+                onClick={() => {
+                  const success = copy(`${location.origin}/chat?scene=${item.chat_mode}&id=${item.conv_uid}`);
+                  message[success ? 'success' : 'error'](success ? t('copy_success') : t('copy_failed'));
+                }}
+              />
+            </div>
+            <div
+              className='group-hover/item:opacity-100 cursor-pointer opacity-0 transition-opacity'
+              onClick={e => {
+                e.stopPropagation();
+                handleDelChat();
+              }}
+            >
+              <DeleteOutlined className="text-gray-400 hover:text-red-500" style={{ fontSize: 14 }} />
+            </div>
           </div>
         </div>
-      </div>
-    </Flex>
+      </Flex>
+    </Tooltip>
   );
 };
 
@@ -620,11 +643,30 @@ function SideBar() {
   const renderGroupedDialogues = (dialogues: DialogueListItem[]) => {
     const grouped = groupDialoguesByWeek(dialogues);
     const sorted = sortGroupedDialogues(grouped);
+
+    // 按时间顺序排列分组：本周 > 上周 > X周前 > 未知
     const sortedGroups = Object.entries(sorted).sort((a, b) => {
-      const order = [t('this_week'), t('last_week'), t('weeks_ago'), t('unknown')];
-      const aIndex = order.findIndex(k => a[0].startsWith(k));
-      const bIndex = order.findIndex(k => b[0].startsWith(k));
-      return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      const thisWeekKey = t('this_week');
+      const lastWeekKey = t('last_week');
+      const weeksAgoKey = t('weeks_ago');
+      const unknownKey = t('unknown');
+
+      // 获取分组的排序权重
+      const getGroupOrder = (groupName: string): number => {
+        if (groupName === thisWeekKey) return 1;
+        if (groupName === lastWeekKey) return 2;
+        // 处理 "X 周前" 或 "X weeks ago" 格式
+        if (groupName.includes(weeksAgoKey)) {
+          // 提取数字，数字越大（周数越早），排序越靠后
+          const match = groupName.match(/\d+/);
+          const weeksNum = match ? parseInt(match[0], 10) : 999;
+          return 3 + weeksNum;
+        }
+        if (groupName === unknownKey) return 9999;
+        return 9998; // 其他未知分组
+      };
+
+      return getGroupOrder(a[0]) - getGroupOrder(b[0]);
     });
 
     return sortedGroups.map(([week, items], index) => (

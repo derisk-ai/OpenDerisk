@@ -1,7 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import type { ContextMetrics, ContextMetricsEvent } from '@/types/context-metrics';
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import type { ContextMetrics } from '@/types/context-metrics';
 
 interface ContextMetricsContextValue {
   metrics: ContextMetrics | null;
@@ -21,7 +21,6 @@ export const ContextMetricsProvider: React.FC<ContextMetricsProviderProps> = ({
   convId,
 }) => {
   const [metrics, setMetrics] = useState<ContextMetrics | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   const updateMetrics = useCallback((newMetrics: ContextMetrics) => {
     setMetrics(newMetrics);
@@ -31,45 +30,8 @@ export const ContextMetricsProvider: React.FC<ContextMetricsProviderProps> = ({
     setMetrics(null);
   }, []);
 
-  // WebSocket 连接 (如果 convId 存在)
-  useEffect(() => {
-    if (!convId) return;
-
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/context/${convId}`;
-    
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as ContextMetricsEvent;
-          if (data.event_type === 'context_metrics_update' || data.event_type === 'context_metrics_full') {
-            setMetrics(data.data);
-          }
-        } catch (e) {
-          console.warn('[ContextMetrics] Failed to parse WebSocket message:', e);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.warn('[ContextMetrics] WebSocket error:', error);
-      };
-
-      ws.onclose = () => {
-        console.log('[ContextMetrics] WebSocket closed');
-      };
-    } catch (e) {
-      console.warn('[ContextMetrics] Failed to create WebSocket:', e);
-    }
-
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [convId]);
+  // WebSocket 连接已禁用 - 后端未实现 /ws/context endpoint
+  // 如需启用，请确保后端已实现该 WebSocket endpoint
 
   const value: ContextMetricsContextValue = {
     metrics,

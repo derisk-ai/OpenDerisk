@@ -60,6 +60,13 @@ class ServerResponse(BaseModel):
             "5e7100bc-9017-11ee-9876-8fe019728d79",
         ],
     )
+    conv_session_id: Optional[str] = Field(
+        default=None,
+        description="The conversation session id (used to get all messages in a session).",
+        examples=[
+            "5e7100bc-9017-11ee-9876-8fe019728d79",
+        ],
+    )
     user_input: Optional[str] = Field(
         None,
         description="The user input, we return it as the summary the conversation.",
