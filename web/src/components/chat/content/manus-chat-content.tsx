@@ -140,18 +140,6 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
 
-  // Cleanup: remove all event listeners when conversation changes (chatId changes)
-  useEffect(() => {
-    // This effect runs on mount and when conversation changes
-    // Cleanup function removes all listeners to prevent memory leaks
-    return () => {
-      ee.off(EVENTS.CLOSE_PANEL);
-      ee.off(EVENTS.OPEN_PANEL);
-      ee.off(EVENTS.SWITCH_TAB);
-      ee.off(EVENTS.CLICK_FOLDER);
-    };
-  }, [history]);
-
   // Listen for panel open/close events
   useEffect(() => {
     const handleClose = () => setUserClosedPanel(true);

@@ -49,7 +49,4 @@ export const ee = DEBUG_EMITTER
         return clearAllEventListeners();
       },
     }
-  : {
-      ...rawEE,
-      clearAll: clearAllEventListeners,
-    };
+  : rawEE;
