@@ -328,6 +328,7 @@ class AIWrapper:
 
         # Use config from parameter or self._llm_config
         llm_model = extra_kwargs.get("llm_model")
+        logger.info(f"==用户选择 model: {llm_model}")
         if self._llm_config:
             llm_model = self._llm_config.model
 
