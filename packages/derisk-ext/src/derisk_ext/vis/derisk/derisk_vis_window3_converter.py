@@ -1701,7 +1701,21 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         output_message_id: Optional[str] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ):
-        conv_id: str = main_agent.agent_context.conv_id
+        # 当 main_agent 为 None 时，从 messages_map 中获取 conv_id
+        if main_agent is None:
+            # 从 messages_map 中获取第一条消息的 conv_id
+            if messages_map:
+                first_message = next(iter(messages_map.values()), None)
+                if first_message and hasattr(first_message, 'conv_id'):
+                    conv_id: str = first_message.conv_id
+                else:
+                    logger.warning("_planning_vis_all: cannot get conv_id from messages_map")
+                    return ""
+            else:
+                logger.warning("_planning_vis_all: main_agent is None and messages_map is empty")
+                return ""
+        else:
+            conv_id: str = main_agent.agent_context.conv_id
         user_message: Optional[GptsMessage] = messages_map.get(input_message_id)
         if not user_message:
             logger.warning("_planning_vis_all eroor, not have user in message!")
@@ -1745,9 +1759,17 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         main_agent_name: Optional[str] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ):
-        main_agent = senders_map[main_agent_name]
-        conv_session_id = main_agent.agent_context.conv_session_id
-        main_agent_folder = await self._build_agent_folder(main_agent)
+        main_agent = senders_map.get(main_agent_name) if senders_map else None
+        # 当 main_agent 为 None 时，从 messages 中获取 conv_session_id
+        if main_agent is None:
+            if messages and len(messages) > 0:
+                conv_session_id = messages[0].conv_session_id
+            else:
+                logger.warning("_running_vis_all: main_agent is None and messages is empty")
+                return ""
+        else:
+            conv_session_id = main_agent.agent_context.conv_session_id
+            main_agent_folder = await self._build_agent_folder(main_agent)
 
         work_items = []
         for item in messages:
@@ -1760,13 +1782,19 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             if work_item:
                 work_items.extend(work_item)
 
+        # 当 main_agent 为 None 时，explorer 设为空
+        if main_agent is None:
+            explorer_content = ""
+        else:
+            explorer_content = self.vis_inst(AgentFolder.vis_tag()).sync_display(
+                content=main_agent_folder.to_dict()
+            )
+
         work_space_content = WorkSpaceContent(
             uid=conv_session_id,
             type=UpdateType.INCR.value,
             running_agents=[],
-            explorer=self.vis_inst(AgentFolder.vis_tag()).sync_display(
-                content=main_agent_folder.to_dict()
-            ),
+            explorer=explorer_content,
             items=work_items,
         )
 

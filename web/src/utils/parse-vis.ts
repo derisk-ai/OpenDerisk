@@ -56,6 +56,12 @@ interface QueryResult {
 // ============== 工具函数 ==============
 
 /**
+ * Maximum size for JSON string parsing (10MB)
+ * Prevents browser crash from parsing extremely large VIS data
+ */
+const MAX_JSON_PARSE_SIZE = 10_000_000;
+
+/**
  * 安全解析 JSON，处理非法转义字符（如 \$）
  * 关键修复：后端可能生成包含非法转义字符的 JSON
  */
@@ -63,7 +69,13 @@ function safeJsonParse<T>(jsonString: string | null | undefined): T {
   if (!jsonString) {
     throw new Error('Empty or null JSON string');
   }
-  
+
+  // Size check: prevent parsing extremely large JSON that could cause browser crash
+  if (jsonString.length > MAX_JSON_PARSE_SIZE) {
+    console.warn(`[safeJsonParse] JSON string too large (${jsonString.length} chars), skipping parse`);
+    throw new Error(`JSON too large: ${jsonString.length} characters exceeds limit of ${MAX_JSON_PARSE_SIZE}`);
+  }
+
   try {
     // 首先尝试直接解析
     return JSON.parse(jsonString);
