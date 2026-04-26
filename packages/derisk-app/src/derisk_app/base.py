@@ -207,16 +207,18 @@ def _migrate_mysql_chat_tables_utf8mb4(db_url: str) -> None:
         logger.error("MySQL utf8mb4 migration for chat tables failed: %s", e)
 
 
-def _add_missing_columns_sqlite(db):
-    """Add missing columns to existing SQLite tables (ALTER TABLE ADD COLUMN).
+def _add_missing_columns(db):
+    """Add missing columns to existing tables (ALTER TABLE ADD COLUMN).
 
     SQLAlchemy's create_all() only creates new tables; it won't add columns to
     existing ones. This function inspects the current schema and adds any column
     that is defined in a mapped model but absent from the actual table.
+    Works for both SQLite and MySQL.
     """
     from sqlalchemy import inspect as sa_inspect, text
 
     engine = db.engine
+    dialect_name = engine.dialect.name
     inspector = sa_inspect(engine)
     existing_tables = inspector.get_table_names()
 
@@ -240,9 +242,13 @@ def _add_missing_columns_sqlite(db):
                 default_clause = ""
                 if col.default is not None and col.default.is_scalar:
                     default_clause = f" DEFAULT '{col.default.arg}'"
+                comment_clause = ""
+                if dialect_name == "mysql" and col.comment:
+                    escaped = col.comment.replace("'", "\\'")
+                    comment_clause = f" COMMENT '{escaped}'"
                 try:
                     stmt = text(
-                        f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type} {nullable}{default_clause}"
+                        f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type} {nullable}{default_clause}{comment_clause}"
                     )
                     conn.execute(stmt)
                     conn.commit()
@@ -283,23 +289,25 @@ def _migration_db_storage(
                     f"Create all tables stored in this metadata error: {str(e)}"
                 )
 
-            _add_missing_columns_sqlite(db)
+            _add_missing_columns(db)
 
             db.engine.dispose()
 
             _ddl_init_and_upgrade(default_meta_data_path, disable_alembic_upgrade)
         else:
-            warn_msg = """For safety considerations, MySQL Database not support DDL \
-            init and upgrade. "
-                "1.If you are use DERISK firstly, please manually execute the following\
-                 command to initialize, 
-                `mysql -h127.0.0.1 -uroot -p{your_password} \
-                < ./assets/schema/derisk.sql` "
-                "2.If there are any changes to the table columns in the DERISK database,
-                 it is necessary to compare with the DERISK/assets/schema/derisk.sql file
-                 and manually make the columns changes in the MySQL database instance.
-                 """
-            logger.warning(warn_msg)
+            # MySQL: create new tables + auto-add missing columns
+            try:
+                db.create_all()
+            except Exception as e:
+                logger.warning(
+                    f"Create all tables stored in this metadata error: {str(e)}"
+                )
+
+            _add_missing_columns(db)
+
+            db.engine.dispose()
+
+            _ddl_init_and_upgrade(default_meta_data_path, disable_alembic_upgrade)
 
 
 def _initialize_db(

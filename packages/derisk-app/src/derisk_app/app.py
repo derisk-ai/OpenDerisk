@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -252,6 +252,7 @@ def _sync_oauth2_config_from_db():
                 enabled=db_oauth2.get("enabled", False),
                 providers=db_oauth2.get("providers", []),
                 admin_users=db_oauth2.get("admin_users", []),
+                default_role=db_oauth2.get("default_role", "viewer"),
             )
             cfg.oauth2 = oauth2_config
             logger.info(
@@ -263,12 +264,123 @@ def _sync_oauth2_config_from_db():
         logger.warning(f"Failed to sync OAuth2 from database: {e}")
 
 
-def _sync_app_config_to_system_app():
-    """Sync JSON config (agent_llm, default_model, etc.) to system_app.config on startup.
+def _convert_toml_agent_llm_to_json_format(toml_agent_llm: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert TOML agent.llm format to JSON agent_llm format.
 
-    This ensures that after restart, the LLM configuration saved in derisk.json
-    is properly loaded into system_app.config and ModelConfigCache, making models
-    available immediately without needing manual refresh.
+    TOML format (agent.llm):
+        { "temperature": 0.5, "provider": [{ "provider": "openai", "api_base": "...", "model": [...] }] }
+
+    JSON format (agent_llm):
+        { "temperature": 0.5, "providers": [{ "provider": "openai", "api_base": "...", "models": [...] }] }
+    """
+    result = dict(toml_agent_llm)
+    providers = result.pop("provider", [])
+    json_providers = []
+    for p in providers:
+        if not isinstance(p, dict):
+            continue
+        converted = dict(p)
+        if "model" in converted:
+            converted["models"] = converted.pop("model")
+        json_providers.append(converted)
+    result["providers"] = json_providers
+    return result
+
+
+def _bootstrap_toml_providers_to_json(
+    toml_llm: Dict[str, Any], cfg: Any
+) -> bool:
+    """Sync TOML providers into derisk.json config.
+
+    TOML is the source of truth for model configuration. When TOML defines
+    providers, they are always synced into derisk.json so the Web UI and
+    ModelConfigCache see the latest models.
+
+    Returns True if providers were updated, False otherwise.
+    """
+    if not toml_llm or not toml_llm.get("provider"):
+        return False
+
+    from derisk_core.config import ConfigManager
+    from derisk_core.config.schema import (
+        AgentLLMConfig,
+        LLMProviderConfig,
+        LLMProviderModelConfig,
+    )
+
+    json_llm_dict = _convert_toml_agent_llm_to_json_format(toml_llm)
+    toml_providers = json_llm_dict.get("providers", [])
+    if not toml_providers:
+        return False
+
+    new_providers = []
+    for p_dict in toml_providers:
+        models = [
+            LLMProviderModelConfig(
+                name=m.get("name", ""),
+                temperature=m.get("temperature", 0.7),
+                max_new_tokens=m.get("max_new_tokens", 4096),
+                is_multimodal=m.get("is_multimodal", False),
+            )
+            for m in p_dict.get("models", [])
+            if isinstance(m, dict) and m.get("name")
+        ]
+        if models:
+            new_providers.append(
+                LLMProviderConfig(
+                    provider=p_dict.get("provider", "openai"),
+                    api_base=p_dict.get("api_base", ""),
+                    api_key_ref=p_dict.get("api_key_ref", ""),
+                    models=models,
+                )
+            )
+
+    if not new_providers:
+        return False
+
+    # Migrate api_key from TOML into encrypted secrets, set api_key_ref
+    for p_dict in toml_providers:
+        api_key = p_dict.get("api_key", "")
+        if api_key:
+            provider_name = p_dict.get("provider", "openai")
+            try:
+                from derisk_core.config.encryption import save_secrets, load_secrets
+
+                secrets = load_secrets() or {}
+                secret_key = f"{provider_name}_api_key"
+                secrets[secret_key] = api_key
+                save_secrets(secrets)
+
+                for p in new_providers:
+                    if p.provider == provider_name:
+                        p.api_key_ref = f"${{secrets.{secret_key}}}"
+                logger.info(f"API key for {provider_name} saved to secrets")
+            except Exception as e:
+                logger.warning(f"Failed to save API key to secrets: {e}")
+
+    cfg.agent_llm = AgentLLMConfig(
+        temperature=json_llm_dict.get("temperature", 0.5),
+        providers=new_providers,
+    )
+    ConfigManager.save()
+
+    model_names = []
+    for p in new_providers:
+        model_names.extend(m.name for m in p.models)
+    logger.info(
+        f"TOML providers synced to derisk.json: "
+        f"{len(new_providers)} providers, {len(model_names)} models: {model_names}"
+    )
+    return True
+
+
+def _sync_app_config_to_system_app():
+    """Sync LLM config to system_app.config on startup.
+
+    Priority: TOML config > JSON config. If TOML defines providers, they always
+    override the JSON (derisk.json) providers. This ensures edits to TOML files
+    take effect on next restart, while the Web UI can still hot-reload within a
+    session (Web UI writes to derisk.json, which takes effect until next restart).
     """
     try:
         from derisk_core.config import ConfigManager
@@ -295,9 +407,24 @@ def _sync_app_config_to_system_app():
             _convert_agent_llm_to_system_format,
         )
 
+        # TOML config is the source of truth — always sync to derisk.json
+        toml_agent = system_app.config.get("agent", None)
+        toml_llm = toml_agent.get("llm", {}) if isinstance(toml_agent, dict) else None
+        if toml_llm and toml_llm.get("provider"):
+            _bootstrap_toml_providers_to_json(toml_llm, cfg)
+            # Refresh after sync
+            agent_llm_conf = cfg.agent_llm
+
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
 
         system_app.config.set("agent.llm", agent_llm_dict)
+
+        # Also update app_config so model list endpoints see the latest providers.
+        # The endpoints check app_config.agent_llm first (PRIORITY 1), so it must
+        # be kept in sync; otherwise stale data blocks the fallback paths.
+        app_config = system_app.config.configs.get("app_config")
+        if app_config and hasattr(app_config, "agent_llm"):
+            app_config.agent_llm = agent_llm_conf
 
         model_configs = parse_provider_configs(agent_llm_dict)
         if model_configs:

@@ -188,11 +188,28 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
     }
   };
 
-  const handleToggleRole = async (user: UnifiedUserRow) => {
-    const nextRole = user.legacy_role === 'admin' ? 'normal' : 'admin';
+  const handleToggleAdmin = async (user: UnifiedUserRow) => {
+    const isAdmin = user.roles.includes('admin');
     try {
-      await usersService.updateUser(user.id, { role: nextRole });
-      message.success(nextRole === 'admin' ? t('permissions_set_admin') : t('permissions_unset_admin'));
+      if (isAdmin) {
+        // Remove admin RBAC role
+        const adminRole = allRoles.find((r) => r.name === 'admin');
+        if (adminRole) {
+          await permissionsService.batchRemoveRoles(user.id, [adminRole.id]);
+        }
+        // Also set legacy role to normal
+        await usersService.updateUser(user.id, { role: 'normal' });
+        message.success(t('permissions_unset_admin'));
+      } else {
+        // Assign admin RBAC role
+        const adminRole = allRoles.find((r) => r.name === 'admin');
+        if (adminRole) {
+          await permissionsService.batchAssignRoles(user.id, [adminRole.id]);
+        }
+        // Also set legacy role to admin (for checker.py bypass compatibility)
+        await usersService.updateUser(user.id, { role: 'admin' });
+        message.success(t('permissions_set_admin'));
+      }
       await loadUsers({ silent: true });
     } catch (e: unknown) {
       message.error(t('permissions_operation_failed') + ': ' + (e as Error).message);
@@ -307,17 +324,6 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
         render: (provider: string) => (provider ? <Tag>{provider}</Tag> : <Text type="secondary">-</Text>),
       },
       {
-        title: t('permissions_legacy_role'),
-        dataIndex: 'legacy_role',
-        key: 'legacy_role',
-        width: 120,
-        render: (role: string) => (
-          <Tag color={role === 'admin' ? 'gold' : 'default'}>
-            {role === 'admin' ? t('permissions_admin_user') : t('permissions_normal_user')}
-          </Tag>
-        ),
-      },
-      {
         title: t('permissions_col_status'),
         dataIndex: 'is_active',
         key: 'is_active',
@@ -383,10 +389,10 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
             <Button type="link" size="small" onClick={() => openUserDetail(record.id)}>
               {t('permissions_add_authorization')}
             </Button>
-            <Button type="link" size="small" onClick={() => handleToggleRole(record)}>
-              {record.legacy_role === 'admin' ? t('permissions_unset_admin') : t('permissions_set_admin')}
+            <Button type="link" size="small" onClick={() => handleToggleAdmin(record)}>
+              {record.roles.includes('admin') ? t('permissions_unset_admin') : t('permissions_set_admin')}
             </Button>
-            {currentUser?.role === 'admin' && currentUser?.id !== record.id && (
+            {currentUser?.role === 'admin' && record.id !== currentUser.id && (
               <Popconfirm
                 title={t('permissions_delete_user_confirm')}
                 onConfirm={() => handleDelete(record)}

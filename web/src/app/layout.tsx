@@ -87,7 +87,9 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       authCheckInProgress.current = true;
       try {
         const oauthStatus = await authService.getOAuthStatus();
-        if (!oauthStatus.enabled) {
+        const needsLogin = oauthStatus.enabled || oauthStatus.local_login_enabled;
+
+        if (!needsLogin) {
           const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
           localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
           localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
@@ -107,8 +109,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       } catch {
         try {
           const oauthStatus = await authService.getOAuthStatus();
-          if (oauthStatus.enabled) {
-            // 避免已经在登录页面时重复跳转
+          if (oauthStatus.enabled || oauthStatus.local_login_enabled) {
             const currentPath = window.location.pathname;
             if (!currentPath.startsWith("/login") && !currentPath.startsWith("/auth/callback")) {
               window.location.href = "/login";

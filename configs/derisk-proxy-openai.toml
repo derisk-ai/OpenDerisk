@@ -40,24 +40,21 @@ name = "deepseek-v3"
 temperature = 0.7
 max_new_tokens = 4096
 [[agent.llm.provider.model]]
-name = "Kimi-k2"
+name = "gpt-4o"
 temperature = 0.7
 max_new_tokens = 4096
 [[agent.llm.provider.model]]
-name = "qwen-plus"
+name = "gpt-4o-mini"
 temperature = 0.7
 max_new_tokens = 4096
 [[agent.llm.provider.model]]
-name = "qwen-vl-max"
+name = "o1"
 temperature = 0.7
 max_new_tokens = 4096
-is_multimodal = true  # 多模态模型，支持图片输入
-
 [[agent.llm.provider.model]]
-name = "glm-5"
+name = "o3-mini"
 temperature = 0.7
 max_new_tokens = 4096
-is_multimodal = true  # 多模态模型，支持图片输入
 
 [[serves]]
 type = "file"

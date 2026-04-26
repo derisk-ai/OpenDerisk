@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
 from derisk_app.auth.oauth import OAuth2Service
 from derisk_app.auth.session import (
@@ -19,6 +20,11 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 oauth_service = OAuth2Service()
 session_manager = SessionManager()
+
+
+class LocalLoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 def _get_config():
@@ -79,25 +85,35 @@ def _resolve_role(user_info: Dict[str, Any]) -> tuple[str, str]:
 @router.get("/oauth/status")
 async def oauth_status():
     """Return whether OAuth2 is enabled and available providers (for frontend)."""
+    from derisk_app.auth.user_service import UserService
+
     oauth_config = _get_oauth_config()
     if not oauth_config:
-        return JSONResponse(
-            content={
-                "enabled": False,
-                "providers": [],
-            }
-        )
-    providers = oauth_config.get("providers", [])
-    # Only include providers with client_id configured
-    available = [
-        {"id": p["id"], "type": p.get("type", "custom")}
-        for p in providers
-        if p.get("client_id")
-    ]
+        oauth_enabled = False
+        providers = []
+    else:
+        providers = oauth_config.get("providers", [])
+        available = [
+            {"id": p["id"], "type": p.get("type", "custom")}
+            for p in providers
+            if p.get("client_id")
+        ]
+        oauth_enabled = True
+        providers = available
+
+    # Check if local login is available
+    local_login_enabled = False
+    try:
+        svc = UserService()
+        local_login_enabled = svc.has_local_users()
+    except Exception:
+        pass
+
     return JSONResponse(
         content={
-            "enabled": True,
-            "providers": available,
+            "enabled": oauth_enabled,
+            "providers": providers,
+            "local_login_enabled": local_login_enabled,
         }
     )
 
@@ -207,6 +223,44 @@ async def oauth_callback(
     redirect_to = f"{base}/auth/callback/#token={token}"
     response = RedirectResponse(url=redirect_to, status_code=302)
     # Also set cookie for same-origin requests
+    response.set_cookie(
+        key="derisk_session",
+        value=token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+    )
+    return response
+
+
+@router.post("/login")
+async def local_login(body: LocalLoginRequest, request: Request):
+    """Local username/password login for admin and local users."""
+    from derisk_app.auth.user_service import UserService
+
+    svc = UserService()
+    user = svc.verify_local_login(body.username, body.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    token = create_session_token(user)
+
+    response = JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "user": user,
+                "user_channel": "local",
+                "user_no": str(user.get("id", "")),
+                "nick_name": user.get("name", user.get("fullname", "")),
+                "avatar_url": user.get("avatar", ""),
+                "email": user.get("email", ""),
+                "role": user.get("role", "normal"),
+                "token": token,
+            },
+        }
+    )
     response.set_cookie(
         key="derisk_session",
         value=token,

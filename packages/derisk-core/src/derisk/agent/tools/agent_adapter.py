@@ -257,6 +257,11 @@ class AgentToolAdapter:
                 )
                 context.setdefault("user_id", getattr(agent_ctx, "user_id", None))
 
+                # 提取用户上下文信息（身份、角色、权限等）
+                extra = getattr(agent_ctx, "extra", None)
+                if extra and isinstance(extra, dict) and "user_context" in extra:
+                    context.setdefault("user_context", extra["user_context"])
+
             # CoreV2 Agent特有字段
             if hasattr(self._agent, "context"):
                 agent_ctx = self._agent.context

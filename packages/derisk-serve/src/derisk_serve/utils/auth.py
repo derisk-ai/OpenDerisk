@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Header, HTTPException, Request
 
@@ -136,3 +136,72 @@ def get_user_from_headers(
     except Exception as e:
         logging.exception("Authentication failed!")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+
+def format_permissions_summary(
+    permissions: Optional[Dict[str, List[str]]], rbac_enabled: bool
+) -> str:
+    """将权限映射格式化为人类可读的摘要字符串。
+
+    Args:
+        permissions: 资源类型到操作列表的映射，如 {"agent": ["read", "chat"]}
+        rbac_enabled: RBAC 是否启用
+
+    Returns:
+        格式化的权限摘要字符串
+    """
+    if not rbac_enabled:
+        return "全部权限 (RBAC 未启用)"
+
+    if not permissions:
+        return "none"
+
+    parts = []
+    for resource_type, actions in permissions.items():
+        if actions:
+            parts.append(f"{resource_type}: {', '.join(actions)}")
+
+    return "; ".join(parts) if parts else "none"
+
+
+def build_user_context(
+    user_request: UserRequest, rbac_enabled: bool
+) -> Dict[str, Any]:
+    """从 UserRequest 构建用户上下文字典，用于注入到 AgentContext.extra 中。
+
+    Args:
+        user_request: 当前请求的用户信息
+        rbac_enabled: RBAC 权限插件是否启用
+
+    Returns:
+        用户上下文字典，包含 user_id, name, email, avatar_url, role,
+        roles, permissions_map, permissions_summary, rbac_enabled
+    """
+    name = user_request.real_name or user_request.nick_name or user_request.user_id or "未知"
+
+    if not rbac_enabled:
+        return {
+            "user_id": user_request.user_id or "001",
+            "name": name,
+            "email": None,
+            "avatar_url": None,
+            "role": user_request.role or "admin",
+            "roles": [user_request.role or "admin"],
+            "permissions_map": None,
+            "permissions_summary": format_permissions_summary(None, rbac_enabled=False),
+            "rbac_enabled": False,
+        }
+
+    return {
+        "user_id": user_request.user_id or "",
+        "name": name,
+        "email": user_request.email,
+        "avatar_url": user_request.avatar_url,
+        "role": user_request.role or "normal",
+        "roles": user_request.roles or [user_request.role or "normal"],
+        "permissions_map": user_request.permissions,
+        "permissions_summary": format_permissions_summary(
+            user_request.permissions, rbac_enabled=True
+        ),
+        "rbac_enabled": True,
+    }

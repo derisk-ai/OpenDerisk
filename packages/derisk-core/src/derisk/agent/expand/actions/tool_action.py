@@ -903,16 +903,25 @@ class ToolAction(Action[ToolInput]):
                     if k not in arguments:
                         arguments[k] = v
 
-                # Build context with sandbox_manager for sandbox tools
-                tool_context = None
+                # Build context with user_context and sandbox_manager
+                tool_context = {}
+
+                # Extract user context from agent for user identity tools
+                if agent and hasattr(agent, "agent_context"):
+                    agent_ctx = agent.agent_context
+                    extra = getattr(agent_ctx, "extra", None)
+                    if extra and isinstance(extra, dict) and "user_context" in extra:
+                        tool_context["user_context"] = extra["user_context"]
+
+                # Include sandbox_manager for sandbox tools
                 if (
                     agent
                     and hasattr(agent, "sandbox_manager")
                     and agent.sandbox_manager
                 ):
-                    tool_context = {"sandbox_manager": agent.sandbox_manager}
+                    tool_context["sandbox_manager"] = agent.sandbox_manager
 
-                # Merge system context into arguments before filtering
+                # Merge context into arguments before filtering
                 if tool_context:
                     arguments["context"] = tool_context
 
@@ -928,8 +937,10 @@ class ToolAction(Action[ToolInput]):
                     sig = _inspect.signature(tool_info._func)
                     valid_keys = {p for p in sig.parameters if p not in ("self", "cls")}
 
-                # Save context before filtering (for sandbox tools)
-                # SandboxToolBase tools need context to get sandbox_client
+                # Save context before filtering (for tools that need context)
+                # ToolBase.execute() receives context as a separate parameter,
+                # and async_execute() pops "context" from kwargs before forwarding.
+                # So it's safe to always restore context — it won't pollute tool args.
                 saved_context = arguments.get("context")
 
                 if valid_keys is not None:
@@ -942,28 +953,12 @@ class ToolAction(Action[ToolInput]):
                         )
                     arguments = {k: v for k, v in arguments.items() if k in valid_keys}
 
-                # Restore context for sandbox tools if it was filtered out
-                # Check if tool needs sandbox context by checking _get_sandbox_client method
-                # (inherited from SandboxToolBase) or by checking tool_info._tool_base
-                needs_sandbox_context = False
-                if saved_context:
-                    # Check if this is a UnifiedToolAdapter wrapping a SandboxToolBase
-                    if hasattr(tool_info, "_tool_base"):
-                        tool_base = tool_info._tool_base
-                        if hasattr(tool_base, "_get_sandbox_client"):
-                            needs_sandbox_context = True
-                    # Check if tool_info itself has _get_sandbox_client (direct SandboxToolBase)
-                    elif hasattr(tool_info, "_get_sandbox_client"):
-                        needs_sandbox_context = True
-                    # Check if tool has "context" in its args definition
-                    elif hasattr(tool_info, "args") and "context" in (
-                        tool_info.args or {}
-                    ):
-                        needs_sandbox_context = True
-
-                if needs_sandbox_context and saved_context:
+                # Restore context if it was filtered out
+                # async_execute() pops "context" from kwargs and passes it to
+                # execute() separately, so restoring is safe for all tools.
+                if saved_context and "context" not in arguments:
                     arguments["context"] = saved_context
-                    logger.debug(f"Restored context for sandbox tool: {tool_info.name}")
+                    logger.debug(f"Restored context for tool: {tool_info.name}")
 
                 if tool_info.is_async:
                     raw_content = await tool_info.async_execute(**arguments)

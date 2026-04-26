@@ -61,7 +61,7 @@ class GroupRoleAssignBody(BaseModel):
 # ========== Role Management ==========
 @router.get("/roles")
 async def list_roles(
-    _user: UserRequest = Depends(require_permission("system", "read")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     roles = _dao.list_roles()
     return {"success": True, "data": roles}
@@ -82,7 +82,7 @@ async def create_role(
 @router.get("/roles/{role_id}")
 async def get_role(
     role_id: int,
-    _user: UserRequest = Depends(require_permission("system", "read")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     r = _dao.get_role(role_id)
     if not r:
@@ -124,7 +124,7 @@ async def delete_role(
 @router.get("/roles/{role_id}/permissions")
 async def list_role_permissions(
     role_id: int,
-    _user: UserRequest = Depends(require_permission("system", "admin")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     perms = _dao.list_role_permissions(role_id)
     return {"success": True, "data": perms}
@@ -290,7 +290,7 @@ async def list_users(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     keyword: str = Query(""),
-    _user: UserRequest = Depends(require_permission("system", "admin")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """列出所有用户（分页）"""
     from derisk_app.auth.user_service import UserService
@@ -333,7 +333,7 @@ async def list_users(
 @router.get("/users/{user_id}")
 async def get_user_detail(
     user_id: int,
-    _user: UserRequest = Depends(require_permission("system", "admin")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """获取用户详情（含角色信息）"""
     from derisk_app.auth.user_service import UserService
@@ -374,7 +374,7 @@ async def get_user_detail(
 @router.get("/users/{user_id}/effective-permissions")
 async def get_user_effective_permissions(
     user_id: int,
-    _user: UserRequest = Depends(require_permission("system", "admin")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """获取用户的生效权限（含组继承）"""
     from derisk_app.auth.user_service import UserService
@@ -615,7 +615,7 @@ async def list_permission_definitions(
     resource_type: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
-    _user: UserRequest = Depends(require_permission("system", "read")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """列出权限定义"""
     definitions = _def_svc.list_permission_definitions(
@@ -651,7 +651,7 @@ async def create_permission_definition(
 @router.get("/definitions/{definition_id}")
 async def get_permission_definition(
     definition_id: int,
-    _user: UserRequest = Depends(require_permission("system", "read")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """获取权限定义详情"""
     p = _def_svc.get_permission_definition(definition_id)
@@ -705,7 +705,7 @@ async def delete_permission_definition(
 @router.get("/roles/{role_id}/permission-defs")
 async def get_role_permission_defs(
     role_id: int,
-    _user: UserRequest = Depends(require_permission("system", "read")),
+    _user: UserRequest = Depends(get_user_from_headers),
 ):
     """获取角色关联的权限定义"""
     # 验证角色存在

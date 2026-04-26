@@ -6,6 +6,7 @@ const API_BASE = '/api/v1';
 export interface OAuthStatus {
   enabled: boolean;
   providers: Array<{ id: string; type: string }>;
+  local_login_enabled?: boolean;
 }
 
 export interface AuthUser {
@@ -76,6 +77,11 @@ class AuthService {
 
   async logout(): Promise<void> {
     await axios.post(`${API_BASE}/auth/logout`);
+  }
+
+  async localLogin(username: string, password: string): Promise<MeResponse & { token?: string }> {
+    const response = await axios.post(`${API_BASE}/auth/login`, { username, password });
+    return response.data.data;
   }
 
   getOAuthLoginUrl(provider: string): string {

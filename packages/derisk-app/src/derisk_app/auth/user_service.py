@@ -11,6 +11,46 @@ from derisk.storage.metadata import BaseDao, Model
 logger = logging.getLogger(__name__)
 
 
+def _ensure_user_has_role(user_id: int, rbac_default_role: str = "viewer") -> None:
+    """Ensure a user has at least one RBAC role assigned.
+
+    If the user already has roles, this is a no-op.
+    If not, the configured default role (or 'viewer' as fallback) is assigned.
+    """
+    try:
+        from derisk_app.feature_plugins.permissions.dao import PermissionDao
+
+        dao = PermissionDao()
+        existing_roles = dao.get_user_roles(user_id)
+        if existing_roles:
+            return
+
+        # No roles assigned — assign the default role
+        default_role = dao.get_role_by_name(rbac_default_role)
+        if default_role:
+            dao.assign_role_to_user(user_id, default_role["id"])
+            logger.info(
+                f"Auto-assigned '{rbac_default_role}' role to user {user_id} (missing RBAC role)"
+            )
+        else:
+            viewer_role = dao.get_role_by_name("viewer")
+            if viewer_role:
+                dao.assign_role_to_user(user_id, viewer_role["id"])
+                logger.warning(
+                    f"Configured default role '{rbac_default_role}' not found, "
+                    f"fallback to 'viewer' for user {user_id}"
+                )
+            else:
+                logger.error(
+                    f"Neither '{rbac_default_role}' nor 'viewer' role found in RBAC — "
+                    f"user {user_id} has no permissions"
+                )
+    except ImportError:
+        logger.debug("Permissions plugin not available, skipping RBAC role assignment")
+    except Exception as e:
+        logger.error(f"Failed to auto-assign default RBAC role to user {user_id}: {e}")
+
+
 class UserEntity(Model):
     """User entity matching the user table schema."""
 
@@ -22,6 +62,7 @@ class UserEntity(Model):
     oauth_id = Column(String(255), nullable=True, comment="OAuth provider user ID")
     email = Column(String(255), nullable=True, comment="User email")
     avatar = Column(String(512), nullable=True, comment="Avatar URL")
+    password_hash = Column(String(255), nullable=True, comment="Bcrypt password hash for local login")
     role = Column(
         String(20), nullable=True, default="normal", comment="User role: normal/admin"
     )
@@ -124,7 +165,12 @@ class UserDao(BaseDao):
                 merged = session.merge(user)
                 session.commit()
                 session.refresh(merged)
-                return _entity_to_dict(merged)
+                user_dict = _entity_to_dict(merged)
+
+                # Ensure existing user has an RBAC role assigned
+                _ensure_user_has_role(user.id, rbac_default_role)
+
+                return user_dict
             else:
                 user = UserEntity(
                     name=name,
@@ -141,27 +187,7 @@ class UserDao(BaseDao):
                 session.refresh(user)
 
                 # 自动为新用户分配配置的默认角色
-                try:
-                    from derisk_app.feature_plugins.permissions.dao import PermissionDao
-
-                    dao = PermissionDao()
-                    default_role = dao.get_role_by_name(rbac_default_role)
-                    if default_role:
-                        dao.assign_role_to_user(user.id, default_role["id"])
-                        logger.info(
-                            f"Auto-assigned {rbac_default_role} role to new OAuth2 user: {user.id} ({user.name})"
-                        )
-                    else:
-                        # Fallback to viewer if configured role doesn't exist
-                        viewer_role = dao.get_role_by_name("viewer")
-                        if viewer_role:
-                            dao.assign_role_to_user(user.id, viewer_role["id"])
-                            logger.warning(
-                                f"Configured default role '{rbac_default_role}' not found, "
-                                f"fallback to viewer for new OAuth2 user: {user.id} ({user.name})"
-                            )
-                except Exception as e:
-                    logger.warning(f"Failed to auto-assign default role: {e}")
+                _ensure_user_has_role(user.id, rbac_default_role)
 
                 return _entity_to_dict(user)
 
@@ -195,7 +221,10 @@ class UserDao(BaseDao):
         role: Optional[str] = None,
         is_active: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Update user role or is_active status."""
+        """Update user role or is_active status.
+
+        When role is set to "admin", the RBAC admin role is also assigned.
+        """
         with self.session() as session:
             user = session.query(UserEntity).filter(UserEntity.id == user_id).first()
             if not user:
@@ -206,6 +235,11 @@ class UserDao(BaseDao):
                 user.is_active = is_active
             session.commit()
             session.refresh(user)
+
+            # Sync legacy role to RBAC: setting admin assigns RBAC admin role
+            if role == "admin":
+                _ensure_user_has_role(user_id, "admin")
+
             return _entity_to_dict(user)
 
     def delete_user(self, user_id: int) -> bool:
@@ -225,6 +259,77 @@ class UserDao(BaseDao):
             session.commit()
             logger.info(f"User {user_id} ({user.name}) soft deleted")
             return True
+
+    def verify_local_login(
+        self, username: str, password: str
+    ) -> Optional[Dict[str, Any]]:
+        """Verify username/password for local login.
+
+        Returns user dict on success, None on failure.
+        """
+        import hashlib
+
+        with self.session() as session:
+            user = (
+                session.query(UserEntity)
+                .filter(
+                    UserEntity.oauth_provider == "local",
+                    UserEntity.name == username,
+                    UserEntity.is_active == 1,
+                )
+                .first()
+            )
+            if not user or not user.password_hash:
+                return None
+
+            try:
+                import bcrypt
+
+                if not bcrypt.checkpw(
+                    password.encode("utf-8"), user.password_hash.encode("utf-8")
+                ):
+                    return None
+            except ImportError:
+                # Fallback to SHA256 if bcrypt not available
+                sha = hashlib.sha256(password.encode("utf-8")).hexdigest()
+                if user.password_hash != sha:
+                    return None
+
+            return _entity_to_dict(user)
+
+    def set_password(self, user_id: int, password: str) -> bool:
+        """Set password for a user (bcrypt hash)."""
+        try:
+            import bcrypt
+
+            password_hash = bcrypt.hashpw(
+                password.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8")
+        except ImportError:
+            import hashlib
+
+            password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+        with self.session() as session:
+            user = session.query(UserEntity).filter(UserEntity.id == user_id).first()
+            if not user:
+                return False
+            user.password_hash = password_hash
+            session.commit()
+            return True
+
+    def has_local_users(self) -> bool:
+        """Check if any local users with passwords exist."""
+        with self.session() as session:
+            return (
+                session.query(UserEntity)
+                .filter(
+                    UserEntity.oauth_provider == "local",
+                    UserEntity.password_hash.isnot(None),
+                )
+                .first()
+                is not None
+            )
 
 
 class UserService:
@@ -298,4 +403,29 @@ class UserService:
             return self._dao.delete_user(user_id)
         except Exception as e:
             logger.exception(f"Failed to delete user {user_id}: {e}")
+            return False
+
+    def verify_local_login(
+        self, username: str, password: str
+    ) -> Optional[Dict[str, Any]]:
+        """Verify username/password for local login."""
+        try:
+            return self._dao.verify_local_login(username, password)
+        except Exception as e:
+            logger.exception(f"Failed to verify local login: {e}")
+            return None
+
+    def set_password(self, user_id: int, password: str) -> bool:
+        """Set password for a user."""
+        try:
+            return self._dao.set_password(user_id, password)
+        except Exception as e:
+            logger.exception(f"Failed to set password for user {user_id}: {e}")
+            return False
+
+    def has_local_users(self) -> bool:
+        """Check if any local users with passwords exist."""
+        try:
+            return self._dao.has_local_users()
+        except Exception:
             return False

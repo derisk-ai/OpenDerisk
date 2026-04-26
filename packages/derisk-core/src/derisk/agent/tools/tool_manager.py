@@ -129,6 +129,8 @@ class ToolManager:
     # 核心必选工具（无论是否沙箱都注入）
     BUILTIN_CORE_TOOLS: List[str] = [
         "ask_user",  # 用户交互（HIL）
+        "get_user_info",  # 获取当前用户身份信息
+        "get_user_permissions",  # 获取当前用户权限详情
     ]
 
     # 基础文件和Shell工具（沙箱和本地共享，默认绑定）

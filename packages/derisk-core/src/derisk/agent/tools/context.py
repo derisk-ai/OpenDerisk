@@ -43,6 +43,7 @@ class ToolContext(BaseModel):
     user_id: Optional[str] = Field(None, description="用户ID")
     user_name: Optional[str] = Field(None, description="用户名")
     user_permissions: List[str] = Field(default_factory=list, description="用户权限")
+    user_context: Optional[Dict[str, Any]] = Field(None, description="用户上下文信息（身份、角色、权限等）")
     
     working_directory: str = Field(".", description="工作目录")
     environment_variables: Dict[str, str] = Field(default_factory=dict, description="环境变量")

@@ -190,9 +190,11 @@ def ensure_default_roles() -> None:
     # 2. 创建默认 admin 用户并分配角色
     if admin_role_id:
         try:
-            from derisk_app.auth.user_service import UserEntity
+            from derisk_app.auth.user_service import UserEntity, UserDao
             from derisk.storage.metadata.db_manager import db
             from datetime import datetime
+
+            default_password = "admin"
 
             with db.session(commit=True) as s:
                 # 检查是否已存在 admin 用户（通过 oauth_id 或 name）
@@ -212,8 +214,13 @@ def ensure_default_roles() -> None:
                     if not has_admin_role:
                         dao.assign_role_to_user(admin_user_id, admin_role_id)
                         logger.info("Assigned admin role to existing admin user")
+                    # 确保已有 admin 用户有密码
+                    if not existing_admin.password_hash:
+                        user_dao = UserDao()
+                        user_dao.set_password(admin_user_id, default_password)
+                        logger.info("Set default password for existing admin user")
                 else:
-                    # 创建新的 admin 用户
+                    # 创建新的 admin 用户（先不含密码，通过 UserDao.set_password 设置）
                     user = UserEntity(
                         name="admin",
                         fullname="System Administrator",
@@ -230,21 +237,62 @@ def ensure_default_roles() -> None:
                     admin_user_id = user.id
                     s.commit()
 
+                    # 设置密码
+                    user_dao = UserDao()
+                    user_dao.set_password(admin_user_id, default_password)
+
                     # 分配 admin 角色
                     dao.assign_role_to_user(admin_user_id, admin_role_id)
                     logger.info(f"Created default admin user (ID={admin_user_id}) and assigned admin role")
                     logger.info("=" * 60)
                     logger.info("DEFAULT ADMIN USER CREATED:")
                     logger.info("  Username: admin")
-                    logger.info("  OAuth Provider: local (bypass OAuth for local admin)")
+                    logger.info("  Password: admin (please change after first login)")
+                    logger.info("  OAuth Provider: local")
                     logger.info(f"  User ID: {admin_user_id}")
-                    logger.info("  Note: Use OAuth2 login or set X-User-ID: admin header for testing")
                     logger.info("=" * 60)
         except Exception as e:
             logger.warning(f"Failed to create/assign admin user: {e}")
 
-    # 3. 创建默认权限定义
+    # 3. 为存量用户（无 RBAC 角色）补分配默认角色
+    _backfill_default_role_for_existing_users(dao)
+
+    # 4. 创建默认权限定义
     _ensure_default_permission_definitions(dao)
+
+
+def _backfill_default_role_for_existing_users(dao: PermissionDao) -> None:
+    """Assign default 'viewer' role to existing users who have no RBAC roles.
+
+    This handles users created before the RBAC plugin was enabled, or users
+    whose role assignment failed silently during OAuth2 login.
+    """
+    try:
+        from derisk_app.auth.user_service import UserEntity
+        from derisk.storage.metadata.db_manager import db
+
+        viewer_role = dao.get_role_by_name("viewer")
+        if not viewer_role:
+            logger.warning("viewer role not found, skipping existing user backfill")
+            return
+
+        with db.session() as session:
+            all_users = session.query(UserEntity).filter(UserEntity.is_active == 1).all()
+            backfilled = 0
+            for user in all_users:
+                existing_roles = dao.get_user_roles(user.id)
+                if not existing_roles:
+                    dao.assign_role_to_user(user.id, viewer_role["id"])
+                    backfilled += 1
+                    logger.info(
+                        f"Backfilled 'viewer' role for existing user: {user.id} ({user.name})"
+                    )
+            if backfilled > 0:
+                logger.info(f"Backfilled 'viewer' role for {backfilled} existing users")
+    except ImportError:
+        logger.debug("UserEntity not available, skipping existing user backfill")
+    except Exception as e:
+        logger.error(f"Failed to backfill default role for existing users: {e}")
 
 
 def _ensure_default_permission_definitions(dao: PermissionDao) -> None:

@@ -75,3 +75,8 @@ def register_all(registry: "ToolRegistry") -> None:
     from .todo import register_todo_tools
 
     register_todo_tools(registry)
+
+    # 用户身份工具 (get_user_info, get_user_permissions)
+    from .user_identity import register_user_identity_tools
+
+    register_user_identity_tools(registry)

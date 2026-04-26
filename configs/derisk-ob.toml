@@ -32,15 +32,35 @@ api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key = "${DASHSCOPE_API_KEY:-sk-...}"
 
 [[agent.llm.provider.model]]
-name = "deepseek-r1"
-temperature = 0.7
-max_new_tokens = 4096
-[[agent.llm.provider.model]]
 name = "deepseek-v3"
 temperature = 0.7
 max_new_tokens = 4096
 [[agent.llm.provider.model]]
-name = "Kimi-k2"
+name = "deepseek-v3.1"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "deepseek-r1"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "kimi-k2.5"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "kimi-k2.6"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen3.5-plus"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen3.5-flash"
+temperature = 0.7
+max_new_tokens = 4096
+[[agent.llm.provider.model]]
+name = "qwen3-max"
 temperature = 0.7
 max_new_tokens = 4096
 [[agent.llm.provider.model]]
@@ -51,7 +71,16 @@ max_new_tokens = 4096
 name = "qwen-vl-max"
 temperature = 0.7
 max_new_tokens = 4096
-
+is_multimodal = true
+[[agent.llm.provider.model]]
+name = "qwen3-vl-plus"
+temperature = 0.7
+max_new_tokens = 4096
+is_multimodal = true
+[[agent.llm.provider.model]]
+name = "qwq-plus"
+temperature = 0.7
+max_new_tokens = 4096
 [[agent.llm.provider.model]]
 name = "glm-5"
 temperature = 0.7

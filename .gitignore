@@ -199,3 +199,6 @@ configs/local
 /pilot/datasets/
 /.claude/
 /pilot/dataset/
+/openspec/
+/configs/derisk-local.toml
+/CLAUDE.md

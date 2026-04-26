@@ -59,7 +59,7 @@ from derisk_serve.agent.team.base import TeamMode
 from derisk_serve.core import blocking_func_to_async
 from derisk_serve.datasource.manages.db_conn_info import DBConfig, DbTypeInfo
 from derisk_serve.flow.service.service import Service as FlowService
-from derisk_serve.utils.auth import UserRequest, get_user_from_headers
+from derisk_serve.utils.auth import UserRequest, get_user_from_headers, build_user_context, _is_permissions_enabled
 
 router = APIRouter()
 CFG = Config()
@@ -430,6 +430,16 @@ async def chat_completions(
             logger.warning(f"Failed to extract user_input from messages: {e}")
 
     dialogue.user_name = user_token.user_id if user_token else dialogue.user_name
+
+    # 注入用户上下文信息（身份、角色、权限），供 Agent 工具查询
+    if user_token:
+        try:
+            dialogue.ext_info["user_context"] = build_user_context(
+                user_token, rbac_enabled=_is_permissions_enabled()
+            )
+        except Exception:
+            logger.warning("Failed to build user context for agent tools", exc_info=True)
+
     dialogue.ext_info.update(
         {
             "trace_id": first(
