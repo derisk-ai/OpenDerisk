@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/derisk-ai-openderisk-badge.png)](https://mseep.ai/app/derisk-ai-openderisk)
+
 ### OpenDeRisk
 
 OpenDeRisk is an AI-Native Risk Intelligence System designed as your application system's intelligent manager, providing 7×24 hour comprehensive and in-depth protection.
