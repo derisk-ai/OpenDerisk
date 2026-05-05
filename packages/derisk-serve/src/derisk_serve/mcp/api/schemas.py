@@ -26,6 +26,7 @@ class ServeRequest(BaseModel):
     category: Optional[str] = Field(None, description="mcp category")
     installed: Optional[int] = Field(None, ge=0, description="mcp installed count")
     available: Optional[bool] = Field(None, description="mcp availability status")
+    is_builtin: Optional[bool] = Field(None, description="whether this is a built-in MCP plugin")
 
     model_config = ConfigDict(
         title=f"ServeRequest for {SERVE_APP_NAME_HUMP}",
@@ -64,6 +65,7 @@ class ServerResponse(BaseModel):
     category: Optional[str] = Field(None, description="mcp category")
     installed: Optional[int] = Field(None, description="mcp installed count")
     available: Optional[bool] = Field(None, description="mcp availability status")
+    is_builtin: Optional[bool] = Field(None, description="whether this is a built-in MCP plugin")
     server_ips: Optional[str] = Field(None, description="mcp server run machine ips")
 
     gmt_created: str = Field(..., description="ISO format creation time")
@@ -96,6 +98,9 @@ class ServerResponse(BaseModel):
         for time_field in ['gmt_created', 'gmt_modified']:
             if isinstance(model_dict.get(time_field), datetime):
                 model_dict[time_field] = model_dict[time_field].isoformat()
+
+        # DB-backed records are never built-in
+        model_dict.setdefault('is_builtin', False)
 
         return cls(**model_dict)
 

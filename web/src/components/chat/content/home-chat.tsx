@@ -343,7 +343,13 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
   const McpChip = ({ mcp, onRemove }: { mcp: any; onRemove: () => void }) => {
     const [showDelete, setShowDelete] = useState(false);
     const mcpId = mcp.id || mcp.uuid || mcp.name;
-    
+    const isBuiltin = mcp.is_builtin || mcp.category === 'builtin';
+
+    const borderColor = isBuiltin ? 'border-purple-400 dark:border-purple-600' : 'border-green-400 dark:border-green-600';
+    const gradientColor = isBuiltin ? 'from-purple-400 to-indigo-500' : 'from-green-400 to-emerald-500';
+    const hoverBorderColor = isBuiltin ? 'hover:border-purple-500' : 'hover:border-green-500';
+    const hoverShadow = isBuiltin ? 'hover:shadow-purple-100' : 'hover:shadow-green-100';
+
     return (
       <Popover
         content={
@@ -352,7 +358,8 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
             {mcp.description && (
               <div className="text-xs text-gray-500 mb-2 line-clamp-2">{mcp.description}</div>
             )}
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-between">
+              {isBuiltin && <span className="text-[10px] text-purple-500">Built-in</span>}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -375,7 +382,7 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
             "border shadow-sm flex-shrink-0",
             showDelete
               ? "bg-red-500 border-red-600 shadow-red-200"
-              : "bg-white dark:bg-gray-800 border-green-400 dark:border-green-600 hover:border-green-500 dark:hover:border-green-500 hover:shadow-green-100"
+              : `bg-white dark:bg-gray-800 ${borderColor} ${hoverBorderColor} dark:hover:border-purple-500 ${hoverShadow}`
           )}
           onMouseEnter={() => setShowDelete(true)}
           onMouseLeave={() => setShowDelete(false)}
@@ -391,7 +398,7 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
           ) : mcp.icon ? (
             <img src={mcp.icon} alt={mcp.name} className="w-4 h-4 rounded-full object-cover" />
           ) : (
-            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center">
+            <div className={cls("w-4 h-4 rounded-full bg-gradient-to-br flex items-center justify-center", gradientColor)}>
               <ApiOutlined className="text-white text-[9px]" />
             </div>
           )}

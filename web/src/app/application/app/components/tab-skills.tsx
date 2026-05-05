@@ -2,19 +2,26 @@
 import { apiInterceptors, getMCPList } from '@/client/api';
 import { getSkillList } from '@/client/api/skill';
 import { AppContext } from '@/contexts';
-import { CheckCircleFilled, SearchOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, ApiOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { CheckCircleFilled, SearchOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined, ApiOutlined, AppstoreOutlined, SafetyOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Input, Spin, Tag, Dropdown, Tooltip } from 'antd';
+import { Input, Spin, Tag, Dropdown, Tooltip, Collapse, Badge, Space } from 'antd';
 import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 type SkillSource = 'all' | 'skills' | 'mcp';
 
+// MCP 分组配置（参照 tab-tools.tsx 的 GROUP_CONFIG 模式）
+const MCP_GROUP_CONFIG = {
+  builtin: { icon: <SafetyOutlined />, color: '#1677ff', name: '内置 MCP', nameEn: 'Built-in MCP', desc: '系统内置的 MCP 插件，无需配置即可使用', descEn: 'Built-in MCP plugins, ready to use without configuration' },
+  external: { icon: <CloudServerOutlined />, color: '#722ed1', name: '外部 MCP', nameEn: 'External MCP', desc: '用户配置的外部 MCP 服务', descEn: 'User-configured external MCP services' },
+};
+
 export default function TabSkills() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
   const [activeSource, setActiveSource] = useState<SkillSource>('all');
+  const [expandedMcpGroups, setExpandedMcpGroups] = useState<string[]>(['builtin', 'external']);
 
   // Fetch Skills from Agent Skills list
   const { data: skillData, loading: loadingSkills, refresh: refreshSkills } = useRequest(
@@ -52,22 +59,37 @@ export default function TabSkills() {
   const mcpServers = useMemo(() => {
     const [, res] = mcpData || [];
     const items = res?.items || [];
-    return items.map((item: any) => ({
-      key: item.mcp_code,
-      name: item.name,
-      label: item.name,
-      description: item.description || '',
-      toolType: 'mcp(derisk)',
-      groupName: 'mcp',
-      isBuiltIn: false,
-      mcp_code: item.mcp_code,
-      available: item.available,
-      author: item.author,
-      version: item.version,
-      icon: item.icon,
-      type: 'mcp(derisk)',
-    }));
+    return items.map((item: any) => {
+      const isBuiltin = item.is_builtin || item.category === 'builtin';
+      const toolType = isBuiltin && item.mcp_code === 'memory_case' ? 'tool(memory_case)' : 'mcp(derisk)';
+      return {
+        key: item.mcp_code,
+        name: item.name,
+        label: item.name,
+        description: item.description || '',
+        toolType,
+        groupName: isBuiltin ? 'builtin' : 'external',
+        isBuiltIn: isBuiltin,
+        mcp_code: item.mcp_code,
+        available: item.available,
+        author: item.author,
+        version: item.version,
+        icon: item.icon,
+        type: toolType,
+      };
+    });
   }, [mcpData]);
+
+  // Group MCP items by builtin/external (for MCP tab view)
+  const mcpGroups = useMemo(() => {
+    const builtin = mcpServers.filter((m: any) => m.isBuiltIn);
+    const external = mcpServers.filter((m: any) => !m.isBuiltIn);
+    const groups = [
+      { group_id: 'builtin', group_type: 'builtin' as const, items: builtin },
+      { group_id: 'external', group_type: 'external' as const, items: external },
+    ];
+    return groups.filter(g => g.items.length > 0);
+  }, [mcpServers]);
 
   // Combine all tools based on active filter
   const allTools = useMemo(() => {
@@ -96,6 +118,16 @@ export default function TabSkills() {
     return allTools.filter((item: any) => (item.label || item.name || '').toLowerCase().includes(lower) || (item.key || '').toLowerCase().includes(lower));
   }, [allTools, searchValue]);
 
+  // Filter MCP groups by search
+  const filteredMcpGroups = useMemo(() => {
+    if (!searchValue) return mcpGroups;
+    const lower = searchValue.toLowerCase();
+    return mcpGroups.map(g => ({
+      ...g,
+      items: g.items.filter((item: any) => (item.label || item.name || '').toLowerCase().includes(lower) || (item.key || '').toLowerCase().includes(lower)),
+    })).filter(g => g.items.length > 0);
+  }, [mcpGroups, searchValue]);
+
   // Count by source
   const skillsCount = skills.length;
   const mcpCount = mcpServers.length;
@@ -108,20 +140,17 @@ export default function TabSkills() {
     const isEnabled = enabledToolKeys.includes(key);
 
     if (isEnabled) {
-      // Remove - by both key AND (type + name) to handle MCP re-creation scenario
       const updatedTools = (appInfo.resource_tool || []).filter((item: any) => {
         const parsed = JSON.parse(item.value || '{}');
         const itemKey = parsed?.key || parsed?.name;
         const itemType = parsed?.toolType || parsed?.type || item.type;
         const itemName = parsed?.name || item.name;
-        // Remove if matches key OR matches (type + name) for MCP re-creation case
         const matchesKey = itemKey === key;
         const matchesTypeAndName = itemType === toolType && itemName === toolName;
         return !matchesKey && !matchesTypeAndName;
       });
       fetchUpdateApp({ ...appInfo, resource_tool: updatedTools });
     } else {
-      // Add - but first remove any existing tool with same type and name (to handle MCP re-creation with new mcp_code)
       const newTool = {
         type: toolType,
         name: toolName,
@@ -129,7 +158,6 @@ export default function TabSkills() {
       };
       const existingTools = (appInfo.resource_tool || []).filter((item: any) => {
         const parsed = JSON.parse(item.value || '{}');
-        // Remove if same type AND same name (handles MCP re-creation scenario)
         const hasSameTypeAndName = (parsed?.toolType || parsed?.type || item.type) === toolType && (parsed?.name || item.name) === toolName;
         return !hasSameTypeAndName;
       });
@@ -143,7 +171,7 @@ export default function TabSkills() {
     refreshMcp();
   };
 
-  // Create new items — navigate to dedicated pages in new tab
+  // Create new items
   const createMenuItems = [
     {
       key: 'skill',
@@ -182,8 +210,54 @@ export default function TabSkills() {
 
   // Determine the type tag for a tool
   const getToolTypeTag = (tool: any) => {
+    if (tool.type === 'tool(memory_case)') return { label: 'Built-in', color: 'purple' };
     if (tool.type === 'mcp(derisk)' || tool.type === 'mcp') return { label: 'MCP', color: 'purple' };
     return { label: 'Skill', color: 'orange' };
+  };
+
+  // Render a single MCP item (shared between flat list and grouped view)
+  const renderMcpItem = (tool: any, idx: number) => {
+    const key = tool.key || tool.name;
+    const isEnabled = enabledToolKeys.includes(key);
+    const typeTag = getToolTypeTag(tool);
+    return (
+      <div
+        key={`${key}-${idx}`}
+        className={`group flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
+          isEnabled
+            ? 'border-blue-200/80 bg-blue-50/30 shadow-sm'
+            : 'border-gray-100/80 bg-gray-50/20 hover:border-gray-200/80 hover:bg-gray-50/40'
+        }`}
+        onClick={() => handleToggle(tool)}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            isEnabled ? 'bg-blue-100' : 'bg-gray-100'
+          }`}>
+            {tool.isBuiltIn ? (
+              <SafetyOutlined className={`text-sm ${isEnabled ? 'text-blue-500' : 'text-gray-400'}`} />
+            ) : (
+              <ApiOutlined className={`text-sm ${isEnabled ? 'text-purple-500' : 'text-gray-400'}`} />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-medium text-gray-700 truncate">{tool.label || tool.name}</span>
+            </div>
+            <div className="text-[11px] text-gray-400 truncate mt-0.5">
+              {tool.description || tool.toolType}
+              {tool.author && ` · ${tool.author}`}
+            </div>
+          </div>
+          <Tag className="mr-0 text-[10px] rounded-md border-0 font-medium px-1.5" color={typeTag.color}>
+            {typeTag.label}
+          </Tag>
+        </div>
+        {isEnabled && (
+          <CheckCircleFilled className="text-blue-500 text-base ml-2 flex-shrink-0" />
+        )}
+      </div>
+    );
   };
 
   return (
@@ -248,60 +322,117 @@ export default function TabSkills() {
         </div>
       </div>
 
-      {/* Tool list */}
+      {/* Content area: Skills use flat list, MCP uses grouped Collapse */}
       <div className="flex-1 overflow-y-auto px-5 py-3 custom-scrollbar">
         <Spin spinning={loading}>
-          {filteredTools.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2">
-              {filteredTools.map((tool: any, idx: number) => {
-                const key = tool.key || tool.name;
-                const isEnabled = enabledToolKeys.includes(key);
-                const typeTag = getToolTypeTag(tool);
-                return (
-                  <div
-                    key={`${key}-${idx}`}
-                    className={`group flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
-                      isEnabled
-                        ? 'border-blue-200/80 bg-blue-50/30 shadow-sm'
-                        : 'border-gray-100/80 bg-gray-50/20 hover:border-gray-200/80 hover:bg-gray-50/40'
-                    }`}
-                    onClick={() => handleToggle(tool)}
-                  >
-                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isEnabled ? 'bg-blue-100' : 'bg-gray-100'
-                      }`}>
-                        {tool.type === 'mcp(derisk)' || tool.type === 'mcp' ? (
-                          <ApiOutlined className={`text-sm ${isEnabled ? 'text-purple-500' : 'text-gray-400'}`} />
-                        ) : (
-                          <AppstoreOutlined className={`text-sm ${isEnabled ? 'text-orange-500' : 'text-gray-400'}`} />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[13px] font-medium text-gray-700 truncate">{tool.label || tool.name}</span>
+          {activeSource === 'mcp' ? (
+            /* MCP Grouped View (参照 tab-tools.tsx 的 Collapse 分组模式) */
+            filteredMcpGroups.length > 0 ? (
+              <Collapse
+                activeKey={expandedMcpGroups}
+                onChange={(keys) => setExpandedMcpGroups(typeof keys === 'string' ? [keys] : keys)}
+                bordered={false}
+                expandIconPosition="end"
+                className="tool-groups-collapse"
+                items={filteredMcpGroups.map((group) => {
+                  const config = MCP_GROUP_CONFIG[group.group_type];
+                  const boundCount = group.items.filter((m: any) => enabledToolKeys.includes(m.key || m.name)).length;
+                  return {
+                    key: group.group_id,
+                    label: (
+                      <div className="flex items-center justify-between pr-4">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                            style={{ backgroundColor: config.color }}
+                          >
+                            {config.icon}
+                          </div>
+                          <div>
+                            <div className="font-medium text-gray-800">{i18n.language === 'en' ? config.nameEn : config.name}</div>
+                            <div className="text-xs text-gray-400">{i18n.language === 'en' ? config.descEn : config.desc}</div>
+                          </div>
+                          <Badge count={group.items.length} style={{ backgroundColor: config.color }} />
                         </div>
-                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                          {tool.description || tool.toolType}
-                          {tool.author && ` · ${tool.author}`}
-                        </div>
+                        <Space onClick={(e) => e.stopPropagation()}>
+                          <span className="text-xs text-gray-400">
+                            {boundCount}/{group.items.length} {t('builder_tools_bound') || '已绑定'}
+                          </span>
+                        </Space>
                       </div>
-                      <Tag className="mr-0 text-[10px] rounded-md border-0 font-medium px-1.5" color={typeTag.color}>
-                        {typeTag.label}
-                      </Tag>
-                    </div>
-                    {isEnabled && (
-                      <CheckCircleFilled className="text-blue-500 text-base ml-2 flex-shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    ),
+                    className: 'mb-3 bg-gray-50 rounded-lg overflow-hidden',
+                    children: (
+                      <>
+                        <div className="space-y-2">
+                          {group.items.map((tool: any, idx: number) => renderMcpItem(tool, idx))}
+                        </div>
+                      </>
+                    ),
+                  };
+                })}
+              />
+            ) : (
+              !loading && (
+                <div className="text-center py-12 text-gray-300 text-xs">
+                  {t('builder_no_items')}
+                </div>
+              )
+            )
           ) : (
-            !loading && (
-              <div className="text-center py-12 text-gray-300 text-xs">
-                {t('builder_no_items')}
+            /* Skills / All: flat list */
+            filteredTools.length > 0 ? (
+              <div className="grid grid-cols-1 gap-2">
+                {filteredTools.map((tool: any, idx: number) => {
+                  const key = tool.key || tool.name;
+                  const isEnabled = enabledToolKeys.includes(key);
+                  const typeTag = getToolTypeTag(tool);
+                  return (
+                    <div
+                      key={`${key}-${idx}`}
+                      className={`group flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
+                        isEnabled
+                          ? 'border-blue-200/80 bg-blue-50/30 shadow-sm'
+                          : 'border-gray-100/80 bg-gray-50/20 hover:border-gray-200/80 hover:bg-gray-50/40'
+                      }`}
+                      onClick={() => handleToggle(tool)}
+                    >
+                       <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          isEnabled ? 'bg-blue-100' : 'bg-gray-100'
+                        }`}>
+                          {tool.type === 'mcp(derisk)' || tool.type === 'mcp' || tool.type === 'tool(memory_case)' ? (
+                            <ApiOutlined className={`text-sm ${isEnabled ? 'text-purple-500' : 'text-gray-400'}`} />
+                          ) : (
+                            <AppstoreOutlined className={`text-sm ${isEnabled ? 'text-orange-500' : 'text-gray-400'}`} />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-medium text-gray-700 truncate">{tool.label || tool.name}</span>
+                          </div>
+                          <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                            {tool.description || tool.toolType}
+                            {tool.author && ` · ${tool.author}`}
+                          </div>
+                        </div>
+                        <Tag className="mr-0 text-[10px] rounded-md border-0 font-medium px-1.5" color={typeTag.color}>
+                          {typeTag.label}
+                        </Tag>
+                      </div>
+                      {isEnabled && (
+                        <CheckCircleFilled className="text-blue-500 text-base ml-2 flex-shrink-0" />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+            ) : (
+              !loading && (
+                <div className="text-center py-12 text-gray-300 text-xs">
+                  {t('builder_no_items')}
+                </div>
+              )
             )
           )}
         </Spin>

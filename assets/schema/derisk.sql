@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-04-25 20:46:07
+-- Generated: 2026-05-05 19:49:31
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -593,6 +593,33 @@ CREATE TABLE IF NOT EXISTS `chat_feed_back` (
   PRIMARY KEY (`id`),
   KEY `idx_conv_uid` (`conv_uid`),
   KEY `idx_gmt_create` (`gmt_create`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: derisk_serve_mcp_memory_case
+-- Source Model: MemoryCaseEntity
+CREATE TABLE IF NOT EXISTS `derisk_serve_mcp_memory_case` (
+  `case_id` VARCHAR(255) NOT NULL,
+  `tenant_id` VARCHAR(255) NULL,
+  `team_id` VARCHAR(255) NULL,
+  `app_code` VARCHAR(255) NOT NULL,
+  `environment` VARCHAR(255) NOT NULL,
+  `fingerprint` VARCHAR(512) NOT NULL,
+  `symptom_summary` TEXT NULL,
+  `hypotheses` TEXT NULL,
+  `actions` TEXT NULL,
+  `resolution` TEXT NULL,
+  `effectiveness` TEXT NULL,
+  `confidence` FLOAT NOT NULL,
+  `lifecycle` VARCHAR(64) NOT NULL,
+  `source_conv_id` VARCHAR(255) NULL,
+  `source_session_id` VARCHAR(255) NULL,
+  `markdown_summary` LONGTEXT NULL,
+  `metadata_json` LONGTEXT NULL,
+  `gmt_created` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`case_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: prompt_manage

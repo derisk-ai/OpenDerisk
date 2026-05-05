@@ -35,6 +35,7 @@ Core_v2 适配器 - 在现有服务中集成 Core_v2
 }
 """
 
+import json
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -450,7 +451,7 @@ class CoreV2Component(BaseComponent):
             try:
                 from derisk.core.interface.file import FileStorageClient
 
-                file_storage_client = FileStorageClient.get_instance(self._system_app)
+                file_storage_client = FileStorageClient.get_instance(self.system_app)
                 if file_storage_client:
                     logger.info(
                         f"[CoreV2Component] FileStorageClient retrieved for sandbox creation"
@@ -655,12 +656,25 @@ class CoreV2Component(BaseComponent):
                 else:
                     logger.warning(f"  - team_context 类型未知: {type(team_context)}")
 
+        from derisk.agent.core.agent_alias import resolve_agent_name
+
+        configured_agent = resolve_agent_name(getattr(gpt_app, "agent", None) or "")
+        logger.info(
+            "[CoreV2Component] gpt_app.agent=%s, resolved=%s",
+            getattr(gpt_app, "agent", None),
+            configured_agent or None,
+        )
+
         if not unified_ctx:
-            logger.warning(f"[CoreV2Component] unified_ctx 为空，使用默认 simple_chat")
+            fallback_agent = configured_agent or "simple_chat"
+            logger.warning(
+                "[CoreV2Component] unified_ctx 为空，使用 fallback agent=%s",
+                fallback_agent,
+            )
             unified_ctx = UnifiedTeamContext(
                 agent_version=getattr(gpt_app, "agent_version", "v2"),
                 team_mode="single_agent",
-                agent_name="simple_chat",
+                agent_name=fallback_agent,
             )
 
         logger.info(f"[CoreV2Component] 构建 V2 Agent:")
@@ -672,6 +686,34 @@ class CoreV2Component(BaseComponent):
         all_resources = list(gpt_app.resources or [])
         if getattr(gpt_app, "resource_tool", None):
             all_resources.extend(gpt_app.resource_tool)
+
+        # Normalize: redirect mcp(derisk) resources for built-in memory_case
+        # to tool(memory_case) so they route through MemoryCaseToolPack
+        # instead of MCPCollectSSEToolPack (which expects a DB row).
+        for i, r in enumerate(all_resources):
+            if getattr(r, "type", "") == "mcp(derisk)":
+                val = getattr(r, "value", "")
+                if isinstance(val, str):
+                    try:
+                        val_data = json.loads(val)
+                    except (json.JSONDecodeError, TypeError):
+                        val_data = {}
+                elif isinstance(val, dict):
+                    val_data = val
+                else:
+                    val_data = {}
+                mcp_code = val_data.get("mcp_code", "")
+                if mcp_code == "memory_case":
+                    from derisk.agent.resource.base import AgentResource
+                    all_resources[i] = AgentResource(
+                        type="tool(memory_case)",
+                        name="memory_case",
+                        value='{"name":"memory_case","mcp_name":"memory_case"}',
+                    )
+                    logger.info(
+                        "[CoreV2Component] Normalized mcp(derisk):memory_case → tool(memory_case)"
+                    )
+
         tools = await self._build_tools_from_resources(all_resources)
         resources = await self._build_resources_dict(all_resources)
 
@@ -682,7 +724,15 @@ class CoreV2Component(BaseComponent):
             get_v2_agent_template,
         )
 
-        agent_name = unified_ctx.agent_name
+        raw_agent_name = unified_ctx.agent_name
+        agent_name = resolve_agent_name(raw_agent_name) if raw_agent_name else raw_agent_name
+        if agent_name != raw_agent_name:
+            logger.info(
+                "[CoreV2Component] Agent alias resolved in app builder: %s -> %s",
+                raw_agent_name,
+                agent_name,
+            )
+            unified_ctx.agent_name = agent_name
         template_config = get_v2_agent_template(agent_name)
 
         if template_config:
@@ -754,10 +804,6 @@ class CoreV2Component(BaseComponent):
 
         # 新增：如果是内置Agent，使用对应的创建方法
         if agent_name == "react_reasoning":
-            from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
-
-            logger.info(f"[CoreV2Component] 创建 ReActReasoningAgent")
-
             # 获取模型名称
             model_name = "gpt-4"
             if (
@@ -772,6 +818,10 @@ class CoreV2Component(BaseComponent):
                     model_name = model_provider.strategy_context[0]
                 elif isinstance(model_provider.strategy_context, str):
                     model_name = model_provider.strategy_context
+
+            from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
+
+            logger.info(f"[CoreV2Component] 创建 ReActReasoningAgent")
 
             agent = ReActReasoningAgent.create(
                 name=agent_name,
@@ -914,6 +964,13 @@ class CoreV2Component(BaseComponent):
                     f"app_id={app_code}, agent_name={agent_name}"
                 )
 
+            # 设置案例记忆 scope 上下文，让 MemoryCaseToolPack 自动获取 app_code
+            from derisk_serve.agent.resource.tool.memory_case import (
+                set_memory_case_scope,
+            )
+            conv_id = getattr(context, "conv_id", None) if context else None
+            set_memory_case_scope(app_code=app_code, conv_id=conv_id)
+
         # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
         if agent and gpt_app.scenes and len(gpt_app.scenes) > 0 and sandbox_manager:
             try:
@@ -933,6 +990,7 @@ class CoreV2Component(BaseComponent):
                 # 场景注入失败不影响主流程
 
         logger.info(f"[CoreV2Component] Agent 创建完成: {type(agent).__name__}")
+
         return agent
 
     async def _load_scene_contents(

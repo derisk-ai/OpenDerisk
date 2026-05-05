@@ -11,6 +11,7 @@ from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResour
 from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
 from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
 from derisk_serve.agent.resource.tool.mcp_collect import MCPCollectSSEToolPack
+from derisk_serve.agent.resource.tool.memory_case import MemoryCaseToolPack
 from derisk_serve.agent.resource.derisk_skill import DeriskSkillResource
 
 from derisk_serve.rag.storage_manager import StorageManager
@@ -126,6 +127,7 @@ def _initialize_resource_manager(system_app: SystemApp):
     # Register mcp tool
     rm.register_resource(MCPSSEToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(MCPCollectSSEToolPack, resource_type=ResourceType.Tool)
+    rm.register_resource(MemoryCaseToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(LocalToolPack, resource_type=ResourceType.Tool)
     rm.register_resource(AgentSkillResource)
     rm.register_resource(DeriskSkillResource)

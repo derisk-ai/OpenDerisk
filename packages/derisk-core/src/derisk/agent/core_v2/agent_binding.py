@@ -98,6 +98,9 @@ class ResourceResolver:
             
             elif resource_type_lower in ("mcp", "tool(mcp)", "tool(mcp(sse))"):
                 return await self._resolve_mcp(resource_value), None
+
+            elif resource_type_lower in ("tool(memory_case)", "memory_case"):
+                return await self._resolve_memory_case(resource_value), None
             
             elif resource_type_lower in ("skill", "skill(derisk)"):
                 return await self._resolve_skill(resource_value), None
@@ -234,7 +237,27 @@ class ResourceResolver:
             return self._mcp_tools_cache[cache_key]
         
         return mcp_info
-    
+
+    async def _resolve_memory_case(self, value: Any) -> Any:
+        """解析案例记忆 MCP 资源.
+
+        返回内置 memory_case 插件信息，供 MemoryCaseToolPack 使用。
+        """
+        import json
+
+        info = {"type": "memory_case", "mcp_name": "memory_case"}
+
+        if isinstance(value, dict):
+            info.update(value)
+        elif isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                info.update(parsed)
+            except Exception:
+                pass
+
+        return info
+
     async def _resolve_skill(self, value: Any) -> Any:
         """
         解析技能资源
