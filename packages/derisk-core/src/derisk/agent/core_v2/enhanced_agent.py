@@ -8,29 +8,26 @@ This module provides a complete agent implementation with:
 4. AutoCompactionManager for automatic context management
 """
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Set
 import asyncio
 import json
 import logging
 import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Set
 
-from derisk.core import LLMClient
-
-from .improved_compaction import ImprovedSessionCompaction, CompactionConfig
-from .llm_utils import call_llm, LLMCaller
-from .tools_v2 import ToolRegistry, ToolResult
-
+from derisk.agent.interaction.interaction_gateway import InteractionGateway
 from derisk.agent.interaction.interaction_protocol import (
     InteractionRequest,
-    InteractionResponse,
-    InteractionType,
     InteractionStatus,
+    InteractionType,
 )
-from derisk.agent.interaction.interaction_gateway import InteractionGateway
+
+from .improved_compaction import CompactionConfig, ImprovedSessionCompaction
+from .llm_utils import LLMCaller
+from .tools_v2 import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -558,8 +555,6 @@ class AutoCompactionManager:
         if self._message_count % config.ADAPTIVE_CHECK_INTERVAL != 0:
             return None
 
-        from derisk.agent import AgentMessage as DAgentMessage
-
         converted = [self._convert_message(m) for m in messages]
 
         should, reason = self.compaction.should_compact_adaptive(converted)
@@ -603,6 +598,7 @@ class AgentBase(ABC):
         gpts_memory: Optional[Any] = None,
         conv_id: Optional[str] = None,
         session_id: Optional[str] = None,
+        **kwargs,
     ):
         self.info = info
         self.memory = memory
@@ -632,6 +628,17 @@ class AgentBase(ABC):
         self._accumulated_thinking: str = ""
         self._is_first_chunk: bool = True
         self._current_goal: str = ""
+
+        # Doom loop detection
+        self._consecutive_tool_calls: Dict[str, int] = {}
+        self._doom_loop_threshold: int = 5
+        self._last_call_hash: str = ""
+
+        if kwargs:
+            logger.warning(
+                "[EnhancedAgentBase] Ignored unsupported init kwargs: %s",
+                list(kwargs.keys()),
+            )
 
     async def initialize(self, context: Optional[Any] = None) -> None:
         """
@@ -703,7 +710,7 @@ class AgentBase(ABC):
     ):
         """推送VIS消息到GptsMemory"""
         if not self._gpts_memory or not self._conv_id:
-            logger.debug(f"[EnhancedAgentBase] GptsMemory未配置，跳过VIS推送")
+            logger.debug("[EnhancedAgentBase] GptsMemory未配置，跳过VIS推送")
             return
 
         if not self._current_message_id:
@@ -752,7 +759,7 @@ class AgentBase(ABC):
                 is_first_chunk=is_first_chunk,
             )
             self._is_first_chunk = False
-            logger.debug(f"[EnhancedAgentBase] VIS推送成功")
+            logger.debug("[EnhancedAgentBase] VIS推送成功")
         except Exception as e:
             logger.warning(f"[EnhancedAgentBase] VIS推送失败: {e}")
 
@@ -953,6 +960,40 @@ class AgentBase(ABC):
                 elif decision.type == DecisionType.TOOL_CALL:
                     self._state = AgentState.ACTING
 
+                    # Doom loop detection: track consecutive same-tool+same-args
+                    # calls. Use hash to avoid false positives when same
+                    # tool is called with different parameters.
+                    tool_name = decision.tool_name or ""
+                    tool_args = decision.tool_args or {}
+                    import hashlib as _hl
+
+                    _call_key = _hl.md5(
+                        f"{tool_name}:{json.dumps(tool_args, sort_keys=True, ensure_ascii=False)}".encode()
+                    ).hexdigest()[:16]
+                    if _call_key == self._last_call_hash:
+                        self._consecutive_tool_calls[_call_key] = (
+                            self._consecutive_tool_calls.get(_call_key, 0) + 1
+                        )
+                    else:
+                        self._consecutive_tool_calls.pop(self._last_call_hash, None)
+                        self._consecutive_tool_calls[_call_key] = 1
+                        self._last_call_hash = _call_key
+                    if (
+                        self._consecutive_tool_calls[_call_key]
+                        >= self._doom_loop_threshold
+                    ):
+                        logger.warning(
+                            f"[AgentBase] Doom loop detected: tool '{tool_name}' "
+                            f"called {self._consecutive_tool_calls[_call_key]} "
+                            f"consecutive times with same args. Terminating."
+                        )
+                        yield (
+                            f"\n[DOOM_LOOP] Agent terminated: tool '{tool_name}' "
+                            f"called {self._consecutive_tool_calls[_call_key]} "
+                            f"consecutive times with identical args."
+                        )
+                        break
+
                     # 获取 tool_call_id（如果有）
                     tool_call_id = None
                     if (
@@ -1011,6 +1052,16 @@ class AgentBase(ABC):
 
                     # 执行工具
                     result = await self.act(decision)
+
+                    # Check if act() returned doom loop termination signal
+                    if result.metadata.get("doom_loop") and result.metadata.get(
+                        "terminate"
+                    ):
+                        logger.warning(
+                            f"[AgentBase] Doom loop termination from act(): {result.output}"
+                        )
+                        yield f"\n[DOOM_LOOP] {result.output}"
+                        break
 
                     # 添加工具结果消息（使用 tool 角色）
                     tool_output = (
@@ -1129,7 +1180,7 @@ class AgentBase(ABC):
                             # 前端会通过 handleChat 直接提交用户响应，
                             # 此时 terminate=True 意味着本轮循环结束
                             logger.info(
-                                f"[AgentBase] No interaction gateway, terminating loop for ask_user"
+                                "[AgentBase] No interaction gateway, terminating loop for ask_user"
                             )
                             break
                     else:
@@ -1408,7 +1459,7 @@ class ProductionAgent(AgentBase):
 
     def _build_llm_messages(self) -> List:
         """构建LLM消息列表"""
-        from derisk.core import SystemMessage, HumanMessage, AIMessage
+        from derisk.core import AIMessage, HumanMessage, SystemMessage
 
         messages = [
             SystemMessage(content=f"You are {self.info.role}. {self.info.description}"),
