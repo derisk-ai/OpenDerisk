@@ -11,85 +11,77 @@ ReActMaster Agent - 最佳实践的 ReAct 范式 Agent 实现
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
+import os
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from derisk._private.pydantic import Field, PrivateAttr
-from derisk.configs.model_config import DATA_DIR
-import os
 from derisk.agent import (
     ActionOutput,
     Agent,
     AgentMessage,
     ProfileConfig,
 )
-from derisk.agent.core.base_agent import ConversableAgent, ContextHelper
-from derisk.agent.core.base_parser import SchemaType
-from derisk.agent.core.role import AgentRunMode
-from derisk.agent.core.schema import Status
-from derisk.core.interface.message import ModelMessageRoleType
-from derisk.agent.util.llm.llm_client import AgentLLMOut
-from derisk.sandbox.base import SandboxBase
-from derisk.util.template_utils import render
-from derisk_serve.agent.resource.tool.mcp import MCPToolPack
-
-from derisk.agent.expand.tool_agent.function_call_parser import (
-    FunctionCallOutputParser,
-    ReActOut,
-)
-
-# 导入核心组件
-from .doom_loop_detector import (
-    DoomLoopDetector,
-    IntelligentDoomLoopDetector,
-    DoomLoopCheckResult,
-)
-
-# SessionCompaction and HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
-# 但 CompactionResult 仍在 compress_session 方法中使用
-from .session_compaction import CompactionResult
-from .truncation import Truncator, TruncationConfig
-
-from .prompt_fc import (
-    REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
-    REACT_MASTER_FC_USER_TEMPLATE_CN,
-    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
-    REACT_MASTER_FC_SYSTEM_TEMPLATE,
-    REACT_MASTER_FC_USER_TEMPLATE,
-    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE,
-)
-from ...core.file_system.agent_file_system import AgentFileSystem
-
-# 新增模块导入
-from .work_log import WorkLogManager, create_work_log_manager
-from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
-from .report_generator import ReportGenerator, ReportType, ReportFormat
-from .kanban_manager import (
-    KanbanManager,
-    create_kanban_manager,
-    validate_deliverable_schema,
-)
+from derisk.agent.core.base_agent import ContextHelper, ConversableAgent
 from derisk.agent.core.memory.gpts.system_event import (
     SystemEventManager,
     SystemEventType,
 )
-from ...resource import BaseTool, RetrieverResource, FunctionTool, ToolPack
-from ...resource.agent_skills import AgentSkillResource
-from ...resource.app import AppResource
-from ..actions.agent_action import AgentStart
-from ..actions.knowledge_action import KnowledgeSearch
-from ..actions.tool_action import ToolAction
+from derisk.agent.core.role import AgentRunMode
+from derisk.agent.core.schema import Status
+from derisk.agent.expand.tool_agent.function_call_parser import (
+    FunctionCallOutputParser,
+)
+from derisk.agent.util.llm.llm_client import AgentLLMOut
+from derisk.configs.model_config import DATA_DIR
+from derisk.core.interface.message import ModelMessageRoleType
+from derisk.sandbox.base import SandboxBase
+from derisk.util.template_utils import render
+from derisk_serve.agent.resource.tool.mcp import MCPToolPack
+
 from ...core.action.blank_action import BlankAction
+from ...core.file_system.agent_file_system import AgentFileSystem
 
 # 导入 read_file 工具使其注册到 system_tool_dict
 from ...core.tools.read_file_tool import read_file  # noqa: F401
+from ...resource import BaseTool, FunctionTool, RetrieverResource
+from ...resource.agent_skills import AgentSkillResource
+from ...resource.app import AppResource
 
 # 导入 PromptAssembler（通用 Prompt 组装模块）
 from ...shared.prompt_assembly import (
     PromptAssembler,
     PromptAssemblyConfig,
     ResourceContext,
-    create_prompt_assembler,
 )
+from ..actions.agent_action import AgentStart
+from ..actions.knowledge_action import KnowledgeSearch
+from ..actions.tool_action import ToolAction
+
+# 导入核心组件
+from .doom_loop_detector import (
+    DoomLoopCheckResult,
+    DoomLoopDetector,
+    IntelligentDoomLoopDetector,
+)
+from .kanban_manager import (
+    KanbanManager,
+    create_kanban_manager,
+    validate_deliverable_schema,
+)
+from .phase_manager import PhaseManager, TaskPhase
+from .prompt_fc import (
+    REACT_MASTER_FC_SYSTEM_TEMPLATE_CN,
+    REACT_MASTER_FC_WRITE_MEMORY_TEMPLATE_CN,
+)
+from .report_generator import ReportFormat, ReportGenerator, ReportType
+
+# SessionCompaction and HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
+# 但 CompactionResult 仍在 compress_session 方法中使用
+from .session_compaction import CompactionResult
+from .truncation import TruncationConfig, Truncator
+
+# 新增模块导入
+from .work_log import create_work_log_manager
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +92,6 @@ def _get_sandbox_system_info(sandbox_client: SandboxBase) -> str:
 
     if provider == "local":
         import platform
-        import os
 
         system = platform.system()
         if system == "Darwin":
@@ -108,7 +99,7 @@ def _get_sandbox_system_info(sandbox_client: SandboxBase) -> str:
         elif system == "Linux":
             return f"Linux ({platform.processor()}), 本地沙箱环境，路径映射到项目目录"
         elif system == "Windows":
-            return f"Windows, 本地沙箱环境，路径映射到项目目录"
+            return "Windows, 本地沙箱环境，路径映射到项目目录"
         else:
             return f"{system}, 本地沙箱环境，路径映射到项目目录"
     else:
@@ -214,6 +205,8 @@ class ReActMasterAgent(ConversableAgent):
     _truncator: Optional[Truncator] = PrivateAttr(default=None)  # Kept as fallback
     _agent_file_system: Optional[AgentFileSystem] = PrivateAttr(default=None)
     _tool_call_count: int = PrivateAttr(default=0)
+    _last_tool_name: str = PrivateAttr(default="")
+    _last_tool_args: Dict = PrivateAttr(default_factory=dict)
     _compaction_count: int = PrivateAttr(default=0)
     _prune_count: int = PrivateAttr(default=0)
 
@@ -891,8 +884,8 @@ class ReActMasterAgent(ConversableAgent):
             # 尝试获取 FileStorageClient
             file_storage_client = None
             try:
-                from derisk.core.interface.file import FileStorageClient
                 from derisk._private.config import Config
+                from derisk.core.interface.file import FileStorageClient
 
                 CFG = Config()
                 system_app = CFG.SYSTEM_APP
@@ -951,8 +944,8 @@ class ReActMasterAgent(ConversableAgent):
 
         try:
             from derisk.agent.core.memory.compaction_pipeline import (
-                UnifiedCompactionPipeline,
                 HistoryCompactionConfig,
+                UnifiedCompactionPipeline,
             )
 
             ctx = self.not_null_agent_context
@@ -1092,6 +1085,8 @@ class ReActMasterAgent(ConversableAgent):
             ActionOutput: 工具执行结果
         """
         self._tool_call_count += 1
+        self._last_tool_name = tool_name
+        self._last_tool_args = args
 
         # 1. 检查 Doom Loop
         allowed = await self._check_doom_loop(tool_name, args)
@@ -1101,8 +1096,12 @@ class ReActMasterAgent(ConversableAgent):
                 name="ToolExecution",
                 action=tool_name,
                 is_exe_success=False,
-                content=f"Tool execution blocked due to detected doom loop pattern (tool: {tool_name})",
+                content=f"Tool execution blocked due to detected doom loop pattern (tool: {tool_name}). "
+                f"Agent repeatedly called '{tool_name}' with identical/similar parameters. "
+                f"Terminating to prevent infinite loop.",
                 state=Status.BLOCKED.value,
+                terminate=True,
+                have_retry=False,
             )
 
         # 2. 执行工具
@@ -1816,7 +1815,7 @@ class ReActMasterAgent(ConversableAgent):
                                         else:
                                             result.view = f"## 📋 Task Report\n\n{report_content[:2000]}"
                                         logger.info(
-                                            f"Auto-generated report attached to result"
+                                            "Auto-generated report attached to result"
                                         )
                                 except Exception as e:
                                     logger.warning(
@@ -1857,6 +1856,20 @@ class ReActMasterAgent(ConversableAgent):
             if has_blank_action and act_outs:
                 # 检查BlankAction是否应该终止（terminate=True表示应该结束任务）
                 blank_action_output = act_outs[0]
+                # Check if the last tool call was reading a SKILL.md
+                # If so, prevent termination - reading a skill is a
+                # preparatory step, not task completion
+                _prev_was_skill_read = self._last_tool_name in (
+                    "view",
+                    "read",
+                ) and "SKILL.md" in str(self._last_tool_args.get("path", ""))
+                if _prev_was_skill_read and blank_action_output.terminate:
+                    logger.warning(
+                        "BlankAction after SKILL.md read - preventing "
+                        "premature termination, injecting reminder"
+                    )
+                    blank_action_output.terminate = False
+                    blank_action_output.have_retry = True
                 if not blank_action_output.terminate:
                     await self._inject_no_tool_call_reminder(
                         blank_action_output, message.message_id
@@ -1875,8 +1888,8 @@ class ReActMasterAgent(ConversableAgent):
             message_id: 关联的消息ID
         """
         from derisk.agent.core.memory.gpts.agent_system_message import (
-            AgentSystemMessage,
             AgentPhase,
+            AgentSystemMessage,
             SystemMessageType,
         )
 
@@ -2065,8 +2078,6 @@ class ReActMasterAgent(ConversableAgent):
             return None
 
         try:
-            from derisk.agent.core.memory.gpts import AgentFileMetadata
-
             file_metadata = await afs.save_conclusion(
                 data=content,
                 file_name=file_name,
