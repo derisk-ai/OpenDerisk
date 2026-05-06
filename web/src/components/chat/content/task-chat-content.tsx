@@ -3,7 +3,6 @@
 import ChatContent from "./chat-content";
 import { ChatContentContext } from "@/contexts";
 import { IChatDialogueMessageSchema } from "@/types/chat";
-import { cloneDeep } from "lodash";
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useDetailPanel } from "./chat-detail-content";
 import ChatDetailContent from "./chat-detail-content";
@@ -18,6 +17,13 @@ interface TaskChatContentProps {
   ctrl: AbortController;
 }
 
+const MAX_RENDER_COUNT = 200;
+const MAX_CONTEXT_SIZE = 10_000_000;
+
+const isMessageTooLarge = (msg: IChatDialogueMessageSchema): boolean => {
+  return !!(msg.context && typeof msg.context === 'string' && msg.context.length > MAX_CONTEXT_SIZE);
+};
+
 const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { history, replyLoading } = useContext(ChatContentContext);
@@ -27,13 +33,15 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   const [userClosedPanel, setUserClosedPanel] = useState(false);
 
   const showMessages = useMemo(() => {
-    const tempMessage: IChatDialogueMessageSchema[] = cloneDeep(history);
-    return tempMessage
-      .filter((item) => ["view", "human"].includes(item.role))
-      .map((item, index) => ({
-        ...item,
-        key: `${item.role}_${item.order ?? index}`,
-      }));
+    const filtered = history
+      .filter((item) => ["view", "human"].includes(item.role) && !isMessageTooLarge(item));
+    const windowed = filtered.length > MAX_RENDER_COUNT
+      ? filtered.slice(-MAX_RENDER_COUNT)
+      : filtered;
+    return windowed.map((item, index) => ({
+      ...item,
+      key: `${item.role}_${item.order ?? index}`,
+    }));
   }, [history]);
 
   const hasRunningWindowData = useMemo(() => {
@@ -69,8 +77,7 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
   // 当数据变化时重置 userClosedPanel
   const prevDataRef = useRef(runningWindowData);
   useEffect(() => {
-    // 检查数据是否真正变化了
-    if (JSON.stringify(prevDataRef.current) !== JSON.stringify(runningWindowData)) {
+    if (prevDataRef.current !== runningWindowData) {
       prevDataRef.current = runningWindowData;
       if (hasRunningWindowData) {
         setUserClosedPanel(false);

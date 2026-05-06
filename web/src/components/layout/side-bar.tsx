@@ -3,6 +3,7 @@ import { apiInterceptors, delDialogue, getAppList, getDialogueListBByFilter, new
 import { ChatContext } from '@/contexts';
 import { IApp } from '@/types/app';
 import { STORAGE_LANG_KEY, STORAGE_THEME_KEY } from '@/utils/constants/index';
+import { getUserId } from '@/utils/storage';
 import Icon, {
   ApiOutlined,
   ClockCircleOutlined,
@@ -205,7 +206,7 @@ function SideBar() {
   const [dialogueLists, setDialogueLists] = useState<DialogueListItem[]>([]);
   const [searchValue, setSearchValue] = useState<string>('');
   const [oauthEnabled, setOauthEnabled] = useState(false);
-  const { hasResourceRead } = useUserPermissions();
+  const { hasResourceRead, hasPermission } = useUserPermissions();
 
   useEffect(() => {
     authService.getOAuthStatus().then((s) => setOauthEnabled(s.enabled));
@@ -225,7 +226,8 @@ function SideBar() {
     run: fetchDialogueList,
     loading: listLoading,
   } = useRequest(async (name: string) => {
-    return await apiInterceptors(getDialogueListBByFilter(name));
+    const userId = getUserId();
+    return await apiInterceptors(getDialogueListBByFilter(name, userId));
   },
    {
       manual: true,
@@ -449,14 +451,14 @@ function SideBar() {
         icon: <ConsoleSqlOutlined className='w-5 h-5 text-gray-500' />,
         path: '/mcp',
       }] : []),
-      // database
-      {
+      // database requires database:read or tool:read
+      ...(hasResourceRead('database') || hasResourceRead('tool') ? [{
         key: 'database',
         name: t('Database'),
         isActive: pathname.startsWith('/database'),
         icon: <DatabaseOutlined className='w-5 h-5 text-gray-500' />,
         path: '/database',
-      },
+      }] : []),
     ];
 
     // Filter configuration management children based on permissions
@@ -471,38 +473,38 @@ function SideBar() {
         ),
         path: '/models',
       }] : []),
-      // cron - no specific permission required yet
-      {
+      // cron requires cron:read (developer+)
+      ...(hasResourceRead('cron') || hasPermission('system', 'admin') ? [{
         key: 'cron',
         name: t('cron_page_title'),
         isActive: pathname.startsWith('/cron'),
         icon: <ClockCircleOutlined className='w-5 h-5 text-gray-500' />,
         path: '/cron',
-      },
-      // channel - no specific permission required yet
-      {
+      }] : []),
+      // channel requires channel:read (developer+)
+      ...(hasResourceRead('channel') || hasPermission('system', 'admin') ? [{
         key: 'channel',
         name: t('channel_page_title'),
         isActive: pathname.startsWith('/channel'),
         icon: <ApiOutlined className='w-5 h-5 text-gray-500' />,
         path: '/channel',
-      },
-      // vis_merge_test - no specific permission required yet
-      {
+      }] : []),
+      // vis_merge_test - admin only
+      ...(hasPermission('system', 'admin') ? [{
         key: 'vis_merge_test',
         name: 'GUI',
         isActive: pathname.startsWith('/vis-merge-test'),
         icon: <ExperimentOutlined className='w-5 h-5 text-gray-500' />,
         path: '/vis-merge-test',
-      },
-      // system_config requires admin/system permissions
-      {
+      }] : []),
+      // system_config - admin only
+      ...(hasPermission('system', 'admin') ? [{
         key: 'system_config',
         name: t('system_config'),
         isActive: pathname.startsWith('/settings/config'),
         icon: <SettingOutlined className='w-5 h-5 text-gray-500' />,
         path: '/settings/config',
-      },
+      }] : []),
       // plugin_market requires tool:read (plugins are tools)
       ...(hasResourceRead('tool') ? [{
         key: 'plugin_market',
@@ -512,29 +514,29 @@ function SideBar() {
         path: '/settings/plugin-market',
       }] : []),
       // audit_logs - admin only
-      {
+      ...(hasPermission('system', 'admin') ? [{
         key: 'audit_logs',
         name: t('audit_logs_title'),
         isActive: pathname.startsWith('/audit-logs'),
         icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
         path: '/audit-logs',
-      },
+      }] : []),
       // permissions - admin only (includes user management and custom permissions)
-      {
+      ...(hasPermission('system', 'admin') ? [{
         key: 'permissions',
         name: t('permissions_title'),
         isActive: pathname.startsWith('/settings/permissions'),
         icon: <SafetyOutlined className='w-5 h-5 text-gray-500' />,
         path: '/settings/permissions',
-      },
-      // monitoring - no specific permission required yet
-      {
+      }] : []),
+      // monitoring - admin only
+      ...(hasPermission('system', 'admin') ? [{
         key: 'monitoring',
         name: t('monitoring_page_title'),
         isActive: pathname.startsWith('/monitoring'),
         icon: <DashboardOutlined className='w-5 h-5 text-gray-500' />,
         path: '/monitoring',
-      },
+      }] : []),
     ];
 
     const items: RouteItem[] = [
@@ -547,18 +549,18 @@ function SideBar() {
         children: applicationChildren,
         isActive: pathname.startsWith('/application') || pathname.startsWith('/agent-skills') || pathname.startsWith('/mcp') || pathname.startsWith('/database'),
       }] : []),
-      // Always show configuration management (some items are always visible)
-      {
+      // Only show configuration management if there are visible children
+      ...(configChildren.length > 0 ? [{
         key: 'configuration_management',
         name: t('configuration_management'),
         icon: <SettingOutlined />,
         path: '/',
         children: configChildren,
         isActive: pathname.startsWith('/models') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/settings/permissions') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring'),
-      },
+      }] : []),
     ];
     return items;
-  }, [t, pathname, appLists, oauthEnabled, hasResourceRead]);
+  }, [t, pathname, appLists, oauthEnabled, hasResourceRead, hasPermission]);
 
   useEffect(() => {
     const language = i18n.language;

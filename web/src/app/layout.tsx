@@ -88,11 +88,13 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
       try {
         const oauthStatus = await authService.getOAuthStatus();
         if (!oauthStatus.enabled) {
+          // OAuth disabled — use mock user (backward compatible, no login required)
           const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
           localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
           localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
           return;
         }
+        // OAuth enabled — try to load authenticated user
         const me = await authService.getMe();
         const user = {
           user_channel: me.user_channel,
@@ -105,22 +107,11 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
         localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
       } catch {
-        try {
-          const oauthStatus = await authService.getOAuthStatus();
-          if (oauthStatus.enabled) {
-            // 避免已经在登录页面时重复跳转
-            const currentPath = window.location.pathname;
-            if (!currentPath.startsWith("/login") && !currentPath.startsWith("/auth/callback")) {
-              window.location.href = "/login";
-            }
-            return;
-          }
-        } catch {
-          /* ignore */
+        // Not authenticated — redirect to login
+        const currentPath = window.location.pathname;
+        if (!currentPath.startsWith("/login") && !currentPath.startsWith("/auth/callback")) {
+          window.location.href = "/login";
         }
-        const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
-        localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
-        localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
       } finally {
         authCheckInProgress.current = false;
       }

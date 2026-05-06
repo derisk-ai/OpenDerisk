@@ -304,6 +304,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             resource_knowledge=request.resource_knowledge,
             resource_tool=request.resource_tool,
             resource_agent=request.resource_agent,
+            resource_memory=getattr(request, "resource_memory", None),
             system_prompt_template=request.system_prompt_template,
             user_prompt_template=request.user_prompt_template,
             context_config=request.context_config,

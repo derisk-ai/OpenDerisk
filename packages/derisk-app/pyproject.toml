@@ -18,6 +18,7 @@ dependencies = [
     "aiofiles",
     "pyparsing",
     "aiosqlite",
+    "bcrypt>=4.0.0",
 ]
 
 [project.urls]
@@ -33,6 +34,9 @@ build-backend = "hatchling.build"
 [project.optional-dependencies]
 cache = [
     "rocksdict",
+]
+memory = [
+    "mempalace>=3.3.0",
 ]
 
 observability = [

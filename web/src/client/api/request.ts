@@ -60,6 +60,7 @@ import {
 import { BaseModelParams, IModelData, StartModelParams, SupportModel } from '@/types/model';
 import { AxiosRequestConfig } from 'axios';
 import { DELETE, GET, POST, PUT } from '.';
+import { getUserId } from '@/utils/storage';
 
 /** App */
 export const postScenes = () => {
@@ -75,7 +76,7 @@ export const postScenes = () => {
 export const newDialogue = (data: NewDialogueParam) => {
   return POST<NewDialogueParam, IChatDialogueSchema>(
     `/api/v1/chat/dialogue/new?app_code=${data.app_code}`,
-    data,
+    { ...data, user_code: data.user_code || getUserId() },
   );
 };
 
@@ -240,12 +241,15 @@ export const batchAddMaskingConfig = (
 };
 
 /** Chat Page */
-export const getDialogueList = () => {
-  return GET<null, DialogueListResponse>('/api/v1/chat/dialogue/list');
+export const getDialogueList = (userId?: string) => {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  return GET<null, DialogueListResponse>(`/api/v1/chat/dialogue/list${params}`);
 };
 
-export const getDialogueListBByFilter = (name:string) => {
-  return GET<null, DialogueListResponse>(`/api/v1/chat/dialogue/list?filter=${name}`);
+export const getDialogueListBByFilter = (name: string, userId?: string) => {
+  const query = new URLSearchParams({ filter: name });
+  if (userId) query.set('user_id', userId);
+  return GET<null, DialogueListResponse>(`/api/v1/chat/dialogue/list?${query.toString()}`);
 };
 export const getUsableModels = () => {
   return GET<null, Array<string>>('/api/v1/model/types');

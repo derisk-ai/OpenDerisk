@@ -1,9 +1,10 @@
-"""User service for OAuth2 login - create/update/list users from OAuth provider."""
+"""User service for OAuth2 and local login - create/update/list users."""
 
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+import bcrypt
 from sqlalchemy import Column, DateTime, Integer, String, or_
 
 from derisk.storage.metadata import BaseDao, Model
@@ -22,6 +23,9 @@ class UserEntity(Model):
     oauth_id = Column(String(255), nullable=True, comment="OAuth provider user ID")
     email = Column(String(255), nullable=True, comment="User email")
     avatar = Column(String(512), nullable=True, comment="Avatar URL")
+    password_hash = Column(
+        String(255), nullable=True, comment="bcrypt hashed password for local auth"
+    )
     role = Column(
         String(20), nullable=True, default="normal", comment="User role: normal/admin"
     )
@@ -226,6 +230,88 @@ class UserDao(BaseDao):
             logger.info(f"User {user_id} ({user.name}) soft deleted")
             return True
 
+    def get_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get local user by username."""
+        with self.session() as session:
+            user = (
+                session.query(UserEntity)
+                .filter(
+                    UserEntity.name == username,
+                    UserEntity.oauth_provider == "local",
+                )
+                .first()
+            )
+            if not user:
+                return None
+            result = _entity_to_dict(user)
+            result["password_hash"] = user.password_hash or ""
+            return result
+
+    def create_local_user(
+        self,
+        username: str,
+        password_hash: str,
+        email: str = "",
+        fullname: str = "",
+        role: str = "normal",
+        rbac_default_role: str = "normal_user",
+    ) -> Dict[str, Any]:
+        """Create a local user with password."""
+        with self.session() as session:
+            user = UserEntity(
+                name=username,
+                fullname=fullname or username,
+                oauth_provider="local",
+                oauth_id=username,
+                email=email,
+                password_hash=password_hash,
+                role=role,
+                is_active=1,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+            # Auto-assign default RBAC role
+            try:
+                from derisk_app.feature_plugins.permissions.dao import PermissionDao
+
+                dao = PermissionDao()
+                default_role = dao.get_role_by_name(rbac_default_role)
+                if default_role:
+                    dao.assign_role_to_user(user.id, default_role["id"])
+                    logger.info(
+                        f"Auto-assigned {rbac_default_role} role to new local user: "
+                        f"{user.id} ({user.name})"
+                    )
+                else:
+                    viewer_role = dao.get_role_by_name("viewer")
+                    if viewer_role:
+                        dao.assign_role_to_user(user.id, viewer_role["id"])
+                        logger.warning(
+                            f"Configured default role '{rbac_default_role}' not found, "
+                            f"fallback to viewer for new local user: {user.id} ({user.name})"
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to auto-assign default role: {e}")
+
+            return _entity_to_dict(user)
+
+
+def _hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against a bcrypt hash."""
+    try:
+        return bcrypt.checkpw(
+            password.encode("utf-8"), password_hash.encode("utf-8")
+        )
+    except Exception:
+        return False
+
 
 class UserService:
     """Service for user operations."""
@@ -299,3 +385,46 @@ class UserService:
         except Exception as e:
             logger.exception(f"Failed to delete user {user_id}: {e}")
             return False
+
+    def create_local_user(
+        self,
+        username: str,
+        password: str,
+        email: str = "",
+        fullname: str = "",
+        rbac_default_role: str = "normal_user",
+    ) -> Optional[Dict[str, Any]]:
+        """Create a local user with username/password."""
+        try:
+            # Check if username already taken
+            existing = self._dao.get_by_username(username)
+            if existing:
+                return None
+            password_hash = _hash_password(password)
+            return self._dao.create_local_user(
+                username=username,
+                password_hash=password_hash,
+                email=email,
+                fullname=fullname,
+                role="normal",
+                rbac_default_role=rbac_default_role,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to create local user: {e}")
+            return None
+
+    def verify_local_user(
+        self, username: str, password: str
+    ) -> Optional[Dict[str, Any]]:
+        """Verify local user credentials. Returns user dict (without password_hash) or None."""
+        try:
+            user = self._dao.get_by_username(username)
+            if not user:
+                return None
+            stored_hash = user.pop("password_hash", "")
+            if not stored_hash or not _verify_password(password, stored_hash):
+                return None
+            return user
+        except Exception as e:
+            logger.exception(f"Failed to verify local user: {e}")
+            return None

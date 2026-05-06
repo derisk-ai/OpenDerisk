@@ -3,9 +3,26 @@ import type { User } from '@/services/users';
 
 const API_BASE = '/api/v1';
 
+export interface OAuthProvider {
+  id: string;
+  type: string;
+}
+
 export interface OAuthStatus {
   enabled: boolean;
-  providers: Array<{ id: string; type: string }>;
+  providers: OAuthProvider[];
+}
+
+export interface LocalLoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LocalRegisterRequest {
+  username: string;
+  password: string;
+  email?: string;
+  fullname?: string;
 }
 
 export interface AuthUser {
@@ -81,6 +98,18 @@ class AuthService {
   getOAuthLoginUrl(provider: string): string {
     const base = typeof window !== 'undefined' ? window.location.origin : '';
     return `${base}/api/v1/auth/oauth/login?provider=${encodeURIComponent(provider)}`;
+  }
+
+  async localLogin(data: LocalLoginRequest): Promise<MeResponse> {
+    const payload = { ...data, password: btoa(data.password) };
+    const response = await axios.post(`${API_BASE}/auth/local/login`, payload);
+    return response.data;
+  }
+
+  async localRegister(data: LocalRegisterRequest): Promise<MeResponse> {
+    const payload = { ...data, password: btoa(data.password) };
+    const response = await axios.post(`${API_BASE}/auth/local/register`, payload);
+    return response.data;
   }
 }
 

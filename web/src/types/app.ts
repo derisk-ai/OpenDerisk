@@ -402,6 +402,14 @@ export type IApp = {
    */
   resource_agent?: ResourceAgent[];
   /**
+   * 记忆资源绑定
+   */
+  resource_memory?: Array<{
+    type: string;
+    name: string;
+    value: string;
+  }>;
+  /**
    * Agent 运行时配置
    */
   runtime_config?: AgentRuntimeConfig;

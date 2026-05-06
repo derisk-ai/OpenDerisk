@@ -278,6 +278,43 @@ def _sync_oauth2_config_from_db():
         logger.warning(f"Failed to sync OAuth2 from database: {e}")
 
 
+def _sync_feature_plugins_from_db():
+    """Sync feature_plugins config from database to runtime config on startup.
+
+    The database (system_config table) is the source of truth for plugin state
+    after the user toggles plugins via the UI. Without this sync, the runtime
+    ConfigManager still has the file-based defaults, causing _is_permissions_enabled()
+    to return False even when permissions were enabled in the UI.
+    """
+    try:
+        from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+        from derisk_core.config import ConfigManager, FeaturePluginEntry
+
+        dao = SystemConfigDao()
+        db_state = dao.get_all_configs("feature_plugin")
+        if not db_state:
+            return
+
+        cfg = ConfigManager.get()
+        current = getattr(cfg, "feature_plugins", None) or {}
+        updated = dict(current)
+
+        for plugin_id, state in db_state.items():
+            if isinstance(state, dict):
+                updated[plugin_id] = FeaturePluginEntry(
+                    enabled=bool(state.get("enabled", False)),
+                    settings=state.get("settings"),
+                )
+
+        cfg.feature_plugins = updated
+        enabled_names = [k for k, v in updated.items() if v.enabled]
+        logger.info(
+            "Feature plugins synced from database: %s", enabled_names or "(none)"
+        )
+    except Exception as e:
+        logger.warning("Failed to sync feature_plugins from database: %s", e)
+
+
 def _sync_app_config_to_system_app():
     """Sync JSON config (agent_llm, default_model, etc.) to system_app.config on startup.
 
@@ -368,6 +405,7 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     )
 
     _sync_oauth2_config_from_db()
+    _sync_feature_plugins_from_db()
 
     _sync_app_config_to_system_app()
 
