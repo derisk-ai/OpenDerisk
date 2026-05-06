@@ -95,7 +95,11 @@ const VisRunningWindowStepCard = ({ data }: IProps) => {
             <div style={{ marginTop: 12, width: '100%' }}>
               <div style={{ marginBottom: 8, color: '#888' }}>请求参数：</div>
               <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 8 }}>
-                <pre style={{ margin: 0, fontSize: 13 }}>{data?.tool_args}</pre>
+                <pre style={{ margin: 0, fontSize: 13 }}>
+                  {typeof data?.tool_args === 'object'
+                    ? JSON.stringify(data?.tool_args, null, 2)
+                    : data?.tool_args || '--'}
+                </pre>
               </div>
               <div style={{ margin: '12px 0 8px', color: '#888' }}>返回结果：</div>
               <div style={{ background: '#f6f8fa', borderRadius: 8, padding: 8 }}>
