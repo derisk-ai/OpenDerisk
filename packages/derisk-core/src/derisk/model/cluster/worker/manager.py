@@ -214,8 +214,15 @@ class LocalWorkerManager(WorkerManager):
             out = await self._start_all_worker(apply_req=None, parallel_num=100)
             if not out.success:
                 raise Exception(out.message)
-        if self.register_func:
-            await self.register_func(self.run_data)
+            # Only register if we have workers to register
+            if self.register_func:
+                try:
+                    await self.register_func(self.run_data)
+                except Exception as e:
+                    logger.warning(f"Failed to register workers to controller: {e}. Service will continue without model registration.")
+        else:
+            # No workers to start, skip registration and just log
+            logger.info("No local workers configured, skipping worker registration to controller.")
         if self.send_heartbeat_func:
             task = asyncio.create_task(
                 _async_heartbeat_sender(self.run_data, 20, self.send_heartbeat_func)

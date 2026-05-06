@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { permissionsService } from '@/services/permissions';
+import { permissionsService, isNotFound } from '@/services/permissions';
 import { getUserId } from '@/utils/storage';
+import { authService } from '@/services/auth';
 import { message } from 'antd';
 
 export interface UserPermissions {
@@ -13,8 +14,25 @@ export interface UserPermissions {
 export function useUserPermissions() {
   const [permissions, setPermissions] = useState<UserPermissions | null>(null);
   const [loading, setLoading] = useState(true);
+  const [oauthEnabled, setOauthEnabled] = useState<boolean | null>(null);
+
+  // First check OAuth status
+  useEffect(() => {
+    authService.getOAuthStatus().then((s) => setOauthEnabled(s.enabled));
+  }, []);
 
   const fetchPermissions = useCallback(async () => {
+    // Skip if OAuth is not enabled (no real login)
+    if (oauthEnabled === false) {
+      setLoading(false);
+      return;
+    }
+
+    // Wait for OAuth status check
+    if (oauthEnabled === null) {
+      return;
+    }
+
     const userId = getUserId();
     if (!userId) {
       setLoading(false);
@@ -25,12 +43,17 @@ export function useUserPermissions() {
       const data = await permissionsService.getUserEffectivePermissions(Number(userId));
       setPermissions(data);
     } catch (e) {
-      // Silent fail - permissions might not be enabled
-      console.debug('Failed to fetch user permissions:', e);
+      // Silent fail - permissions API might not be available
+      if (isNotFound(e)) {
+        // Permissions plugin not enabled, treat as no restrictions
+        console.debug('Permissions API not available (plugin not enabled)');
+      } else {
+        console.debug('Failed to fetch user permissions:', e);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [oauthEnabled]);
 
   useEffect(() => {
     fetchPermissions();
