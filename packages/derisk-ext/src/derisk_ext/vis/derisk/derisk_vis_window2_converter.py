@@ -412,7 +412,12 @@ class DeriskIncrVisWindow2Converter(DeriskVisIncrConverter):
 
         return json.dumps({
             "planning_window": new_plans_view,
-            "running_window": new_running_view
+            "running_window": new_running_view,
+            "meta_window": json.dumps({
+                "total_steps": len(plans_map) if plans_map else 0,
+                "visible_steps": len(plans_map) if plans_map else 0,
+                "evicted_steps": 0,
+            }, ensure_ascii=False),
         }, ensure_ascii=False)
 
     async def _gen_llm_space(self, message_id: str, llm_model: str, thinking: Optional[str] = None,

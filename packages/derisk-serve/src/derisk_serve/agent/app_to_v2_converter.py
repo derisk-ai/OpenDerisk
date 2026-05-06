@@ -147,6 +147,11 @@ async def _convert_all_resources(
                     resource, resource_value, tools, knowledge, skills
                 )
 
+            elif resource_type == ResourceType.Memory or resource_type == "memory":
+                await _process_memory_resource(
+                    resource, resource_value, tools
+                )
+
             else:
                 logger.warning(
                     f"Unsupported resource type for Core_v2: {resource_type}"
@@ -431,6 +436,64 @@ async def _process_app_resource(
 
     except Exception as e:
         logger.error(f"Error processing app resource: {e}")
+
+
+async def _process_memory_resource(
+    resource: Any,
+    resource_value: Any,
+    tools: Dict[str, Any],
+):
+    """Process a memory resource — create MemoryToolPack and register tools."""
+    try:
+        from derisk.component import SystemApp
+        from derisk_serve.rag.storage_manager import StorageManager
+        from derisk_serve.agent.resource.tool.memory_tool import MemoryToolPack
+
+        # Extract space_id / wing from resource config
+        space_id = None
+        wing = "default"
+        if isinstance(resource_value, dict):
+            space_id = resource_value.get("knowledge") or resource_value.get(
+                "space_id"
+            )
+            wing = resource_value.get("wing", "default")
+        elif isinstance(resource_value, str):
+            try:
+                parsed = json.loads(resource_value)
+                space_id = parsed.get("knowledge") or parsed.get("space_id")
+                wing = parsed.get("wing", "default")
+            except Exception:
+                pass
+
+        if not space_id:
+            logger.warning("Memory resource missing space_id / knowledge id")
+            return
+
+        system_app = SystemApp.get_instance()
+        storage_manager: StorageManager = system_app.get_component(
+            "storage_manager", StorageManager
+        )
+        memory_store = storage_manager.create_memory_store(space_id)
+        if memory_store is None:
+            logger.warning(
+                f"Memory store not available for space {space_id}. "
+                "Check that a memory provider is installed."
+            )
+            return
+
+        memory_pack = MemoryToolPack(
+            memory_store=memory_store,
+            wing=wing,
+        )
+        await memory_pack.preload_resource()
+
+        # Register memory tools in the agent's tool dict
+        for tool_name, tool in memory_pack._resources.items():
+            tools[tool_name] = tool
+            logger.info(f"Registered memory tool: {tool_name}")
+
+    except Exception as e:
+        logger.error(f"Error processing memory resource: {e}")
 
 
 def _get_resource_type(resource: Any) -> Optional[str]:

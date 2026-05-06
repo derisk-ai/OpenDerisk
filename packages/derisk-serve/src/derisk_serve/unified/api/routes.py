@@ -14,6 +14,9 @@ from .schemas import (
     ChatStreamRequest,
     SubmitInteractionRequest,
     RenderMessageRequest,
+    StepDetailResponse,
+    RunningWindowResponse,
+    PlanningHistoryResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -294,6 +297,77 @@ async def render_message(request: RenderMessageRequest):
         return output.to_dict()
     except Exception as e:
         logger.error(f"渲染消息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== 按需加载接口 ==========
+
+@router.get("/vis/step_detail", response_model=StepDetailResponse)
+async def query_step_detail(conv_id: str, step_id: str):
+    """vis_manus 专用 — 按 step_id 返回单步完整 outputs
+
+    前端点击步骤时调用此接口加载详情，避免 final_view 全量返回所有步骤 outputs。
+    """
+    try:
+        from ..visualization import get_unified_vis_adapter
+        adapter = get_unified_vis_adapter()
+        result = await adapter.query_step_detail(conv_id=conv_id, step_id=step_id)
+        if result:
+            return StepDetailResponse(
+                active_step=result.get("active_step"),
+                outputs=result.get("outputs", []),
+            )
+        return StepDetailResponse()
+    except Exception as e:
+        logger.error(f"查询步骤详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/vis/running_window", response_model=RunningWindowResponse)
+async def query_running_window(
+    conv_id: str,
+    agent_name: Optional[str] = None,
+    step_uid: Optional[str] = None,
+):
+    """vis_window2/vis_window3 专用 — 按需加载 running_window
+
+    前端点击 AgentFolder 或 planning 步骤时调用此接口加载对应 work_items。
+    """
+    try:
+        from ..visualization import get_unified_vis_adapter
+        adapter = get_unified_vis_adapter()
+        result = await adapter.query_running_window(
+            conv_id=conv_id, agent_name=agent_name, step_uid=step_uid
+        )
+        return RunningWindowResponse(running_window=result)
+    except Exception as e:
+        logger.error(f"查询 running window 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/vis/planning_history", response_model=PlanningHistoryResponse)
+async def query_planning_history(
+    conv_id: str,
+    offset: int = 0,
+    limit: int = 20,
+):
+    """分页获取被淘汰的历史 planning 步骤
+
+    当 meta_window.evicted_steps > 0 时，前端展示"加载更多"按钮并调用此接口。
+    """
+    try:
+        from ..visualization import get_unified_vis_adapter
+        adapter = get_unified_vis_adapter()
+        result = await adapter.query_planning_history(
+            conv_id=conv_id, offset=offset, limit=limit
+        )
+        if result:
+            import json
+            data = json.loads(result)
+            return PlanningHistoryResponse(**data)
+        return PlanningHistoryResponse()
+    except Exception as e:
+        logger.error(f"查询 planning 历史失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

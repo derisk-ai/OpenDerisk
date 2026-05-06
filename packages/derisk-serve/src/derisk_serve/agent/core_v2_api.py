@@ -166,7 +166,17 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
     session_id = request.get_session_id()
     user_inputs = request.get_user_inputs()
 
-    user_id = request.user_id or http_request.headers.get("user-id")
+    # Use authenticated user identity when available, fallback to request/header
+    user_id = None
+    try:
+        from derisk_serve.utils.auth import get_user_from_headers
+        auth_user = get_user_from_headers(request=http_request)
+        if auth_user and auth_user.user_id:
+            user_id = auth_user.user_id
+    except Exception:
+        pass
+    if not user_id:
+        user_id = request.user_id or http_request.headers.get("user-id")
 
     # 解析应用显示名称（用于 VIS 渲染，避免显示 UUID）
     display_name = await core_v2.resolve_app_display_name(app_code)
@@ -319,7 +329,7 @@ async def chat(request: ChatRequest, http_request: FastAPIRequest):
 
 
 @router.post("/session")
-async def create_session(request: CreateSessionRequest):
+async def create_session(request: CreateSessionRequest, http_request: FastAPIRequest):
     """
     创建新会话
 
@@ -328,6 +338,18 @@ async def create_session(request: CreateSessionRequest):
     core_v2 = get_core_v2()
     if not core_v2.runtime:
         await core_v2.start()
+
+    # Use authenticated user identity when available, fallback to request body
+    user_id = None
+    try:
+        from derisk_serve.utils.auth import get_user_from_headers
+        auth_user = get_user_from_headers(request=http_request)
+        if auth_user and auth_user.user_id:
+            user_id = auth_user.user_id
+    except Exception:
+        pass
+    if not user_id:
+        user_id = request.user_id
 
     app_code = request.app_code or request.agent_name or "default"
 
@@ -348,7 +370,7 @@ async def create_session(request: CreateSessionRequest):
         logger.debug(f"[v2/session] Failed to resolve layout for {app_code}: {e}")
 
     session = await core_v2.runtime.create_session(
-        user_id=request.user_id,
+        user_id=user_id,
         agent_name=app_code,
         layout_name=layout_name,
     )
@@ -360,7 +382,7 @@ async def create_session(request: CreateSessionRequest):
             conv_uid=session.conv_id,
             chat_mode="chat_agent",
             summary="New Conversation",
-            user_name=request.user_id,
+            user_name=user_id,
             app_code=app_code,
         )
         chat_history_dao.raw_update(entity)

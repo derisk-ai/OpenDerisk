@@ -3,6 +3,7 @@ import { apiInterceptors, getDialogueList, getUsableModels } from '../client/api
 import { ChatHistoryResponse, DialogueListResponse, IChatDialogueSchema } from '@/types/chat';
 import { UserInfoResponse } from '@/types/userinfo';
 import { STORAGE_THEME_KEY } from '@/utils/constants/index';
+import { getUserId } from '@/utils/storage';
 import { useRequest } from 'ahooks';
 import { useSearchParams } from 'next/navigation';
 import { createContext, useEffect, useState } from 'react';
@@ -111,7 +112,8 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
     refresh: refreshDialogList,
     loading: listLoading,
   } = useRequest(async () => {
-    return await apiInterceptors(getDialogueList());
+    const userId = getUserId();
+    return await apiInterceptors(getDialogueList(userId));
   });
 
   useEffect(() => {

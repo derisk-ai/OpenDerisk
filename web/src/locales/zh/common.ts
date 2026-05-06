@@ -7,6 +7,7 @@ interface Resources {
 }
 
 export const CommonZh: Resources['translation'] = {
+  logout: '退出登录',
   Knowledge_Space: '知识库',
   space: '知识库',
   Vector: '向量',
@@ -618,6 +619,7 @@ export const CommonZh: Resources['translation'] = {
   builder_tab_skills: '技能',
   builder_tab_sub_agents: '子智能体',
   builder_tab_knowledge: '知识库',
+  builder_tab_memory: '记忆',
   builder_tab_database: '数据库',
   builder_tab_scenes: '场景配置',
   builder_agent_list_title: '智能体列表',
@@ -632,6 +634,9 @@ export const CommonZh: Resources['translation'] = {
   builder_enabled: '已启用',
   builder_click_to_toggle: '点击切换',
   builder_no_items: '暂无可用项',
+  memory_auto_memory: '自动记忆',
+  memory_enable_kg: '知识图谱',
+  memory_top_k: '召回数量',
   builder_select_agent: '请选择一个智能体开始编辑',
   explore_start_chat: '开始对话',
   explore_no_agents: '暂无智能体',
@@ -1000,6 +1005,7 @@ export const CommonZh: Resources['translation'] = {
   tool_execute_code_param: '代码内容',
   // Audit Logs (审计日志)
   audit_logs_title: '审计日志',
+  user_management: '用户管理',
   system_config: '系统配置',
   plugin_market: '插件市场',
   plugin_market_page_desc: '浏览并启用内置功能扩展；与技能市场 / Git 插件仓不同。',
@@ -1052,6 +1058,9 @@ export const CommonZh: Resources['translation'] = {
   plugin_user_groups_add_by_id: '按 ID 加入',
   plugin_user_groups_invalid_user_id: '请输入有效的用户 ID（正整数）',
   plugin_user_groups_already_member: '该用户已在分组中',
+  plugin_user_groups_moved_title: '权限组管理入口已迁移',
+  plugin_user_groups_moved_desc:
+    '为避免与 RBAC 重复，分组与成员管理请前往「设置 → 身份管理 → 用户组」。本处仅保留插件开关。',
   audit_logs_description: '工具授权审计追踪与安全监控',
   audit_total_checks: '总检查次数',
   audit_granted: '已授权',

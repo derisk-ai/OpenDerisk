@@ -83,6 +83,8 @@ class ManusExecutionStep:
     phase: Optional[str] = None
     status: str = ManusStepStatus.PENDING.value
     output: Optional[Any] = None
+    action: Optional[str] = None
+    action_input: Optional[Any] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -291,9 +293,15 @@ class ManusRightPanelData:
     deliverable_files: List[ManusDeliverableFile] = field(default_factory=list)
     # Map from planning_window UID (action_id) to step data for click-to-switch
     steps_map: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Agent name for display context
+    agent_name: Optional[str] = None
+    # Lazy loading: when True, steps_map only contains metadata (no outputs), frontend must request details via API
+    lazy_loading: Optional[bool] = None
+    # Meta info: {"total_steps": N, "default_step_id": "step_X"}
+    meta: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "active_step": self.active_step.to_dict() if self.active_step else None,
             "outputs": [o.to_dict() for o in self.outputs],
             "is_running": self.is_running,
@@ -305,6 +313,13 @@ class ManusRightPanelData:
             "deliverable_files": [f.to_dict() for f in self.deliverable_files],
             "steps_map": self.steps_map,
         }
+        if self.agent_name is not None:
+            result["agent_name"] = self.agent_name
+        if self.lazy_loading is not None:
+            result["lazy_loading"] = self.lazy_loading
+        if self.meta is not None:
+            result["meta"] = self.meta
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ManusRightPanelData":
@@ -326,6 +341,9 @@ class ManusRightPanelData:
             task_files=task_files,
             deliverable_files=deliverable_files,
             steps_map=data.get("steps_map", {}),
+            agent_name=data.get("agent_name"),
+            lazy_loading=data.get("lazy_loading"),
+            meta=data.get("meta"),
         )
 
 

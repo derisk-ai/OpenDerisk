@@ -1,10 +1,11 @@
 'use client';
 
 import { STORAGE_USERINFO_KEY } from '@/utils/constants/index';
-import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
-import { Avatar, Dropdown, Typography } from 'antd';
+import { LogoutOutlined } from '@ant-design/icons';
+import { Dropdown, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import { authService } from '@/services/auth';
+import UserAvatar from '@/components/common/user-avatar';
 
 interface UserInfo {
   nick_name?: string;
@@ -87,11 +88,11 @@ function TopHeader() {
 
   const avatarEl = (
     <span className="flex items-center gap-2 cursor-pointer select-none">
-      <Avatar
-        src={avatarSrc}
+      <UserAvatar
+        avatarUrl={avatarSrc}
+        name={displayName}
         size={28}
-        icon={!avatarSrc ? <UserOutlined /> : undefined}
-        className="bg-gradient-to-tr from-[#31afff] to-[#1677ff] flex-shrink-0"
+        className="flex-shrink-0"
       />
       <Typography.Text className="text-sm font-medium text-gray-700 dark:text-gray-200 max-w-[140px] truncate">
         {displayName}

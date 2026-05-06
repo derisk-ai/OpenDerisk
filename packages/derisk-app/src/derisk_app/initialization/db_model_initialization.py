@@ -35,6 +35,15 @@ from derisk_app.feature_plugins.user_groups.models import (
     UserGroupEntity,
     UserGroupMemberEntity,
 )
+from derisk_app.feature_plugins.permissions.models import (
+    RoleEntity,
+    RolePermissionEntity,
+    UserRoleEntity,
+    GroupRoleEntity,
+    PermissionDefinitionEntity,
+    RolePermissionDefEntity,
+)
+from derisk_app.feature_plugins.system_config_model import SystemConfigEntity
 
 _MODELS = [
     FileServeEntity,
@@ -62,4 +71,11 @@ _MODELS = [
     UserGroupEntity,
     UserGroupMemberEntity,
     OAuth2ConfigEntity,
+    RoleEntity,
+    RolePermissionEntity,
+    UserRoleEntity,
+    GroupRoleEntity,
+    PermissionDefinitionEntity,
+    RolePermissionDefEntity,
+    SystemConfigEntity,
 ]

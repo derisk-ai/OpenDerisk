@@ -1,432 +1,319 @@
-#!/usr/bin/env python3
+"""Full-chain integration test for the Memory Store module.
+
+Validates:
+1. Import chain — all new modules can be imported
+2. Interface contract — MemoryStoreBase has all required abstract methods
+3. Config subclass discovery — MemPalaceMemoryConfig is auto-discovered
+4. MemPalaceMemoryStore implements all abstract methods
+5. StorageManager Memory branch — create_memory_store code path
+6. Memory API router — endpoints exist and have correct signatures
+7. MemoryToolPack — tool registration
+8. Pipeline Operators — operator structure
+9. App config — resource_memory field exists in ServeRequest
+10. App converter — memory resource dispatch exists
 """
-简单测试脚本 - 验证统一记忆管理集成
-"""
+
+import ast
+import inspect
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'packages', 'derisk-core', 'src'))
-
-import asyncio
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field
-from enum import Enum
-
-
-class MemoryType(str, Enum):
-    WORKING = "working"
-    EPISODIC = "episodic"
-    SEMANTIC = "semantic"
-    SHARED = "shared"
-    PREFERENCE = "preference"
+# Add project packages to path
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for pkg in ["derisk-core", "derisk-ext", "derisk-serve", "derisk-app"]:
+    src_path = os.path.join(PROJECT_ROOT, "packages", pkg, "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
 
 
-@dataclass
-class MemoryItem:
-    id: str
-    content: str
-    memory_type: MemoryType
-    importance: float = 0.5
-    embedding: Optional[List[float]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.now)
-    last_accessed: datetime = field(default_factory=datetime.now)
-    access_count: int = 0
-    
-    file_path: Optional[str] = None
-    source: str = "agent"
-    
-    def update_access(self) -> None:
-        self.last_accessed = datetime.now()
-        self.access_count += 1
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "content": self.content,
-            "memory_type": self.memory_type.value,
-            "importance": self.importance,
-            "metadata": self.metadata,
-            "created_at": self.created_at.isoformat(),
-            "last_accessed": self.last_accessed.isoformat(),
-            "access_count": self.access_count,
-            "file_path": self.file_path,
-            "source": self.source,
-        }
+def test_section(name):
+    print(f"\n{'='*60}")
+    print(f"  {name}")
+    print(f"{'='*60}")
 
 
-@dataclass
-class SearchOptions:
-    top_k: int = 5
-    min_importance: float = 0.0
-    memory_types: Optional[List[MemoryType]] = None
-    time_range: Optional[tuple] = None
-    sources: Optional[List[str]] = None
-    include_embeddings: bool = False
+passed = 0
+failed = 0
 
 
-@dataclass
-class MemoryConsolidationResult:
-    success: bool
-    source_type: MemoryType
-    target_type: MemoryType
-    items_consolidated: int
-    items_discarded: int
-    tokens_saved: int = 0
-    error: Optional[str] = None
+def check(description, condition, detail=""):
+    global passed, failed
+    if condition:
+        print(f"  [PASS] {description}")
+        passed += 1
+    else:
+        print(f"  [FAIL] {description}")
+        if detail:
+            print(f"         {detail}")
+        failed += 1
 
 
-class InMemoryStorage:
-    """内存存储实现"""
-    
-    def __init__(self, session_id: Optional[str] = None):
-        import uuid
-        self.session_id = session_id or str(uuid.uuid4())
-        self._storage: Dict[str, MemoryItem] = {}
-        self._initialized = False
-    
-    async def initialize(self) -> None:
-        if self._initialized:
-            return
-        self._initialized = True
-    
-    async def write(
-        self,
-        content: str,
-        memory_type: MemoryType = MemoryType.WORKING,
-        metadata: Optional[Dict[str, Any]] = None,
-        sync_to_file: bool = True,
-    ) -> str:
-        await self.initialize()
-        
-        import uuid
-        memory_id = str(uuid.uuid4())
-        item = MemoryItem(
-            id=memory_id,
-            content=content,
-            memory_type=memory_type,
-            metadata=metadata or {},
-        )
-        
-        self._storage[memory_id] = item
-        return memory_id
-    
-    async def read(
-        self,
-        query: str,
-        options: Optional[SearchOptions] = None,
-    ) -> List[MemoryItem]:
-        await self.initialize()
-        
-        options = options or SearchOptions()
-        results = []
-        
-        for item in self._storage.values():
-            if options.memory_types and item.memory_type not in options.memory_types:
-                continue
-            if item.importance < options.min_importance:
-                continue
-            if query and query.lower() not in item.content.lower():
-                continue
-            results.append(item)
-        
-        return results[:options.top_k]
-    
-    async def search_similar(
-        self,
-        query: str,
-        top_k: int = 5,
-        filters: Optional[Dict[str, Any]] = None,
-    ) -> List[MemoryItem]:
-        await self.initialize()
-        items = list(self._storage.values())[:top_k]
-        for item in items:
-            item.update_access()
-        return items
-    
-    async def get_by_id(self, memory_id: str) -> Optional[MemoryItem]:
-        await self.initialize()
-        item = self._storage.get(memory_id)
-        if item:
-            item.update_access()
-        return item
-    
-    async def update(
-        self,
-        memory_id: str,
-        content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        await self.initialize()
-        
-        if memory_id not in self._storage:
-            return False
-        
-        item = self._storage[memory_id]
-        if content:
-            item.content = content
-        if metadata:
-            item.metadata.update(metadata)
-        
-        return True
-    
-    async def delete(self, memory_id: str) -> bool:
-        await self.initialize()
-        
-        if memory_id not in self._storage:
-            return False
-        
-        del self._storage[memory_id]
-        return True
-    
-    async def consolidate(
-        self,
-        source_type: MemoryType,
-        target_type: MemoryType,
-        criteria: Optional[Dict[str, Any]] = None,
-    ) -> MemoryConsolidationResult:
-        await self.initialize()
-        
-        criteria = criteria or {}
-        min_importance = criteria.get("min_importance", 0.5)
-        min_access_count = criteria.get("min_access_count", 1)
-        
-        items_to_consolidate = []
-        items_to_discard = []
-        
-        for item in self._storage.values():
-            if item.memory_type != source_type:
-                continue
-            
-            if item.importance >= min_importance and item.access_count >= min_access_count:
-                items_to_consolidate.append(item)
-            else:
-                items_to_discard.append(item)
-        
-        for item in items_to_consolidate:
-            item.memory_type = target_type
-        
-        tokens_saved = sum(len(i.content) // 4 for i in items_to_discard)
-        
-        return MemoryConsolidationResult(
-            success=True,
-            source_type=source_type,
-            target_type=target_type,
-            items_consolidated=len(items_to_consolidate),
-            items_discarded=len(items_to_discard),
-            tokens_saved=tokens_saved,
-        )
-    
-    async def export(
-        self,
-        format: str = "markdown",
-        memory_types: Optional[List[MemoryType]] = None,
-    ) -> str:
-        await self.initialize()
-        
-        items = list(self._storage.values())
-        
-        if memory_types:
-            items = [i for i in items if i.memory_type in memory_types]
-        
-        content = "# Memory Export\n\n"
-        for item in items:
-            content += f"## [{item.memory_type.value}] {item.id}\n"
-            content += f"{item.content}\n\n---\n\n"
-        
-        return content
-    
-    async def import_from_file(
-        self,
-        file_path: str,
-        memory_type: MemoryType = MemoryType.SHARED,
-    ) -> int:
-        await self.initialize()
-        return 0
-    
-    async def clear(
-        self,
-        memory_types: Optional[List[MemoryType]] = None,
-    ) -> int:
-        await self.initialize()
-        
-        if not memory_types:
-            count = len(self._storage)
-            self._storage.clear()
-            return count
-        
-        ids_to_remove = [
-            id for id, item in self._storage.items()
-            if item.memory_type in memory_types
-        ]
-        
-        for id in ids_to_remove:
-            del self._storage[id]
-        
-        return len(ids_to_remove)
-    
-    def get_stats(self) -> Dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "total_items": len(self._storage),
-            "by_type": {
-                mt.value: len([i for i in self._storage.values() if i.memory_type == mt])
-                for mt in MemoryType
-            },
-        }
+# ======================================================================
+# 1. Import chain
+# ======================================================================
+test_section("1. Import Chain")
 
-
-async def test_memory_operations():
-    """测试记忆操作"""
-    print("=" * 60)
-    print("测试统一记忆管理")
-    print("=" * 60)
-    
-    storage = InMemoryStorage(session_id="test-session-123")
-    
-    print("\n1. 测试写入记忆")
-    memory_id1 = await storage.write(
-        content="用户询问如何使用Agent",
-        memory_type=MemoryType.WORKING,
-        metadata={"role": "user", "step": 1},
+try:
+    from derisk.storage.memory.base import (
+        MemoryStoreBase,
+        MemoryStoreConfig,
+        MemoryEntry,
+        KGTriple,
     )
-    print(f"   ✓ 写入记忆1: {memory_id1[:8]}...")
-    
-    memory_id2 = await storage.write(
-        content="Agent回复：可以通过统一记忆管理器保存对话",
-        memory_type=MemoryType.WORKING,
-        metadata={"role": "assistant", "step": 2},
-    )
-    print(f"   ✓ 写入记忆2: {memory_id2[:8]}...")
-    
-    print("\n2. 测试读取记忆")
-    item = await storage.get_by_id(memory_id1)
-    assert item.content == "用户询问如何使用Agent"
-    print(f"   ✓ 读取记忆: {item.content}")
-    
-    print("\n3. 测试搜索记忆")
-    results = await storage.read(query="Agent")
-    assert len(results) > 0
-    print(f"   ✓ 搜索到 {len(results)} 条记忆")
-    for i, r in enumerate(results, 1):
-        print(f"      {i}. {r.content[:50]}...")
-    
-    print("\n4. 测试更新记忆")
-    updated = await storage.update(memory_id1, metadata={"important": True})
-    assert updated is True
-    item = await storage.get_by_id(memory_id1)
-    assert item.metadata.get("important") is True
-    print(f"   ✓ 更新成功，metadata: {item.metadata}")
-    
-    print("\n5. 测试记忆统计")
-    stats = storage.get_stats()
-    print(f"   ✓ 总记忆数: {stats['total_items']}")
-    print(f"   ✓ 按类型统计: {stats['by_type']}")
-    
-    print("\n6. 测试记忆整合")
-    for i in range(3):
-        await storage.write(
-            content=f"工作记忆 {i+1}",
-            memory_type=MemoryType.WORKING,
-        )
-    
-    result = await storage.consolidate(
-        source_type=MemoryType.WORKING,
-        target_type=MemoryType.EPISODIC,
-        criteria={"min_importance": 0.0, "min_access_count": 0},
-    )
-    print(f"   ✓ 整合成功: {result.items_consolidated} 条记忆")
-    print(f"   ✓ 丢弃: {result.items_discarded} 条")
-    print(f"   ✓ 节省tokens: {result.tokens_saved}")
-    
-    print("\n7. 测试导出记忆")
-    exported = await storage.export(format="markdown")
-    print(f"   ✓ 导出成功，长度: {len(exported)} 字符")
-    
-    print("\n8. 测试清理记忆")
-    count = await storage.clear(memory_types=[MemoryType.EPISODIC])
-    print(f"   ✓ 清理 {count} 条情景记忆")
-    
-    stats = storage.get_stats()
-    print(f"   ✓ 剩余记忆: {stats['total_items']} 条")
-    
-    print("\n" + "=" * 60)
-    print("✅ 所有测试通过！")
-    print("=" * 60)
+    check("derisk.storage.memory.base imports", True)
+except Exception as e:
+    check("derisk.storage.memory.base imports", False, str(e))
 
+try:
+    from derisk.storage.memory import MemoryStoreBase, MemoryStoreConfig
+    check("derisk.storage.memory __init__ re-exports", True)
+except Exception as e:
+    check("derisk.storage.memory __init__ re-exports", False, str(e))
 
-async def test_agent_memory_integration():
-    """测试Agent记忆集成"""
-    print("\n" + "=" * 60)
-    print("测试Agent记忆集成")
-    print("=" * 60)
-    
-    print("\n模拟Agent对话流程:")
-    
-    storage = InMemoryStorage(session_id="agent-session-001")
-    
-    print("\n1. 用户: 你好，我是张三")
-    await storage.write(
-        content="User: 你好，我是张三",
-        memory_type=MemoryType.WORKING,
-        metadata={"role": "user"},
-    )
-    
-    print("2. Agent: 你好张三！很高兴认识你")
-    await storage.write(
-        content="Assistant: 你好张三！很高兴认识你",
-        memory_type=MemoryType.WORKING,
-        metadata={"role": "assistant"},
-    )
-    
-    print("3. 用户: 帮我写一个Python脚本")
-    await storage.write(
-        content="User: 帮我写一个Python脚本",
-        memory_type=MemoryType.WORKING,
-        metadata={"role": "user"},
-    )
-    
-    print("\n4. 加载对话历史")
-    history = await storage.read(query="", options=SearchOptions(top_k=10))
-    print(f"   ✓ 找到 {len(history)} 条历史记录")
-    for i, h in enumerate(history, 1):
-        print(f"      {i}. {h.content[:50]}...")
-    
-    print("\n5. 记忆重要信息")
-    await storage.write(
-        content="用户姓名: 张三",
-        memory_type=MemoryType.PREFERENCE,
-        metadata={"category": "user_info", "importance": 0.9},
-    )
-    
-    print("\n6. 检索用户偏好")
-    prefs = await storage.read(
-        query="",
-        options=SearchOptions(
-            memory_types=[MemoryType.PREFERENCE],
-            top_k=5,
-        ),
-    )
-    print(f"   ✓ 找到 {len(prefs)} 条偏好设置")
-    for p in prefs:
-        print(f"      - {p.content}")
-    
-    stats = storage.get_stats()
-    print(f"\n最终统计:")
-    print(f"   - 总记忆数: {stats['total_items']}")
-    print(f"   - 工作记忆: {stats['by_type']['working']}")
-    print(f"   - 偏好记忆: {stats['by_type']['preference']}")
-    
-    print("\n" + "=" * 60)
-    print("✅ Agent记忆集成测试通过！")
-    print("=" * 60)
+# ======================================================================
+# 2. Interface contract — abstract methods
+# ======================================================================
+test_section("2. MemoryStoreBase Interface Contract")
 
+required_abstract = {
+    # From IndexStoreBase
+    "get_config", "load_document", "aload_document",
+    "similar_search_with_scores", "delete_by_ids", "truncate",
+    "delete_vector_name",
+    # From MemoryStoreBase
+    "write_memory", "search_memory", "delete_memory",
+    "kg_add", "kg_query", "kg_invalidate",
+    "import_documents", "list_wings", "list_rooms", "get_status",
+}
 
-if __name__ == "__main__":
-    asyncio.run(test_memory_operations())
-    asyncio.run(test_agent_memory_integration())
-    
-    print("\n" + "=" * 60)
-    print("🎉 所有测试完成！统一记忆管理已成功集成到Agent中")
-    print("=" * 60)
+actual_abstract = set()
+for name, method in inspect.getmembers(MemoryStoreBase):
+    if getattr(method, "__isabstractmethod__", False):
+        actual_abstract.add(name)
+
+for method_name in required_abstract:
+    check(
+        f"Abstract method: {method_name}",
+        method_name in actual_abstract,
+        f"Missing from MemoryStoreBase" if method_name not in actual_abstract else "",
+    )
+
+# Check async helpers exist (non-abstract)
+async_helpers = [
+    "awrite_memory", "asearch_memory", "adelete_memory",
+    "akg_add", "akg_query", "aimport_documents",
+]
+for helper in async_helpers:
+    check(
+        f"Async helper: {helper}",
+        hasattr(MemoryStoreBase, helper),
+    )
+
+# ======================================================================
+# 3. MemoryStoreConfig subclass discovery
+# ======================================================================
+test_section("3. Config Subclass Discovery")
+
+check(
+    "MemoryStoreConfig.__cfg_type__ = 'memory_store'",
+    getattr(MemoryStoreConfig, "__cfg_type__", None) == "memory_store",
+)
+
+# Parse the ext module file to verify class structure
+store_file = os.path.join(
+    PROJECT_ROOT,
+    "packages/derisk-ext/src/derisk_ext/storage/memory/mempalace_store.py",
+)
+with open(store_file) as f:
+    tree = ast.parse(f.read())
+
+class_names = [
+    node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+]
+check("MemPalaceMemoryConfig class exists", "MemPalaceMemoryConfig" in class_names)
+check("MemPalaceMemoryStore class exists", "MemPalaceMemoryStore" in class_names)
+
+with open(store_file) as f:
+    content = f.read()
+check('MemPalaceMemoryConfig.__type__ = "mempalace"', '__type__ = "mempalace"' in content)
+check("Embedding mode: use_builtin_embedding config field", "use_builtin_embedding" in content)
+check("Unified embedding: _unified_add method", "_unified_add" in content)
+check("Unified embedding: _unified_search method", "_unified_search" in content)
+check("Dual mode: _use_derisk_embedding flag", "_use_derisk_embedding" in content)
+
+# ======================================================================
+# 4. MemPalaceMemoryStore implements all abstract methods
+# ======================================================================
+test_section("4. MemPalaceMemoryStore Method Coverage")
+
+method_defs = set()
+for node in ast.walk(tree):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        method_defs.add(node.name)
+
+for method_name in required_abstract:
+    check(
+        f"Implements: {method_name}",
+        method_name in method_defs,
+        f"Missing implementation" if method_name not in method_defs else "",
+    )
+
+# ======================================================================
+# 5. StorageManager Memory branch
+# ======================================================================
+test_section("5. StorageManager Memory Branch")
+
+sm_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/rag/storage_manager.py",
+)
+with open(sm_file) as f:
+    sm_content = f.read()
+
+check('storage_type == "Memory" branch exists', 'storage_type == "Memory"' in sm_content)
+check("create_memory_store() method exists", "def create_memory_store" in sm_content)
+check("MemoryStoreConfig import", "from derisk.storage.memory.base import" in sm_content)
+check("_get_all_memory_subclasses helper", "def _get_all_memory_subclasses" in sm_content)
+check("Embedding factory passed to create_store", "embedding_fn" in sm_content)
+
+# ======================================================================
+# 6. Memory API router
+# ======================================================================
+test_section("6. Memory Management API")
+
+api_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-app/src/derisk_app/knowledge/memory_api.py",
+)
+with open(api_file) as f:
+    api_content = f.read()
+
+expected_endpoints = [
+    "/memory/{space_id}/write", "/memory/{space_id}/search",
+    "/memory/{space_id}/delete", "/memory/{space_id}/kg/add",
+    "/memory/{space_id}/kg/query", "/memory/{space_id}/kg/invalidate",
+    "/memory/{space_id}/import", "/memory/{space_id}/wings",
+    "/memory/{space_id}/rooms", "/memory/{space_id}/status",
+]
+for endpoint in expected_endpoints:
+    check(f"Endpoint: {endpoint}", endpoint in api_content)
+
+knowledge_api_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-app/src/derisk_app/knowledge/api.py",
+)
+with open(knowledge_api_file) as f:
+    ka_content = f.read()
+
+check("Memory router mounted in knowledge api", "memory_api" in ka_content and "include_router" in ka_content)
+check('Memory storage type in space/config', '"Memory"' in ka_content)
+
+# ======================================================================
+# 7. MemoryToolPack
+# ======================================================================
+test_section("7. MemoryToolPack")
+
+tool_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/agent/resource/tool/memory_tool.py",
+)
+with open(tool_file) as f:
+    tool_content = f.read()
+
+check("MemoryToolPack class exists", "class MemoryToolPack" in tool_content)
+check("Tool: memory_search", '"memory_search"' in tool_content)
+check("Tool: memory_save", '"memory_save"' in tool_content)
+check("Tool: kg_query", '"kg_query"' in tool_content)
+check("Tool: kg_add", '"kg_add"' in tool_content)
+check('type_alias = "tool(memory)"', 'tool(memory)' in tool_content)
+
+# ======================================================================
+# 8. Pipeline Operators
+# ======================================================================
+test_section("8. Pipeline Operators")
+
+op_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/memory/operators/longterm_memory_operator.py",
+)
+with open(op_file) as f:
+    op_content = f.read()
+
+check("LongTermMemoryRetrievalOperator exists", "class LongTermMemoryRetrievalOperator" in op_content)
+check("LongTermMemoryWriteOperator exists", "class LongTermMemoryWriteOperator" in op_content)
+check("Retrieval injects memory into context", "long_term_memory" in op_content)
+check("Write evaluates importance", "_is_important" in op_content)
+check("Room classification", "_classify_room" in op_content)
+
+# ======================================================================
+# 9. App Config — resource_memory
+# ======================================================================
+test_section("9. App Config Schema")
+
+schema_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/building/config/api/schemas.py",
+)
+with open(schema_file) as f:
+    schema_content = f.read()
+
+check("resource_memory field in ServeRequest", "resource_memory" in schema_content)
+
+service_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/building/app/service/service.py",
+)
+with open(service_file) as f:
+    service_content = f.read()
+
+check("resource_memory passed in app_info_to_config", "resource_memory" in service_content)
+
+# ======================================================================
+# 10. App converter — memory dispatch
+# ======================================================================
+test_section("10. App V2 Converter")
+
+converter_file = os.path.join(
+    PROJECT_ROOT, "packages/derisk-serve/src/derisk_serve/agent/app_to_v2_converter.py",
+)
+with open(converter_file) as f:
+    converter_content = f.read()
+
+check("ResourceType.Memory dispatch", "ResourceType.Memory" in converter_content)
+check("_process_memory_resource function", "_process_memory_resource" in converter_content)
+
+# ======================================================================
+# 11. Dependency declarations
+# ======================================================================
+test_section("11. Dependencies")
+
+ext_pyproject = os.path.join(PROJECT_ROOT, "packages/derisk-ext/pyproject.toml")
+with open(ext_pyproject) as f:
+    check("mempalace in derisk-ext deps", "mempalace" in f.read())
+
+app_pyproject = os.path.join(PROJECT_ROOT, "packages/derisk-app/pyproject.toml")
+with open(app_pyproject) as f:
+    check("mempalace in derisk-app deps", "mempalace" in f.read())
+
+# ======================================================================
+# 12. Embedding model integration
+# ======================================================================
+test_section("12. Embedding Model Integration")
+
+check("MemPalaceMemoryStore accepts embedding_fn param",
+      "embedding_fn: Optional[Embeddings]" in content)
+check("Unified Chroma collection: _get_chroma_collection",
+      "_get_chroma_collection" in content)
+check("Dedup via SHA256: _gen_drawer_id",
+      "_gen_drawer_id" in content and "sha256" in content)
+check("embed_documents call in unified mode",
+      "embed_documents" in content)
+check("embed_query call in unified mode",
+      "embed_query" in content)
+
+# ======================================================================
+# Summary
+# ======================================================================
+print(f"\n{'='*60}")
+print(f"  RESULTS: {passed} passed, {failed} failed, {passed + failed} total")
+print(f"{'='*60}")
+
+if failed > 0:
+    print("\n  Some tests failed! Review the output above.")
+    sys.exit(1)
+else:
+    print("\n  All tests passed!")
+    sys.exit(0)

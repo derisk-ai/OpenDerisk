@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from derisk_core.config.schema import AppConfig
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
+from derisk_app.feature_plugins.permissions.checker import require_permission
+
 router = APIRouter(prefix="/config", tags=["Config"])
 
 logger = logging.getLogger(__name__)
@@ -281,8 +283,10 @@ async def get_config_schema():
 
 
 @router.get("/model")
-async def get_model_config():
-    """获取模型配置"""
+async def get_model_config(
+    user: UserRequest = Depends(require_permission("model", "read")),
+):
+    """获取模型配置（需要 model:read 权限）"""
     manager = get_config_manager()
     config = manager.get()
     return JSONResponse(
@@ -291,8 +295,11 @@ async def get_model_config():
 
 
 @router.post("/model")
-async def update_model_config(request: Dict[str, Any]):
-    """更新模型配置"""
+async def update_model_config(
+    request: Dict[str, Any],
+    user: UserRequest = Depends(require_permission("model", "manage")),
+):
+    """更新模型配置（需要 model:manage 权限）"""
     try:
         manager = get_config_manager()
         config = manager.get()
@@ -316,8 +323,10 @@ async def update_model_config(request: Dict[str, Any]):
 
 
 @router.get("/agents")
-async def list_agents():
-    """列出所有 Agent 配置"""
+async def list_agents(
+    user: UserRequest = Depends(require_permission("agent", "read")),
+):
+    """列出所有 Agent 配置（需要 agent:read 权限）"""
     manager = get_config_manager()
     config = manager.get()
 
@@ -341,8 +350,11 @@ async def list_agents():
 
 
 @router.get("/agents/{agent_name}")
-async def get_agent_config(agent_name: str):
-    """获取指定 Agent 配置"""
+async def get_agent_config(
+    agent_name: str,
+    user: UserRequest = Depends(require_permission("agent", "read")),
+):
+    """获取指定 Agent 配置（需要 agent:read 权限）"""
     manager = get_config_manager()
     config = manager.get()
 
@@ -354,8 +366,11 @@ async def get_agent_config(agent_name: str):
 
 
 @router.post("/agents")
-async def create_agent(request: AgentConfigRequest):
-    """创建新 Agent"""
+async def create_agent(
+    request: AgentConfigRequest,
+    user: UserRequest = Depends(require_permission("agent", "write")),
+):
+    """创建新 Agent（需要 agent:write 权限）"""
     try:
         manager = get_config_manager()
         config = manager.get()
@@ -392,8 +407,12 @@ async def create_agent(request: AgentConfigRequest):
 
 
 @router.put("/agents/{agent_name}")
-async def update_agent(agent_name: str, request: Dict[str, Any]):
-    """更新 Agent 配置"""
+async def update_agent(
+    agent_name: str,
+    request: Dict[str, Any],
+    user: UserRequest = Depends(require_permission("agent", "write")),
+):
+    """更新 Agent 配置（需要 agent:write 权限）"""
     try:
         manager = get_config_manager()
         config = manager.get()
@@ -427,8 +446,11 @@ async def update_agent(agent_name: str, request: Dict[str, Any]):
 
 
 @router.delete("/agents/{agent_name}")
-async def delete_agent(agent_name: str):
-    """删除 Agent"""
+async def delete_agent(
+    agent_name: str,
+    user: UserRequest = Depends(require_permission("agent", "write")),
+):
+    """删除 Agent（需要 agent:write 权限）"""
     try:
         manager = get_config_manager()
         config = manager.get()
@@ -573,8 +595,10 @@ async def refresh_model_cache():
 
 
 @router.get("/model-cache/models")
-async def get_cached_models():
-    """获取 ModelConfigCache 中已注册的模型列表"""
+async def get_cached_models(
+    user: UserRequest = Depends(require_permission("model", "read")),
+):
+    """获取 ModelConfigCache 中已注册的模型列表（需要 model:read 权限）"""
     try:
         from derisk.agent.util.llm.model_config_cache import ModelConfigCache
 
@@ -637,7 +661,12 @@ async def get_oauth2_config():
         return JSONResponse(
             content={
                 "success": True,
-                "data": {"enabled": False, "providers": [], "admin_users": []},
+                "data": {
+                    "enabled": False,
+                    "providers": [],
+                    "admin_users": [],
+                    "default_role": "viewer",
+                },
                 "source": "file",
             }
         )
@@ -651,6 +680,10 @@ async def get_oauth2_config():
         elif secret:
             provider["client_secret"] = "****"
 
+    # Ensure default_role is always present
+    if "default_role" not in data or data["default_role"] is None:
+        data["default_role"] = "viewer"
+
     return JSONResponse(content={"success": True, "data": data, "source": "file"})
 
 
@@ -661,6 +694,56 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
 
     try:
         from derisk_core.config import AppConfig, OAuth2Config
+        from derisk_app.feature_plugins.permissions.dao import PermissionDao
+
+        # Validate default_role if provided
+        default_role = oauth2_data.get("default_role", "viewer")
+        logger.info(
+            f"Received OAuth2 config update: default_role={default_role}, data={oauth2_data}"
+        )
+        valid_roles = ["guest", "normal_user", "viewer", "operator", "developer", "editor", "admin"]
+        if default_role not in valid_roles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid default_role '{default_role}'. Must be one of: {', '.join(valid_roles)}",
+            )
+
+        # Verify the role exists in the database, seed defaults if needed
+        try:
+            dao = PermissionDao()
+            role_entity = dao.get_role_by_name(default_role)
+            if not role_entity:
+                logger.warning(
+                    f"Role '{default_role}' not found in database, attempting to seed default roles"
+                )
+                # Auto-seed default roles if not yet initialized
+                from derisk_app.feature_plugins.permissions.seed import (
+                    SEED_ROLES,
+                    ensure_default_roles,
+                )
+
+                try:
+                    from derisk.storage.metadata.db_manager import db
+                    db.create_all()
+                    ensure_default_roles()
+                    role_entity = dao.get_role_by_name(default_role)
+                except Exception as seed_err:
+                    logger.warning(f"Failed to seed default roles: {seed_err}")
+
+                if not role_entity:
+                    available_roles = [r["name"] for r in SEED_ROLES]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Role '{default_role}' does not exist in the system. Available roles: {', '.join(available_roles)}",
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception(f"Error checking role existence: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error validating role: {str(e)}",
+            )
 
         # Save to database (encrypted)
         db_storage = get_oauth2_db_storage()
@@ -668,9 +751,19 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         admin_users = oauth2_data.get("admin_users", [])
         enabled = oauth2_data.get("enabled", False)
 
-        db_saved = db_storage.save(enabled, providers, admin_users)
-        if not db_saved:
-            logger.warning("Failed to save OAuth2 config to database")
+        logger.info(
+            f"Saving OAuth2 config: enabled={enabled}, default_role={default_role}, providers_count={len(providers)}"
+        )
+        try:
+            db_saved = db_storage.save(enabled, providers, admin_users, default_role)
+            if not db_saved:
+                logger.warning("Failed to save OAuth2 config to database")
+        except Exception as e:
+            logger.exception("Failed to save OAuth2 config to database")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {str(e)}. Please run: derisk db migration upgrade",
+            )
 
         # Also update in-memory config for runtime use
         manager = get_config_manager()
@@ -703,32 +796,40 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
 
 @router.get("/feature-plugins/catalog")
 async def get_feature_plugins_catalog():
-    """Builtin plugin catalog merged with current enabled/settings from derisk.json."""
+    """Builtin plugin catalog merged with current enabled/settings from database or derisk.json."""
     from derisk_app.feature_plugins.catalog import merge_catalog_with_state
+    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
 
-    manager = get_config_manager()
-    config = manager.get()
-    raw = getattr(config, "feature_plugins", None) or {}
-    normalized: Dict[str, Any] = {}
-    for k, v in raw.items():
-        if hasattr(v, "model_dump"):
-            normalized[k] = v.model_dump(mode="json")
-        elif isinstance(v, dict):
-            normalized[k] = v
-    items = merge_catalog_with_state(normalized)
+    # Try to load from database first
+    dao = SystemConfigDao()
+    db_state = dao.get_all_configs("feature_plugin")
+
+    # If database has data, use it; otherwise fall back to config file
+    if db_state:
+        items = merge_catalog_with_state(db_state)
+    else:
+        manager = get_config_manager()
+        config = manager.get()
+        raw = getattr(config, "feature_plugins", None) or {}
+        normalized: Dict[str, Any] = {}
+        for k, v in raw.items():
+            if hasattr(v, "model_dump"):
+                normalized[k] = v.model_dump(mode="json")
+            elif isinstance(v, dict):
+                normalized[k] = v
+        items = merge_catalog_with_state(normalized)
+
     return JSONResponse(content={"success": True, "data": {"items": items}})
 
 
 @router.get("/feature-plugins")
 async def get_feature_plugins_state():
-    manager = get_config_manager()
-    config = manager.get()
-    fp = getattr(config, "feature_plugins", None) or {}
-    out = {
-        k: v.model_dump(mode="json") if hasattr(v, "model_dump") else dict(v)
-        for k, v in fp.items()
-    }
-    return JSONResponse(content={"success": True, "data": out})
+    """Get feature plugins state from database."""
+    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+
+    dao = SystemConfigDao()
+    db_state = dao.get_all_configs("feature_plugin")
+    return JSONResponse(content={"success": True, "data": db_state})
 
 
 @router.post("/feature-plugins")
@@ -736,8 +837,9 @@ async def update_feature_plugins(
     body: FeaturePluginUpdateRequest,
     user: UserRequest = Depends(get_user_from_headers),
 ):
-    from derisk_app.feature_plugins.catalog import is_known_plugin
-    from derisk_core.config import AppConfig, FeaturePluginEntry
+    from derisk_app.feature_plugins.catalog import is_known_plugin, get_manifest
+    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+    from derisk_core.config import FeaturePluginEntry
 
     _ensure_can_write_feature_plugins(user)
     if not is_known_plugin(body.plugin_id):
@@ -745,26 +847,42 @@ async def update_feature_plugins(
             status_code=400, detail=f"Unknown plugin_id: {body.plugin_id}"
         )
 
-    manager = get_config_manager()
-    config = manager.get()
-    config_dict = config.model_dump(mode="json")
-    fp = dict(config_dict.get("feature_plugins") or {})
-    cur = fp.get(body.plugin_id) or {}
-    entry = FeaturePluginEntry(**cur) if cur else FeaturePluginEntry()
-    new_enabled = body.enabled if body.enabled is not None else entry.enabled
-    new_settings = body.settings if body.settings is not None else entry.settings
-    entry = FeaturePluginEntry(enabled=new_enabled, settings=new_settings)
-    fp[body.plugin_id] = entry.model_dump(mode="json")
-    config_dict["feature_plugins"] = fp
-    new_cfg = AppConfig(**config_dict)
-    manager._config = new_cfg
-    saved = save_config_with_error_handling(manager, "Feature plugins")
+    dao = SystemConfigDao()
+    db_state = dao.get_all_configs("feature_plugin")
+
+    # Handle unified access_control plugin: enable/disable both user_groups and permissions
+    manifest = get_manifest(body.plugin_id)
+    if manifest and manifest._internal_plugins:
+        # This is a unified plugin, update all sub-plugins
+        new_enabled = body.enabled if body.enabled is not None else False
+        new_settings = body.settings if body.settings is not None else {}
+        for sub_plugin_id in manifest._internal_plugins:
+            sub_cur = db_state.get(sub_plugin_id) or {}
+            sub_entry = FeaturePluginEntry(
+                enabled=new_enabled,
+                settings=new_settings
+                if not sub_cur
+                else {**sub_cur.get("settings", {}), **new_settings},
+            )
+            db_state[sub_plugin_id] = sub_entry.model_dump(mode="json")
+            # Save each sub-plugin to database
+            dao.set_config(sub_plugin_id, db_state[sub_plugin_id], "feature_plugin")
+    else:
+        # Regular single plugin
+        cur = db_state.get(body.plugin_id) or {}
+        entry = FeaturePluginEntry(**cur) if cur else FeaturePluginEntry()
+        new_enabled = body.enabled if body.enabled is not None else entry.enabled
+        new_settings = body.settings if body.settings is not None else entry.settings
+        entry = FeaturePluginEntry(enabled=new_enabled, settings=new_settings)
+        db_state[body.plugin_id] = entry.model_dump(mode="json")
+        dao.set_config(body.plugin_id, db_state[body.plugin_id], "feature_plugin")
+
     return JSONResponse(
         content={
             "success": True,
-            "message": "功能插件配置已更新" + ("并保存" if saved else "（保存失败）"),
-            "data": entry.model_dump(mode="json"),
-            "saved_to_file": saved,
+            "message": "功能插件配置已更新并保存到数据库",
+            "data": db_state.get(body.plugin_id) or db_state,
+            "saved_to_file": True,
         }
     )
 
@@ -1529,5 +1647,109 @@ async def update_web_config(request: Dict[str, Any]):
                 "saved_to_file": saved,
             }
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ======================================================================
+# RAG & Memory Storage Configuration
+# ======================================================================
+
+
+@router.get("/rag")
+async def get_rag_config():
+    """Get the full RAG configuration including storage backends."""
+    manager = get_config_manager()
+    config = manager.get()
+    rag = config.rag
+    data = {
+        "chunk_size": rag.chunk_size,
+        "chunk_overlap": rag.chunk_overlap,
+        "similarity_top_k": rag.similarity_top_k,
+        "similarity_score_threshold": rag.similarity_score_threshold,
+        "query_rewrite": rag.query_rewrite,
+        "max_chunks_once_load": rag.max_chunks_once_load,
+        "max_threads": rag.max_threads,
+        "rerank_top_k": rag.rerank_top_k,
+    }
+    storage = rag.storage
+    data["storage"] = {}
+    for backend in ("vector", "graph", "full_text", "memory"):
+        sub = getattr(storage, backend, None)
+        if sub is not None:
+            if hasattr(sub, "model_dump"):
+                data["storage"][backend] = sub.model_dump()
+            elif hasattr(sub, "__dict__"):
+                data["storage"][backend] = {
+                    k: v for k, v in sub.__dict__.items() if not k.startswith("_")
+                }
+    return JSONResponse(content={"success": True, "data": data})
+
+
+@router.post("/rag")
+async def update_rag_config(request: Dict[str, Any]):
+    """Update RAG configuration (top-level fields only)."""
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+        top_level_keys = {
+            "chunk_size", "chunk_overlap", "similarity_top_k",
+            "similarity_score_threshold", "query_rewrite",
+            "max_chunks_once_load", "max_threads", "rerank_top_k",
+        }
+        for key, value in request.items():
+            if key in top_level_keys and hasattr(config.rag, key):
+                setattr(config.rag, key, value)
+        saved = save_config_with_error_handling(manager, "RAG配置")
+        return JSONResponse(content={
+            "success": True,
+            "message": "RAG配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "saved_to_file": saved,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/rag/storage/memory")
+async def get_memory_storage_config():
+    """Get memory storage configuration."""
+    manager = get_config_manager()
+    config = manager.get()
+    memory_cfg = getattr(config.rag.storage, "memory", None)
+    if memory_cfg is None:
+        return JSONResponse(content={"success": True, "data": {
+            "type": "mempalace", "enable_kg": True,
+            "use_builtin_embedding": False, "auto_memory": True,
+            "auto_memory_top_k": 5, "auto_memory_max_distance": 0.4,
+        }})
+    if hasattr(memory_cfg, "model_dump"):
+        data = memory_cfg.model_dump()
+    else:
+        data = {k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")}
+    return JSONResponse(content={"success": True, "data": data})
+
+
+@router.post("/rag/storage/memory")
+async def update_memory_storage_config(request: Dict[str, Any]):
+    """Update memory storage configuration."""
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+        memory_cfg = config.rag.storage.memory
+        allowed = {
+            "type", "palace_path", "enable_kg", "default_wing",
+            "use_builtin_embedding", "auto_memory",
+            "auto_memory_top_k", "auto_memory_max_distance",
+        }
+        for key, value in request.items():
+            if key in allowed and hasattr(memory_cfg, key):
+                setattr(memory_cfg, key, value)
+        saved = save_config_with_error_handling(manager, "记忆存储配置")
+        return JSONResponse(content={
+            "success": True,
+            "message": "记忆存储配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "data": {k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")},
+            "saved_to_file": saved,
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

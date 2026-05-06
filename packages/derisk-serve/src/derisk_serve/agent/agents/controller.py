@@ -250,5 +250,8 @@ class MultiAgents(BaseComponent, ABC):
         logger.info(f"query_chat conv_id:{conv_id},{user_id}")
         return await self.simpale_chat.query_chat(conv_id=conv_id, vis_render=vis_render)
 
+    async def query_step_detail(self, conv_id: str, step_uid: str):
+        return await self.simpale_chat.query_step_detail(conv_id=conv_id, step_uid=step_uid)
+
 
 multi_agents = MultiAgents(CFG.SYSTEM_APP)
