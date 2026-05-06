@@ -67,6 +67,11 @@ logger = logging.getLogger(__name__)
 CFG = Config()
 router = APIRouter()
 
+# Mount the memory management sub-router
+from derisk_app.knowledge.memory_api import router as memory_router  # noqa: E402
+
+router.include_router(memory_router)
+
 
 knowledge_space_service = KnowledgeService()
 
@@ -370,6 +375,14 @@ async def space_config() -> Result[KnowledgeConfigResponse]:
             KnowledgeStorageDomain(
                 name="FullText",
                 desc=_("Full Text"),
+                domain_types=[KnowledgeDomainType(name="Normal", desc="Normal")],
+            )
+        )
+        # Memory Store
+        storage_list.append(
+            KnowledgeStorageDomain(
+                name="Memory",
+                desc=_("Memory Store"),
                 domain_types=[KnowledgeDomainType(name="Normal", desc="Normal")],
             )
         )

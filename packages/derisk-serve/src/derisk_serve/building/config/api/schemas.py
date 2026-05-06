@@ -181,6 +181,10 @@ class ServeRequest(BaseModel):
     custom_variables: Optional[List[DynamicParam]] = Field(
         None, description="自定义参数配置"
     )
+    ## 记忆配置
+    resource_memory: Optional[List[AgentResource]] = Field(
+        None, description="记忆配置"
+    )
     ## 推理引擎名称
     resource_reasoning_engine: Optional[List[AgentResource]] = Field(
         None, description="推理引擎配置,Agent为ReasoningPlanner时可用"

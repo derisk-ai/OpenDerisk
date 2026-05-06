@@ -75,10 +75,21 @@ def get_user_from_headers(
         # 支持本地开发：设置 X-User-ID: admin 可 bypass OAuth
         if x_user_id == "admin":
             from derisk_app.feature_plugins.permissions.service import PermissionService
-            perms = PermissionService().get_user_permissions(3)  # admin user ID=3
+            # Look up admin user by name to get the correct ID
+            admin_user_id = 3
+            try:
+                from derisk_app.auth.user_service import UserEntity
+                from derisk.storage.metadata.db_manager import db
+                with db.session(commit=False) as s:
+                    admin_user = s.query(UserEntity).filter(UserEntity.name == "admin").first()
+                    if admin_user:
+                        admin_user_id = admin_user.id
+            except Exception:
+                pass
+            perms = PermissionService().get_user_permissions(admin_user_id)
             return UserRequest(
-                user_id="3",
-                user_no="admin",
+                user_id="admin",
+                user_no=str(admin_user_id),
                 real_name="System Admin",
                 nick_name="System Admin",
                 role="admin",
@@ -121,10 +132,10 @@ def get_user_from_headers(
             pass
 
         return UserRequest(
-            user_id=str(user_data.get("id", "")),
+            user_id=str(user_data.get("name", "")),
             user_no=str(user_data.get("id", "")),
             real_name=user_data.get("name", ""),
-            nick_name=user_data.get("name", ""),
+            nick_name=user_data.get("fullname", "") or user_data.get("name", ""),
             email=user_data.get("email", ""),
             avatar_url=user_data.get("avatar", ""),
             role=user_role,

@@ -133,10 +133,27 @@ ACTION_TASK_MAP = {
 class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     """Incremental task window mode protocol converter."""
 
+    # Planning window eviction thresholds
+    MAX_PLANNING_ITEMS = 50
+    EVICTION_BATCH = 10
+    # Running window eviction thresholds
+    MAX_RUNNING_ITEMS = 100
+    RUNNING_EVICTION_BATCH = 20
+
     def __init__(self, paths: Optional[str] = None, **kwargs):
         super().__init__(paths, **kwargs)
         # self._drsk_web_url = Config().DERISK_WEB_URL
         self._drsk_web_url = ""
+        # Eviction tracking
+        self._planning_step_uids: List[str] = []
+        self._total_planning_steps: int = 0
+        self._evicted_planning_steps: int = 0
+        # Running window eviction tracking
+        self._running_item_uids: List[str] = []
+        self._total_running_items: int = 0
+        self._evicted_running_items: int = 0
+        # Lazy loading control
+        self._enable_lazy_loading: bool = kwargs.get("enable_lazy_loading", True)
 
     def system_vis_tag_map(self):
         return {
@@ -172,6 +189,180 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
     @property
     def description(self) -> str:
         return "文件系统可视化布局"
+
+    def _track_planning_step(self, uid: str):
+        """Track a new planning step UID for eviction management."""
+        if uid and uid not in self._planning_step_uids:
+            self._planning_step_uids.append(uid)
+            self._total_planning_steps += 1
+
+    def _check_and_evict(self) -> str:
+        """Check if planning items exceed threshold and generate DELETE messages.
+
+        Returns:
+            VIS DELETE tags string to append to planning_window, or empty string.
+        """
+        if len(self._planning_step_uids) <= self.MAX_PLANNING_ITEMS:
+            return ""
+
+        evict_count = min(self.EVICTION_BATCH, len(self._planning_step_uids) - self.MAX_PLANNING_ITEMS)
+        if evict_count <= 0:
+            return ""
+
+        evicted_uids = self._planning_step_uids[:evict_count]
+        self._planning_step_uids = self._planning_step_uids[evict_count:]
+        self._evicted_planning_steps += evict_count
+
+        # Generate DELETE VIS tags for each evicted UID
+        delete_tags = []
+        for uid in evicted_uids:
+            delete_payload = json.dumps({
+                "uid": uid,
+                "type": UpdateType.DELETE.value,
+            }, ensure_ascii=False)
+            # Use the appropriate vis tag — d-plan items use AgentPlanItem tag
+            delete_tags.append(f"```d-plan\n{delete_payload}\n```")
+
+        logger.info(
+            f"[eviction] evicted {evict_count} planning items, "
+            f"total={self._total_planning_steps}, visible={len(self._planning_step_uids)}, "
+            f"evicted={self._evicted_planning_steps}"
+        )
+        return "\n".join(delete_tags)
+
+    def _track_running_item(self, uid: str):
+        """Track a new running_window work item UID for eviction management."""
+        if uid and uid not in self._running_item_uids:
+            self._running_item_uids.append(uid)
+            self._total_running_items += 1
+
+    def _check_and_evict_running(self, conv_session_id: str) -> str:
+        """Check if running_window items exceed threshold and generate DELETE wrapper.
+
+        Returns VIS d-work tag with delete items to append to running_window, or empty string.
+        """
+        if len(self._running_item_uids) <= self.MAX_RUNNING_ITEMS:
+            return ""
+
+        evict_count = min(
+            self.RUNNING_EVICTION_BATCH,
+            len(self._running_item_uids) - self.MAX_RUNNING_ITEMS,
+        )
+        if evict_count <= 0:
+            return ""
+
+        evicted_uids = self._running_item_uids[:evict_count]
+        self._running_item_uids = self._running_item_uids[evict_count:]
+        self._evicted_running_items += evict_count
+
+        delete_items = [
+            FolderNode(uid=uid, type=UpdateType.DELETE.value, item_type="file")
+            for uid in evicted_uids
+        ]
+        eviction_content = WorkSpaceContent(
+            uid=conv_session_id,
+            type=UpdateType.INCR.value,
+            items=delete_items,
+        )
+        logger.info(
+            f"[running_eviction] evicted {evict_count} work items, "
+            f"total={self._total_running_items}, visible={len(self._running_item_uids)}, "
+            f"evicted={self._evicted_running_items}"
+        )
+        return self.vis_inst(WorkSpace.vis_tag()).sync_display(
+            content=eviction_content.to_dict()
+        )
+
+    def _build_meta_window(self) -> str:
+        """Build meta_window JSON with step statistics."""
+        meta = {
+            "total_steps": self._total_planning_steps,
+            "visible_steps": len(self._planning_step_uids),
+            "evicted_steps": self._evicted_planning_steps,
+            "total_running_items": self._total_running_items,
+            "visible_running_items": len(self._running_item_uids),
+            "evicted_running_items": self._evicted_running_items,
+        }
+        return json.dumps(meta, ensure_ascii=False)
+
+    async def get_running_window(
+        self,
+        messages: List["GptsMessage"],
+        agent_name: Optional[str] = None,
+        step_uid: Optional[str] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        main_agent_name: Optional[str] = None,
+    ) -> Optional[str]:
+        """On-demand load running_window content for specific agent or step.
+
+        Args:
+            messages: All messages for this conversation
+            agent_name: Filter messages by this sender agent name
+            step_uid: Load only this specific step's work_item
+            senders_map: Agent name → ConversableAgent mapping
+            main_agent_name: Name of main agent for folder building
+        """
+        if not messages or not senders_map:
+            return None
+
+        # Filter messages
+        filtered = messages
+        if agent_name:
+            filtered = [m for m in messages if m.sender_name == agent_name]
+        if step_uid:
+            filtered = [m for m in filtered if m.message_id == step_uid]
+
+        if not filtered:
+            return None
+
+        work_items = []
+        for item in filtered:
+            work_item = await self.gen_work_item(
+                gpt_msg=item,
+                stream_msg=None,
+                is_first_chunk=True,
+                senders_map=senders_map,
+            )
+            if work_item:
+                work_items.extend(work_item)
+
+        if not work_items:
+            return None
+
+        main_agent = senders_map.get(main_agent_name) if main_agent_name else None
+        conv_session_id = messages[0].conv_session_id if messages else ""
+
+        work_space_content = WorkSpaceContent(
+            uid=conv_session_id,
+            type=UpdateType.ALL.value,
+            running_agents=[],
+            items=work_items,
+        )
+
+        return self.vis_inst(WorkSpace.vis_tag()).sync_display(
+            content=work_space_content.to_dict()
+        )
+
+    async def get_planning_history(
+        self,
+        messages: List["GptsMessage"],
+        offset: int = 0,
+        limit: int = 20,
+        **kwargs,
+    ) -> Optional[str]:
+        """Paginated retrieval of evicted planning history steps.
+
+        This is a placeholder — full implementation requires re-building
+        planning items from task_manager/messages for the evicted range.
+        """
+        # Return eviction metadata so frontend knows what's available
+        meta = {
+            "total_steps": self._total_planning_steps,
+            "evicted_steps": self._evicted_planning_steps,
+            "offset": offset,
+            "limit": limit,
+        }
+        return json.dumps(meta, ensure_ascii=False)
 
     async def visualization(
         self,
@@ -299,11 +490,34 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                 else:
                     planning_window = system_events_vis
 
+            # Eviction: check and generate DELETE messages for old planning items
+            eviction_vis = self._check_and_evict()
+            if eviction_vis:
+                if planning_window:
+                    planning_window = planning_window + "\n" + eviction_vis
+                else:
+                    planning_window = eviction_vis
+
+            # Eviction: check and generate DELETE messages for old running_window items
+            if main_agent_name and senders_map and main_agent_name in senders_map:
+                main_agent = senders_map[main_agent_name]
+                if hasattr(main_agent, "agent_context") and main_agent.agent_context:
+                    running_eviction_vis = self._check_and_evict_running(
+                        main_agent.agent_context.conv_session_id
+                    )
+                    if running_eviction_vis:
+                        if work_vis:
+                            work_vis = work_vis + "\n" + running_eviction_vis
+                        else:
+                            work_vis = running_eviction_vis
+
             if planning_window or work_vis:
-                return json.dumps(
-                    {"planning_window": planning_window, "running_window": work_vis},
-                    ensure_ascii=False,
-                )
+                result = {
+                    "planning_window": planning_window,
+                    "running_window": work_vis,
+                    "meta_window": self._build_meta_window(),
+                }
+                return json.dumps(result, ensure_ascii=False)
             else:
                 return None
         except Exception as e:
@@ -647,10 +861,16 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                     content=parent_item.to_dict()
                 )
                 result_vis_list.append(parent_vis)
+                # Track planning UIDs for eviction
+                self._track_planning_step(parent_task.node_id)
             else:
                 logger.info("没有父节点的 子节点直接作为根节点返回")
                 ## 没有父节点的 子节点直接作为根节点返回
                 result_vis_list.extend(children_vis_list)
+                # Track child node UIDs for eviction
+                for child_node in children:
+                    if child_node.content:
+                        self._track_planning_step(child_node.node_id)
         return result_vis_list
 
     async def _footer_vis_build(
@@ -1059,6 +1279,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
                         markdown=action_out.view or action_out.content,
                     )
                 )
+
+        for item in result:
+            if item.uid:
+                self._track_running_item(item.uid)
 
         return result
 
@@ -1758,6 +1982,7 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         messages: List["GptsMessage"],
         main_agent_name: Optional[str] = None,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        last_only: bool = False,
     ):
         main_agent = senders_map.get(main_agent_name) if senders_map else None
         # 当 main_agent 为 None 时，从 messages 中获取 conv_session_id
@@ -1771,8 +1996,13 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             conv_session_id = main_agent.agent_context.conv_session_id
             main_agent_folder = await self._build_agent_folder(main_agent)
 
+        # When last_only=True, only build work_item for the last message (lazy loading)
+        messages_to_process = messages
+        if last_only and messages:
+            messages_to_process = [messages[-1]]
+
         work_items = []
-        for item in messages:
+        for item in messages_to_process:
             work_item = await self.gen_work_item(
                 gpt_msg=item,
                 stream_msg=None,
@@ -1796,6 +2026,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             running_agents=[],
             explorer=explorer_content,
             items=work_items,
+            lazy_loading=True if last_only and self._enable_lazy_loading else None,
+            meta={
+                "total_items": len(messages),
+                "default_item_id": messages[-1].message_id if messages else None,
+            } if last_only and self._enable_lazy_loading else None,
         )
 
         return self.vis_inst(WorkSpace.vis_tag()).sync_display(
@@ -1981,7 +2216,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
         )
 
         all_running_view = await self._running_vis_all(
-            messages=messages, main_agent_name=main_agent_name, senders_map=senders_map
+            messages=messages,
+            main_agent_name=main_agent_name,
+            senders_map=senders_map,
+            last_only=self._enable_lazy_loading,
         )
 
         # 渲染terminate文件交付
@@ -1994,7 +2232,11 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             all_running_view = files_view
 
         all_vis = json.dumps(
-            {"planning_window": all_plans_view, "running_window": all_running_view},
+            {
+                "planning_window": all_plans_view,
+                "running_window": all_running_view,
+                "meta_window": self._build_meta_window(),
+            },
             ensure_ascii=False,
         )
         return all_vis

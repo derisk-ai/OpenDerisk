@@ -310,3 +310,20 @@ class UnifiedVisAdapter:
             output = await self.render_message(msg, agent_version)
             outputs.append(output)
         return outputs
+
+    async def query_step_detail(self, conv_id: str, step_id: str) -> Optional[dict]:
+        """按需加载单个步骤的完整执行数据"""
+        from derisk_serve.agent.agents.controller import multi_agents
+
+        result = await multi_agents.query_step_detail(
+            conv_id=conv_id, step_uid=step_id
+        )
+        if not result:
+            return None
+        step_data = result.get("step_data")
+        if step_data:
+            return {
+                "active_step": step_data.get("active_step"),
+                "outputs": step_data.get("outputs", []),
+            }
+        return result

@@ -29,6 +29,15 @@ SEED_PERMISSION_DEFINITIONS = [
     {"name": "model_manage_all", "description": "可管理所有模型", "resource_type": "model", "resource_id": "*", "action": "manage"},
     # System permissions
     {"name": "system_admin", "description": "系统管理员权限", "resource_type": "system", "resource_id": "*", "action": "admin"},
+    # Cron permissions
+    {"name": "cron_read_all", "description": "可查看所有定时任务", "resource_type": "cron", "resource_id": "*", "action": "read"},
+    {"name": "cron_manage_all", "description": "可管理所有定时任务", "resource_type": "cron", "resource_id": "*", "action": "manage"},
+    # Channel permissions
+    {"name": "channel_read_all", "description": "可查看所有渠道", "resource_type": "channel", "resource_id": "*", "action": "read"},
+    {"name": "channel_manage_all", "description": "可管理所有渠道", "resource_type": "channel", "resource_id": "*", "action": "manage"},
+    # Database permissions
+    {"name": "database_read_all", "description": "可查看所有数据库", "resource_type": "database", "resource_id": "*", "action": "read"},
+    {"name": "database_manage_all", "description": "可管理所有数据库", "resource_type": "database", "resource_id": "*", "action": "manage"},
 ]
 
 SEED_ROLES = [
@@ -37,6 +46,17 @@ SEED_ROLES = [
         "description": "访客（仅可查看模型和监控，不能查看智能体/工具/知识库）",
         "is_system": 1,
         "permissions": [
+            ("model", "read"),
+            ("model", "chat"),
+        ],
+    },
+    {
+        "name": "normal_user",
+        "description": "普通用户（可查看和使用智能体对话，可打开分享链接）",
+        "is_system": 1,
+        "permissions": [
+            ("agent", "read"),
+            ("agent", "chat"),
             ("model", "read"),
             ("model", "chat"),
         ],
@@ -65,6 +85,30 @@ SEED_ROLES = [
             ("knowledge", "query"),
             ("model", "read"),
             ("model", "chat"),
+        ],
+    },
+    {
+        "name": "developer",
+        "description": "开发者（可新增/编辑/删除智能体，使用对话，管理Skills/MCP/数据库/模型/定时任务/渠道）",
+        "is_system": 1,
+        "permissions": [
+            ("agent", "read"),
+            ("agent", "chat"),
+            ("agent", "write"),
+            ("tool", "read"),
+            ("tool", "execute"),
+            ("tool", "manage"),
+            ("knowledge", "read"),
+            ("knowledge", "query"),
+            ("model", "read"),
+            ("model", "chat"),
+            ("model", "manage"),
+            ("database", "read"),
+            ("database", "manage"),
+            ("cron", "read"),
+            ("cron", "manage"),
+            ("channel", "read"),
+            ("channel", "manage"),
         ],
     },
     {
@@ -107,6 +151,12 @@ SEED_ROLES = [
             ("model", "chat"),
             ("model", "manage"),
             ("model", "admin"),
+            ("database", "read"),
+            ("database", "manage"),
+            ("cron", "read"),
+            ("cron", "manage"),
+            ("channel", "read"),
+            ("channel", "manage"),
             ("system", "admin"),
         ],
     },
@@ -190,9 +240,16 @@ def ensure_default_roles() -> None:
     # 2. 创建默认 admin 用户并分配角色
     if admin_role_id:
         try:
+            import os
+            import bcrypt
             from derisk_app.auth.user_service import UserEntity
             from derisk.storage.metadata.db_manager import db
             from datetime import datetime
+
+            default_password = os.environ.get("DEFAULT_ADMIN_PASSWORD", "admin123")
+            password_hash = bcrypt.hashpw(
+                default_password.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8")
 
             with db.session(commit=True) as s:
                 # 检查是否已存在 admin 用户（通过 oauth_id 或 name）
@@ -206,6 +263,42 @@ def ensure_default_roles() -> None:
                 if existing_admin:
                     logger.debug(f"Admin user already exists: {existing_admin.name}")
                     admin_user_id = existing_admin.id
+
+                    # Upgrade path: ensure oauth_provider, oauth_id, password_hash
+                    needs_update = False
+                    if existing_admin.oauth_provider != "local":
+                        existing_admin.oauth_provider = "local"
+                        needs_update = True
+                        logger.info("Updated admin user oauth_provider to 'local'")
+                    if not existing_admin.oauth_id:
+                        existing_admin.oauth_id = "admin"
+                        needs_update = True
+                    try:
+                        if not existing_admin.password_hash:
+                            existing_admin.password_hash = password_hash
+                            needs_update = True
+                            logger.info("Set default password for existing admin user")
+                    except Exception:
+                        # password_hash column might not exist yet
+                        logger.warning(
+                            "password_hash column may not exist, will attempt ALTER TABLE"
+                        )
+                        try:
+                            from sqlalchemy import text as sa_text
+                            s.execute(sa_text(
+                                "ALTER TABLE user ADD COLUMN password_hash VARCHAR(255)"
+                            ))
+                            s.commit()
+                            logger.info("Added password_hash column to user table")
+                            existing_admin.password_hash = password_hash
+                            needs_update = True
+                        except Exception as col_err:
+                            logger.debug(f"ALTER TABLE (may already exist): {col_err}")
+
+                    if needs_update:
+                        s.merge(existing_admin)
+                        s.commit()
+
                     # 检查是否已分配 admin 角色
                     user_roles = dao.get_user_roles(admin_user_id)
                     has_admin_role = any(r.get("id") == admin_role_id for r in user_roles)
@@ -220,6 +313,7 @@ def ensure_default_roles() -> None:
                         oauth_provider="local",
                         oauth_id="admin",
                         email="admin@derisk.local",
+                        password_hash=password_hash,
                         role="admin",
                         is_active=1,
                         gmt_create=datetime.utcnow(),
@@ -236,12 +330,13 @@ def ensure_default_roles() -> None:
                     logger.info("=" * 60)
                     logger.info("DEFAULT ADMIN USER CREATED:")
                     logger.info("  Username: admin")
-                    logger.info("  OAuth Provider: local (bypass OAuth for local admin)")
+                    logger.info("  Password: %s", default_password)
+                    logger.info("  Provider: local (username/password login)")
                     logger.info(f"  User ID: {admin_user_id}")
-                    logger.info("  Note: Use OAuth2 login or set X-User-ID: admin header for testing")
+                    logger.info("  !! Change the default password in production !!")
                     logger.info("=" * 60)
         except Exception as e:
-            logger.warning(f"Failed to create/assign admin user: {e}")
+            logger.error(f"Failed to create/assign admin user: {e}", exc_info=True)
 
     # 3. 创建默认权限定义
     _ensure_default_permission_definitions(dao)
@@ -274,3 +369,95 @@ def _ensure_default_permission_definitions(dao: PermissionDao) -> None:
             logger.info(f"Seed permission definition created: {perm_def['name']}")
         except Exception as e:
             logger.warning(f"Failed to create seed permission definition {perm_def['name']}: {e}")
+
+
+# Track whether migration has run in this process
+_migration_done = False
+
+
+def migrate_conversation_user_names() -> None:
+    """One-time migration: update conversation user_name from old mock IDs (e.g. '001')
+    to the actual username so conversations remain visible after enabling auth.
+
+    When auth was OFF, all conversations were stored with user_name='001' (the mock
+    admin ID). After enabling auth, user_id becomes the username (e.g. 'admin'), so
+    old conversations become invisible. This migration rewrites those old records.
+    """
+    global _migration_done
+    if _migration_done:
+        return
+    _migration_done = True
+
+    try:
+        from derisk_app.auth.user_service import UserEntity
+        from derisk.storage.metadata.db_manager import db
+
+        with db.session(commit=False) as s:
+            # Find the first admin user to map old conversations to
+            admin_user = (
+                s.query(UserEntity)
+                .filter(UserEntity.name == "admin")
+                .first()
+            )
+            if not admin_user:
+                logger.debug("migrate_conversation_user_names: no admin user found, skip")
+                return
+
+            admin_name = admin_user.name  # "admin"
+
+            # Build mapping of old mock user IDs to the admin username
+            old_mock_ids = ["001"]
+            updated_total = 0
+
+            # 1. Migrate chat_history table (V1)
+            try:
+                from derisk.storage.chat_history.chat_history_db import ChatHistoryEntity
+
+                for old_id in old_mock_ids:
+                    count = (
+                        s.query(ChatHistoryEntity)
+                        .filter(ChatHistoryEntity.user_name == old_id)
+                        .update({ChatHistoryEntity.user_name: admin_name},
+                                synchronize_session="fetch")
+                    )
+                    if count:
+                        logger.info(
+                            "migrate_conversation_user_names: updated %d chat_history "
+                            "rows from user_name='%s' to '%s'",
+                            count, old_id, admin_name,
+                        )
+                        updated_total += count
+            except Exception as e:
+                logger.warning("migrate_conversation_user_names: chat_history migration failed: %s", e)
+
+            # 2. Migrate gpts_conversations table (V2)
+            try:
+                from derisk_serve.agent.db.gpts_conversations_db import GptsConversationsEntity
+
+                for old_id in old_mock_ids:
+                    count = (
+                        s.query(GptsConversationsEntity)
+                        .filter(GptsConversationsEntity.user_code == old_id)
+                        .update({GptsConversationsEntity.user_code: admin_name},
+                                synchronize_session="fetch")
+                    )
+                    if count:
+                        logger.info(
+                            "migrate_conversation_user_names: updated %d gpts_conversations "
+                            "rows from user_code='%s' to '%s'",
+                            count, old_id, admin_name,
+                        )
+                        updated_total += count
+            except Exception as e:
+                logger.warning("migrate_conversation_user_names: gpts_conversations migration failed: %s", e)
+
+            if updated_total:
+                s.commit()
+                logger.info(
+                    "migrate_conversation_user_names: total %d rows migrated", updated_total
+                )
+            else:
+                logger.debug("migrate_conversation_user_names: no rows need migration")
+
+    except Exception as e:
+        logger.warning("migrate_conversation_user_names: migration failed: %s", e)

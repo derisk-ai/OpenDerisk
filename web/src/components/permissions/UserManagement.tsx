@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Avatar,
   Button,
   Input,
   Modal,
@@ -21,8 +20,8 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   TeamOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
+import UserAvatar from '@/components/common/user-avatar';
 import { useTranslation } from 'react-i18next';
 import {
   permissionsService,
@@ -277,7 +276,7 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
         key: 'avatar',
         width: 64,
         render: (_: string | undefined, record: UnifiedUserRow) => (
-          <Avatar src={record.avatar || undefined} icon={!record.avatar ? <UserOutlined /> : undefined} />
+          <UserAvatar avatarUrl={record.avatar} name={record.name || record.fullname} />
         ),
       },
       {

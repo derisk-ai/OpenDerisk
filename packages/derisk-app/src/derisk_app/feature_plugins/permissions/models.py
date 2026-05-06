@@ -20,6 +20,15 @@ TOOL_ACTIONS = ["read", "execute", "manage", "admin"]  # read → execute → ma
 KNOWLEDGE_ACTIONS = ["read", "query", "write", "admin"]  # read → query → write
 MODEL_ACTIONS = ["read", "chat", "manage", "admin"]  # read → chat → manage
 
+# Additional resource types for module-level access control
+RESOURCE_CRON = "cron"
+RESOURCE_CHANNEL = "channel"
+RESOURCE_DATABASE = "database"
+
+CRON_ACTIONS = ["read", "manage"]
+CHANNEL_ACTIONS = ["read", "manage"]
+DATABASE_ACTIONS = ["read", "manage"]
+
 # All resource-action mappings
 RESOURCE_ACTIONS = {
     RESOURCE_AGENT: AGENT_ACTIONS,
@@ -27,6 +36,9 @@ RESOURCE_ACTIONS = {
     RESOURCE_KNOWLEDGE: KNOWLEDGE_ACTIONS,
     RESOURCE_MODEL: MODEL_ACTIONS,
     RESOURCE_SYSTEM: ["admin"],
+    RESOURCE_CRON: CRON_ACTIONS,
+    RESOURCE_CHANNEL: CHANNEL_ACTIONS,
+    RESOURCE_DATABASE: DATABASE_ACTIONS,
 }
 
 

@@ -41,6 +41,9 @@ export function useDetailPanel(chatList: any[]): {
         if (typeof item.context !== 'string' || !item.context.trim().startsWith('{')) {
           continue;
         }
+        if (item.context.length > 10_000_000) {
+          continue;
+        }
 
         const context = JSON.parse(item.context);
         

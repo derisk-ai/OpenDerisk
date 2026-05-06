@@ -77,3 +77,7 @@ def register_enabled_feature_plugin_routers(app: FastAPI) -> None:
             logger.warning(f"Failed to create all tables: {e}")
 
         ensure_default_roles()
+
+        # Migrate old conversation user_name from mock IDs to real usernames
+        from derisk_app.feature_plugins.permissions.seed import migrate_conversation_user_names
+        migrate_conversation_user_names()

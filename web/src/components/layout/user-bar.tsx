@@ -2,8 +2,9 @@
 import { UserInfoResponse } from '@/types/userinfo';
 import { STORAGE_USERINFO_KEY } from '@/utils/constants/index';
 import { authService } from '@/services/auth';
-import { Avatar, Dropdown } from 'antd';
+import { Dropdown } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
+import UserAvatar from '@/components/common/user-avatar';
 import cls from 'classnames';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -51,12 +52,11 @@ function UserBar({ onlyAvatar = false }: UserBarProps) {
     : [];
 
   const avatarEl = (
-    <Avatar
-      src={userInfo?.avatar_url}
-      className='bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer shrink-0'
-    >
-      {userInfo?.nick_name}
-    </Avatar>
+    <UserAvatar
+      avatarUrl={userInfo?.avatar_url}
+      name={userInfo?.nick_name}
+      className='cursor-pointer shrink-0'
+    />
   );
 
   return (

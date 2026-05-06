@@ -701,30 +701,41 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
         logger.info(
             f"Received OAuth2 config update: default_role={default_role}, data={oauth2_data}"
         )
-        valid_roles = ["guest", "viewer", "operator", "editor", "admin"]
+        valid_roles = ["guest", "normal_user", "viewer", "operator", "developer", "editor", "admin"]
         if default_role not in valid_roles:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid default_role '{default_role}'. Must be one of: {', '.join(valid_roles)}",
             )
 
-        # Verify the role exists in the database
+        # Verify the role exists in the database, seed defaults if needed
         try:
             dao = PermissionDao()
             role_entity = dao.get_role_by_name(default_role)
             if not role_entity:
                 logger.warning(
-                    f"Role '{default_role}' not found in database, available roles will be checked"
+                    f"Role '{default_role}' not found in database, attempting to seed default roles"
                 )
-                # List available roles for debugging
-                from derisk_app.feature_plugins.permissions.seed import SEED_ROLES
+                # Auto-seed default roles if not yet initialized
+                from derisk_app.feature_plugins.permissions.seed import (
+                    SEED_ROLES,
+                    ensure_default_roles,
+                )
 
-                available_roles = [r["name"] for r in SEED_ROLES]
-                logger.info(f"Available seed roles: {available_roles}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Role '{default_role}' does not exist in the system. Available roles: {', '.join(available_roles)}",
-                )
+                try:
+                    from derisk.storage.metadata.db_manager import db
+                    db.create_all()
+                    ensure_default_roles()
+                    role_entity = dao.get_role_by_name(default_role)
+                except Exception as seed_err:
+                    logger.warning(f"Failed to seed default roles: {seed_err}")
+
+                if not role_entity:
+                    available_roles = [r["name"] for r in SEED_ROLES]
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Role '{default_role}' does not exist in the system. Available roles: {', '.join(available_roles)}",
+                    )
         except HTTPException:
             raise
         except Exception as e:
@@ -1636,5 +1647,109 @@ async def update_web_config(request: Dict[str, Any]):
                 "saved_to_file": saved,
             }
         )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ======================================================================
+# RAG & Memory Storage Configuration
+# ======================================================================
+
+
+@router.get("/rag")
+async def get_rag_config():
+    """Get the full RAG configuration including storage backends."""
+    manager = get_config_manager()
+    config = manager.get()
+    rag = config.rag
+    data = {
+        "chunk_size": rag.chunk_size,
+        "chunk_overlap": rag.chunk_overlap,
+        "similarity_top_k": rag.similarity_top_k,
+        "similarity_score_threshold": rag.similarity_score_threshold,
+        "query_rewrite": rag.query_rewrite,
+        "max_chunks_once_load": rag.max_chunks_once_load,
+        "max_threads": rag.max_threads,
+        "rerank_top_k": rag.rerank_top_k,
+    }
+    storage = rag.storage
+    data["storage"] = {}
+    for backend in ("vector", "graph", "full_text", "memory"):
+        sub = getattr(storage, backend, None)
+        if sub is not None:
+            if hasattr(sub, "model_dump"):
+                data["storage"][backend] = sub.model_dump()
+            elif hasattr(sub, "__dict__"):
+                data["storage"][backend] = {
+                    k: v for k, v in sub.__dict__.items() if not k.startswith("_")
+                }
+    return JSONResponse(content={"success": True, "data": data})
+
+
+@router.post("/rag")
+async def update_rag_config(request: Dict[str, Any]):
+    """Update RAG configuration (top-level fields only)."""
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+        top_level_keys = {
+            "chunk_size", "chunk_overlap", "similarity_top_k",
+            "similarity_score_threshold", "query_rewrite",
+            "max_chunks_once_load", "max_threads", "rerank_top_k",
+        }
+        for key, value in request.items():
+            if key in top_level_keys and hasattr(config.rag, key):
+                setattr(config.rag, key, value)
+        saved = save_config_with_error_handling(manager, "RAG配置")
+        return JSONResponse(content={
+            "success": True,
+            "message": "RAG配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "saved_to_file": saved,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/rag/storage/memory")
+async def get_memory_storage_config():
+    """Get memory storage configuration."""
+    manager = get_config_manager()
+    config = manager.get()
+    memory_cfg = getattr(config.rag.storage, "memory", None)
+    if memory_cfg is None:
+        return JSONResponse(content={"success": True, "data": {
+            "type": "mempalace", "enable_kg": True,
+            "use_builtin_embedding": False, "auto_memory": True,
+            "auto_memory_top_k": 5, "auto_memory_max_distance": 0.4,
+        }})
+    if hasattr(memory_cfg, "model_dump"):
+        data = memory_cfg.model_dump()
+    else:
+        data = {k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")}
+    return JSONResponse(content={"success": True, "data": data})
+
+
+@router.post("/rag/storage/memory")
+async def update_memory_storage_config(request: Dict[str, Any]):
+    """Update memory storage configuration."""
+    try:
+        manager = get_config_manager()
+        config = manager.get()
+        memory_cfg = config.rag.storage.memory
+        allowed = {
+            "type", "palace_path", "enable_kg", "default_wing",
+            "use_builtin_embedding", "auto_memory",
+            "auto_memory_top_k", "auto_memory_max_distance",
+        }
+        for key, value in request.items():
+            if key in allowed and hasattr(memory_cfg, key):
+                setattr(memory_cfg, key, value)
+        saved = save_config_with_error_handling(manager, "记忆存储配置")
+        return JSONResponse(content={
+            "success": True,
+            "message": "记忆存储配置已更新" + ("并保存" if saved else "（保存失败）"),
+            "data": {k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")},
+            "saved_to_file": saved,
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

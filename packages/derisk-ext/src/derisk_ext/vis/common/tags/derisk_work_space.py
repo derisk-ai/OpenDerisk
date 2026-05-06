@@ -40,6 +40,7 @@ class FolderNode(DrskVisBase):
     download_url: Optional[str] = Field(None, description="下载URL (afs_file类型)")
     oss_url: Optional[str] = Field(None, description="OSS URL (afs_file类型)")
     mime_type: Optional[str] = Field(None, description="MIME类型 (afs_file类型)")
+    planning_uid: Optional[str] = Field(None, description="关联的planning_window中AgentPlanItem UID，用于AgentFolder与planning联动")
 
 
 
@@ -52,6 +53,8 @@ class WorkSpaceContent(DrskVisBase):
     running_agents: Optional[List[str]] = Field(None, description="运行的工作项")
     items: Optional[List[FolderNode]] = Field(None, description="工作空间资源内容")
     explorer: Optional[str] = Field(None, description="工作空间资源管理器")
+    lazy_loading: Optional[bool] = Field(None, description="是否按需加载模式，True时前端需要按需请求work_items内容")
+    meta: Optional[Dict[str, Any]] = Field(None, description="统计元信息: total_items, default_item_id等")
     # markdown: Optional[str] = Field(None, description="")
 
 

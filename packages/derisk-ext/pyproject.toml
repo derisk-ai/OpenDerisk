@@ -75,6 +75,7 @@ storage_chromadb = [
 storage_elasticsearch = ["elasticsearch"]
 storage_obvector = ["pyobvector"]
 storage_oss2 = ["oss2==2.18.4"]
+storage_mempalace = ["mempalace>=3.3.0"]
 proxy_tongyi = [
     # For tongyi proxy embedding model
     "dashscope"

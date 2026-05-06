@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import uuid
 from functools import cache
 from typing import List, Literal, Optional, Dict
@@ -11,10 +12,13 @@ from starlette.responses import JSONResponse, StreamingResponse
 from derisk.component import SystemApp
 from derisk.util import PaginationResult
 from derisk_serve.core import Result
+from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..service.service import Service
 from .schemas import MessageVo, ServeRequest, ServerResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -128,11 +132,12 @@ async def query(
 )
 async def dialogue_new(
     data: Optional[Dict] = None,
+    user: UserRequest = Depends(get_user_from_headers),
 ):
     unique_id = uuid.uuid1()
     if data:
         app_code = data.get("app_code")
-        user_code = data.get("user_code")
+        user_code = data.get("user_code") or user.user_id
         sys_code = data.get("sys_code")
         chat_mode = data.get("chat_mode")
         res = ServerResponse(
@@ -146,6 +151,7 @@ async def dialogue_new(
         res = ServerResponse(
             user_input="",
             conv_uid=str(unique_id),
+            user_name=user.user_id,
         )
 
     return Result.succ(res)
@@ -221,10 +227,12 @@ async def list_latest_conv(
     page: Optional[int] = Query(default=1, description="current page"),
     page_size: Optional[int] = Query(default=10, description="page size"),
     service: Service = Depends(get_service),
+    user: UserRequest = Depends(get_user_from_headers),
 ) -> Result[List[ServerResponse]]:
-    """Return latest conversations"""
+    """Return latest conversations, filtered by authenticated user when no explicit user specified."""
+    effective_user = user_name or user_id or user.user_id
     request = ServeRequest(
-        user_name=user_name or user_id,
+        user_name=effective_user,
         sys_code=sys_code,
     )
     return Result.succ(service.get_list_by_page(request, page, page_size, filter).items)

@@ -62,3 +62,24 @@ class RenderMessageRequest(BaseModel):
     """渲染消息请求"""
     message: dict
     agent_version: str = "v2"
+
+
+# ========== 按需加载相关模型 ==========
+
+class StepDetailResponse(BaseModel):
+    """步骤详情响应 — vis_manus 按需加载"""
+    active_step: Optional[dict] = None
+    outputs: List[dict] = []
+
+
+class RunningWindowResponse(BaseModel):
+    """Running window 响应 — vis_window2/vis_window3 按需加载"""
+    running_window: Optional[str] = None
+
+
+class PlanningHistoryResponse(BaseModel):
+    """Planning 历史分页响应"""
+    total_steps: int = 0
+    evicted_steps: int = 0
+    offset: int = 0
+    limit: int = 20
