@@ -74,7 +74,7 @@ class AppManager(BaseComponent, ABC):
     async def get_app(self, app_code) -> GptsApp:
         """get app"""
         app_service = AppService.get_instance(CFG.SYSTEM_APP)
-        return await app_service.sync_app_detail(app_code)
+        return app_service.sync_app_detail(app_code)
 
     async def create_app_agent(
             self,
