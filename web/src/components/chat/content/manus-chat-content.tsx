@@ -7,7 +7,7 @@ import React, { memo, useContext, useEffect, useMemo, useRef, useState, useCallb
 import ChatHeader from '../header/chat-header';
 import UnifiedChatInput from '../input/unified-chat-input';
 import { Tooltip } from 'antd';
-import { LeftOutlined, DesktopOutlined, WarningOutlined } from '@ant-design/icons';
+import { LeftOutlined, DesktopOutlined } from '@ant-design/icons';
 import classNames from 'classnames';
 import { ee, EVENTS } from '@/utils/event-emitter';
 import markdownComponents, { markdownPlugins } from '@/components/chat/chat-content-components/config';
@@ -21,24 +21,51 @@ interface ManusChatContentProps {
 }
 
 // Data size limits to prevent browser crash
-const MAX_HISTORY_COUNT = 500;        // Maximum number of messages to render
-const MAX_CONTEXT_SIZE = 10_000_000; // Maximum characters per message context (10MB)
-const MAX_TOTAL_SIZE = 50_000_000;   // Maximum total context size for all messages (50MB)
+const MAX_RENDER_COUNT = 200;          // Maximum number of messages to render (sliding window)
+const MAX_CONTEXT_SIZE = 10_000_000;   // Maximum characters per message context (10MB)
 
 /**
- * Check if conversation data is too large to safely render
+ * Check if a single message is too large to safely render
  */
-const isDataTooLarge = (messages: IChatDialogueMessageSchema[]): boolean => {
-  if (messages.length > MAX_HISTORY_COUNT) return true;
-  const totalSize = messages.reduce((sum, m) => sum + (m.context && typeof m.context === 'string' ? m.context.length : 0), 0);
-  if (totalSize > MAX_TOTAL_SIZE) return true;
-  for (const msg of messages) {
-    if (msg.context && typeof msg.context === 'string' && msg.context.length > MAX_CONTEXT_SIZE) {
-      return true;
-    }
-  }
-  return false;
+const isMessageTooLarge = (msg: IChatDialogueMessageSchema): boolean => {
+  return !!(msg.context && typeof msg.context === 'string' && msg.context.length > MAX_CONTEXT_SIZE);
 };
+
+/**
+ * LRU cache for step detail data loaded on demand
+ */
+class StepDetailCache {
+  private cache = new Map<string, { data: any; timestamp: number }>();
+  private maxSize: number;
+
+  constructor(maxSize = 100) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: string): any | undefined {
+    const entry = this.cache.get(key);
+    if (entry) {
+      // Move to end (most recently used)
+      this.cache.delete(key);
+      this.cache.set(key, entry);
+      return entry.data;
+    }
+    return undefined;
+  }
+
+  set(key: string, data: any): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      // Evict oldest entry
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) this.cache.delete(firstKey);
+    }
+    this.cache.set(key, { data, timestamp: Date.now() });
+  }
+}
+
+const stepDetailCache = new StepDetailCache(100);
 
 /**
  * Extract the latest running_window and build routing maps for cross-round switching:
@@ -46,6 +73,7 @@ const isDataTooLarge = (messages: IChatDialogueMessageSchema[]): boolean => {
  * - stepRunningWindowMap: step UID (from steps_map keys) → running_window
  *
  * Optimized: only scan the last N messages to reduce parsing overhead
+ * Enhanced: detect lazy_loading mode and meta_window for on-demand loading
  */
 function useRunningWindows(
   showMessages: Array<IChatDialogueMessageSchema & { key: string }>
@@ -54,11 +82,15 @@ function useRunningWindows(
   latestHasData: boolean;
   fileRunningWindowMap: Map<string, string>;
   stepRunningWindowMap: Map<string, string>;
+  isLazyLoading: boolean;
+  metaWindow: { total_steps?: number; visible_steps?: number; evicted_steps?: number } | null;
 } {
   return useMemo(() => {
     let latestRunningWindow = '';
     const fileMap = new Map<string, string>();
     const stepMap = new Map<string, string>();
+    let isLazyLoading = false;
+    let metaWindow: any = null;
 
     // Only scan the last 50 messages to reduce overhead
     const messagesToScan = showMessages.slice(-50);
@@ -72,6 +104,18 @@ function useRunningWindows(
         if (contextStr.length > MAX_CONTEXT_SIZE) continue;
         const context = JSON.parse(contextStr);
         const rw = context.running_window || '';
+
+        // Parse meta_window if present
+        if (context.meta_window) {
+          try {
+            metaWindow = typeof context.meta_window === 'string'
+              ? JSON.parse(context.meta_window)
+              : context.meta_window;
+          } catch {
+            // skip
+          }
+        }
+
         if (!rw) continue;
 
         latestRunningWindow = rw;
@@ -81,6 +125,12 @@ function useRunningWindows(
         if (match) {
           try {
             const data = JSON.parse(match[1]);
+
+            // Detect lazy_loading mode
+            if (data.lazy_loading) {
+              isLazyLoading = true;
+            }
+
             // Index deliverable files
             for (const f of data.deliverable_files || []) {
               if (f.file_id) fileMap.set(f.file_id, rw);
@@ -89,6 +139,8 @@ function useRunningWindows(
               fileMap.set('task_files', rw);
             }
             // Index step UIDs from steps_map
+            // In lazy_loading mode, steps_map has metadata only (no outputs)
+            // but we still index for click-to-switch routing
             if (data.steps_map) {
               for (const uid of Object.keys(data.steps_map)) {
                 stepMap.set(uid, rw);
@@ -108,8 +160,33 @@ function useRunningWindows(
       latestHasData: !!latestRunningWindow,
       fileRunningWindowMap: fileMap,
       stepRunningWindowMap: stepMap,
+      isLazyLoading,
+      metaWindow,
     };
   }, [showMessages]);
+}
+
+/**
+ * Build a manus-right-panel running_window string from step detail data
+ * (returned by the /vis/step_detail API)
+ */
+function buildRunningWindowFromStepDetail(data: {
+  active_step?: any;
+  outputs?: any[];
+}): string | null {
+  if (!data.active_step && (!data.outputs || data.outputs.length === 0)) {
+    return null;
+  }
+  const payload = {
+    uid: 'manus_right_panel',
+    type: 'all',
+    active_step: data.active_step,
+    outputs: data.outputs || [],
+    is_running: false,
+    panel_view: 'execution',
+    steps_map: {},
+  };
+  return '```manus-right-panel\n' + JSON.stringify(payload) + '\n```';
 }
 
 const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
@@ -121,21 +198,20 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   const [userClosedPanel, setUserClosedPanel] = useState(false);
   const [overrideRunningWindow, setOverrideRunningWindow] = useState<string | null>(null);
 
-  // Check if data is too large
-  const dataTooLarge = useMemo(() => isDataTooLarge(history), [history]);
-
-  // Use shallow copy instead of cloneDeep
+  // Sliding window: only render the last MAX_RENDER_COUNT messages, skip oversized ones
   const showMessages = useMemo(() => {
-    if (dataTooLarge) return [];
-    return history
-      .filter((item) => ['view', 'human'].includes(item.role))
-      .map((item, index) => ({
-        ...item,
-        key: `${item.role}_${item.order ?? index}`,
-      }));
-  }, [history, dataTooLarge]);
+    const filtered = history
+      .filter((item) => ['view', 'human'].includes(item.role) && !isMessageTooLarge(item));
+    const windowed = filtered.length > MAX_RENDER_COUNT
+      ? filtered.slice(-MAX_RENDER_COUNT)
+      : filtered;
+    return windowed.map((item, index) => ({
+      ...item,
+      key: `${item.role}_${item.order ?? index}`,
+    }));
+  }, [history]);
 
-  const { latestRunningWindow, latestHasData, fileRunningWindowMap, stepRunningWindowMap } = useRunningWindows(showMessages);
+  const { latestRunningWindow, latestHasData, fileRunningWindowMap, stepRunningWindowMap, isLazyLoading, metaWindow } = useRunningWindows(showMessages);
 
   // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
@@ -178,9 +254,46 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   }, [fileRunningWindowMap, displayRunningWindow]);
 
   // Listen for CLICK_FOLDER to route step clicks to the correct round's running_window
+  // In lazy_loading mode, fetch step detail from API; otherwise use local stepRunningWindowMap
   useEffect(() => {
-    const handleClickFolder = (payload: { uid?: string }) => {
+    const handleClickFolder = async (payload: { uid?: string; conv_id?: string }) => {
       if (!payload?.uid) return;
+
+      // In lazy loading mode, try to fetch step detail via API
+      if (isLazyLoading && payload.conv_id) {
+        const cacheKey = `${payload.conv_id}_${payload.uid}`;
+        const cached = stepDetailCache.get(cacheKey);
+        if (cached) {
+          // Build a running_window from cached data
+          const rw = buildRunningWindowFromStepDetail(cached);
+          if (rw) {
+            setOverrideRunningWindow(rw);
+            return;
+          }
+        }
+
+        // Fetch from API
+        try {
+          const resp = await fetch(
+            `/api/unified/vis/step_detail?conv_id=${encodeURIComponent(payload.conv_id)}&step_id=${encodeURIComponent(payload.uid)}`
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.active_step || (data.outputs && data.outputs.length > 0)) {
+              stepDetailCache.set(cacheKey, data);
+              const rw = buildRunningWindowFromStepDetail(data);
+              if (rw) {
+                setOverrideRunningWindow(rw);
+                return;
+              }
+            }
+          }
+        } catch {
+          // Fall through to local lookup
+        }
+      }
+
+      // Fallback: local stepRunningWindowMap lookup
       const rw = stepRunningWindowMap.get(payload.uid);
       if (rw && rw !== displayRunningWindow) {
         setOverrideRunningWindow(rw);
@@ -190,7 +303,7 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
     return () => {
       ee.off(EVENTS.CLICK_FOLDER, handleClickFolder);
     };
-  }, [stepRunningWindowMap, displayRunningWindow]);
+  }, [stepRunningWindowMap, displayRunningWindow, isLazyLoading]);
 
   // When new streaming data arrives, auto-open panel and reset override
   const prevLatestRef = useRef(latestRunningWindow);
@@ -223,35 +336,6 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
     : !userClosedPanel;
   const showLeftPanel = shareMode !== 'report';
   const showInput = !isSharedView;
-
-  // Show warning if data is too large
-  if (dataTooLarge) {
-    return (
-      <div className="flex h-full w-full overflow-hidden" style={{ background: 'linear-gradient(160deg, #fdfcfb 0%, #fbfaf8 40%, #faf9f6 100%)' }}>
-        <div className="flex flex-col h-full flex-1">
-          <ChatHeader isProcessing={false} />
-          <div className="flex-1 flex flex-col items-center justify-center p-8">
-            <WarningOutlined className="text-4xl text-orange-500 mb-4" />
-            <h3 className="text-lg font-medium text-gray-700 mb-2">
-              会话数据过大
-            </h3>
-            <p className="text-sm text-gray-500 mb-4 text-center max-w-md">
-              当前会话包含 {history.length} 条消息，数据量过大可能导致浏览器崩溃。
-              为保护系统稳定性，已暂停渲染此会话。
-            </p>
-            <p className="text-xs text-gray-400">
-              建议导出会话记录查看历史内容，或联系管理员处理
-            </p>
-          </div>
-          {showInput && (
-            <div className="flex-shrink-0 pb-4 pt-2 px-4 max-w-3xl mx-auto w-full">
-              <UnifiedChatInput ctrl={ctrl} showFloatingActions={false} />
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-full w-full overflow-hidden" style={{ background: 'linear-gradient(160deg, #fdfcfb 0%, #fbfaf8 40%, #faf9f6 100%)' }}>

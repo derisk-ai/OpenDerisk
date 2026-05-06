@@ -14,7 +14,7 @@ import logging
 import re
 import uuid
 from enum import Enum
-from typing import List, Optional, Dict, Union, Any
+from typing import List, Optional, Dict, Union, Any, Tuple
 
 from derisk.agent import ActionOutput, ConversableAgent, BlankAction
 from derisk.agent.core.action.report_action import ReportAction
@@ -78,6 +78,15 @@ from derisk_ext.vis.vis_protocol_data import UpdateType
 logger = logging.getLogger(__name__)
 
 
+def _normalize_text_for_dedup(text: Optional[Any]) -> str:
+    """Normalize streamed/final text for dedup comparison."""
+    if not isinstance(text, str):
+        return ""
+    normalized = text.replace('\r\n', '\n').replace('\r', '\n').strip()
+    normalized = re.sub(r'\n{3,}', '\n\n', normalized)
+    return normalized
+
+
 # 阶段提取模式
 PHASE_PATTERNS = [
     (r"【阶段\s*[:：]\s*([^】]+)】", "zh"),
@@ -113,6 +122,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
     仅覆写 running_window 部分为 manus-right-panel VIS tag。
     """
 
+    MAX_STEPS_IN_MAP = 100
+
     def __init__(self, paths: Optional[str] = None, **kwargs):
         super().__init__(paths, **kwargs)
         self._step_counter = 0
@@ -127,6 +138,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # Buffer: (planning_uid, action_name) captured from _act_out_2_plan,
         # consumed by _process_gpt_message matching by action_name (FIFO)
         self._pending_planning_uids: List[tuple] = []
+        self._agent_name: Optional[str] = None
 
     @property
     def web_use(self) -> bool:
@@ -264,6 +276,65 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     return val.strip()
         return None
 
+    @staticmethod
+    def _is_duplicate_final_summary(
+        candidate: Optional[str], final_summary: Optional[str]
+    ) -> bool:
+        """Whether a streamed/tool step content duplicates the final summary."""
+        candidate_text = _normalize_text_for_dedup(candidate)
+        final_text = _normalize_text_for_dedup(final_summary)
+        if not candidate_text or not final_text:
+            return False
+        return candidate_text == final_text or final_text.startswith(candidate_text)
+
+    def _remove_duplicate_summary_steps(self, final_summary: Optional[str]):
+        """Remove streamed conclusion steps once a final summary is available."""
+        if not final_summary:
+            return
+
+        duplicate_step_ids = []
+        for step_id, outputs in list(self._outputs.items()):
+            if not outputs:
+                continue
+
+            step = self._steps.get(step_id)
+            if step and step.action and step.action.lower() in ("batch_tasks", "batchtasks"):
+                continue
+
+            output_texts = [
+                out.content
+                for out in outputs
+                if isinstance(getattr(out, 'content', None), str)
+            ]
+            subtitle = step.subtitle if step else None
+            candidate_texts = output_texts + ([subtitle] if subtitle else [])
+
+            if any(self._is_duplicate_final_summary(text, final_summary) for text in candidate_texts):
+                duplicate_step_ids.append(step_id)
+
+        if not duplicate_step_ids:
+            return
+
+        duplicate_set = set(duplicate_step_ids)
+        for step_id in duplicate_step_ids:
+            self._steps.pop(step_id, None)
+            self._outputs.pop(step_id, None)
+            self._step_thoughts.pop(step_id, None)
+
+        for section in self._sections.values():
+            section.steps = [step for step in section.steps if step.id not in duplicate_set]
+
+        self._planning_uid_to_step_id = {
+            uid: sid
+            for uid, sid in self._planning_uid_to_step_id.items()
+            if sid not in duplicate_set
+        }
+
+        if self._active_step_id in duplicate_set:
+            self._active_step_id = None
+            if self._steps:
+                self._active_step_id = next(reversed(self._steps))
+
     async def _gen_plan_items(
         self,
         gpt_msg: Optional[GptsMessage] = None,
@@ -303,13 +374,14 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     is_terminate = getattr(act_out, 'terminate', False)
                     conclusion = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
 
-                if act_name == BlankAction.name or is_terminate:
+                is_batch = act_name.lower() in ("batchtasks", "batch_tasks")
+                if not is_batch and (act_name == BlankAction.name or is_terminate):
                     if conclusion and isinstance(conclusion, str) and conclusion.strip():
                         # 用 type=ALL 完整替换，确保 markdown 表格等结构完整渲染
                         text_content = DrskTextContent(
                             dynamic=False,
                             markdown=conclusion,
-                            uid=f"{message_id}_'step_thought'",
+                            uid=f"{message_id}_planning_content",
                             type=UpdateType.ALL.value,
                         )
                         return DrskContent().sync_display(
@@ -398,8 +470,10 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         step_type = self._map_action_to_step_type(action_name, action_input)
 
         # BlankAction / terminate — 跳过，不在执行步骤中展示
+        # batch_tasks 虽然 terminate=True（sync模式），但需要展示在执行步骤中
+        is_batch_task = action_name and action_name.lower() in ("batchtasks", "batch_tasks")
         is_blank = action_name == BlankAction.name
-        if not is_blank and act_out:
+        if not is_blank and act_out and not is_batch_task:
             if getattr(act_out, 'name', '') == BlankAction.name or getattr(act_out, 'terminate', False):
                 is_blank = True
 
@@ -424,6 +498,34 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         elif self._get_action_report_summary(gpt_msg) and "完成" in self._get_action_report_summary(gpt_msg):
             status = ManusStepStatus.COMPLETED.value
 
+        # batch_tasks：将 view 中的 d-batch-tasks 数据合并到 action_input，供 TaskRenderer 使用
+        if is_batch_task and act_out:
+            batch_view_data = None
+            view_str = getattr(act_out, 'view', None)
+            if view_str and 'd-batch-tasks' in str(view_str):
+                try:
+                    start = view_str.find('\n', view_str.find('d-batch-tasks')) + 1
+                    end = view_str.rfind('```')
+                    if start > 0 and end > start:
+                        batch_view_data = json.loads(view_str[start:end])
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            if not batch_view_data:
+                extra = getattr(act_out, 'extra', None) or {}
+                batch_view_data = {
+                    'batch_id': extra.get('batch_id', ''),
+                    'mode': extra.get('mode', 'async'),
+                    'total': extra.get('total', 0),
+                    'completed': 0,
+                    'failed': 0,
+                    'tasks': [],
+                }
+            if batch_view_data:
+                if isinstance(action_input, dict):
+                    action_input = {**action_input, **batch_view_data}
+                else:
+                    action_input = batch_view_data
+
         step = ManusExecutionStep(
             id=step_id,
             type=step_type,
@@ -432,6 +534,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             description=gpt_msg.current_goal,
             phase=phase,
             status=status,
+            action=action_name,
+            action_input=action_input,
         )
 
         # 保存思考内容
@@ -658,31 +762,20 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         )
 
     @staticmethod
-    def _format_outputs_for_map(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
-        """Format output content for steps_map.
+    def _outputs_to_dict_list(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
+        """Convert outputs to dict list for steps_map."""
+        return [o.to_dict() for o in outputs]
 
-        Note: We do NOT truncate here because ToolAction already handles result size:
-        - Large outputs are archived by Truncator (lines 487-516 in tool_action.py)
-        - d-attach VIS tag is generated for users to view full content
-        - execute_sql, get_table_spec, skill_read etc. are explicitly skipped
+    def _build_right_panel_data(self, is_running: bool = False, agent_name: Optional[str] = None, lazy_mode: bool = False) -> ManusRightPanelData:
+        """构建右面板数据
 
-        Truncating here would:
-        1. Double-truncate already processed content
-        2. Break structured data (SQL results JSON)
-        3. Confuse users with "... (truncated)" when the full file is already in d-attach
-
-        The steps_map shows ToolAction's output as-is. If ToolAction archived the content,
-        the result already contains a truncated version + d-attach link.
+        Args:
+            is_running: 是否运行中
+            agent_name: Agent 名称
+            lazy_mode: 按需加载模式。True 时 steps_map 只保留步骤元信息（无 outputs），
+                      前端通过 /nexa/chat/step_detail API 按需获取步骤详情。
+                      用于 final_view / 历史回放场景，减少数据量。
         """
-        result = []
-        for o in outputs:
-            d = o.to_dict()
-            # Do NOT truncate - ToolAction already handled size management
-            result.append(d)
-        return result
-
-    def _build_right_panel_data(self, is_running: bool = False) -> ManusRightPanelData:
-        """构建右面板数据"""
         active_step_info = None
         outputs = []
 
@@ -695,6 +788,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 subtitle=step.subtitle,
                 status=step.status,
                 detail=step.description,
+                action=step.action,
+                action_input=step.action_input,
             )
             outputs = self._outputs.get(self._active_step_id, [])
 
@@ -706,44 +801,72 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             elif active_step_info.type == ManusStepType.SKILL.value:
                 panel_view = ManusPanelView.SKILL_PREVIEW.value
 
+        def _step_to_info(step: ManusExecutionStep) -> ManusActiveStepInfo:
+            return ManusActiveStepInfo(
+                id=step.id,
+                type=step.type,
+                title=step.title,
+                subtitle=step.subtitle,
+                status=step.status,
+                detail=step.description,
+                action=step.action,
+                action_input=step.action_input,
+            )
+
         # Build steps_map: planning UID → step data for click-to-switch
         # Also index by step_id so left panel clicks (which use step_id) work too
         steps_map: Dict[str, Dict[str, Any]] = {}
-        for planning_uid, sid in self._planning_uid_to_step_id.items():
-            step = self._steps.get(sid)
-            if step:
-                step_info = ManusActiveStepInfo(
-                    id=step.id,
-                    type=step.type,
-                    title=step.title,
-                    subtitle=step.subtitle,
-                    status=step.status,
-                    detail=step.description,
-                )
-                step_data = {
-                    "active_step": step_info.to_dict(),
-                    "outputs": self._format_outputs_for_map(self._outputs.get(sid, [])),
-                }
-                steps_map[planning_uid] = step_data
-                # Also register by step_id for left panel click-to-switch
+
+        if lazy_mode:
+            for planning_uid, sid in self._planning_uid_to_step_id.items():
+                step = self._steps.get(sid)
+                if step:
+                    step_meta = {
+                        "active_step": _step_to_info(step).to_dict(),
+                        "has_outputs": bool(self._outputs.get(sid)),
+                    }
+                    steps_map[planning_uid] = step_meta
+                    if sid not in steps_map:
+                        steps_map[sid] = step_meta
+
+            for sid, step in self._steps.items():
                 if sid not in steps_map:
+                    steps_map[sid] = {
+                        "active_step": _step_to_info(step).to_dict(),
+                        "has_outputs": bool(self._outputs.get(sid)),
+                    }
+        else:
+            for planning_uid, sid in self._planning_uid_to_step_id.items():
+                step = self._steps.get(sid)
+                if step:
+                    is_active = (sid == self._active_step_id)
+                    step_data = {
+                        "active_step": _step_to_info(step).to_dict(),
+                    }
+                    if is_active:
+                        step_data["outputs"] = self._outputs_to_dict_list(self._outputs.get(sid, []))
+                    else:
+                        step_data["has_outputs"] = bool(self._outputs.get(sid))
+                    steps_map[planning_uid] = step_data
+                    if sid not in steps_map:
+                        steps_map[sid] = step_data
+
+            for sid, step in self._steps.items():
+                if sid not in steps_map:
+                    is_active = (sid == self._active_step_id)
+                    step_data = {
+                        "active_step": _step_to_info(step).to_dict(),
+                    }
+                    if is_active:
+                        step_data["outputs"] = self._outputs_to_dict_list(self._outputs.get(sid, []))
+                    else:
+                        step_data["has_outputs"] = bool(self._outputs.get(sid))
                     steps_map[sid] = step_data
 
-        # Also add steps that have no planning_uid mapping (e.g. streaming steps)
-        for sid, step in self._steps.items():
-            if sid not in steps_map:
-                step_info = ManusActiveStepInfo(
-                    id=step.id,
-                    type=step.type,
-                    title=step.title,
-                    subtitle=step.subtitle,
-                    status=step.status,
-                    detail=step.description,
-                )
-                steps_map[sid] = {
-                    "active_step": step_info.to_dict(),
-                    "outputs": self._format_outputs_for_map(self._outputs.get(sid, [])),
-                }
+        meta = {
+            "total_steps": len(self._steps),
+            "default_step_id": self._active_step_id,
+        } if lazy_mode else None
 
         return ManusRightPanelData(
             active_step=active_step_info,
@@ -752,7 +875,242 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             artifacts=self._artifacts,
             panel_view=panel_view,
             steps_map=steps_map,
+            agent_name=agent_name,
+            lazy_loading=lazy_mode,
+            meta=meta,
         )
+
+    def _extract_step_from_gpt_msg(
+        self, gpt_msg: "GptsMessage"
+    ) -> Tuple[Optional[ManusActiveStepInfo], List[ManusExecutionOutput]]:
+        """从 gpt_msg 提取当前 step 信息（无副作用，不写 self 状态）."""
+        if not gpt_msg or not gpt_msg.action_report:
+            return None, []
+
+        act_out = None
+        for ao in reversed(gpt_msg.action_report if isinstance(gpt_msg.action_report, list) else [gpt_msg.action_report]):
+            act_name = getattr(ao, 'action', None) or getattr(ao, 'action_name', None) or getattr(ao, 'name', None)
+            if act_name != BlankAction.name:
+                act_out = ao
+                break
+
+        if not act_out:
+            return None, []
+
+        action_name = getattr(act_out, 'action', None) or getattr(act_out, 'action_name', None) or getattr(act_out, 'name', None)
+        action_input = getattr(act_out, 'action_input', None)
+        observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
+        is_success = getattr(act_out, 'is_exe_success', True)
+        action_id = getattr(act_out, 'action_id', None) or ""
+
+        step_info = ManusActiveStepInfo(
+            id=action_id,
+            type=self._map_action_to_step_type(action_name, action_input),
+            title=action_name or "执行中",
+            subtitle=observation[:100] if observation and isinstance(observation, str) else None,
+            status=ManusStepStatus.COMPLETED.value if is_success else ManusStepStatus.ERROR.value,
+            action=action_name,
+            action_input=action_input,
+        )
+
+        outputs = []
+        if observation and isinstance(observation, str):
+            outputs.append(ManusExecutionOutput(
+                output_type=ManusOutputType.TEXT.value,
+                content=observation,
+            ))
+
+        return step_info, outputs
+
+    def _extract_step_from_stream_msg(
+        self, stream_msg: Union[Dict, str], is_first_chunk: bool = False
+    ) -> Tuple[Optional[ManusActiveStepInfo], List[ManusExecutionOutput]]:
+        """从 stream_msg 提取当前 step 信息（无副作用，不写 self 状态）."""
+        if not stream_msg:
+            return None, []
+
+        if isinstance(stream_msg, str):
+            return None, []
+
+        action_report = stream_msg.get("action_report")
+        if not action_report:
+            return None, []
+
+        act_out = action_report[-1] if isinstance(action_report, list) else action_report
+        action_name = getattr(act_out, 'action', None) or getattr(act_out, 'action_name', None)
+        if not action_name and isinstance(act_out, dict):
+            action_name = act_out.get('action') or act_out.get('action_name') or act_out.get('name')
+
+        action_input = getattr(act_out, 'action_input', None)
+        if not action_input and isinstance(act_out, dict):
+            action_input = act_out.get('action_input')
+
+        observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
+        if not observation and isinstance(act_out, dict):
+            observation = act_out.get('observations') or act_out.get('content')
+
+        action_id = getattr(act_out, 'action_id', None) or ""
+        if not action_id and isinstance(act_out, dict):
+            action_id = act_out.get('action_id', '')
+
+        if not action_name:
+            return None, []
+
+        step_info = ManusActiveStepInfo(
+            id=action_id,
+            type=self._map_action_to_step_type(action_name, action_input),
+            title=action_name or "执行中",
+            subtitle=observation[:100] if observation and isinstance(observation, str) else None,
+            status=ManusStepStatus.RUNNING.value,
+            action=action_name,
+            action_input=action_input,
+        )
+
+        outputs = []
+        if observation and isinstance(observation, str):
+            outputs.append(ManusExecutionOutput(
+                output_type=ManusOutputType.TEXT.value,
+                content=observation,
+            ))
+
+        return step_info, outputs
+
+    async def render_step_detail(
+        self,
+        gpt_msg: "GptsMessage",
+        step_uid: str,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+    ) -> Optional[Dict]:
+        """Manus layout: render step detail with manus-specific VIS components."""
+        vis_text = await self._gen_plan_items(gpt_msg=gpt_msg, senders_map=senders_map)
+
+        step_info, outputs = self._extract_step_from_gpt_msg(gpt_msg)
+
+        if step_info and gpt_msg.action_report:
+            for act_out in (gpt_msg.action_report if isinstance(gpt_msg.action_report, list) else [gpt_msg.action_report]):
+                if step_info.type == ManusStepType.SQL.value:
+                    sql_data = self._extract_sql_query_data(act_out)
+                    if sql_data:
+                        outputs = [ManusExecutionOutput(
+                            output_type=ManusOutputType.SQL_QUERY.value,
+                            content=sql_data,
+                        )]
+                        break
+
+        step_data = None
+        if step_info:
+            step_data = {
+                "active_step": step_info.to_dict(),
+                "outputs": [o.to_dict() for o in outputs],
+            }
+
+        return {
+            "vis_content": vis_text or "",
+            "step_data": step_data,
+        }
+
+    def _build_steps_from_messages_stateless(
+        self, messages: List["GptsMessage"]
+    ) -> Tuple[Dict[str, Dict[str, Any]], Optional[ManusActiveStepInfo], List[ManusExecutionOutput]]:
+        """从 messages 无状态构建 steps_map、active_step_info 和 outputs。
+
+        不依赖 self._steps 等单例状态，避免并发冲突和数据泄漏。
+        """
+        local_steps: Dict[str, ManusExecutionStep] = {}
+        local_uid_map: Dict[str, str] = {}
+        local_outputs: Dict[str, list] = {}
+        step_counter = 0
+
+        if messages:
+            for msg in messages:
+                if msg.role == HUMAN_ROLE:
+                    continue
+                if not msg.action_report:
+                    continue
+                for act_out in (msg.action_report if isinstance(msg.action_report, list) else [msg.action_report]):
+                    action_name = getattr(act_out, 'action', None) or getattr(act_out, 'action_name', None) or getattr(act_out, 'name', None)
+                    is_blank = action_name == BlankAction.name
+                    if not is_blank and getattr(act_out, 'terminate', False):
+                        is_batch = action_name and action_name.lower() in ("batchtasks", "batch_tasks")
+                        if not is_batch:
+                            is_blank = True
+                    if is_blank:
+                        continue
+
+                    step_counter += 1
+                    step_id = f"step_{step_counter}"
+                    action_input = getattr(act_out, 'action_input', None)
+                    observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
+
+                    step = ManusExecutionStep(
+                        id=step_id,
+                        type=self._map_action_to_step_type(action_name, action_input),
+                        title=action_name or "执行中",
+                        subtitle=observation[:100] if observation and isinstance(observation, str) else None,
+                        description=msg.current_goal,
+                        status=ManusStepStatus.COMPLETED.value if getattr(act_out, 'is_exe_success', True) else ManusStepStatus.ERROR.value,
+                        action=action_name,
+                        action_input=action_input,
+                    )
+                    local_steps[step_id] = step
+
+                    action_id = getattr(act_out, 'action_id', None)
+                    if action_id:
+                        local_uid_map[action_id] = step_id
+
+                    if observation and isinstance(observation, str):
+                        local_outputs[step_id] = [ManusExecutionOutput(
+                            output_type=ManusOutputType.TEXT.value,
+                            content=observation,
+                        )]
+
+        def _step_to_info(s: ManusExecutionStep) -> ManusActiveStepInfo:
+            return ManusActiveStepInfo(
+                id=s.id, type=s.type, title=s.title,
+                subtitle=s.subtitle, status=s.status,
+                detail=s.description, action=s.action,
+                action_input=s.action_input,
+            )
+
+        steps_map: Dict[str, Dict[str, Any]] = {}
+        last_sid = list(local_steps.keys())[-1] if local_steps else None
+        for uid, sid in local_uid_map.items():
+            step = local_steps.get(sid)
+            if step:
+                step_data = {
+                    "active_step": _step_to_info(step).to_dict(),
+                }
+                if sid == last_sid:
+                    step_data["outputs"] = self._outputs_to_dict_list(local_outputs.get(sid, []))
+                else:
+                    step_data["has_outputs"] = bool(local_outputs.get(sid))
+                steps_map[uid] = step_data
+                if sid not in steps_map:
+                    steps_map[sid] = step_data
+        for sid, step in local_steps.items():
+            if sid not in steps_map:
+                step_data = {
+                    "active_step": _step_to_info(step).to_dict(),
+                }
+                if sid == last_sid:
+                    step_data["outputs"] = self._outputs_to_dict_list(local_outputs.get(sid, []))
+                else:
+                    step_data["has_outputs"] = bool(local_outputs.get(sid))
+                steps_map[sid] = step_data
+
+        total_step_count = len(local_steps)
+        if len(steps_map) > self.MAX_STEPS_IN_MAP:
+            keep_sids = set(list(local_steps.keys())[-self.MAX_STEPS_IN_MAP:])
+            steps_map = {
+                k: v for k, v in steps_map.items()
+                if k in keep_sids or local_uid_map.get(k) in keep_sids
+            }
+
+        last_step = list(local_steps.values())[-1] if local_steps else None
+        active_step_info = _step_to_info(last_step) if last_step else None
+        current_outputs = local_outputs.get(last_step.id, []) if last_step else []
+
+        return steps_map, active_step_info, current_outputs
 
     def _generate_vis_tag_output(
         self, tag: str, uid: str, data: Dict, update_type: str = UpdateType.ALL.value
@@ -780,6 +1138,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         **kwargs,
     ):
         """主可视化方法 - planning_window 复用 vis_window3，running_window 使用 manus-right-panel"""
+        if main_agent_name:
+            self._agent_name = main_agent_name
         running_agents: List[str] = []
         if senders_map:
             for k, v in senders_map.items():
@@ -873,14 +1233,32 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     planning_window = system_events_vis
 
             # === running_window: 使用 manus-right-panel 渲染工具执行结果 ===
-            # 处理新消息，追踪步骤状态
+            # 无状态构建：从 messages 构建 steps_map 和 active_step，叠加当前消息
+            steps_map, active_step_info, current_outputs = self._build_steps_from_messages_stateless(
+                messages
+            )
+
+            # 叠加当前消息的步骤（gpt_msg 或 stream_msg 优先）
             if gpt_msg and gpt_msg.role != HUMAN_ROLE:
-                self._process_gpt_message(gpt_msg)
+                step_info, outputs = self._extract_step_from_gpt_msg(gpt_msg)
+                if step_info:
+                    active_step_info = step_info
+                    current_outputs = outputs
+            elif stream_msg:
+                step_info, outputs = self._extract_step_from_stream_msg(
+                    stream_msg, is_first_chunk
+                )
+                if step_info:
+                    active_step_info = step_info
+                    current_outputs = outputs
 
-            if stream_msg:
-                await self._process_stream_message(stream_msg, is_first_chunk)
-
-            right_panel = self._build_right_panel_data(is_running=is_working)
+            right_panel = ManusRightPanelData(
+                active_step=active_step_info,
+                outputs=current_outputs,
+                is_running=is_working,
+                steps_map=steps_map,
+                agent_name=self._agent_name,
+            )
 
             # 收集任务文件和交付文件（增量推送时也需要）
             if messages:
@@ -950,9 +1328,21 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 else:
                     planning_window = deliverable_vis
 
+            # Planning window eviction
+            eviction_vis = self._check_and_evict()
+            if eviction_vis:
+                if planning_window:
+                    planning_window = planning_window + "\n" + eviction_vis
+                else:
+                    planning_window = eviction_vis
+
             if planning_window or running_window:
                 return json.dumps(
-                    {"planning_window": planning_window, "running_window": running_window},
+                    {
+                        "planning_window": planning_window,
+                        "running_window": running_window,
+                        "meta_window": self._build_meta_window(),
+                    },
                     ensure_ascii=False,
                 )
             return None
@@ -1023,6 +1413,8 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 type=step_type,
                 title=tool_name or "执行中",
                 status=ManusStepStatus.RUNNING.value,
+                action=tool_name,
+                action_input=tool_input,
             )
             self._steps[step_id] = step
             self._active_step_id = step_id
@@ -1087,11 +1479,13 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 continue
 
             # BlankAction — 跳过，不在执行步骤中展示
+            # batch_tasks 虽然 terminate=True，但需要展示
+            is_batch = action_name and action_name.lower() in ("batchtasks", "batch_tasks")
             is_blank = action_name == BlankAction.name
             if not is_blank:
                 report_name = getattr(report, 'name', '') if hasattr(report, 'name') else (report.get('name', '') if isinstance(report, dict) else '')
                 is_blank = report_name == BlankAction.name
-            if not is_blank:
+            if not is_blank and not is_batch:
                 is_terminate = getattr(report, 'terminate', False) if hasattr(report, 'terminate') else (report.get('terminate', False) if isinstance(report, dict) else False)
                 is_blank = is_terminate
 
@@ -1105,11 +1499,42 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             step_id = f"step_{self._step_counter}"
             step_type = self._map_action_to_step_type(action_name, action_input)
 
+            # batch_tasks：将 view 中的 d-batch-tasks 数据合并到 action_input
+            if is_batch:
+                batch_view_data = None
+                view_str = getattr(report, 'view', None) if hasattr(report, 'view') else (report.get('view') if isinstance(report, dict) else None)
+                if view_str and 'd-batch-tasks' in str(view_str):
+                    try:
+                        start = view_str.find('\n', view_str.find('d-batch-tasks')) + 1
+                        end = view_str.rfind('```')
+                        if start > 0 and end > start:
+                            batch_view_data = json.loads(view_str[start:end])
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                if not batch_view_data:
+                    extra = getattr(report, 'extra', None) if hasattr(report, 'extra') else (report.get('extra') if isinstance(report, dict) else None)
+                    extra = extra or {}
+                    batch_view_data = {
+                        'batch_id': extra.get('batch_id', ''),
+                        'mode': extra.get('mode', 'async'),
+                        'total': extra.get('total', 0),
+                        'completed': 0,
+                        'failed': 0,
+                        'tasks': [],
+                    }
+                if batch_view_data:
+                    if isinstance(action_input, dict):
+                        action_input = {**action_input, **batch_view_data}
+                    else:
+                        action_input = batch_view_data
+
             step = ManusExecutionStep(
                 id=step_id,
                 type=step_type,
                 title=display_title,
                 status=ManusStepStatus.COMPLETED.value if is_success else ManusStepStatus.ERROR.value,
+                action=action_name,
+                action_input=action_input,
             )
             self._steps[step_id] = step
             self._active_step_id = step_id
@@ -1280,18 +1705,112 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         **kwargs,
     ):
         """最终视图 - planning_window 复用 vis_window3，running_window 用 manus-right-panel"""
-        # 将所有运行中的步骤标记为完成
-        for step in self._steps.values():
-            if step.status == ManusStepStatus.RUNNING.value:
-                step.status = ManusStepStatus.COMPLETED.value
+        # 从 messages 完整构建 steps（使用局部变量，不依赖 self._steps 单例状态）
+        local_steps: Dict[str, ManusExecutionStep] = {}
+        local_uid_map: Dict[str, str] = {}
+        local_outputs: Dict[str, list] = {}
+        step_counter = 0
 
-        # 调用父类 final_view 获取 planning_window（vis_window3 格式）
+        if messages:
+            for msg in messages:
+                if msg.role == HUMAN_ROLE and msg.action_report is None:
+                    continue
+                if not msg.action_report:
+                    continue
+                for act_out in (msg.action_report if isinstance(msg.action_report, list) else [msg.action_report]):
+                    action_name = getattr(act_out, 'action', None) or getattr(act_out, 'action_name', None) or getattr(act_out, 'name', None)
+                    is_blank = action_name == BlankAction.name
+                    if not is_blank and getattr(act_out, 'terminate', False):
+                        is_batch = action_name and action_name.lower() in ("batchtasks", "batch_tasks")
+                        if not is_batch:
+                            is_blank = True
+                    if is_blank:
+                        continue
+
+                    step_counter += 1
+                    step_id = f"step_{step_counter}"
+                    action_input = getattr(act_out, 'action_input', None)
+                    observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
+
+                    step = ManusExecutionStep(
+                        id=step_id,
+                        type=self._map_action_to_step_type(action_name, action_input),
+                        title=action_name or "执行中",
+                        subtitle=observation[:100] if observation and isinstance(observation, str) else None,
+                        description=msg.current_goal,
+                        status=ManusStepStatus.COMPLETED.value if getattr(act_out, 'is_exe_success', True) else ManusStepStatus.ERROR.value,
+                        action=action_name,
+                        action_input=action_input,
+                    )
+                    local_steps[step_id] = step
+
+                    action_id = getattr(act_out, 'action_id', None)
+                    if action_id:
+                        local_uid_map[action_id] = step_id
+
+                    if observation and isinstance(observation, str):
+                        local_outputs[step_id] = [ManusExecutionOutput(
+                            output_type=ManusOutputType.TEXT.value,
+                            content=observation,
+                        )]
+
+        # 构建 steps_map（局部数据）— lazy mode: 只含元信息，不含 outputs
+        steps_map: Dict[str, Dict[str, Any]] = {}
+        def _step_to_info(step):
+            return ManusActiveStepInfo(
+                id=step.id, type=step.type, title=step.title,
+                subtitle=step.subtitle, status=step.status,
+                detail=step.description, action=step.action,
+                action_input=step.action_input,
+            )
+
+        for uid, sid in local_uid_map.items():
+            step = local_steps.get(sid)
+            if step:
+                step_meta = {
+                    "active_step": _step_to_info(step).to_dict(),
+                    "has_outputs": bool(local_outputs.get(sid)),
+                }
+                steps_map[uid] = step_meta
+                if sid not in steps_map:
+                    steps_map[sid] = step_meta
+        for sid, step in local_steps.items():
+            if sid not in steps_map:
+                steps_map[sid] = {
+                    "active_step": _step_to_info(step).to_dict(),
+                    "has_outputs": bool(local_outputs.get(sid)),
+                }
+
+        total_step_count = len(local_steps)
+        if len(steps_map) > self.MAX_STEPS_IN_MAP:
+            keep_sids = set(list(local_steps.keys())[-self.MAX_STEPS_IN_MAP:])
+            steps_map = {
+                k: v for k, v in steps_map.items()
+                if k in keep_sids or local_uid_map.get(k) in keep_sids
+            }
+
+        # 调用父类 final_view 获取 planning_window
         parent_result = await super().final_view(
             messages=messages, plans_map=plans_map, senders_map=senders_map, **kwargs
         )
 
-        # 构建 manus right panel 数据
-        right_panel = self._build_right_panel_data(is_running=False)
+        # 构建 right panel（使用局部 steps_map，不依赖 self._steps）
+        last_step = list(local_steps.values())[-1] if local_steps else None
+        active_step_info = _step_to_info(last_step) if last_step else None
+        last_outputs = local_outputs.get(last_step.id, []) if last_step else []
+        right_panel = ManusRightPanelData(
+            active_step=active_step_info,
+            outputs=last_outputs,
+            is_running=False,
+            steps_map=steps_map,
+            agent_name=self._agent_name,
+            lazy_loading=True,
+            meta={
+                "total_steps": total_step_count,
+                "visible_steps": len(steps_map),
+                "default_step_id": last_step.id if last_step else None,
+            },
+        )
 
         # 收集任务文件和交付文件
         task_files, deliverable_files = self._collect_files_from_messages(messages)
@@ -1301,8 +1820,6 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         if messages:
             last_msg = messages[-1]
             if last_msg.role != HUMAN_ROLE:
-                # 优先从 action_report 提取完整结论内容（observations > content），
-                # last_msg.content 可能只是 agent 的 thinking/response 文本，不含完整输出
                 summary = None
                 if last_msg.action_report:
                     for act_out in last_msg.action_report:
@@ -1356,7 +1873,6 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             try:
                 result_data = json.loads(parent_result)
                 result_data["running_window"] = right_vis
-                # 追加 deliverable VIS 标签到 planning_window
                 if deliverable_vis:
                     pw = result_data.get("planning_window") or ""
                     result_data["planning_window"] = (
@@ -1370,6 +1886,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             {
                 "planning_window": deliverable_vis,
                 "running_window": right_vis,
+                "meta_window": self._build_meta_window(),
             },
             ensure_ascii=False,
         )
@@ -1379,8 +1896,15 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         gpt_msg: "GptsMessage",
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ) -> Optional[str]:
-        """Manus 布局不在 planning_window 渲染最终结论，结论已在右侧面板 summary tab 展示。"""
-        return None
+        """Manus 布局不在 planning_window 渲染最终结论，但需要保留 ask_user/confirm 交互组件。"""
+        plans_vis = []
+
+        if gpt_msg and gpt_msg.action_report:
+            ask_user_vis = await self.gen_ask_user_vis(gpt_msg)
+            if ask_user_vis:
+                plans_vis.append(ask_user_vis)
+
+        return "\n".join(plans_vis) if plans_vis else None
 
     async def _render_final_conclusion(
         self, output_message: GptsMessage
@@ -1436,3 +1960,105 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         return DrskContent().sync_display(
             content=final_conclusion.to_dict(exclude_none=True)
         )
+
+    def get_step_detail(
+        self,
+        messages: Optional[List["GptsMessage"]] = None,
+        step_id: Optional[str] = None,
+        senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
+        **kwargs,
+    ) -> Optional[Dict[str, Any]]:
+        """On-demand load full outputs for a specific step.
+
+        First tries in-memory state (self._steps, self._outputs).
+        If not found (e.g., history replay), re-processes messages to find the step.
+        """
+        if not step_id:
+            return None
+
+        resolved_step_id = step_id
+        if step_id in self._planning_uid_to_step_id:
+            resolved_step_id = self._planning_uid_to_step_id[step_id]
+
+        # Try in-memory state
+        step = self._steps.get(resolved_step_id)
+        if step:
+            step_info = ManusActiveStepInfo(
+                id=step.id,
+                type=step.type,
+                title=step.title,
+                subtitle=step.subtitle,
+                status=step.status,
+                detail=step.description,
+                action=step.action,
+                action_input=step.action_input,
+            )
+            return {
+                "active_step": step_info.to_dict(),
+                "outputs": self._outputs_to_dict_list(
+                    self._outputs.get(resolved_step_id, [])
+                ),
+            }
+
+        # History replay: re-process messages to find the step
+        if messages:
+            temp_counter = 0
+            for msg in messages:
+                if not msg.action_report:
+                    continue
+                for act_out in msg.action_report:
+                    action_name = getattr(act_out, 'action', None) or getattr(act_out, 'name', '')
+                    is_batch = action_name and action_name.lower() in ("batchtasks", "batch_tasks")
+                    if action_name == BlankAction.name:
+                        continue
+                    if not is_batch and getattr(act_out, 'terminate', False):
+                        continue
+                    temp_counter += 1
+                    temp_step_id = f"step_{temp_counter}"
+
+                    action_id = getattr(act_out, 'action_id', None)
+                    if temp_step_id == resolved_step_id or action_id == step_id:
+                        action_input = getattr(act_out, 'action_input', None)
+                        step_type = self._map_action_to_step_type(action_name, action_input)
+                        is_success = getattr(act_out, 'is_exe_success', True)
+                        obs = getattr(act_out, 'observations', None)
+                        cnt = getattr(act_out, 'content', None)
+                        display_content = obs or cnt
+
+                        out_type = ManusOutputType.TEXT.value
+                        if step_type in (ManusStepType.PYTHON.value,):
+                            out_type = ManusOutputType.CODE.value
+                        elif step_type == ManusStepType.HTML.value:
+                            out_type = ManusOutputType.HTML.value
+                        elif step_type == ManusStepType.SQL.value:
+                            sql_data = self._extract_sql_query_data(act_out)
+                            if sql_data:
+                                return {
+                                    "active_step": {
+                                        "id": temp_step_id,
+                                        "type": step_type,
+                                        "title": action_name,
+                                        "status": ManusStepStatus.COMPLETED.value if is_success else ManusStepStatus.ERROR.value,
+                                        "action": action_name,
+                                        "action_input": action_input,
+                                    },
+                                    "outputs": [{"output_type": ManusOutputType.SQL_QUERY.value, "content": sql_data}],
+                                }
+
+                        outputs = []
+                        if display_content:
+                            outputs.append({"output_type": out_type, "content": display_content})
+
+                        return {
+                            "active_step": {
+                                "id": temp_step_id,
+                                "type": step_type,
+                                "title": action_name,
+                                "status": ManusStepStatus.COMPLETED.value if is_success else ManusStepStatus.ERROR.value,
+                                "action": action_name,
+                                "action_input": action_input,
+                            },
+                            "outputs": outputs,
+                        }
+
+        return None

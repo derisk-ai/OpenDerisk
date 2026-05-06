@@ -170,6 +170,8 @@ class GptsApp(BaseModel):
     resource_tool: Optional[List[AgentResource]] = None
     ## Agent配置
     resource_agent: Optional[List[AgentResource]] = None
+    ## 记忆配置
+    resource_memory: Optional[List[AgentResource]] = None
     ## 应用自定义参数
     custom_variables: Optional[List[DynamicParam]] = None
     ## 系统prompt模版
@@ -249,6 +251,7 @@ class GptsApp(BaseModel):
             resource_tool=d.get("resource_tool"),
             resources=d.get("resources"),
             resource_agent=d.get("resource_agent"),
+            resource_memory=d.get("resource_memory"),
             custom_variables=d.get("custom_variables"),
             system_prompt_template=d.get("system_prompt_template"),
             user_prompt_template=d.get("user_prompt_template"),

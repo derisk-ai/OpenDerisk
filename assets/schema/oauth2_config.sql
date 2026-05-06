@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS `oauth2_config` (
   `enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'OAuth2 enabled flag',
   `providers_json` TEXT NULL COMMENT 'OAuth2 providers configuration (JSON array)',
   `admin_users_json` TEXT NULL COMMENT 'Admin users list (JSON array)',
+  `default_role` VARCHAR(32) NULL DEFAULT 'viewer' COMMENT 'Default RBAC role for new OAuth2 users',
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Modify time',
   PRIMARY KEY (`id`),

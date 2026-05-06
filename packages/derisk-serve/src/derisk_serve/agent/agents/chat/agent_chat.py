@@ -2583,6 +2583,79 @@ class AgentChat(BaseComponent, ABC):
         finally:
             await gpts_memory.clear(conv_id)
 
+    async def query_step_detail(
+        self, conv_id: str, step_uid: str,
+    ) -> Optional[dict]:
+        """按 step uid 查询单个执行步骤的 VIS 渲染数据。"""
+        gpts_memory = GptsMemory(
+            plans_memory=MetaDerisksPlansMemory(),
+            message_memory=MetaDerisksMessageMemory(),
+            work_log_db_storage=MetaDerisksWorkLogStorage(),
+        )
+        try:
+            gpts_conversation = self.gpts_conversations.get_by_conv_id(conv_id)
+            if not gpts_conversation:
+                return None
+
+            current_vis_render = gpts_conversation.vis_render or "nex_vis_window"
+            app_config = self.system_app.config.configs.get("app_config")
+            web_config = app_config.service.web
+            vis_manager = get_vis_manager()
+            vis_convert = vis_manager.get_by_name(current_vis_render)(
+                derisk_url=web_config.web_url
+            )
+
+            await gpts_memory.init(conv_id=conv_id, vis_converter=vis_convert)
+            await gpts_memory.load_persistent_memory(conv_id)
+
+            cache = await gpts_memory._get_cache(conv_id)
+            if not cache:
+                return None
+
+            target_entry = None
+            for entry in cache.work_logs:
+                if entry.tool_call_id == step_uid:
+                    target_entry = entry
+                    break
+
+            if not target_entry or not target_entry.message_id:
+                return None
+
+            target_msg = cache.messages.get(target_entry.message_id)
+            if not target_msg:
+                return None
+
+            entries = cache.work_entries_by_message.get(target_msg.message_id, [])
+            if entries and hasattr(target_msg, "is_new_format") and target_msg.is_new_format:
+                target_msg.set_work_entries(entries)
+
+            if hasattr(vis_convert, "render_step_detail"):
+                return await vis_convert.render_step_detail(
+                    gpt_msg=target_msg,
+                    step_uid=step_uid,
+                )
+
+            action_name = target_entry.tool or ""
+            observation = getattr(target_entry, "output", None) or ""
+            return {
+                "vis_content": "",
+                "step_data": {
+                    "active_step": {
+                        "id": step_uid,
+                        "type": action_name or "tool",
+                        "title": action_name or "Step",
+                        "status": "completed" if target_entry.success else "error",
+                        "action": action_name,
+                        "action_input": getattr(target_entry, "args", None),
+                    },
+                    "outputs": [{"output_type": "text", "content": observation}]
+                    if observation
+                    else [],
+                },
+            }
+        finally:
+            await gpts_memory.clear(conv_id)
+
     async def dynamic_resource_adapter(
         self, gpt_app: GptsApp, ext_info: Optional[dict] = None
     ) -> None:

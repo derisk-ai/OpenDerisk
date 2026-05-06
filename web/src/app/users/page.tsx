@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Avatar, Badge, Button, Input, Space, Switch, Table, Tag, message } from 'antd';
-import { SearchOutlined, UserOutlined } from '@ant-design/icons';
+import { Avatar, Badge, Button, Input, Modal, Space, Switch, Table, Tag, message } from 'antd';
+import { DeleteOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
 import { usersService, User } from '@/services/users';
 import { authService } from '@/services/auth';
 import { useRouter } from 'next/navigation';
@@ -18,6 +18,7 @@ export default function UsersPage() {
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
   const [oauthEnabled, setOauthEnabled] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const checkedRef = useRef(false);
 
   useEffect(() => {
@@ -28,6 +29,12 @@ export default function UsersPage() {
       if (!status.enabled) {
         router.replace('/');
       }
+    });
+    // Get current user info
+    authService.getCurrentUser().then((user) => {
+      setCurrentUser(user);
+    }).catch(() => {
+      // Ignore error
     });
   }, [router]);
 
@@ -68,6 +75,31 @@ export default function UsersPage() {
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '操作失败');
     }
+  };
+
+  const handleDelete = async (user: User) => {
+    // Prevent self-deletion
+    if (currentUser && currentUser.id === user.id) {
+      message.error('不能删除自己的账号');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除用户',
+      content: `确定要删除用户 "${user.name || user.fullname || user.email || user.id}" 吗？此操作将禁用该用户账号。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await usersService.deleteUser(user.id);
+          message.success('用户已删除');
+          fetchUsers(); // Refresh list
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '删除失败');
+        }
+      },
+    });
   };
 
   const columns = [
@@ -144,13 +176,26 @@ export default function UsersPage() {
       title: '操作',
       key: 'actions',
       render: (_: any, record: User) => (
-        <Button
-          size="small"
-          type={record.role === 'admin' ? 'default' : 'primary'}
-          onClick={() => handleToggleRole(record)}
-        >
-          {record.role === 'admin' ? '取消管理员' : '设为管理员'}
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            type={record.role === 'admin' ? 'default' : 'primary'}
+            onClick={() => handleToggleRole(record)}
+          >
+            {record.role === 'admin' ? '取消管理员' : '设为管理员'}
+          </Button>
+          {/* Show delete button only for admin users, hide for self */}
+          {currentUser?.role === 'admin' && currentUser?.id !== record.id && (
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record)}
+            >
+              删除
+            </Button>
+          )}
+        </Space>
       ),
     },
   ];

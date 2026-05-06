@@ -22,6 +22,49 @@ from derisk_serve.core.config import GPTsAppConfig
 
 
 @dataclass
+class MemoryStorageConfig(BaseParameters):
+    """Memory storage configuration for the memory module."""
+
+    type: Optional[str] = field(
+        default="mempalace",
+        metadata={"help": _("Memory store provider type (e.g. mempalace, custom)")},
+    )
+    palace_path: Optional[str] = field(
+        default=None,
+        metadata={"help": _("Path to memory data directory")},
+    )
+    enable_kg: Optional[bool] = field(
+        default=True,
+        metadata={"help": _("Enable knowledge graph for entity tracking")},
+    )
+    default_wing: Optional[str] = field(
+        default=None,
+        metadata={"help": _("Default wing name for memory organization")},
+    )
+    use_builtin_embedding: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": _(
+                "Use the memory provider's built-in embedding model instead of "
+                "the centrally configured embedding model"
+            )
+        },
+    )
+    auto_memory: Optional[bool] = field(
+        default=True,
+        metadata={"help": _("Auto-extract and store memories from conversations")},
+    )
+    auto_memory_top_k: Optional[int] = field(
+        default=5,
+        metadata={"help": _("Number of memories to recall before each conversation")},
+    )
+    auto_memory_max_distance: Optional[float] = field(
+        default=0.4,
+        metadata={"help": _("Max vector distance for memory recall")},
+    )
+
+
+@dataclass
 class SystemParameters:
     """System parameters."""
 
@@ -83,6 +126,12 @@ class StorageConfig(BaseParameters):
         default_factory=VectorStoreConfig,
         metadata={
             "help": _("default full text type"),
+        },
+    )
+    memory: MemoryStorageConfig = field(
+        default_factory=MemoryStorageConfig,
+        metadata={
+            "help": _("Memory store configuration"),
         },
     )
 

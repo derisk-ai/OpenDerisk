@@ -11,6 +11,7 @@ from derisk.model.cluster import WorkerManagerFactory
 from derisk.rag.embedding import EmbeddingFactory, DefaultEmbeddingFactory
 from derisk.storage.base import IndexStoreBase
 from derisk.storage.full_text.base import FullTextStoreBase
+from derisk.storage.memory.base import MemoryStoreBase, MemoryStoreConfig
 from derisk.storage.vector_store.base import VectorStoreBase, VectorStoreConfig
 from derisk.util.executor_utils import DefaultExecutorFactory
 from derisk_ext.storage.full_text.elasticsearch import ElasticDocumentStore
@@ -68,6 +69,8 @@ class StorageManager(BaseComponent):
                     "reference configs/derisk-bm25-rag.toml"
                 )
             raise NotImplementedError("FullText storage is not implemented")
+        elif storage_type == "Memory":
+            return self.create_memory_store(index_name)
         else:
             raise ValueError(f"Does not support storage type {storage_type}")
 
@@ -138,6 +141,94 @@ class StorageManager(BaseComponent):
         self._store_cache[index_name] = new_store
         return new_store
 
+    def create_memory_store(
+        self, index_name: str
+    ) -> Optional[MemoryStoreBase]:
+        """Create a memory store.
+
+        Auto-discovers registered MemoryStoreConfig subclasses (by
+        ``__type__``) and instantiates the matching provider.  Falls back
+        to the first available provider if no explicit type is configured.
+        """
+        cache_key = f"memory_{index_name}"
+        if cache_key in self._store_cache:
+            return self._store_cache[cache_key]
+
+        app_config = self.system_app.config.configs.get("app_config")
+        storage_config = app_config.rag.storage
+
+        # Read memory provider type from config (e.g. "mempalace")
+        memory_cfg = getattr(storage_config, "memory", None)
+        provider_type = None
+        if memory_cfg:
+            provider_type = getattr(memory_cfg, "type", None) or getattr(
+                memory_cfg, "__type__", None
+            )
+
+        # Discover registered providers
+        available_providers = _get_all_memory_subclasses()
+        if not available_providers:
+            # Try importing the default provider to trigger registration
+            try:
+                from derisk_ext.storage.memory.mempalace_store import (  # noqa: F401
+                    MemPalaceMemoryConfig,
+                )
+
+                available_providers = _get_all_memory_subclasses()
+            except ImportError:
+                logger.warning(
+                    "No memory store providers found. "
+                    "Install mempalace (pip install mempalace) or register "
+                    "a custom MemoryStoreConfig subclass."
+                )
+                return None
+
+        # Match by type or use first available
+        config_cls = None
+        for cls in available_providers:
+            if provider_type and getattr(cls, "__type__", None) == provider_type:
+                config_cls = cls
+                break
+        if config_cls is None and available_providers:
+            config_cls = available_providers[0]
+
+        if config_cls is None:
+            logger.warning("No memory store provider matched.")
+            return None
+
+        # Build config with any overrides from app config
+        config_kwargs = {}
+        if memory_cfg:
+            for k in ("palace_path", "enable_kg", "default_wing"):
+                v = getattr(memory_cfg, k, None)
+                if v is not None:
+                    config_kwargs[k] = v
+
+        config_instance = config_cls(**config_kwargs)
+
+        # Try to pass OpenDerisk's embedding_fn to the memory store so it
+        # can reuse the centrally configured embedding model instead of its
+        # own built-in one.
+        embedding_fn = None
+        try:
+            embedding_factory = self.system_app.get_component(
+                "embedding_factory", EmbeddingFactory
+            )
+            embedding_fn = embedding_factory.create()
+        except (ValueError, Exception) as e:
+            logger.info(
+                f"No embedding factory available for memory store: {e}. "
+                "The provider will use its built-in embedding model."
+            )
+
+        store = config_instance.create_store(
+            name=index_name, embedding_fn=embedding_fn
+        )
+
+        with self._cache_lock:
+            self._store_cache[cache_key] = store
+        return store
+
     @property
     def get_vector_supported_types(self) -> List[str]:
         """Get all supported types."""
@@ -156,6 +247,10 @@ class StorageManager(BaseComponent):
 
 
 def _get_all_subclasses() -> List[Type[VectorStoreConfig]]:
-    """Get all subclasses of cls."""
-
+    """Get all subclasses of VectorStoreConfig."""
     return VectorStoreConfig.__subclasses__()
+
+
+def _get_all_memory_subclasses() -> List[Type[MemoryStoreConfig]]:
+    """Get all registered MemoryStoreConfig subclasses."""
+    return MemoryStoreConfig.__subclasses__()
