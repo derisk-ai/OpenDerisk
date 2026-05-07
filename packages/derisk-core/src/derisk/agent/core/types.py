@@ -303,6 +303,37 @@ class AgentMessage:
                     media_types.append("file_url")
                 else:
                     raise ValueError(f"Unknown message type: {item} of system message")
+            elif isinstance(item, dict) and "type" in item:
+                # Handle dict format (serialized MediaContent)
+                type = item["type"]
+                obj = item.get("object", {})
+                if isinstance(obj, dict):
+                    data = obj.get("data", "")
+                    format = obj.get("format", "text")
+                else:
+                    data = getattr(obj, "data", "")
+                    format = getattr(obj, "format", "text")
+                if type == "text":
+                    text_content = data
+                    media_types.append("text")
+                elif type == MediaContentType.IMAGE.value:
+                    context.update({"image_url": data})
+                    media_types.append("image_url")
+                elif type == MediaContentType.AUDIO.value:
+                    if format == "url":
+                        context.update({"audio_url": data})
+                        media_types.append("audio_url")
+                    else:
+                        context.update({"input_audio": data})
+                        media_types.append("input_audio")
+                elif type == MediaContentType.VIDEO.value:
+                    context.update({"video_url": data})
+                    media_types.append("video_url")
+                elif type == MediaContentType.FILE.value:
+                    context.update({"file_url": data})
+                    media_types.append("file_url")
+                else:
+                    raise ValueError(f"Unknown message type: {item} of system message")
             else:
                 raise ValueError(f"Unknown message type: {item} of system message")
         return AgentMessage(
