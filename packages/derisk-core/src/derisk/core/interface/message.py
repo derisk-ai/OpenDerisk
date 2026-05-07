@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple, Union, cast
 
 from derisk._private.pydantic import BaseModel, Field, model_to_dict
-from derisk.core.interface.media import MediaContent
+from derisk.core.interface.media import MediaContent, MediaContentType
 from derisk.core.interface.storage import (
     InMemoryStorage,
     ResourceIdentifier,
@@ -293,18 +293,50 @@ class ModelMessage(BaseModel):
             )
         elif isinstance(content, Iterable):
             for item in content:
-                if isinstance(item, str):
+                # Handle MediaContent instance (from deserialized message)
+                if isinstance(item, MediaContent):
+                    if item.type == MediaContentType.TEXT:
+                        result.append(
+                            ModelMessage(
+                                role=ModelMessageRoleType.SYSTEM, content=item.get_text()
+                            )
+                        )
+                    else:
+                        result.append(
+                            ModelMessage(role=ModelMessageRoleType.SYSTEM, content=[item])
+                        )
+                elif isinstance(item, str):
                     result.append(
                         ModelMessage(role=ModelMessageRoleType.SYSTEM, content=item)
                     )
                 elif isinstance(item, dict) and "type" in item:
                     type = item["type"]
+                    # OpenAI original format: {"type": "text", "text": "..."}
                     if type == "text" and "text" in item:
                         result.append(
                             ModelMessage(
                                 role=ModelMessageRoleType.SYSTEM, content=item["text"]
                             )
                         )
+                    # Serialized MediaContent format: {"type": "text", "object": {"data": "...", "format": "..."}}
+                    elif "object" in item:
+                        obj = item["object"]
+                        if isinstance(obj, dict):
+                            data = obj.get("data", "")
+                        else:
+                            data = getattr(obj, "data", "")
+                        if type == "text":
+                            result.append(
+                                ModelMessage(
+                                    role=ModelMessageRoleType.SYSTEM, content=data
+                                )
+                            )
+                        else:
+                            # Non-text media: reconstruct MediaContent
+                            mc = MediaContent.parse_content(item)
+                            result.append(
+                                ModelMessage(role=ModelMessageRoleType.SYSTEM, content=[mc])
+                            )
                     else:
                         raise ValueError(
                             f"Unknown message type: {item} of system message"
@@ -365,18 +397,50 @@ class ModelMessage(BaseModel):
             )
         elif isinstance(content, Iterable):
             for item in content:
-                if isinstance(item, str):
+                # Handle MediaContent instance (from deserialized message)
+                if isinstance(item, MediaContent):
+                    if item.type == MediaContentType.TEXT:
+                        result.append(
+                            ModelMessage(
+                                role=ModelMessageRoleType.TOOL, content=item.get_text(), tool_call_id=tool_call_id
+                            )
+                        )
+                    else:
+                        result.append(
+                            ModelMessage(role=ModelMessageRoleType.TOOL, content=[item], tool_call_id=tool_call_id)
+                        )
+                elif isinstance(item, str):
                     result.append(
                         ModelMessage(role=ModelMessageRoleType.TOOL, content=item, tool_call_id=tool_call_id)
                     )
                 elif isinstance(item, dict) and "type" in item:
                     type = item["type"]
+                    # OpenAI original format: {"type": "text", "text": "..."}
                     if type == "text" and "text" in item:
                         result.append(
                             ModelMessage(
                                 role=ModelMessageRoleType.TOOL, content=item["text"], tool_call_id=tool_call_id
                             )
                         )
+                    # Serialized MediaContent format: {"type": "text", "object": {"data": "...", "format": "..."}}
+                    elif "object" in item:
+                        obj = item["object"]
+                        if isinstance(obj, dict):
+                            data = obj.get("data", "")
+                        else:
+                            data = getattr(obj, "data", "")
+                        if type == "text":
+                            result.append(
+                                ModelMessage(
+                                    role=ModelMessageRoleType.TOOL, content=data, tool_call_id=tool_call_id
+                                )
+                            )
+                        else:
+                            # Non-text media: reconstruct MediaContent
+                            mc = MediaContent.parse_content(item)
+                            result.append(
+                                ModelMessage(role=ModelMessageRoleType.TOOL, content=[mc], tool_call_id=tool_call_id)
+                            )
                     else:
                         raise ValueError(
                             f"Unknown message type: {item} of tool message"
@@ -406,10 +470,21 @@ class ModelMessage(BaseModel):
             result.append(ModelMessage(role=ModelMessageRoleType.AI, content=content, tool_calls=tool_calls))
         elif isinstance(content, Iterable):
             for item in content:
-                if isinstance(item, str):
+                # Handle MediaContent instance (from deserialized message)
+                if isinstance(item, MediaContent):
+                    if item.type == MediaContentType.TEXT:
+                        result.append(
+                            ModelMessage(role=ModelMessageRoleType.AI, content=item.get_text(), tool_calls=tool_calls)
+                        )
+                    else:
+                        result.append(
+                            ModelMessage(role=ModelMessageRoleType.AI, content=[item], tool_calls=tool_calls)
+                        )
+                elif isinstance(item, str):
                     result.append(ModelMessage(role=ModelMessageRoleType.AI, content=item, tool_calls=tool_calls))
                 elif isinstance(item, dict) and "type" in item:
                     type = item["type"]
+                    # OpenAI original format: {"type": "text", "text": "..."} or {"type": "refusal", "refusal": "..."}
                     if type == "text" and "text" in item:
                         result.append(
                             ModelMessage(role=ModelMessageRoleType.AI, content=item["text"], tool_calls=tool_calls)
@@ -418,6 +493,23 @@ class ModelMessage(BaseModel):
                         result.append(
                             ModelMessage(role=ModelMessageRoleType.AI, content=item["refusal"], tool_calls=tool_calls)
                         )
+                    # Serialized MediaContent format: {"type": "text", "object": {"data": "...", "format": "..."}}
+                    elif "object" in item:
+                        obj = item["object"]
+                        if isinstance(obj, dict):
+                            data = obj.get("data", "")
+                        else:
+                            data = getattr(obj, "data", "")
+                        if type == "text":
+                            result.append(
+                                ModelMessage(role=ModelMessageRoleType.AI, content=data, tool_calls=tool_calls)
+                            )
+                        else:
+                            # Non-text media: reconstruct MediaContent
+                            mc = MediaContent.parse_content(item)
+                            result.append(
+                                ModelMessage(role=ModelMessageRoleType.AI, content=[mc], tool_calls=tool_calls)
+                            )
                     else:
                         raise ValueError(
                             f"Unknown message type: {item} of assistant message"
@@ -675,16 +767,43 @@ def _messages_to_str(
     return "\n".join(str_messages)
 
 
+def _deserialize_content(content: Union[str, List]) -> MessageContentType:
+    """Deserialize content field, converting List[Dict] back to List[MediaContent].
+
+    This handles the case where MediaContent (a dataclass, not pydantic model)
+    gets serialized to dict by model_to_dict, and needs to be restored on deserialization.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        result = []
+        for item in content:
+            if isinstance(item, MediaContent):
+                result.append(item)
+            elif isinstance(item, dict) and "type" in item and "object" in item:
+                # Serialized MediaContent format: {"type": "...", "object": {"data": "...", "format": "..."}}
+                result.append(MediaContent.parse_content(item))
+            else:
+                # Keep as-is for other formats (OpenAI format, string, etc.)
+                result.append(item)
+        return result
+    return content
+
+
 def _message_from_dict(message: Dict) -> BaseMessage:
     _type = message["type"]
+    data = message["data"]
+    # Deserialize content field if it's a list of dicts (serialized MediaContent)
+    if "content" in data:
+        data["content"] = _deserialize_content(data["content"])
     if _type == "human":
-        return HumanMessage(**message["data"])
+        return HumanMessage(**data)
     elif _type == "ai":
-        return AIMessage(**message["data"])
+        return AIMessage(**data)
     elif _type == "system":
-        return SystemMessage(**message["data"])
+        return SystemMessage(**data)
     elif _type == "view":
-        return ViewMessage(**message["data"])
+        return ViewMessage(**data)
     else:
         raise ValueError(f"Got unexpected type: {_type}")
 

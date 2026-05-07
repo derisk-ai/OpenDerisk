@@ -213,10 +213,14 @@ class MediaContent:
             raise ValueError(f"Failed to parse {message}, content is not iterable")
         result = []
         for item in content:
-            if isinstance(item, str):
+            # Already a MediaContent instance (e.g., from deserialized BaseMessage)
+            if isinstance(item, MediaContent):
+                result.append(item)
+            elif isinstance(item, str):
                 result.append(cls.build_text(item))
             elif isinstance(item, dict) and "type" in item:
                 type = item["type"]
+                # OpenAI original format: {"type": "text", "text": "..."}
                 if type == "text" and "text" in item:
                     result.append(cls.build_text(item["text"]))
                 elif type == "image_url" and "image_url" in item:
@@ -249,6 +253,10 @@ class MediaContent:
                             ),
                         )
                     )
+                # Serialized MediaContent format: {"type": "text", "object": {"data": "...", "format": "..."}}
+                elif "object" in item:
+                    # Use parse_content to reconstruct MediaContent from dict
+                    result.append(cls.parse_content(item))
                 else:
                     if not ignore_unknown_media:
                         raise ValueError(
