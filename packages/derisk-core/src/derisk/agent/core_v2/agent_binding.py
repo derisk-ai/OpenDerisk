@@ -9,11 +9,13 @@ Agent Binding - Agent资源绑定服务
 @see ARCHITECTURE.md#12.10-agentbinding-绑定服务
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 from datetime import datetime
 import logging
 
 from pydantic import BaseModel, Field, ConfigDict
+
+from derisk.agent.resource.base import ResourceType
 
 from .product_agent_registry import (
     ProductAgentRegistry,
@@ -62,7 +64,19 @@ class ResourceResolver:
     
     负责将资源配置解析为实际可用的资源实例
     """
-    
+
+    _custom_resource_resolvers: ClassVar[Dict[str, Callable[..., Any]]] = {}
+
+    @classmethod
+    def register_custom_resource_resolver(
+        cls,
+        resource_type: str,
+        resolver: Callable[..., Any],
+    ) -> None:
+        """Register an async callable ``resolver(value) -> resolved`` for a resource type key."""
+        key = resource_type.lower() if isinstance(resource_type, str) else str(resource_type)
+        cls._custom_resource_resolvers[key] = resolver
+
     def __init__(self, system_app: Optional[Any] = None):
         self._system_app = system_app
         self._mcp_tools_cache: Dict[str, Any] = {}
@@ -99,9 +113,10 @@ class ResourceResolver:
             elif resource_type_lower in ("mcp", "tool(mcp)", "tool(mcp(sse))"):
                 return await self._resolve_mcp(resource_value), None
 
-            elif resource_type_lower in ("tool(memory_case)", "memory_case"):
-                return await self._resolve_memory_case(resource_value), None
-            
+            elif resource_type_lower in self._custom_resource_resolvers:
+                resolver_fn = self._custom_resource_resolvers[resource_type_lower]
+                return await resolver_fn(resource_value), None
+
             elif resource_type_lower in ("skill", "skill(derisk)"):
                 return await self._resolve_skill(resource_value), None
             
@@ -237,26 +252,6 @@ class ResourceResolver:
             return self._mcp_tools_cache[cache_key]
         
         return mcp_info
-
-    async def _resolve_memory_case(self, value: Any) -> Any:
-        """解析案例记忆 MCP 资源.
-
-        返回内置 memory_case 插件信息，供 MemoryCaseToolPack 使用。
-        """
-        import json
-
-        info = {"type": "memory_case", "mcp_name": "memory_case"}
-
-        if isinstance(value, dict):
-            info.update(value)
-        elif isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                info.update(parsed)
-            except Exception:
-                pass
-
-        return info
 
     async def _resolve_skill(self, value: Any) -> Any:
         """

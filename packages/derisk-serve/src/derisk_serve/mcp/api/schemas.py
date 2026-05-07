@@ -122,6 +122,14 @@ class McpTool(BaseModel):
     name: str = Field(..., description="mcp tool name")
     description: str = Field(..., description="mcp tool description")
     param_schema: Optional[Any] = Field(None, description="mcp tool param schema")
+    raw_input_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Original JSON Schema from the MCP server / plugin. When set, clients "
+            "that speak MCP (e.g. agent preload) should use this for Tool.inputSchema "
+            "instead of param_schema, which may already be normalized."
+        ),
+    )
 
 
 class QueryFilter(BaseModel):

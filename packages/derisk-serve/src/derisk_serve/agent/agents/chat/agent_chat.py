@@ -1133,32 +1133,6 @@ class AgentChat(BaseComponent, ABC):
 
             real_all_resources.extend(app.all_resources)
 
-            # Normalize: redirect mcp(derisk) resources for built-in memory_case
-            # to tool(memory_case) so they route through MemoryCaseToolPack
-            # instead of MCPCollectSSEToolPack (which expects a DB row).
-            for i, r in enumerate(real_all_resources):
-                if getattr(r, "type", "") == "mcp(derisk)":
-                    val = getattr(r, "value", "")
-                    if isinstance(val, str):
-                        try:
-                            val_data = json.loads(val)
-                        except (json.JSONDecodeError, TypeError):
-                            val_data = {}
-                    elif isinstance(val, dict):
-                        val_data = val
-                    else:
-                        val_data = {}
-                    mcp_code = val_data.get("mcp_code", "")
-                    if mcp_code == "memory_case":
-                        real_all_resources[i] = AgentResource(
-                            type="tool(memory_case)",
-                            name="memory_case",
-                            value='{"name":"memory_case","mcp_name":"memory_case"}',
-                        )
-                        logger.info(
-                            "[AgentChat] Normalized mcp(derisk):memory_case → tool(memory_case)"
-                        )
-
             real_all_resources = await self.add_duplicate_allow_tools(
                 real_all_resources
             )
@@ -1199,11 +1173,12 @@ class AgentChat(BaseComponent, ABC):
                     agent_context = deepcopy(context)
                     agent_context.agent_app_code = app.app_code
 
-                    # 设置案例记忆 scope 上下文，让 MemoryCaseToolPack 自动获取 app_code
-                    from derisk_serve.agent.resource.tool.memory_case import (
-                        set_memory_case_scope,
+                    # 插件注册的 conversation scope hooks（如 memory_case）
+                    from derisk.agent.conversation_scope_hooks import (
+                        bind_conversation_scope_for_agent,
                     )
-                    set_memory_case_scope(
+
+                    bind_conversation_scope_for_agent(
                         app_code=app.app_code or "default",
                         conv_id=getattr(context, "conv_id", None),
                     )
@@ -1547,22 +1522,6 @@ class AgentChat(BaseComponent, ABC):
                                 else None
                             )
 
-                            # Redirect built-in memory_case to tool(memory_case)
-                            if mcp_code == "memory_case":
-                                dynamic_resources.append(
-                                    AgentResource.from_dict(
-                                        {
-                                            "type": "tool(memory_case)",
-                                            "name": "memory_case",
-                                            "value": '{"name":"memory_case","mcp_name":"memory_case"}',
-                                        }
-                                    )
-                                )
-                                logger.info(
-                                    "Redirected mcp(derisk):memory_case → tool(memory_case) in chat_in_params"
-                                )
-                                continue
-
                             if mcp_code:
                                 from derisk_serve.agent.resource.tool.mcp_collect import (
                                     get_mcp_info,
@@ -1601,18 +1560,28 @@ class AgentChat(BaseComponent, ABC):
                         # Skip FILE_RESOURCES (common_file, text_file, excel_file, image_file)
                         # These are handled separately in _dispatch_uploaded_files
                         if sub_type not in FILE_RESOURCES:
-                            # Built-in tool(memory_case) from UI selection
-                            if sub_type == "tool(memory_case)":
+                            # Built-in tool(foo) from UI: name matches inner token for ResourceResolver
+                            if sub_type.startswith("tool(") and sub_type.endswith(")"):
+                                inner_name = sub_type[5:-1]
                                 dynamic_resources.append(
                                     AgentResource.from_dict(
                                         {
                                             "type": sub_type,
-                                            "name": "memory_case",
-                                            "value": param_value if isinstance(param_value, str) else json.dumps(param_value, ensure_ascii=False),
+                                            "name": inner_name,
+                                            "value": (
+                                                param_value
+                                                if isinstance(param_value, str)
+                                                else json.dumps(
+                                                    param_value, ensure_ascii=False
+                                                )
+                                            ),
                                         }
                                     )
                                 )
-                                logger.info("Added memory_case resource from chat_in_params")
+                                logger.info(
+                                    "Added tool resource from chat_in_params: %s",
+                                    sub_type,
+                                )
                             else:
                                 dynamic_resources.append(
                                     AgentResource.from_dict(
@@ -1621,8 +1590,8 @@ class AgentChat(BaseComponent, ABC):
                                             "name": f"用户选择了[{sub_type}]资源",
                                             "value": param_value,
                                         }
+                                    )
                                 )
-                            )
                         else:
                             logger.info(
                                 f"Skipping file resource type {sub_type} in chat_in_params_to_resource, "

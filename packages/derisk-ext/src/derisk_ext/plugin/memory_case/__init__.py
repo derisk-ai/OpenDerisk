@@ -1,0 +1,106 @@
+"""Case memory (案例记忆) core plugin — used by derisk-serve MCP and Agent tool pack."""
+
+from .case_context import (
+    CASE_CONTEXT_KEY,
+    FULLTEXT_LEXICAL_COLUMNS,
+    KEY_APPLICATION_NAME,
+    KEY_APP_CODE,
+    KEY_DATA_SOURCES,
+    KEY_ENVIRONMENT,
+    KEY_OPERATOR_NOTES,
+    KEY_REGION,
+    KEY_RELATED_SERVICES,
+    KEY_TAGS,
+    KEY_TEAM_ID,
+    KEY_TELEMETRY_CHANNELS,
+    KEY_TENANT_ID,
+    case_context_from_metadata,
+    is_memory_search_scope_app_wildcard,
+    is_memory_search_scope_env_wildcard,
+    merge_case_context,
+    scope_filters_match,
+    vector_metadata_from_case,
+)
+from .dao_protocol import MemoryCaseDaoLike
+from .integration import ensure_memory_case_resource_resolver_registered
+from .models import CandidateCase, CandidateCaseLifecycle, MemoryRequestContext
+from .plugin_resolver import (
+    clear_memory_case_plugin_resolver,
+    register_memory_case_plugin_resolver,
+    resolve_memory_case_plugin,
+)
+from .scope_binding import bind_memory_case_scope_for_agent
+from .service import (
+    BUILTIN_MEMORY_MCP,
+    BUILTIN_MEMORY_MCP_NAME,
+    MEMORY_PLUGIN_ENABLED_KEY,
+    MEMORY_PLUGIN_TIMEOUT_KEY,
+    MemoryCasePluginService,
+    MemoryPluginError,
+    MemoryToolSpec,
+)
+from .sqlalchemy_dao import MemoryCaseDao, MemoryCaseEntity
+from .tool_pack import (
+    MemoryCaseResourceParameters,
+    MemoryCaseToolPack,
+    get_memory_case_scope,
+    set_memory_case_scope,
+)
+from .vector_index import (
+    MEMORY_CASE_VECTOR_NAME,
+    ChromaCandidateCaseVectorIndex,
+    CandidateCaseVectorIndex,
+    EmptyCandidateCaseVectorIndex,
+    MemoryCaseVectorStoreSource,
+    build_vector_index,
+)
+
+__all__ = [
+    "BUILTIN_MEMORY_MCP",
+    "BUILTIN_MEMORY_MCP_NAME",
+    "CASE_CONTEXT_KEY",
+    "FULLTEXT_LEXICAL_COLUMNS",
+    "KEY_APPLICATION_NAME",
+    "KEY_APP_CODE",
+    "KEY_DATA_SOURCES",
+    "KEY_ENVIRONMENT",
+    "KEY_OPERATOR_NOTES",
+    "KEY_REGION",
+    "KEY_RELATED_SERVICES",
+    "KEY_TAGS",
+    "KEY_TEAM_ID",
+    "KEY_TELEMETRY_CHANNELS",
+    "KEY_TENANT_ID",
+    "MEMORY_CASE_VECTOR_NAME",
+    "MemoryCaseDao",
+    "MemoryCaseEntity",
+    "bind_memory_case_scope_for_agent",
+    "ensure_memory_case_resource_resolver_registered",
+    "MEMORY_PLUGIN_ENABLED_KEY",
+    "MEMORY_PLUGIN_TIMEOUT_KEY",
+    "CandidateCase",
+    "CandidateCaseLifecycle",
+    "CandidateCaseVectorIndex",
+    "ChromaCandidateCaseVectorIndex",
+    "EmptyCandidateCaseVectorIndex",
+    "MemoryCaseVectorStoreSource",
+    "build_vector_index",
+    "MemoryCaseDaoLike",
+    "MemoryCasePluginService",
+    "MemoryCaseResourceParameters",
+    "MemoryCaseToolPack",
+    "MemoryPluginError",
+    "MemoryRequestContext",
+    "MemoryToolSpec",
+    "case_context_from_metadata",
+    "clear_memory_case_plugin_resolver",
+    "get_memory_case_scope",
+    "is_memory_search_scope_app_wildcard",
+    "is_memory_search_scope_env_wildcard",
+    "merge_case_context",
+    "register_memory_case_plugin_resolver",
+    "resolve_memory_case_plugin",
+    "scope_filters_match",
+    "set_memory_case_scope",
+    "vector_metadata_from_case",
+]

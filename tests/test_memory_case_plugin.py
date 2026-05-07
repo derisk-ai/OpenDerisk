@@ -1,9 +1,12 @@
-import asyncio
 
 import pytest
 
-from derisk_serve.mcp.memory_case.models import CandidateCase, CandidateCaseLifecycle
-from derisk_serve.mcp.memory_case.service import MemoryCasePluginService
+from derisk_ext.plugin.memory_case import (
+    CandidateCase,
+    CandidateCaseLifecycle,
+    MemoryCasePluginService,
+    scope_filters_match,
+)
 
 
 class _FakeDao:
@@ -20,9 +23,7 @@ class _FakeDao:
     def search(self, scope, query_text=None, limit=10):
         results = []
         for case in self._store.values():
-            if case.app_code != scope["app_code"]:
-                continue
-            if case.environment != scope["environment"]:
+            if not scope_filters_match(case.metadata, scope):
                 continue
             if query_text and query_text not in (case.symptom_summary or ""):
                 continue

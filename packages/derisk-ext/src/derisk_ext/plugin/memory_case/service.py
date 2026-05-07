@@ -2,24 +2,18 @@ from __future__ import annotations
 
 import logging
 import uuid
-from asyncio import TimeoutError as AsyncTimeoutError, wait_for
+from asyncio import TimeoutError as AsyncTimeoutError
+from asyncio import wait_for
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
 from derisk._private.pydantic import BaseModel, Field
 from derisk.component import SystemApp
 
-from derisk_serve.mcp.memory_case.markdown import parse_markdown_sections, render_case_markdown
-from derisk_serve.mcp.memory_case.models import (
-    CandidateCase,
-    CandidateCaseLifecycle,
-    MemoryRequestContext,
-)
-from derisk_serve.mcp.models.memory_case_models import MemoryCaseDao
-from derisk_serve.mcp.memory_case.vector_index import (
-    CandidateCaseVectorIndex,
-    EmptyCandidateCaseVectorIndex,
-)
+from .dao_protocol import MemoryCaseDaoLike
+from .markdown import parse_markdown_sections, render_case_markdown
+from .models import CandidateCase, CandidateCaseLifecycle, MemoryRequestContext
+from .vector_index import CandidateCaseVectorIndex, EmptyCandidateCaseVectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +40,13 @@ class MemoryCasePluginService:
     def __init__(
         self,
         system_app: SystemApp,
-        dao: Optional[MemoryCaseDao] = None,
+        dao: MemoryCaseDaoLike,
         enabled: bool = True,
         timeout_seconds: int = 10,
         vector_index: Optional[CandidateCaseVectorIndex] = None,
     ):
         self._system_app = system_app
-        self._dao = dao or MemoryCaseDao()
+        self._dao = dao
         self._enabled = enabled
         self._timeout_seconds = timeout_seconds
         self._vector_index = vector_index or EmptyCandidateCaseVectorIndex()
@@ -65,58 +59,128 @@ class MemoryCasePluginService:
         return [
             MemoryToolSpec(
                 name="memory_case_search",
-                description="Search candidate cases by scope and query. If scope is not provided, defaults will be used.",
+                description=(
+                    "FIRST for ops/SRE/inspection/RCA tasks when this tool exists: call "
+                    "once BEFORE read/bash/git or opening local skill files—past runbooks "
+                    "live here, not only under pilot/data/skill. Short NL query "
+                    "(symptom + product/service + scenario e.g. 华为云 节前巡检); never "
+                    "paste full logs. Default top_k=5; narrow query and retry if weak."
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "scope": {
                             "type": "object",
-                            "description": "Search scope with app_code and environment. Defaults to {app_code: 'default', environment: 'default'} if not provided.",
+                            "description": (
+                                "Optional narrowing on metadata.case_context only (no DB columns): "
+                                "app_code, environment, tenant_id, team_id. "
+                                "app_code/environment omitted or 'default' → no filter on that key."
+                            ),
                         },
-                        "query": {"type": "string"},
-                        "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Short search text. Avoid pasting entire logs or "
+                                "system prompts."
+                            ),
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 20,
+                            "description": "Max cases (default 5).",
+                        },
                     },
                 },
             ),
             MemoryToolSpec(
                 name="memory_case_upsert",
-                description="Create or update candidate case",
+                description=(
+                    "End-of-task: persist RCA/playbook. BEFORE new row, "
+                    "memory_case_search for near-dupes; merge via case_id if match. "
+                    "Include symptom_summary, hypotheses, actions, resolution, "
+                    "confidence."
+                ),
                 inputSchema={
                     "type": "object",
                     "required": ["case"],
-                    "properties": {"case": {"type": "object"}},
+                    "properties": {
+                        "case": {
+                            "type": "object",
+                            "description": (
+                                "CandidateCase: symptom_summary, hypotheses, actions, "
+                                "resolution, confidence; optional incident_title; "
+                                "handling_path (free text, narrative reference—not a strict playbook); "
+                                "root_cause; metadata.case_context for routing and provenance "
+                                "(application_name, data_sources, related_services, region, tags, …); "
+                                "optional case_id to merge; fingerprint optional "
+                                "(derived from case_context + summary if omitted)."
+                            ),
+                        }
+                    },
                 },
             ),
             MemoryToolSpec(
                 name="memory_case_feedback",
-                description="Update case confidence and lifecycle by feedback",
+                description=(
+                    "After using a retrieved case, log helpful true/false; optional "
+                    "signal stale|success|rollback adjusts lifecycle "
+                    "(see plugin rules)."
+                ),
                 inputSchema={
                     "type": "object",
                     "required": ["case_id"],
                     "properties": {
-                        "case_id": {"type": "string"},
-                        "helpful": {"type": "boolean"},
-                        "signal": {"type": "string"},
+                        "case_id": {
+                            "type": "string",
+                            "description": "case_id from search or upsert.",
+                        },
+                        "helpful": {
+                            "type": "boolean",
+                            "description": "True if this case helped.",
+                        },
+                        "signal": {
+                            "type": "string",
+                            "description": "Optional: stale, success, rollback, etc.",
+                        },
                     },
                 },
             ),
             MemoryToolSpec(
                 name="memory_case_render",
-                description="Render candidate case context markdown",
+                description=(
+                    "Render search hits as Markdown. Pass cases from search JSON or "
+                    "case_ids."
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "case_ids": {"type": "array", "items": {"type": "string"}},
-                        "cases": {"type": "array", "items": {"type": "object"}},
+                        "case_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Load by id.",
+                        },
+                        "cases": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "Inline dicts from search results.",
+                        },
                     },
                 },
             ),
         ]
 
-    async def call_tool(self, tool_name: str, arguments: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         args = arguments or {}
         if not self.enabled:
-            raise MemoryPluginError("MEMORY_PLUGIN_DISABLED", "memory MCP plugin is disabled")
+            raise MemoryPluginError(
+                "MEMORY_PLUGIN_DISABLED",
+                "memory MCP plugin is disabled",
+            )
 
         try:
             if tool_name == "memory_case_search":
@@ -124,12 +188,24 @@ class MemoryCasePluginService:
             if tool_name == "memory_case_upsert":
                 return await wait_for(self._upsert(args), timeout=self._timeout_seconds)
             if tool_name == "memory_case_feedback":
-                return await wait_for(self._feedback(args), timeout=self._timeout_seconds)
+                return await wait_for(
+                    self._feedback(args),
+                    timeout=self._timeout_seconds,
+                )
             if tool_name == "memory_case_render":
-                return await wait_for(self._render(args), timeout=self._timeout_seconds)
-            raise MemoryPluginError("TOOL_NOT_FOUND", f"Unknown memory tool: {tool_name}")
+                return await wait_for(
+                    self._render(args),
+                    timeout=self._timeout_seconds,
+                )
+            raise MemoryPluginError(
+                "TOOL_NOT_FOUND",
+                f"Unknown memory tool: {tool_name}",
+            )
         except AsyncTimeoutError as exc:
-            raise MemoryPluginError("TOOL_TIMEOUT", f"tool timeout: {tool_name}") from exc
+            raise MemoryPluginError(
+                "TOOL_TIMEOUT",
+                f"tool timeout: {tool_name}",
+            ) from exc
 
     def _validate_scope(self, scope: Dict[str, Any]) -> MemoryRequestContext:
         try:
@@ -165,16 +241,23 @@ class MemoryCasePluginService:
             key=lambda item: (item.confidence, item.updated_at or datetime.min),
             reverse=True,
         )[:query_limit]
+
         def _eligible(case: CandidateCase) -> bool:
             if case.lifecycle == CandidateCaseLifecycle.REJECTED:
                 return False
             return case.confidence >= 0.5
 
         accepted_cases = [
-            case for case in ordered_cases if case.lifecycle == CandidateCaseLifecycle.ACCEPTED
+            case
+            for case in ordered_cases
+            if case.lifecycle == CandidateCaseLifecycle.ACCEPTED
         ]
         candidate_pool = accepted_cases or ordered_cases
-        items = [case.model_dump(mode="json") for case in candidate_pool if _eligible(case)]
+        items = [
+            case.model_dump(mode="json")
+            for case in candidate_pool
+            if _eligible(case)
+        ]
         return {
             "code": "OK",
             "cases": items,
@@ -257,4 +340,3 @@ class MemoryCasePluginService:
             return {"code": "OK", "markdown": "", "count": 0}
         merged = "\n\n---\n\n".join(blocks[:5])
         return {"code": "OK", "markdown": merged, "count": len(blocks[:5])}
-

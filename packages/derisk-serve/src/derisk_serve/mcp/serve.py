@@ -61,7 +61,7 @@ class Serve(BaseServe):
         because they may be not initialized yet
         """
         # import models to ensure they are registered with SQLAlchemy
-        from .models.memory_case_models import MemoryCaseEntity  # noqa: F401
+        from derisk_ext.plugin.memory_case.sqlalchemy_dao import MemoryCaseEntity  # noqa: F401
         from .models.models import ServeEntity  # noqa: F401
 
         _ = list(

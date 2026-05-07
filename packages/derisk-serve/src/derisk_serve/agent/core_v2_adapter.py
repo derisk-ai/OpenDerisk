@@ -687,33 +687,6 @@ class CoreV2Component(BaseComponent):
         if getattr(gpt_app, "resource_tool", None):
             all_resources.extend(gpt_app.resource_tool)
 
-        # Normalize: redirect mcp(derisk) resources for built-in memory_case
-        # to tool(memory_case) so they route through MemoryCaseToolPack
-        # instead of MCPCollectSSEToolPack (which expects a DB row).
-        for i, r in enumerate(all_resources):
-            if getattr(r, "type", "") == "mcp(derisk)":
-                val = getattr(r, "value", "")
-                if isinstance(val, str):
-                    try:
-                        val_data = json.loads(val)
-                    except (json.JSONDecodeError, TypeError):
-                        val_data = {}
-                elif isinstance(val, dict):
-                    val_data = val
-                else:
-                    val_data = {}
-                mcp_code = val_data.get("mcp_code", "")
-                if mcp_code == "memory_case":
-                    from derisk.agent.resource.base import AgentResource
-                    all_resources[i] = AgentResource(
-                        type="tool(memory_case)",
-                        name="memory_case",
-                        value='{"name":"memory_case","mcp_name":"memory_case"}',
-                    )
-                    logger.info(
-                        "[CoreV2Component] Normalized mcp(derisk):memory_case → tool(memory_case)"
-                    )
-
         tools = await self._build_tools_from_resources(all_resources)
         resources = await self._build_resources_dict(all_resources)
 
@@ -964,12 +937,13 @@ class CoreV2Component(BaseComponent):
                     f"app_id={app_code}, agent_name={agent_name}"
                 )
 
-            # 设置案例记忆 scope 上下文，让 MemoryCaseToolPack 自动获取 app_code
-            from derisk_serve.agent.resource.tool.memory_case import (
-                set_memory_case_scope,
+            # 插件注册的 conversation scope hooks（如 memory_case）
+            from derisk.agent.conversation_scope_hooks import (
+                bind_conversation_scope_for_agent,
             )
+
             conv_id = getattr(context, "conv_id", None) if context else None
-            set_memory_case_scope(app_code=app_code, conv_id=conv_id)
+            bind_conversation_scope_for_agent(app_code=app_code, conv_id=conv_id)
 
         # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
         if agent and gpt_app.scenes and len(gpt_app.scenes) > 0 and sandbox_manager:

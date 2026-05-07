@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import logging
+from abc import ABC, abstractmethod
+from typing import List, Optional, Protocol
+
+from derisk.core import Chunk
+from derisk.storage.vector_store.base import VectorStoreBase
+from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters
+
+from .case_context import (
+    KEY_APP_CODE,
+    KEY_ENVIRONMENT,
+    KEY_TEAM_ID,
+    KEY_TENANT_ID,
+    is_memory_search_scope_app_wildcard,
+    is_memory_search_scope_env_wildcard,
+    vector_metadata_from_case,
+)
+from .models import CandidateCase
+
+logger = logging.getLogger(__name__)
+
+MEMORY_CASE_VECTOR_NAME = "memory_case_candidate"
+
+
+class MemoryCaseVectorStoreSource(Protocol):
+    """Vends a vector store by logical index name (implemented by serve ``StorageManager``)."""
+
+    def create_vector_store(
+        self,
+        index_name: str,
+        extra_indexes: Optional[List[str]] = None,
+    ) -> Optional[VectorStoreBase]:
+        ...
+
+
+class CandidateCaseVectorIndex(ABC):
+    @abstractmethod
+    async def upsert(self, case: CandidateCase) -> None:
+        pass
+
+    @abstractmethod
+    async def search(self, query: str, case_scope: dict, top_k: int) -> List[str]:
+        pass
+
+    @abstractmethod
+    async def invalidate(self, case_id: str) -> None:
+        pass
+
+
+class EmptyCandidateCaseVectorIndex(CandidateCaseVectorIndex):
+    async def upsert(self, case: CandidateCase) -> None:
+        return None
+
+    async def search(self, query: str, case_scope: dict, top_k: int) -> List[str]:
+        return []
+
+    async def invalidate(self, case_id: str) -> None:
+        return None
+
+
+class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
+    def __init__(self, vector_store: VectorStoreBase):
+        self._vector_store = vector_store
+
+    async def upsert(self, case: CandidateCase) -> None:
+        chunk = Chunk(
+            chunk_id=case.case_id,
+            content=case.markdown_summary or case.symptom_summary,
+            metadata=vector_metadata_from_case(case.case_id, case.metadata),
+        )
+        await self._vector_store.aload_document([chunk])
+
+    async def search(self, query: str, case_scope: dict, top_k: int) -> List[str]:
+        if self._vector_store is None:
+            return []
+        fl: List[MetadataFilter] = []
+        if not is_memory_search_scope_app_wildcard(case_scope):
+            fl.append(
+                MetadataFilter(key=KEY_APP_CODE, value=case_scope.get(KEY_APP_CODE)),
+            )
+        if not is_memory_search_scope_env_wildcard(case_scope):
+            fl.append(
+                MetadataFilter(
+                    key=KEY_ENVIRONMENT, value=case_scope.get(KEY_ENVIRONMENT),
+                ),
+            )
+        if case_scope.get(KEY_TENANT_ID):
+            fl.append(
+                MetadataFilter(key=KEY_TENANT_ID, value=case_scope.get(KEY_TENANT_ID))
+            )
+        if case_scope.get(KEY_TEAM_ID):
+            fl.append(
+                MetadataFilter(key=KEY_TEAM_ID, value=case_scope.get(KEY_TEAM_ID))
+            )
+        filters = MetadataFilters(filters=fl) if fl else None
+        chunks = self._vector_store.similar_search_with_scores(
+            query=query, topk=top_k, filters=filters
+        )
+        return [chunk.metadata.get("case_id") for chunk in chunks if chunk.metadata]
+
+    async def invalidate(self, case_id: str) -> None:
+        if self._vector_store is None:
+            return
+        try:
+            await self._vector_store.update_by_chunk_ids(
+                [case_id], {"metadata.lifecycle": "stale"}
+            )
+        except Exception:
+            logger.warning(
+                "failed to mark memory case stale in vector index: %s",
+                case_id,
+            )
+
+
+def build_vector_index(
+    storage_manager: Optional[MemoryCaseVectorStoreSource],
+) -> CandidateCaseVectorIndex:
+    if not storage_manager:
+        return EmptyCandidateCaseVectorIndex()
+    try:
+        store = storage_manager.create_vector_store(MEMORY_CASE_VECTOR_NAME)
+        if store is None:
+            logger.warning(
+                "memory_case: vector store unavailable (embedding factory or RAG "
+                "vector config missing); semantic search disabled, lexical DB search "
+                "still works"
+            )
+            return EmptyCandidateCaseVectorIndex()
+        return ChromaCandidateCaseVectorIndex(store)
+    except Exception:
+        logger.warning(
+            "failed to init memory vector index, fallback to empty",
+            exc_info=True,
+        )
+        return EmptyCandidateCaseVectorIndex()
