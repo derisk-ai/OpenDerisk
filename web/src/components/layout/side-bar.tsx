@@ -412,8 +412,17 @@ function SideBar() {
     if (raw.startsWith('{')) {
       try {
         const obj = JSON.parse(raw);
-        if (obj.data?.content) return obj.data.content;
-        if (obj.content) return obj.content;
+        // Extract content, ensuring it's a string (not an object)
+        const content = obj.data?.content || obj.content;
+        if (content) {
+          // Handle case where content might be an object or array
+          if (typeof content === 'string') return content;
+          if (typeof content === 'object') {
+            // For objects like {object, type}, stringify them
+            return JSON.stringify(content);
+          }
+          return String(content);
+        }
         return raw;
       } catch {
         return raw;
