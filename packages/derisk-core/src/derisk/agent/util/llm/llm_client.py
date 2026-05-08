@@ -491,8 +491,6 @@ class AIWrapper:
                                     text_parts.append(str(getattr(obj, "data", "")))
                     if text_parts:
                         content_str = " ".join(text_parts)
-                        if len(content_str) > 500:
-                            content_str = content_str[:500] + "..."
                     else:
                         type_list = []
                         for c in content:
@@ -502,11 +500,7 @@ class AIWrapper:
                                 type_list.append(getattr(c, "type", "unknown"))
                         content_str = "[" + ", ".join(type_list) + "]"
                 else:
-                    content_str = (
-                        str(content)[:500] + "..."
-                        if len(str(content)) > 500
-                        else str(content)
-                    )
+                    content_str = str(content)
                 messages_summary.append(
                     {
                         "role": role,
