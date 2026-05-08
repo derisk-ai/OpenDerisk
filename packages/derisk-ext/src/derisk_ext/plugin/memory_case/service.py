@@ -72,9 +72,11 @@ class MemoryCasePluginService:
                         "scope": {
                             "type": "object",
                             "description": (
-                                "Optional narrowing on metadata.case_context only (no DB columns): "
-                                "app_code, environment, tenant_id, team_id. "
-                                "app_code/environment omitted or 'default' → no filter on that key."
+                                "Routing isolation ONLY (app_code/tenant_id/team_id for "
+                                "multi-tenant; environment for deploy env prod/staging). "
+                                "Cloud-vendor or region info belongs in case metadata "
+                                "(region/tags), NOT in scope. "
+                                "Omit or set to 'default' for wildcard (recommended)."
                             ),
                         },
                         "query": {
@@ -236,6 +238,13 @@ class MemoryCasePluginService:
                 match = self._dao.get_by_case_id(case_id)
                 if match:
                     case_by_id[case_id] = match
+        # Lazy backfill: DB hits missing from vector index get reindexed
+        for case in lexical_cases:
+            if case.case_id not in set(semantic_case_ids):
+                try:
+                    await self._vector_index.upsert(case)
+                except Exception:
+                    pass
         ordered_cases = sorted(
             case_by_id.values(),
             key=lambda item: (item.confidence, item.updated_at or datetime.min),
@@ -275,7 +284,14 @@ class MemoryCasePluginService:
         if not case.markdown_summary:
             case.markdown_summary = render_case_markdown(case)
         saved = self._dao.upsert(case)
-        await self._vector_index.upsert(saved)
+        try:
+            await self._vector_index.upsert(saved)
+        except Exception:
+            logger.warning(
+                "memory_case vector upsert failed for %s, will retry later",
+                saved.case_id,
+                exc_info=True,
+            )
         return {"code": "OK", "case": saved.model_dump(mode="json")}
 
     async def _feedback(self, args: Dict[str, Any]) -> Dict[str, Any]:

@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from derisk.storage.metadata import BaseDao, Model
 
 from .case_context import (
+    CASE_CONTEXT_KEY,
     FULLTEXT_LEXICAL_COLUMNS,
     is_memory_search_scope_app_wildcard,
     is_memory_search_scope_env_wildcard,
@@ -192,21 +193,52 @@ class MemoryCaseDao(BaseDao):
             if entity is None:
                 entity = MemoryCaseEntity(case_id=case.case_id)
                 session.add(entity)
-            entity.fingerprint = case.fingerprint
-            entity.incident_title = case.incident_title or None
-            entity.symptom_summary = case.symptom_summary
-            entity.hypotheses = json.dumps(case.hypotheses, ensure_ascii=False)
-            entity.actions = json.dumps(case.actions, ensure_ascii=False)
-            entity.resolution = case.resolution
-            entity.handling_path = case.handling_path or None
-            entity.root_cause = case.root_cause or None
-            entity.effectiveness = case.effectiveness
-            entity.confidence = case.confidence
-            entity.lifecycle = case.lifecycle.value
-            entity.source_conv_id = case.source_conv_id
-            entity.source_session_id = case.source_session_id
-            entity.markdown_summary = case.markdown_summary
-            entity.metadata_json = json.dumps(case.metadata or {}, ensure_ascii=False)
+                entity.fingerprint = case.fingerprint
+                entity.incident_title = case.incident_title or None
+                entity.symptom_summary = case.symptom_summary
+                entity.hypotheses = json.dumps(case.hypotheses, ensure_ascii=False)
+                entity.actions = json.dumps(case.actions, ensure_ascii=False)
+                entity.resolution = case.resolution
+                entity.handling_path = case.handling_path or None
+                entity.root_cause = case.root_cause or None
+                entity.effectiveness = case.effectiveness
+                entity.confidence = case.confidence
+                entity.lifecycle = case.lifecycle.value
+                entity.source_conv_id = case.source_conv_id
+                entity.source_session_id = case.source_session_id
+                entity.markdown_summary = case.markdown_summary
+                entity.metadata_json = json.dumps(case.metadata or {}, ensure_ascii=False)
+            else:
+                entity.fingerprint = case.fingerprint
+                if case.incident_title:
+                    entity.incident_title = case.incident_title
+                if case.symptom_summary:
+                    entity.symptom_summary = case.symptom_summary
+                if case.hypotheses:
+                    entity.hypotheses = json.dumps(case.hypotheses, ensure_ascii=False)
+                if case.actions:
+                    entity.actions = json.dumps(case.actions, ensure_ascii=False)
+                if case.resolution:
+                    entity.resolution = case.resolution
+                if case.handling_path:
+                    entity.handling_path = case.handling_path
+                if case.root_cause:
+                    entity.root_cause = case.root_cause
+                if case.effectiveness:
+                    entity.effectiveness = case.effectiveness
+                if case.markdown_summary:
+                    entity.markdown_summary = case.markdown_summary
+                entity.confidence = case.confidence
+                entity.lifecycle = case.lifecycle.value
+                entity.source_conv_id = case.source_conv_id
+                entity.source_session_id = case.source_session_id
+                existing_meta = json.loads(entity.metadata_json) if entity.metadata_json else {}
+                for k, v in (case.metadata or {}).items():
+                    if k == CASE_CONTEXT_KEY and isinstance(v, dict) and isinstance(existing_meta.get(k), dict):
+                        existing_meta[k].update(v)
+                    else:
+                        existing_meta[k] = v
+                entity.metadata_json = json.dumps(existing_meta, ensure_ascii=False)
             session.commit()
             session.refresh(entity)
             return self.to_model(entity)

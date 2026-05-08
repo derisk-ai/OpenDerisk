@@ -49,6 +49,33 @@ class CandidateCaseVectorIndex(ABC):
         pass
 
 
+class LazyCandidateCaseVectorIndex(CandidateCaseVectorIndex):
+    """Defers vector store creation until first use, so WorkerManagerFactory
+    has time to be registered (it is initialised *after* serve ``init_app``).
+    """
+
+    def __init__(self, storage_manager: Optional[MemoryCaseVectorStoreSource]) -> None:
+        self._storage_manager = storage_manager
+        self._real: Optional[CandidateCaseVectorIndex] = None
+
+    def _ensure(self) -> CandidateCaseVectorIndex:
+        if self._real is not None:
+            return self._real
+        self._real = _build_real_index(self._storage_manager)
+        return self._real
+
+    async def upsert(self, case: CandidateCase) -> None:
+        await self._ensure().upsert(case)
+
+    async def search(
+        self, query: str, case_scope: dict, top_k: int
+    ) -> List[str]:
+        return await self._ensure().search(query, case_scope, top_k)
+
+    async def invalidate(self, case_id: str) -> None:
+        await self._ensure().invalidate(case_id)
+
+
 class EmptyCandidateCaseVectorIndex(CandidateCaseVectorIndex):
     async def upsert(self, case: CandidateCase) -> None:
         return None
@@ -96,7 +123,7 @@ class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
             )
         filters = MetadataFilters(filters=fl) if fl else None
         chunks = self._vector_store.similar_search_with_scores(
-            query=query, topk=top_k, filters=filters
+            text=query, topk=top_k, score_threshold=0.0, filters=filters
         )
         return [chunk.metadata.get("case_id") for chunk in chunks if chunk.metadata]
 
@@ -114,7 +141,7 @@ class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
             )
 
 
-def build_vector_index(
+def _build_real_index(
     storage_manager: Optional[MemoryCaseVectorStoreSource],
 ) -> CandidateCaseVectorIndex:
     if not storage_manager:
@@ -135,3 +162,12 @@ def build_vector_index(
             exc_info=True,
         )
         return EmptyCandidateCaseVectorIndex()
+
+
+def build_vector_index(
+    storage_manager: Optional[MemoryCaseVectorStoreSource],
+) -> CandidateCaseVectorIndex:
+    """Return a lazy vector index so the real ChromaStore is only created
+    on first tool call — by then WorkerManagerFactory is ready.
+    """
+    return LazyCandidateCaseVectorIndex(storage_manager)
