@@ -31,7 +31,7 @@ class ReadSkillTool(SandboxToolBase):
 
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="skill_read",
+            name="Skill",
             display_name="Read Skill Content",
             description=(
                 "Read a skill's SKILL.md instructions or other files from the skill directory. "
@@ -240,10 +240,31 @@ class ReadSkillTool(SandboxToolBase):
             if has_pagination:
                 content, page_meta = self._paginate(content, offset, limit)
             else:
-                # No pagination: cap at _MAX_SKILL_CHARS
+                total_lines = content.count("\n") + 1
                 if len(content) > _MAX_SKILL_CHARS:
-                    content = content[:_MAX_SKILL_CHARS] + f"\n... [truncated to {_MAX_SKILL_CHARS} chars]"
-                page_meta = {"total_lines": content.count("\n") + 1}
+                    # 计算默认读取行数（基于平均行长估算）
+                    avg_chars_per_line = len(content) / total_lines if total_lines > 0 else 200
+                    default_limit = max(50, int(_MAX_SKILL_CHARS / avg_chars_per_line))
+                    default_limit = min(default_limit, 1000)  # 最多读 1000 行
+                    
+                    content, page_meta = self._paginate(content, offset=1, limit=default_limit)
+                    
+                    # 增强提示信息：替换 _paginate 的简单提示
+                    lines_read = page_meta["lines_read"]
+                    remaining_lines = page_meta["total_lines"] - lines_read
+                    if remaining_lines > 0:
+                        simple_hint = f"\n... [{remaining_lines} more lines, use offset={lines_read + 1} to continue]"
+                        if content.endswith(simple_hint):
+                            content = content[:-len(simple_hint)]
+                        
+                        content += (
+                            f"\n\n[文件大小超限] 文件共 {page_meta['total_lines']} 行，"
+                            f"已读取前 {lines_read} 行（约 {_MAX_SKILL_CHARS} 字符），"
+                            f"剩余 {remaining_lines} 行未读取。"
+                            f"\n请使用 offset={lines_read + 1} 继续读取后续内容。"
+                        )
+                else:
+                    page_meta = {"total_lines": total_lines}
 
             return ToolResult.ok(
                 output=content,
@@ -371,9 +392,31 @@ class ReadSkillTool(SandboxToolBase):
             if has_pagination:
                 content, page_meta = self._paginate(content, offset, limit)
             else:
+                total_lines = content.count("\n") + 1
                 if len(content) > _MAX_SKILL_CHARS:
-                    content = content[:_MAX_SKILL_CHARS] + f"\n... [truncated to {_MAX_SKILL_CHARS} chars]"
-                page_meta = {"total_lines": content.count("\n") + 1}
+                    # 计算默认读取行数（基于平均行长估算）
+                    avg_chars_per_line = len(content) / total_lines if total_lines > 0 else 200
+                    default_limit = max(50, int(_MAX_SKILL_CHARS / avg_chars_per_line))
+                    default_limit = min(default_limit, 1000)  # 最多读 1000 行
+                    
+                    content, page_meta = self._paginate(content, offset=1, limit=default_limit)
+                    
+                    # 增强提示信息：替换 _paginate 的简单提示
+                    lines_read = page_meta["lines_read"]
+                    remaining_lines = page_meta["total_lines"] - lines_read
+                    if remaining_lines > 0:
+                        simple_hint = f"\n... [{remaining_lines} more lines, use offset={lines_read + 1} to continue]"
+                        if content.endswith(simple_hint):
+                            content = content[:-len(simple_hint)]
+                        
+                        content += (
+                            f"\n\n[文件大小超限] 文件共 {page_meta['total_lines']} 行，"
+                            f"已读取前 {lines_read} 行（约 {_MAX_SKILL_CHARS} 字符），"
+                            f"剩余 {remaining_lines} 行未读取。"
+                            f"\n请使用 offset={lines_read + 1} 继续读取后续内容。"
+                        )
+                else:
+                    page_meta = {"total_lines": total_lines}
 
             return ToolResult.ok(
                 output=content,
@@ -410,7 +453,7 @@ class ReadSkillTool(SandboxToolBase):
 
         return ToolResult.ok(
             output="\n".join(lines),
-            tool_name="skill_read",
+            tool_name="Skill",
             metadata={
                 "is_skill_content": True,
                 "skill_name": skill_name,

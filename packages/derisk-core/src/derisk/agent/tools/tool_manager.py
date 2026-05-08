@@ -132,12 +132,12 @@ class ToolManager:
     # 基础文件和Shell工具（沙箱和本地共享，默认绑定）
     # 这些工具根据沙箱状态自动切换执行环境
     BASIC_TOOLS: List[str] = [
-        "bash",  # Shell执行（沙箱时委托给 shell_exec）
-        "read",  # 文件读取（沙箱时委托给 view）
-        "write",  # 文件写入（沙箱时委托给 create_file）
-        "edit",  # 文件编辑（沙箱时委托给 edit_file）
+        "Bash",  # Shell执行（沙箱时委托给 shell_exec）
+        "Read",  # 文件读取（沙箱时委托给 view）
+        "Write",  # 文件写入（沙箱时委托给 create_file）
+        "Edit",  # 文件编辑（沙箱时委托给 edit_file）
         "deliver_file",  # 文件交付（标记为交付物并上传到 OSS）
-        "skill_read",  # 读取 Skill 内容（默认注入）
+        "Skill",  # 读取 Skill 内容（默认注入）
         "skill_exec",  # 执行 Skill 脚本（默认注入）
         "skill_list",  # 列出可用 Skill（默认注入）
     ]
@@ -148,7 +148,7 @@ class ToolManager:
     ]
 
     # 向后兼容
-    LOCAL_TOOLS: List[str] = ["bash", "read"]
+    LOCAL_TOOLS: List[str] = ["Bash", "Read"]
     SANDBOX_TOOLS: List[str] = BASIC_TOOLS + SANDBOX_ONLY_TOOLS
     UNIFIED_TOOLS: List[str] = BASIC_TOOLS
 
@@ -158,7 +158,7 @@ class ToolManager:
     # 可选内置工具列表（Agent 可以选择绑定的工具）
     BUILTIN_OPTIONAL_TOOLS: List[str] = [
         "glob",  # 文件搜索
-        "grep",  # 文本搜索
+        "Grep",  # 文本搜索
         "list_files",  # 列出文件
         "webfetch",  # 网页获取
         "websearch",  # 网络搜索
@@ -378,7 +378,7 @@ class ToolManager:
     def _determine_tool_group(self, tool: ToolBase, tool_id: str) -> ToolBindingType:
         """确定工具属于哪个分组
 
-        基础工具（bash, read, write, edit）归为 BUILTIN_REQUIRED
+        基础工具（Bash, Read, Write, Edit）归为 BUILTIN_REQUIRED
         沙箱额外功能（download_file, deliver_file）归为 BUILTIN_OPTIONAL
         """
         metadata = tool.metadata
@@ -638,7 +638,7 @@ class ToolManager:
             app_id: 应用ID
             agent_name: Agent名称
             sandbox_enabled: 是否启用沙箱环境
-                基础工具（bash, read, write, edit）无论是否沙箱都默认绑定
+                基础工具（Bash, Read, Write, Edit）无论是否沙箱都默认绑定
                 沙箱额外功能（download_file, deliver_file）需要手动绑定
         """
         bindings: Dict[str, ToolBindingConfig] = {}

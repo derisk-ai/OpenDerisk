@@ -148,9 +148,9 @@ class SceneRegistry:
                 max_tokens=8192,
             ). \
             tools(
-                preferred_tools=["read", "write", "edit", "grep", "glob", "bash"],
+                preferred_tools=["Read", "Write", "Edit", "Grep", "glob", "Bash"],
                 excluded_tools=[],
-                require_confirmation=["bash"],
+                require_confirmation=["Bash"],
             ). \
             reasoning(strategy=StrategyType.REACT, max_steps=30). \
             build()
@@ -179,8 +179,8 @@ class SceneRegistry:
                 max_tokens=6144,
             ). \
             tools(
-                preferred_tools=["read", "grep", "glob", "bash"],
-                excluded_tools=["write", "edit"],
+                preferred_tools=["Read", "Grep", "glob", "Bash"],
+                excluded_tools=["Write", "Edit"],
             ). \
             reasoning(strategy=StrategyType.CHAIN_OF_THOUGHT, max_steps=15). \
             build()
@@ -208,8 +208,8 @@ class SceneRegistry:
                 max_tokens=4096,
             ). \
             tools(
-                preferred_tools=["read", "write"],
-                excluded_tools=["bash"],
+                preferred_tools=["Read", "Write"],
+                excluded_tools=["Bash"],
             ). \
             reasoning(strategy=StrategyType.REFLECTION, max_steps=10). \
             build()
@@ -241,8 +241,8 @@ class SceneRegistry:
                 max_tokens=6144,
             ). \
             tools(
-                preferred_tools=["read", "grep", "glob", "webfetch"],
-                excluded_tools=["write", "edit", "bash"],
+                preferred_tools=["Read", "Grep", "glob", "webfetch"],
+                excluded_tools=["Write", "Edit", "Bash"],
             ). \
             reasoning(strategy=StrategyType.PLAN_AND_EXECUTE, max_steps=25). \
             build()
@@ -269,8 +269,8 @@ class SceneRegistry:
                 temperature=0.5,
             ). \
             tools(
-                preferred_tools=["read", "glob", "grep", "write"],
-                excluded_tools=["bash"],
+                preferred_tools=["Read", "glob", "Grep", "Write"],
+                excluded_tools=["Bash"],
             ). \
             reasoning(strategy=StrategyType.REACT, max_steps=15). \
             build()
@@ -296,8 +296,8 @@ class SceneRegistry:
                 temperature=0.2,
             ). \
             tools(
-                preferred_tools=["read", "write", "edit", "glob", "grep", "bash"],
-                require_confirmation=["bash"],
+                preferred_tools=["Read", "Write", "Edit", "glob", "Grep", "Bash"],
+                require_confirmation=["Bash"],
             ). \
             reasoning(strategy=StrategyType.REACT, max_steps=20). \
             build()
@@ -330,8 +330,8 @@ class SceneRegistry:
                 temperature=0.3,
             ). \
             tools(
-                preferred_tools=["read", "edit", "write", "grep", "glob"],
-                require_confirmation=["bash"],
+                preferred_tools=["Read", "Edit", "Write", "Grep", "glob"],
+                require_confirmation=["Bash"],
             ). \
             reasoning(strategy=StrategyType.PLAN_AND_EXECUTE, max_steps=25). \
             build()
@@ -360,8 +360,8 @@ class SceneRegistry:
                 temperature=0.4,
             ). \
             tools(
-                preferred_tools=["read", "grep", "glob", "bash"],
-                require_confirmation=["bash"],
+                preferred_tools=["Read", "Grep", "glob", "Bash"],
+                require_confirmation=["Bash"],
             ). \
             reasoning(strategy=StrategyType.REACT, max_steps=30). \
             build()

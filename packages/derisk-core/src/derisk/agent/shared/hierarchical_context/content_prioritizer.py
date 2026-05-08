@@ -73,7 +73,7 @@ class ContentPrioritizer:
         "read_file": ContentPriority.MEDIUM,
         "search": ContentPriority.MEDIUM,
         "query": ContentPriority.MEDIUM,
-        "bash": ContentPriority.MEDIUM,
+        "Bash": ContentPriority.MEDIUM,
         "list_files": ContentPriority.MEDIUM,
         
         "explore": ContentPriority.LOW,

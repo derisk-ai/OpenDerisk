@@ -146,12 +146,12 @@ class ToolInjector:
         # 在实际实现中，这里应该检查 ToolRegistry
         # 当前简化实现：假设所有基础工具都存在
         basic_tools = {
-            "read",
-            "write",
-            "edit",
-            "grep",
+            "Read",
+            "Write",
+            "Edit",
+            "Grep",
             "glob",
-            "bash",
+            "Bash",
             "webfetch",
             "search",
         }

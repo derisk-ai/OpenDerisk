@@ -91,7 +91,7 @@ class BashCwdAuthorizer(ToolSpecificAuthorizer):
     """
 
     def can_handle(self, tool_name: str) -> bool:
-        return tool_name in ["bash", "shell", "execute_bash"]
+        return tool_name in ["Bash", "shell", "execute_bash"]
 
     async def check(
         self,
@@ -309,7 +309,7 @@ class ToolAuthorizationMiddleware:
 
     def _register_default_authorizers(self):
         """注册默认的工具授权检查器"""
-        self.register_authorizer("bash", BashCwdAuthorizer())
+        self.register_authorizer("Bash", BashCwdAuthorizer())
         self.register_authorizer("shell", BashCwdAuthorizer())
 
     def register_authorizer(

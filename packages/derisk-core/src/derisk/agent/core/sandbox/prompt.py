@@ -18,7 +18,7 @@ AGENT_SKILL_SYSTEM_PROMPT = """<agent_skill_system>
 **Skill** 是经过提炼的专业指令和工作流程知识包，存储在 `{{sandbox.agent_skill_dir}}`。
 
 **使用方法：**
-1. 用 `skill_read` 工具加载技能的 SKILL.md 指令
+1. 用 `Skill` 工具加载技能的 SKILL.md 指令
 2. 内化指令并立即应用于当前任务
 
 **关键原则：**

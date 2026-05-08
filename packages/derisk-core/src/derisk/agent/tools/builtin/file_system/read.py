@@ -24,7 +24,7 @@ class ReadTool(SandboxToolBase):
 
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="read",
+            name="Read",
             display_name="Read File",
             description=(
                 "Read the contents of a file or list a directory. "

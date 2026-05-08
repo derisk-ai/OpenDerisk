@@ -92,7 +92,7 @@ class FileExplorerAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["glob", "grep", "read", "bash"]
+        return ["glob", "Grep", "Read", "Bash"]
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -117,7 +117,7 @@ class FileExplorerAgent(BaseBuiltinAgent):
 
         try:
             result = await self.execute_tool(
-                "bash", {"command": f"ls -la {self.project_path}"}
+                "Bash", {"command": f"ls -la {self.project_path}"}
             )
 
             if result.get("success"):

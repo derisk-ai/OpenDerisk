@@ -274,16 +274,16 @@ class AgentMessage:
             )
 
         context = context or {}
-        text_content = None
+        text_contents = []  # 使用列表收集所有文本内容，避免覆盖
         media_types = []
         for item in content:
             if isinstance(item, str):
-                text_content = item
+                text_contents.append(item)
                 media_types.append("text")
             elif isinstance(item, MediaContent):
                 type = item.type
                 if type == "text":
-                    text_content = item.object.data
+                    text_contents.append(item.object.data)
                     media_types.append("text")
                 elif type == MediaContentType.IMAGE.value:
                     context.update({"image_url": item.object.data})
@@ -314,7 +314,7 @@ class AgentMessage:
                     data = getattr(obj, "data", "")
                     format = getattr(obj, "format", "text")
                 if type == "text":
-                    text_content = data
+                    text_contents.append(data)
                     media_types.append("text")
                 elif type == MediaContentType.IMAGE.value:
                     context.update({"image_url": data})
@@ -336,11 +336,15 @@ class AgentMessage:
                     raise ValueError(f"Unknown message type: {item} of system message")
             else:
                 raise ValueError(f"Unknown message type: {item} of system message")
+        
+        # 合并所有文本内容
+        final_text_content = "\n\n".join(text_contents) if text_contents else ""
+        
         return AgentMessage(
             message_id=uuid.uuid4().hex,
-            content=text_content,
+            content=final_text_content,
             context=context,
-            current_goal=current_goal if current_goal else text_content,
+            current_goal=current_goal if current_goal else final_text_content,
             rounds=rounds,
             content_types=media_types,
         )

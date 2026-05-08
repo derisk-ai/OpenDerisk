@@ -10,7 +10,7 @@ BaseBuiltinAgent - 内置Agent基类
 - 统一压缩管道支持（UnifiedCompactionPipeline三层压缩）
 
 工具分层：
-1. 内置工具（_setup_default_tools）：bash, read, write, grep, glob, think 等
+1. 内置工具（_setup_default_tools）：Bash, Read, Write, Grep, glob, think 等
 2. 交互工具（_setup_default_tools）：question, confirm, notify 等
 3. 资源工具（preload_resource）：根据绑定的资源动态注入
    - AppResource -> Agent调用工具
@@ -154,7 +154,7 @@ class BaseBuiltinAgent(ProductionAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表 - 子类实现"""
-        return ["bash", "read", "write"]
+        return ["Bash", "Read", "Write"]
 
     def _setup_default_tools(self):
         """设置默认工具"""

@@ -24,7 +24,7 @@ class WriteTool(SandboxToolBase):
 
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="write",
+            name="Write",
             display_name="Write File",
             description=(
                 "Write content to a file. Creates the file if it doesn't exist.\n\n"
