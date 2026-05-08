@@ -69,7 +69,7 @@ class UnifiedCompactionConfig:
     prune_protect_tokens: int = 10000  # 废弃：使用 prune_protect_ratio 替代
     prune_protect_ratio: float = 0.15  # 保留最近 15% 上下文空间的消息
     min_messages_keep: int = 20
-    prune_protected_tools: Tuple[str, ...] = ("skill", "skill_read", "skill_exec", "skill_list")
+    prune_protected_tools: Tuple[str, ...] = ("skill", "Skill", "skill_exec", "skill_list")
 
     # 自适应剪枝配置
     enable_adaptive_pruning: bool = True
@@ -123,7 +123,7 @@ class UnifiedCompactionConfig:
 
     # 特殊工具配置
     read_file_preview_length: int = 2000
-    summary_only_tools: Tuple[str, ...] = ("grep", "search", "find")
+    summary_only_tools: Tuple[str, ...] = ("Grep", "search", "find")
 
     # ==================== Layer 4: Multi-Turn History ====================
     # 跨轮次对话历史压缩配置
@@ -1278,7 +1278,7 @@ class UnifiedCompactionPipeline:
                 parts.append(chapter.skill_outputs[0])
                 # Evicted middle skills (names only)
                 evicted_count = total_skills - 3
-                parts.append(f"\n[{evicted_count} skill output(s) evicted to save context, use skill_read to reload]")
+                parts.append(f"\n[{evicted_count} skill output(s) evicted to save context, use Skill to reload]")
                 # Last 2 skills (full)
                 for i, skill_output in enumerate(chapter.skill_outputs[-2:], start=total_skills - 1):
                     parts.append(f"\n--- Skill Output {i} ---")

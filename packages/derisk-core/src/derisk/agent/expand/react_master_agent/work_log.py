@@ -117,7 +117,7 @@ class WorkLogManager:
         self.chars_per_token = DEFAULT_CHARS_PER_TOKEN
 
         self.read_archive_preview_length = 2000
-        self.summary_only_tools = {"grep", "search", "find"}
+        self.summary_only_tools = {"Grep", "search", "find"}
         self.interactive_tools = {"ask_user", "send_message"}
 
         self._lock = asyncio.Lock()

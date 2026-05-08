@@ -117,7 +117,7 @@ class CodingAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["read", "write", "bash", "grep", "glob"]
+        return ["Read", "Write", "Bash", "Grep", "glob"]
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -239,7 +239,7 @@ class CodingAgent(BaseBuiltinAgent):
     async def _analyze_project_structure(self) -> Dict[str, Any]:
         """分析项目结构"""
         result = await self.execute_tool(
-            "bash",
+            "Bash",
             {"command": f"find {self.workspace_path} -type f -name '*.py' | head -20"},
         )
 
@@ -265,7 +265,7 @@ class CodingAgent(BaseBuiltinAgent):
         logger.info(f"[CodingAgent] 定位代码: {keyword}")
 
         result = await self.execute_tool(
-            "grep",
+            "Grep",
             {"pattern": keyword, "path": self.workspace_path, "include": file_pattern},
         )
 

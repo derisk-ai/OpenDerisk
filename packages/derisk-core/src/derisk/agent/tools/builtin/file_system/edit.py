@@ -24,7 +24,7 @@ class EditTool(SandboxToolBase):
 
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="edit",
+            name="Edit",
             display_name="Edit File",
             description=(
                 "Edit a file by replacing specific text. Performs exact string matching.\n\n"

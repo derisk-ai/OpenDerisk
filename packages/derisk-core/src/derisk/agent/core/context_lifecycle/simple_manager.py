@@ -443,7 +443,7 @@ class SimpleContextManager:
         
         while tools_by_usage and self.check_pressure() > 0.7:
             name, slot = tools_by_usage.pop(0)
-            if name not in ["read", "write", "bash"]:  # 保留核心工具
+            if name not in ["Read", "Write", "Bash"]:  # 保留核心工具
                 self.unload_tool(name)
     
     # ============ 工具方法 ============
@@ -623,7 +623,7 @@ async def example_usage():
 
 Analyze the codebase and identify issues.
 """,
-        required_tools=["read", "grep"],
+        required_tools=["Read", "Grep"],
     )
     print(f"Loaded skill: code_analysis")
     print(f"Previous skill auto-compacted: {result.get('previous_skill')}")
@@ -649,7 +649,7 @@ Analyze the codebase and identify issues.
 
 Fix the identified issues.
 """,
-        required_tools=["edit", "write"],
+        required_tools=["Edit", "Write"],
     )
     print(f"\nLoaded skill: code_fix")
     print(f"Previous skill auto-compacted: {result.get('previous_skill')}")

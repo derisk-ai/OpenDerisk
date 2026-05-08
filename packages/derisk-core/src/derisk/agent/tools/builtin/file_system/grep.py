@@ -20,7 +20,7 @@ class GrepTool(ToolBase):
     
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="grep",
+            name="Grep",
             display_name="Search Content",
             description="Search for content in files using regex",
             category=ToolCategory.SEARCH,

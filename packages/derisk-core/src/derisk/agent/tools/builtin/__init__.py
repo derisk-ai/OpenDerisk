@@ -76,7 +76,7 @@ def register_all(registry: "ToolRegistry") -> None:
 
     register_todo_tools(registry)
 
-    # Skill工具 (skill_read, skill_exec, skill_list)
+    # Skill工具 (Skill, skill_exec, skill_list)
     from .skill import register_skill_tools
 
     register_skill_tools(registry)

@@ -86,16 +86,16 @@ REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范�
    **优先级1（最高优先级） - 探索类工具**：
    - 查找特定内容、函数、变量、配置 → **必须优先用 `search`**（最高效）
    - 不确定目标位置或内容 → **先用 `search` 探索，而非 `list_files`**
-   - `search` 找到结果后 → 用 `read` 深入阅读
-   
-   **优先级2 - 结构探索工具**：
-   - 明确需要了解目录结构 → 用 `list_files`（仅在已知需要时使用）
-   - **警告**：不要盲目使用 `list_files` 探索，使用 `search` 更高效
-   
-   **优先级3 - 操作工具**：
-   - 已知文件路径需要阅读 → 用 `read` 读取
-   - 需要执行命令 → 用 `bash`
-   - 需要写入文件 → 用 `write`
+    - `search` 找到结果后 → 用 `Read` 深入阅读
+    
+    **优先级2 - 结构探索工具**：
+    - 明确需要了解目录结构 → 用 `list_files`（仅在已知需要时使用）
+    - **警告**：不要盲目使用 `list_files` 探索，使用 `search` 更高效
+    
+    **优先级3 - 操作工具**：
+    - 已知文件路径需要阅读 → 用 `Read` 读取
+    - 需要执行命令 → 用 `Bash`
+    - 需要写入文件 → 用 `Write`
    - 需要整理思路 → 用 `think`
    
    **默认行为**：遇到未知任务时，**先用 `search` 探索**，而不是逐个目录 `list_files`
@@ -109,9 +109,9 @@ REACT_REASONING_SYSTEM_PROMPT = """你是一个遵循 ReAct (推理+行动) 范�
 ## 可用工具
 
 - `search`: 搜索文件内容（支持关键词和正则表达式，等同于 grep），适合查找特定代码、函数定义、配置项等
-- `read`: 读取文件内容，适合阅读已知路径的文件
-- `bash`: 执行shell命令，适合运行复杂命令或组合操作
-- `write`: 写入文件
+- `Read`: 读取文件内容，适合阅读已知路径的文件
+- `Bash`: 执行shell命令，适合运行复杂命令或组合操作
+- `Write`: 写入文件
 - `list_files`: 列出目录内容，适合了解项目结构
 - `think`: 记录思考过程
 
@@ -243,7 +243,7 @@ class ReActReasoningAgent(BaseBuiltinAgent):
 
     def _get_default_tools(self) -> List[str]:
         """获取默认工具列表"""
-        return ["bash", "read", "write", "search", "list_files"]
+        return ["Bash", "Read", "Write", "search", "list_files"]
 
     def _get_prompt_assembler(self) -> PromptAssembler:
         """获取 Prompt 组装器（懒加载）"""
@@ -977,9 +977,9 @@ class ReActReasoningAgent(BaseBuiltinAgent):
         result = await self.execute_tool(tool_name, tool_args)
 
         # Layer 1: 使用 UnifiedCompactionPipeline 截断（优先）
-        # skill_read/skill_list 返回完整 Skill 内容，不截断
-        # get_table_spec 返回结构化表 spec，截断会破坏格式；工具已限制最多 3 张表
-        _SKIP_TRUNCATION_TOOLS = {"skill_read", "skill_list", "get_table_spec"}
+        # Skill/skill_list 返回完整 Skill 内容，不截断
+
+        _SKIP_TRUNCATION_TOOLS = {"Skill", "skill_list", "get_table_spec"}
         pipeline = await self._ensure_compaction_pipeline()
         if pipeline and result.output and tool_name not in _SKIP_TRUNCATION_TOOLS:
             try:

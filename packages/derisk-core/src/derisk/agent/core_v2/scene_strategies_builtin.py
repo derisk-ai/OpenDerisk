@@ -406,13 +406,13 @@ class ToolOutputFormatterHook(SceneHook):
     async def on_after_tool(self, ctx: HookContext) -> HookResult:
         """格式化工具输出"""
         # 豁免特定工具的截断：
-        # - skill_read/skill_list: Skill 内容不应截断，保持完整指令
+        # - Skill/skill_list: Skill 内容不应截断，保持完整指令
         # - get_table_spec: 表 spec 是结构化数据，截断会破坏格式
         # - read/read_file/view: 这些工具已自行管理输出大小（分段读取）
         # - execute_sql: 已自行管理输出大小（分页+CSV导出）
         TRUNCATION_EXEMPT_TOOLS = {
-            "skill_read", "skill_list", "get_table_spec",
-            "read", "read_file", "view", "execute_sql",
+            "Skill", "skill_list", "get_table_spec",
+            "Read", "read_file", "view", "execute_sql",
         }
 
         if ctx.tool_result:
@@ -521,8 +521,8 @@ CODING_STRATEGY = SceneStrategy(
     
     tool_selector_extension=ToolSelectorExtension(
         filter_rules=[
-            {"action": "prefer", "tools": ["read", "edit", "write", "grep", "glob"]},
-            {"action": "confirm", "tools": ["bash"]},
+            {"action": "prefer", "tools": ["Read", "Edit", "Write", "Grep", "glob"]},
+            {"action": "confirm", "tools": ["Bash"]},
         ],
         auto_suggest_tools=True,
         suggest_rules=[

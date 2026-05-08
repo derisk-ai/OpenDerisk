@@ -12,11 +12,11 @@ from enum import Enum
 
 class ManusStepType(str, Enum):
     """步骤类型 - 对应不同的工具/动作"""
-    READ = "read"
-    EDIT = "edit"
-    WRITE = "write"
-    BASH = "bash"
-    GREP = "grep"
+    READ = "Read"
+    EDIT = "Edit"
+    WRITE = "Write"
+    BASH = "Bash"
+    GREP = "Grep"
     GLOB = "glob"
     TASK = "task"
     SKILL = "skill"
@@ -363,7 +363,7 @@ class VisManusData:
                 "artifacts": [...]
             },
             "right_panel": {
-                "active_step": { "id": "step_2", "type": "bash", ... },
+                "active_step": { "id": "step_2", "type": "Bash", ... },
                 "outputs": [{ "output_type": "text", "content": "..." }],
                 "is_running": true,
                 "panel_view": "execution"
@@ -393,12 +393,12 @@ class VisManusData:
 # Action 名称到步骤类型的映射
 ACTION_TO_STEP_TYPE = {
     "shell_interpreter": ManusStepType.BASH,
-    "bash": ManusStepType.BASH,
+    "Bash": ManusStepType.BASH,
     "execute_skill_script_file": ManusStepType.SKILL,
     "get_skill_resource": ManusStepType.SKILL,
     "load_skill": ManusStepType.SKILL,
     "select_skill": ManusStepType.SKILL,
-    "skill_read": ManusStepType.SKILL,
+    "Skill": ManusStepType.SKILL,
     "skill_exec": ManusStepType.SKILL,
     "skill_list": ManusStepType.SKILL,
     "sql_query": ManusStepType.SQL,
@@ -408,7 +408,10 @@ ACTION_TO_STEP_TYPE = {
     "read_file": ManusStepType.READ,
     "write_file": ManusStepType.WRITE,
     "edit_file": ManusStepType.EDIT,
-    "grep": ManusStepType.GREP,
+    "Read": ManusStepType.READ,
+    "Write": ManusStepType.WRITE,
+    "Edit": ManusStepType.EDIT,
+    "Grep": ManusStepType.GREP,
     "glob": ManusStepType.GLOB,
     "html": ManusStepType.HTML,
     "planning": ManusStepType.TASK,

@@ -481,7 +481,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             return None
 
         self._step_counter += 1
-        step_id = f"step_{self._step_counter}"
+        # 使用 message_id 前缀确保跨轮次步骤 ID 唯一，避免前端映射覆盖
+        msg_id_prefix = gpt_msg.message_id[:8] if gpt_msg.message_id else "unknown"
+        step_id = f"step_{msg_id_prefix}_{self._step_counter}"
 
         title = action_name or self._get_action_report_summary(gpt_msg) or "执行中"
 
@@ -1038,7 +1040,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         continue
 
                     step_counter += 1
-                    step_id = f"step_{step_counter}"
+                    # 使用 message_id 前缀确保跨轮次步骤 ID 唯一
+                    msg_id_prefix = msg.message_id[:8] if msg.message_id else "unknown"
+                    step_id = f"step_{msg_id_prefix}_{step_counter}"
                     action_input = getattr(act_out, 'action_input', None)
                     observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
 
@@ -1496,7 +1500,16 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
 
             # 创建新步骤
             self._step_counter += 1
-            step_id = f"step_{self._step_counter}"
+            
+            # 优先使用 action_id 作为 step_id 的一部分，确保全局唯一
+            report_action_id = getattr(report, 'action_id', None) if hasattr(report, 'action_id') else (report.get('action_id') if isinstance(report, dict) else None)
+            if report_action_id:
+                # 使用 action_id 的后8位作为前缀，确保跨轮次唯一
+                action_id_prefix = report_action_id[:8]
+                step_id = f"step_{action_id_prefix}_{self._step_counter}"
+            else:
+                step_id = f"step_{self._step_counter}"
+            
             step_type = self._map_action_to_step_type(action_name, action_input)
 
             # batch_tasks：将 view 中的 d-batch-tasks 数据合并到 action_input
@@ -1728,7 +1741,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         continue
 
                     step_counter += 1
-                    step_id = f"step_{step_counter}"
+                    # 使用 message_id 前缀确保跨轮次步骤 ID 唯一
+                    msg_id_prefix = msg.message_id[:8] if msg.message_id else "unknown"
+                    step_id = f"step_{msg_id_prefix}_{step_counter}"
                     action_input = getattr(act_out, 'action_input', None)
                     observation = getattr(act_out, 'observations', None) or getattr(act_out, 'content', None)
 
@@ -2014,7 +2029,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     if not is_batch and getattr(act_out, 'terminate', False):
                         continue
                     temp_counter += 1
-                    temp_step_id = f"step_{temp_counter}"
+                    # 使用与创建时相同的格式生成 temp_step_id
+                    msg_id_prefix = msg.message_id[:8] if msg.message_id else "unknown"
+                    temp_step_id = f"step_{msg_id_prefix}_{temp_counter}"
 
                     action_id = getattr(act_out, 'action_id', None)
                     if temp_step_id == resolved_step_id or action_id == step_id:

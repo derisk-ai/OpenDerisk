@@ -1288,7 +1288,7 @@ class ReActMasterAgent(ConversableAgent):
                             "content": (
                                 f"<evicted-skills>\n"
                                 f"The following {len(evicted_names)} skill(s) were previously loaded but their "
-                                f"content was evicted to save context space. Use skill_read to reload if needed:\n"
+                                f"content was evicted to save context space. Use Skill to reload if needed:\n"
                                 + "\n".join(f"- {name}" for name in evicted_names)
                                 + "\n</evicted-skills>"
                             ),
@@ -2187,7 +2187,7 @@ class ReActMasterAgent(ConversableAgent):
                         )
 
                         # 追踪 Skill 内容（用于 compaction 后重新注入）
-                        if tool_name == "skill_read" and result.is_exe_success and result.content:
+                        if tool_name == "Skill" and result.is_exe_success and result.content:
                             skill_name = tool_args.get("skill_name", "")
                             if skill_name:
                                 self._invoked_skills[skill_name] = result.content
@@ -2697,7 +2697,7 @@ class ReActMasterAgent(ConversableAgent):
                 prompts += (
                     "以下技能存储在沙箱环境中，路径为沙箱内的绝对路径。\n"
                     f"技能目录：{sandbox_skill_dir}\n"
-                    "使用方式：使用 `skill_read` 工具加载技能的 SKILL.md 指令，使用 `skill_exec` 执行技能目录中的脚本。\n\n"
+                    "使用方式：使用 `Skill` 工具加载技能的 SKILL.md 指令，使用 `skill_exec` 执行技能目录中的脚本。\n\n"
                 )
 
             for k, v in self.resource_map.items():
@@ -2735,7 +2735,7 @@ class ReActMasterAgent(ConversableAgent):
                             f"<description>{skill_meta.description}</description>"
                             f"<path>{skill_path}</path>"
                             f"<branch>{branch}</branch>"
-                            f"<load_command>skill_read(skill_name=\"{skill_code}\")</load_command>"
+                            f"<load_command>Skill(skill_name=\"{skill_code}\")</load_command>"
                             f"\n</skill>\n"
                         )
 

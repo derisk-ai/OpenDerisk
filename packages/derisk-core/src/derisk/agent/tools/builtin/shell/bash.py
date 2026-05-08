@@ -34,7 +34,7 @@ class BashTool(SandboxToolBase):
 
     def _define_metadata(self) -> ToolMetadata:
         return ToolMetadata(
-            name="bash",
+            name="Bash",
             display_name="Execute Bash",
             description=(
                 "Execute a shell command and return the output.\n\n"
