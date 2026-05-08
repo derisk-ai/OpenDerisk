@@ -44,6 +44,7 @@ from .tool_pack import (
     MemoryCaseResourceParameters,
     MemoryCaseToolPack,
     get_memory_case_scope,
+    inject_memory_scope,
     set_memory_case_scope,
 )
 from .vector_index import (
@@ -95,6 +96,7 @@ __all__ = [
     "case_context_from_metadata",
     "clear_memory_case_plugin_resolver",
     "get_memory_case_scope",
+    "inject_memory_scope",
     "is_memory_search_scope_app_wildcard",
     "is_memory_search_scope_env_wildcard",
     "merge_case_context",

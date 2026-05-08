@@ -12,6 +12,7 @@ from derisk_ext.plugin.memory_case import (
     BUILTIN_MEMORY_MCP_NAME,
     MemoryCasePluginService,
     MemoryPluginError,
+    inject_memory_scope,
 )
 from derisk_ext.plugin.memory_case.integration import (
     ensure_memory_case_resource_resolver_registered,
@@ -309,7 +310,10 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         logger.info(f"call mcp tool:{mcp_name},{mcp_sse_url}")
         if self._is_builtin_memory_mcp(mcp_name):
             try:
-                return await self._memory_plugin.call_tool(tool_name=tool_name, arguments=arguments)
+                return await self._memory_plugin.call_tool(
+                    tool_name=tool_name,
+                    arguments=inject_memory_scope(tool_name, arguments),
+                )
             except MemoryPluginError as exc:
                 return {"code": exc.code, "message": exc.message}
 

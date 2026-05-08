@@ -48,6 +48,46 @@ def get_memory_case_scope() -> Dict[str, Optional[str]]:
     }
 
 
+def inject_memory_scope(
+    tool_name: str, arguments: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Resolve scope from ContextVar and inject into tool arguments.
+
+    Called by both MemoryCaseToolPack._make_caller (Agent ToolPack path) and
+    McpService.call_tool (MCP service path) so that scope injection is defined
+    once inside the plugin.
+    """
+    if tool_name not in ("memory_case_search", "memory_case_upsert"):
+        return arguments
+    args = dict(arguments or {})
+    ctx = get_memory_case_scope()
+    scope = dict(args.get("scope") or {})
+    scope.setdefault("app_code", ctx["app_code"])
+    scope.setdefault("environment", "default")
+    conv_id = scope.get("conv_id") or ctx.get("conv_id")
+    if conv_id:
+        scope.setdefault("conv_id", conv_id)
+    args["scope"] = scope
+
+    if tool_name == "memory_case_upsert" and "case" in args:
+        case_data = dict(args["case"])
+        patch: Dict[str, Any] = {
+            KEY_APP_CODE: scope.get(KEY_APP_CODE, "default"),
+            KEY_ENVIRONMENT: scope.get(KEY_ENVIRONMENT, "default"),
+        }
+        if scope.get(KEY_TENANT_ID):
+            patch[KEY_TENANT_ID] = scope[KEY_TENANT_ID]
+        if scope.get(KEY_TEAM_ID):
+            patch[KEY_TEAM_ID] = scope[KEY_TEAM_ID]
+        case_data["metadata"] = merge_case_context(
+            case_data.get("metadata"), patch
+        )
+        if scope.get("conv_id"):
+            case_data.setdefault("source_conv_id", scope["conv_id"])
+        args["case"] = case_data
+    return args
+
+
 class MemoryCaseResourceParameters(PackResourceParameters):
     """Case-memory MCP resource parameters."""
 
@@ -87,16 +127,6 @@ class MemoryCaseToolPack(ToolPack):
                 "register_memory_case_plugin_resolver was not called"
             )
         return self._plugin
-
-    def _resolve_scope(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        scope = kwargs.get("scope") or {}
-        ctx = get_memory_case_scope()
-        scope.setdefault("app_code", ctx["app_code"])
-        scope.setdefault("environment", "default")
-        conv_id = scope.get("conv_id") or ctx.get("conv_id")
-        if conv_id:
-            scope.setdefault("conv_id", conv_id)
-        return scope
 
     async def preload_resource(self) -> None:
         if self._initialized:
@@ -141,26 +171,7 @@ class MemoryCaseToolPack(ToolPack):
 
         async def _call(**kwargs):
             plugin = pack._ensure_plugin()
-            if tool_name in ("memory_case_search", "memory_case_upsert"):
-                scope = pack._resolve_scope(kwargs)
-                kwargs["scope"] = scope
-                if tool_name == "memory_case_upsert" and "case" in kwargs:
-                    case_data = kwargs["case"]
-                    if isinstance(case_data, dict):
-                        patch = {
-                            KEY_APP_CODE: scope.get(KEY_APP_CODE, "default"),
-                            KEY_ENVIRONMENT: scope.get(KEY_ENVIRONMENT, "default"),
-                        }
-                        if scope.get(KEY_TENANT_ID):
-                            patch[KEY_TENANT_ID] = scope[KEY_TENANT_ID]
-                        if scope.get(KEY_TEAM_ID):
-                            patch[KEY_TEAM_ID] = scope[KEY_TEAM_ID]
-                        case_data["metadata"] = merge_case_context(
-                            case_data.get("metadata"), patch
-                        )
-                        if scope.get("conv_id"):
-                            case_data.setdefault("source_conv_id", scope["conv_id"])
-
+            kwargs = inject_memory_scope(tool_name, kwargs) or kwargs
             result = await plugin.call_tool(tool_name, kwargs)
             if isinstance(result, dict):
                 return json.dumps(result, ensure_ascii=False)

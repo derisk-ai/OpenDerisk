@@ -42,6 +42,9 @@ class _FakeVectorIndex:
     async def search(self, query: str, case_scope: dict, top_k: int):
         return []
 
+    async def search_with_scores(self, query, case_scope, top_k):
+        return []
+
     async def invalidate(self, case_id: str):
         return None
 

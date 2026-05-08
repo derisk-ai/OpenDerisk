@@ -171,6 +171,7 @@ def test_full_service_upsert_flow_with_real_dao(dao):
     class _FakeVector:
         async def upsert(self, case): pass
         async def search(self, query, scope, top_k): return []
+        async def search_with_scores(self, query, scope, top_k): return []
         async def invalidate(self, case_id): pass
 
     service = MemoryCasePluginService(

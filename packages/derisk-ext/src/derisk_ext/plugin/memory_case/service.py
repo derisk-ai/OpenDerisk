@@ -5,7 +5,7 @@ import uuid
 from asyncio import TimeoutError as AsyncTimeoutError
 from asyncio import wait_for
 from datetime import UTC, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from derisk._private.pydantic import BaseModel, Field
 from derisk.component import SystemApp
@@ -50,6 +50,9 @@ class MemoryCasePluginService:
         self._enabled = enabled
         self._timeout_seconds = timeout_seconds
         self._vector_index = vector_index or EmptyCandidateCaseVectorIndex()
+        self._search_log: Dict[str, Set[str]] = {}
+        self._feedback_log: Dict[str, Set[str]] = {}
+        self._max_tracked_conv = 1000
 
     @property
     def enabled(self) -> bool:
@@ -267,23 +270,63 @@ class MemoryCasePluginService:
             for case in candidate_pool
             if _eligible(case)
         ]
-        return {
+        result = {
             "code": "OK",
             "cases": items,
             "count": len(items),
             "degraded": len(semantic_case_ids) == 0,
         }
+        self._track_search_hits(scope, items)
+        return result
+
+    def _track_search_hits(
+        self, scope: Dict[str, Any], items: List[Dict[str, Any]]
+    ) -> None:
+        conv_id = (scope or {}).get("conv_id")
+        if not conv_id or not items:
+            logger.info(
+                "memory_case search tracking skipped: conv_id=%r, items=%d",
+                conv_id, len(items),
+            )
+            return
+        if conv_id not in self._search_log:
+            self._search_log[conv_id] = set()
+        for item in items:
+            self._search_log[conv_id].add(item["case_id"])
+        logger.info(
+            "memory_case search tracked: conv_id=%r case_ids=%s",
+            conv_id, [item["case_id"] for item in items],
+        )
+        self._trim_tracking()
+
+    def _trim_tracking(self) -> None:
+        while len(self._search_log) > self._max_tracked_conv:
+            oldest = next(iter(self._search_log))
+            self._search_log.pop(oldest, None)
+            self._feedback_log.pop(oldest, None)
 
     async def _upsert(self, args: Dict[str, Any]) -> Dict[str, Any]:
         case_data = args.get("case")
         if not case_data:
-            raise MemoryPluginError("MISSING_CASE", "case payload is required")
+            logger.warning(
+                "memory_case_upsert called without 'case' field; keys received: %s",
+                sorted(args.keys()) if args else "<empty>",
+            )
+            raise MemoryPluginError(
+                "MISSING_CASE",
+                "case payload is required. Pass a 'case' object with at least "
+                "symptom_summary, hypotheses, actions, resolution, and confidence.",
+            )
         if not case_data.get("case_id"):
             case_data["case_id"] = f"case-{uuid.uuid4().hex}"
         case = CandidateCase(**case_data)
         if not case.markdown_summary:
             case.markdown_summary = render_case_markdown(case)
         saved = self._dao.upsert(case)
+        similar_cases = await self._find_similar_cases(saved)
+        if similar_cases:
+            saved.metadata["similar_cases"] = similar_cases
+            saved = self._dao.upsert(saved)
         try:
             await self._vector_index.upsert(saved)
         except Exception:
@@ -292,7 +335,61 @@ class MemoryCasePluginService:
                 saved.case_id,
                 exc_info=True,
             )
-        return {"code": "OK", "case": saved.model_dump(mode="json")}
+        result: Dict[str, Any] = {"code": "OK", "case": saved.model_dump(mode="json")}
+        unreviewed = self._get_unreviewed_cases(
+            args.get("scope", {}).get("conv_id"), saved.case_id
+        )
+        if unreviewed:
+            result["unreviewed_cases"] = unreviewed
+            result["hint"] = (
+                "以上案例在本轮排查中被检索但尚未评价，"
+                "请逐一调用 memory_case_feedback 标记是否对本次排查有帮助"
+            )
+        return result
+
+    def _get_unreviewed_cases(
+        self, conv_id: Optional[str], current_case_id: str
+    ) -> List[str]:
+        if not conv_id:
+            logger.info("memory_case unreviewed skipped: no conv_id in upsert scope")
+            return []
+        searched = self._search_log.get(conv_id, set())
+        if not searched:
+            logger.info(
+                "memory_case unreviewed empty: no prior searches for conv_id=%r",
+                conv_id,
+            )
+            return []
+        feedbacked = self._feedback_log.get(conv_id, set())
+        unreviewed = sorted(searched - feedbacked - {current_case_id})
+        logger.debug(
+            "memory_case unreviewed conv_id=%r: searched=%d feedbacked=%d unreviewed=%d",
+            conv_id, len(searched), len(feedbacked), len(unreviewed),
+        )
+        return unreviewed[:10]
+
+    async def _find_similar_cases(
+        self, case: CandidateCase, top_k: int = 5, min_score: float = 0.7
+    ) -> List[Dict[str, Any]]:
+        """Search vector index for cases similar to *case*, excluding itself."""
+        ctx = case.metadata.get("case_context", {}) if case.metadata else {}
+        scope = {
+            "app_code": ctx.get("app_code") or "default",
+            "environment": ctx.get("environment") or "default",
+            "tenant_id": ctx.get("tenant_id"),
+            "team_id": ctx.get("team_id"),
+        }
+        query_text = case.markdown_summary or case.symptom_summary
+        if not query_text:
+            return []
+        results = await self._vector_index.search_with_scores(
+            query_text, scope, top_k
+        )
+        return [
+            {"case_id": cid, "score": round(score, 4), "relation": "similar"}
+            for cid, score in results
+            if cid != case.case_id and score >= min_score
+        ]
 
     async def _feedback(self, args: Dict[str, Any]) -> Dict[str, Any]:
         case_id = args.get("case_id")
@@ -337,7 +434,17 @@ class MemoryCasePluginService:
         saved = self._dao.upsert(case)
         if saved.lifecycle == CandidateCaseLifecycle.STALE:
             await self._vector_index.invalidate(saved.case_id)
+        self._track_feedback_hit(saved.source_conv_id, saved.case_id)
         return {"code": "OK", "case": saved.model_dump(mode="json")}
+
+    def _track_feedback_hit(
+        self, conv_id: Optional[str], case_id: str
+    ) -> None:
+        if not conv_id:
+            return
+        if conv_id not in self._feedback_log:
+            self._feedback_log[conv_id] = set()
+        self._feedback_log[conv_id].add(case_id)
 
     async def _render(self, args: Dict[str, Any]) -> Dict[str, Any]:
         blocks: List[str] = []

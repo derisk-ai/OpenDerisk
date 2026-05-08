@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, Tuple
 
 from derisk.core import Chunk
 from derisk.storage.vector_store.base import VectorStoreBase
@@ -45,6 +45,12 @@ class CandidateCaseVectorIndex(ABC):
         pass
 
     @abstractmethod
+    async def search_with_scores(
+        self, query: str, case_scope: dict, top_k: int
+    ) -> List[Tuple[str, float]]:
+        pass
+
+    @abstractmethod
     async def invalidate(self, case_id: str) -> None:
         pass
 
@@ -72,6 +78,11 @@ class LazyCandidateCaseVectorIndex(CandidateCaseVectorIndex):
     ) -> List[str]:
         return await self._ensure().search(query, case_scope, top_k)
 
+    async def search_with_scores(
+        self, query: str, case_scope: dict, top_k: int
+    ) -> List[Tuple[str, float]]:
+        return await self._ensure().search_with_scores(query, case_scope, top_k)
+
     async def invalidate(self, case_id: str) -> None:
         await self._ensure().invalidate(case_id)
 
@@ -81,6 +92,11 @@ class EmptyCandidateCaseVectorIndex(CandidateCaseVectorIndex):
         return None
 
     async def search(self, query: str, case_scope: dict, top_k: int) -> List[str]:
+        return []
+
+    async def search_with_scores(
+        self, query: str, case_scope: dict, top_k: int
+    ) -> List[Tuple[str, float]]:
         return []
 
     async def invalidate(self, case_id: str) -> None:
@@ -126,6 +142,40 @@ class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
             text=query, topk=top_k, score_threshold=0.0, filters=filters
         )
         return [chunk.metadata.get("case_id") for chunk in chunks if chunk.metadata]
+
+    async def search_with_scores(
+        self, query: str, case_scope: dict, top_k: int
+    ) -> List[Tuple[str, float]]:
+        if self._vector_store is None:
+            return []
+        fl: List[MetadataFilter] = []
+        if not is_memory_search_scope_app_wildcard(case_scope):
+            fl.append(
+                MetadataFilter(key=KEY_APP_CODE, value=case_scope.get(KEY_APP_CODE)),
+            )
+        if not is_memory_search_scope_env_wildcard(case_scope):
+            fl.append(
+                MetadataFilter(
+                    key=KEY_ENVIRONMENT, value=case_scope.get(KEY_ENVIRONMENT),
+                ),
+            )
+        if case_scope.get(KEY_TENANT_ID):
+            fl.append(
+                MetadataFilter(key=KEY_TENANT_ID, value=case_scope.get(KEY_TENANT_ID))
+            )
+        if case_scope.get(KEY_TEAM_ID):
+            fl.append(
+                MetadataFilter(key=KEY_TEAM_ID, value=case_scope.get(KEY_TEAM_ID))
+            )
+        filters = MetadataFilters(filters=fl) if fl else None
+        chunks = self._vector_store.similar_search_with_scores(
+            text=query, topk=top_k, score_threshold=0.0, filters=filters
+        )
+        return [
+            (chunk.metadata.get("case_id", ""), chunk.score)
+            for chunk in chunks
+            if chunk.metadata and chunk.metadata.get("case_id")
+        ]
 
     async def invalidate(self, case_id: str) -> None:
         if self._vector_store is None:

@@ -942,7 +942,12 @@ class CoreV2Component(BaseComponent):
                 bind_conversation_scope_for_agent,
             )
 
-            conv_id = getattr(context, "conv_id", None) if context else None
+            conv_id = (
+                getattr(context, "conv_id", None)
+                or getattr(context, "conversation_id", None)
+                if context
+                else None
+            )
             bind_conversation_scope_for_agent(app_code=app_code, conv_id=conv_id)
 
         # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
