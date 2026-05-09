@@ -26,6 +26,8 @@ from ...resource.tool.pack import ToolPack, _to_tool_list
 
 logger = logging.getLogger(__name__)
 
+_MAX_TOOL_OUTPUT_CHARS = 8000
+
 
 class UnifiedToolAdapter(BaseTool):
     """
@@ -462,6 +464,7 @@ class ToolAction(Action[ToolInput]):
 
         ## Process tool result if needed
         result_content = tool_result["content"]
+        tool_output_chars = len(str(result_content))
         status = (
             Status.COMPLETE.value if tool_result["success"] else Status.FAILED.value
         )

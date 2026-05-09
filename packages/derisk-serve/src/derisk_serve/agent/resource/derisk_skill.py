@@ -140,9 +140,11 @@ class DeriskSkillResource(AgentSkillResource):
         """Initialize the DeriskSkill resource."""
         self._resource_name = name
         self._skill_name = kwargs.get("skill_name", name)
-        self._skill_code = kwargs.get(
-            "skill_code", kwargs.get("skillCode", self._skill_name)
-        )
+        skill_code = kwargs.get("skill_code") or kwargs.get("skillCode")
+        # If skill_code is not provided, try to look it up by skill_name
+        if not skill_code and self._skill_name:
+            skill_code = self._lookup_skill_code_by_name(self._skill_name)
+        self._skill_code = skill_code or self._skill_name
         self._skill_description = kwargs.get(
             "skill_description", kwargs.get("description")
         )
@@ -160,6 +162,48 @@ class DeriskSkillResource(AgentSkillResource):
             **kwargs,
         }
         super().__init__(name, **parent_kwargs)
+
+    def _lookup_skill_code_by_name(self, skill_name: str) -> Optional[str]:
+        """Look up the actual skill_code from the database by skill_name.
+
+        This handles the case where skill_code is not provided but we need
+        to find the correct directory (e.g., 'docx-ea97e2f9' instead of 'docx').
+        Supports both exact name match and legacy skills with hash suffix.
+        """
+        try:
+            from derisk_serve.skill.service.service import (
+                Service,
+                SKILL_SERVICE_COMPONENT_NAME,
+            )
+            from derisk_serve.skill.api.schemas import SkillRequest
+            from derisk.agent.resource.manage import _SYSTEM_APP
+
+            if _SYSTEM_APP:
+                service = _SYSTEM_APP.get_component(
+                    SKILL_SERVICE_COMPONENT_NAME, Service, default=None
+                )
+                if service:
+                    # Try exact name match first
+                    request = SkillRequest(name=skill_name)
+                    skills = service.get_list(request)
+                    if skills:
+                        skill_code = skills[0].skill_code
+                        logger.info(
+                            f"Resolved skill_code for '{skill_name}': {skill_code}"
+                        )
+                        return skill_code
+
+                    # Fallback: find by name prefix (for legacy skills with hash suffix)
+                    all_skills = service.get_list(SkillRequest())
+                    for skill in all_skills:
+                        if skill.name == skill_name or skill.skill_code.startswith(f"{skill_name}-"):
+                            logger.info(
+                                f"Resolved legacy skill_code for '{skill_name}': {skill.skill_code}"
+                            )
+                            return skill.skill_code
+        except Exception as e:
+            logger.debug(f"Failed to lookup skill_code by name '{skill_name}': {e}")
+        return None
 
     def _get_sandbox_path(self) -> Optional[str]:
         """Get sandbox path for the skill using skill_code."""

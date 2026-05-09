@@ -92,6 +92,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
           const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
           localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
           localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+          window.dispatchEvent(new Event('userinfochanged'));
           return;
         }
         // OAuth enabled — try to load authenticated user
@@ -106,6 +107,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         };
         localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
         localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+        window.dispatchEvent(new Event('userinfochanged'));
       } catch {
         // Not authenticated — redirect to login
         const currentPath = window.location.pathname;

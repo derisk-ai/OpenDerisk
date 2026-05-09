@@ -22,6 +22,35 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+# Archive/Compressed file extensions (includes composite extensions like .tar.gz)
+ARCHIVE_EXTENSIONS = {
+    # Single extensions
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz",
+    # Composite extensions
+    ".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz",
+    # Other compressed formats
+    ".zst", ".lz4", ".lz", ".lzo", ".sz", ".rz", ".jar", ".war", ".ear",
+    # Skill package (directory archive)
+    ".skill",
+}
+
+# Archive/Compressed file MIME types
+ARCHIVE_MIME_TYPES = {
+    "application/zip",
+    "application/x-rar-compressed",
+    "application/x-7z-compressed",
+    "application/x-tar",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-bzip2",
+    "application/x-xz",
+    "application/x-compressed-tar",
+    "application/zstd",
+    "application/x-lz4",
+    "application/java-archive",
+    "application/x-java-archive",
+}
+
 
 class FileProcessMode(Enum):
     """File processing mode"""
@@ -86,9 +115,15 @@ class FileTypeConfig:
         return self.default_mode
 
     def _get_extension(self, file_name: str) -> str:
-        """Get file extension (lowercase)"""
+        """Get file extension (lowercase), supports composite extensions like .tar.gz"""
         if not file_name:
             return ""
+        name_lower = file_name.lower()
+        # Check composite extensions first (longest match)
+        for ext in sorted(ARCHIVE_EXTENSIONS, key=len, reverse=True):
+            if name_lower.endswith(ext):
+                return ext
+        # Fallback to single extension
         parts = file_name.rsplit(".", 1)
         if len(parts) == 2:
             return f".{parts[1].lower()}"
@@ -168,10 +203,10 @@ DEFAULT_CONFIG = FileTypeConfig(
         ),
         # Archive files - Sandbox tool consumption
         FileTypeRule(
-            extensions={".zip", ".tar", ".gz", ".rar", ".7z"},
-            mime_types={"application/zip", "application/x-tar", "application/gzip"},
+            extensions=ARCHIVE_EXTENSIONS,
+            mime_types=ARCHIVE_MIME_TYPES,
             mode=FileProcessMode.SANDBOX_TOOL,
-            description="Archive files (sandbox tool consumption)",
+            description="Archive/compressed files (sandbox tool consumption)",
         ),
     ],
     default_mode=FileProcessMode.SANDBOX_TOOL,

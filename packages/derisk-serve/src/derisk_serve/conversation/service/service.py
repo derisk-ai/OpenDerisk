@@ -426,9 +426,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
             _step_start = time.time()
             base_messages = []
-            for unified_msg in gpts_messages:
+            from derisk.core.interface.unified_message import UnifiedMessage
+            for gpts_msg in gpts_messages:
+                unified_msg = UnifiedMessage.from_gpts_message(gpts_msg)
                 base_msg = unified_msg.to_base_message()
-                base_msg.round_index = unified_msg.rounds
+                base_msg.round_index = gpts_msg.rounds
                 base_messages.append(base_msg)
             logger.info(
                 f"[MESSAGES_HISTORY][PERF] 转换为BaseMessage耗时: {(time.time() - _step_start) * 1000:.2f}ms"

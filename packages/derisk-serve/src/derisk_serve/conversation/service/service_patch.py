@@ -80,9 +80,11 @@ def _get_messages_from_gpts(conv_uid: str) -> List['MessageVo']:
     
     # 转换为BaseMessage格式
     base_messages = []
-    for unified_msg in unified_messages:
+    from derisk.core.interface.unified_message import UnifiedMessage
+    for unified_msg_data in unified_messages:
+        unified_msg = UnifiedMessage.from_gpts_message(unified_msg_data) if hasattr(unified_msg_data, 'rounds') else unified_msg_data
         base_msg = unified_msg.to_base_message()
-        base_msg.round_index = unified_msg.rounds
+        base_msg.round_index = unified_msg_data.rounds if hasattr(unified_msg_data, 'rounds') else unified_msg.rounds
         base_messages.append(base_msg)
     
     # 添加ViewMessage

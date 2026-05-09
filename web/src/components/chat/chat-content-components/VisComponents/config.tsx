@@ -606,7 +606,8 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
           <VisManusLeftPanel
             data={data}
             onStepClick={(stepId) => {
-              ee.emit(EVENTS.CLICK_FOLDER, { uid: stepId });
+              const convId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('conv_uid') || '' : '';
+              ee.emit(EVENTS.CLICK_FOLDER, { uid: stepId, conv_id: convId });
               ee.emit(EVENTS.OPEN_PANEL);
             }}
           />

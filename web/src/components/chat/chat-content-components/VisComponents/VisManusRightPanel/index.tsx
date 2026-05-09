@@ -54,7 +54,7 @@ import {
 } from './renderers';
 
 interface IProps {
-   ManusRightPanelData;
+  data: ManusRightPanelData;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -409,12 +409,6 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
   const { render_type, content, file_name, download_url } = file;
   const resolvedUrl = useMemo(() => resolveFileUrl(file), [file]);
 
-  // DEBUG: trace deliverable file data reaching the component
-  useEffect(() => {
-    console.log('[DeliverableContentView] file:', JSON.stringify(file, null, 2));
-    console.log('[DeliverableContentView] resolvedUrl:', resolvedUrl);
-    console.log('[DeliverableContentView] render_type:', render_type, 'content_url:', file.content_url, 'download_url:', file.download_url);
-  }, [file, resolvedUrl]);
   const [fetchedContent, setFetchedContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -512,6 +506,20 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
           <pre className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 overflow-x-auto max-h-[600px] overflow-y-auto whitespace-pre-wrap">
             {displayContent}
           </pre>
+        </div>
+      );
+    case 'download':
+      return (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+          <span className="text-4xl">📦</span>
+          <span className="text-sm">{file_name}</span>
+          {(resolvedUrl || download_url) ? (
+            <a href={resolvedUrl || download_url} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
+              下载文件
+            </a>
+          ) : (
+            <span className="text-sm">无法获取下载链接</span>
+          )}
         </div>
       );
     default:

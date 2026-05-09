@@ -177,6 +177,22 @@ function buildRunningWindowFromStepDetail(data: {
   if (!data.active_step && (!data.outputs || data.outputs.length === 0)) {
     return null;
   }
+  const stepId = data.active_step?.id || '';
+  const stepUid = data.active_step?.uid || stepId;
+  // Build steps_map with the current step so future clicks work
+  const steps_map: Record<string, { active_step: any; outputs: any[] }> = {};
+  if (stepId && data.active_step) {
+    steps_map[stepId] = {
+      active_step: data.active_step,
+      outputs: data.outputs || [],
+    };
+  }
+  if (stepUid && stepUid !== stepId && data.active_step) {
+    steps_map[stepUid] = {
+      active_step: data.active_step,
+      outputs: data.outputs || [],
+    };
+  }
   const payload = {
     uid: 'manus_right_panel',
     type: 'all',
@@ -184,7 +200,7 @@ function buildRunningWindowFromStepDetail(data: {
     outputs: data.outputs || [],
     is_running: false,
     panel_view: 'execution',
-    steps_map: {},
+    steps_map,
   };
   return '```manus-right-panel\n' + JSON.stringify(payload) + '\n```';
 }

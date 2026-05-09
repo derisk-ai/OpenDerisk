@@ -221,7 +221,7 @@ const MenuItem: React.FC<{
 };
 
 function SideBar() {
-  const { isMenuExpand, setIsMenuExpand, mode, setMode, dialogueList } = useContext(ChatContext);
+  const { isMenuExpand, setIsMenuExpand, mode, setMode, dialogueList, refreshDialogList } = useContext(ChatContext);
   const pathname = usePathname();
   const { t, i18n } = useTranslation();
   const [logo, setLogo] = useState<string>('/logo_zh_latest.png');
@@ -372,8 +372,10 @@ function SideBar() {
   }, [t, mode, handleToggleTheme, i18n, handleChangeLang, isMenuExpand, handleToggleMenu, setMode]);
 
   const handleChat = async (app: IApp) => {
+    // Refresh dialogue list after creating new dialogue
     const [, res] = await apiInterceptors(newDialogue({ app_code: app.app_code }));
     if (res) {
+      if (refreshDialogList) { await refreshDialogList(); }
       window.open(`/chat/?app_code=${app.app_code}&conv_uid=${res.conv_uid}&isNew=true`, '_blank');
     }
   };

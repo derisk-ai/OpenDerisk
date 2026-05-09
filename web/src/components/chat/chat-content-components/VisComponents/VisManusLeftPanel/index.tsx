@@ -57,7 +57,7 @@ const StepCard: FC<{
   return (
     <div
       className={`
-        group flex items-start gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer
+        group flex items-start gap-1.5 px-2 py-1 rounded-lg cursor-pointer
         transition-all duration-200 border
         ${isActive
           ? 'bg-blue-50 border-blue-200 shadow-sm'
@@ -76,7 +76,7 @@ const StepCard: FC<{
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <span className="text-xs font-medium text-slate-500">{config.label}</span>
           <StatusIcon status={step.status} />
         </div>
@@ -84,14 +84,14 @@ const StepCard: FC<{
           {step.title}
         </div>
         {step.subtitle && (
-          <div className="text-xs text-slate-500 truncate mt-0.5">
+          <div className="text-xs text-slate-500 truncate">
             {step.subtitle}
           </div>
         )}
 
         {/* Thought bubble */}
         {thought && (
-          <div className="mt-1.5">
+          <div className="mt-1">
             <button
               className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"
               onClick={(e) => {
@@ -153,7 +153,7 @@ const SectionBlock: FC<{
 
       {/* Steps list */}
       {expanded && (
-        <div className="ml-1 mt-0.5 space-y-0.5">
+        <div className="ml-1 mt-0.5 space-y-0">
           {section.steps.map((step) => (
             <StepCard
               key={step.id}
@@ -185,12 +185,21 @@ const ArtifactCard: FC<{
     html: '🌐',
   };
 
+  const archiveExts = [
+    'tar.gz', 'tar.bz2', 'tar.xz', 'tgz', 'tbz2', 'txz',
+    'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz',
+    'zst', 'lz4', 'lz', 'lzo', 'sz', 'rz',
+    'jar', 'war', 'ear', 'skill',
+  ];
+  const isArchive = archiveExts.some(ext => artifact.name.toLowerCase().endsWith(`.${ext}`) || artifact.name.toLowerCase().endsWith(ext));
+  const icon = isArchive ? '📦' : (typeIcons[artifact.type] || '📄');
+
   return (
     <div
       className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-blue-300 hover:shadow-sm cursor-pointer transition-all"
       onClick={onClick}
     >
-      <span className="text-base">{typeIcons[artifact.type] || '📄'}</span>
+      <span className="text-base">{icon}</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-slate-700 truncate">
           {artifact.name}

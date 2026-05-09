@@ -457,7 +457,7 @@ class ResourceContext:
             if not meta:
                 return None
 
-            # Get skill_code (UUID or directory name)
+            # Get skill_code (UUID or directory name) - prefer item's skill_code
             skill_code = (
                 getattr(item, "_skill_code", None)
                 or getattr(item, "skill_code", None)
@@ -465,35 +465,32 @@ class ResourceContext:
             )
             if not skill_code and hasattr(meta, "path") and meta.path:
                 import os
-
                 skill_code = os.path.basename(meta.path)
 
-            # Determine skill path based on sandbox status
-            skill_path = ""
+            # Use meta.path directly if available (DeriskSkillResource computes the correct path)
+            # Otherwise construct the path based on sandbox status
+            skill_path = getattr(meta, "path", "") or ""
             sandbox_enabled = False
             sandbox_skill_dir = ""
 
-            if self.sandbox_manager:
-                sb_client = getattr(self.sandbox_manager, "client", None)
-                if sb_client:
-                    sandbox_enabled = True
-                    sandbox_skill_dir = getattr(sb_client, "skill_dir", "") or ""
+            if not skill_path:
+                # Fallback: construct path based on sandbox status
+                if self.sandbox_manager:
+                    sb_client = getattr(self.sandbox_manager, "client", None)
+                    if sb_client:
+                        sandbox_enabled = True
+                        sandbox_skill_dir = getattr(sb_client, "skill_dir", "") or ""
 
-            import os
-            from derisk.agent.expand.react_master_agent.react_master_agent import (
-                DATA_DIR,
-            )
+                import os
+                from derisk.agent.expand.react_master_agent.react_master_agent import (
+                    DATA_DIR,
+                )
 
-            if sandbox_enabled and sandbox_skill_dir and skill_code:
-                # Sandbox mode: use absolute path in sandbox
-                skill_path = os.path.join(sandbox_skill_dir, skill_code)
-            elif skill_code:
-                # Local mode: use absolute path locally
-                local_skill_dir = os.path.join(DATA_DIR, "skill")
-                skill_path = os.path.join(local_skill_dir, skill_code)
-            else:
-                # Fallback to meta path
-                skill_path = getattr(meta, "path", "") or ""
+                if sandbox_enabled and sandbox_skill_dir and skill_code:
+                    skill_path = os.path.join(sandbox_skill_dir, skill_code)
+                elif skill_code:
+                    local_skill_dir = os.path.join(DATA_DIR, "skill")
+                    skill_path = os.path.join(local_skill_dir, skill_code)
 
             return ResourceInfo(
                 resource_type=ResourceType.SKILLS,
