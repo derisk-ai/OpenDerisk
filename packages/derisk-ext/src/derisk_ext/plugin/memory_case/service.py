@@ -75,8 +75,8 @@ class MemoryCasePluginService:
                         "scope": {
                             "type": "object",
                             "description": (
-                                "Routing isolation ONLY (app_code/tenant_id/team_id for "
-                                "multi-tenant; environment for deploy env prod/staging). "
+                                "Routing isolation ONLY (app_code for app scope; "
+                                "environment for deploy env prod/staging). "
                                 "Cloud-vendor or region info belongs in case metadata "
                                 "(region/tags), NOT in scope. "
                                 "Omit or set to 'default' for wildcard (recommended)."
@@ -376,8 +376,6 @@ class MemoryCasePluginService:
         scope = {
             "app_code": ctx.get("app_code") or "default",
             "environment": ctx.get("environment") or "default",
-            "tenant_id": ctx.get("tenant_id"),
-            "team_id": ctx.get("team_id"),
         }
         query_text = case.markdown_summary or case.symptom_summary
         if not query_text:

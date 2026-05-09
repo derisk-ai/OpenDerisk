@@ -27,9 +27,7 @@ def default_case_fingerprint(data: dict) -> str:
     ctx = ctx if isinstance(ctx, dict) else {}
     env = str(ctx.get("environment") or "default").strip().lower()
     app = str(ctx.get("app_code") or "default").strip().lower()
-    tenant = str(ctx.get("tenant_id") or "").strip().lower()
-    team = str(ctx.get("team_id") or "").strip().lower()
-    blob = "|".join([tenant, team, app, env, case_id, symptom[:4000]])
+    blob = "|".join([app, env, case_id, symptom[:4000]])
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -52,7 +50,7 @@ class CandidateCase(BaseModel):
         meta = dict(d.get("metadata") or {})
         raw_ctx = meta.get(CASE_CONTEXT_KEY)
         ctx = dict(raw_ctx) if isinstance(raw_ctx, dict) else {}
-        for key in ("tenant_id", "team_id", "app_code", "environment"):
+        for key in ("app_code", "environment"):
             if key in d and d[key] is not None:
                 ctx.setdefault(key, d[key])
                 del d[key]
@@ -113,7 +111,7 @@ class CandidateCase(BaseModel):
         default_factory=dict,
         description=(
             "Case meta: routing hints and context live under metadata['case_context'] "
-            "(app_code, environment, tenant_id, team_id, application_name, data_sources, …)."
+            "(app_code, environment, application_name, data_sources, …)."
         ),
     )
     created_at: Optional[datetime] = None
@@ -128,12 +126,6 @@ class MemoryRequestContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    tenant_id: Optional[str] = Field(
-        None, description="Optional; if set, rows must match case_context.tenant_id"
-    )
-    team_id: Optional[str] = Field(
-        None, description="Optional; if set, rows must match case_context.team_id"
-    )
     app_code: str = Field(
         "default",
         description=(
@@ -156,8 +148,6 @@ class MemoryRequestContext(BaseModel):
 
     def scope_dict(self) -> Dict[str, Any]:
         return {
-            "tenant_id": self.tenant_id,
-            "team_id": self.team_id,
             "app_code": self.app_code,
             "environment": self.environment,
         }

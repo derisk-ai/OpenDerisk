@@ -131,8 +131,6 @@ def _case(
     summary: str,
     env: str = "default",
     app: str = "default",
-    tenant: str = "",
-    team: str = "",
 ) -> CandidateCase:
     return CandidateCase(
         case_id=cid,
@@ -142,8 +140,6 @@ def _case(
             "case_context": {
                 "app_code": app,
                 "environment": env,
-                "tenant_id": tenant,
-                "team_id": team,
             }
         },
     )

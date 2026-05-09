@@ -11,8 +11,6 @@ from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters
 from .case_context import (
     KEY_APP_CODE,
     KEY_ENVIRONMENT,
-    KEY_TEAM_ID,
-    KEY_TENANT_ID,
     is_memory_search_scope_app_wildcard,
     is_memory_search_scope_env_wildcard,
     vector_metadata_from_case,
@@ -129,14 +127,6 @@ class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
                     key=KEY_ENVIRONMENT, value=case_scope.get(KEY_ENVIRONMENT),
                 ),
             )
-        if case_scope.get(KEY_TENANT_ID):
-            fl.append(
-                MetadataFilter(key=KEY_TENANT_ID, value=case_scope.get(KEY_TENANT_ID))
-            )
-        if case_scope.get(KEY_TEAM_ID):
-            fl.append(
-                MetadataFilter(key=KEY_TEAM_ID, value=case_scope.get(KEY_TEAM_ID))
-            )
         filters = MetadataFilters(filters=fl) if fl else None
         chunks = self._vector_store.similar_search_with_scores(
             text=query, topk=top_k, score_threshold=0.0, filters=filters
@@ -158,14 +148,6 @@ class ChromaCandidateCaseVectorIndex(CandidateCaseVectorIndex):
                 MetadataFilter(
                     key=KEY_ENVIRONMENT, value=case_scope.get(KEY_ENVIRONMENT),
                 ),
-            )
-        if case_scope.get(KEY_TENANT_ID):
-            fl.append(
-                MetadataFilter(key=KEY_TENANT_ID, value=case_scope.get(KEY_TENANT_ID))
-            )
-        if case_scope.get(KEY_TEAM_ID):
-            fl.append(
-                MetadataFilter(key=KEY_TEAM_ID, value=case_scope.get(KEY_TEAM_ID))
             )
         filters = MetadataFilters(filters=fl) if fl else None
         chunks = self._vector_store.similar_search_with_scores(

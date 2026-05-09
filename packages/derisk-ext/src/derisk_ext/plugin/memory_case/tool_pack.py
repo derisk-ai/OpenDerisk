@@ -12,8 +12,6 @@ from derisk.agent.resource import PackResourceParameters, ToolPack
 from .case_context import (
     KEY_APP_CODE,
     KEY_ENVIRONMENT,
-    KEY_TEAM_ID,
-    KEY_TENANT_ID,
     merge_case_context,
 )
 from .plugin_resolver import resolve_memory_case_plugin
@@ -75,10 +73,6 @@ def inject_memory_scope(
             KEY_APP_CODE: scope.get(KEY_APP_CODE, "default"),
             KEY_ENVIRONMENT: scope.get(KEY_ENVIRONMENT, "default"),
         }
-        if scope.get(KEY_TENANT_ID):
-            patch[KEY_TENANT_ID] = scope[KEY_TENANT_ID]
-        if scope.get(KEY_TEAM_ID):
-            patch[KEY_TEAM_ID] = scope[KEY_TEAM_ID]
         case_data["metadata"] = merge_case_context(
             case_data.get("metadata"), patch
         )

@@ -1,15 +1,14 @@
 """Case routing and descriptive context stored only in ``metadata_json``.
 
 **Table model:** ``derisk_plugin_memory_case`` has **no** ``app_code`` / ``environment``
-columns (nor tenant/team). Those values exist only under
+columns. Those values exist only under
 ``metadata["case_context"]`` (JSON inside ``metadata_json``).
 
 **Search narrowing (``memory_case_search``):**
-- Optional ``scope`` keys ``app_code``, ``environment``, ``tenant_id``, ``team_id`` filter
+- Optional ``scope`` keys ``app_code``, ``environment`` filter
   via ``JSON_EXTRACT(metadata_json, '$.case_context.*')`` only.
 - For ``app_code`` / ``environment``: value missing, empty, or literal ``default`` → **no**
   filter on that key (wildcard). Non-default → equality on stored ``case_context``.
-- For ``tenant_id`` / ``team_id``: only filter when present and non-empty in ``scope``.
 
 **Lexical ``query``:** FULLTEXT / LIKE over ``FULLTEXT_LEXICAL_COLUMNS`` (must match DB index).
 
@@ -37,9 +36,6 @@ FULLTEXT_LEXICAL_COLUMNS: Final[Tuple[str, ...]] = (
 # Routing hints (optional; defaults align with tool_pack / MemoryRequestContext)
 KEY_APP_CODE = "app_code"
 KEY_ENVIRONMENT = "environment"
-KEY_TENANT_ID = "tenant_id"
-KEY_TEAM_ID = "team_id"
-
 # Descriptive / operational context (extend as needed)
 KEY_APPLICATION_NAME = "application_name"
 KEY_REGION = "region"
@@ -86,12 +82,6 @@ def scope_filters_match(metadata: Optional[Dict[str, Any]], scope: Dict[str, Any
         got_env = str(ctx.get(KEY_ENVIRONMENT) or "default").strip().lower()
         if got_env != want_env:
             return False
-    if scope.get(KEY_TENANT_ID):
-        if str(ctx.get(KEY_TENANT_ID) or "") != str(scope[KEY_TENANT_ID]):
-            return False
-    if scope.get(KEY_TEAM_ID):
-        if str(ctx.get(KEY_TEAM_ID) or "") != str(scope[KEY_TEAM_ID]):
-            return False
     return True
 
 
@@ -128,15 +118,8 @@ def is_memory_search_scope_env_wildcard(scope: Optional[Dict[str, Any]]) -> bool
 def vector_metadata_from_case(case_id: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Flatten ``case_context`` for Chroma metadata filters."""
     ctx = case_context_from_metadata(metadata)
-    out: Dict[str, Any] = {
+    return {
         "case_id": case_id,
         KEY_APP_CODE: ctx.get(KEY_APP_CODE) or "default",
         KEY_ENVIRONMENT: ctx.get(KEY_ENVIRONMENT) or "default",
     }
-    tid = ctx.get(KEY_TENANT_ID)
-    if tid is not None:
-        out[KEY_TENANT_ID] = tid
-    tm = ctx.get(KEY_TEAM_ID)
-    if tm is not None:
-        out[KEY_TEAM_ID] = tm
-    return out

@@ -17,8 +17,6 @@ def _format_case_context(case: CandidateCase) -> str:
         "app_code",
         "environment",
         "region",
-        "tenant_id",
-        "team_id",
         "data_sources",
         "telemetry_channels",
         "related_services",

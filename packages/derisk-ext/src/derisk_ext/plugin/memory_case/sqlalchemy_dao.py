@@ -94,20 +94,6 @@ def _apply_scope_sql_filters(q, scope: Dict[str, Any], dialect: str):
                     "'$.case_context.environment')),'default')) = LOWER(:__mem_env)"
                 ).bindparams(__mem_env=env),
             )
-        if scope.get("tenant_id"):
-            q = q.filter(
-                text(
-                    "JSON_UNQUOTE(JSON_EXTRACT(COALESCE(metadata_json, '{}'), "
-                    "'$.case_context.tenant_id')) = :__mem_tenant"
-                ).bindparams(__mem_tenant=scope["tenant_id"])
-            )
-        if scope.get("team_id"):
-            q = q.filter(
-                text(
-                    "JSON_UNQUOTE(JSON_EXTRACT(COALESCE(metadata_json, '{}'), "
-                    "'$.case_context.team_id')) = :__mem_team"
-                ).bindparams(__mem_team=scope["team_id"])
-            )
         return q, False
     if dialect == "sqlite":
         if not wild_app:
@@ -123,16 +109,6 @@ def _apply_scope_sql_filters(q, scope: Dict[str, Any], dialect: str):
                     func.coalesce(func.json_extract(m, "$.case_context.environment"), "default")
                 )
                 == str(env).lower(),
-            )
-        if scope.get("tenant_id"):
-            q = q.filter(
-                func.coalesce(func.json_extract(m, "$.case_context.tenant_id"), "")
-                == str(scope["tenant_id"])
-            )
-        if scope.get("team_id"):
-            q = q.filter(
-                func.coalesce(func.json_extract(m, "$.case_context.team_id"), "")
-                == str(scope["team_id"])
             )
         return q, False
     logger.warning(
