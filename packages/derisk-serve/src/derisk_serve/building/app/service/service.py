@@ -584,6 +584,75 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     async def app_list(self, query: GptsAppQuery, parse_llm_strategy: bool = False):
         return await self.async_app_list(query, parse_llm_strategy)
 
+    def sync_app_list(
+        self, query: GptsAppQuery, parse_llm_strategy: bool = False
+    ) -> GptsAppResponse:
+        """Synchronous app list for sync callers (e.g. resource parameter discovery).
+
+        Mirrors :meth:`async_app_list` filter semantics using the sync ORM session.
+        """
+        session = self.dao.get_raw_session()
+        try:
+            q = session.query(ServeEntity)
+
+            if query.name_filter:
+                q = q.filter(ServeEntity.app_name.like(f"%{query.name_filter}%"))
+
+            if not (query.ignore_user and str(query.ignore_user).lower() == "true"):
+                if query.user_code:
+                    q = q.filter(
+                        or_(
+                            ServeEntity.user_code == query.user_code,
+                            ServeEntity.admins.like(f"%{query.user_code}%"),
+                        )
+                    )
+                if query.sys_code:
+                    q = q.filter(ServeEntity.sys_code == query.sys_code)
+
+            if query.team_mode:
+                q = q.filter(ServeEntity.team_mode == query.team_mode)
+
+            if query.published is not None:
+                if query.published:
+                    q = q.filter(
+                        or_(
+                            ServeEntity.published == "true",
+                            ServeEntity.published == "1",
+                            ServeEntity.published == 1,
+                        )
+                    )
+                else:
+                    q = q.filter(
+                        or_(
+                            ServeEntity.published == "false",
+                            ServeEntity.published == "0",
+                            ServeEntity.published == 0,
+                        )
+                    )
+
+            if query.app_codes:
+                q = q.filter(ServeEntity.app_code.in_(query.app_codes))
+
+            total_count = q.count()
+
+            q = q.order_by(ServeEntity.id.desc())
+            offset = (query.page - 1) * query.page_size
+            results = q.offset(offset).limit(query.page_size).all()
+
+            apps = []
+            for app_entity in results:
+                apps.append(self.dao.to_response(app_entity))
+
+            app_resp = GptsAppResponse()
+            app_resp.total_count = total_count
+            app_resp.app_list = apps
+            app_resp.current_page = query.page
+            app_resp.page_size = query.page_size
+            app_resp.total_page = (total_count + query.page_size - 1) // query.page_size
+            return app_resp
+        finally:
+            session.close()
+
     def app_to_details(
         self, main_app_code: str, main_app_name: str, app_codes: List[str]
     ):
@@ -665,6 +734,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             logger.info(
                 f"[APP_DETAIL][PERF] _resource_to_app_detail 查询关联app[{app_code}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
             )
+            if not item_info:
+                logger.warning(
+                    f"[APP_DETAIL] _resource_to_app_detail 查询关联app[{app_code}]不存在，跳过"
+                )
+                continue
             details.append(
                 GptsAppDetail(
                     app_code=app_info.app_code,

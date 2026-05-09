@@ -261,9 +261,10 @@ class MCPToolPack(ToolPack):
             server_list = [config.get("url", None)]
 
         else:
-            self._tool_id = str(uuid.uuid4())
-            # TODO Get MCP Tool name, Temp solve
-            self._mcp_name = str(uuid.uuid4())
+            self._tool_id = self._tool_id or str(uuid.uuid4())
+            # Keep logical MCP name from resource parameters (self.name). A random
+            # UUID breaks tool/list cache keys and prevents builtin memory_case routing.
+            self._mcp_name = self.name
 
         for server in server_list:
             try:

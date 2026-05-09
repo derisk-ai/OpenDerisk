@@ -72,6 +72,16 @@ class ServeConfig(BaseServeConfig):
         metadata={"help": "Whether to overwrite existing MCP records during sync"},
     )
 
+    memory_plugin_enabled: bool = field(
+        default=True,
+        metadata={"help": "Enable builtin memory_case MCP plugin infrastructure (tool execution, vector index, etc.)"},
+    )
+
+    memory_plugin_timeout: int = field(
+        default=10,
+        metadata={"help": "Builtin memory_case MCP tool timeout seconds"},
+    )
+
     def get_mcp_dir(self) -> str:
         """Get absolute path to MCP data directory"""
         if self.default_mcp_dir and os.path.isabs(self.default_mcp_dir):

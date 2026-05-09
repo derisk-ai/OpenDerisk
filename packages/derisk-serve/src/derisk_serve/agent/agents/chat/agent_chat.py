@@ -1132,6 +1132,7 @@ class AgentChat(BaseComponent, ABC):
             )
 
             real_all_resources.extend(app.all_resources)
+
             real_all_resources = await self.add_duplicate_allow_tools(
                 real_all_resources
             )
@@ -1171,6 +1172,16 @@ class AgentChat(BaseComponent, ABC):
 
                     agent_context = deepcopy(context)
                     agent_context.agent_app_code = app.app_code
+
+                    # 插件注册的 conversation scope hooks（如 memory_case）
+                    from derisk.agent.conversation_scope_hooks import (
+                        bind_conversation_scope_for_agent,
+                    )
+
+                    bind_conversation_scope_for_agent(
+                        app_code=app.app_code or "default",
+                        conv_id=getattr(context, "conv_id", None),
+                    )
 
                     recipient = (
                         await cls()
@@ -1549,15 +1560,38 @@ class AgentChat(BaseComponent, ABC):
                         # Skip FILE_RESOURCES (common_file, text_file, excel_file, image_file)
                         # These are handled separately in _dispatch_uploaded_files
                         if sub_type not in FILE_RESOURCES:
-                            dynamic_resources.append(
-                                AgentResource.from_dict(
-                                    {
-                                        "type": sub_type,
-                                        "name": f"用户选择了[{sub_type}]资源",
-                                        "value": param_value,
-                                    }
+                            # Built-in tool(foo) from UI: name matches inner token for ResourceResolver
+                            if sub_type.startswith("tool(") and sub_type.endswith(")"):
+                                inner_name = sub_type[5:-1]
+                                dynamic_resources.append(
+                                    AgentResource.from_dict(
+                                        {
+                                            "type": sub_type,
+                                            "name": inner_name,
+                                            "value": (
+                                                param_value
+                                                if isinstance(param_value, str)
+                                                else json.dumps(
+                                                    param_value, ensure_ascii=False
+                                                )
+                                            ),
+                                        }
+                                    )
                                 )
-                            )
+                                logger.info(
+                                    "Added tool resource from chat_in_params: %s",
+                                    sub_type,
+                                )
+                            else:
+                                dynamic_resources.append(
+                                    AgentResource.from_dict(
+                                        {
+                                            "type": sub_type,
+                                            "name": f"用户选择了[{sub_type}]资源",
+                                            "value": param_value,
+                                        }
+                                    )
+                                )
                         else:
                             logger.info(
                                 f"Skipping file resource type {sub_type} in chat_in_params_to_resource, "

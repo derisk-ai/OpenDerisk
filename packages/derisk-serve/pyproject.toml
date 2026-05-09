@@ -32,6 +32,8 @@ dev-dependencies = []
 [project.optional-dependencies]
 libro = ["libro>=0.1.25"]
 derisks = ["poetry"]
+# Chroma-backed semantic search for builtin memory_case (derisk-ext extra).
+memory_case = ["derisk-ext[storage_chromadb]"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/derisk_serve"]

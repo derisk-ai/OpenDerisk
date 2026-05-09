@@ -1538,6 +1538,7 @@ source = { editable = "packages/derisk-app" }
 dependencies = [
     { name = "aiofiles" },
     { name = "aiosqlite" },
+    { name = "bcrypt" },
     { name = "derisk" },
     { name = "derisk-client" },
     { name = "derisk-ext" },
@@ -1566,6 +1567,7 @@ observability = [
 requires-dist = [
     { name = "aiofiles" },
     { name = "aiosqlite" },
+    { name = "bcrypt" },
     { name = "build", marker = "extra == 'derisks'" },
     { name = "derisk", editable = "packages/derisk-core" },
     { name = "derisk", extras = ["client", "cli", "agent", "simple-framework", "framework", "code"], marker = "extra == 'base'", editable = "packages/derisk-core" },
@@ -1808,16 +1810,20 @@ derisks = [
 libro = [
     { name = "libro" },
 ]
+memory-case = [
+    { name = "derisk-ext", extra = ["storage-chromadb"] },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "apscheduler", specifier = "==3.11.0" },
     { name = "dacite", specifier = "==1.9.2" },
     { name = "derisk-ext", editable = "packages/derisk-ext" },
+    { name = "derisk-ext", extras = ["storage-chromadb"], marker = "extra == 'memory-case'", editable = "packages/derisk-ext" },
     { name = "libro", marker = "extra == 'libro'", specifier = ">=0.1.25" },
     { name = "poetry", marker = "extra == 'derisks'" },
 ]
-provides-extras = ["libro", "derisks"]
+provides-extras = ["libro", "derisks", "memory-case"]
 
 [package.metadata.requires-dev]
 dev = []

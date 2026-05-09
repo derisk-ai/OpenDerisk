@@ -35,6 +35,8 @@ interface MCP {
   description?: string;
   icon?: string;
   available?: boolean;
+  is_builtin?: boolean;
+  category?: string;
 }
 
 interface LocalTool {
@@ -183,9 +185,11 @@ export const ConnectorsModal: React.FC<ConnectorsModalProps> = ({
       isSelected = selectedLocalTools.includes(toolId);
     }
 
-    let selectedColor: 'blue' | 'green' | 'orange' = 'blue';
+    let selectedColor: 'blue' | 'green' | 'orange' | 'purple' = 'blue';
     if (type === 'skill') {
       selectedColor = 'blue';
+    } else if (type === 'mcp' && (item as MCP).is_builtin) {
+      selectedColor = 'purple';
     } else if (type === 'mcp') {
       selectedColor = 'green';
     } else if (type === 'local') {
@@ -256,7 +260,10 @@ avatar={
                 {type === 'local' ? (item as any).tool_name : item.name}
               </span>
               {isSelected && <CheckOutlined className={`text-${selectedColor}-500 text-sm`} />}
-              {type === 'mcp' && (item as MCP).available && (
+              {type === 'mcp' && (item as MCP).is_builtin && (
+                <Tag color="purple" className="mr-0 rounded-full px-2 scale-75 origin-left">Built-in</Tag>
+              )}
+              {type === 'mcp' && (item as MCP).available && !(item as MCP).is_builtin && (
                 <Tag color="success" className="mr-0 rounded-full px-2 scale-75 origin-left">Active</Tag>
               )}
               {type === 'skill' && (item as Skill).type && (

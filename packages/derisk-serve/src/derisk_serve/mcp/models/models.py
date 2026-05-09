@@ -75,6 +75,9 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
         request_dict.pop('gmt_created', None)
         request_dict.pop('gmt_modified', None)
 
+        # 过滤掉虚拟字段（不存在于 DB 表中，仅用于 API 响应）
+        request_dict.pop('is_builtin', None)
+
         entity = ServeEntity(**request_dict)
         return entity
 
@@ -122,6 +125,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             installed=entity.installed,
             available=entity.available,
             server_ips=entity.server_ips,
+            is_builtin=False,
             gmt_created=entity.gmt_created.isoformat() if entity.gmt_created else None,
             gmt_modified=entity.gmt_modified.isoformat() if entity.gmt_modified else None,
         )

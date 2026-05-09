@@ -52,11 +52,77 @@ def _make_json_serializable(obj: Any) -> Any:
         return str(obj)
 
 
+def _extract_mcp_json_schema_properties(input_schema: dict) -> tuple[dict, list]:
+    """Return (properties, required_field_names) from JSON Schema or loose MCP shapes."""
+    if not input_schema:
+        return {}, []
+
+    props_obj = input_schema.get("properties")
+    if isinstance(props_obj, dict):
+        req = input_schema.get("required", [])
+        if not isinstance(req, list):
+            req = []
+        return props_obj, list(req)
+
+    # Some MCP servers omit the wrapper and put property fragments at the root.
+    property_hint_keys = (
+        "type",
+        "title",
+        "description",
+        "default",
+        "enum",
+        "items",
+        "anyOf",
+        "oneOf",
+        "minimum",
+        "maximum",
+        "minimumLength",
+        "maximumLength",
+        "pattern",
+        "format",
+        "additionalProperties",
+        "properties",
+        "minItems",
+        "maxItems",
+    )
+    props: dict = {}
+    inferred_required: list = []
+    for key, maybe_frag in input_schema.items():
+        if key.startswith("$") or key in ("definitions", "$defs"):
+            continue
+        if not isinstance(maybe_frag, dict):
+            continue
+        if not any(h in maybe_frag for h in property_hint_keys):
+            continue
+        props[key] = maybe_frag
+        if maybe_frag.get("required") is True:
+            inferred_required.append(key)
+
+    if props:
+        root_req = input_schema.get("required", [])
+        if not isinstance(root_req, list):
+            root_req = []
+        merged = list(root_req)
+        for k in inferred_required:
+            if k not in merged:
+                merged.append(k)
+        return props, merged
+
+    if input_schema.get("type") == "object":
+        req = input_schema.get("required", [])
+        if isinstance(req, list):
+            return {}, list(req)
+        return {}, []
+
+    raise KeyError("properties")
+
+
 def switch_mcp_input_schema(input_schema: dict):
     args = {}
     try:
-        properties = input_schema["properties"]
-        required = input_schema.get("required", [])
+        if not input_schema:
+            return args
+        properties, required = _extract_mcp_json_schema_properties(input_schema)
         for k, v in properties.items():
             arg = {}
 
@@ -74,13 +140,15 @@ def switch_mcp_input_schema(input_schema: dict):
             if title:
                 arg["title"] = title
             arg["description"] = description or items_str or any_of_str or str(v)
-            arg["required"] = True if k in required else False
+            arg["required"] = (k in required) or (
+                isinstance(v.get("required"), bool) and v.get("required") is True
+            )
             if default:
                 arg["default"] = default
             args[k] = arg
         return args
     except Exception as e:
-        raise ValueError(f"MCP input_schema can't parase!{str(e)},{input_schema}")
+        raise ValueError(f"MCP input_schema can't parse!{str(e)},{input_schema}")
 
 
 async def get_mcp_tool_list(
@@ -93,6 +161,39 @@ async def get_mcp_tool_list(
     tool_id: Optional[str] = None,
     timeout: Optional[int] = None,
 ):
+    from derisk_ext.plugin.memory_case.service import (
+        BUILTIN_MEMORY_MCP,
+        BUILTIN_MEMORY_MCP_NAME,
+    )
+    from mcp.types import ListToolsResult, Tool
+
+    if mcp_name in (BUILTIN_MEMORY_MCP, BUILTIN_MEMORY_MCP_NAME) and CFG.SYSTEM_APP:
+        try:
+            from derisk_serve.mcp.service.service import Service as McpService
+
+            mcp_service = McpService.get_instance(CFG.SYSTEM_APP)
+            built = await mcp_service.list_tools(
+                mcp_name, None, headers or {}, timeout=timeout
+            )
+        except Exception:
+            built = None
+        if built:
+            tools_sdk = []
+            for t in built:
+                raw = getattr(t, "raw_input_schema", None)
+                wire = raw if raw is not None else t.param_schema
+                tools_sdk.append(
+                    Tool(
+                        name=t.name,
+                        description=t.description or "",
+                        inputSchema=wire if isinstance(wire, dict) else {},
+                    )
+                )
+            res = ListToolsResult(tools=tools_sdk)
+            if use_cache:
+                tool_cache[mcp_name] = res
+            return deepcopy(res)
+
     trace_id = (
         root_tracer.get_current_span().trace_id
         if root_tracer.get_current_span().trace_id is not None
@@ -170,6 +271,11 @@ async def call_mcp_tool(
     tool_id: Optional[str] = None,
     **kwargs,
 ):
+    from derisk_ext.plugin.memory_case.service import (
+        BUILTIN_MEMORY_MCP,
+        BUILTIN_MEMORY_MCP_NAME,
+    )
+
     logger.info(f"call_mcp_tool:{mcp_name},{tool_name},{server},{timeout}")
     trace_id = (
         root_tracer.get_current_span().trace_id
@@ -201,6 +307,19 @@ async def call_mcp_tool(
                 "mcp_name",
             )
         }
+
+    if mcp_name in (BUILTIN_MEMORY_MCP, BUILTIN_MEMORY_MCP_NAME) and CFG.SYSTEM_APP:
+        from derisk_serve.mcp.service.service import Service as McpService
+
+        mcp_service = McpService.get_instance(CFG.SYSTEM_APP)
+        return await mcp_service.call_tool(
+            mcp_name,
+            tool_name,
+            mcp_sse_url=server,
+            arguments=arguments,
+            headers=headers,
+            timeout=timeout,
+        )
 
     if not tool_id:
         tool_id = str(uuid.uuid4())
