@@ -734,6 +734,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             logger.info(
                 f"[APP_DETAIL][PERF] _resource_to_app_detail 查询关联app[{app_code}]耗时: {(time.time() - _query_start) * 1000:.2f}ms"
             )
+            if not item_info:
+                logger.warning(
+                    f"[APP_DETAIL] _resource_to_app_detail 查询关联app[{app_code}]不存在，跳过"
+                )
+                continue
             details.append(
                 GptsAppDetail(
                     app_code=app_info.app_code,
