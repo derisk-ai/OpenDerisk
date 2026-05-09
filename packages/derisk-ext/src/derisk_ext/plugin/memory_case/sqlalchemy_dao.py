@@ -29,18 +29,13 @@ class MemoryCaseEntity(Model):
 
     case_id = Column(String(255), primary_key=True, nullable=False)
     fingerprint = Column(String(512), nullable=False)
-    incident_title = Column(String(512), nullable=True)
     symptom_summary = Column(Text, nullable=True)
-    hypotheses = Column(Text, nullable=True)
-    actions = Column(Text, nullable=True)
+    diagnosis = Column(Text(length=2**31 - 1), nullable=True)
     resolution = Column(Text, nullable=True)
-    handling_path = Column(Text, nullable=True)
     root_cause = Column(Text, nullable=True)
-    effectiveness = Column(Text, nullable=True)
     confidence = Column(Float, nullable=False, default=0.5)
     lifecycle = Column(String(64), nullable=False, default=CandidateCaseLifecycle.DRAFT.value)
     source_conv_id = Column(String(255), nullable=True)
-    source_session_id = Column(String(255), nullable=True)
     markdown_summary = Column(Text(length=2**31 - 1), nullable=True)
     metadata_json = Column(Text(length=2**31 - 1), nullable=True)
     gmt_created = Column(DateTime, default=datetime.now)
@@ -122,36 +117,16 @@ class MemoryCaseDao(BaseDao):
     """Persistence for ``derisk_plugin_memory_case`` — routing lives in ``metadata_json`` only."""
 
     def to_model(self, entity: MemoryCaseEntity) -> CandidateCase:
-        hp = entity.handling_path or ""
-        if hp.strip().startswith(("[", "{")):
-            try:
-                raw = json.loads(hp)
-                if isinstance(raw, list):
-                    hp = "\n".join(
-                        json.dumps(x, ensure_ascii=False)
-                        if isinstance(x, dict)
-                        else str(x)
-                        for x in raw
-                    )
-                elif isinstance(raw, dict):
-                    hp = json.dumps(raw, ensure_ascii=False)
-            except (json.JSONDecodeError, TypeError):
-                pass
         return CandidateCase(
             case_id=entity.case_id,
             fingerprint=entity.fingerprint,
-            incident_title=entity.incident_title or "",
             symptom_summary=entity.symptom_summary or "",
-            hypotheses=json.loads(entity.hypotheses) if entity.hypotheses else [],
-            actions=json.loads(entity.actions) if entity.actions else [],
+            diagnosis=entity.diagnosis or "",
             resolution=entity.resolution or "",
-            handling_path=hp,
             root_cause=entity.root_cause or "",
-            effectiveness=entity.effectiveness or "",
             confidence=entity.confidence or 0.5,
             lifecycle=CandidateCaseLifecycle(entity.lifecycle),
             source_conv_id=entity.source_conv_id,
-            source_session_id=entity.source_session_id,
             markdown_summary=entity.markdown_summary or "",
             metadata=json.loads(entity.metadata_json) if entity.metadata_json else {},
             created_at=entity.gmt_created,
@@ -170,44 +145,30 @@ class MemoryCaseDao(BaseDao):
                 entity = MemoryCaseEntity(case_id=case.case_id)
                 session.add(entity)
                 entity.fingerprint = case.fingerprint
-                entity.incident_title = case.incident_title or None
                 entity.symptom_summary = case.symptom_summary
-                entity.hypotheses = json.dumps(case.hypotheses, ensure_ascii=False)
-                entity.actions = json.dumps(case.actions, ensure_ascii=False)
+                entity.diagnosis = case.diagnosis or None
                 entity.resolution = case.resolution
-                entity.handling_path = case.handling_path or None
                 entity.root_cause = case.root_cause or None
-                entity.effectiveness = case.effectiveness
                 entity.confidence = case.confidence
                 entity.lifecycle = case.lifecycle.value
                 entity.source_conv_id = case.source_conv_id
-                entity.source_session_id = case.source_session_id
                 entity.markdown_summary = case.markdown_summary
                 entity.metadata_json = json.dumps(case.metadata or {}, ensure_ascii=False)
             else:
                 entity.fingerprint = case.fingerprint
-                if case.incident_title:
-                    entity.incident_title = case.incident_title
                 if case.symptom_summary:
                     entity.symptom_summary = case.symptom_summary
-                if case.hypotheses:
-                    entity.hypotheses = json.dumps(case.hypotheses, ensure_ascii=False)
-                if case.actions:
-                    entity.actions = json.dumps(case.actions, ensure_ascii=False)
+                if case.diagnosis:
+                    entity.diagnosis = case.diagnosis
                 if case.resolution:
                     entity.resolution = case.resolution
-                if case.handling_path:
-                    entity.handling_path = case.handling_path
                 if case.root_cause:
                     entity.root_cause = case.root_cause
-                if case.effectiveness:
-                    entity.effectiveness = case.effectiveness
                 if case.markdown_summary:
                     entity.markdown_summary = case.markdown_summary
                 entity.confidence = case.confidence
                 entity.lifecycle = case.lifecycle.value
                 entity.source_conv_id = case.source_conv_id
-                entity.source_session_id = case.source_session_id
                 existing_meta = json.loads(entity.metadata_json) if entity.metadata_json else {}
                 for k, v in (case.metadata or {}).items():
                     if k == CASE_CONTEXT_KEY and isinstance(v, dict) and isinstance(existing_meta.get(k), dict):

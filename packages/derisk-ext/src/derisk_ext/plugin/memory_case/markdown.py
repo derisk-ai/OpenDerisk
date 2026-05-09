@@ -40,26 +40,17 @@ def _format_case_context(case: CandidateCase) -> str:
 
 
 def render_case_markdown(case: CandidateCase) -> str:
-    effective_steps = "\n".join(f"- {item}" for item in case.actions) or "- N/A"
-    hypotheses = "\n".join(f"- {item}" for item in case.hypotheses) or "- N/A"
-    handling = (case.handling_path or "").strip() or "- N/A"
-    title_line = case.incident_title.strip() if case.incident_title else case.case_id
     ctx_block = _format_case_context(case)
     return (
-        f"# Case: {title_line}\n\n"
-        f"_id: `{case.case_id}`_\n\n"
+        f"# Case: `{case.case_id}`\n\n"
         "## Case context (metadata.case_context)\n"
         f"{ctx_block}\n"
         "## Symptoms\n"
         f"{case.symptom_summary or 'N/A'}\n\n"
-        "## Handling path (reference)\n"
-        f"{handling}\n\n"
+        "## Diagnosis\n"
+        f"{case.diagnosis or 'N/A'}\n\n"
         "## Root cause\n"
         f"{case.root_cause or 'N/A'}\n\n"
-        "## Effective Steps\n"
-        f"{effective_steps}\n\n"
-        "## Failed or Risky Steps\n"
-        f"{hypotheses}\n\n"
         "## Resolution\n"
         f"{case.resolution or 'N/A'}\n\n"
         "## Metadata\n"
