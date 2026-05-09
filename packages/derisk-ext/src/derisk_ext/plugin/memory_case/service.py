@@ -12,7 +12,18 @@ from derisk.component import SystemApp
 
 from .dao_protocol import MemoryCaseDaoLike
 from .markdown import parse_markdown_sections, render_case_markdown
-from .models import CandidateCase, CandidateCaseLifecycle, MemoryRequestContext
+from .case_context import (
+    KEY_FAILURE_LAYER,
+    KEY_RELATED_SERVICES,
+    KEY_RUNTIME,
+    cross_validate_relation,
+)
+from .models import (
+    CandidateCase,
+    CandidateCaseLifecycle,
+    CaseRelationType,
+    MemoryRequestContext,
+)
 from .vector_index import CandidateCaseVectorIndex, EmptyCandidateCaseVectorIndex
 
 logger = logging.getLogger(__name__)
@@ -63,11 +74,13 @@ class MemoryCasePluginService:
             MemoryToolSpec(
                 name="memory_case_search",
                 description=(
-                    "FIRST for ops/SRE/inspection/RCA tasks when this tool exists: call "
-                    "once BEFORE read/bash/git or opening local skill files—past runbooks "
-                    "live here, not only under pilot/data/skill. Short NL query "
-                    "(symptom + product/service + scenario e.g. 华为云 节前巡检); never "
-                    "paste full logs. Default top_k=5; narrow query and retry if weak."
+                    "STEP 1/2 — FIRST for ops/SRE/inspection/RCA tasks: call once "
+                    "BEFORE read/bash/git. Returns lightweight summaries (symptom, "
+                    "diagnosis preview 300 chars, root_cause, resolution, confidence, "
+                    "lifecycle). Short NL query (symptom + product/service + scenario "
+                    "e.g. 华为云 节前巡检); never paste full logs. Default top_k=5. "
+                    "THEN call memory_case_render with chosen case_ids to read full "
+                    "markdown — do NOT feed search results directly into context."
                 ),
                 inputSchema={
                     "type": "object",
@@ -103,7 +116,8 @@ class MemoryCasePluginService:
                 description=(
                     "End-of-task: persist RCA/playbook. BEFORE new row, "
                     "memory_case_search for near-dupes; merge via case_id if match. "
-                    "Include symptom_summary, hypotheses, actions, resolution, "
+                    "Include symptom_summary, diagnosis (free Markdown: hypotheses, "
+                    "actions taken, dead ends, reasoning chain), resolution, root_cause, "
                     "confidence."
                 ),
                 inputSchema={
@@ -113,11 +127,15 @@ class MemoryCasePluginService:
                         "case": {
                             "type": "object",
                             "description": (
-                                "CandidateCase: symptom_summary, hypotheses, actions, "
-                                "resolution, confidence; optional incident_title; "
-                                "handling_path (free text, narrative reference—not a strict playbook); "
-                                "root_cause; metadata.case_context for routing and provenance "
-                                "(application_name, data_sources, related_services, region, tags, …); "
+                                "CandidateCase: symptom_summary, diagnosis (free Markdown "
+                                "covering hypotheses, actions, dead ends, and reasoning), "
+                                "resolution, root_cause, confidence; "
+                                "metadata.case_context for routing and provenance: "
+                                "application_name, data_sources, related_services, region, "
+                                "tags; "
+                                "CRITICAL for cross-case matching — also include "
+                                "failure_layer (jvm/k8s/network/db/application), "
+                                "runtime (java/go/python/nodejs), middleware (dubbo/spring-boot/gin); "
                                 "optional case_id to merge; fingerprint optional "
                                 "(derived from case_context + summary if omitted)."
                             ),
@@ -212,6 +230,39 @@ class MemoryCasePluginService:
                 f"tool timeout: {tool_name}",
             ) from exc
 
+    # ---------------- search-result summary helpers ------------------
+
+    _DIAGNOSIS_PREVIEW_LEN = 300
+
+    @staticmethod
+    def _to_summary(case: "CandidateCase") -> Dict[str, Any]:
+        """Lightweight summary for ``memory_case_search`` results.
+
+        Omits ``markdown_summary``, full ``diagnosis``, and full ``metadata``
+        so the Agent sees just enough to decide which cases to drill into via
+        ``memory_case_render``.
+        """
+        diag = case.diagnosis or ""
+        preview = diag[:300] + "..." if len(diag) > 300 else diag
+        similar_count = len(case.metadata.get("similar_cases") or []) if case.metadata else 0
+        return {
+            "case_id": case.case_id,
+            "symptom_summary": case.symptom_summary,
+            "diagnosis_preview": preview,
+            "diagnosis_len": len(diag),
+            "root_cause": case.root_cause,
+            "resolution": case.resolution,
+            "confidence": case.confidence,
+            "lifecycle": case.lifecycle.value,
+            "similar_count": similar_count,
+            "source_conv_id": case.source_conv_id,
+            "fingerprint": case.fingerprint,
+            "created_at": case.created_at.isoformat() if case.created_at else None,
+            "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+        }
+
+    # ----------------------------------------------------------------
+
     def _validate_scope(self, scope: Dict[str, Any]) -> MemoryRequestContext:
         try:
             return MemoryRequestContext(**scope)
@@ -265,11 +316,8 @@ class MemoryCasePluginService:
             if case.lifecycle == CandidateCaseLifecycle.ACCEPTED
         ]
         candidate_pool = accepted_cases or ordered_cases
-        items = [
-            case.model_dump(mode="json")
-            for case in candidate_pool
-            if _eligible(case)
-        ]
+        eligible = [case for case in candidate_pool if _eligible(case)]
+        items = [self._to_summary(case) for case in eligible]
         result = {
             "code": "OK",
             "cases": items,
@@ -368,26 +416,117 @@ class MemoryCasePluginService:
         )
         return unreviewed[:10]
 
+    # ---------------- weighted section weights ----------------
+    _W_SYMPTOM = 0.1
+    _W_DIAGNOSIS = 0.5
+    _W_ROOT_CAUSE = 0.4
+
+    _SEC_MIN_SCORE = 0.3   # per-section floor before a hit counts
+    _MIN_SCORE = 0.6       # final weighted floor
+    _TOP_K = 10            # per-section candidate pool (wider than final)
+
+    @staticmethod
+    def _classify_relation(
+        *,
+        score_symptom: float,
+        score_diagnosis: float,
+        score_root_cause: float,
+        struct_match: bool,
+    ) -> CaseRelationType:
+        if score_root_cause >= 0.8 and struct_match:
+            return CaseRelationType.SAME_ROOT_CAUSE
+        if score_diagnosis >= 0.7 and struct_match:
+            return CaseRelationType.SIMILAR_DIAGNOSIS
+        if score_symptom >= 0.8 and not struct_match:
+            return CaseRelationType.SURFACE_SIMILAR
+        if score_diagnosis >= 0.6:
+            return CaseRelationType.SIMILAR_DIAGNOSIS
+        return CaseRelationType.SURFACE_SIMILAR
+
     async def _find_similar_cases(
-        self, case: CandidateCase, top_k: int = 5, min_score: float = 0.7
+        self, case: CandidateCase, top_k: int = 5, min_score: float | None = None
     ) -> List[Dict[str, Any]]:
-        """Search vector index for cases similar to *case*, excluding itself."""
+        """Multi-signal case similarity: weighted section vectors + struct cross-check.
+
+        1. Search symptom / diagnosis / root_cause separately against stored vectors.
+        2. Merge with weighted scores (0.1 / 0.5 / 0.4).
+        3. Cross-validate structured dimensions (failure_layer, runtime, services).
+        4. Classify relation type per candidate pair.
+        """
         ctx = case.metadata.get("case_context", {}) if case.metadata else {}
         scope = {
             "app_code": ctx.get("app_code") or "default",
             "environment": ctx.get("environment") or "default",
         }
-        query_text = case.markdown_summary or case.symptom_summary
-        if not query_text:
+        min_score = self._MIN_SCORE if min_score is None else min_score
+
+        # --- nothing to embed ------------------------------------------------
+        sections = {
+            "symptom": case.symptom_summary,
+            "diagnosis": case.diagnosis,
+            "root_cause": case.root_cause,
+        }
+        active = {k: v for k, v in sections.items() if v and str(v).strip()}
+        if not active:
             return []
-        results = await self._vector_index.search_with_scores(
-            query_text, scope, top_k
-        )
-        return [
-            {"case_id": cid, "score": round(score, 4), "relation": "similar"}
-            for cid, score in results
-            if cid != case.case_id and score >= min_score
-        ]
+
+        # --- per-section parallel search ------------------------------------
+        per_section: Dict[str, Dict[str, float]] = {}
+        for section_name, text in active.items():
+            results = await self._vector_index.search_with_scores(
+                str(text), scope, self._TOP_K
+            )
+            per_section[section_name] = {
+                cid: score
+                for cid, score in results
+                if cid != case.case_id and score >= self._SEC_MIN_SCORE
+            }
+
+        # --- weighted merge --------------------------------------------------
+        weights = {
+            "symptom": self._W_SYMPTOM,
+            "diagnosis": self._W_DIAGNOSIS,
+            "root_cause": self._W_ROOT_CAUSE,
+        }
+        merged: Dict[str, Dict[str, float]] = {}
+        for section_name, hits in per_section.items():
+            w = weights.get(section_name, 0.0)
+            for cid, score in hits.items():
+                if cid not in merged:
+                    merged[cid] = {"symptom": 0.0, "diagnosis": 0.0, "root_cause": 0.0}
+                merged[cid][section_name] = score * w
+
+        # --- final scoring + relation classification -------------------------
+        source_ctx = case.metadata.get("case_context", {}) if case.metadata else {}
+        similar: List[Dict[str, Any]] = []
+        for cid, section_scores in merged.items():
+            weighted = sum(section_scores.values())
+            if weighted < min_score:
+                continue
+
+            # fetch candidate context for struct cross-check
+            candidate = self._dao.get_by_case_id(cid)
+            candidate_ctx = (
+                candidate.metadata.get("case_context", {})
+                if candidate and candidate.metadata
+                else {}
+            )
+            struct_match = cross_validate_relation(source_ctx, candidate_ctx)
+            relation_type = self._classify_relation(
+                score_symptom=section_scores.get("symptom", 0.0) / max(self._W_SYMPTOM, 0.01),
+                score_diagnosis=section_scores.get("diagnosis", 0.0) / max(self._W_DIAGNOSIS, 0.01),
+                score_root_cause=section_scores.get("root_cause", 0.0) / max(self._W_ROOT_CAUSE, 0.01),
+                struct_match=struct_match,
+            )
+            similar.append({
+                "case_id": cid,
+                "score": round(weighted, 4),
+                "relation": relation_type.value,
+                "struct_match": struct_match,
+            })
+
+        similar.sort(key=lambda item: -item["score"])
+        return similar[:top_k]
 
     async def _feedback(self, args: Dict[str, Any]) -> Dict[str, Any]:
         case_id = args.get("case_id")

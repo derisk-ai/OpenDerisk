@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from derisk._private.pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_validator,
     model_validator,
 )
 
@@ -36,6 +34,20 @@ class CandidateCaseLifecycle(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     STALE = "stale"
+
+
+class CaseRelationType(str, Enum):
+    """Relation between two cases, determined by multi-signal analysis.
+
+    Ordered from strongest (reusable) to weakest (informational only).
+    """
+
+    SAME_ROOT_CAUSE = "same_root_cause"       # root cause + struct match
+    CAUSED_BY = "caused_by"                   # A's root cause triggered B
+    RECURRENCE_OF = "recurrence_of"           # B is a later occurrence of A
+    SIMILAR_DIAGNOSIS = "similar_diagnosis"   # diag path matches, root cause differs
+    SURFACE_SIMILAR = "surface_similar"       # symptom text matches only — do NOT reuse
+    CONTRADICTION = "contradiction"           # conflicting resolution / root cause
 
 
 class CandidateCase(BaseModel):
@@ -64,48 +76,20 @@ class CandidateCase(BaseModel):
 
     case_id: str = Field(..., description="Unique candidate case id")
     fingerprint: str = Field(..., description="Incident fingerprint")
-    incident_title: str = Field(
-        "",
-        max_length=512,
-        description="Short incident title for lists and UI",
-    )
     symptom_summary: str = Field("", description="Symptom summary")
-    hypotheses: List[str] = Field(default_factory=list)
-    actions: List[str] = Field(default_factory=list)
-    resolution: str = Field("", description="Resolution summary")
-    handling_path: str = Field(
+    diagnosis: str = Field(
         "",
         description=(
-            "Free-form how this case was worked: branches considered, what was tried, "
-            "dead ends, heuristics—reference only, not a strict step list for replay."
+            "Free-form Markdown describing the diagnostic process: "
+            "hypotheses considered, actions taken, dead ends, heuristics, "
+            "and the reasoning chain from symptom to root cause."
         ),
     )
-    root_cause: str = Field(
-        "",
-        description="Confirmed root cause one-liner when known",
-    )
-
-    @field_validator("handling_path", mode="before")
-    @classmethod
-    def _coerce_handling_path(cls, v: Any) -> str:
-        if v is None:
-            return ""
-        if isinstance(v, list):
-            return "\n".join(
-                json.dumps(item, ensure_ascii=False)
-                if isinstance(item, dict)
-                else str(item)
-                for item in v
-            )
-        if isinstance(v, dict):
-            return json.dumps(v, ensure_ascii=False)
-        return str(v)
-
-    effectiveness: str = Field("", description="Effectiveness summary")
+    resolution: str = Field("", description="Resolution summary")
+    root_cause: str = Field("", description="Confirmed root cause one-liner when known")
     confidence: float = Field(0.5, ge=0.0, le=1.0)
     lifecycle: CandidateCaseLifecycle = Field(default=CandidateCaseLifecycle.DRAFT)
     source_conv_id: Optional[str] = None
-    source_session_id: Optional[str] = None
     markdown_summary: str = Field("", description="Shared markdown summary")
     metadata: Dict[str, Any] = Field(
         default_factory=dict,

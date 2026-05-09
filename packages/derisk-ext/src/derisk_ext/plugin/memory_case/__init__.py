@@ -7,12 +7,16 @@ from .case_context import (
     KEY_APP_CODE,
     KEY_DATA_SOURCES,
     KEY_ENVIRONMENT,
+    KEY_FAILURE_LAYER,
+    KEY_MIDDLEWARE,
     KEY_OPERATOR_NOTES,
     KEY_REGION,
     KEY_RELATED_SERVICES,
+    KEY_RUNTIME,
     KEY_TAGS,
     KEY_TELEMETRY_CHANNELS,
     case_context_from_metadata,
+    cross_validate_relation,
     is_memory_search_scope_app_wildcard,
     is_memory_search_scope_env_wildcard,
     merge_case_context,
@@ -21,7 +25,12 @@ from .case_context import (
 )
 from .dao_protocol import MemoryCaseDaoLike
 from .integration import ensure_memory_case_resource_resolver_registered
-from .models import CandidateCase, CandidateCaseLifecycle, MemoryRequestContext
+from .models import (
+    CandidateCase,
+    CandidateCaseLifecycle,
+    CaseRelationType,
+    MemoryRequestContext,
+)
 from .plugin_resolver import (
     clear_memory_case_plugin_resolver,
     register_memory_case_plugin_resolver,
@@ -63,9 +72,12 @@ __all__ = [
     "KEY_APP_CODE",
     "KEY_DATA_SOURCES",
     "KEY_ENVIRONMENT",
+    "KEY_FAILURE_LAYER",
+    "KEY_MIDDLEWARE",
     "KEY_OPERATOR_NOTES",
     "KEY_REGION",
     "KEY_RELATED_SERVICES",
+    "KEY_RUNTIME",
     "KEY_TAGS",
     "KEY_TELEMETRY_CHANNELS",
     "MEMORY_CASE_VECTOR_NAME",
@@ -77,6 +89,7 @@ __all__ = [
     "MEMORY_PLUGIN_TIMEOUT_KEY",
     "CandidateCase",
     "CandidateCaseLifecycle",
+    "CaseRelationType",
     "CandidateCaseVectorIndex",
     "ChromaCandidateCaseVectorIndex",
     "EmptyCandidateCaseVectorIndex",
@@ -91,6 +104,7 @@ __all__ = [
     "MemoryToolSpec",
     "case_context_from_metadata",
     "clear_memory_case_plugin_resolver",
+    "cross_validate_relation",
     "get_memory_case_scope",
     "inject_memory_scope",
     "is_memory_search_scope_app_wildcard",

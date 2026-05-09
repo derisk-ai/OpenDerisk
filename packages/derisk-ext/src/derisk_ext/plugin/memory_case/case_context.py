@@ -26,11 +26,8 @@ FULLTEXT_LEXICAL_COLUMNS: Final[Tuple[str, ...]] = (
     "symptom_summary",
     "markdown_summary",
     "resolution",
-    "handling_path",
+    "diagnosis",
     "root_cause",
-    "incident_title",
-    "hypotheses",
-    "actions",
 )
 
 # Routing hints (optional; defaults align with tool_pack / MemoryRequestContext)
@@ -44,6 +41,10 @@ KEY_TELEMETRY_CHANNELS = "telemetry_channels"
 KEY_RELATED_SERVICES = "related_services"
 KEY_TAGS = "tags"
 KEY_OPERATOR_NOTES = "operator_notes"
+# Structured dimensions for cross-validating vector similarity
+KEY_FAILURE_LAYER = "failure_layer"    # e.g. jvm, k8s, network, db, application
+KEY_RUNTIME = "runtime"                # e.g. java, go, python, nodejs
+KEY_MIDDLEWARE = "middleware"         # e.g. dubbo, spring-boot, gin
 
 
 def case_context_from_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -51,6 +52,45 @@ def case_context_from_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, 
         return {}
     raw = metadata.get(CASE_CONTEXT_KEY)
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _normalize_list(val: Any) -> set:
+    """Coerce a value to a set of lowercase strings for comparison."""
+    if isinstance(val, str):
+        return {val.strip().lower()}
+    if isinstance(val, (list, tuple, set)):
+        return {str(v).strip().lower() for v in val if v}
+    return set()
+
+
+def cross_validate_relation(
+    ctx_a: Dict[str, Any],
+    ctx_b: Dict[str, Any],
+) -> bool:
+    """Return True when structured dimensions suggest cases share a problem domain.
+
+    Checks are soft: missing fields are skipped (no penalty), present fields must
+    agree. This avoids rejecting valid pairs just because one case lacks metadata.
+    """
+    # failure_layer: both sides must agree if present
+    fl_a = str(ctx_a.get(KEY_FAILURE_LAYER) or "").strip().lower()
+    fl_b = str(ctx_b.get(KEY_FAILURE_LAYER) or "").strip().lower()
+    if fl_a and fl_b and fl_a != fl_b:
+        return False
+
+    # runtime: both sides must agree if present
+    rt_a = str(ctx_a.get(KEY_RUNTIME) or "").strip().lower()
+    rt_b = str(ctx_b.get(KEY_RUNTIME) or "").strip().lower()
+    if rt_a and rt_b and rt_a != rt_b:
+        return False
+
+    # related_services: need at least one shared service if both sides have them
+    svc_a = _normalize_list(ctx_a.get(KEY_RELATED_SERVICES))
+    svc_b = _normalize_list(ctx_b.get(KEY_RELATED_SERVICES))
+    if svc_a and svc_b and not (svc_a & svc_b):
+        return False
+
+    return True
 
 
 def merge_case_context(
