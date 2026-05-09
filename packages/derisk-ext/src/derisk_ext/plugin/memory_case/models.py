@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+import math
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -13,6 +15,50 @@ from derisk._private.pydantic import (
 )
 
 from .case_context import CASE_CONTEXT_KEY
+
+# ---- feedback scoring ----
+
+FB_KEY = "fb"
+FB_MIN_SAMPLES = 3         # min total feedbacks before empirical score is trusted
+FB_WEIGHT_CAP = 10          # total samples needed to fully trust empirical over LLM prior
+FB_LAMBDA_ACCEPTED = 0.001  # time-decay factor for accepted cases
+FB_LAMBDA_DRAFT = 0.003     # time-decay factor for draft cases (faster decay)
+
+
+@dataclass
+class FeedbackStats:
+    """Aggregated feedback counts for one scope level."""
+    h: int  # helpful count
+    u: int  # unhelpful count
+    ts: str = ""  # ISO timestamp of most recent feedback
+    cv: list = None  # distinct conv_ids (global level only)
+
+    def __post_init__(self):
+        if self.cv is None:
+            self.cv = []
+
+    @property
+    def total(self) -> int:
+        return self.h + self.u
+
+
+def wilson_score(helpful: int, total: int, z: float = 1.96) -> float:
+    """Wilson score interval lower bound (95% confidence by default).
+
+    A case with 2/2 helpful gets ~0.34 (untrustworthy due to small sample),
+    while 15/15 gets ~0.82 (high confidence).  This naturally separates
+    well-validated cases from those with only a handful of feedback events.
+    """
+    if total == 0:
+        return 0.0
+    n = float(total)
+    p = helpful / n
+    z2 = z * z
+    numerator = p + z2 / (2.0 * n) - z * math.sqrt(
+        (p * (1.0 - p) + z2 / (4.0 * n)) / n
+    )
+    denominator = 1.0 + z2 / n
+    return numerator / denominator
 
 
 def default_case_fingerprint(data: dict) -> str:

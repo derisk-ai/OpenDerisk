@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from asyncio import TimeoutError as AsyncTimeoutError
 from asyncio import wait_for
@@ -10,19 +11,28 @@ from typing import Any, Dict, List, Optional, Set
 from derisk._private.pydantic import BaseModel, Field
 from derisk.component import SystemApp
 
-from .dao_protocol import MemoryCaseDaoLike
-from .markdown import parse_markdown_sections, render_case_markdown
 from .case_context import (
+    KEY_APP_CODE,
+    KEY_ENVIRONMENT,
     KEY_FAILURE_LAYER,
     KEY_RELATED_SERVICES,
     KEY_RUNTIME,
     cross_validate_relation,
 )
+from .dao_protocol import MemoryCaseDaoLike
+from .markdown import parse_markdown_sections, render_case_markdown
 from .models import (
+    FB_KEY,
+    FB_LAMBDA_ACCEPTED,
+    FB_LAMBDA_DRAFT,
+    FB_MIN_SAMPLES,
+    FB_WEIGHT_CAP,
     CandidateCase,
     CandidateCaseLifecycle,
     CaseRelationType,
+    FeedbackStats,
     MemoryRequestContext,
+    wilson_score,
 )
 from .vector_index import CandidateCaseVectorIndex, EmptyCandidateCaseVectorIndex
 
@@ -245,6 +255,8 @@ class MemoryCasePluginService:
         diag = case.diagnosis or ""
         preview = diag[:300] + "..." if len(diag) > 300 else diag
         similar_count = len(case.metadata.get("similar_cases") or []) if case.metadata else 0
+        fb = (case.metadata or {}).get(FB_KEY, {}) or {}
+        global_fb = fb.get("global", {}) or {}
         return {
             "case_id": case.case_id,
             "symptom_summary": case.symptom_summary,
@@ -259,7 +271,99 @@ class MemoryCasePluginService:
             "fingerprint": case.fingerprint,
             "created_at": case.created_at.isoformat() if case.created_at else None,
             "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+            "feedback_h": global_fb.get("h", 0),
+            "feedback_u": global_fb.get("u", 0),
+            "feedback_cv_count": len(global_fb.get("cv", []) or []),
         }
+
+    # ---------------- rank scoring -----------------------------------
+
+    @staticmethod
+    def _lookup_fb_stats(
+        fb: Dict[str, Any], scope: Dict[str, Any]
+    ) -> Optional[FeedbackStats]:
+        """Three-level scope-aware lookup: by_app_env > by_app > global."""
+        if not fb or not isinstance(fb, dict):
+            return None
+        app = str(scope.get("app_code") or "default").strip().lower()
+        env = str(scope.get("environment") or "default").strip().lower()
+
+        # Level 1: by_app_env
+        by_app_env = fb.get("by_app_env", {}) or {}
+        env_entry = by_app_env.get(f"{app}:{env}")
+        if isinstance(env_entry, dict):
+            s = FeedbackStats(
+                h=int(env_entry.get("h", 0)),
+                u=int(env_entry.get("u", 0)),
+                ts=str(env_entry.get("ts", "")),
+            )
+            if s.total >= FB_MIN_SAMPLES:
+                return s
+
+        # Level 2: by_app
+        by_app = fb.get("by_app", {}) or {}
+        app_entry = by_app.get(app)
+        if isinstance(app_entry, dict):
+            s = FeedbackStats(
+                h=int(app_entry.get("h", 0)),
+                u=int(app_entry.get("u", 0)),
+                ts=str(app_entry.get("ts", "")),
+            )
+            if s.total >= FB_MIN_SAMPLES:
+                return s
+
+        # Level 3: global
+        g = fb.get("global", {}) or {}
+        s = FeedbackStats(
+            h=int(g.get("h", 0)),
+            u=int(g.get("u", 0)),
+            ts=str(g.get("ts", "")),
+        )
+        return s if s.total > 0 else None  # None if zero feedback: use prior
+
+    @staticmethod
+    def _compute_rank_score(
+        case: CandidateCase, scope: Dict[str, Any], now: Optional[datetime] = None
+    ) -> float:
+        """Composite rank: Wilson empirical score (scope-aware) + LLM prior + time decay.
+
+        - Cases with enough feedback use Wilson lower bound weighted by sample count.
+        - Cases with insufficient feedback fall back to LLM confidence as prior.
+        - All scores are multiplied by a time-decay factor.
+        """
+        if now is None:
+            now = datetime.now(UTC)
+        fb = (case.metadata or {}).get(FB_KEY)
+        stats = MemoryCasePluginService._lookup_fb_stats(fb, scope)
+
+        # ---- empirical vs prior blend ----
+        if stats is not None and stats.total >= FB_MIN_SAMPLES:
+            empirical = wilson_score(stats.h, stats.total)
+            weight = min(1.0, stats.total / FB_WEIGHT_CAP)
+            base = weight * empirical + (1.0 - weight) * case.confidence
+        else:
+            base = case.confidence
+
+        # ---- time decay ----
+        ts_str = stats.ts if (stats is not None and stats.ts) else None
+        if not ts_str and case.updated_at:
+            ts_str = case.updated_at.isoformat()
+        if ts_str:
+            try:
+                last_dt = datetime.fromisoformat(ts_str)
+                days = (now - last_dt).total_seconds() / 86400.0
+            except (ValueError, TypeError):
+                days = 0.0
+        else:
+            days = 0.0
+
+        lambd = (
+            FB_LAMBDA_ACCEPTED
+            if case.lifecycle == CandidateCaseLifecycle.ACCEPTED
+            else FB_LAMBDA_DRAFT
+        )
+        decay = math.exp(-lambd * days)
+        return base * decay
 
     # ----------------------------------------------------------------
 
@@ -299,9 +403,10 @@ class MemoryCasePluginService:
                     await self._vector_index.upsert(case)
                 except Exception:
                     pass
+        search_scope = context.scope_dict()
         ordered_cases = sorted(
             case_by_id.values(),
-            key=lambda item: (item.confidence, item.updated_at or datetime.min),
+            key=lambda item: self._compute_rank_score(item, search_scope),
             reverse=True,
         )[:query_limit]
 
@@ -367,6 +472,11 @@ class MemoryCasePluginService:
             )
         if not case_data.get("case_id"):
             case_data["case_id"] = f"case-{uuid.uuid4().hex}"
+        # strip system-managed keys from incoming metadata
+        incoming_meta = case_data.get("metadata")
+        if isinstance(incoming_meta, dict):
+            incoming_meta.pop(FB_KEY, None)
+            incoming_meta.pop("similar_cases", None)
         case = CandidateCase(**case_data)
         if not case.markdown_summary:
             case.markdown_summary = render_case_markdown(case)
@@ -528,6 +638,11 @@ class MemoryCasePluginService:
         similar.sort(key=lambda item: -item["score"])
         return similar[:top_k]
 
+    # ---- lifecycle transition thresholds ----
+    _LIFECYCLE_ACCEPT_CONFIDENCE = 0.8
+    _LIFECYCLE_ACCEPT_FEEDBACK_COUNT = 2
+    _LIFECYCLE_REJECT_CONFIDENCE = 0.2
+
     async def _feedback(self, args: Dict[str, Any]) -> Dict[str, Any]:
         case_id = args.get("case_id")
         if not case_id:
@@ -538,23 +653,55 @@ class MemoryCasePluginService:
 
         helpful = args.get("helpful")
         signal = args.get("signal")
+        current_conv_id = args.get("conv_id") or args.get("scope", {}).get("conv_id", "")
 
+        # ---- confidence delta (same as before) ----
         if helpful is True:
             case.confidence = min(1.0, case.confidence + 0.1)
-            case.lifecycle = CandidateCaseLifecycle.ACCEPTED
         elif helpful is False:
             case.confidence = max(0.0, case.confidence - 0.2)
-            if case.confidence < 0.2:
-                case.lifecycle = CandidateCaseLifecycle.REJECTED
 
         if signal == "stale":
-            case.lifecycle = CandidateCaseLifecycle.STALE
             case.confidence = max(0.0, case.confidence - 0.1)
         elif signal == "success":
             case.confidence = min(1.0, case.confidence + 0.05)
         elif signal == "rollback":
             case.confidence = max(0.0, case.confidence - 0.1)
 
+        # ---- structured fb recording ----
+        fb = self._ensure_fb_structure(case)
+        is_cross_session = (
+            bool(current_conv_id)
+            and bool(case.source_conv_id)
+            and current_conv_id != case.source_conv_id
+        )
+
+        if helpful is not None:
+            fb = self._record_fb_event(
+                fb, case, helpful, current_conv_id, is_cross_session
+            )
+
+        # ---- lifecycle transition (feedback-count gated) ----
+        if signal == "stale":
+            case.lifecycle = CandidateCaseLifecycle.STALE
+        elif signal == "rollback" and case.confidence < self._LIFECYCLE_REJECT_CONFIDENCE:
+            case.lifecycle = CandidateCaseLifecycle.REJECTED
+        elif helpful is False and case.confidence < self._LIFECYCLE_REJECT_CONFIDENCE:
+            case.lifecycle = CandidateCaseLifecycle.REJECTED
+        elif helpful is True and case.lifecycle == CandidateCaseLifecycle.DRAFT:
+            g = fb.get("global", {})
+            fb_count = g.get("h", 0)
+            cross_count = len(g.get("cv", []))
+            if (
+                case.confidence >= self._LIFECYCLE_ACCEPT_CONFIDENCE
+                and fb_count >= self._LIFECYCLE_ACCEPT_FEEDBACK_COUNT
+                and cross_count >= 1
+            ):
+                case.lifecycle = CandidateCaseLifecycle.ACCEPTED
+
+        case.metadata[FB_KEY] = fb
+
+        # ---- human-review flag (unchanged) ----
         requires_review = False
         review_reasons: List[str] = []
         if case.confidence < 0.3:
@@ -573,6 +720,60 @@ class MemoryCasePluginService:
             await self._vector_index.invalidate(saved.case_id)
         self._track_feedback_hit(saved.source_conv_id, saved.case_id)
         return {"code": "OK", "case": saved.model_dump(mode="json")}
+
+    @staticmethod
+    def _ensure_fb_structure(case: CandidateCase) -> Dict[str, Any]:
+        fb = case.metadata.get(FB_KEY)
+        if not isinstance(fb, dict):
+            fb = {}
+        fb.setdefault("global", {"h": 0, "u": 0, "ts": "", "cv": []})
+        fb.setdefault("by_app", {})
+        fb.setdefault("by_app_env", {})
+        return fb
+
+    @staticmethod
+    def _record_fb_event(
+        fb: Dict[str, Any],
+        case: CandidateCase,
+        helpful: bool,
+        conv_id: str,
+        is_cross_session: bool,
+    ) -> Dict[str, Any]:
+        now_ts = datetime.now(UTC).isoformat()
+        ctx = (case.metadata or {}).get("case_context", {}) or {}
+        app = str(ctx.get(KEY_APP_CODE) or "default").strip().lower()
+        env = str(ctx.get(KEY_ENVIRONMENT) or "default").strip().lower()
+
+        # --- global ---
+        g = fb["global"]
+        if helpful:
+            g["h"] = g.get("h", 0) + 1
+        else:
+            g["u"] = g.get("u", 0) + 1
+        g["ts"] = now_ts
+        if is_cross_session and conv_id not in (g.get("cv") or []):
+            g.setdefault("cv", []).append(conv_id)
+
+        # --- by_app ---
+        by_app = fb.setdefault("by_app", {})
+        app_entry = by_app.setdefault(app, {"h": 0, "u": 0, "ts": ""})
+        if helpful:
+            app_entry["h"] = app_entry.get("h", 0) + 1
+        else:
+            app_entry["u"] = app_entry.get("u", 0) + 1
+        app_entry["ts"] = now_ts
+
+        # --- by_app_env ---
+        by_app_env = fb.setdefault("by_app_env", {})
+        scope_key = f"{app}:{env}"
+        env_entry = by_app_env.setdefault(scope_key, {"h": 0, "u": 0, "ts": ""})
+        if helpful:
+            env_entry["h"] = env_entry.get("h", 0) + 1
+        else:
+            env_entry["u"] = env_entry.get("u", 0) + 1
+        env_entry["ts"] = now_ts
+
+        return fb
 
     def _track_feedback_hit(
         self, conv_id: Optional[str], case_id: str

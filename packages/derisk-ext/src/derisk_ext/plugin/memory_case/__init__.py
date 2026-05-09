@@ -26,10 +26,17 @@ from .case_context import (
 from .dao_protocol import MemoryCaseDaoLike
 from .integration import ensure_memory_case_resource_resolver_registered
 from .models import (
+    FB_KEY,
+    FB_LAMBDA_ACCEPTED,
+    FB_LAMBDA_DRAFT,
+    FB_MIN_SAMPLES,
+    FB_WEIGHT_CAP,
     CandidateCase,
     CandidateCaseLifecycle,
     CaseRelationType,
+    FeedbackStats,
     MemoryRequestContext,
+    wilson_score,
 )
 from .plugin_resolver import (
     clear_memory_case_plugin_resolver,
@@ -67,6 +74,11 @@ __all__ = [
     "BUILTIN_MEMORY_MCP",
     "BUILTIN_MEMORY_MCP_NAME",
     "CASE_CONTEXT_KEY",
+    "FB_KEY",
+    "FB_LAMBDA_ACCEPTED",
+    "FB_LAMBDA_DRAFT",
+    "FB_MIN_SAMPLES",
+    "FB_WEIGHT_CAP",
     "FULLTEXT_LEXICAL_COLUMNS",
     "KEY_APPLICATION_NAME",
     "KEY_APP_CODE",
@@ -93,6 +105,7 @@ __all__ = [
     "CandidateCaseVectorIndex",
     "ChromaCandidateCaseVectorIndex",
     "EmptyCandidateCaseVectorIndex",
+    "FeedbackStats",
     "MemoryCaseVectorStoreSource",
     "build_vector_index",
     "MemoryCaseDaoLike",
@@ -115,4 +128,5 @@ __all__ = [
     "scope_filters_match",
     "set_memory_case_scope",
     "vector_metadata_from_case",
+    "wilson_score",
 ]
