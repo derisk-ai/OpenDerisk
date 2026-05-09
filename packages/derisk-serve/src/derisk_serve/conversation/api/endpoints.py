@@ -230,7 +230,10 @@ async def list_latest_conv(
     user: UserRequest = Depends(get_user_from_headers),
 ) -> Result[List[ServerResponse]]:
     """Return latest conversations, filtered by authenticated user when no explicit user specified."""
-    effective_user = user_name or user_id or user.user_id
+    # 优先使用 authenticated user 的 user_id（用户名），而不是前端传的 user_id（用户ID）
+    # 因为 gpts_conversations 表的 user_code 字段存储的是用户名，不是用户ID
+    # user.user_id 是用户名（如 "admin"），user.user_no 是用户ID（如 "1")
+    effective_user = user_name or (user.user_id if user else None) or user_id
     request = ServeRequest(
         user_name=effective_user,
         sys_code=sys_code,
