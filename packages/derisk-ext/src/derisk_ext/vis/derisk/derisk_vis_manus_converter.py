@@ -257,7 +257,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         if phase_key not in self._sections:
             display_name = PHASE_DISPLAY_MAP.get(phase_key, phase_key)
             if phase_key == "default":
-                display_name = "执行阶段"
+                display_name = "执行步骤"
             self._sections[phase_key] = ManusThinkingSection(
                 id=f"section_{phase_key}",
                 title=display_name,
@@ -764,6 +764,43 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         )
 
     @staticmethod
+    def _build_left_panel_from_steps(
+        steps: List[ManusExecutionStep],
+        active_step_id: Optional[str] = None,
+        is_working: bool = False,
+    ) -> ManusLeftPanelData:
+        """从无状态步骤列表构建左面板数据（用于 visualization/final_view）。
+
+        步骤按 phase 分组；无 phase 的归入默认 section。
+        """
+        sections_map: Dict[str, ManusThinkingSection] = {}
+        for step in steps:
+            phase_key = step.phase or "default"
+            if phase_key not in sections_map:
+                display_name = PHASE_DISPLAY_MAP.get(phase_key, phase_key)
+                if phase_key == "default":
+                    display_name = "执行步骤"
+                sections_map[phase_key] = ManusThinkingSection(
+                    id=f"section_{phase_key}",
+                    title=display_name,
+                )
+            sections_map[phase_key].steps.append(step)
+
+        sections = list(sections_map.values())
+        for section in sections:
+            all_done = all(
+                s.status in (ManusStepStatus.COMPLETED.value, ManusStepStatus.ERROR.value)
+                for s in section.steps
+            ) if section.steps else False
+            section.is_completed = all_done
+
+        return ManusLeftPanelData(
+            sections=sections,
+            active_step_id=active_step_id,
+            is_working=is_working,
+        )
+
+    @staticmethod
     def _outputs_to_dict_list(outputs: List[ManusExecutionOutput]) -> List[Dict[str, Any]]:
         """Convert outputs to dict list for steps_map."""
         return [o.to_dict() for o in outputs]
@@ -819,51 +856,24 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # Also index by step_id so left panel clicks (which use step_id) work too
         steps_map: Dict[str, Dict[str, Any]] = {}
 
-        if lazy_mode:
-            for planning_uid, sid in self._planning_uid_to_step_id.items():
-                step = self._steps.get(sid)
-                if step:
-                    step_meta = {
-                        "active_step": _step_to_info(step).to_dict(),
-                        "has_outputs": bool(self._outputs.get(sid)),
-                    }
-                    steps_map[planning_uid] = step_meta
-                    if sid not in steps_map:
-                        steps_map[sid] = step_meta
-
-            for sid, step in self._steps.items():
+        # Build steps_map: all entries include outputs so frontend click-to-switch works
+        for planning_uid, sid in self._planning_uid_to_step_id.items():
+            step = self._steps.get(sid)
+            if step:
+                step_data = {
+                    "active_step": _step_to_info(step).to_dict(),
+                    "outputs": self._outputs_to_dict_list(self._outputs.get(sid, [])),
+                }
+                steps_map[planning_uid] = step_data
                 if sid not in steps_map:
-                    steps_map[sid] = {
-                        "active_step": _step_to_info(step).to_dict(),
-                        "has_outputs": bool(self._outputs.get(sid)),
-                    }
-        else:
-            for planning_uid, sid in self._planning_uid_to_step_id.items():
-                step = self._steps.get(sid)
-                if step:
-                    is_active = (sid == self._active_step_id)
-                    step_data = {
-                        "active_step": _step_to_info(step).to_dict(),
-                    }
-                    if is_active:
-                        step_data["outputs"] = self._outputs_to_dict_list(self._outputs.get(sid, []))
-                    else:
-                        step_data["has_outputs"] = bool(self._outputs.get(sid))
-                    steps_map[planning_uid] = step_data
-                    if sid not in steps_map:
-                        steps_map[sid] = step_data
-
-            for sid, step in self._steps.items():
-                if sid not in steps_map:
-                    is_active = (sid == self._active_step_id)
-                    step_data = {
-                        "active_step": _step_to_info(step).to_dict(),
-                    }
-                    if is_active:
-                        step_data["outputs"] = self._outputs_to_dict_list(self._outputs.get(sid, []))
-                    else:
-                        step_data["has_outputs"] = bool(self._outputs.get(sid))
                     steps_map[sid] = step_data
+
+        for sid, step in self._steps.items():
+            if sid not in steps_map:
+                steps_map[sid] = {
+                    "active_step": _step_to_info(step).to_dict(),
+                    "outputs": self._outputs_to_dict_list(self._outputs.get(sid, [])),
+                }
 
         meta = {
             "total_steps": len(self._steps),
@@ -1083,24 +1093,17 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if step:
                 step_data = {
                     "active_step": _step_to_info(step).to_dict(),
+                    "outputs": self._outputs_to_dict_list(local_outputs.get(sid, [])),
                 }
-                if sid == last_sid:
-                    step_data["outputs"] = self._outputs_to_dict_list(local_outputs.get(sid, []))
-                else:
-                    step_data["has_outputs"] = bool(local_outputs.get(sid))
                 steps_map[uid] = step_data
                 if sid not in steps_map:
                     steps_map[sid] = step_data
         for sid, step in local_steps.items():
             if sid not in steps_map:
-                step_data = {
+                steps_map[sid] = {
                     "active_step": _step_to_info(step).to_dict(),
+                    "outputs": self._outputs_to_dict_list(local_outputs.get(sid, [])),
                 }
-                if sid == last_sid:
-                    step_data["outputs"] = self._outputs_to_dict_list(local_outputs.get(sid, []))
-                else:
-                    step_data["has_outputs"] = bool(local_outputs.get(sid))
-                steps_map[sid] = step_data
 
         total_step_count = len(local_steps)
         if len(steps_map) > self.MAX_STEPS_IN_MAP:
@@ -1769,7 +1772,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                             content=observation,
                         )]
 
-        # 构建 steps_map（局部数据）— lazy mode: 只含元信息，不含 outputs
+        # 构建 steps_map（局部数据）— lazy mode: 包含 outputs 以便前端切换
         steps_map: Dict[str, Dict[str, Any]] = {}
         def _step_to_info(step):
             return ManusActiveStepInfo(
@@ -1784,7 +1787,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if step:
                 step_meta = {
                     "active_step": _step_to_info(step).to_dict(),
-                    "has_outputs": bool(local_outputs.get(sid)),
+                    "outputs": self._outputs_to_dict_list(local_outputs.get(sid, [])),
                 }
                 steps_map[uid] = step_meta
                 if sid not in steps_map:
@@ -1793,7 +1796,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             if sid not in steps_map:
                 steps_map[sid] = {
                     "active_step": _step_to_info(step).to_dict(),
-                    "has_outputs": bool(local_outputs.get(sid)),
+                    "outputs": self._outputs_to_dict_list(local_outputs.get(sid, [])),
                 }
 
         total_step_count = len(local_steps)
@@ -1888,18 +1891,19 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             try:
                 result_data = json.loads(parent_result)
                 result_data["running_window"] = right_vis
+                pw = result_data.get("planning_window") or ""
                 if deliverable_vis:
-                    pw = result_data.get("planning_window") or ""
-                    result_data["planning_window"] = (
-                        pw + "\n" + deliverable_vis if pw else deliverable_vis
-                    )
+                    pw = pw + "\n" + deliverable_vis if pw else deliverable_vis
+                result_data["planning_window"] = pw
                 return json.dumps(result_data, ensure_ascii=False)
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # 构建新的 planning_window: deliverable
+        pw = deliverable_vis if deliverable_vis else ""
         return json.dumps(
             {
-                "planning_window": deliverable_vis,
+                "planning_window": pw,
                 "running_window": right_vis,
                 "meta_window": self._build_meta_window(),
             },

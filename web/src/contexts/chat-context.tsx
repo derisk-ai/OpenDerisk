@@ -2,11 +2,11 @@
 import { apiInterceptors, getDialogueList, getUsableModels } from '../client/api';
 import { ChatHistoryResponse, DialogueListResponse, IChatDialogueSchema } from '@/types/chat';
 import { UserInfoResponse } from '@/types/userinfo';
-import { STORAGE_THEME_KEY } from '@/utils/constants/index';
+import { STORAGE_THEME_KEY, STORAGE_USERINFO_KEY } from '@/utils/constants/index';
 import { getUserId } from '@/utils/storage';
 import { useRequest } from 'ahooks';
 import { useSearchParams } from 'next/navigation';
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState, useRef, useCallback } from 'react';
 
 type ThemeMode = 'dark' | 'light';
 
@@ -106,7 +106,7 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
     return res ?? [];
   });
 
-  // 获取对话列表
+  // 获取对话列表 - 设置为手动模式，等待用户信息加载完成后再获取
   const {
     data: dialogueList = [],
     refresh: refreshDialogList,
@@ -114,7 +114,101 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
   } = useRequest(async () => {
     const userId = getUserId();
     return await apiInterceptors(getDialogueList(userId));
+  }, {
+    manual: true,
   });
+
+  // Track if dialogue list has been fetched to avoid duplicate requests
+  const hasFetchedDialogueListRef = useRef(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUserIdRef = useRef<string | undefined>(undefined);
+
+  // Fetch dialogue list when user info is available
+  const fetchDialogueListIfUserReady = useCallback(() => {
+    const userId = getUserId();
+    
+    // Skip if already fetched for this user
+    if (hasFetchedDialogueListRef.current && userId === lastUserIdRef.current) return;
+    
+    if (userId) {
+      hasFetchedDialogueListRef.current = true;
+      lastUserIdRef.current = userId;
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      refreshDialogList();
+    }
+  }, [refreshDialogList]);
+
+  // Listen for storage events (triggered when user logs in from another tab)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_USERINFO_KEY) {
+        hasFetchedDialogueListRef.current = false;
+        lastUserIdRef.current = undefined;
+        fetchDialogueListIfUserReady();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [fetchDialogueListIfUserReady]);
+
+  // Listen for custom user info changed event (for same-tab changes)
+  useEffect(() => {
+    const handleUserInfoChange = () => {
+      hasFetchedDialogueListRef.current = false;
+      lastUserIdRef.current = undefined;
+      fetchDialogueListIfUserReady();
+    };
+
+    window.addEventListener('userinfochanged', handleUserInfoChange);
+    return () => window.removeEventListener('userinfochanged', handleUserInfoChange);
+  }, [fetchDialogueListIfUserReady]);
+
+  // Check for user info on mount
+  useEffect(() => {
+    fetchDialogueListIfUserReady();
+  }, [fetchDialogueListIfUserReady]);
+
+  // Poll until user info is available (handles LayoutWrapper writing user info)
+  useEffect(() => {
+    if (hasFetchedDialogueListRef.current) return;
+
+    pollIntervalRef.current = setInterval(() => {
+      const userId = getUserId();
+      if (userId && !hasFetchedDialogueListRef.current) {
+        hasFetchedDialogueListRef.current = true;
+        lastUserIdRef.current = userId;
+        refreshDialogList();
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }
+    }, 200);
+
+    // Stop polling after 10 seconds max
+    const timeout = setTimeout(() => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      // If still not fetched, try one more time
+      if (!hasFetchedDialogueListRef.current) {
+        fetchDialogueListIfUserReady();
+      }
+    }, 10000);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      clearTimeout(timeout);
+    };
+  }, [refreshDialogList, fetchDialogueListIfUserReady]);
 
   useEffect(() => {
     // setMode(getDefaultTheme());

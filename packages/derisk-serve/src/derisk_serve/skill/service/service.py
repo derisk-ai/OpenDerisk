@@ -549,28 +549,23 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             return None
 
     def _generate_skill_code(self, skill_meta: Dict[str, str], repo_url: str) -> str:
-        """Generate a unique skill code from metadata and repo URL.
+        """Generate a unique skill code from skill name.
 
-        The skill code is based on skill name and repo URL, NOT version.
-        This ensures the same skill gets updated instead of creating new records
-        when the version changes.
+        The skill code is based on skill name only, NOT repo URL or version.
+        This ensures skills are addressed by their name regardless of source.
 
         Args:
             skill_meta (Dict[str, str]): Parsed skill metadata
-            repo_url (str): Git repository URL
+            repo_url (str): Git repository URL (unused, kept for compatibility)
 
         Returns:
-            str: Unique skill code
+            str: Skill code (same skill name will have the same code)
         """
         # Use name as base, convert to lowercase and replace special chars
         name = skill_meta.get("name", "unnamed").lower()
         name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
 
-        # Add repo hash for uniqueness (same repo = same hash)
-        repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
-
-        skill_code = f"{name}-{repo_hash}"
-        return skill_code
+        return name
 
     def _copy_skill_to_project(
         self, skill_path: str, skill_name: str, project_dir: str, skill_code: str
@@ -869,8 +864,11 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
     def get_skill_directory(self, skill_code: str) -> str:
         """Get the physical directory path for a skill.
 
+        Supports both exact skill_code match and fallback to name-based match
+        for legacy skills with hash suffix (e.g., 'docx-ea97e2f9' for 'docx').
+
         Args:
-            skill_code (str): The skill code
+            skill_code (str): The skill code (can be name or code with hash suffix)
 
         Returns:
             str: The directory path
@@ -881,8 +879,14 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
 
         # If skill directory doesn't exist, check database for path info
         if not os.path.exists(skill_dir):
+            # Try exact match first
             skill_request = SkillRequest(skill_code=skill_code)
             skill = self.get(skill_request)
+
+            # Fallback: if not found, try to find by name prefix
+            if not skill:
+                skill = self._find_skill_by_name_prefix(skill_code)
+
             if skill and skill.path:
                 # Try to use the stored path
                 skill_dir = os.path.join(
@@ -893,6 +897,31 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     skill_dir = skill.path
 
         return skill_dir
+
+    def _find_skill_by_name_prefix(self, skill_code: str) -> Optional[SkillResponse]:
+        """Find a skill by name prefix (for legacy skills with hash suffix).
+
+        For example, if skill_code is 'docx', this will find 'docx-ea97e2f9'.
+
+        Args:
+            skill_code (str): The skill code or name
+
+        Returns:
+            Optional[SkillResponse]: The skill if found
+        """
+        try:
+            # Get all skills and find one that starts with the given code
+            request = SkillRequest()
+            all_skills = self.get_list(request)
+            for skill in all_skills:
+                if skill.skill_code.startswith(f"{skill_code}-"):
+                    logger.info(
+                        f"Found legacy skill by name prefix: '{skill_code}' -> '{skill.skill_code}'"
+                    )
+                    return skill
+        except Exception as e:
+            logger.warning(f"Failed to find skill by name prefix '{skill_code}': {e}")
+        return None
 
     def list_skill_files(self, skill_code: str) -> Dict[str, Any]:
         """List all files in the skill directory.

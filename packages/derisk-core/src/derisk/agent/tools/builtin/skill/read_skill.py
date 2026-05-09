@@ -95,7 +95,7 @@ class ReadSkillTool(SandboxToolBase):
         3. context.config["skill_dir"] / skill_name
         4. DATA_DIR/skill / skill_name (local fallback)
         """
-        # 1. From pre-computed available_skills
+        # 1. From pre-computed available_skills (name -> path mapping)
         if context:
             config = context.config if hasattr(context, "config") else {}
             if isinstance(config, dict):

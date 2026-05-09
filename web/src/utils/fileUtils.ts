@@ -93,6 +93,20 @@ const EXTENSION_TO_ICON: Record<string, FileIconType> = {
   tar: FileZipOutlined,
   gz: FileZipOutlined,
   bz2: FileZipOutlined,
+  xz: FileZipOutlined,
+  tgz: FileZipOutlined,
+  tbz2: FileZipOutlined,
+  txz: FileZipOutlined,
+  zst: FileZipOutlined,
+  lz4: FileZipOutlined,
+  lz: FileZipOutlined,
+  lzo: FileZipOutlined,
+  sz: FileZipOutlined,
+  rz: FileZipOutlined,
+  jar: FileZipOutlined,
+  war: FileZipOutlined,
+  ear: FileZipOutlined,
+  skill: FileZipOutlined,
 };
 
 // MIME 类型到图标的映射
@@ -149,7 +163,16 @@ const MIME_TYPE_TO_ICON: Record<string, FileIconType> = {
   'application/x-tar': FileZipOutlined,
   'application/gzip': FileZipOutlined,
   'application/x-gzip': FileZipOutlined,
+  'application/x-bzip2': FileZipOutlined,
+  'application/x-xz': FileZipOutlined,
+  'application/x-compressed-tar': FileZipOutlined,
+  'application/zstd': FileZipOutlined,
+  'application/x-lz4': FileZipOutlined,
+  'application/java-archive': FileZipOutlined,
+  'application/x-java-archive': FileZipOutlined,
 };
+
+const COMPOSITE_ARCHIVE_EXTS = ['tar.gz', 'tar.bz2', 'tar.xz', 'tgz', 'tbz2', 'txz'];
 
 /**
  * 根据文件扩展名获取对应的图标组件
@@ -159,6 +182,14 @@ const MIME_TYPE_TO_ICON: Record<string, FileIconType> = {
 export function getFileIconByExtension(filename: string): FileIconType {
   if (!filename) return FileUnknownOutlined;
 
+  const nameLower = filename.toLowerCase();
+  // Check composite extensions first (e.g., .tar.gz)
+  for (const ext of COMPOSITE_ARCHIVE_EXTS) {
+    if (nameLower.endsWith(`.${ext}`)) {
+      return FileZipOutlined;
+    }
+  }
+  // Fallback to single extension
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   return EXTENSION_TO_ICON[ext] || FileOutlined;
 }
@@ -204,6 +235,13 @@ function getFileByMimeCategory(mimeType: string): FileIconType {
 export function getFileIcon(filename?: string, mimeType?: string): FileIconType {
   // 优先使用扩展名
   if (filename) {
+    const nameLower = filename.toLowerCase();
+    // Check composite extensions first (e.g., .tar.gz)
+    for (const ext of COMPOSITE_ARCHIVE_EXTS) {
+      if (nameLower.endsWith(`.${ext}`)) {
+        return FileZipOutlined;
+      }
+    }
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     if (ext && EXTENSION_TO_ICON[ext]) {
       return EXTENSION_TO_ICON[ext];

@@ -303,6 +303,30 @@ class DeliverFileTool(SandboxToolBase):
                 "\n⚠️ **注意：文件已标记，但无法生成可访问的预览/下载链接。**\n"
                 "请检查存储配置是否正确。"
             )
+            return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
+
+        # 生成 d-attach 组件
+        try:
+            from derisk.agent.core.file_system.dattach_utils import render_dattach
+
+            dattach_content = render_dattach(
+                file_name=file_name,
+                file_url=oss_temp_url,
+                file_type=file_type,
+                object_path=oss_object_path,
+                preview_url=oss_temp_url,
+                download_url=oss_temp_url,
+                description=description.strip(),
+                mime_type=mime_type,
+            )
+            result_parts.append("\n\n**交付文件:**")
+            result_parts.append(dattach_content)
+        except Exception as exc:
+            logger.warning(f"[deliver_file] d-attach 渲染失败: {exc}")
+
+        if oss_object_path:
+            result_parts.append(f"\n**OSS 对象路径:** {oss_object_path}")
+
         return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
 
     async def _execute_local(

@@ -191,7 +191,6 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
   useEffect(() => {
     const handler = (payload: { uid?: string }) => {
       const matched = payload?.uid === taskUid;
-      console.log('[VisAgentPlanCard] clickFolder received', { payloadUid: payload?.uid, myUid: taskUid, matched });
       if (matched) setIsSelected(true);
       else setIsSelected(false);
     };
@@ -239,7 +238,7 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
           ee.emit(EVENTS.OPEN_PANEL);
         }
       }}
-      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected && isPlan ? 'selected' : ''}`}
+      className={`VisAgentPlanCardClass level-${layerCount} ${isSelected ? 'selected' : ''}`}
     >
       <div
         className={`header ${isPlan ? 'header-plan' : ''} ${isTask ? 'header-task' : ''} ${isAgent ? 'header-agent' : ''} ${isStage ? 'header-stage' : ''} ${!isPlan && !isTask && !isAgent && !isStage ? 'header-default' : ''}`}
@@ -250,9 +249,9 @@ const VisAgentPlanCard: React.FC<IProps> = ({ otherComponents, data }) => {
             <div className="content-header">
               {Boolean(data?.agent_name) && !isStage && (
                 <div className={`agent_name ${isAgent ? 'agent_name-leading' : ''}`} title={String(data.agent_name)}>
-                  {(isPlan || isAgent) && (
+                  {!isPlan && !isAgent && (
                     <Avatar
-                      size={isAgent ? 28 : 20}
+                      size={20}
                       src={data.agent_avatar as string}
                       className="avatar-shrink"
                     />
