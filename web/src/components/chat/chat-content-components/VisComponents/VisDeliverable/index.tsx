@@ -5,7 +5,7 @@ import { ee, EVENTS } from '@/utils/event-emitter';
 interface DeliverableFile {
   file_id: string;
   file_name: string;
-  render_type?: 'iframe' | 'markdown' | 'code' | 'image' | 'pdf' | 'text' | 'download';
+  render_type?: 'iframe' | 'markdown' | 'code' | 'image' | 'pdf' | 'text' | 'download' | 'archive';
 }
 
 interface DeliverableData {
@@ -22,6 +22,7 @@ const renderTypeConfig: Record<string, { icon: React.ReactNode; label: string }>
   pdf: { icon: <FilePdfOutlined style={{ fontSize: 20, color: '#f5222d' }} />, label: 'PDF 文档' },
   text: { icon: <FileTextOutlined style={{ fontSize: 20, color: '#8c8c8c' }} />, label: '文本文件' },
   download: { icon: <FileZipOutlined style={{ fontSize: 20, color: '#faad14' }} />, label: '压缩文件' },
+  archive: { icon: <FileZipOutlined style={{ fontSize: 20, color: '#faad14' }} />, label: '压缩文件' },
 };
 
 const VisDeliverable: React.FC<{  DeliverableData }> = ({ data }) => {

@@ -508,6 +508,20 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
           </pre>
         </div>
       );
+    case 'archive':
+      return (
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
+          <span className="text-4xl">📦</span>
+          <span className="text-sm">{file_name}</span>
+          {(resolvedUrl || download_url) ? (
+            <a href={resolvedUrl || download_url} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
+              下载文件
+            </a>
+          ) : (
+            <span className="text-sm">无法获取下载链接</span>
+          )}
+        </div>
+      );
     case 'download':
       return (
         <div className="flex flex-col items-center justify-center h-48 gap-3 text-gray-400">
