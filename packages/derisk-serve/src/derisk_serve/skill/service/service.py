@@ -656,8 +656,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             SkillResponse: The created skill response
         """
+        logger.info(f"Uploading skill from zip file: {file.filename}")
         project_skill_dir = self._serve_config.get_project_skill_dir()
         sandbox_skill_dir = self._serve_config.get_sandbox_skill_dir()
+        logger.info(f"Project skill dir: {project_skill_dir}, Sandbox skill dir: {sandbox_skill_dir}")
 
         # Create temp directory for extraction
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -666,14 +668,18 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             with open(zip_path, "wb") as f:
                 content = await file.read()
                 f.write(content)
+            logger.info(f"Saved uploaded file to: {zip_path}")
 
             # Extract zip file
             extract_dir = os.path.join(temp_dir, "extracted")
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(extract_dir)
+            logger.info(f"Extracted zip to: {extract_dir}")
+            logger.info(f"Extracted files: {os.listdir(extract_dir)}")
 
             # Find skill directory (look for SKILL.md)
             skill_path = self._find_skill_directory(extract_dir)
+            logger.info(f"Found skill path: {skill_path}")
             if not skill_path:
                 raise ValueError("No SKILL.md found in the uploaded file")
 
@@ -723,6 +729,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             else:
                 logger.info(f"Creating new skill from upload: {skill_name}")
                 skill_response = self.create(skill_request)
+            
+            logger.info(f"Skill created/updated: skill_code={skill_code}, name={skill_name}")
 
             # Copy skill files to project skill directory
             self._copy_skill_to_project(
@@ -734,6 +742,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 self._copy_skill_to_sandbox(
                     skill_path, skill_name, sandbox_skill_dir, skill_code
                 )
+            
+            logger.info(f"Skill upload completed successfully for: {skill_name}")
 
             return skill_response
 
@@ -834,12 +844,16 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         if os.path.exists(os.path.join(base_dir, "SKILL.md")):
             return base_dir
 
-        # Search subdirectories
+        # Search subdirectories (only one level deep for most cases)
         for entry in os.scandir(base_dir):
             if entry.is_dir():
                 skill_md_path = os.path.join(entry.path, "SKILL.md")
                 if os.path.exists(skill_md_path):
                     return entry.path
+                # Recursively search deeper if not found at first level
+                result = self._find_skill_directory(entry.path)
+                if result:
+                    return result
 
         return None
 
