@@ -1627,6 +1627,14 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # PDF
         if name_lower.endswith(".pdf") or "application/pdf" in mime_lower:
             return "pdf"
+        # Archive (zip, rar, 7z, tar, gz)
+        archive_exts = (".zip", ".rar", ".7z", ".tar", ".gz", ".tar.gz", ".tgz")
+        if any(name_lower.endswith(ext) for ext in archive_exts):
+            return "archive"
+        archive_mimes = ("application/zip", "application/x-rar-compressed", "application/x-7z-compressed",
+                         "application/x-tar", "application/gzip", "application/x-gzip")
+        if any(mime in mime_lower for mime in archive_mimes):
+            return "archive"
         # Code
         code_exts = (".py", ".js", ".ts", ".java", ".go", ".rs", ".sql", ".yaml", ".yml", ".json", ".xml", ".css", ".sh")
         if any(name_lower.endswith(ext) for ext in code_exts):

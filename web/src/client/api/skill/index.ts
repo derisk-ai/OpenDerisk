@@ -40,11 +40,7 @@ export const getRecentSyncTasks = (limit: number = 10) => {
 export const uploadSkillFromZip = (file: File) => {
   const formData = new FormData();
   formData.append('file', file);
-  return POST('/api/v1/serve_skill_service/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  return POST('/api/v1/serve_skill_service/upload', formData);
 };
 
 export const uploadSkillFromFolder = (skill_name: string, skill_path: string) => {

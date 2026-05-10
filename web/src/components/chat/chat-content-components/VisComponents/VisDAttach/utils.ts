@@ -11,11 +11,6 @@ import {
 } from '@ant-design/icons';
 import type { ComponentType } from 'react';
 
-/**
- * Format file size to human readable format
- * @param bytes File size in bytes
- * @returns Formatted string (e.g., "1.5 MB")
- */
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -24,16 +19,8 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-/**
- * File type categories for preview support
- */
-export type FilePreviewType = 'text' | 'image' | 'pdf' | 'code' | 'json' | 'csv' | 'unknown';
+export type FilePreviewType = 'text' | 'image' | 'pdf' | 'code' | 'json' | 'csv' | 'archive' | 'unknown';
 
-/**
- * Get preview type based on MIME type
- * @param mimeType MIME type string
- * @returns Preview type category
- */
 export function getPreviewType(mimeType?: string): FilePreviewType {
   if (!mimeType) return 'unknown';
 
@@ -61,32 +48,32 @@ export function getPreviewType(mimeType?: string): FilePreviewType {
     return 'code';
   }
 
+  if (
+    type === 'application/zip' ||
+    type === 'application/x-rar-compressed' ||
+    type === 'application/x-7z-compressed' ||
+    type === 'application/x-tar' ||
+    type === 'application/gzip' ||
+    type === 'application/x-gzip' ||
+    type.includes('compressed')
+  ) {
+    return 'archive';
+  }
+
   return 'unknown';
 }
 
-/**
- * Check if file can be previewed
- * @param mimeType MIME type string
- * @returns Whether the file can be previewed
- */
 export function canPreview(mimeType?: string): boolean {
   const previewType = getPreviewType(mimeType);
-  return previewType !== 'unknown';
+  return previewType !== 'unknown' && previewType !== 'archive';
 }
 
-/**
- * Get icon component based on MIME type or file extension
- * @param fileName File name
- * @param mimeType MIME type string
- * @returns Ant Design icon component
- */
 export function getFileIcon(
   fileName?: string,
   mimeType?: string
 ): ComponentType<{ style?: React.CSSProperties; className?: string }> {
   const type = mimeType?.toLowerCase() || '';
 
-  // Check MIME type first
   if (type === 'application/pdf') return FilePdfOutlined;
   if (type.startsWith('image/')) return FileImageOutlined;
   if (type === 'text/markdown' || type === 'text/x-markdown') return FileMarkdownOutlined;
@@ -107,7 +94,6 @@ export function getFileIcon(
     return FileZipOutlined;
   }
 
-  // Check file extension as fallback
   if (fileName) {
     const ext = fileName.split('.').pop()?.toLowerCase();
 
@@ -170,11 +156,6 @@ export function getFileIcon(
   return FileOutlined;
 }
 
-/**
- * Get file type label based on file_type field or mime_type
- * @param fileType File type string (e.g., 'conclusion', 'deliverable')
- * @returns Human readable label
- */
 export function getFileTypeLabel(fileType?: string): string {
   if (!fileType) return '文件';
 
@@ -190,6 +171,7 @@ export function getFileTypeLabel(fileType?: string): string {
     document: '文档',
     code: '代码文件',
     config: '配置文件',
+    archive: '压缩文件',
   };
 
   return labels[fileType] || '文件';
