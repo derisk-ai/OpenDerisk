@@ -67,9 +67,14 @@ class RenderMessageRequest(BaseModel):
 # ========== 按需加载相关模型 ==========
 
 class StepDetailResponse(BaseModel):
-    """步骤详情响应 — vis_manus 按需加载"""
+    """步骤详情响应 — vis_manus 按需加载
+    
+    追问场景：用户点击历史步骤时返回该步骤详情和对应的任务文件
+    """
     active_step: Optional[dict] = None
     outputs: List[dict] = []
+    task_files: List[dict] = []
+    deliverable_files: List[dict] = []
 
 
 class RunningWindowResponse(BaseModel):

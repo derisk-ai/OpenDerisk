@@ -307,15 +307,19 @@ async def query_step_detail(conv_id: str, step_id: str):
     """vis_manus 专用 — 按 step_id 返回单步完整 outputs
 
     前端点击步骤时调用此接口加载详情，避免 final_view 全量返回所有步骤 outputs。
+    追问场景：返回该步骤对应的任务文件列表。
     """
     try:
         from ..visualization import get_unified_vis_adapter
         adapter = get_unified_vis_adapter()
         result = await adapter.query_step_detail(conv_id=conv_id, step_id=step_id)
         if result:
+            step_data = result.get("step_data", {})
             return StepDetailResponse(
-                active_step=result.get("active_step"),
-                outputs=result.get("outputs", []),
+                active_step=step_data.get("active_step"),
+                outputs=step_data.get("outputs", []),
+                task_files=step_data.get("task_files", []),
+                deliverable_files=step_data.get("deliverable_files", []),
             )
         return StepDetailResponse()
     except Exception as e:

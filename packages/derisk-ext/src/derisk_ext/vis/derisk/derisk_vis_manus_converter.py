@@ -664,8 +664,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         The execute_sql tool returns a d-sql-query VIS tag in its view/content.
         We parse the JSON from it to pass structured data to the frontend.
         """
-        # Try all possible fields that might contain the d-sql-query VIS tag
-        for attr in ('view', 'simple_view', 'observations', 'content'):
+        # Prioritize 'content' field as it contains the raw d-sql-query output
+        # 'view' contains VisStepContent JSON where newlines are escaped, breaking regex
+        for attr in ('content', 'view', 'simple_view', 'observations'):
             val = getattr(act_out, attr, None) if hasattr(act_out, attr) else (
                 act_out.get(attr) if isinstance(act_out, dict) else None
             )
@@ -678,10 +679,11 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 except (json.JSONDecodeError, TypeError):
                     continue
             # Also try parsing as direct JSON (in case content is pure JSON)
-            if '"columns"' in val and '"rows"' in val:
+            # Must check for 'sql' field to distinguish from VisStepContent JSON
+            if '"columns"' in val and '"rows"' in val and '"sql"' in val:
                 try:
                     data = json.loads(val)
-                    if isinstance(data, dict) and 'columns' in data and 'rows' in data:
+                    if isinstance(data, dict) and 'columns' in data and 'rows' in data and 'sql' in data:
                         return data
                 except (json.JSONDecodeError, TypeError):
                     continue
@@ -993,7 +995,10 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         step_uid: str,
         senders_map: Optional[Dict[str, "ConversableAgent"]] = None,
     ) -> Optional[Dict]:
-        """Manus layout: render step detail with manus-specific VIS components."""
+        """Manus layout: render step detail with manus-specific VIS components.
+        
+        追问场景：用户点击历史步骤时，返回该步骤的详情和对应的任务文件。
+        """
         vis_text = await self._gen_plan_items(gpt_msg=gpt_msg, senders_map=senders_map)
 
         step_info, outputs = self._extract_step_from_gpt_msg(gpt_msg)
@@ -1009,11 +1014,19 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         )]
                         break
 
+        # 收集该消息的任务文件（点击历史步骤时展示）
+        task_files: List[ManusTaskFileItem] = []
+        deliverable_files: List[ManusDeliverableFile] = []
+        if gpt_msg:
+            task_files, deliverable_files = self._collect_files_from_messages([gpt_msg])
+
         step_data = None
         if step_info:
             step_data = {
                 "active_step": step_info.to_dict(),
                 "outputs": [o.to_dict() for o in outputs],
+                "task_files": [f.to_dict() for f in task_files],
+                "deliverable_files": [f.to_dict() for f in deliverable_files],
             }
 
         return {
@@ -1240,6 +1253,23 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     planning_window = system_events_vis
 
             # === running_window: 使用 manus-right-panel 渲染工具执行结果 ===
+            # 追问场景：messages 为空时，从 gpts_memory 加载历史 messages 构建 steps_map
+            # 但不加载历史交付文件（每轮对话只展示自己的交付文件）
+            if not messages and conv_id and senders_map and main_agent_name:
+                main_agent = senders_map.get(main_agent_name)
+                if main_agent and hasattr(main_agent, "memory") and hasattr(main_agent.memory, "gpts_memory"):
+                    try:
+                        from derisk.agent.core.memory.gpts import GptsMemory
+                        gpts_memory = main_agent.memory.gpts_memory
+                        if isinstance(gpts_memory, GptsMemory):
+                            messages = await gpts_memory.get_messages_with_work_entries(conv_id)
+                            logger.debug(
+                                f"[ManusConverter] Loaded {len(messages)} messages from gpts_memory "
+                                f"for conv_id={conv_id} (追问场景构建 steps_map)"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[ManusConverter] Failed to load messages from gpts_memory: {e}")
+
             # 无状态构建：从 messages 构建 steps_map 和 active_step，叠加当前消息
             steps_map, active_step_info, current_outputs = self._build_steps_from_messages_stateless(
                 messages
@@ -1268,32 +1298,37 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
             )
 
             # 收集任务文件和交付文件（增量推送时也需要）
+            # 每轮对话只展示自己产生的交付文件，不展示历史对话的交付文件
+            task_files: List[ManusTaskFileItem] = []
+            deliverable_files: List[ManusDeliverableFile] = []
+
             if messages:
                 task_files, deliverable_files = self._collect_files_from_messages(messages)
-                right_panel.task_files = task_files
-                right_panel.deliverable_files = deliverable_files
 
-                # 任务结束时设置摘要和自动切换视图
-                if not is_working:
-                    # 提取摘要内容
-                    for msg in reversed(messages):
-                        if msg.role == HUMAN_ROLE:
-                            continue
-                        if msg.action_report:
-                            for act_out in msg.action_report:
-                                obs = getattr(act_out, 'observations', None)
-                                cnt = getattr(act_out, 'content', None)
-                                candidate = obs or cnt
-                                if candidate and isinstance(candidate, str) and candidate.strip():
-                                    right_panel.summary_content = candidate
-                                    break
-                        if right_panel.summary_content:
-                            break
+            right_panel.task_files = task_files
+            right_panel.deliverable_files = deliverable_files
 
-                    if deliverable_files:
-                        right_panel.panel_view = ManusPanelView.DELIVERABLE.value
-                    elif right_panel.summary_content:
-                        right_panel.panel_view = ManusPanelView.SUMMARY.value
+            # 任务结束时设置摘要和自动切换视图
+            if not is_working and messages:
+                # 提取摘要内容
+                for msg in reversed(messages):
+                    if msg.role == HUMAN_ROLE:
+                        continue
+                    if msg.action_report:
+                        for act_out in msg.action_report:
+                            obs = getattr(act_out, 'observations', None)
+                            cnt = getattr(act_out, 'content', None)
+                            candidate = obs or cnt
+                            if candidate and isinstance(candidate, str) and candidate.strip():
+                                right_panel.summary_content = candidate
+                                break
+                    if right_panel.summary_content:
+                        break
+
+            if deliverable_files:
+                right_panel.panel_view = ManusPanelView.DELIVERABLE.value
+            elif right_panel.summary_content:
+                right_panel.panel_view = ManusPanelView.SUMMARY.value
 
             # DEBUG: log deliverable files before serialization
             if right_panel.deliverable_files:
