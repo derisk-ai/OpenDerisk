@@ -28,6 +28,7 @@ const SkillPage: React.FC = () => {
   });
 
   const [skillList, setSkillList] = useState<any>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isSyncModalVisible, setIsSyncModalVisible] = useState(false);
   const [isSyncProgressDrawerVisible, setIsSyncProgressDrawerVisible] = useState(false);
@@ -51,6 +52,7 @@ const SkillPage: React.FC = () => {
       onSuccess: data => {
         const [, res] = data;
         setSkillList(res?.items || []);
+        setTotalCount(res?.total_count || 0);
       },
       debounceWait: 300,
     },
@@ -449,7 +451,7 @@ const SkillPage: React.FC = () => {
               current={paginationParams.page}
               pageSize={paginationParams.page_size}
               showSizeChanger
-              total={skillList.length}
+              total={totalCount}
               onChange={onShowSizeChange}
             />
           </div>
