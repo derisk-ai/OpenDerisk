@@ -273,6 +273,51 @@ class AgentToolAdapter:
                     if isinstance(config, dict):
                         config["sandbox_manager"] = sandbox_manager
 
+            # 注入 available_skills 和 skill_dir（供 skill_list/Skill/skill_exec 工具使用）
+            if hasattr(self._agent, "resource_map"):
+                available_skills = {}
+                skill_dir = None
+                resource_map = self._agent.resource_map or {}
+                for key, value_list in resource_map.items():
+                    if not value_list:
+                        continue
+                    for item in value_list:
+                        if hasattr(item, "skill_meta"):
+                            try:
+                                meta = item.skill_meta()
+                                if meta:
+                                    skill_code = (
+                                        getattr(item, "_skill_code", None)
+                                        or getattr(item, "skill_code", None)
+                                        or ""
+                                    )
+                                    if not skill_code and hasattr(meta, "path") and meta.path:
+                                        import os
+                                        skill_code = os.path.basename(meta.path)
+                                    if skill_code:
+                                        skill_path = meta.path or skill_code
+                                        available_skills[meta.name] = skill_path
+                            except Exception:
+                                pass
+
+                # 从 sandbox_manager 获取 skill_dir
+                if hasattr(self._agent, "sandbox_manager") and self._agent.sandbox_manager:
+                    sb_client = getattr(self._agent.sandbox_manager, "client", None)
+                    if sb_client:
+                        skill_dir = getattr(sb_client, "skill_dir", None)
+
+                if available_skills:
+                    context.setdefault("available_skills", available_skills)
+                    # Also inject into config dict for skill_list/Skill/skill_exec tools
+                    config = context.setdefault("config", {})
+                    if isinstance(config, dict):
+                        config.setdefault("available_skills", available_skills)
+                if skill_dir:
+                    context.setdefault("skill_dir", skill_dir)
+                    config = context.setdefault("config", {})
+                    if isinstance(config, dict):
+                        config.setdefault("skill_dir", skill_dir)
+
         return ToolContext(**context)
 
     # === Agent特定适配 ===

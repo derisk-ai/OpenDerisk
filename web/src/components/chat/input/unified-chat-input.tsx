@@ -1757,7 +1757,7 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
       dynamicResourceParams.push({
         param_type: 'resource',
         param_value: JSON.stringify({ db_name: ds.db_name, db_type: ds.db_type, id: ds.id }),
-        sub_type: 'database',
+        sub_type: 'datasource',
       });
     }
     for (const kb of selectedKnowledgeBases) {

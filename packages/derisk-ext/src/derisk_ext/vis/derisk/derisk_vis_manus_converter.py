@@ -1086,6 +1086,15 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         local_uid_map[action_id] = step_id
 
                     if observation and isinstance(observation, str):
+                        # SQL 步骤特殊处理：提取 d-sql-query VIS Tag 中的结构化数据
+                        if step.type == ManusStepType.SQL.value:
+                            sql_data = self._extract_sql_query_data(act_out)
+                            if sql_data:
+                                local_outputs[step_id] = [ManusExecutionOutput(
+                                    output_type=ManusOutputType.SQL_QUERY.value,
+                                    content=sql_data,
+                                )]
+                                continue
                         local_outputs[step_id] = [ManusExecutionOutput(
                             output_type=ManusOutputType.TEXT.value,
                             content=observation,
@@ -1906,6 +1915,15 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         local_uid_map[action_id] = step_id
 
                     if observation and isinstance(observation, str):
+                        # SQL 步骤特殊处理：提取 d-sql-query VIS Tag 中的结构化数据
+                        if step.type == ManusStepType.SQL.value:
+                            sql_data = self._extract_sql_query_data(act_out)
+                            if sql_data:
+                                local_outputs[step_id] = [ManusExecutionOutput(
+                                    output_type=ManusOutputType.SQL_QUERY.value,
+                                    content=sql_data,
+                                )]
+                                continue
                         local_outputs[step_id] = [ManusExecutionOutput(
                             output_type=ManusOutputType.TEXT.value,
                             content=observation,

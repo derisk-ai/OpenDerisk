@@ -103,21 +103,20 @@ class AgentSkillResource(Resource):
         domain = kwargs.get("domain")
         parent_folder = kwargs.get("parent_folder")
 
-        if description:
-            self._skill: SkillInfo = SkillInfo(
-                name=name,
-                meta_map={
-                    "release": SkillMeta(
-                        name=name,
-                        description=description,
-                        path=path,
-                        allowed_tools=allowed_tools,
-                        owner=owner,
-                        domain=domain,
-                    )
-                },
-                parent_folder=parent_folder,
-            )
+        self._skill: SkillInfo = SkillInfo(
+            name=name,
+            meta_map={
+                "release": SkillMeta(
+                    name=name,
+                    description=description or "",
+                    path=path,
+                    allowed_tools=allowed_tools,
+                    owner=owner,
+                    domain=domain,
+                )
+            },
+            parent_folder=parent_folder,
+        )
 
     @property
     def name(self) -> str:
