@@ -248,4 +248,21 @@ export const PermissionsEn = {
   permissions_user_id: 'User ID',
   permissions_select_roles: 'Select roles',
   permissions_feature_coming_soon: 'Feature coming soon',
+
+  // Create User
+  permissions_create_user: 'Add User',
+  permissions_user_created: 'User created successfully',
+  permissions_create_user_error: 'Failed to create user',
+  permissions_username: 'Username',
+  permissions_password: 'Password',
+  permissions_email_optional: 'Email (optional)',
+  permissions_fullname_optional: 'Full name (optional)',
+  permissions_select_roles_hint: 'Select roles to assign',
+  permissions_username_placeholder: 'Enter username',
+  permissions_password_placeholder: 'Enter password',
+  permissions_email_placeholder: 'Enter email',
+  permissions_fullname_placeholder: 'Enter full name',
+  permissions_username_min_length: 'Username must be at least 2 characters',
+  permissions_password_min_length: 'Password must be at least 6 characters',
+  permissions_username_exists: 'Username already exists',
 };

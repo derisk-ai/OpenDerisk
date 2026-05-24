@@ -1,5 +1,5 @@
 'use client';
-import { getResourceV2 } from '@/client/api';
+import { apiInterceptors, getSpaceList } from '@/client/api';
 import { AppContext } from '@/contexts';
 import {
   CheckCircleFilled,
@@ -19,22 +19,27 @@ export default function TabMemory() {
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
 
-  // Fetch all available Memory-type knowledge spaces
-  const {  memoryData, loading, refresh } = useRequest(
-    async () => await getResourceV2({ type: 'knowledge' })
+  // Fetch all Memory-type knowledge spaces directly from space list
+  const { data: memoryData, loading, refresh } = useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getSpaceList());
+      return data;
+    }
   );
 
-  // Extract memory-compatible knowledge spaces (storage_type=Memory or all)
+  // Extract memory-compatible knowledge spaces (vector_type=Memory)
   const allMemorySpaces = useMemo(() => {
-    const items: any[] = [];
-    memoryData?.data?.data?.forEach((group: any) => {
-      if (group.param_name === 'knowledge') {
-        group.valid_values?.forEach((item: any) => {
-          items.push({ ...item });
-        });
-      }
-    });
-    return items;
+    if (!memoryData) return [];
+    return memoryData
+      .filter((space: any) => space.vector_type === 'Memory')
+      .map((space: any) => ({
+        key: space.knowledge_id || space.id,
+        value: space.knowledge_id || space.id,
+        label: space.name,
+        name: space.name,
+        description: space.desc,
+        vector_type: space.vector_type,
+      }));
   }, [memoryData]);
 
   // Get currently enabled memory space ids

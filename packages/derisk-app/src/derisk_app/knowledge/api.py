@@ -55,6 +55,7 @@ from derisk_serve.rag.api.schemas import (
     KnowledgeStorageType,
     KnowledgeSyncRequest,
     SpaceServeRequest, KnowledgeStorageDomain,
+    EmbeddingModelItem,
 )
 
 # from derisk_serve.rag.connector import VectorStoreConnector
@@ -108,7 +109,7 @@ async def space_add(
 
 @router.post("/knowledge/space/list")
 async def space_list(
-    request: KnowledgeSpaceRequest,
+    request: KnowledgeSpaceRequest = KnowledgeSpaceRequest(),
     user: UserRequest = Depends(require_permission("knowledge", "read")),
 ):
     """列出知识库空间（需要 knowledge:read 权限）"""
@@ -387,9 +388,25 @@ async def space_config() -> Result[KnowledgeConfigResponse]:
             )
         )
 
+        # Collect available embedding models from app config
+        embedding_models: List[EmbeddingModelItem] = []
+        try:
+            from derisk._private.config import Config
+
+            cfg = Config()
+            app_config = cfg.SYSTEM_APP.config.configs.get("app_config")
+            if app_config and app_config.models:
+                for emb in app_config.models.embeddings:
+                    embedding_models.append(
+                        EmbeddingModelItem(name=emb.name, provider=emb.provider)
+                    )
+        except Exception:
+            pass
+
         return Result.succ(
             KnowledgeConfigResponse(
                 storage=storage_list,
+                embedding_models=embedding_models if embedding_models else None,
             )
         )
     except Exception as e:

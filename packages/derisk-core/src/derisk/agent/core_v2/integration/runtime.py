@@ -548,6 +548,24 @@ class V2AgentRuntime:
                 if context_result and hasattr(agent, "set_context"):
                     agent.set_context(context_result)
 
+            # 记忆管线：检索相关记忆并注入到 Agent
+            if hasattr(agent, "_memory_pipeline") and agent._memory_pipeline:
+                try:
+                    pipeline = agent._memory_pipeline
+                    memory_context = await pipeline.retrieve(query=message)
+                    if memory_context:
+                        # 注入到 agent 的 system prompt 或 context
+                        if hasattr(agent, "_memory_context"):
+                            agent._memory_context = memory_context
+                        else:
+                            setattr(agent, "_memory_context", memory_context)
+                        logger.info(
+                            f"[V2Runtime] 记忆管线: 检索到记忆并注入 "
+                            f"(conv_id={conv_id[:8]})"
+                        )
+                except Exception as e:
+                    logger.warning(f"[V2Runtime] 记忆管线检索失败: {e}")
+
             # 处理多模态内容和文件引用
             if multimodal_contents:
                 kwargs["multimodal_contents"] = multimodal_contents
@@ -583,6 +601,21 @@ class V2AgentRuntime:
             yield V2StreamChunk(type="error", content=str(e))
 
         finally:
+            # 记忆管线：自动写入（如果有 Agent 回复）
+            if hasattr(agent, "_memory_pipeline") and agent._memory_pipeline:
+                try:
+                    pipeline = agent._memory_pipeline
+                    # 从 accumulated_content 获取 Agent 回复
+                    assistant_response = getattr(context, "accumulated_content", "")
+                    if assistant_response and context.message_count > 0:
+                        await pipeline.on_turn_end(
+                            turn_number=context.message_count,
+                            user_message=message,
+                            assistant_response=assistant_response,
+                        )
+                except Exception as e:
+                    logger.warning(f"[V2Runtime] 记忆管线自动写入失败: {e}")
+
             # 兜底：确保 AGENT_COMPLETE 事件一定被记录（_push_stream_chunk 中可能已添加）
             if context.system_event_manager:
                 has_complete = any(

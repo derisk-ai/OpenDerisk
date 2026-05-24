@@ -310,6 +310,63 @@ class FeaturePluginEntry(BaseModel):
     settings: Dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryStorageConfig(BaseModel):
+    """Memory storage configuration for the memory module."""
+
+    type: str = "mempalace"
+    palace_path: Optional[str] = None
+    enable_kg: bool = True
+    default_wing: Optional[str] = None
+    use_builtin_embedding: bool = False
+    auto_memory: bool = True
+    auto_memory_top_k: int = 5
+    auto_memory_max_distance: float = 0.4
+
+
+class VectorStorageConfig(BaseModel):
+    """Vector storage configuration."""
+
+    type: str = "chroma"
+    persist_path: Optional[str] = None
+
+
+class GraphStorageConfig(BaseModel):
+    """Graph storage configuration."""
+
+    enabled: bool = False
+
+
+class FullTextStorageConfig(BaseModel):
+    """Full text storage configuration."""
+
+    enabled: bool = False
+    account: Optional[str] = None
+    secret: Optional[str] = None
+
+
+class StorageConfig(BaseModel):
+    """Storage configuration for RAG."""
+
+    vector: VectorStorageConfig = Field(default_factory=VectorStorageConfig)
+    graph: GraphStorageConfig = Field(default_factory=GraphStorageConfig)
+    full_text: FullTextStorageConfig = Field(default_factory=FullTextStorageConfig)
+    memory: MemoryStorageConfig = Field(default_factory=MemoryStorageConfig)
+
+
+class RagConfig(BaseModel):
+    """RAG configuration."""
+
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    similarity_top_k: int = 10
+    similarity_score_threshold: float = 0.0
+    query_rewrite: bool = False
+    max_chunks_once_load: int = 10
+    max_threads: int = 1
+    rerank_top_k: int = 3
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+
+
 class AppConfig(BaseModel):
     name: str = "OpenDeRisk"
     version: str = "0.1.0"
@@ -332,6 +389,8 @@ class AppConfig(BaseModel):
     feature_plugins: Dict[str, FeaturePluginEntry] = Field(default_factory=dict)
 
     secrets: SecretsConfig = Field(default_factory=_get_default_secrets_config)
+
+    rag: RagConfig = Field(default_factory=RagConfig)
 
     workspace: str = Field(
         default_factory=lambda: str(get_derisk_home() / "workspace")

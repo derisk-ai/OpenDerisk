@@ -17,6 +17,7 @@ export type AddKnowledgeParams = {
   owner: string;
   desc: string;
   domain_type: string;
+  context?: string;
 };
 
 export type BaseDocumentParams = {
@@ -194,6 +195,7 @@ export interface RecallTestProps {
 
 export type SpaceConfig = {
   storage: IStorage;
+  embedding_models?: Array<{ name: string; provider?: string }>;
 };
 
 export type IStorage = Array<{

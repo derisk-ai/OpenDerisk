@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from derisk.storage.metadata.db_manager import db
@@ -10,6 +11,11 @@ from derisk.storage.metadata.db_manager import db
 from .models import (
     GroupRoleEntity,
     PermissionDefinitionEntity,
+    PermissionRequestEntity,
+    REQUEST_STATUS_APPROVED,
+    REQUEST_STATUS_CANCELLED,
+    REQUEST_STATUS_PENDING,
+    REQUEST_STATUS_REJECTED,
     RoleEntity,
     RolePermissionDefEntity,
     RolePermissionEntity,
@@ -459,4 +465,235 @@ class PermissionDao:
             "is_active": p.is_active,
             "gmt_create": p.gmt_create.isoformat() if p.gmt_create else None,
             "gmt_modify": p.gmt_modify.isoformat() if p.gmt_modify else None,
+        }
+
+    # ========== Permission Request CRUD ==========
+    def create_permission_request(
+        self,
+        user_id: int,
+        request_type: str,
+        role_id: Optional[int] = None,
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        action: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a permission request."""
+        with db.session() as s:
+            req = PermissionRequestEntity(
+                user_id=user_id,
+                request_type=request_type,
+                role_id=role_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                action=action,
+                reason=reason,
+                status=REQUEST_STATUS_PENDING,
+            )
+            s.add(req)
+            s.flush()
+            s.refresh(req)
+            return self._request_row(req)
+
+    def get_permission_request(self, request_id: int) -> Optional[Dict[str, Any]]:
+        """Get a permission request by ID."""
+        with db.session(commit=False) as s:
+            req = (
+                s.query(PermissionRequestEntity)
+                .filter(PermissionRequestEntity.id == request_id)
+                .first()
+            )
+            return self._request_row(req) if req else None
+
+    def list_permission_requests(
+        self,
+        status: Optional[str] = None,
+        user_id: Optional[int] = None,
+        reviewer_id: Optional[int] = None,
+        request_type: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """List permission requests with filters and pagination."""
+        with db.session(commit=False) as s:
+            query = s.query(PermissionRequestEntity)
+            if status:
+                query = query.filter(PermissionRequestEntity.status == status)
+            if user_id:
+                query = query.filter(PermissionRequestEntity.user_id == user_id)
+            if reviewer_id:
+                query = query.filter(PermissionRequestEntity.reviewer_id == reviewer_id)
+            if request_type:
+                query = query.filter(PermissionRequestEntity.request_type == request_type)
+
+            total = query.count()
+            rows = (
+                query.order_by(PermissionRequestEntity.gmt_create.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+                .all()
+            )
+            return [self._request_row(r) for r in rows], total
+
+    def approve_permission_request(
+        self,
+        request_id: int,
+        reviewer_id: int,
+        review_comment: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Approve a permission request and apply the requested permission."""
+        with db.session() as s:
+            req = (
+                s.query(PermissionRequestEntity)
+                .filter(PermissionRequestEntity.id == request_id)
+                .first()
+            )
+            if not req or req.status != REQUEST_STATUS_PENDING:
+                return None
+
+            req.status = REQUEST_STATUS_APPROVED
+            req.reviewer_id = reviewer_id
+            req.review_comment = review_comment
+            req.gmt_review = datetime.utcnow()
+
+            # Apply the requested permission
+            if req.request_type == "role_assign" and req.role_id:
+                # Assign role to user
+                try:
+                    ur = UserRoleEntity(user_id=req.user_id, role_id=req.role_id)
+                    s.add(ur)
+                except Exception as e:
+                    logger.warning(f"Failed to assign role {req.role_id} to user {req.user_id}: {e}")
+                    # Check if already assigned
+                    existing = (
+                        s.query(UserRoleEntity)
+                        .filter(
+                            UserRoleEntity.user_id == req.user_id,
+                            UserRoleEntity.role_id == req.role_id,
+                        )
+                        .first()
+                    )
+                    if not existing:
+                        raise
+
+            elif req.request_type == "permission_grant":
+                # This would typically be handled by adding to a role
+                # For now, we just log it
+                logger.info(
+                    f"Permission grant approved: user={req.user_id}, "
+                    f"resource_type={req.resource_type}, resource_id={req.resource_id}, "
+                    f"action={req.action}"
+                )
+
+            elif req.request_type == "account_activation":
+                # Activate user account
+                from derisk_app.auth.user_service import UserDao
+                user_dao = UserDao()
+                user = (
+                    s.query(UserDao._entity_class)
+                    .filter(UserDao._entity_class.id == req.user_id)
+                    .first()
+                )
+                if user:
+                    user.is_active = 1
+
+            s.flush()
+            s.refresh(req)
+            return self._request_row(req)
+
+    def reject_permission_request(
+        self,
+        request_id: int,
+        reviewer_id: int,
+        review_comment: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Reject a permission request."""
+        with db.session() as s:
+            req = (
+                s.query(PermissionRequestEntity)
+                .filter(PermissionRequestEntity.id == request_id)
+                .first()
+            )
+            if not req or req.status != REQUEST_STATUS_PENDING:
+                return None
+
+            req.status = REQUEST_STATUS_REJECTED
+            req.reviewer_id = reviewer_id
+            req.review_comment = review_comment
+            req.gmt_review = datetime.utcnow()
+
+            s.flush()
+            s.refresh(req)
+            return self._request_row(req)
+
+    def cancel_permission_request(
+        self,
+        request_id: int,
+        user_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Cancel a permission request (by the requester)."""
+        with db.session() as s:
+            req = (
+                s.query(PermissionRequestEntity)
+                .filter(
+                    PermissionRequestEntity.id == request_id,
+                    PermissionRequestEntity.user_id == user_id,
+                    PermissionRequestEntity.status == REQUEST_STATUS_PENDING,
+                )
+                .first()
+            )
+            if not req:
+                return None
+
+            req.status = REQUEST_STATUS_CANCELLED
+            s.flush()
+            s.refresh(req)
+            return self._request_row(req)
+
+    def get_user_pending_requests(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all pending requests for a user."""
+        with db.session(commit=False) as s:
+            rows = (
+                s.query(PermissionRequestEntity)
+                .filter(
+                    PermissionRequestEntity.user_id == user_id,
+                    PermissionRequestEntity.status == REQUEST_STATUS_PENDING,
+                )
+                .order_by(PermissionRequestEntity.gmt_create.desc())
+                .all()
+            )
+            return [self._request_row(r) for r in rows]
+
+    def has_pending_role_request(self, user_id: int, role_id: int) -> bool:
+        """Check if user has a pending role request."""
+        with db.session(commit=False) as s:
+            return (
+                s.query(PermissionRequestEntity)
+                .filter(
+                    PermissionRequestEntity.user_id == user_id,
+                    PermissionRequestEntity.role_id == role_id,
+                    PermissionRequestEntity.request_type == "role_assign",
+                    PermissionRequestEntity.status == REQUEST_STATUS_PENDING,
+                )
+                .first()
+                is not None
+            )
+
+    @staticmethod
+    def _request_row(r: PermissionRequestEntity) -> Dict[str, Any]:
+        return {
+            "id": r.id,
+            "user_id": r.user_id,
+            "request_type": r.request_type,
+            "role_id": r.role_id,
+            "resource_type": r.resource_type,
+            "resource_id": r.resource_id,
+            "action": r.action,
+            "reason": r.reason or "",
+            "status": r.status,
+            "reviewer_id": r.reviewer_id,
+            "review_comment": r.review_comment or "",
+            "gmt_create": r.gmt_create.isoformat() if r.gmt_create else None,
+            "gmt_modify": r.gmt_modify.isoformat() if r.gmt_modify else None,
+            "gmt_review": r.gmt_review.isoformat() if r.gmt_review else None,
         }

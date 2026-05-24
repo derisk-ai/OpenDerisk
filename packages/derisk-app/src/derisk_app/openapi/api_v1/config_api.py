@@ -1745,10 +1745,13 @@ async def update_memory_storage_config(request: Dict[str, Any]):
             if key in allowed and hasattr(memory_cfg, key):
                 setattr(memory_cfg, key, value)
         saved = save_config_with_error_handling(manager, "记忆存储配置")
+        data = memory_cfg.model_dump() if hasattr(memory_cfg, "model_dump") else {
+            k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")
+        }
         return JSONResponse(content={
             "success": True,
             "message": "记忆存储配置已更新" + ("并保存" if saved else "（保存失败）"),
-            "data": {k: v for k, v in memory_cfg.__dict__.items() if not k.startswith("_")},
+            "data": data,
             "saved_to_file": saved,
         })
     except Exception as e:

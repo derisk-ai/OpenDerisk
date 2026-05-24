@@ -1,5 +1,6 @@
 """RAG STORAGE MANAGER manager."""
 
+import json
 import logging
 import threading
 from typing import List, Optional, Type
@@ -168,20 +169,35 @@ class StorageManager(BaseComponent):
         # Discover registered providers
         available_providers = _get_all_memory_subclasses()
         if not available_providers:
-            # Try importing the default provider to trigger registration
+            # Try importing providers to trigger registration
+            # First try MemPalace (preferred), then fallback to SimpleSQLite
             try:
                 from derisk_ext.storage.memory.mempalace_store import (  # noqa: F401
                     MemPalaceMemoryConfig,
                 )
-
                 available_providers = _get_all_memory_subclasses()
             except ImportError:
-                logger.warning(
-                    "No memory store providers found. "
-                    "Install mempalace (pip install mempalace) or register "
-                    "a custom MemoryStoreConfig subclass."
+                logger.info(
+                    "MemPalace not available, trying SimpleSQLite fallback..."
                 )
-                return None
+
+            # Fallback to SimpleSQLite (no external dependencies)
+            if not available_providers:
+                try:
+                    from derisk_ext.storage.memory.simple_sqlite_store import (  # noqa: F401
+                        SimpleSQLiteMemoryConfig,
+                    )
+                    available_providers = _get_all_memory_subclasses()
+                    logger.info(
+                        "Using SimpleSQLiteMemoryStore as fallback (no vector search)"
+                    )
+                except ImportError as e:
+                    logger.warning(
+                        f"No memory store providers found: {e}. "
+                        "Install mempalace (pip install mempalace) or ensure "
+                        "derisk_ext.storage.memory.simple_sqlite_store is available."
+                    )
+                    return None
 
         # Match by type or use first available
         config_cls = None
@@ -199,7 +215,7 @@ class StorageManager(BaseComponent):
         # Build config with any overrides from app config
         config_kwargs = {}
         if memory_cfg:
-            for k in ("palace_path", "enable_kg", "default_wing"):
+            for k in ("palace_path", "enable_kg", "default_wing", "use_builtin_embedding"):
                 v = getattr(memory_cfg, k, None)
                 if v is not None:
                     config_kwargs[k] = v
@@ -214,7 +230,16 @@ class StorageManager(BaseComponent):
             embedding_factory = self.system_app.get_component(
                 "embedding_factory", EmbeddingFactory
             )
-            embedding_fn = embedding_factory.create()
+
+            # Check if the knowledge space has a specific embedding model configured
+            space_model_name = self._get_space_embedding_model(index_name)
+            if space_model_name:
+                logger.info(
+                    f"Using space-specific embedding model: {space_model_name}"
+                )
+                embedding_fn = embedding_factory.create(model_name=space_model_name)
+            else:
+                embedding_fn = embedding_factory.create()
         except (ValueError, Exception) as e:
             logger.info(
                 f"No embedding factory available for memory store: {e}. "
@@ -228,6 +253,35 @@ class StorageManager(BaseComponent):
         with self._cache_lock:
             self._store_cache[cache_key] = store
         return store
+
+    def _get_space_embedding_model(self, knowledge_id: str) -> Optional[str]:
+        """Read the embedding model name from a knowledge space's context.
+
+        Args:
+            knowledge_id: The UUID of the knowledge space.
+
+        Returns:
+            The embedding model name if configured, otherwise None.
+        """
+        try:
+            from derisk_serve.rag.models.models import KnowledgeSpaceDao, KnowledgeSpaceEntity
+
+            dao = KnowledgeSpaceDao()
+            spaces = dao.get_knowledge_space(KnowledgeSpaceEntity(knowledge_id=knowledge_id))
+            if not spaces:
+                return None
+            space = spaces[0]
+            if not space.context:
+                return None
+            ctx = json.loads(space.context)
+            embedding = ctx.get("embedding", {})
+            model = embedding.get("model")
+            if model:
+                # Extract just the model name if it's a path
+                return model.rsplit("/", 1)[-1] if "/" in model else model
+        except Exception as e:
+            logger.info(f"Failed to read space embedding model: {e}")
+        return None
 
     @property
     def get_vector_supported_types(self) -> List[str]:

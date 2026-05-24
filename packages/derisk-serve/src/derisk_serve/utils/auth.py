@@ -101,9 +101,12 @@ def get_user_from_headers(
         token = None
         if request:
             token = request.cookies.get("derisk_session")
+            logger.info(f"[auth] Reading cookie: derisk_session={token[:20] if token else 'None'}, all_cookies={list(request.cookies.keys())}")
         if not token and authorization:
             token = authorization.replace("Bearer ", "")
+            logger.info(f"[auth] Using Authorization header: token={token[:20] if token else 'None'}")
         if not token:
+            logger.warning(f"[auth] No token found - rejecting with 401")
             raise HTTPException(status_code=401, detail="Authentication required")
 
         from derisk_app.auth.session import verify_session_token

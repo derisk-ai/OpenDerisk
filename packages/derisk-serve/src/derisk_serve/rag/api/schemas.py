@@ -414,10 +414,20 @@ class KnowledgeStorageDomain(BaseModel):
     domain_types: Optional[List[KnowledgeDomainType]] = Field(None, description="The domain types")
 
 
+class EmbeddingModelItem(BaseModel):
+    """Embedding model info for frontend display."""
+
+    name: str = Field(..., description="The embedding model name")
+    provider: Optional[str] = Field(None, description="The embedding model provider")
+
+
 class KnowledgeConfigResponse(BaseModel):
     """Knowledge config response"""
 
     storage: List[KnowledgeStorageDomain] = Field(..., description="The storage types")
+    embedding_models: Optional[List[EmbeddingModelItem]] = Field(
+        default=None, description="Available embedding models"
+    )
 
 
 class KnowledgeDocumentRequest(BaseModel):

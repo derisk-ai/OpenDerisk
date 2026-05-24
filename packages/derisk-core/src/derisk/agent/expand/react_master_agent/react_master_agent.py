@@ -1430,11 +1430,40 @@ class ReActMasterAgent(ConversableAgent):
                 # question 在 base_agent.py 的 _vm 中已注册，会出现在 bind_vars 中
                 user_render_vars = {k: v for k, v in render_vars.items() if k != 'question'}
 
+                # ========== Memory Retrieval (V1 Integration) ==========
+                # Retrieve relevant memories from bound memory spaces before generating user_prompt
+                memory_context = None
+                if hasattr(self, "_memory_bundle") and self._memory_bundle:
+                    try:
+                        bundle = self._memory_bundle
+                        memory_context = await bundle.manager.retrieve_relevant_memories(
+                            query=user_question,
+                            top_k=bundle.config.top_k,
+                            use_hybrid_search=True,
+                        )
+                        if memory_context:
+                            # Store for potential use in other methods
+                            self._memory_context = memory_context
+                            logger.info(
+                                f"[MemoryIntegration] Retrieved memories: {len(memory_context)} chars"
+                            )
+                    except Exception as e:
+                        logger.warning(f"[MemoryIntegration] Retrieval failed: {e}")
+
+                # Determine memory_content for user_prompt:
+                # - If memory bundle exists and retrieved content, use that
+                # - Otherwise, use Layer 4 history content if not using message_list_history
+                final_memory_content = None
+                if memory_context:
+                    # Memory bundle retrieval takes precedence
+                    final_memory_content = memory_context
+                elif not self.use_message_list_history and memory_content:
+                    # Fall back to Layer 4 history (conversation history)
+                    final_memory_content = memory_content
+
                 user_prompt = await assembler.assemble_user_prompt(
                     user_prompt_prefix=user_prompt_prefix,
-                    memory_content=None
-                    if self.use_message_list_history
-                    else memory_content,
+                    memory_content=final_memory_content,
                     question=user_question,
                     **user_render_vars,
                 )

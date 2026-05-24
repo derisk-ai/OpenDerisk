@@ -41,6 +41,12 @@ RESOURCE_ACTIONS = {
     RESOURCE_DATABASE: DATABASE_ACTIONS,
 }
 
+# Permission request status
+REQUEST_STATUS_PENDING = "pending"
+REQUEST_STATUS_APPROVED = "approved"
+REQUEST_STATUS_REJECTED = "rejected"
+REQUEST_STATUS_CANCELLED = "cancelled"
+
 
 class RoleEntity(Model):
     """角色表"""
@@ -143,3 +149,37 @@ class RolePermissionDefEntity(Model):
         Integer, nullable=False, index=True, comment="permission_definition.id"
     )
     gmt_create = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PermissionRequestEntity(Model):
+    """权限申请表"""
+
+    __tablename__ = "permission_request"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True, comment="申请人 user.id")
+    request_type = Column(
+        String(32),
+        nullable=False,
+        comment="申请类型: role_assign/permission_grant/account_activation",
+    )
+    role_id = Column(Integer, nullable=True, comment="申请的角色ID (request_type=role_assign)")
+    resource_type = Column(String(64), nullable=True, comment="资源类型 (request_type=permission_grant)")
+    resource_id = Column(String(255), nullable=True, comment="资源ID (request_type=permission_grant)")
+    action = Column(String(32), nullable=True, comment="操作类型 (request_type=permission_grant)")
+    reason = Column(Text, nullable=True, comment="申请理由")
+    status = Column(
+        String(16),
+        default=REQUEST_STATUS_PENDING,
+        comment="状态: pending/approved/rejected/cancelled",
+    )
+    reviewer_id = Column(Integer, nullable=True, comment="审批人 user.id")
+    review_comment = Column(Text, nullable=True, comment="审批意见")
+    gmt_create = Column(DateTime, default=datetime.utcnow, nullable=False)
+    gmt_modify = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    gmt_review = Column(DateTime, nullable=True, comment="审批时间")

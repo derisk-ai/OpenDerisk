@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-05-10 21:14:42
+-- Generated: 2026-05-18 14:02:44
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -508,6 +508,7 @@ CREATE TABLE IF NOT EXISTS `gpts_app_config` (
   `resource_knowledge` TEXT NULL COMMENT '当前版本配置的知识配置',
   `resource_tool` TEXT NULL COMMENT '当前版本配置的工具配置',
   `resource_agent` TEXT NULL COMMENT '当前版本配置的agent配置',
+  `resource_memory` TEXT NULL COMMENT '当前版本配置的记忆配置',
   `context_config` VARCHAR(2000) NULL COMMENT '上下文工程配置',
   `agent_version` VARCHAR(32) NULL COMMENT 'agent version: v1 or v2',
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
