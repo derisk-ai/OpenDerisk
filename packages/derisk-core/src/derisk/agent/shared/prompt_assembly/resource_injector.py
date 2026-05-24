@@ -269,11 +269,22 @@ class ResourceContext:
 
         for key, value_list in self.resource_map.items():
             for item in value_list or []:
+                class_name = item.__class__.__name__ if item else "None"
                 if self._is_skill_resource(item):
                     info = self._extract_skill_info(item)
                     if info:
                         resources.append(info)
+                        logger.info(
+                            f"_extract_skills: found skill resource, key={key}, "
+                            f"class={class_name}, name={info.name}, path={info.metadata.get('path')}"
+                        )
+                    else:
+                        logger.warning(
+                            f"_extract_skills: skill_meta returned None for key={key}, "
+                            f"class={class_name}, item_name={getattr(item, 'name', 'N/A')}"
+                        )
 
+        logger.info(f"_extract_skills: total skill resources found={len(resources)}")
         return resources
 
     def _extract_database(self) -> List[ResourceInfo]:
@@ -767,15 +778,20 @@ class ResourceInjector:
     async def inject_skills(self, ctx: ResourceContext) -> Optional[str]:
         """注入技能资源"""
         resources = ctx.get_resources(ResourceType.SKILLS)
+        logger.info(f"inject_skills: resources_count={len(resources)}")
         if not resources:
             return None
 
         template = self._get_template(ResourceType.SKILLS)
         if template:
             skills = [r.to_dict() for r in resources]
-            return template.render(skills=skills)
+            result = template.render(skills=skills)
+            logger.info(f"inject_skills: template rendered, result_length={len(result)}")
+            return result
 
-        return self._format_skills_default(resources)
+        result = self._format_skills_default(resources)
+        logger.info(f"inject_skills: default format, result_length={len(result)}")
+        return result
 
     async def inject_database(self, ctx: ResourceContext) -> Optional[str]:
         """注入数据库资源

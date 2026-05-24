@@ -81,6 +81,13 @@ from derisk_serve.conversation.serve import Serve as ConversationServe
 
 logger = logging.getLogger(__name__)
 
+# Mapping from legacy client-side resource type names to their
+# ResourceManager-registered aliases.  Old clients may send
+# sub_type='database' but DatasourceResource is registered as 'datasource'.
+_RESOURCE_TYPE_ALIASES: Dict[str, str] = {
+    "database": "datasource",
+}
+
 CFG = Config()
 
 
@@ -1689,6 +1696,8 @@ class AgentChat(BaseComponent, ABC):
                 if chat_in_param.param_type == "resource":
                     sub_type = chat_in_param.sub_type
                     param_value = chat_in_param.param_value
+                    # Map legacy type names (e.g. 'database') to ResourceManager aliases
+                    sub_type = _RESOURCE_TYPE_ALIASES.get(sub_type, sub_type)
 
                     if sub_type == "mcp(derisk)":
                         try:
@@ -1792,6 +1801,8 @@ class AgentChat(BaseComponent, ABC):
     ):
         """根据 Skill 资源的 allow tools 参数获取对应的 Tool 资源列表"""
         try:
+            if allow_tools is None:
+                return []
             if isinstance(allow_tools, str):
                 allow_tools = [
                     tool.strip() for tool in allow_tools.split(",") if tool.strip()
@@ -1966,6 +1977,8 @@ class AgentChat(BaseComponent, ABC):
             for param in chat_in_params:
                 if AppParamType.Resource.value == param.param_type:
                     if param.sub_type not in FILE_RESOURCES:
+                        # Map legacy type names (e.g. 'database') to ResourceManager aliases
+                        mapped_sub_type = _RESOURCE_TYPE_ALIASES.get(param.sub_type, param.sub_type)
                         try:
                             if isinstance(param.param_value, str):
                                 value_obj = json.loads(param.param_value)
@@ -1978,15 +1991,15 @@ class AgentChat(BaseComponent, ABC):
                             logger.info("加载用户指定的资源")
                             chat_in_resource = AgentResource.from_dict(
                                 {
-                                    "type": param.sub_type,
-                                    "name": f"对话选择[{param.sub_type}]资源",
+                                    "type": mapped_sub_type,
+                                    "name": f"对话选择[{mapped_sub_type}]资源",
                                     "value": r_value,
                                 }
                             )
                             if not gpts_app.all_resources:
                                 gpts_app.all_resources = []
                             gpts_app.all_resources.append(chat_in_resource)
-                            llm_context[param.sub_type] = chat_in_resource
+                            llm_context[mapped_sub_type] = chat_in_resource
                         except Exception as e:
                             logger.warning(f"选择资源无法转换！{chat_in_params}", e)
                     else:
@@ -2033,6 +2046,16 @@ class AgentChat(BaseComponent, ABC):
         file_resources = []
         for param in chat_in_params:
             if param.param_type == "resource":
+                # Map legacy type aliases for consistent comparison
+                mapped_sub_type = _RESOURCE_TYPE_ALIASES.get(param.sub_type, param.sub_type)
+                # Only process file-type resources (images, text, excel, common files).
+                # Non-file resources (datasource, knowledge, skill, mcp) are handled
+                # by chat_in_params_to_resource / chat_in_params_to_context.
+                if mapped_sub_type not in FILE_RESOURCES:
+                    logger.debug(
+                        f"[FileDispatch] Skipping non-file resource type: sub_type={param.sub_type} (mapped: {mapped_sub_type})"
+                    )
+                    continue
                 try:
                     logger.debug(
                         f"[FileDispatch] Processing param: sub_type={param.sub_type}, param_value type={type(param.param_value)}"
