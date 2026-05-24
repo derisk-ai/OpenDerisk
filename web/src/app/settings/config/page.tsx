@@ -41,6 +41,7 @@ import {
   KeyOutlined,
   LockOutlined,
   DatabaseOutlined,
+  BulbOutlined,
 } from '@ant-design/icons';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
@@ -51,6 +52,7 @@ import {
   ToolInfo,
   FileServiceConfig,
   FileBackendConfig,
+  MemoryStorageConfig,
 } from '@/services/config';
 import AgentAuthorizationConfig from '@/components/config/AgentAuthorizationConfig';
 import ToolManagementPanel from '@/components/config/ToolManagementPanel';
@@ -380,7 +382,7 @@ function VisualConfig({
   return (
     <div className="space-y-4">
       <Collapse
-        defaultActiveKey={['system', 'web', 'model', 'agents', 'file-service', 'sandbox']}
+        defaultActiveKey={['system', 'web', 'model', 'agents', 'file-service', 'sandbox', 'memory-storage']}
         ghost
         items={[
           {
@@ -418,6 +420,11 @@ function VisualConfig({
             key: 'sandbox',
             label: <span className="font-semibold"><SafetyOutlined /> 沙箱配置</span>,
             children: <SandboxConfigSection config={config} onChange={onConfigChange} />,
+          },
+          {
+            key: 'memory-storage',
+            label: <span className="font-semibold"><BulbOutlined /> 记忆存储配置</span>,
+            children: <MemoryStorageConfigSection onChange={onConfigChange} />,
           },
         ]}
       />
@@ -1067,6 +1074,112 @@ function SandboxConfigSection({
       <Form.Item>
         <Button type="primary" htmlType="submit">保存</Button>
       </Form.Item>
+    </Form>
+  );
+}
+
+function MemoryStorageConfigSection({
+  onChange,
+}: {
+  onChange: () => void;
+}) {
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    setLoading(true);
+    try {
+      const data = await configService.getMemoryStorageConfig();
+      form.setFieldsValue(data);
+    } catch (error: any) {
+      message.error('加载记忆存储配置失败: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (values: any) => {
+    try {
+      await configService.updateMemoryStorageConfig(values);
+      message.success('记忆存储配置已保存');
+      onChange();
+    } catch (error: any) {
+      message.error('保存失败: ' + error.message);
+    }
+  };
+
+  return (
+    <Form form={form} layout="vertical" onFinish={handleSave}>
+      <Spin spinning={loading}>
+        <Divider orientation="left" plain>基础设置</Divider>
+        <div className="grid grid-cols-2 gap-4">
+          <Form.Item name="type" label="存储类型" tooltip="记忆存储后端类型">
+            <Select>
+              <Select.Option value="mempalace">MemPalace</Select.Option>
+              <Select.Option value="custom">自定义</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="palace_path" label="数据路径" tooltip="记忆数据存储目录路径">
+            <Input placeholder="~/.mempalace/palace" />
+          </Form.Item>
+        </div>
+
+        <Divider orientation="left" plain>知识图谱</Divider>
+        <div className="grid grid-cols-2 gap-4">
+          <Form.Item name="enable_kg" label="启用知识图谱" valuePropName="checked" tooltip="启用知识图谱进行实体追踪">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="default_wing" label="默认分区" tooltip="记忆组织的默认分区名称">
+            <Input placeholder="default" />
+          </Form.Item>
+        </div>
+
+        <Divider orientation="left" plain>嵌入模型</Divider>
+        <Form.Item 
+          name="use_builtin_embedding" 
+          label="使用内置嵌入模型" 
+          valuePropName="checked"
+          tooltip="使用记忆提供方的内置嵌入模型，而非系统配置的嵌入模型"
+        >
+          <Switch />
+        </Form.Item>
+
+        <Divider orientation="left" plain>自动记忆</Divider>
+        <div className="grid grid-cols-2 gap-4">
+          <Form.Item 
+            name="auto_memory" 
+            label="启用自动记忆" 
+            valuePropName="checked"
+            tooltip="自动从对话中提取并存储记忆"
+          >
+            <Switch />
+          </Form.Item>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Form.Item 
+            name="auto_memory_top_k" 
+            label="召回数量"
+            tooltip="每次对话前召回的记忆数量"
+          >
+            <InputNumber min={1} max={20} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item 
+            name="auto_memory_max_distance" 
+            label="最大向量距离"
+            tooltip="记忆召回的最大向量距离阈值"
+          >
+            <InputNumber min={0} max={1} step={0.1} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+
+        <Form.Item>
+          <Button type="primary" htmlType="submit">保存</Button>
+        </Form.Item>
+      </Spin>
     </Form>
   );
 }

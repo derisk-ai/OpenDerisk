@@ -405,6 +405,7 @@ class AgentChat(BaseComponent, ABC):
             if not final_message:
                 try:
                     final_message = await self.memory.vis_final(agent_conv_id)
+                    logger.info(f"[save_conversation] vis_final 返回内容长度: {len(final_message) if final_message else 0}, 内容前200字符: {final_message[:200] if final_message else 'None'}")
                 except Exception as e:
                     logger.exception(f"获取{agent_conv_id}最终消息异常: {str(e)}")
                     final_message = str(e)
@@ -745,7 +746,7 @@ class AgentChat(BaseComponent, ABC):
                         gpts_conversations
                     ):
                         if gpt_app.keep_start_rounds > 0:
-                            front = gpts_conversations[gpt_app.keep_start_rounds :]
+                            front = gpts_conversations[: gpt_app.keep_start_rounds]
                             rely_conversations.extend(front)
                         if gpt_app.keep_end_rounds > 0:
                             back = gpts_conversations[-gpt_app.keep_end_rounds :]
@@ -1262,6 +1263,132 @@ class AgentChat(BaseComponent, ABC):
                         # 场景注入失败不影响主流程
 
                 recipient.bind(temp_profile)
+
+                # ========== Memory Integration Bundle Creation (V1 Agent) ==========
+                # Parse resource_memory and create MemoryIntegrationBundle for V1 agents
+                # Check both app.resource_memory (explicit field) and app.all_resources (merged list)
+                memory_resources = []
+
+                # Debug: Check what resources are available
+                logger.info(
+                    f"[AgentChat] Memory integration check for {app.app_code}: "
+                    f"resource_memory={bool(app.resource_memory) if hasattr(app, 'resource_memory') else 'N/A'}, "
+                    f"all_resources={len(app.all_resources) if hasattr(app, 'all_resources') and app.all_resources else 0}"
+                )
+
+                # Check explicit resource_memory field
+                if hasattr(app, "resource_memory") and app.resource_memory and len(app.resource_memory) > 0:
+                    memory_resources.extend(app.resource_memory)
+                    logger.info(f"[AgentChat] Found {len(app.resource_memory)} items in resource_memory")
+
+                # Also check all_resources for memory-type resources
+                if hasattr(app, "all_resources") and app.all_resources:
+                    for res in app.all_resources:
+                        res_type = getattr(res, "type", "") or ""
+                        logger.debug(f"[AgentChat] Checking resource type: {res_type}")
+                        if res_type.lower() == "memory" or res_type == "MemoryResource":
+                            # Avoid duplicates
+                            if res not in memory_resources:
+                                memory_resources.append(res)
+                                logger.info(f"[AgentChat] Found memory resource in all_resources: type={res_type}")
+
+                logger.info(f"[AgentChat] Total memory_resources found: {len(memory_resources)}")
+
+                if memory_resources:
+                    try:
+                        from derisk.agent.core_v2.unified_memory.longterm_manager import (
+                            LongTermMemoryConfig,
+                            create_memory_integration_bundle,
+                        )
+
+                        # Parse from first memory resource item
+                        memory_resource = memory_resources[0]
+                        memory_value = getattr(memory_resource, "value", None)
+                        logger.info(
+                            f"[AgentChat] Parsing memory resource: "
+                            f"value type={type(memory_value).__name__ if memory_value else 'None'}, "
+                            f"value={memory_value[:200] if memory_value and isinstance(memory_value, str) else memory_value}"
+                        )
+                        memory_config = LongTermMemoryConfig.from_resource_value(memory_value)
+
+                        config_memories = memory_config.memories if memory_config else None
+                        logger.info(
+                            f"[AgentChat] Memory config parsed: "
+                            f"config={bool(memory_config)}, memories={len(config_memories) if config_memories else 0}"
+                        )
+
+                        if memory_config and memory_config.memories:
+                            # Try standard bundle creation first
+                            memory_bundle = await create_memory_integration_bundle(
+                                config=memory_config,
+                                system_app=CFG.SYSTEM_APP,
+                            )
+
+                            # Fallback to SimpleSQLite if bundle creation failed
+                            if not memory_bundle:
+                                logger.info("[AgentChat] Standard bundle creation failed, trying SimpleSQLite fallback")
+                                try:
+                                    from derisk_ext.storage.memory.simple_sqlite_store import (
+                                        SimpleSQLiteMemoryConfig,
+                                        SimpleSQLiteMemoryStore,
+                                    )
+                                    from derisk.agent.core_v2.unified_memory.longterm_manager import (
+                                        LongTermMemoryManager,
+                                        MemorySpaceStrategy,
+                                    )
+
+                                    # Create SimpleSQLite stores for each memory space
+                                    memory_stores = {}
+                                    strategies = {}
+                                    for mem_item in memory_config.memories:
+                                        mem_id = mem_item.get("memory_id")
+                                        if not mem_id:
+                                            continue
+                                        fallback_cfg = SimpleSQLiteMemoryConfig(
+                                            enable_kg=memory_config.enable_kg,
+                                        )
+                                        store = SimpleSQLiteMemoryStore(
+                                            config=fallback_cfg,
+                                            index_name=mem_id,
+                                        )
+                                        memory_stores[mem_id] = store
+                                        strategies[mem_id] = MemorySpaceStrategy(
+                                            space_id=mem_id,
+                                            auto_extraction=memory_config.auto_memory,
+                                            kg_extraction=memory_config.enable_kg,
+                                        )
+                                        logger.info(
+                                            f"[AgentChat] Created SimpleSQLite store for {mem_id}"
+                                        )
+
+                                    if memory_stores:
+                                        manager = LongTermMemoryManager(
+                                            config=memory_config,
+                                            memory_stores=memory_stores,
+                                            strategies=strategies,
+                                        )
+                                        from derisk.agent.core_v2.unified_memory.longterm_manager import MemoryIntegrationBundle
+                                        memory_bundle = MemoryIntegrationBundle(
+                                            config=memory_config,
+                                            manager=manager,
+                                            processors={},
+                                            strategies=strategies,
+                                        )
+                                        logger.info(
+                                            f"[AgentChat] Fallback bundle created with {len(memory_stores)} SimpleSQLite stores"
+                                        )
+                                except Exception as fallback_e:
+                                    logger.warning(f"[AgentChat] Fallback also failed: {fallback_e}")
+
+                            if memory_bundle:
+                                # Inject bundle to agent via private attribute
+                                recipient._memory_bundle = memory_bundle
+                                logger.info(
+                                    f"[AgentChat] Memory bundle created for {app.app_code}: "
+                                    f"{len(memory_bundle.manager.memory_stores)} stores"
+                                )
+                    except Exception as e:
+                        logger.warning(f"[AgentChat] Failed to create memory bundle: {e}")
 
                 return recipient
             elif TeamMode.AUTO_PLAN == team_mode:

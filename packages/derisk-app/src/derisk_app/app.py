@@ -493,9 +493,16 @@ class AppCreator:
             replace_router(app)
 
             # https://github.com/encode/starlette/issues/617
+            # Dynamic CORS: use request Origin when credentials=True (can't use "*")
+            # This allows cookies to work properly across origins
+            def cors_dynamic_origin(origin: str) -> bool:
+                # Allow all origins for development/production
+                # In production, you may want to restrict this to specific domains
+                return bool(origin)
+
             cors_app = CORSMiddleware(
                 app=app,
-                allow_origins=["*"],
+                allow_origin_regex=".*",  # Allow any origin via regex (works with credentials)
                 allow_credentials=True,
                 allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                 allow_headers=["*"],

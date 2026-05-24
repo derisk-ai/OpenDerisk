@@ -1,5 +1,5 @@
 'use client';
-import { getResourceV2 } from '@/client/api';
+import { apiInterceptors, getSpaceList } from '@/client/api';
 import { AppContext } from '@/contexts';
 import { CheckCircleFilled, SearchOutlined, DatabaseOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
@@ -12,20 +12,27 @@ export default function TabKnowledge() {
   const { appInfo, fetchUpdateApp } = useContext(AppContext);
   const [searchValue, setSearchValue] = useState('');
 
-  // Fetch all available knowledge
-  const { data: knowledgeData, loading, refresh } = useRequest(async () => await getResourceV2({ type: 'knowledge' }));
+  // Fetch all knowledge spaces (exclude Memory type which belongs to memory tab)
+  const { data: knowledgeData, loading, refresh } = useRequest(
+    async () => {
+      const [, data] = await apiInterceptors(getSpaceList());
+      return data;
+    }
+  );
 
-  // Extract available knowledge items
+  // Extract available knowledge items (exclude Memory type)
   const allKnowledge = useMemo(() => {
-    const items: any[] = [];
-    knowledgeData?.data?.data?.forEach((group: any) => {
-      if (group.param_name === 'knowledge') {
-        group.valid_values?.forEach((item: any) => {
-          items.push({ ...item });
-        });
-      }
-    });
-    return items;
+    if (!knowledgeData) return [];
+    return knowledgeData
+      .filter((space: any) => space.vector_type !== 'Memory')
+      .map((space: any) => ({
+        key: space.knowledge_id || space.id,
+        value: space.knowledge_id || space.id,
+        label: space.name,
+        name: space.name,
+        description: space.desc,
+        vector_type: space.vector_type,
+      }));
   }, [knowledgeData]);
 
   // Get currently enabled knowledge ids

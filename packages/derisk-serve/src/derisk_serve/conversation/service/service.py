@@ -427,13 +427,61 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             _step_start = time.time()
             base_messages = []
             from derisk.core.interface.unified_message import UnifiedMessage
+            from derisk.core.interface.message import HumanMessage, AIMessage, ViewMessage
+
+            # Core agent 的消息存储策略：
+            # 1. gpts_messages: 存储所有消息（用户 + agent），action_report 包含单个 action 的视图
+            # 2. chat_history_message: 存储用户消息 + 最终 view 消息（包含完整的 VIS 数据）
+            #
+            # 策略：合并两个数据源
+            # - 用户消息：从 gpts_messages 读取
+            # - view 消息：从 chat_history_message 读取（包含完整的 running_window 等 VIS 数据）
+
+            from derisk.storage.chat_history.chat_history_db import ChatHistoryMessageDao
+            chat_history_msg_dao = ChatHistoryMessageDao()
+            stored_messages = chat_history_msg_dao.get_messages_by_conv_uid(conv_uid)
+
+            # 构建 view 消息的 round_index 映射
+            view_messages_by_round = {}
+            if stored_messages:
+                for stored_msg in stored_messages:
+                    msg_detail = stored_msg.message_detail
+                    if msg_detail and msg_detail.get("type") == "view":
+                        msg_content = msg_detail.get("data", {}).get("content", "")
+                        msg_round_index = stored_msg.round_index or 0
+                        view_messages_by_round[msg_round_index] = msg_content
+                        # 打印 view 消息内容的前 200 个字符，帮助调试
+                        content_preview = msg_content[:200] if msg_content else ""
+                        logger.info(f"[MESSAGES_HISTORY][DEBUG] view消息 round={msg_round_index}, 内容前200字符: {content_preview}")
+
+            # 从 gpts_messages 构建消息列表
             for gpts_msg in gpts_messages:
-                unified_msg = UnifiedMessage.from_gpts_message(gpts_msg)
-                base_msg = unified_msg.to_base_message()
-                base_msg.round_index = gpts_msg.rounds
-                base_messages.append(base_msg)
+                msg_role = gpts_msg.role if hasattr(gpts_msg, 'role') and gpts_msg.role else "assistant"
+                msg_sender = gpts_msg.sender if hasattr(gpts_msg, 'sender') else ""
+                msg_round = gpts_msg.rounds
+
+                if msg_sender == "user" or msg_role == "user" or msg_role == "human":
+                    # 用户消息
+                    unified_msg = UnifiedMessage.from_gpts_message(gpts_msg)
+                    base_msg = unified_msg.to_base_message()
+                    base_msg.round_index = msg_round
+                    base_messages.append(base_msg)
+                elif msg_round in view_messages_by_round:
+                    # 有 chat_history 的 view 消息，使用完整的 VIS 数据
+                    view_content = view_messages_by_round[msg_round]
+                    base_msg = ViewMessage(content=view_content)
+                    base_msg.round_index = msg_round
+                    base_messages.append(base_msg)
+                else:
+                    # 没有 view 消息，尝试使用 action_report 的 view
+                    vis_content = gpts_msg.view() or ""
+                    if vis_content:
+                        base_msg = AIMessage(content=vis_content)
+                        base_msg.round_index = msg_round
+                        base_messages.append(base_msg)
+
             logger.info(
-                f"[MESSAGES_HISTORY][PERF] 转换为BaseMessage耗时: {(time.time() - _step_start) * 1000:.2f}ms"
+                f"[MESSAGES_HISTORY][PERF] 转换为BaseMessage耗时: {(time.time() - _step_start) * 1000:.2f}ms, 消息数: {len(base_messages)}, view消息数: {len(view_messages_by_round)}"
             )
 
             _step_start = time.time()

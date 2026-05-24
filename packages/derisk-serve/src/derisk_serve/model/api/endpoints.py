@@ -137,7 +137,7 @@ async def test_auth():
 async def model_params(worker_manager: WorkerManager = Depends(get_worker_manager)):
     try:
         params = []
-        config_models_found = False
+        config_llm_models = set()  # Track LLM models from config to avoid duplicates
 
         # 1. Get models from system_app.config (JSON configuration) - PRIORITY
         system_app = SystemApp.get_instance() or global_system_app
@@ -216,17 +216,20 @@ async def model_params(worker_manager: WorkerManager = Depends(get_worker_manage
                                                 "enabled": True,
                                             }
                                         )
-                                    config_models_found = True
+                                        config_llm_models.add(m_name)
 
-        # 2. Only get models from worker_manager if no config models found (fallback)
-        if not config_models_found:
-            workers = await worker_manager.supported_models()
-            for worker in workers:
-                for model in worker.models:
-                    model_dict = model.__dict__
-                    model_dict["host"] = worker.host
-                    model_dict["port"] = worker.port
-                    params.append(model_dict)
+        # 2. Always get models from worker_manager for all worker types (text2vec, reranker)
+        # This ensures embedding and reranker models are always available
+        workers = await worker_manager.supported_models()
+        for worker in workers:
+            for model in worker.models:
+                # Skip LLM models that are already added from config (avoid duplicates)
+                if model.worker_type == "llm" and model.model in config_llm_models:
+                    continue
+                model_dict = model.__dict__
+                model_dict["host"] = worker.host
+                model_dict["port"] = worker.port
+                params.append(model_dict)
 
         return Result.succ(params)
     except Exception as e:

@@ -5,6 +5,7 @@ This module provides a unified memory interface that combines:
 2. File-backed storage for Git-friendly sharing
 3. Claude Code compatible memory format
 4. GptsMemory adapter for Core V1/V2 integration
+5. Long-term memory manager for Memory-type knowledge spaces
 """
 
 from .base import (
@@ -23,6 +24,18 @@ from .message_converter import (
     gpts_to_agent,
     agent_to_gpts,
 )
+from .longterm_manager import (
+    LongTermMemoryConfig,
+    LongTermMemoryManager,
+    create_long_term_memory_manager,
+    MemoryIntegrationBundle,
+    create_memory_integration_bundle,
+)
+from .store_adapter import MemoryStoreAdapter
+from .pipeline import MemoryPipeline
+from derisk.storage.memory.processor import MemoryProcessor
+from derisk.storage.memory.strategy import MemorySpaceStrategy
+from derisk.storage.memory.recall_tracker import RecallTracker
 
 __all__ = [
     # Base classes
@@ -36,8 +49,23 @@ __all__ = [
     "UnifiedMemoryManager",
     "ClaudeCodeCompatibleMemory",
     "GptsMemoryAdapter",
+    # Long-term memory
+    "LongTermMemoryConfig",
+    "LongTermMemoryManager",
+    "create_long_term_memory_manager",
     # Message conversion
     "MessageConverter",
     "gpts_to_agent",
     "agent_to_gpts",
+    # Memory processing (NEW)
+    "MemoryProcessor",
+    "MemorySpaceStrategy",
+    "RecallTracker",
+    # Full integration bundle (NEW)
+    "MemoryIntegrationBundle",
+    "create_memory_integration_bundle",
+    # Store adapter (NEW)
+    "MemoryStoreAdapter",
+    # Memory pipeline (NEW)
+    "MemoryPipeline",
 ]

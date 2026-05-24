@@ -35,6 +35,7 @@ Core_v2 适配器 - 在现有服务中集成 Core_v2
 }
 """
 
+import json
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -68,6 +69,8 @@ class CoreV2Component(BaseComponent):
         self._sandbox_managers: Dict[str, Any] = {}
         # app_code → app_name 显示名称缓存
         self._app_name_cache: Dict[str, str] = {}
+        # app_code → MemoryIntegrationBundle 缓存
+        self._memory_bundles: Dict[str, Any] = {}
 
     async def async_after_start(self):
         """组件启动后自动启动 Core_v2"""
@@ -675,6 +678,17 @@ class CoreV2Component(BaseComponent):
         tools = await self._build_tools_from_resources(all_resources)
         resources = await self._build_resources_dict(all_resources)
 
+        # 处理 memory 资源：解析 resource_memory，创建 MemoryToolPack 和 MemoryIntegrationBundle
+        memory_tools, memory_bundle = await self._build_memory_from_app(
+            gpt_app,
+            llm_config=model_provider,  # 复用 Agent 的 LLM 配置
+        )
+        if memory_tools:
+            tools.update(memory_tools)
+            logger.info(
+                f"[CoreV2Component] 加载了 {len(memory_tools)} 个记忆工具"
+            )
+
         # 获取 V2 Agent 模板配置
         from derisk.agent.core.plan.unified_context import (
             V2AgentTemplate,
@@ -899,6 +913,13 @@ class CoreV2Component(BaseComponent):
                 model_provider=model_provider,
             )
 
+        # 存储记忆 bundle 到组件缓存（供运行时使用）
+        if memory_bundle:
+            self._memory_bundles[app_code] = memory_bundle
+            logger.info(
+                f"[CoreV2Component] Memory bundle 已缓存: {app_code}"
+            )
+
         # 设置 Agent 的 app_id，确保 AgentRuntimeToolLoader 使用正确的应用代码
         if agent and app_code:
             if hasattr(agent, "_app_id"):
@@ -913,6 +934,10 @@ class CoreV2Component(BaseComponent):
                     f"[CoreV2Component] Updated agent tool loader: "
                     f"app_id={app_code}, agent_name={agent_name}"
                 )
+
+        # 注入记忆 bundle 到 Agent
+        if memory_bundle and agent:
+            self._inject_memory_to_agent(agent, memory_bundle)
 
         # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
         if agent and gpt_app.scenes and len(gpt_app.scenes) > 0 and sandbox_manager:
@@ -1069,6 +1094,203 @@ class CoreV2Component(BaseComponent):
             if res_type in result:
                 result[res_type].append(resource)
         return result
+
+    def _build_memory_processor_factory(self, llm_config=None):
+        """创建 MemoryProcessor 工厂函数，使用 Agent 自身的 LLM 配置。
+
+        Args:
+            llm_config: Agent 的 LLMConfig 实例（来自 gpt_app.llm_config）
+
+        Returns:
+            Callable(space_id) -> MemoryProcessor 或 None
+        """
+        try:
+            from derisk_ext.memory.llm_processor import LLMMemoryProcessor
+
+            if llm_config is None:
+                # 回退：尝试从系统获取 LLM client
+                from derisk.core import LLMClient
+                try:
+                    llm_client = self.system_app.get_component("llm_client", LLMClient)
+                except Exception:
+                    logger.info("[CoreV2Component] 无可用 LLM client，记忆提取将回退到关键词模式")
+                    return None
+            else:
+                # 使用 Agent 自身的 LLM 配置
+                llm_client = llm_config.llm_client
+
+            def factory(space_id: str):
+                model_name = None
+                if llm_config and hasattr(llm_config, 'llm_param') and llm_config.llm_param:
+                    model_name = llm_config.llm_param.get("model")
+                return LLMMemoryProcessor(
+                    llm_client=llm_client,
+                    model=model_name,
+                )
+
+            return factory
+
+        except ImportError:
+            logger.info("[CoreV2Component] LLMMemoryProcessor 未安装，记忆提取将回退到关键词模式")
+            return None
+
+    async def _build_memory_from_app(self, gpt_app, llm_config=None):
+        """处理应用的 memory 资源配置，创建 MemoryToolPack 和 MemoryIntegrationBundle。
+
+        从 gpt_app.resource_memory 解析记忆配置，为每个记忆空间创建
+        MemoryToolPack（供 Agent 调用）并构建完整的 MemoryIntegrationBundle。
+
+        Args:
+            gpt_app: GptsApp 实例
+            llm_config: Agent 的 LLM 配置（LLMConfig 实例），用于创建 MemoryProcessor。
+                        如果为 None，回退到系统级 LLM client。
+
+        Returns:
+            Tuple[tools_dict, bundle_or_None]
+        """
+        from derisk.component import SystemApp
+        from derisk_serve.rag.storage_manager import StorageManager
+        from derisk_serve.agent.resource.tool.memory_tool import MemoryToolPack
+        from derisk.agent.core_v2.unified_memory.longterm_manager import (
+            LongTermMemoryConfig,
+            create_memory_integration_bundle,
+        )
+
+        resource_memory = getattr(gpt_app, "resource_memory", None)
+        if not resource_memory:
+            return {}, None
+
+        # Parse the memory resource entries
+        system_app = SystemApp.get_instance()
+        try:
+            storage_manager: StorageManager = system_app.get_component(
+                "storage_manager", StorageManager
+            )
+        except Exception:
+            logger.warning("[CoreV2Component] StorageManager not available")
+            return {}, None
+
+        tools = {}
+        memories_list = []
+        wing = "default"
+        auto_memory = True
+        enable_kg = False
+        top_k = 5
+
+        for mem_resource in resource_memory:
+            if not mem_resource:
+                continue
+            res_type = getattr(mem_resource, "type", "")
+            if res_type != "memory":
+                continue
+
+            value = getattr(mem_resource, "value", None)
+            parsed = {}
+            if isinstance(value, dict):
+                parsed = value
+            elif isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except Exception:
+                    pass
+
+            wing = parsed.get("wing", wing)
+            auto_memory = parsed.get("auto_memory", auto_memory)
+            enable_kg = parsed.get("enable_kg", enable_kg)
+            top_k = parsed.get("top_k", top_k)
+
+            # Support both single-space and multi-space formats
+            items = parsed.get("memories", [])
+            if not items:
+                # Legacy single space format
+                space_id = parsed.get("knowledge") or parsed.get("space_id")
+                if space_id:
+                    items = [{"memory_id": space_id, "memory_name": "memory"}]
+
+            for item in items:
+                memory_id = item.get("memory_id")
+                memory_name = item.get("memory_name", memory_id)
+                if not memory_id:
+                    continue
+
+                try:
+                    memory_store = storage_manager.create_memory_store(memory_id)
+                    if memory_store:
+                        memory_pack = MemoryToolPack(
+                            memory_store=memory_store,
+                            wing=wing,
+                        )
+                        await memory_pack.preload_resource()
+
+                        for tool_name, tool in memory_pack._resources.items():
+                            prefixed = f"{memory_name}_{tool_name}"
+                            tools[prefixed] = tool
+                            # Also register without prefix for first space
+                            if tool_name not in tools:
+                                tools[tool_name] = tool
+
+                        memories_list.append({
+                            "memory_id": memory_id,
+                            "memory_name": memory_name,
+                        })
+                        logger.info(
+                            f"[CoreV2Component] 加载记忆空间: {memory_id} -> {memory_name}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to load memory space {memory_id}: {e}")
+
+        if not memories_list:
+            return {}, None
+
+        # Create integration bundle for automatic memory management
+        config = LongTermMemoryConfig(
+            memories=memories_list,
+            auto_memory=auto_memory,
+            enable_kg=enable_kg,
+            top_k=top_k,
+            wing=wing,
+        )
+
+        # Create processor factory using Agent's LLM config
+        processor_factory = self._build_memory_processor_factory(llm_config)
+
+        bundle = await create_memory_integration_bundle(
+            config=config,
+            system_app=system_app,
+            processor_factory=processor_factory,
+        )
+
+        if bundle:
+            logger.info(
+                f"[CoreV2Component] MemoryIntegrationBundle 创建成功: "
+                f"{len(memories_list)} spaces, auto_memory={auto_memory}"
+            )
+
+        return tools, bundle
+
+    def _inject_memory_to_agent(self, agent: Any, bundle: Any) -> None:
+        """将记忆 bundle 注入到 Agent 实例。
+
+        通过以下方式注入：
+        1. 设置 agent._memory_bundle 属性（供运行时检索）
+        2. 如 Agent 有 memory_pipeline 属性，设置 pipeline
+        """
+        try:
+            from derisk.agent.core_v2.unified_memory.pipeline import MemoryPipeline
+
+            # 创建 Pipeline 并设置到 Agent
+            pipeline = MemoryPipeline(bundle)
+            agent._memory_bundle = bundle
+            agent._memory_pipeline = pipeline
+            logger.info(
+                f"[CoreV2Component] Memory pipeline 已注入到 Agent: {type(agent).__name__}"
+            )
+        except Exception as e:
+            logger.warning(f"[CoreV2Component] Memory pipeline 注入失败: {e}")
+
+    async def get_memory_bundle(self, app_code: str) -> Optional[Any]:
+        """获取指定 app 的记忆 bundle（供运行时调用）。"""
+        return self._memory_bundles.get(app_code)
 
     async def _build_model_provider(self, gpt_app) -> Optional[Any]:
         """

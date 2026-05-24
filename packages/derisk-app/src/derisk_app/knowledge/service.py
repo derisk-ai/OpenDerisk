@@ -106,11 +106,38 @@ class KnowledgeService:
             knowledge_space_name_pattern = r"^[_a-zA-Z0-9\u4e00-\u9fa5]+$"
             if not re.match(knowledge_space_name_pattern, request.name):
                 raise Exception(f"space name:{request.name} invalid")
+        if request.storage_type == "Memory":
+            request.context = self._build_memory_context(request)
         spaces = knowledge_space_dao.get_knowledge_space(query)
         if len(spaces) > 0:
             raise Exception(f"space name:{request.name} have already named")
         space_id = knowledge_space_dao.create_knowledge_space(request)
         return space_id
+
+    def _build_memory_context(self, request: KnowledgeSpaceRequest) -> str:
+        """Build context for Memory type spaces with embedding model config."""
+        from derisk.configs.model_config import CFG
+
+        # Use the embedding model from the request context if provided,
+        # otherwise fall back to the system default.
+        embedding_model = CFG.EMBEDDING_MODEL
+        if request.context:
+            try:
+                ctx = json.loads(request.context)
+                if ctx.get("embedding_model"):
+                    embedding_model = ctx["embedding_model"]
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Resolve model path if it's a known local model, otherwise use as-is
+        model_value = EMBEDDING_MODEL_CONFIG.get(embedding_model, embedding_model)
+
+        context_template = {
+            "embedding": {
+                "model": model_value,
+            },
+        }
+        return json.dumps(context_template, indent=4)
 
     def create_knowledge_document(
         self, knowledge_id, request: KnowledgeDocumentRequest
@@ -206,6 +233,7 @@ class KnowledgeService:
             res.id = space.id
             res.name = space.name
             res.storage_type = space.storage_type
+            res.vector_type = space.storage_type  # For frontend compatibility
             res.domain_type = space.domain_type
             res.desc = space.desc
             res.owner = space.owner

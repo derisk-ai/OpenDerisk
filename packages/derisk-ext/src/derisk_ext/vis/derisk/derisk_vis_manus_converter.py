@@ -1297,13 +1297,27 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 agent_name=self._agent_name,
             )
 
-            # 收集任务文件和交付文件（增量推送时也需要）
-            # 每轮对话只展示自己产生的交付文件，不展示历史对话的交付文件
+            # 收集任务文件和交付文件
+            # 对话结束时（is_working=False），优先从 gpts_memory.list_files 获取
+            # 增量推送时（is_working=True），从 messages 收集
             task_files: List[ManusTaskFileItem] = []
             deliverable_files: List[ManusDeliverableFile] = []
 
-            if messages:
+            if not is_working and conv_id and senders_map and main_agent_name:
+                # 对话结束时，从 gpts_memory 获取完整文件列表
+                task_files, deliverable_files = await self._collect_files_from_gpts_memory(
+                    conv_id, senders_map, main_agent_name
+                )
+                logger.info(
+                    f"[ManusConverter] visualization end: collected {len(deliverable_files)} deliverable files from gpts_memory"
+                )
+
+            # Fallback: 从 messages 收集
+            if not deliverable_files and messages:
                 task_files, deliverable_files = self._collect_files_from_messages(messages)
+                logger.info(
+                    f"[ManusConverter] visualization fallback: collected {len(deliverable_files)} deliverable files from messages"
+                )
 
             right_panel.task_files = task_files
             right_panel.deliverable_files = deliverable_files
@@ -1692,6 +1706,7 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         deliverable_files: List[ManusDeliverableFile] = []
         seen_file_ids = set()
 
+        logger.info(f"[ManusConverter] _collect_files_from_messages: {len(messages)} messages to scan")
         for msg in messages:
             if not msg.action_report:
                 continue
@@ -1700,6 +1715,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     output_files = action_out.get("output_files") or []
                 else:
                     output_files = getattr(action_out, "output_files", None) or []
+
+                if output_files:
+                    logger.info(f"[ManusConverter] Found {len(output_files)} output_files in action_report")
 
                 for file_info in output_files:
                     if not isinstance(file_info, dict):
@@ -1713,7 +1731,6 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                     file_type = file_info.get("file_type", "")
                     mime_type = file_info.get("mime_type")
 
-                    # 所有文件都加入 task_files
                     task_files.append(ManusTaskFileItem(
                         file_id=file_id,
                         file_name=file_name,
@@ -1728,21 +1745,13 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                         object_path=file_info.get("object_path"),
                     ))
 
-                    # 仅 deliverable 类型的文件获得独立 tab
                     if file_type == "deliverable":
-                        # 优先使用 derisk-fs:// URI 作为 content_url，
-                        # 前端通过 /api/v2/serve/file/files/preview 代理加载，
-                        # 避免直接用 OSS HTTPS URL 在 iframe 中受 X-Frame-Options 限制。
                         oss_url = file_info.get("oss_url")
                         preview_url = file_info.get("preview_url")
                         if oss_url and oss_url.startswith("derisk-fs://"):
                             content_url = oss_url
                         else:
                             content_url = preview_url or oss_url
-                        logger.debug(
-                            f"[ManusConverter] deliverable file: {file_name}, "
-                            f"content_url={content_url}"
-                        )
                         deliverable_files.append(ManusDeliverableFile(
                             file_id=file_id,
                             file_name=file_name,
@@ -1754,6 +1763,90 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                             render_type=self._determine_render_type(file_name, mime_type),
                         ))
 
+        logger.info(f"[ManusConverter] _collect_files_from_messages result: task={len(task_files)}, deliverable={len(deliverable_files)}")
+        return task_files, deliverable_files
+
+    async def _collect_files_from_gpts_memory(
+        self, conv_id: str, senders_map: Optional[Dict[str, "ConversableAgent"]] = None, 
+        main_agent_name: Optional[str] = None
+    ) -> tuple:
+        """从 gpts_memory.list_files 获取文件信息（BAIZE agent 主路径）
+
+        Args:
+            conv_id: 会话ID
+            senders_map: Agent映射
+            main_agent_name: 主Agent名称
+
+        Returns:
+            (task_files: List[ManusTaskFileItem], deliverable_files: List[ManusDeliverableFile])
+        """
+        task_files: List[ManusTaskFileItem] = []
+        deliverable_files: List[ManusDeliverableFile] = []
+
+        try:
+            from derisk.agent.core.memory.gpts import GptsMemory
+            from derisk.agent.core.memory.gpts.file_base import FileType
+
+            gpts_memory = None
+            if senders_map and main_agent_name:
+                main_agent = senders_map.get(main_agent_name)
+                if main_agent and hasattr(main_agent, "memory") and hasattr(main_agent.memory, "gpts_memory"):
+                    gpts_memory = main_agent.memory.gpts_memory
+
+            if not gpts_memory:
+                logger.warning(f"[ManusConverter] No gpts_memory available for file collection")
+                return task_files, deliverable_files
+
+            if not isinstance(gpts_memory, GptsMemory):
+                logger.warning(f"[ManusConverter] gpts_memory is not GptsMemory instance")
+                return task_files, deliverable_files
+
+            files = await gpts_memory.list_files(conv_id)
+            logger.info(f"[ManusConverter] list_files returned {len(files)} files for conv_id={conv_id}")
+
+            for file_meta in files:
+                file_id = file_meta.file_id
+                file_name = file_meta.file_name
+                file_type = file_meta.file_type or ""
+                mime_type = file_meta.mime_type
+
+                task_files.append(ManusTaskFileItem(
+                    file_id=file_id,
+                    file_name=file_name,
+                    file_type=file_type,
+                    file_size=file_meta.file_size or 0,
+                    mime_type=mime_type,
+                    oss_url=file_meta.oss_url,
+                    preview_url=file_meta.preview_url,
+                    download_url=file_meta.download_url,
+                    description=file_meta.metadata.get("description") if file_meta.metadata else None,
+                    created_at=file_meta.created_at.isoformat() if hasattr(file_meta.created_at, 'isoformat') else str(file_meta.created_at),
+                    object_path=file_meta.metadata.get("object_path") if file_meta.metadata else None,
+                ))
+
+                if file_type == FileType.DELIVERABLE.value or file_type == "deliverable":
+                    oss_url = file_meta.oss_url
+                    preview_url = file_meta.preview_url
+                    if oss_url and oss_url.startswith("derisk-fs://"):
+                        content_url = oss_url
+                    else:
+                        content_url = preview_url or oss_url
+                    deliverable_files.append(ManusDeliverableFile(
+                        file_id=file_id,
+                        file_name=file_name,
+                        mime_type=mime_type,
+                        file_size=file_meta.file_size or 0,
+                        content_url=content_url,
+                        download_url=file_meta.download_url or preview_url,
+                        object_path=file_meta.metadata.get("object_path") if file_meta.metadata else None,
+                        render_type=self._determine_render_type(file_name, mime_type),
+                    ))
+
+            logger.info(f"[ManusConverter] _collect_files_from_gpts_memory result: task={len(task_files)}, deliverable={len(deliverable_files)}")
+
+        except Exception as e:
+            logger.warning(f"[ManusConverter] Failed to collect files from gpts_memory: {e}")
+
         return task_files, deliverable_files
 
     async def final_view(
@@ -1764,6 +1857,9 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         **kwargs,
     ):
         """最终视图 - planning_window 复用 vis_window3，running_window 用 manus-right-panel"""
+        # 从 kwargs 中提取 main_agent_name
+        main_agent_name = kwargs.get("main_agent_name", None)
+
         # 从 messages 完整构建 steps（使用局部变量，不依赖 self._steps 单例状态）
         local_steps: Dict[str, ManusExecutionStep] = {}
         local_uid_map: Dict[str, str] = {}
@@ -1874,7 +1970,26 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         )
 
         # 收集任务文件和交付文件
-        task_files, deliverable_files = self._collect_files_from_messages(messages)
+        # 优先从 gpts_memory.list_files 获取（BAIZE agent 主路径）
+        # fallback 到 messages.action_report.output_files
+        conv_id = None
+        for msg in messages:
+            if msg.conv_id:
+                conv_id = msg.conv_id
+                break
+
+        task_files: List[ManusTaskFileItem] = []
+        deliverable_files: List[ManusDeliverableFile] = []
+
+        if conv_id and senders_map and main_agent_name:
+            task_files, deliverable_files = await self._collect_files_from_gpts_memory(
+                conv_id, senders_map, main_agent_name
+            )
+
+        # Fallback: 从 messages 的 action_report 收集
+        if not deliverable_files:
+            task_files, deliverable_files = self._collect_files_from_messages(messages)
+
         right_panel.task_files = task_files
         right_panel.deliverable_files = deliverable_files
 

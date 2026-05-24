@@ -1292,6 +1292,38 @@ class ConversableAgent(Role, Agent):
                             break
 
             reply_message.success = is_success
+
+            # ========== Memory Auto-Write (V1 Integration) ==========
+            # Write conversation to memory bundle after agent completes
+            if hasattr(self, "_memory_bundle") and self._memory_bundle and is_success:
+                try:
+                    bundle = self._memory_bundle
+                    # Get user question and agent response
+                    question = received_message.content or ""
+                    ai_message = reply_message.content or ""
+
+                    # Extract text from multimodal content if needed
+                    if hasattr(self, "_extract_text_from_content"):
+                        try:
+                            question = self._extract_text_from_content(question)
+                            ai_message = self._extract_text_from_content(ai_message)
+                        except Exception:
+                            pass
+
+                    if question and ai_message:
+                        write_results = await bundle.manager.write_memory_auto(
+                            user_message=question,
+                            agent_response=ai_message,
+                            metadata={
+                                "conv_id": getattr(self.agent_context, "conv_id", ""),
+                                "agent_name": self.name,
+                                "check_pass": is_success,
+                            },
+                        )
+                        logger.info(f"[MemoryIntegration] Auto-write results: {write_results}")
+                except Exception as e:
+                    logger.warning(f"[MemoryIntegration] Auto-write failed: {e}")
+
             # 6.final message adjustment
             await self.adjust_final_message(is_success, reply_message)
 

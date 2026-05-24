@@ -1,7 +1,7 @@
 import json
 from typing import List, Optional
 
-from derisk._private.pydantic import BaseModel, Field
+from derisk._private.pydantic import BaseModel, Field, model_validator
 from derisk_serve.rag.api.schemas import (
     ChunkServeResponse,
     DocumentServeResponse,
@@ -148,7 +148,9 @@ class SpaceQueryResponse(BaseModel):
     id: Optional[int] = None
     knowledge_id: Optional[str] = None
     name: Optional[str] = None
-    """vector_type: vector type"""
+    """vector_type: vector type (alias for storage_type for frontend compatibility)"""
+    vector_type: Optional[str] = None
+    """storage_type: storage type"""
     storage_type: Optional[str] = None
     """domain_type"""
     domain_type: Optional[str] = None
@@ -165,6 +167,13 @@ class SpaceQueryResponse(BaseModel):
 
     """docs_tree: docs_tree"""
     doc_tree: Optional[List] = None
+
+    @model_validator(mode="after")
+    def set_vector_type(self):
+        """Set vector_type from storage_type for frontend compatibility."""
+        if self.vector_type is None and self.storage_type is not None:
+            self.vector_type = self.storage_type
+        return self
 
 
 class KnowledgeQueryResponse(BaseModel):

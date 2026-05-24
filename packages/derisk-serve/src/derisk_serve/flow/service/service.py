@@ -89,7 +89,8 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
     def after_start(self):
         """Execute after the application starts"""
         for path in [
-            "derisk_serve.memory.operators.memory_operator"
+            "derisk_serve.memory.operators.memory_operator",
+            "derisk_serve.memory.operators.longterm_memory_operator",
         ]:
             model_scan(module_path=path, base_class=BaseOperator)
 

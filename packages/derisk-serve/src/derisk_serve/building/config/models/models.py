@@ -87,6 +87,7 @@ class ServeEntity(Model):
     resource_knowledge = Column(Text, nullable=True, comment="当前版本配置的知识配置")
     resource_tool = Column(Text, nullable=True, comment="当前版本配置的工具配置")
     resource_agent = Column(Text, nullable=True, comment="当前版本配置的agent配置")
+    resource_memory = Column(Text, nullable=True, comment="当前版本配置的记忆配置")
     context_config = Column(String(2000), nullable=True, comment="上下文工程配置")
     agent_version = Column(
         String(32), nullable=True, default="v1", comment="agent version: v1 or v2"
@@ -273,6 +274,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             "resource_knowledge": _bm_to_str(request.resource_knowledge),
             "resource_tool": _bm_to_str(request.resource_tool),
             "resource_agent": _bm_to_str(request.resource_agent),
+            "resource_memory": _bm_to_str(request.resource_memory),
             "system_prompt_template": request.system_prompt_template,
             "user_prompt_template": request.user_prompt_template,
             "context_config": json.dumps(
@@ -363,6 +365,7 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             resource_knowledge=_load_resource(entity.resource_knowledge),
             resource_tool=_load_resource(entity.resource_tool),
             resource_agent=_load_resource(entity.resource_agent),
+            resource_memory=_load_resource(entity.resource_memory),
             context_config=_load_context_config(entity.context_config),
             gmt_create=gmt_created_str,
             gmt_modified=gmt_modified_str,

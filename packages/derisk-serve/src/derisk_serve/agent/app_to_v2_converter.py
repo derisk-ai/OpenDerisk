@@ -47,7 +47,7 @@ async def convert_app_to_v2_agent(
     permission = _build_permission_from_app(gpts_app)
 
     resources = resources or []
-    tools, knowledge, skills, prompt_appendix = await _convert_all_resources(resources)
+    tools, knowledge, skills, prompt_appendix, memory_config = await _convert_all_resources(resources)
 
     agent_info = AgentInfo(
         name=gpts_app.app_code or "v2_agent",
@@ -75,6 +75,7 @@ async def convert_app_to_v2_agent(
         "tools": tools,
         "knowledge": knowledge,
         "skills": skills,
+        "memory_config": memory_config,  # Long-term memory configuration
     }
 
 
@@ -99,17 +100,18 @@ def _build_permission_from_app(gpts_app) -> PermissionRuleset:
 
 async def _convert_all_resources(
     resources: List[Any],
-) -> Tuple[Dict[str, Any], List[Dict], List[Dict], str]:
+) -> Tuple[Dict[str, Any], List[Dict], List[Dict], str, Optional[Any]]:
     """
     转换所有类型的资源
 
     Returns:
-        Tuple[tools, knowledge, skills, prompt_appendix]
+        Tuple[tools, knowledge, skills, prompt_appendix, memory_config]
     """
     tools = {"bash": BashTool()}
     knowledge = []
     skills = []
     prompt_parts = []
+    memory_config = None  # Long-term memory configuration
 
     for resource in resources:
         try:
@@ -148,9 +150,12 @@ async def _convert_all_resources(
                 )
 
             elif resource_type == ResourceType.Memory or resource_type == "memory":
-                await _process_memory_resource(
+                # Process memory resource and get config
+                config = await _process_memory_resource(
                     resource, resource_value, tools
                 )
+                if config:
+                    memory_config = config
 
             else:
                 logger.warning(
@@ -165,7 +170,7 @@ async def _convert_all_resources(
 
     prompt_appendix = "\n\n".join(prompt_parts) if prompt_parts else ""
 
-    return tools, knowledge, skills, prompt_appendix
+    return tools, knowledge, skills, prompt_appendix, memory_config
 
 
 async def _process_tool_resource(
@@ -442,44 +447,135 @@ async def _process_memory_resource(
     resource: Any,
     resource_value: Any,
     tools: Dict[str, Any],
-):
-    """Process a memory resource — create MemoryToolPack and register tools."""
-    try:
-        from derisk.component import SystemApp
-        from derisk_serve.rag.storage_manager import StorageManager
-        from derisk_serve.agent.resource.tool.memory_tool import MemoryToolPack
+) -> Optional[Any]:
+    """Process a memory resource — create MemoryToolPack and register tools.
 
-        # Extract space_id / wing from resource config
-        space_id = None
-        wing = "default"
-        if isinstance(resource_value, dict):
-            space_id = resource_value.get("knowledge") or resource_value.get(
-                "space_id"
+    Creates the full v2 memory integration stack:
+    - MemoryToolPack for agent-callable tools
+    - MemoryIntegrationBundle with processors, strategies, recall tracker,
+      hybrid search, lifecycle hooks, snapshot manager, promotion engine
+
+    Supports two formats:
+    1. Single memory space: {"knowledge": "space_id", "wing": "default"}
+    2. Multiple memory spaces: {"memories": [{"memory_id": "xxx", "memory_name": "xxx"}, ...], "top_k": 5, ...}
+
+    Returns:
+        MemoryIntegrationBundle if valid memory spaces are configured, None otherwise
+    """
+    from derisk.component import SystemApp
+    from derisk_serve.rag.storage_manager import StorageManager
+    from derisk_serve.agent.resource.tool.memory_tool import MemoryToolPack
+    from derisk.agent.core_v2.unified_memory.longterm_manager import (
+        LongTermMemoryConfig,
+        MemoryIntegrationBundle,
+        create_memory_integration_bundle,
+    )
+
+    system_app = SystemApp.get_instance()
+    storage_manager: StorageManager = system_app.get_component(
+        "storage_manager", StorageManager
+    )
+
+    # Parse resource_value
+    parsed_value = {}
+    if isinstance(resource_value, dict):
+        parsed_value = resource_value
+    elif isinstance(resource_value, str):
+        try:
+            parsed_value = json.loads(resource_value)
+        except Exception:
+            pass
+
+    # Determine wing (user/session identifier)
+    wing = parsed_value.get("wing", "default")
+
+    # Check for memories array format (multiple memory spaces)
+    memories_list = parsed_value.get("memories", [])
+    top_k = parsed_value.get("top_k", 5)
+
+    if memories_list and isinstance(memories_list, list):
+        # Process multiple memory spaces
+        for idx, memory_item in enumerate(memories_list):
+            memory_id = memory_item.get("memory_id") or memory_item.get("knowledge")
+            memory_name = memory_item.get("memory_name", f"memory_{idx}")
+
+            if not memory_id:
+                logger.warning(f"Memory item missing memory_id: {memory_item}")
+                continue
+
+            memory_store = storage_manager.create_memory_store(memory_id)
+            if memory_store is None:
+                logger.warning(
+                    f"Memory store not available for space {memory_id}. "
+                    "Check that a memory provider is installed."
+                )
+                continue
+
+            # Create MemoryToolPack for each space with unique tool names
+            memory_pack = MemoryToolPack(
+                memory_store=memory_store,
+                wing=wing,
             )
-            wing = resource_value.get("wing", "default")
-        elif isinstance(resource_value, str):
-            try:
-                parsed = json.loads(resource_value)
-                space_id = parsed.get("knowledge") or parsed.get("space_id")
-                wing = parsed.get("wing", "default")
-            except Exception:
-                pass
+            await memory_pack.preload_resource()
+
+            # Register memory tools with space-specific names to avoid collision
+            for tool_name, tool in memory_pack._resources.items():
+                # Use memory_name as prefix to distinguish multiple memory spaces
+                prefixed_name = f"{memory_name}_{tool_name}"
+                tools[prefixed_name] = tool
+                # Also register without prefix for backward compatibility (first one)
+                if idx == 0:
+                    tools[tool_name] = tool
+                logger.info(f"Registered memory tool: {prefixed_name} for space {memory_id}")
+
+        logger.info(f"Registered {len(memories_list)} memory spaces with tools")
+
+        # Create LongTermMemoryConfig
+        config = LongTermMemoryConfig(
+            memories=memories_list,
+            auto_memory=parsed_value.get("auto_memory", True),
+            enable_kg=parsed_value.get("enable_kg", False),
+            top_k=top_k,
+            max_distance=parsed_value.get("max_distance", 0.4),
+            wing=wing,
+        )
+
+        # Create full integration bundle with all v2 components
+        processor_factory = _build_processor_factory()
+        bundle = await create_memory_integration_bundle(
+            config=config,
+            system_app=system_app,
+            processor_factory=processor_factory,
+        )
+
+        if bundle:
+            logger.info(
+                f"Created MemoryIntegrationBundle with "
+                f"{len(bundle.processors)} processors, "
+                f"{len(bundle.strategies)} strategies, "
+                f"auto_memory={config.auto_memory}"
+            )
+            return bundle
+
+        # Fallback to config-only if bundle creation failed
+        logger.warning("MemoryIntegrationBundle creation failed, returning config-only")
+        return config
+
+    else:
+        # Legacy single memory space format
+        space_id = parsed_value.get("knowledge") or parsed_value.get("space_id")
 
         if not space_id:
             logger.warning("Memory resource missing space_id / knowledge id")
-            return
+            return None
 
-        system_app = SystemApp.get_instance()
-        storage_manager: StorageManager = system_app.get_component(
-            "storage_manager", StorageManager
-        )
         memory_store = storage_manager.create_memory_store(space_id)
         if memory_store is None:
             logger.warning(
                 f"Memory store not available for space {space_id}. "
                 "Check that a memory provider is installed."
             )
-            return
+            return None
 
         memory_pack = MemoryToolPack(
             memory_store=memory_store,
@@ -492,8 +588,56 @@ async def _process_memory_resource(
             tools[tool_name] = tool
             logger.info(f"Registered memory tool: {tool_name}")
 
-    except Exception as e:
-        logger.error(f"Error processing memory resource: {e}")
+        # Create config for single space
+        config = LongTermMemoryConfig(
+            memories=[{"memory_id": space_id, "memory_name": "memory"}],
+            auto_memory=parsed_value.get("auto_memory", True),
+            enable_kg=parsed_value.get("enable_kg", False),
+            top_k=parsed_value.get("top_k", 5),
+            wing=wing,
+        )
+
+        # Try to create full bundle
+        processor_factory = _build_processor_factory()
+        bundle = await create_memory_integration_bundle(
+            config=config,
+            system_app=system_app,
+            processor_factory=processor_factory,
+        )
+
+        return bundle or config
+
+
+def _build_processor_factory():
+    """Build a factory function that creates MemoryProcessor per space.
+
+    Returns a callable(space_id) -> MemoryProcessor or None if
+    the LLM processor is not available.
+    """
+    try:
+        from derisk_ext.memory.llm_processor import LLMMemoryProcessor
+        from derisk.core import LLMClient
+
+        # Get LLM client from system
+        from derisk.component import SystemApp
+        system_app = SystemApp.get_instance()
+        try:
+            llm_client = system_app.get_component("llm_client", LLMClient)
+        except Exception:
+            llm_client = None
+
+        if llm_client is None:
+            logger.warning("LLM client not available, memory processors will be no-op")
+            return None
+
+        def factory(space_id: str):
+            return LLMMemoryProcessor(llm_client=llm_client)
+
+        return factory
+
+    except ImportError:
+        logger.info("LLMMemoryProcessor not installed, using fallback extraction")
+        return None
 
 
 def _get_resource_type(resource: Any) -> Optional[str]:

@@ -211,10 +211,13 @@ class KnowledgeSpaceDao(BaseDao):
             if isinstance(request, SpaceServeRequest)
             else request
         )
-        pop_keys = ["vector_type", "name_or_tag", "create_yuque"]
-        for key in pop_keys:
-            if key in request_dict:
-                request_dict.pop(key)
+        # Map vector_type to storage_type (frontend uses vector_type)
+        if "vector_type" in request_dict and "storage_type" not in request_dict:
+            request_dict["storage_type"] = request_dict.pop("vector_type")
+        else:
+            request_dict.pop("vector_type", None)
+        request_dict.pop("name_or_tag", None)
+        request_dict.pop("create_yuque", None)
         entity = KnowledgeSpaceEntity(**request_dict)
         return entity
 

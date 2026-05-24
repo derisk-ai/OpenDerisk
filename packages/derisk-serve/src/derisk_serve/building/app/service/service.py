@@ -895,6 +895,11 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 app_resp.resource_agent = app_config.resource_agent
                 all_resources.extend(app_config.resource_agent)
 
+            ## 资源-记忆
+            if app_config.resource_memory:
+                app_resp.resource_memory = app_config.resource_memory
+                all_resources.extend(app_config.resource_memory)
+
             ## 资源-其他扩展资源
             if app_config.resources:
                 app_resp.resources = app_config.resources

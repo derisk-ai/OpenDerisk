@@ -155,7 +155,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             if published_config:
                 for field in ['team_mode', 'team_context', 'resources', 'details', 'ext_config',
                               'recommend_questions', 'layout', 'custom_variables', 'llm_config',
-                              'resource_knowledge', 'resource_tool', 'resource_agent',
+                              'resource_knowledge', 'resource_tool', 'resource_agent', 'resource_memory',
                               'system_prompt_template', 'user_prompt_template', 'context_config', 'agent_version']:
                     if getattr(request, field, None) is None and hasattr(published_config, field):
                         setattr(request, field, getattr(published_config, field))

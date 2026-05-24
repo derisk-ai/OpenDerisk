@@ -342,7 +342,7 @@ export const saveArguments = (knowledgeName: string, data: ArgumentsParams) => {
 };
 
 export const getSpaceList = (data?: any) => {
-  return POST<any, Array<ISpace>>('/knowledge/space/list', data);
+  return POST<any, Array<ISpace>>('/knowledge/space/list', data ?? {});
 };
 export const getDocumentList = (spaceName: string, data: Record<string, number | Array<number>>) => {
   return POST<Record<string, number | Array<number>>, IDocumentResponse>(`/knowledge/${spaceName}/document/list`, data);
@@ -385,6 +385,26 @@ export const delDocument = (spaceName: string, data: Record<string, number>) => 
 
 export const delSpace = (data: Record<string, string>) => {
   return POST<Record<string, string>, null>(`/knowledge/space/delete`, data);
+};
+
+// Memory APIs
+export const getMemoryStatus = (spaceId: string) => {
+  return GET<null, Record<string, any>>(`/memory/${spaceId}/status`);
+};
+export const getMemoryWings = (spaceId: string) => {
+  return GET<null, Record<string, number>>(`/memory/${spaceId}/wings`);
+};
+export const searchMemory = (spaceId: string, data: { query: string; wing?: string; room?: string; top_k?: number; max_distance?: number }) => {
+  return POST<typeof data, Array<{ id: string; content: string; wing: string; room: string; score: number; created_at: string }>>(`/memory/${spaceId}/search`, data);
+};
+export const queryKG = (spaceId: string, data: { entity: string; as_of?: string }) => {
+  return POST<typeof data, Array<{ subject: string; predicate: string; object: string; confidence?: number }>>(`/memory/${spaceId}/kg/query`, data);
+};
+export const getMemoryRooms = (spaceId: string, wing: string) => {
+  return GET<null, string[]>(`/memory/${spaceId}/rooms?wing=${wing}`);
+};
+export const addMemory = (spaceId: string, data: { content: string; wing: string; room: string }) => {
+  return POST<typeof data, { id: string; wing: string; room: string; created_at: string }>(`/memory/${spaceId}/write`, data);
 };
 
 /** models */

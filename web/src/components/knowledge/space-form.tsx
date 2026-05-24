@@ -10,16 +10,18 @@ type FieldType = {
   description: string;
   storage: string;
   field: string;
+  embeddingModel?: string;
 };
 
 type IProps = {
   handleStepChange: (params: StepChangeParams) => void;
   spaceConfig: IStorage | null;
+  embeddingModels?: Array<{ name: string; provider?: string }>;
 };
 
 export default function SpaceForm(props: IProps) {
   const { t } = useTranslation();
-  const { handleStepChange, spaceConfig } = props;
+  const { handleStepChange, spaceConfig, embeddingModels } = props;
   const [spinning, setSpinning] = useState<boolean>(false);
   const [storage, setStorage] = useState<string>();
 
@@ -35,10 +37,17 @@ export default function SpaceForm(props: IProps) {
   };
 
   const handleFinish = async (fieldsValue: FieldType) => {
-    const { spaceName, owner, description, storage, field } = fieldsValue;
+    const { spaceName, owner, description, storage, field, embeddingModel } = fieldsValue;
     setSpinning(true);
     const vector_type = storage;
     const domain_type = field;
+
+    // Build context for Memory storage type
+    let context: string | undefined;
+    if (vector_type === 'Memory' && embeddingModel) {
+      context = JSON.stringify({ embedding_model: embeddingModel });
+    }
+
     const [_, data, res] = await apiInterceptors(
       addSpace({
         name: spaceName,
@@ -46,14 +55,16 @@ export default function SpaceForm(props: IProps) {
         owner,
         desc: description,
         domain_type: domain_type,
+        context,
       }),
     );
     setSpinning(false);
     const is_financial = domain_type === 'FinancialReport';
+    const is_memory = vector_type === 'Memory';
     localStorage.setItem('cur_space_id', JSON.stringify(data));
     res?.success &&
       handleStepChange({
-        label: 'forward',
+        label: is_memory ? 'finish' : 'forward',
         spaceName,
         pace: is_financial ? 2 : 1,
         docType: is_financial ? 'DOCUMENT' : '',
@@ -79,7 +90,7 @@ export default function SpaceForm(props: IProps) {
             { required: true, message: t('Please_input_the_name') },
             () => ({
               validator(_, value) {
-                if (/[^\u4e00-\u9fa50-9a-zA-Z_-]/.test(value)) {
+                if (/[^一-龥0-9a-zA-Z_-]/.test(value)) {
                   return Promise.reject(new Error(t('the_name_can_only_contain')));
                 }
                 return Promise.resolve();
@@ -104,6 +115,21 @@ export default function SpaceForm(props: IProps) {
             })}
           </Select>
         </Form.Item>
+        {storage === 'Memory' && embeddingModels && embeddingModels.length > 0 && (
+          <Form.Item<FieldType>
+            label={t('Embedding_Model')}
+            name='embeddingModel'
+            rules={[{ required: true, message: t('Please_select_the_embedding_model') }]}
+          >
+            <Select className='mb-5 h-12' placeholder={t('Please_select_the_embedding_model')}>
+              {embeddingModels.map((item) => (
+                <Select.Option key={item.name} value={item.name}>
+                  {item.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        )}
         <Form.Item<FieldType>
           label={t('Domain')}
           name='field'

@@ -1,5 +1,6 @@
 """HTTP API for RBAC permission management."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -752,3 +753,354 @@ async def remove_permission_def_from_role(
             status_code=404, detail="Permission definition not found for this role"
         )
     return {"success": True, "data": None}
+
+
+# ========== Permission Request Management ==========
+class PermissionRequestCreateBody(BaseModel):
+    """创建权限申请"""
+    request_type: str = Field(
+        ...,
+        pattern="^(role_assign|permission_grant|account_activation)$",
+        description="申请类型",
+    )
+    role_id: Optional[int] = Field(None, description="角色ID (role_assign)")
+    resource_type: Optional[str] = Field(None, description="资源类型 (permission_grant)")
+    resource_id: Optional[str] = Field(None, description="资源ID (permission_grant)")
+    action: Optional[str] = Field(None, description="操作类型 (permission_grant)")
+    reason: Optional[str] = Field(None, max_length=500, description="申请理由")
+
+
+class PermissionRequestReviewBody(BaseModel):
+    """审批权限申请"""
+    review_comment: Optional[str] = Field(None, max_length=500, description="审批意见")
+
+
+class PermissionRequestListQuery(BaseModel):
+    """查询权限申请"""
+    status: Optional[str] = Field(None, pattern="^(pending|approved|rejected|cancelled)$")
+    user_id: Optional[int] = None
+    request_type: Optional[str] = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+
+@router.post("/requests")
+async def create_permission_request(
+    body: PermissionRequestCreateBody,
+    user: UserRequest = Depends(get_user_from_headers),
+):
+    """用户申请权限/角色/账号激活。
+
+    - role_assign: 申请分配角色
+    - permission_grant: 申请特定权限
+    - account_activation: 申请账号激活
+    """
+    # Get user_id
+    user_id = None
+    for raw in (user.user_no, user.user_id):
+        if raw is not None and raw != "":
+            try:
+                user_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    # Validate request type specific fields
+    if body.request_type == "role_assign":
+        if not body.role_id:
+            raise HTTPException(status_code=400, detail="role_id required for role_assign")
+        role = _dao.get_role(body.role_id)
+        if not role:
+            raise HTTPException(status_code=404, detail="Role not found")
+        # Check if already has this role
+        user_roles = _dao.get_user_roles(user_id)
+        if any(r["id"] == body.role_id for r in user_roles):
+            raise HTTPException(status_code=409, detail="Already have this role")
+        # Check if already has pending request for this role
+        if _dao.has_pending_role_request(user_id, body.role_id):
+            raise HTTPException(status_code=409, detail="Already have pending request for this role")
+
+    elif body.request_type == "permission_grant":
+        if not body.resource_type or not body.action:
+            raise HTTPException(
+                status_code=400,
+                detail="resource_type and action required for permission_grant"
+            )
+
+    try:
+        req = _dao.create_permission_request(
+            user_id=user_id,
+            request_type=body.request_type,
+            role_id=body.role_id,
+            resource_type=body.resource_type,
+            resource_id=body.resource_id,
+            action=body.action,
+            reason=body.reason,
+        )
+        return {"success": True, "data": req}
+    except Exception as e:
+        logger.error(f"Failed to create permission request: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create request")
+
+
+@router.get("/requests")
+async def list_permission_requests(
+    status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|cancelled)$"),
+    user_id: Optional[int] = Query(None),
+    reviewer_id: Optional[int] = Query(None),
+    request_type: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    _user: UserRequest = Depends(require_permission("system", "admin")),
+):
+    """管理员查看权限申请列表"""
+    requests, total = _dao.list_permission_requests(
+        status=status,
+        user_id=user_id,
+        reviewer_id=reviewer_id,
+        request_type=request_type,
+        page=page,
+        page_size=page_size,
+    )
+
+    # Enrich with user and role info
+    from derisk_app.auth.user_service import UserService
+    user_svc = UserService()
+    enriched = []
+    for req in requests:
+        item = req.copy()
+        # Add user info
+        user_info = user_svc.get_user(req["user_id"])
+        if user_info:
+            item["user_name"] = user_info.get("name", "")
+            item["user_email"] = user_info.get("email", "")
+        # Add role info
+        if req["role_id"]:
+            role = _dao.get_role(req["role_id"])
+            if role:
+                item["role_name"] = role["name"]
+        # Add reviewer info
+        if req["reviewer_id"]:
+            reviewer_info = user_svc.get_user(req["reviewer_id"])
+            if reviewer_info:
+                item["reviewer_name"] = reviewer_info.get("name", "")
+        enriched.append(item)
+
+    return {
+        "success": True,
+        "data": {
+            "items": enriched,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    }
+
+
+@router.get("/requests/my")
+async def list_my_permission_requests(
+    status: Optional[str] = Query(None, pattern="^(pending|approved|rejected|cancelled)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user: UserRequest = Depends(get_user_from_headers),
+):
+    """用户查看自己的权限申请"""
+    user_id = None
+    for raw in (user.user_no, user.user_id):
+        if raw is not None and raw != "":
+            try:
+                user_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    requests, total = _dao.list_permission_requests(
+        status=status,
+        user_id=user_id,
+        page=page,
+        page_size=page_size,
+    )
+
+    # Enrich with role info
+    enriched = []
+    for req in requests:
+        item = req.copy()
+        if req["role_id"]:
+            role = _dao.get_role(req["role_id"])
+            if role:
+                item["role_name"] = role["name"]
+        enriched.append(item)
+
+    return {
+        "success": True,
+        "data": {
+            "items": enriched,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    }
+
+
+@router.get("/requests/{request_id}")
+async def get_permission_request(
+    request_id: int,
+    _user: UserRequest = Depends(require_permission("system", "admin")),
+):
+    """管理员查看申请详情"""
+    req = _dao.get_permission_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    # Enrich with user and role info
+    from derisk_app.auth.user_service import UserService
+    user_svc = UserService()
+    item = req.copy()
+
+    user_info = user_svc.get_user(req["user_id"])
+    if user_info:
+        item["user_name"] = user_info.get("name", "")
+        item["user_email"] = user_info.get("email", "")
+
+    if req["role_id"]:
+        role = _dao.get_role(req["role_id"])
+        if role:
+            item["role_name"] = role["name"]
+
+    if req["reviewer_id"]:
+        reviewer_info = user_svc.get_user(req["reviewer_id"])
+        if reviewer_info:
+            item["reviewer_name"] = reviewer_info.get("name", "")
+
+    return {"success": True, "data": item}
+
+
+@router.post("/requests/{request_id}/approve")
+async def approve_permission_request(
+    request_id: int,
+    body: PermissionRequestReviewBody,
+    reviewer: UserRequest = Depends(require_permission("system", "admin")),
+):
+    """管理员审批通过权限申请"""
+    # Get reviewer_id
+    reviewer_id = None
+    for raw in (reviewer.user_no, reviewer.user_id):
+        if raw is not None and raw != "":
+            try:
+                reviewer_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    if reviewer_id is None:
+        raise HTTPException(status_code=401, detail="Reviewer not authenticated")
+
+    req = _dao.get_permission_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {req['status']}")
+
+    try:
+        result = _dao.approve_permission_request(
+            request_id=request_id,
+            reviewer_id=reviewer_id,
+            review_comment=body.review_comment,
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Request not found")
+
+        # Invalidate permission cache for affected user
+        _svc.invalidate_cache(req["user_id"])
+
+        logger.info(f"Permission request {request_id} approved by admin {reviewer_id}")
+
+        return {"success": True, "data": result}
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="Role already assigned")
+    except Exception as e:
+        logger.error(f"Failed to approve request {request_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to approve request")
+
+
+@router.post("/requests/{request_id}/reject")
+async def reject_permission_request(
+    request_id: int,
+    body: PermissionRequestReviewBody,
+    reviewer: UserRequest = Depends(require_permission("system", "admin")),
+):
+    """管理员审批拒绝权限申请"""
+    reviewer_id = None
+    for raw in (reviewer.user_no, reviewer.user_id):
+        if raw is not None and raw != "":
+            try:
+                reviewer_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    if reviewer_id is None:
+        raise HTTPException(status_code=401, detail="Reviewer not authenticated")
+
+    req = _dao.get_permission_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Request already {req['status']}")
+
+    result = _dao.reject_permission_request(
+        request_id=request_id,
+        reviewer_id=reviewer_id,
+        review_comment=body.review_comment,
+    )
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    logger.info(f"Permission request {request_id} rejected by admin {reviewer_id}")
+
+    return {"success": True, "data": result}
+
+
+@router.post("/requests/{request_id}/cancel")
+async def cancel_permission_request(
+    request_id: int,
+    user: UserRequest = Depends(get_user_from_headers),
+):
+    """用户取消自己的权限申请"""
+    user_id = None
+    for raw in (user.user_no, user.user_id):
+        if raw is not None and raw != "":
+            try:
+                user_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    result = _dao.cancel_permission_request(request_id=request_id, user_id=user_id)
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Request not found or not owned by you or not pending"
+        )
+
+    return {"success": True, "data": result}
+
+
+@router.get("/requests/pending-count")
+async def get_pending_requests_count(
+    _user: UserRequest = Depends(require_permission("system", "admin")),
+):
+    """管理员获取待审批申请数量"""
+    requests, total = _dao.list_permission_requests(status="pending", page_size=1000)
+    return {"success": True, "data": {"count": total}}

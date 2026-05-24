@@ -1,11 +1,11 @@
-"""User management API - list, get, update, and delete users."""
+"""User management API - list, get, update, delete and create users."""
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from derisk_app.feature_plugins.permissions.checker import require_admin, require_permission
 from derisk_app.feature_plugins.permissions.dao import PermissionDao
@@ -20,6 +20,15 @@ _dao = PermissionDao()
 _svc = PermissionService()
 
 
+class CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=50, description="Username")
+    password: str = Field(..., min_length=6, max_length=100, description="Password")
+    email: Optional[str] = Field(None, max_length=255, description="Email")
+    fullname: Optional[str] = Field(None, max_length=50, description="Full name")
+    role_ids: Optional[List[int]] = Field(None, description="List of role IDs to assign")
+    is_active: Optional[int] = Field(1, description="1=active, 0=disabled")
+
+
 class UpdateUserRequest(BaseModel):
     role: Optional[str] = None
     is_active: Optional[int] = None
@@ -28,6 +37,74 @@ class UpdateUserRequest(BaseModel):
 def _get_user_service():
     from derisk_app.auth.user_service import UserService
     return UserService()
+
+
+@router.post("")
+async def create_user(
+    body: CreateUserRequest,
+    current_user: UserRequest = Depends(require_admin()),
+):
+    """Create a new user by admin with optional role assignment.
+
+    Admin can create users and directly assign roles/permissions.
+    The user will be created with local authentication (username/password).
+    """
+    svc = _get_user_service()
+
+    # Create the user
+    user = svc.create_local_user(
+        username=body.username,
+        password=body.password,
+        email=body.email or "",
+        fullname=body.fullname or "",
+        rbac_default_role="guest",  # Use guest as base, then assign specific roles
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Username '{body.username}' already exists"
+        )
+
+    # Assign roles if provided
+    assigned_roles = []
+    if body.role_ids:
+        for role_id in body.role_ids:
+            role = _dao.get_role(role_id)
+            if role:
+                try:
+                    _dao.assign_role_to_user(user["id"], role_id)
+                    assigned_roles.append(role["name"])
+                except Exception as e:
+                    logger.warning(f"Failed to assign role {role_id} to user {user['id']}: {e}")
+
+    # Update is_active if specified and not 1
+    if body.is_active is not None and body.is_active != 1:
+        svc.update_user(user["id"], is_active=body.is_active)
+        user["is_active"] = body.is_active
+
+    # Get current user ID for logging
+    current_user_id = None
+    for raw in (current_user.user_no, current_user.user_id):
+        if raw is not None and raw != "":
+            try:
+                current_user_id = int(str(raw).strip())
+                break
+            except ValueError:
+                continue
+
+    logger.info(f"User {user['id']} ({user['name']}) created by admin {current_user_id} with roles: {assigned_roles}")
+
+    # Invalidate permission cache for new user
+    _svc.invalidate_cache(user["id"])
+
+    return JSONResponse(content={
+        "success": True,
+        "data": {
+            "user": user,
+            "assigned_roles": assigned_roles,
+        },
+    })
 
 
 @router.get("")

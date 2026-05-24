@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Space,
@@ -20,6 +22,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   TeamOutlined,
+  UserAddOutlined,
 } from '@ant-design/icons';
 import UserAvatar from '@/components/common/user-avatar';
 import { useTranslation } from 'react-i18next';
@@ -65,6 +68,9 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
   const [groupAssignSaving, setGroupAssignSaving] = useState(false);
   const [groupAssignUser, setGroupAssignUser] = useState<UnifiedUserRow | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
+  const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [createUserSaving, setCreateUserSaving] = useState(false);
+  const [createForm] = Form.useForm();
 
   const loadUsers = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -235,6 +241,34 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
     setGroupAssignUser(user);
     setSelectedGroupIds(getUserGroupIds(user.id));
     setGroupAssignOpen(true);
+  };
+
+  const handleCreateUser = async () => {
+    const values = await createForm.validateFields();
+    setCreateUserSaving(true);
+    try {
+      await usersService.createUser({
+        username: values.username,
+        password: values.password,
+        email: values.email,
+        fullname: values.fullname,
+        role_ids: values.role_ids,
+        is_active: values.is_active ? 1 : 0,
+      });
+      message.success(t('permissions_user_created'));
+      setCreateUserOpen(false);
+      createForm.resetFields();
+      loadUsers({ silent: true });
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: { detail?: string } } };
+      if (err.response?.status === 409) {
+        message.error(t('permissions_username_exists'));
+      } else {
+        message.error(t('permissions_create_user_error') + ': ' + (e as Error).message);
+      }
+    } finally {
+      setCreateUserSaving(false);
+    }
   };
 
   const handleSaveGroupAssign = async () => {
@@ -409,13 +443,24 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
             {t('permissions_user_management')}
           </Text>
         </Space>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={() => loadUsers({ silent: true })}
-          loading={loading}
-        >
-          {t('refresh')}
-        </Button>
+        <Space>
+          {currentUser?.role === 'admin' && (
+            <Button
+              type="primary"
+              icon={<UserAddOutlined />}
+              onClick={() => setCreateUserOpen(true)}
+            >
+              {t('permissions_create_user')}
+            </Button>
+          )}
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => loadUsers({ silent: true })}
+            loading={loading}
+          >
+            {t('refresh')}
+          </Button>
+        </Space>
       </div>
 
       <div className="mb-4 flex items-center gap-2">
@@ -505,6 +550,79 @@ export default function UserManagement({ roles: externalRoles }: UserManagementP
             <UserPermissionsPanel userId={selectedUser.id} />
           </div>
         ) : null}
+      </Modal>
+
+      {/* Create User Modal */}
+      <Modal
+        title={t('permissions_create_user')}
+        open={createUserOpen}
+        onOk={handleCreateUser}
+        onCancel={() => {
+          setCreateUserOpen(false);
+          createForm.resetFields();
+        }}
+        confirmLoading={createUserSaving}
+        destroyOnClose
+      >
+        <Form
+          form={createForm}
+          layout="vertical"
+          initialValues={{ is_active: true, role_ids: [] }}
+        >
+          <Form.Item
+            name="username"
+            label={t('permissions_username')}
+            rules={[
+              { required: true, message: t('permissions_name_required') },
+              { min: 2, message: t('permissions_username_min_length') },
+            ]}
+          >
+            <Input placeholder={t('permissions_username_placeholder')} />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label={t('permissions_password')}
+            rules={[
+              { required: true, message: t('permissions_name_required') },
+              { min: 6, message: t('permissions_password_min_length') },
+            ]}
+          >
+            <Input.Password placeholder={t('permissions_password_placeholder')} />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            label={t('permissions_email_optional')}
+          >
+            <Input placeholder={t('permissions_email_placeholder')} />
+          </Form.Item>
+          <Form.Item
+            name="fullname"
+            label={t('permissions_fullname_optional')}
+          >
+            <Input placeholder={t('permissions_fullname_placeholder')} />
+          </Form.Item>
+          <Form.Item
+            name="role_ids"
+            label={t('permissions_select_roles')}
+            extra={t('permissions_select_roles_hint')}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={allRoles.map((r) => ({ value: r.id, label: r.name }))}
+              placeholder={t('permissions_select_roles')}
+            />
+          </Form.Item>
+          <Form.Item
+            name="is_active"
+            label={t('permissions_status')}
+            valuePropName="checked"
+          >
+            <Switch checkedChildren={t('permissions_active')} unCheckedChildren={t('permissions_inactive')} />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

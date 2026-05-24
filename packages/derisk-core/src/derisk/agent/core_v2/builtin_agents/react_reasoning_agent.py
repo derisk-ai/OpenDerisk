@@ -777,6 +777,14 @@ class ReActReasoningAgent(BaseBuiltinAgent):
             if layer4_history:
                 system_prompt += f"\n\n## 历史对话记录\n\n{layer4_history}\n\n*注：以上为历史对话摘要。当前轮次的工具执行通过原生 Function Call 传递。*"
 
+            # 注入记忆上下文（来自 MemoryPipeline）
+            memory_context = getattr(self, "_memory_context", None)
+            if memory_context:
+                system_prompt += f"\n\n{memory_context}\n\n"
+                logger.info(
+                    f"[ReActReasoningAgent] 记忆上下文已注入 system prompt"
+                )
+
             # 构建消息列表
             from ..llm_adapter import LLMMessage
 

@@ -210,3 +210,41 @@ class ChatHistoryDao(BaseDao):
             except Exception as e:
                 logger.error(f"Error executing SQL query: {e}")
                 raise e
+
+
+class ChatHistoryMessageDao(BaseDao):
+    """Chat history message dao."""
+
+    def get_messages_by_conv_uid(self, conv_uid: str):
+        """Retrieve messages by conv_uid."""
+        import json
+        session = self.get_raw_session()
+        try:
+            messages = (
+                session.query(ChatHistoryMessageEntity)
+                .filter(ChatHistoryMessageEntity.conv_uid == conv_uid)
+                .order_by(ChatHistoryMessageEntity.index)
+                .all()
+            )
+            # 解析 message_detail JSON
+            result = []
+            for msg in messages:
+                msg_detail = None
+                if msg.message_detail:
+                    try:
+                        msg_detail = json.loads(msg.message_detail)
+                    except json.JSONDecodeError:
+                        msg_detail = None
+                # 创建一个包含解析后数据的对象
+                parsed_msg = type('ParsedMessage', (), {
+                    'conv_uid': msg.conv_uid,
+                    'index': msg.index,
+                    'round_index': msg.round_index,
+                    'message_detail': msg_detail,
+                    'gmt_created': msg.gmt_created,
+                    'gmt_modified': msg.gmt_modified,
+                })()
+                result.append(parsed_msg)
+            return result
+        finally:
+            session.close()

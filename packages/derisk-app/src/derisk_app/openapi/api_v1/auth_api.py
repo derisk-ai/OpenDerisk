@@ -115,6 +115,14 @@ def _is_auth_required() -> bool:
     return False
 
 
+def _require_approval_for_registration() -> bool:
+    """Check if new user registration requires admin approval."""
+    oauth_config = _get_oauth_config()
+    if oauth_config:
+        return oauth_config.get("require_approval", False)
+    return False
+
+
 @router.get("/oauth/status")
 async def oauth_status():
     """Return whether OAuth2 is enabled and available providers (for frontend).
@@ -271,6 +279,9 @@ async def oauth_callback(
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
+    # Log cookie details for debugging
+    host = request.headers.get("host", "")
+    logger.info(f"[local_login] Cookie set: derisk_session, host={host}, scheme={request.url.scheme}, secure={request.url.scheme == 'https'}")
     return response
 
 
@@ -335,6 +346,7 @@ async def local_login(request: Request, body: LocalLoginRequest):
         raise HTTPException(status_code=403, detail="Account is disabled")
 
     token = create_session_token(user)
+    logger.info(f"[local_login] Login successful for user: {body.username}, token created")
 
     response = JSONResponse(
         content={
@@ -356,12 +368,21 @@ async def local_login(request: Request, body: LocalLoginRequest):
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
+    # Log cookie details for debugging
+    host = request.headers.get("host", "")
+    logger.info(f"[local_login] Cookie set: derisk_session, host={host}, scheme={request.url.scheme}, secure={request.url.scheme == 'https'}")
     return response
 
 
 @router.post("/local/register")
 async def local_register(request: Request, body: LocalRegisterRequest):
-    """Register a new local user (password is base64-encoded by frontend)."""
+    """Register a new local user (password is base64-encoded by frontend).
+
+    If require_approval is enabled in OAuth config:
+    - User is created with is_active=0 (disabled)
+    - A permission request for account_activation is created
+    - User must wait for admin approval before logging in
+    """
     from derisk_app.auth.user_service import UserService
 
     password = _decode_password(body.password)
@@ -370,9 +391,12 @@ async def local_register(request: Request, body: LocalRegisterRequest):
     # Determine default RBAC role for new local users
     oauth_config = _get_oauth_config()
     rbac_default_role = "normal_user"
+    require_approval = False
     if oauth_config:
         rbac_default_role = oauth_config.get("default_role", "normal_user")
+        require_approval = oauth_config.get("require_approval", False)
 
+    # Create user (with is_active=0 if approval required)
     user = user_service.create_local_user(
         username=body.username,
         password=password,
@@ -385,7 +409,36 @@ async def local_register(request: Request, body: LocalRegisterRequest):
             status_code=400, detail="Username already exists or registration failed"
         )
 
-    # Auto-login after registration
+    # If approval required, disable account and create activation request
+    if require_approval:
+        # Disable account
+        user_service.update_user(user["id"], is_active=0)
+        user["is_active"] = 0
+
+        # Create account activation request
+        try:
+            from derisk_app.feature_plugins.permissions.dao import PermissionDao
+            permission_dao = PermissionDao()
+            permission_dao.create_permission_request(
+                user_id=user["id"],
+                request_type="account_activation",
+                reason=f"New user registration: {body.username}",
+            )
+            logger.info(f"Created activation request for new user {user['id']} ({body.username})")
+        except Exception as e:
+            logger.warning(f"Failed to create activation request: {e}")
+
+        # Return success but indicate approval pending
+        return JSONResponse(
+            content={
+                "success": True,
+                "user": user,
+                "requires_approval": True,
+                "message": "Registration successful. Your account is pending admin approval.",
+            }
+        )
+
+    # Auto-login after registration (when approval not required)
     token = create_session_token(user)
 
     response = JSONResponse(
@@ -398,6 +451,7 @@ async def local_register(request: Request, body: LocalRegisterRequest):
             "avatar_url": user.get("avatar", ""),
             "email": user.get("email", ""),
             "role": user.get("role", "normal"),
+            "requires_approval": False,
         }
     )
     response.set_cookie(
@@ -408,4 +462,7 @@ async def local_register(request: Request, body: LocalRegisterRequest):
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
+    # Log cookie details for debugging
+    host = request.headers.get("host", "")
+    logger.info(f"[local_login] Cookie set: derisk_session, host={host}, scheme={request.url.scheme}, secure={request.url.scheme == 'https'}")
     return response

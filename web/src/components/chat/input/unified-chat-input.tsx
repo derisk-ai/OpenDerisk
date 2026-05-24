@@ -1768,7 +1768,25 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
         sub_type: 'knowledge',
       });
     }
-    const currentChatInParams = [...chatInParams, ...dynamicResourceParams];
+
+    // Inject dynamically selected skills into chat_in_params
+    const skillParams: ChatInParamItem[] = (selectedSkills || []).map((skill: SelectedSkill) => ({
+      param_type: 'resource',
+      param_value: JSON.stringify(skill),
+      sub_type: 'skill(derisk)',
+    }));
+
+    // Inject dynamically selected MCPs into chat_in_params
+    const mcpParams: ChatInParamItem[] = (selectedMcps || []).map((mcp: any) => ({
+      param_type: 'resource',
+      param_value: JSON.stringify({
+        mcp_code: mcp.id || mcp.uuid || mcp.mcp_code || mcp.name,
+        name: mcp.name,
+      }),
+      sub_type: 'mcp(derisk)',
+    }));
+
+    const currentChatInParams = [...chatInParams, ...dynamicResourceParams, ...skillParams, ...mcpParams];
 
     setUserInput('');
     setResourceValue(null);

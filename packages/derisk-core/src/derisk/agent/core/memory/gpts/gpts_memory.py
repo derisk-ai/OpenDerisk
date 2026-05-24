@@ -911,13 +911,16 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         try:
             cache = await self._get_cache(conv_id)
             if not cache:
+                logger.warning(f"[vis_final] cache不存在 conv_id={conv_id}")
                 return None
             messages = await self.get_messages(conv_id)
+            logger.info(f"[vis_final] conv_id={conv_id}, messages数量={len(messages)}, start_round={cache.start_round}")
 
             messages = messages[cache.start_round :]
             messages = await self._merge_messages_async(messages)
             plans = cache.plans  # 直接使用 dict
             vis_convert = cache.vis_converter or DefaultVisConverter()
+            logger.info(f"[vis_final] vis_converter类型={type(vis_convert).__name__}, main_agent_name={cache.main_agent_name}")
             final_view = await vis_convert.final_view(
                 messages=messages,
                 plans_map=plans,
@@ -929,6 +932,7 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
                 input_message_id=cache.input_message_id,
                 output_message_id=cache.output_message_id,
             )
+            logger.info(f"[vis_final] final_view长度={len(final_view) if final_view else 0}, 内容前200字符={final_view[:200] if final_view else 'None'}")
             return final_view
         except Exception as e:
             logger.exception(f"vis_final exception!conv_id={conv_id}")

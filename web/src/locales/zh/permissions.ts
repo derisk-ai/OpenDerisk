@@ -247,4 +247,21 @@ export const PermissionsZh = {
   permissions_user_id: '用户 ID',
   permissions_select_roles: '选择角色',
   permissions_feature_coming_soon: '功能即将上线',
+
+  // Create User
+  permissions_create_user: '添加用户',
+  permissions_user_created: '用户创建成功',
+  permissions_create_user_error: '创建用户失败',
+  permissions_username: '用户名',
+  permissions_password: '密码',
+  permissions_email_optional: '邮箱（可选）',
+  permissions_fullname_optional: '全名（可选）',
+  permissions_select_roles_hint: '选择要分配的角色',
+  permissions_username_placeholder: '请输入用户名',
+  permissions_password_placeholder: '请输入密码',
+  permissions_email_placeholder: '请输入邮箱',
+  permissions_fullname_placeholder: '请输入全名',
+  permissions_username_min_length: '用户名至少2个字符',
+  permissions_password_min_length: '密码至少6个字符',
+  permissions_username_exists: '用户名已存在',
 };

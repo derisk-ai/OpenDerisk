@@ -157,6 +157,17 @@ export interface SecretsConfig {
   secrets: Record<string, SecretConfig>;
 }
 
+export interface MemoryStorageConfig {
+  type: string;
+  palace_path?: string;
+  enable_kg?: boolean;
+  default_wing?: string;
+  use_builtin_embedding?: boolean;
+  auto_memory?: boolean;
+  auto_memory_top_k?: number;
+  auto_memory_max_distance?: number;
+}
+
 export interface FeaturePluginEntry {
   enabled: boolean;
   settings: Record<string, unknown>;
@@ -229,6 +240,16 @@ class ConfigService {
 
   async updateDatasourceConfig(config: Partial<DatasourceConfig>): Promise<DatasourceConfig> {
     const response = await axios.post(`${API_BASE}/config/datasource`, config);
+    return response.data.data;
+  }
+
+  async getMemoryStorageConfig(): Promise<MemoryStorageConfig> {
+    const response = await axios.get(`${API_BASE}/config/rag/storage/memory`);
+    return response.data.data;
+  }
+
+  async updateMemoryStorageConfig(config: Partial<MemoryStorageConfig>): Promise<MemoryStorageConfig> {
+    const response = await axios.post(`${API_BASE}/config/rag/storage/memory`, config);
     return response.data.data;
   }
 

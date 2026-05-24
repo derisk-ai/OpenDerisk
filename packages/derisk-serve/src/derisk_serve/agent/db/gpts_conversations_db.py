@@ -105,7 +105,7 @@ class GptsConversationsDao(BaseDao):
         async with self.a_session(commit=False) as session:
             result = await session.execute(
                 select(GptsConversationsEntity).where(GptsConversationsEntity.conv_session_id == conv_session_id)
-                .order_by(desc(GptsConversationsEntity.id))
+                .order_by(GptsConversationsEntity.id.asc())
             )
             return list(result.scalars().all())
         # session = self.get_raw_session()

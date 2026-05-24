@@ -16,6 +16,20 @@ export interface User {
   gmt_modify: string | null;
 }
 
+export interface CreateUserParams {
+  username: string;
+  password: string;
+  email?: string;
+  fullname?: string;
+  role_ids?: number[];
+  is_active?: number;
+}
+
+export interface CreateUserResult {
+  user: User;
+  assigned_roles: string[];
+}
+
 export interface ListUsersResult {
   list: User[];
   total: number;
@@ -66,6 +80,11 @@ class UsersService {
 
   async deleteUser(id: number): Promise<void> {
     await axios.delete(`${API_BASE}/users/${id}`);
+  }
+
+  async createUser(params: CreateUserParams): Promise<CreateUserResult> {
+    const res = await axios.post(`${API_BASE}/users`, params);
+    return res.data.data as CreateUserResult;
   }
 }
 
