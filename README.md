@@ -220,3 +220,103 @@ Join our DingTalk group and share your experience with other developers!
 <div align="center" style="display: flex; gap: 20px;">
     <img src="assets/derisk-ai.jpg" alt="OpenDeRisk-AI Community" width="300" />
 </div>
+## FAQ
+
+### What is OpenDeRisk?
+
+OpenDeRisk is an **AI-Native Risk Intelligence System** designed as your application system's intelligent manager, providing 7×24 hour comprehensive and in-depth protection. It employs a multi-agent architecture for deep **DeepResearch RCA (Root Cause Analysis)**.
+
+### What are the key features?
+
+| Feature | Description |
+|---------|-------------|
+| **DeepResearch RCA** | Quickly locate root causes through in-depth analysis of logs, traces, and code |
+| **Visualized Evidence Chain** | Fully visualize diagnostic processes and evidence chains for clear, accurate judgment |
+| **Multi-Agent Collaboration** | SRE-Agent, Code-Agent, ReportAgent, Vis-Agent, and Data-Agent working in coordination |
+| **Open-Source Architecture** | Built with a completely open architecture, enabling framework and code reuse |
+
+### What agents are available?
+
+| Agent | Role |
+|-------|------|
+| **SRE-Agent** | Site Reliability Engineering analysis |
+| **Code-Agent** | Dynamic code analysis and final analysis |
+| **ReportAgent** | Generate comprehensive reports |
+| **Vis-Agent** | Visualize processing flow and evidence chain |
+| **Data-Agent** | Data processing and management |
+
+### What is the architecture?
+
+- **Data Layer** — Pull the large-scale OpenRCA dataset (20GB) from GitHub, decompress locally, and process for analysis
+- **Logic Layer** — Multi-agent architecture for deep DeepResearch RCA
+- **Visualization Layer** — Use Vis protocol to dynamically render processing flow, evidence chain, and multi-role collaboration
+
+### How to install OpenDeRisk?
+
+**Install via curl (recommended):**
+```shell
+curl -fsSL https://raw.githubusercontent.com/derisk-ai/OpenDerisk/main/install.sh | bash
+```
+
+**From source:**
+```shell
+git clone https://github.com/derisk-ai/OpenDerisk.git
+cd OpenDerisk
+uv sync --all-packages --frozen     --extra "base"     --extra "proxy_openai"     --extra "rag"     --extra "storage_chromadb"     --extra "derisks"
+```
+
+### How to start the server?
+
+**Quick Start (Zero Configuration):**
+```bash
+# Method 1: Use quickstart command
+uv run derisk quickstart
+
+# Method 2: Use startup script
+./start.sh
+
+# Method 3: Specify port
+uv run derisk quickstart -p 8888
+```
+
+After starting, visit http://localhost:7777 and configure models and settings through the web UI.
+
+### What configuration is needed?
+
+After installation, the default configuration file is at:
+`~/.openderisk/configs/derisk-proxy-aliyun.toml`
+
+Edit this file and set your API keys:
+```shell
+vi ~/.openderisk/configs/derisk-proxy-aliyun.toml
+```
+
+### What dataset does OpenDeRisk use?
+
+OpenDeRisk uses Microsoft's open-source **[OpenRCA dataset](https://github.com/microsoft/OpenRCA)**. The decompressed dataset is approximately 26GB. Download the Telecom dataset via:
+```shell
+gdown https://drive.google.com/uc?id=1cyOKpqyAP4fy-QiJ6a_cKuwR7D46zyVe
+```
+
+### What are the requirements?
+
+- **uv** — Python package manager (install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- **API keys** — Configure in config file
+- **OpenRCA dataset** — Download separately (20GB+)
+
+### Where can I find help?
+
+- **GitHub**: [derisk-ai/OpenDerisk](https://github.com/derisk-ai/OpenDerisk)
+- **Discord**: [Join](https://discord.com/invite/bgWkskhe)
+- **Video Tutorial**: [YouTube](https://www.youtube.com/watch?v=1qDIu-Jwdf0)
+- **Issues**: [GitHub Issues](https://github.com/derisk-ai/OpenDerisk/issues)
+
+### What languages are supported?
+
+- English (`README.md`)
+- 简体中文 (`README.zh.md`)
+- 日本語 (`README.ja.md`)
+
+### What is the license?
+
+MIT License — Open source with full code reuse.
