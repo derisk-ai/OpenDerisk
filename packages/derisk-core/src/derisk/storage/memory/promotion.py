@@ -58,11 +58,12 @@ class MemoryPromotionEngine:
 
     def __init__(
         self,
-        recall_tracker: Any,  # RecallTracker
+        recall_tracker: Any = None,  # RecallTracker, defaults to new instance
         promotion_threshold: float = 0.5,
         max_promotions_per_sweep: int = 10,
     ):
-        self._recall_tracker = recall_tracker
+        from derisk.storage.memory.recall_tracker import RecallTracker
+        self._recall_tracker = recall_tracker or RecallTracker()
         self._promotion_threshold = promotion_threshold
         self._max_promotions = max_promotions_per_sweep
 

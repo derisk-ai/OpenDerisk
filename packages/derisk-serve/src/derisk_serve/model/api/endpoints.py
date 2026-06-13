@@ -431,6 +431,41 @@ async def create_model(
     """
     try:
         await worker_manager.model_startup(request)
+        # If this is an embedding (text2vec) model, wire it into the RAG/memory
+        # subsystem: register in the EmbeddingModelRegistry (first one becomes
+        # the default), invalidate caches, and persist to derisk.json so it
+        # survives a restart. Best-effort: never fail the deploy on wiring error.
+        if request.worker_type == WorkerType.TEXT2VEC:
+            try:
+                from derisk_app.openapi.api_v1.config_api import (
+                    register_embedding_model,
+                )
+
+                params = request.params or {}
+                register_embedding_model(
+                    name=request.model,
+                    provider=params.get("provider", "proxy/openai"),
+                    api_key=params.get("api_key"),
+                    api_url=params.get("api_url"),
+                    backend=params.get("backend"),
+                    extra={
+                        k: v
+                        for k, v in params.items()
+                        if k
+                        not in (
+                            "name",
+                            "provider",
+                            "api_key",
+                            "api_url",
+                            "backend",
+                        )
+                    },
+                )
+            except Exception as wire_err:
+                logger.warning(
+                    f"Embedding model '{request.model}' deployed but wiring "
+                    f"into RAG/memory failed: {wire_err}"
+                )
         return Result.succ(True)
     except Exception as e:
         logger.error(f"model start failed {e}")

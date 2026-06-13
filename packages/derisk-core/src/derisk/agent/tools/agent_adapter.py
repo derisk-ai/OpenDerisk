@@ -275,8 +275,28 @@ class AgentToolAdapter:
 
             # 注入 available_skills 和 skill_dir（供 skill_list/Skill/skill_exec 工具使用）
             if hasattr(self._agent, "resource_map"):
+                import os
+
                 available_skills = {}
                 skill_dir = None
+
+                # 先确定技能根目录：优先沙箱 skill_dir，否则本地 DATA_DIR/skill。
+                # available_skills 的 value 会被技能工具直接当作技能目录使用，
+                # 因此必须是可定位的绝对/根目录拼接路径，而非仓库相对路径。
+                if hasattr(self._agent, "sandbox_manager") and self._agent.sandbox_manager:
+                    sb_client = getattr(self._agent.sandbox_manager, "client", None)
+                    if sb_client:
+                        skill_dir = getattr(sb_client, "skill_dir", None)
+
+                base_skill_dir = skill_dir
+                if not base_skill_dir:
+                    try:
+                        from derisk.configs.model_config import DATA_DIR
+
+                        base_skill_dir = os.path.join(DATA_DIR, "skill")
+                    except Exception:
+                        base_skill_dir = None
+
                 resource_map = self._agent.resource_map or {}
                 for key, value_list in resource_map.items():
                     if not value_list:
@@ -292,19 +312,21 @@ class AgentToolAdapter:
                                         or ""
                                     )
                                     if not skill_code and hasattr(meta, "path") and meta.path:
-                                        import os
                                         skill_code = os.path.basename(meta.path)
                                     if skill_code:
-                                        skill_path = meta.path or skill_code
-                                        available_skills[meta.name] = skill_path
+                                        if base_skill_dir:
+                                            skill_path = os.path.join(
+                                                base_skill_dir, skill_code
+                                            )
+                                        else:
+                                            skill_path = meta.path or skill_code
+                                        # 同时以 name 与 skill_code 为键，
+                                        # 模型用任一标识都能命中目录。
+                                        if meta.name:
+                                            available_skills[meta.name] = skill_path
+                                        available_skills[skill_code] = skill_path
                             except Exception:
                                 pass
-
-                # 从 sandbox_manager 获取 skill_dir
-                if hasattr(self._agent, "sandbox_manager") and self._agent.sandbox_manager:
-                    sb_client = getattr(self._agent.sandbox_manager, "client", None)
-                    if sb_client:
-                        skill_dir = getattr(sb_client, "skill_dir", None)
 
                 if available_skills:
                     context.setdefault("available_skills", available_skills)

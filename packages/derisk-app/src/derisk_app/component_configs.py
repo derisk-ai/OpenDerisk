@@ -49,8 +49,11 @@ def initialize_components(
     system_app.register(StorageManager)
 
     system_app.register_instance(multi_agents)
-    if default_embedding_name:
-        _initialize_embedding_model(system_app, default_embedding_name)
+    # Always register the embedding factory (even with no default model yet) so
+    # that embedding models added later at runtime are immediately usable by the
+    # RAG / memory subsystems without restarting. The factory resolves its
+    # default model dynamically from the EmbeddingModelRegistry at call time.
+    _initialize_embedding_model(system_app, default_embedding_name)
     if default_rerank_name:
         _initialize_rerank_model(system_app, default_rerank_name)
     _initialize_model_cache(system_app, web_config)

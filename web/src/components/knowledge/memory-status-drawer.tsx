@@ -1,13 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tabs, Input, Button, Table, Empty, Spin, Tag, message } from 'antd';
-import { SearchOutlined, SendOutlined, BarChartOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { SearchOutlined, SendOutlined, BarChartOutlined } from '@ant-design/icons';
 import {
   apiInterceptors,
   getMemoryStatus,
   getMemoryWings,
   searchMemory,
-  queryKG,
   addMemory,
 } from '@/client/api';
 
@@ -18,7 +17,17 @@ interface MemoryStatusDrawerProps {
   spaceName: string;
 }
 
-type TabKey = 'overview' | 'search' | 'kg' | 'write';
+type TabKey = 'overview' | 'search' | 'write';
+
+// The /wings endpoint may return either a list ([{name,count}]) or a
+// record ({wing: count}); normalise both into [name, count] pairs.
+function normalizeWings(data: any): Array<[string, number]> {
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    return data.map((w) => [w?.name ?? '', Number(w?.count ?? 0)]);
+  }
+  return Object.entries(data).map(([k, v]) => [k, Number(v)]);
+}
 
 export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
   const { knowledgeId, spaceName } = props;
@@ -27,18 +36,13 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
 
   // Overview state
   const [statusData, setStatusData] = useState<Record<string, any> | null>(null);
-  const [wingsData, setWingsData] = useState<Record<string, number> | null>(null);
+  const [wingsData, setWingsData] = useState<any>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; content: string; wing: string; room: string; score: number; created_at: string }>>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-
-  // KG state
-  const [kgEntity, setKgEntity] = useState('');
-  const [kgResults, setKgResults] = useState<Array<{ subject: string; predicate: string; object: string; confidence?: number }>>([]);
-  const [kgLoading, setKgLoading] = useState(false);
 
   // Write state
   const [writeContent, setWriteContent] = useState('');
@@ -55,6 +59,13 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
     setLoadingStatus(false);
   };
 
+  // Auto-load the overview when the drawer mounts (it is re-created on each
+  // open via destroyOnHidden, so this fires every time it is shown).
+  useEffect(() => {
+    loadStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [knowledgeId]);
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearchLoading(true);
@@ -65,16 +76,6 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
     if (!err) setSearchResults(data || []);
   };
 
-  const handleKgQuery = async () => {
-    if (!kgEntity.trim()) return;
-    setKgLoading(true);
-    const [err, data] = await apiInterceptors(
-      queryKG(knowledgeId, { entity: kgEntity }),
-    );
-    setKgLoading(false);
-    if (!err) setKgResults(data || []);
-  };
-
   const handleWrite = async () => {
     if (!writeContent.trim()) return;
     setWriteLoading(true);
@@ -83,7 +84,7 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
     );
     setWriteLoading(false);
     if (!err && data) {
-      message.success('Memory written successfully');
+      message.success(t('Memory_Write_Success'));
       setWriteContent('');
       loadStatus();
     }
@@ -128,33 +129,7 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
     },
   ];
 
-  const kgColumns = [
-    {
-      title: t('Subject'),
-      dataIndex: 'subject',
-      key: 'subject',
-      width: 150,
-    },
-    {
-      title: t('Predicate'),
-      dataIndex: 'predicate',
-      key: 'predicate',
-      width: 120,
-    },
-    {
-      title: t('Object'),
-      dataIndex: 'object',
-      key: 'object',
-      width: 150,
-    },
-    {
-      title: t('Confidence'),
-      dataIndex: 'confidence',
-      key: 'confidence',
-      width: 100,
-      render: (c?: number) => c ? <span className="font-mono">{c.toFixed(2)}</span> : '-',
-    },
-  ];
+  const wingPairs = normalizeWings(wingsData);
 
   const tabItems = [
     {
@@ -173,17 +148,17 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
                 value={statusData?.total_entries ?? '-'}
               />
               <StatCard
-                label={t('KG_Triples')}
-                value={statusData?.kg_triples ?? '-'}
+                label={t('Wings')}
+                value={wingPairs.length || '-'}
               />
             </div>
-            {wingsData && Object.keys(wingsData).length > 0 && (
+            {wingPairs.length > 0 && (
               <div className="mt-4">
                 <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
                   {t('Wings')}
                 </h4>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(wingsData).map(([wing, count]) => (
+                  {wingPairs.map(([wing, count]) => (
                     <Tag key={wing} color="blue" className="px-3 py-1 text-sm">
                       {wing}: {count}
                     </Tag>
@@ -191,8 +166,8 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
                 </div>
               </div>
             )}
-            {(!statusData || Object.keys(statusData).length === 0) && !loadingStatus && (
-              <Empty description={t('Memory_Store_Not_Ready')} />
+            {(statusData?.total_entries ?? 0) === 0 && !loadingStatus && (
+              <Empty description={t('Memory_Store_Empty')} />
             )}
           </Spin>
         </div>
@@ -231,43 +206,6 @@ export default function MemoryStatusDrawer(props: MemoryStatusDrawerProps) {
               />
             ) : (
               <Empty description={searchQuery ? t('No_Memory_Found') : ''} />
-            )}
-          </Spin>
-        </div>
-      ),
-    },
-    {
-      key: 'kg',
-      label: (
-        <span className="flex items-center gap-1">
-          <DatabaseOutlined /> {t('KG_Query')}
-        </span>
-      ),
-      children: (
-        <div className="space-y-4">
-          <div className="flex gap-2">
-            <Input
-              placeholder={t('Search_KG_Entity')}
-              value={kgEntity}
-              onChange={(e) => setKgEntity(e.target.value)}
-              onPressEnter={handleKgQuery}
-              className="flex-1"
-            />
-            <Button type="primary" onClick={handleKgQuery} loading={kgLoading}>
-              {t('Search')}
-            </Button>
-          </div>
-          <Spin spinning={kgLoading}>
-            {kgResults.length > 0 ? (
-              <Table
-                columns={kgColumns}
-                dataSource={kgResults}
-                rowKey={(r) => `${r.subject}-${r.predicate}-${r.object}`}
-                pagination={false}
-                size="small"
-              />
-            ) : (
-              <Empty description={kgEntity ? t('No_KG_Data_Found') : ''} />
             )}
           </Spin>
         </div>

@@ -235,6 +235,76 @@ def save_config_with_error_handling(manager, config_name: str = "配置") -> boo
         return False
 
 
+def _invalidate_embedding_caches() -> None:
+    """Clear vector/memory store caches so a newly added embedding model is
+    picked up immediately by subsequently created knowledge spaces / memory."""
+    try:
+        from derisk.component import SystemApp
+        from derisk_serve.rag.storage_manager import StorageManager
+
+        system_app = SystemApp.get_instance()
+        if not system_app:
+            return
+        storage_manager = system_app.get_component(
+            "derisk_rag_storage_manager", StorageManager, default_component=None
+        )
+        if storage_manager and hasattr(storage_manager, "invalidate_embedding_cache"):
+            storage_manager.invalidate_embedding_cache()
+    except Exception as e:  # pragma: no cover - best-effort cache flush
+        logger.warning(f"Failed to invalidate embedding caches: {e}")
+
+
+def register_embedding_model(
+    name: str,
+    provider: str,
+    *,
+    api_key: Optional[str] = None,
+    api_url: Optional[str] = None,
+    backend: Optional[str] = None,
+    extra: Optional[Dict[str, Any]] = None,
+    persist: bool = True,
+) -> None:
+    """Wire up an embedding model that was just deployed at runtime.
+
+    1. Register it in the process-wide EmbeddingModelRegistry (first added
+       becomes the default; later ones do not steal the default).
+    2. Invalidate RAG/memory store caches so it is usable immediately.
+    3. Persist it to derisk.json so it survives a restart.
+    """
+    from derisk_app.initialization.embedding_component import get_embedding_registry
+
+    registry = get_embedding_registry()
+    registry.add(name)
+
+    _invalidate_embedding_caches()
+
+    if not persist:
+        return
+
+    try:
+        from derisk_core.config.schema import EmbeddingModelConfig
+
+        manager = get_config_manager()
+        config = manager.get()
+        existing = {e.name for e in (config.embeddings or [])}
+        if name not in existing:
+            config.embeddings.append(
+                EmbeddingModelConfig(
+                    name=name,
+                    provider=provider,
+                    api_key=api_key,
+                    api_url=api_url,
+                    backend=backend,
+                    extra=extra or {},
+                )
+            )
+        if not config.default_embedding:
+            config.default_embedding = registry.get_default()
+        save_config_with_error_handling(manager, "向量模型配置")
+    except Exception as e:
+        logger.warning(f"Failed to persist embedding model '{name}' to config: {e}")
+
+
 @router.get("/current")
 async def get_current_config():
     try:
@@ -615,6 +685,78 @@ async def get_cached_models(
                 },
             }
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SetDefaultEmbeddingRequest(BaseModel):
+    name: str
+
+
+@router.get("/embeddings")
+async def list_embedding_models(
+    user: UserRequest = Depends(require_permission("model", "read")),
+):
+    """列出当前可用的向量（embedding）模型及默认模型（需要 model:read 权限）。
+
+    数据来自运行时的 EmbeddingModelRegistry（含启动时与运行时新增的模型）。
+    """
+    try:
+        from derisk_app.initialization.embedding_component import (
+            get_embedding_registry,
+        )
+
+        registry = get_embedding_registry()
+        return JSONResponse(
+            content={
+                "success": True,
+                "data": {
+                    "models": registry.list(),
+                    "default": registry.get_default(),
+                },
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/embeddings/default")
+async def set_default_embedding_model(
+    request: SetDefaultEmbeddingRequest,
+    user: UserRequest = Depends(require_permission("model", "manage")),
+):
+    """设置默认向量模型（需要 model:manage 权限）。
+
+    更新运行时 registry 并持久化到 derisk.json，同时使 RAG/记忆缓存失效。
+    """
+    try:
+        from derisk_app.initialization.embedding_component import (
+            get_embedding_registry,
+        )
+
+        registry = get_embedding_registry()
+        if not registry.set_default(request.name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知的向量模型 '{request.name}'，请先在模型管理页添加。",
+            )
+
+        _invalidate_embedding_caches()
+
+        # 持久化默认选择
+        try:
+            manager = get_config_manager()
+            config = manager.get()
+            config.default_embedding = request.name
+            save_config_with_error_handling(manager, "默认向量模型")
+        except Exception as e:
+            logger.warning(f"Failed to persist default embedding: {e}")
+
+        return JSONResponse(
+            content={"success": True, "default": request.name}
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

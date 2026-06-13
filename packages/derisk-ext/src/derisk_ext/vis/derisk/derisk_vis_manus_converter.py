@@ -139,6 +139,13 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         # consumed by _process_gpt_message matching by action_name (FIFO)
         self._pending_planning_uids: List[tuple] = []
         self._agent_name: Optional[str] = None
+        # Last non-empty (active_step, outputs) seen during this conversation.
+        # The right-panel build is otherwise stateless, so a streaming push that
+        # carries no step (e.g. a "thinking" chunk between tool_start/tool_result)
+        # would yield active_step=None and blank the panel mid-execution. We reuse
+        # the last good step to keep the panel showing the running step.
+        self._last_active_step: Optional[ManusActiveStepInfo] = None
+        self._last_outputs: List[ManusExecutionOutput] = []
 
     @property
     def web_use(self) -> bool:
@@ -1297,6 +1304,16 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 if step_info:
                     active_step_info = step_info
                     current_outputs = outputs
+
+            # 运行中兜底：core_v2 流式期间 messages 尚无已完成步骤的 action_report，
+            # 且 thinking 类 push 不携带 step，会导致 active_step=None 使右面板瞬间变白。
+            # 复用本会话最近一次有效步骤，保持"正在执行的那一步"持续展示。
+            if active_step_info:
+                self._last_active_step = active_step_info
+                self._last_outputs = current_outputs
+            elif is_working and self._last_active_step:
+                active_step_info = self._last_active_step
+                current_outputs = self._last_outputs
 
             right_panel = ManusRightPanelData(
                 active_step=active_step_info,

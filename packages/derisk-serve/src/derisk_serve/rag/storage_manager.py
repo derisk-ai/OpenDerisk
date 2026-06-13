@@ -37,6 +37,20 @@ class StorageManager(BaseComponent):
         """Init component."""
         self.system_app = system_app
 
+    def invalidate_embedding_cache(self):
+        """Drop cached vector/memory stores.
+
+        Called when the set of embedding models or the default embedding model
+        changes at runtime, so subsequently created knowledge spaces / memory
+        stores pick up the new embedding model instead of a stale cached store.
+        """
+        with self._cache_lock:
+            count = len(self._store_cache)
+            self._store_cache.clear()
+        logger.info(
+            f"Embedding-related store cache invalidated ({count} entries cleared)."
+        )
+
     def storage_config(self):
         """Storage config."""
         app_config = self.system_app.config.configs.get("app_config")
@@ -93,9 +107,11 @@ class StorageManager(BaseComponent):
             )
             embedding_fn = embedding_factory.create()
         except ValueError as e:
-            logger.warning(
-                f"Embedding factory not configured: {e}. Vector store will not be available. "
-                "To enable vector store, configure default_embedding in your config."
+            logger.error(
+                f"No embedding model available for vector store: {e}. "
+                "Vector store will NOT be available. Add a text2vec (embedding) "
+                "model on the model management page (/models), or configure "
+                "[[models.embeddings]] in your config file."
             )
             return None
 
@@ -241,9 +257,11 @@ class StorageManager(BaseComponent):
             else:
                 embedding_fn = embedding_factory.create()
         except (ValueError, Exception) as e:
-            logger.info(
-                f"No embedding factory available for memory store: {e}. "
-                "The provider will use its built-in embedding model."
+            logger.error(
+                f"No embedding model available for memory store: {e}. "
+                "Add a text2vec (embedding) model on the model management page "
+                "(/models), or configure [[models.embeddings]] in your config "
+                "file. The memory store may fail without a configured model."
             )
 
         store = config_instance.create_store(

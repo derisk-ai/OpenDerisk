@@ -377,6 +377,78 @@ def _sync_app_config_to_system_app():
         logger.warning(f"Failed to sync app config to system_app: {e}")
 
 
+def _sync_persisted_embeddings_to_param(param):
+    """Inject embedding models persisted in derisk.json into ``param.models``.
+
+    This must run BEFORE ``initialize_components`` (which registers the
+    embedding factory and seeds the default) and BEFORE
+    ``initialize_worker_manager_in_client`` (which deploys
+    ``param.models.embeddings`` as local workers). By populating
+    ``param.models.embeddings`` / ``param.models.default_embedding`` here, the
+    existing startup deploy + factory-registration paths transparently make
+    page-added embedding models available again after a restart — no separate
+    replay hook needed.
+    """
+    try:
+        from derisk_core.config import ConfigManager
+        from derisk.util.configure import ConfigurationManager
+        from derisk.core.interface.parameter import EmbeddingDeployModelParameters
+        from derisk_app.initialization.embedding_component import (
+            get_embedding_registry,
+        )
+
+        cfg = ConfigManager.get()
+        persisted = getattr(cfg, "embeddings", None) or []
+        if not persisted:
+            return
+
+        registry = get_embedding_registry()
+        existing_names = {e.name for e in param.models.embeddings}
+
+        for emb in persisted:
+            try:
+                params = {
+                    "name": emb.name,
+                    "provider": emb.provider,
+                }
+                if emb.api_key:
+                    params["api_key"] = emb.api_key
+                if emb.api_url:
+                    params["api_url"] = emb.api_url
+                if emb.backend:
+                    params["backend"] = emb.backend
+                if getattr(emb, "extra", None):
+                    params.update(emb.extra)
+
+                # Resolve the right provider-specific subclass exactly the way
+                # worker_manager.model_startup does at runtime.
+                deploy_params = ConfigurationManager(params).parse_config(
+                    EmbeddingDeployModelParameters
+                )
+                if emb.name not in existing_names:
+                    param.models.embeddings.append(deploy_params)
+                    existing_names.add(emb.name)
+                registry.add(emb.name)
+            except Exception as one_err:
+                logger.warning(
+                    f"Failed to restore persisted embedding '{emb.name}': {one_err}"
+                )
+
+        # Honour the persisted default; else first-added wins.
+        default_name = getattr(cfg, "default_embedding", None) or registry.get_default()
+        if default_name:
+            registry.set_default(default_name)
+            if not param.models.default_embedding:
+                param.models.default_embedding = default_name
+
+        logger.info(
+            f"Restored {len(param.models.embeddings)} persisted embedding model(s); "
+            f"default='{param.models.default_embedding}'"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync persisted embeddings: {e}")
+
+
 def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp):
     """Initialize app
     If you use gunicorn as a process manager, initialize_app can be invoke in
@@ -408,6 +480,10 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     _sync_feature_plugins_from_db()
 
     _sync_app_config_to_system_app()
+
+    # Restore page-added embedding models persisted in derisk.json into param
+    # so the existing startup deploy + factory-registration paths pick them up.
+    _sync_persisted_embeddings_to_param(param)
 
     from derisk_app.component_configs import initialize_components
 

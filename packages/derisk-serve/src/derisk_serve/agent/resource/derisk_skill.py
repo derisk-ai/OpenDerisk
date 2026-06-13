@@ -67,12 +67,21 @@ def _load_skills_from_db() -> List[Dict[str, Any]]:
 
                     for skill in query_result.items:
                         if skill.available is not False:
+                            # Resolve the real on-disk skill directory so the
+                            # prompt / resource-picker carry a usable path,
+                            # not the repo-relative path stored historically.
+                            try:
+                                resolved_path = service.get_skill_directory(
+                                    skill.skill_code
+                                )
+                            except Exception:
+                                resolved_path = skill.path or skill.skill_code
                             skills.append(
                                 {
                                     "name": skill.name,
                                     "skill_code": skill.skill_code,
                                     "description": skill.description,
-                                    "path": skill.path or skill.skill_code,
+                                    "path": resolved_path or skill.skill_code,
                                     "owner": skill.author or "database",
                                     "branch": skill.branch or "main",
                                 }

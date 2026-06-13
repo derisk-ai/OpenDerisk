@@ -125,6 +125,14 @@ class MemPalaceMemoryStore(MemoryStoreBase):
         self._config = config
         self._name = name
         self._palace_path = os.path.expanduser(config.palace_path)
+        # Per-space isolation: each memory space (knowledge_id) lives in its
+        # own subdirectory so that counts, wings and the unified Chroma
+        # collection never collide across spaces.
+        if name:
+            self._palace_path = os.path.join(
+                self._palace_path, name.replace("/", "_")
+            )
+        os.makedirs(self._palace_path, exist_ok=True)
         self._default_wing = config.default_wing or "default"
         self._enable_kg = config.enable_kg
 
@@ -153,12 +161,24 @@ class MemPalaceMemoryStore(MemoryStoreBase):
         self._chroma_collection = None  # Only used in unified mode
 
     def _get_palace(self):
-        """Lazy-initialize the Palace instance."""
-        if self._palace is None:
-            from mempalace.palace import Palace
+        """Builtin-mode backend — NOT available in mempalace>=3.3.
 
-            self._palace = Palace(path=self._palace_path)
-        return self._palace
+        mempalace 3.3 removed the ``Palace`` class in favour of a
+        function-based API. The store therefore only supports *unified*
+        mode (an OpenDerisk ``embedding_fn`` is provided and writes/reads
+        go through our own Chroma collection). If we reach here it means the
+        store was built in builtin mode (no embedding model configured),
+        which is unsupported — fail loudly and actionably instead of raising
+        an opaque ImportError deep in a write path.
+        """
+        raise RuntimeError(
+            "MemPalace builtin embedding mode is not supported with "
+            "mempalace>=3.3. Configure an embedding model "
+            "([[models.embeddings]] in your server config) so the memory "
+            "store runs in unified mode, or set "
+            "[rag.storage.memory] use_builtin_embedding=false and provide "
+            "an embedding_factory."
+        )
 
     def _get_kg(self):
         """Lazy-initialize the KnowledgeGraph instance."""
@@ -372,12 +392,18 @@ class MemPalaceMemoryStore(MemoryStoreBase):
 
     def delete_by_ids(self, ids: str) -> List[str]:
         """Delete drawers by comma-separated ids."""
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        if self._use_derisk_embedding:
+            try:
+                collection = self._get_chroma_collection()
+                collection.delete(ids=id_list)
+                return id_list
+            except Exception as e:
+                logger.warning(f"delete_by_ids failed: {e}")
+                return []
         palace = self._get_palace()
         deleted = []
-        for drawer_id in ids.split(","):
-            drawer_id = drawer_id.strip()
-            if not drawer_id:
-                continue
+        for drawer_id in id_list:
             try:
                 palace.delete_drawer(drawer_id=drawer_id)
                 deleted.append(drawer_id)
@@ -474,6 +500,14 @@ class MemPalaceMemoryStore(MemoryStoreBase):
         return entries
 
     def delete_memory(self, memory_id: str) -> bool:
+        if self._use_derisk_embedding:
+            try:
+                collection = self._get_chroma_collection()
+                collection.delete(ids=[memory_id])
+                return True
+            except Exception as e:
+                logger.warning(f"delete_memory failed: {e}")
+                return False
         palace = self._get_palace()
         try:
             palace.delete_drawer(drawer_id=memory_id)
@@ -555,43 +589,62 @@ class MemPalaceMemoryStore(MemoryStoreBase):
         return {"files_processed": 0, "entries_created": 0}
 
     def list_wings(self) -> List[Dict[str, Any]]:
-        palace = self._get_palace()
-        try:
-            result = palace.list_wings()
-            if isinstance(result, list):
-                return result
-            # Normalize if result is a dict with wing info
-            wings = result.get("wings", [])
-            return [
-                {"name": w.get("name", ""), "count": w.get("drawer_count", 0)}
-                for w in wings
-            ]
-        except Exception as e:
-            logger.warning(f"list_wings failed: {e}")
-            return []
+        # Unified mode: aggregate from the Chroma collection metadatas. The
+        # mempalace Palace API is not available in mempalace>=3.3, so we read
+        # from the same backend that write/search use.
+        if self._use_derisk_embedding:
+            try:
+                collection = self._get_chroma_collection()
+                data = collection.get(include=["metadatas"])
+                counts: Dict[str, int] = {}
+                for m in (data.get("metadatas") or []):
+                    w = (m or {}).get("wing", self._default_wing)
+                    counts[w] = counts.get(w, 0) + 1
+                return [{"name": k, "count": v} for k, v in counts.items()]
+            except Exception as e:
+                logger.warning(f"list_wings failed: {e}")
+                return []
+        return []
 
     def list_rooms(self, wing: str) -> List[Dict[str, Any]]:
-        palace = self._get_palace()
-        try:
-            result = palace.list_rooms(wing=wing)
-            if isinstance(result, list):
-                return result
-            rooms = result.get("rooms", [])
-            return [
-                {"name": r.get("name", ""), "count": r.get("drawer_count", 0)}
-                for r in rooms
-            ]
-        except Exception as e:
-            logger.warning(f"list_rooms failed: {e}")
-            return []
+        if self._use_derisk_embedding:
+            try:
+                collection = self._get_chroma_collection()
+                data = collection.get(
+                    where={"wing": wing}, include=["metadatas"]
+                )
+                counts: Dict[str, int] = {}
+                for m in (data.get("metadatas") or []):
+                    r = (m or {}).get("room", "general")
+                    counts[r] = counts.get(r, 0) + 1
+                return [{"name": k, "count": v} for k, v in counts.items()]
+            except Exception as e:
+                logger.warning(f"list_rooms failed: {e}")
+                return []
+        return []
 
     def get_status(self) -> Dict[str, Any]:
-        palace = self._get_palace()
+        # Read the count from the backend that actually stores the data. In
+        # unified mode (default) this is our own Chroma collection.
         try:
-            status = palace.status()
-            if isinstance(status, dict):
-                return status
-            return {"total_entries": 0}
+            if self._use_derisk_embedding:
+                collection = self._get_chroma_collection()
+                return {
+                    "total_entries": collection.count(),
+                    "kg_triples": 0,
+                    "provider": "mempalace-unified",
+                    "palace_path": self._palace_path,
+                }
+            # Builtin mode: use the mempalace function-based API.
+            from mempalace.palace import get_collection
+
+            collection = get_collection(self._palace_path, create=False)
+            return {
+                "total_entries": collection.count(),
+                "kg_triples": 0,
+                "provider": "mempalace",
+                "palace_path": self._palace_path,
+            }
         except Exception as e:
             logger.warning(f"get_status failed: {e}")
             return {"total_entries": 0, "error": str(e)}

@@ -1500,6 +1500,7 @@ dependencies = [
     { name = "derisk-client" },
     { name = "derisk-ext" },
     { name = "derisk-serve" },
+    { name = "mempalace" },
     { name = "pyparsing" },
 ]
 
@@ -1513,9 +1514,6 @@ cache = [
 derisks = [
     { name = "build" },
     { name = "poetry" },
-]
-memory = [
-    { name = "mempalace" },
 ]
 observability = [
     { name = "opentelemetry-api" },
@@ -1534,7 +1532,7 @@ requires-dist = [
     { name = "derisk-client", editable = "packages/derisk-client" },
     { name = "derisk-ext", editable = "packages/derisk-ext" },
     { name = "derisk-serve", editable = "packages/derisk-serve" },
-    { name = "mempalace", marker = "extra == 'memory'", specifier = ">=3.3.0" },
+    { name = "mempalace", specifier = ">=3.3.0" },
     { name = "opentelemetry-api", marker = "extra == 'observability'" },
     { name = "opentelemetry-exporter-otlp", marker = "extra == 'observability'" },
     { name = "opentelemetry-sdk", marker = "extra == 'observability'" },
@@ -1542,7 +1540,7 @@ requires-dist = [
     { name = "pyparsing" },
     { name = "rocksdict", marker = "extra == 'cache'" },
 ]
-provides-extras = ["cache", "memory", "observability", "base", "derisks"]
+provides-extras = ["cache", "observability", "base", "derisks"]
 
 [package.metadata.requires-dev]
 dev = []

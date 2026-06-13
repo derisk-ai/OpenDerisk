@@ -37,6 +37,24 @@ logger = logging.getLogger(__name__)
 _background_tasks: Dict[str, threading.Thread] = {}
 
 
+def normalize_skill_name(name: str) -> str:
+    """Normalize a skill name into the canonical skill_code / directory name.
+
+    The canonical identifier is the lowercase, hyphen-normalized skill name with
+    no random/repo suffix. It is used consistently as the DB ``skill_code`` (primary
+    key), the project skill directory name, the sandbox directory name, the agent
+    binding key, and the tool lookup key.
+
+    Examples:
+        "DOCX" -> "docx"
+        "Open RCA Diagnosis" -> "open-rca-diagnosis"
+        "" / None -> "unnamed"
+    """
+    name = (name or "unnamed").lower()
+    name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
+    return name or "unnamed"
+
+
 class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
     """The service class for Skill"""
 
@@ -329,8 +347,10 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     with open(skill_md_path, "r", encoding="utf-8") as f:
                         content = f.read()
 
-                    # Get relative path for storage
-                    rel_path = os.path.relpath(skill_path, repo_path)
+                    # Store the on-disk directory name (== skill_code) so that
+                    # get_skill_directory can resolve to {project_skill_dir}/{path}.
+                    # NOT the repo-relative path (e.g. "skills/docx"), which does
+                    # not exist on the local filesystem.
 
                     # Build skill request
                     # Preserve existing auto_sync setting if skill already exists
@@ -344,7 +364,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         author=skill_meta.get("author"),
                         email=skill_meta.get("email"),
                         version=skill_meta.get("version"),
-                        path=rel_path,
+                        path=skill_code,
                         content=content,
                         icon=skill_meta.get("icon"),
                         category=skill_meta.get("category"),
@@ -561,11 +581,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             str: Skill code (same skill name will have the same code)
         """
-        # Use name as base, convert to lowercase and replace special chars
-        name = skill_meta.get("name", "unnamed").lower()
-        name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
-
-        return name
+        return normalize_skill_name(skill_meta.get("name", "unnamed"))
 
     def _copy_skill_to_project(
         self, skill_path: str, skill_name: str, project_dir: str, skill_code: str
@@ -711,7 +727,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 author=skill_meta.get("author"),
                 email=skill_meta.get("email"),
                 version=skill_meta.get("version"),
-                path=skill_name,
+                path=skill_code,
                 content=content,
                 icon=skill_meta.get("icon"),
                 category=skill_meta.get("category"),
@@ -799,7 +815,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
             author=skill_meta.get("author"),
             email=skill_meta.get("email"),
             version=skill_meta.get("version"),
-            path=skill_name,
+            path=skill_code,
             content=content,
             icon=skill_meta.get("icon"),
             category=skill_meta.get("category"),
@@ -870,47 +886,117 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         Returns:
             str: Skill code (same skill name will have the same code)
         """
-        name = skill_meta.get("name", "unnamed").lower()
-        name = re.sub(r"[^a-z0-9-]", "-", name).strip("-")
+        return normalize_skill_name(skill_meta.get("name", "unnamed"))
 
-        return name
+    def get_skill_by_code(self, skill_code: str) -> Optional[SkillResponse]:
+        """Resolve a skill row from a code/name, tolerating legacy variants.
+
+        Resolution order: exact skill_code -> normalized name -> name match ->
+        legacy name-prefix scan. Used by agent binding and directory resolution.
+
+        Args:
+            skill_code (str): The skill code, raw name, or legacy suffixed code.
+
+        Returns:
+            Optional[SkillResponse]: The matched skill, or None.
+        """
+        # 1. Exact code
+        skill = self.get_by_skill_code(skill_code)
+        if skill:
+            return skill
+
+        # 2. Normalized canonical code
+        canonical = normalize_skill_name(skill_code)
+        if canonical != skill_code:
+            skill = self.get_by_skill_code(canonical)
+            if skill:
+                return skill
+
+        # 3. Name match
+        try:
+            by_name = self.dao.get_one({"name": skill_code})
+            if by_name:
+                return by_name
+        except Exception as e:
+            logger.debug(f"get_skill_by_code name lookup failed for '{skill_code}': {e}")
+
+        # 4. Legacy name-prefix scan (e.g. 'docx' -> 'docx-ea97e2f9')
+        legacy = self._find_skill_by_name_prefix(skill_code)
+        if legacy:
+            return legacy
+
+        # 5. Reverse legacy scan: a stale binding may carry the OLD suffixed code
+        # (e.g. 'docx-ea97e2f9') while the row is now the bare canonical name
+        # ('docx'). Match the row whose canonical name is the longest prefix of
+        # the query at a hyphen boundary.
+        try:
+            best = None
+            best_len = -1
+            for row in self.get_list(SkillRequest()):
+                row_canonical = normalize_skill_name(row.name or row.skill_code)
+                if skill_code == row_canonical or skill_code.startswith(
+                    row_canonical + "-"
+                ):
+                    if len(row_canonical) > best_len:
+                        best, best_len = row, len(row_canonical)
+            if best:
+                logger.info(
+                    f"Resolved suffixed code '{skill_code}' -> '{best.skill_code}'"
+                )
+                return best
+        except Exception as e:
+            logger.debug(f"Reverse legacy scan failed for '{skill_code}': {e}")
+        return None
 
     def get_skill_directory(self, skill_code: str) -> str:
         """Get the physical directory path for a skill.
 
-        Supports both exact skill_code match and fallback to name-based match
-        for legacy skills with hash suffix (e.g., 'docx-ea97e2f9' for 'docx').
+        Resolution order (returns the first existing directory; otherwise the
+        best candidate path):
+            1. {project_skill_dir}/{skill_code}                 (exact)
+            2. {project_skill_dir}/{normalize_skill_name(...)}  (raw name/code)
+            3. DB row (exact/normalized/name/prefix) -> {project_skill_dir}/{row.skill_code}
+               and the stored row.path variants
+            4. legacy name-prefix scan
 
         Args:
-            skill_code (str): The skill code (can be name or code with hash suffix)
+            skill_code (str): The skill code, raw name, or legacy suffixed code.
 
         Returns:
-            str: The directory path
+            str: The directory path (may not exist if the skill is unknown).
         """
         project_skill_dir = self._serve_config.get_project_skill_dir()
 
+        # 1. Exact directory match
         skill_dir = os.path.join(project_skill_dir, skill_code)
+        if os.path.exists(skill_dir):
+            return skill_dir
 
-        # If skill directory doesn't exist, check database for path info
-        if not os.path.exists(skill_dir):
-            # Try exact match first
-            skill_request = SkillRequest(skill_code=skill_code)
-            skill = self.get(skill_request)
+        # 2. Canonical (normalized) directory match
+        canonical = normalize_skill_name(skill_code)
+        if canonical != skill_code:
+            canonical_dir = os.path.join(project_skill_dir, canonical)
+            if os.path.exists(canonical_dir):
+                return canonical_dir
 
-            # Fallback: if not found, try to find by name prefix
-            if not skill:
-                skill = self._find_skill_by_name_prefix(skill_code)
-
-            if skill and skill.path:
-                # Try to use the stored path
-                skill_dir = os.path.join(
+        # 3. Resolve via DB, then try the row's code and stored path
+        skill = self.get_skill_by_code(skill_code)
+        if skill:
+            code_dir = os.path.join(project_skill_dir, skill.skill_code)
+            if os.path.exists(code_dir):
+                return code_dir
+            if skill.path:
+                path_dir = os.path.join(
                     project_skill_dir, skill.path.replace("/", os.sep)
                 )
-                if not os.path.exists(skill_dir):
-                    # Try direct path from skill.path
-                    skill_dir = skill.path
+                if os.path.exists(path_dir):
+                    return path_dir
+                if os.path.isabs(skill.path) and os.path.exists(skill.path):
+                    return skill.path
 
-        return skill_dir
+        # Nothing exists on disk; return the canonical candidate so callers can
+        # report a consistent path.
+        return os.path.join(project_skill_dir, canonical)
 
     def _find_skill_by_name_prefix(self, skill_code: str) -> Optional[SkillResponse]:
         """Find a skill by name prefix (for legacy skills with hash suffix).
@@ -936,6 +1022,178 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
         except Exception as e:
             logger.warning(f"Failed to find skill by name prefix '{skill_code}': {e}")
         return None
+
+    def _rename_skill_dir(self, base_dir: Optional[str], old_code: str, new_code: str) -> bool:
+        """Rename {base_dir}/{old_code} -> {base_dir}/{new_code} if needed.
+
+        Returns True if a rename actually happened. Skips silently when the
+        source is missing or the target already exists.
+        """
+        if not base_dir or old_code == new_code:
+            return False
+        src = os.path.join(base_dir, old_code)
+        dst = os.path.join(base_dir, new_code)
+        if not os.path.isdir(src):
+            return False
+        if os.path.exists(dst):
+            logger.info(
+                f"Skill dir target already exists, leaving source in place: {dst}"
+            )
+            return False
+        try:
+            shutil.move(src, dst)
+            logger.info(f"Renamed skill directory: {src} -> {dst}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to rename skill directory {src} -> {dst}: {e}")
+            return False
+
+    def _remove_skill_dir(self, base_dir: Optional[str], code: str) -> None:
+        """Remove {base_dir}/{code} if it exists (used when merging duplicates)."""
+        if not base_dir or not code:
+            return
+        target = os.path.join(base_dir, code)
+        if os.path.isdir(target):
+            try:
+                shutil.rmtree(target)
+                logger.info(f"Removed redundant skill directory: {target}")
+            except Exception as e:
+                logger.warning(f"Failed to remove skill directory {target}: {e}")
+
+    def normalize_existing_skills(self) -> Dict[str, int]:
+        """One-time, idempotent normalization of existing skill records.
+
+        Brings every ``server_app_skill`` row (and its on-disk directories) onto
+        the canonical bare-name identifier:
+            skill_code == directory name == normalize_skill_name(name)
+
+        Repairs the legacy state where ``_generate_skill_code`` appended a
+        ``-<md5(repo_url)[:8]>`` suffix (e.g. 'docx-ea97e2f9'), which left the
+        DB primary key / directory name out of sync with the name the agent is
+        bound by.
+
+        Behavior per row:
+          * skill_code already canonical -> ensure ``path`` == skill_code.
+          * otherwise rename project/sandbox dirs old_code -> canonical and
+            repoint the row.
+          * if a canonical row already exists (duplicate name), keep the newer
+            (by gmt_modified), delete the older row and remove its directory.
+
+        Note: two source repos sharing a skill name collapse onto one canonical
+        code (last writer wins) — acceptable under the bare-name identity scheme.
+
+        Returns:
+            Dict[str, int]: counts {"renamed", "merged", "unchanged"}.
+        """
+        project_skill_dir = self._serve_config.get_project_skill_dir()
+        sandbox_skill_dir = self._serve_config.get_sandbox_skill_dir()
+
+        renamed = 0
+        merged = 0
+        unchanged = 0
+
+        try:
+            all_skills = self.get_list(SkillRequest())
+        except Exception as e:
+            logger.warning(f"normalize_existing_skills: failed to list skills: {e}")
+            return {"renamed": 0, "merged": 0, "unchanged": 0}
+
+        # Map canonical -> chosen surviving row (resolve duplicates first)
+        existing_codes = {s.skill_code for s in all_skills}
+
+        for skill in all_skills:
+            old_code = skill.skill_code
+            canonical = normalize_skill_name(skill.name or old_code)
+
+            # Already canonical: just make sure path points at the dir name.
+            if old_code == canonical:
+                if skill.path != canonical:
+                    try:
+                        self.dao.update(
+                            {"skill_code": old_code},
+                            update_request=SkillRequest(
+                                skill_code=old_code, path=canonical
+                            ),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"normalize: failed to fix path for '{old_code}': {e}"
+                        )
+                unchanged += 1
+                continue
+
+            # Duplicate: a canonical row already exists -> merge (keep newer).
+            if canonical in existing_codes:
+                canonical_row = self.get_by_skill_code(canonical)
+                keep_canonical = True
+                if canonical_row is not None:
+                    # Compare modification times; keep the newer record's content.
+                    keep_canonical = (canonical_row.gmt_modified or "") >= (
+                        skill.gmt_modified or ""
+                    )
+                if keep_canonical:
+                    # Drop the suffixed row + its dirs.
+                    self._delete_skill_row(old_code)
+                    self._remove_skill_dir(project_skill_dir, old_code)
+                    self._remove_skill_dir(sandbox_skill_dir, old_code)
+                    existing_codes.discard(old_code)
+                    merged += 1
+                    continue
+                else:
+                    # Suffixed row is newer: promote it onto canonical, drop old.
+                    self._delete_skill_row(canonical)
+                    self._remove_skill_dir(project_skill_dir, canonical)
+                    self._remove_skill_dir(sandbox_skill_dir, canonical)
+                    existing_codes.discard(canonical)
+                    # fall through to rename below
+
+            # Rename directories then repoint the row's PK + path.
+            self._rename_skill_dir(project_skill_dir, old_code, canonical)
+            self._rename_skill_dir(sandbox_skill_dir, old_code, canonical)
+            self._repoint_skill_code(skill, canonical)
+            existing_codes.discard(old_code)
+            existing_codes.add(canonical)
+            renamed += 1
+
+        logger.info(
+            f"normalize_existing_skills: renamed={renamed}, merged={merged}, "
+            f"unchanged={unchanged}"
+        )
+        return {"renamed": renamed, "merged": merged, "unchanged": unchanged}
+
+    def _delete_skill_row(self, skill_code: str) -> None:
+        """Delete a single skill row by primary key."""
+        try:
+            with self.dao.session() as session:
+                session.query(SkillEntity).filter(
+                    SkillEntity.skill_code == skill_code
+                ).delete()
+        except Exception as e:
+            logger.warning(f"Failed to delete skill row '{skill_code}': {e}")
+
+    def _repoint_skill_code(self, skill: SkillResponse, new_code: str) -> None:
+        """Change a row's primary key (skill_code) and path to ``new_code``.
+
+        SQLAlchemy will not update a primary key in place via the normal update
+        path, so this rewrites the row directly within one transaction.
+        """
+        old_code = skill.skill_code
+        try:
+            with self.dao.session() as session:
+                session.query(SkillEntity).filter(
+                    SkillEntity.skill_code == old_code
+                ).update(
+                    {
+                        SkillEntity.skill_code: new_code,
+                        SkillEntity.path: new_code,
+                    },
+                    synchronize_session=False,
+                )
+            logger.info(f"Repointed skill_code '{old_code}' -> '{new_code}'")
+        except Exception as e:
+            logger.warning(
+                f"Failed to repoint skill_code '{old_code}' -> '{new_code}': {e}"
+            )
 
     def list_skill_files(self, skill_code: str) -> Dict[str, Any]:
         """List all files in the skill directory.
@@ -1424,8 +1682,8 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                     with open(skill_md_path, "r", encoding="utf-8") as f:
                         content = f.read()
 
-                    # Get relative path for storage
-                    rel_path = os.path.relpath(skill_path, repo_path)
+                    # Store the on-disk directory name (== skill_code) so that
+                    # get_skill_directory resolves to {project_skill_dir}/{path}.
 
                     # Build skill request
                     skill_request = SkillRequest(
@@ -1436,7 +1694,7 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                         author=skill_meta.get("author"),
                         email=skill_meta.get("email"),
                         version=skill_meta.get("version"),
-                        path=rel_path,
+                        path=skill_code,
                         content=content,
                         icon=skill_meta.get("icon"),
                         category=skill_meta.get("category"),

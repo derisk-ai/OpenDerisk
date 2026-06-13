@@ -90,24 +90,38 @@ class ReadSkillTool(SandboxToolBase):
         """Resolve the skill directory path.
 
         Resolution order:
-        1. context.config["available_skills"][skill_name] (pre-computed by agent)
+        1. context.config["available_skills"][skill_name|normalized] (pre-computed)
         2. sandbox_client.skill_dir / skill_name (sandbox mode)
         3. context.config["skill_dir"] / skill_name
         4. DATA_DIR/skill / skill_name (local fallback)
+
+        For local/sandbox base-dir joins, the canonical (normalized) name and a
+        single legacy "{name}-*" directory are also tried via
+        resolve_local_skill_dir so a bare name like "docx" resolves to a real
+        directory regardless of any historical hash suffix.
         """
+        from ._skill_path_utils import normalize_skill_name, resolve_local_skill_dir
+
         # 1. From pre-computed available_skills (name -> path mapping)
         if context:
             config = context.config if hasattr(context, "config") else {}
             if isinstance(config, dict):
                 available_skills = config.get("available_skills", {})
-                if isinstance(available_skills, dict) and skill_name in available_skills:
-                    return available_skills[skill_name]
+                if isinstance(available_skills, dict):
+                    for key in (skill_name, normalize_skill_name(skill_name)):
+                        if key in available_skills:
+                            return available_skills[key]
 
         # 2. From sandbox client
         if client is not None:
             skill_dir = getattr(client, "skill_dir", None)
             if skill_dir:
-                return os.path.join(skill_dir, skill_name)
+                resolved = resolve_local_skill_dir(skill_dir, skill_name)
+                if resolved:
+                    return resolved
+                # Sandbox FS may not be locally stat-able; fall back to the
+                # canonical join and let the caller's existence check report.
+                return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
         # 3. From context.config["skill_dir"]
         if context:
@@ -115,7 +129,10 @@ class ReadSkillTool(SandboxToolBase):
             if isinstance(config, dict):
                 skill_dir = config.get("skill_dir")
                 if skill_dir:
-                    return os.path.join(skill_dir, skill_name)
+                    resolved = resolve_local_skill_dir(skill_dir, skill_name)
+                    if resolved:
+                        return resolved
+                    return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
         # 4. Local fallback: DATA_DIR/skill
         try:
@@ -127,7 +144,11 @@ class ReadSkillTool(SandboxToolBase):
                 "..", "..", "..", "..", "..", "..", "..", "..",
                 "pilot", "data",
             )
-            return os.path.join(data_dir, "skill", skill_name)
+            base = os.path.join(data_dir, "skill")
+            resolved = resolve_local_skill_dir(base, skill_name)
+            if resolved:
+                return resolved
+            return os.path.join(base, normalize_skill_name(skill_name))
         except Exception:
             return None
 
