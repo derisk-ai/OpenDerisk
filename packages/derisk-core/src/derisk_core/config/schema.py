@@ -184,6 +184,31 @@ class AgentLLMConfig(BaseModel):
     providers: List[LLMProviderConfig] = Field(default_factory=list)
 
 
+class EmbeddingModelConfig(BaseModel):
+    """向量（embedding）模型配置。
+
+    用于持久化通过模型管理页（/models）添加的 text2vec 向量模型，使其在重启后
+    仍可用。``provider`` 决定使用哪个 embedding 适配器（如 proxy/tongyi、
+    proxy/openai、proxy/ollama、hf 等），其余字段按 provider 透传给对应的
+    EmbeddingDeployModelParameters 子类。
+    """
+
+    name: str = Field(..., description="向量模型名称，部署时的唯一标识")
+    provider: str = Field(
+        "proxy/openai",
+        description="向量模型 provider，如 proxy/tongyi、proxy/openai、hf",
+    )
+    api_key: Optional[str] = Field(None, description="API Key 或其 secrets 引用")
+    api_url: Optional[str] = Field(None, description="API 地址（部分 provider 需要）")
+    backend: Optional[str] = Field(
+        None, description="传给 provider 的真实模型名（如 text-embedding-v3）"
+    )
+    # 允许 provider 特有的额外字段（如 path/device 等本地模型参数）透传。
+    extra: Dict[str, Any] = Field(
+        default_factory=dict, description="provider 特有的额外部署参数"
+    )
+
+
 class FileBackendType(str, Enum):
     LOCAL = "local"
     OSS = "oss"
@@ -376,8 +401,11 @@ class AppConfig(BaseModel):
 
     default_model: ModelConfig = Field(default_factory=ModelConfig)
     agent_llm: AgentLLMConfig = Field(default_factory=AgentLLMConfig)
+    # 向量模型：通过模型管理页添加的 text2vec 模型，持久化于此以便重启后重放部署。
+    embeddings: List[EmbeddingModelConfig] = Field(default_factory=list)
+    # 默认向量模型名称；为空时取 embeddings 列表的第一个（先添加者优先）。
+    default_embedding: Optional[str] = Field(default=None)
     sse: SSEConfig = Field(default_factory=SSEConfig)
-
     agents: Dict[str, AgentConfig] = Field(default_factory=_get_default_system_agents)
 
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)

@@ -1333,7 +1333,12 @@ class AgentChat(BaseComponent, ABC):
 
                             # Fallback to SimpleSQLite if bundle creation failed
                             if not memory_bundle:
-                                logger.info("[AgentChat] Standard bundle creation failed, trying SimpleSQLite fallback")
+                                logger.warning(
+                                    "[AgentChat] MemPalace bundle unavailable; "
+                                    "falling back to SimpleSQLite — UI memory "
+                                    "views will NOT reflect these writes. "
+                                    "Install mempalace to keep read/write unified."
+                                )
                                 try:
                                     from derisk_ext.storage.memory.simple_sqlite_store import (
                                         SimpleSQLiteMemoryConfig,
@@ -1369,10 +1374,22 @@ class AgentChat(BaseComponent, ABC):
                                         )
 
                                     if memory_stores:
+                                        from derisk.storage.memory.recall_tracker import RecallTracker
+                                        from derisk.storage.memory.promotion import MemoryPromotionEngine
+                                        from derisk.storage.memory.hybrid_search import HybridSearchEngine
+                                        from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
+                                        from derisk.storage.memory.snapshot import FrozenSnapshotManager
+
+                                        recall_tracker = RecallTracker()
+                                        promotion_engine = MemoryPromotionEngine(
+                                            recall_tracker=recall_tracker,
+                                        )
                                         manager = LongTermMemoryManager(
                                             config=memory_config,
                                             memory_stores=memory_stores,
                                             strategies=strategies,
+                                            recall_tracker=recall_tracker,
+                                            hybrid_search_engine=HybridSearchEngine(),
                                         )
                                         from derisk.agent.core_v2.unified_memory.longterm_manager import MemoryIntegrationBundle
                                         memory_bundle = MemoryIntegrationBundle(
@@ -1380,6 +1397,11 @@ class AgentChat(BaseComponent, ABC):
                                             manager=manager,
                                             processors={},
                                             strategies=strategies,
+                                            recall_tracker=recall_tracker,
+                                            hybrid_search=HybridSearchEngine(),
+                                            lifecycle_hooks=DefaultLifecycleHooks(),
+                                            snapshot_manager=FrozenSnapshotManager(),
+                                            promotion_engine=promotion_engine,
                                         )
                                         logger.info(
                                             f"[AgentChat] Fallback bundle created with {len(memory_stores)} SimpleSQLite stores"

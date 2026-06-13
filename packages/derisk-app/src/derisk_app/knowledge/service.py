@@ -242,6 +242,25 @@ class KnowledgeService:
             res.gmt_modified = space.gmt_modified
             res.context = space.context
             res.docs = docs_count.get(space.name, 0)
+            # For Memory-type spaces the document table is always empty; the
+            # real entry count lives in the memory store. Read it lazily and
+            # never let a single unreachable store break the whole listing.
+            if (space.storage_type or "").lower() == "memory":
+                try:
+                    from derisk.component import SystemApp
+                    from derisk_serve.rag.storage_manager import StorageManager
+
+                    sm = SystemApp.get_instance().get_component(
+                        "storage_manager", StorageManager
+                    )
+                    store = sm.create_memory_store(space.knowledge_id)
+                    if store is not None:
+                        status = store.get_status()
+                        res.docs = int(status.get("total_entries", 0) or 0)
+                except Exception as e:
+                    logger.warning(
+                        f"memory count failed for {space.knowledge_id}: {e}"
+                    )
             responses.append(res)
         return responses
 

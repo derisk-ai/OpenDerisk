@@ -114,10 +114,27 @@ class Serve(BaseServe):
 
     async def async_after_start(self):
         """Called after the application has started.
-        
-        Load default skills from the configured git repository.
+
+        First normalize any existing skill records onto the canonical bare-name
+        identifier (repairs legacy hash-suffixed skill_code/directories), then
+        load default skills from the configured git repository.
         """
+        await self._normalize_existing_skills()
         await self._load_default_skills()
+
+    async def _normalize_existing_skills(self):
+        """Run the one-time, idempotent skill normalization migration."""
+        from .service.service import Service
+
+        try:
+            service: Service = self._system_app.get_component(Service.name, Service)
+            if not service:
+                logger.info("Skill service not available, skipping normalization")
+                return
+            result = service.normalize_existing_skills()
+            logger.info(f"Skill normalization result: {result}")
+        except Exception as e:
+            logger.warning(f"Failed to normalize existing skills: {e}", exc_info=True)
 
     async def _load_default_skills(self):
         """Load default skills from git repository on startup (non-blocking)."""

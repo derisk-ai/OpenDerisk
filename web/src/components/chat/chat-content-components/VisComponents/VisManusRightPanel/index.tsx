@@ -1031,8 +1031,19 @@ const VisManusRightPanel: FC<IProps> = ({ data }) => {
     { key: 'print', icon: <PrinterOutlined />, label: '打印', onClick: handlePrint },
   ], [handleExportPDF, handlePrint]);
 
-  // No data at all — minimal placeholder, parent container already shows the workspace empty state
+  // No step data yet. If the agent is still running (e.g. between tool_start and
+  // tool_result, or during a thinking push), show a "running" placeholder instead
+  // of going blank — otherwise the panel renders pure white mid-execution.
   if (!displayStep && !hasSummary && !hasTaskFiles && !hasDeliverables) {
+    if (is_running) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full">
+          <LoadingOutlined spin className="text-2xl text-blue-400 mb-3" />
+          <div className="text-sm text-gray-500">执行中...</div>
+        </div>
+      );
+    }
+    // Truly empty — parent container already shows the workspace empty state.
     return null;
   }
 

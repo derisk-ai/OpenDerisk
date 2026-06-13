@@ -69,6 +69,15 @@ export interface AgentLLMConfig {
   providers: LLMProviderConfig[];
 }
 
+export interface EmbeddingModelConfig {
+  name: string;
+  provider: string;
+  api_key?: string;
+  api_url?: string;
+  backend?: string;
+  extra?: Record<string, unknown>;
+}
+
 export interface SSEConfig {
   input_check_interval: number;
   notify_step_complete: boolean;
@@ -192,6 +201,8 @@ export interface AppConfig {
   web: WebServiceConfig;
   default_model: ModelConfig;
   agent_llm: AgentLLMConfig;
+  embeddings?: EmbeddingModelConfig[];
+  default_embedding?: string | null;
   sse: SSEConfig;
   agents: Record<string, AgentConfig>;
   sandbox: SandboxConfig;
@@ -291,6 +302,16 @@ class ConfigService {
   async getCachedModels(): Promise<{ models: string[]; model_keys: string[]; total: number }> {
     const response = await axios.get(`${API_BASE}/config/model-cache/models`);
     return response.data.data;
+  }
+
+  async listEmbeddings(): Promise<{ models: string[]; default: string | null }> {
+    const response = await axios.get(`${API_BASE}/config/embeddings`);
+    return response.data.data;
+  }
+
+  async setDefaultEmbedding(name: string): Promise<{ success: boolean; default: string }> {
+    const response = await axios.post(`${API_BASE}/config/embeddings/default`, { name });
+    return response.data;
   }
 
   async getOAuth2Config(): Promise<OAuth2Config> {

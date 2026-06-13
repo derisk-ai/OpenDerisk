@@ -1,13 +1,15 @@
 "use client";
 import { ChatContext } from "@/contexts";
 import {
+  DatabaseOutlined,
   PlusOutlined,
   ReadOutlined,
   SearchOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
 import { useContext, useEffect, useState } from "react";
-import { Button, Drawer, Input, Modal, Spin, Steps, Tag } from "antd";
+import { Button, Drawer, Input, Modal, Spin, Steps, Tag, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import { debounce } from "lodash";
 import {
@@ -150,6 +152,14 @@ export default function Knowledge() {
   const memorySpaces = spaceList?.filter(s => s.vector_type === "Memory") || [];
   const otherSpaces = spaceList?.filter(s => s.vector_type !== "Memory") || [];
 
+  // Aggregate stats for the header strip
+  const totalMemoryEntries = memorySpaces.reduce(
+    (sum, s) => sum + (Number(s.docs) || 0),
+    0,
+  );
+
+  const isMemory = (space: ISpace) => space.vector_type === "Memory";
+
   const renderSpaceCard = (space: ISpace) => (
     <BlurredCard
       onClick={() => {
@@ -192,13 +202,19 @@ export default function Knowledge() {
       }
       rightTopHover={false}
       Tags={
-        <div className="flex item-center">
-          <Tag>
-            <span className="flex items-center gap-1">
-              <ReadOutlined className="mt-[1px]" />
-              {space.docs}
-            </span>
-          </Tag>
+        <div className="flex item-center flex-wrap gap-y-1">
+          <Tooltip title={isMemory(space) ? t("Memory_Entries") : t("Document")}>
+            <Tag>
+              <span className="flex items-center gap-1">
+                {isMemory(space) ? (
+                  <DatabaseOutlined className="mt-[1px]" />
+                ) : (
+                  <ReadOutlined className="mt-[1px]" />
+                )}
+                {space.docs}
+              </span>
+            </Tag>
+          </Tooltip>
           <Tag>
             <span className="flex items-center gap-1">
               {space.domain_type || "Normal"}
@@ -211,6 +227,14 @@ export default function Knowledge() {
               </span>
             </Tag>
           ) : null}
+          {isMemory(space) && Number(space.docs) > 0 && (
+            <Tag color="green" className="border-0">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                {t("Memory_Active")}
+              </span>
+            </Tag>
+          )}
         </div>
       }
       LeftBottom={
@@ -256,7 +280,7 @@ export default function Knowledge() {
     <Spin spinning={loading}>
       <div className="page-body p-4 md:p-6 min-h-screen">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-start mb-6 flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
               {t("Knowledge_Space")}
@@ -264,6 +288,27 @@ export default function Knowledge() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {t("Knowledge_Space_Config")}
             </p>
+            {/* Stats strip */}
+            <div className="flex items-center gap-5 mt-4">
+              <StatPill
+                icon={<ReadOutlined />}
+                label={t("Knowledge_Spaces")}
+                value={spaceList?.length || 0}
+                color="text-blue-500"
+              />
+              <StatPill
+                icon={<DatabaseOutlined />}
+                label={t("Memory_Store")}
+                value={memorySpaces.length}
+                color="text-purple-500"
+              />
+              <StatPill
+                icon={<ThunderboltOutlined />}
+                label={t("Memory_Total_Entries")}
+                value={totalMemoryEntries}
+                color="text-emerald-500"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Input
@@ -292,12 +337,17 @@ export default function Knowledge() {
             {/* Memory spaces section */}
             {memorySpaces.length > 0 && (
               <section>
-                <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500" />
-                  {t("Memory_Store")}
-                  <Tag color="purple" className="ml-1">{memorySpaces.length}</Tag>
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500" />
+                    {t("Memory_Store")}
+                    <Tag color="purple" className="ml-1">{memorySpaces.length}</Tag>
+                  </h2>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 ml-4">
+                    {t("Memory_Store_Subtitle")}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {memorySpaces.map(renderSpaceCard)}
                 </div>
               </section>
@@ -306,12 +356,17 @@ export default function Knowledge() {
             {/* Other spaces section */}
             {otherSpaces.length > 0 && (
               <section>
-                <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500" />
-                  {t("Knowledge_Spaces")}
-                  <Tag color="blue" className="ml-1">{otherSpaces.length}</Tag>
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500" />
+                    {t("Knowledge_Spaces")}
+                    <Tag color="blue" className="ml-1">{otherSpaces.length}</Tag>
+                  </h2>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 ml-4">
+                    {t("Knowledge_Spaces_Subtitle")}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {otherSpaces.map(renderSpaceCard)}
                 </div>
               </section>
@@ -405,5 +460,27 @@ export default function Knowledge() {
         )}
       </Modal>
     </Spin>
+  );
+}
+
+function StatPill({
+  icon,
+  label,
+  value,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-base ${color}`}>{icon}</span>
+      <span className="text-xl font-bold text-gray-800 dark:text-gray-100 leading-none">
+        {value}
+      </span>
+      <span className="text-xs text-gray-400 dark:text-gray-500">{label}</span>
+    </div>
   );
 }
