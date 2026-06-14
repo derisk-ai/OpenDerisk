@@ -377,7 +377,7 @@ async def execute_sql(
                 return _format_error(error_msg, db_type="unknown", sql_type=sql_type)
 
         # 优先从 agent 的 resource_map 中获取已初始化的 connector
-        agent_connector, _ = _resolve_db_from_agent(db_name, kwargs)
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
         connector = agent_connector
         if not connector:
             connector = CFG.local_db_manager.get_connector(db_name)
@@ -386,6 +386,20 @@ async def execute_sql(
                 f"Database '{db_name}' not found. Please check the db_name.",
                 db_type="unknown"
             )
+
+        # 解析 datasource_id（用于隐私脱敏规则的数据源隔离查找）
+        ds_id = agent_ds_id
+        if not ds_id:
+            try:
+                from derisk_serve.datasource.manages.connect_config_db import (
+                    ConnectConfigDao,
+                )
+
+                entity = ConnectConfigDao().get_by_names(db_name)
+                if entity:
+                    ds_id = entity.id
+            except Exception as e:
+                logger.debug(f"[execute_sql] resolve datasource_id failed: {e}")
 
         # Get database type for error messages
         db_type = getattr(connector, 'db_type', 'unknown')
@@ -420,6 +434,25 @@ async def execute_sql(
             # Convert SQLAlchemy Row objects to plain lists for proper serialization
             all_rows = [list(row) for row in result[1:]] if len(result) > 1 else []
             total_rows = len(all_rows)
+
+            # 隐私脱敏：在分页/导出/展示之前对全量结果脱敏，
+            # 确保返回给 LLM/用户以及导出的 CSV 都是脱敏后的数据。
+            masked_columns: List[str] = []
+            if all_rows:
+                try:
+                    from derisk_serve.sql_guard.masking import mask_run_result
+
+                    session_id = kwargs.get("session_id") or getattr(
+                        kwargs.get("agent", None), "conv_id", None
+                    )
+                    columns, all_rows, masked_columns = mask_run_result(
+                        ds_id,
+                        columns,
+                        all_rows,
+                        session_id=session_id,
+                    )
+                except Exception as e:
+                    logger.warning(f"[execute_sql] masking skipped: {e}")
 
             if not all_rows:
                 return _format_sql_result(
@@ -517,6 +550,9 @@ async def execute_sql(
                 "page_size": PAGE_SIZE,
                 "has_more": page < total_pages,
             }
+
+            if masked_columns:
+                result_data["masked_columns"] = masked_columns
 
             if csv_file_path:
                 result_data["csv_file"] = csv_file_path
@@ -655,6 +691,7 @@ def _format_sql_result(
     raw_result: Optional[str] = None,
     display_truncated: bool = False,
     display_row_count: Optional[int] = None,
+    masked_columns: Optional[List[str]] = None,
 ) -> str:
     """格式化 SQL 查询结果，返回 SQL 查询组件格式"""
 
@@ -671,6 +708,9 @@ def _format_sql_result(
         "page_size": page_size,
         "has_more": has_more,
     }
+
+    if masked_columns:
+        result_data["masked_columns"] = masked_columns
 
     if csv_file:
         result_data["csv_file"] = csv_file

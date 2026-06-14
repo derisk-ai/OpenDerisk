@@ -166,6 +166,8 @@ export type TableDataPreview = {
   first_rows: any[][];
   last_rows: any[][];
   total: number;
+  /** Column names that were masked by privacy rules. */
+  masked_columns?: string[];
 };
 
 // ============================================================
@@ -216,6 +218,19 @@ export type BatchMaskingConfigResponse = {
   total_configs_added: number;
   matched_columns: Array<{ table: string; column: string }>;
   errors: string[];
+};
+
+export type MaskingPreviewRequest = {
+  sensitive_type: string;
+  masking_mode: string;
+  sample_value: string;
+};
+
+export type MaskingPreviewResponse = {
+  original: string;
+  masked: string;
+  sensitive_type: string;
+  masking_mode: string;
 };
 
 export type SensitiveTypeLabel = {

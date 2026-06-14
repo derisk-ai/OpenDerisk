@@ -607,6 +607,8 @@ class SchemaLearningService:
             # Detect relations and sensitive columns
             relations = self._detect_table_relations(datasource_id)
             self._detect_sensitive_columns(datasource_id)
+            # Mask sample data at rest, now that sensitive columns are known.
+            self._mask_stored_sample_data(datasource_id)
 
             # Save db-level spec
             spec_data = {
@@ -1293,29 +1295,61 @@ class SchemaLearningService:
             logger.warning(f"Sensitive column detection failed: {e}")
 
     def _load_masking_configs(self, datasource_id: int) -> None:
-        """Load sensitive column configs into the DataMasker singleton."""
+        """Refresh the DataMasker singleton for a datasource.
+
+        Invalidates the datasource bucket so the next masking call lazily
+        reloads the current enabled configs from the store (restart-safe and
+        always consistent with the DB after detection).
+        """
         try:
-            from derisk_serve.sql_guard.masking.config_db import SensitiveColumnDao
-            from derisk_serve.sql_guard.masking.masker import (
-                ColumnMaskingConfig,
-                get_data_masker,
-            )
+            from derisk_serve.sql_guard.masking.masker import get_data_masker
 
-            dao = SensitiveColumnDao()
-            masker = get_data_masker()
-            configs = dao.get_enabled_by_datasource(datasource_id)
-
-            for cfg in configs:
-                masker.configure_column(ColumnMaskingConfig(
-                    table_name=cfg["table_name"],
-                    column_name=cfg["column_name"],
-                    sensitive_type=cfg["sensitive_type"],
-                    mode=cfg.get("masking_mode", "mask"),
-                ))
+            get_data_masker().invalidate(datasource_id)
         except ImportError:
             pass
         except Exception as e:
-            logger.warning(f"Failed to load masking configs: {e}")
+            logger.warning(f"Failed to reload masking configs: {e}")
+
+    def _mask_stored_sample_data(self, datasource_id: int) -> None:
+        """Mask sensitive values in stored sample data (defense in depth).
+
+        Sample data is collected raw (so the detector can analyze real
+        values), then masked at rest here once sensitive columns are known —
+        so the persisted ``table_spec.sample_data`` never holds plaintext
+        sensitive values.
+        """
+        try:
+            from derisk_serve.sql_guard.masking import mask_run_result
+
+            specs = self._table_spec_dao.get_all_by_datasource(datasource_id)
+            for spec in specs:
+                sample = spec.get("sample_data")
+                if not sample:
+                    continue
+                cols = sample.get("columns") or []
+                rows = sample.get("rows") or []
+                if not cols or not rows:
+                    continue
+                table_name = spec.get("table_name", "")
+                _, masked_rows, masked_cols = mask_run_result(
+                    datasource_id, cols, rows, table_name=table_name
+                )
+                if not masked_cols:
+                    continue  # nothing sensitive in this table
+                self._table_spec_dao.upsert(
+                    datasource_id,
+                    table_name,
+                    {
+                        "sample_data_json": json.dumps(
+                            {"columns": cols, "rows": masked_rows},
+                            ensure_ascii=False,
+                        )
+                    },
+                )
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to mask stored sample data: {e}")
 
     def _apply_grouping(
         self, spec_entries: List[Dict[str, Any]]
@@ -1459,6 +1493,8 @@ class SchemaLearningService:
 
             # Re-detect sensitive columns
             self._detect_sensitive_columns(datasource_id)
+            # Mask sample data at rest, now that sensitive columns are known.
+            self._mask_stored_sample_data(datasource_id)
 
             self._learning_task_dao.update_progress(
                 task_id, total_work, total_work, status="completed"

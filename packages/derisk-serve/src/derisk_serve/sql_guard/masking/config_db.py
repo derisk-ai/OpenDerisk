@@ -182,6 +182,34 @@ class SensitiveColumnDao(BaseDao):
         finally:
             session.close()
 
+    def set_enabled_by_table(
+        self,
+        datasource_id: int,
+        table_name: str,
+        enabled: bool,
+    ) -> int:
+        """Enable or disable masking for all columns of a table.
+
+        Returns the number of column configs updated.
+        """
+        session = self.get_raw_session()
+        try:
+            count = (
+                session.query(SensitiveColumnEntity)
+                .filter(
+                    SensitiveColumnEntity.datasource_id == datasource_id,
+                    SensitiveColumnEntity.table_name == table_name,
+                )
+                .update({"enabled": 1 if enabled else 0})
+            )
+            session.commit()
+            return int(count or 0)
+        except Exception:
+            session.rollback()
+            return 0
+        finally:
+            session.close()
+
     @staticmethod
     def _to_dict(entity: SensitiveColumnEntity) -> Dict[str, Any]:
         return {

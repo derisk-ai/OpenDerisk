@@ -17,6 +17,19 @@ export function safeJsonParse<T>(jsonString: string, def: T): T {
  * 关键修复：处理非法转义字符（如 \$ \= \@ 等）
  */
 export function parseFirstJson(str: string): any {
+  // Fast path: the string is very often already valid JSON (e.g. a VIS tag
+  // payload produced by json.dumps). Try parsing it as-is first. This avoids
+  // the escape-sanitizing pass below, which can CORRUPT otherwise-valid JSON
+  // that contains nested JSON strings (e.g. action_input: "{\"path\":...}").
+  // The naive per-char backslash stripping mangles double-escaped sequences
+  // like \\\" and turns valid JSON into garbage, causing the parsed result to
+  // be dropped and the panel to render blank.
+  try {
+    return JSON.parse(str);
+  } catch {
+    // Fall through to the lenient/sanitizing path below.
+  }
+
   // 关键修复：预处理非法转义字符
   // JSON 标准只允许: \" \\ \/ \b \f \n \r \t \uXXXX
   // 其他以反斜杠开头的转义都是非法的，需要移除反斜杠

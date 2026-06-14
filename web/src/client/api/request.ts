@@ -27,6 +27,8 @@ import {
   DbSupportTypeResponse,
   LearningTaskRequest,
   LearningTaskResponse,
+  MaskingPreviewRequest,
+  MaskingPreviewResponse,
   PostDbParams,
   PostDbRefreshParams,
   SensitiveColumnConfig,
@@ -236,6 +238,23 @@ export const batchAddMaskingConfig = (
 ) => {
   return POST<BatchMaskingConfigRequest, BatchMaskingConfigResponse>(
     `/api/v2/serve/sql-guard/masking/${datasourceId}/batch`,
+    data,
+  );
+};
+/** Enable/disable masking for ALL sensitive columns of a table. */
+export const toggleTableMasking = (
+  datasourceId: string | number,
+  tableName: string,
+  enabled: boolean,
+) => {
+  return PUT<null, string>(
+    `/api/v2/serve/sql-guard/masking/${datasourceId}/tables/${tableName}/toggle?enabled=${enabled}`,
+  );
+};
+/** Preview (try-run) the masking effect for a sample value. */
+export const previewMasking = (data: MaskingPreviewRequest) => {
+  return POST<MaskingPreviewRequest, MaskingPreviewResponse>(
+    `/api/v2/serve/sql-guard/masking/preview`,
     data,
   );
 };
