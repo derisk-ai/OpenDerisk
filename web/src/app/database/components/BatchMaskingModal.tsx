@@ -1,12 +1,12 @@
 'use client';
 
-import { apiInterceptors, batchAddMaskingConfig } from '@/client/api';
+import { apiInterceptors, batchAddMaskingConfig, previewMasking } from '@/client/api';
 import {
   BatchMaskingConfigResponse,
   SENSITIVE_TYPE_OPTIONS,
   MASKING_MODE_OPTIONS,
 } from '@/types/db';
-import { SafetyCertificateOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, CheckCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import {
   App,
   Button,
@@ -19,10 +19,24 @@ import {
   Divider,
   List,
   Typography,
-  Spin,
+  Tag,
 } from 'antd';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+
+// 默认示例值，便于"原值→脱敏值"试运行展示
+const SAMPLE_BY_TYPE: Record<string, string> = {
+  phone: '13812345678',
+  email: 'user@example.com',
+  id_card: '310101199001011234',
+  bank_card: '6222021234561234567',
+  address: '上海市浦东新区张江路100号',
+  name: '张三丰',
+  password: 'p@ssw0rd',
+  token: 'sk-abc123def456',
+  ip_address: '192.168.1.100',
+  custom: 'sensitive-value',
+};
 
 interface BatchMaskingModalProps {
   open: boolean;
@@ -42,14 +56,40 @@ export default function BatchMaskingModal({
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BatchMaskingConfigResponse | null>(null);
+  const [preview, setPreview] = useState<{ original: string; masked: string } | null>(null);
+
+  const sensitiveType = Form.useWatch('sensitive_type', form);
+  const maskingMode = Form.useWatch('masking_mode', form);
 
   // Reset form and result when modal opens
   React.useEffect(() => {
     if (open) {
       form.resetFields();
       setResult(null);
+      setPreview(null);
     }
   }, [open, form]);
+
+  // 试运行：根据所选类型/模式实时展示脱敏效果（原值→脱敏值）
+  useEffect(() => {
+    if (!open || result || !sensitiveType) {
+      return;
+    }
+    const sample = SAMPLE_BY_TYPE[sensitiveType] || SAMPLE_BY_TYPE.custom;
+    const handle = setTimeout(async () => {
+      const [err, res] = await apiInterceptors(
+        previewMasking({
+          sensitive_type: sensitiveType,
+          masking_mode: maskingMode || 'mask',
+          sample_value: sample,
+        }),
+      );
+      if (!err && res) {
+        setPreview({ original: res.original, masked: res.masked });
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [open, result, sensitiveType, maskingMode]);
 
   const handleApply = useCallback(async () => {
     try {
@@ -161,6 +201,30 @@ export default function BatchMaskingModal({
           >
             <Switch defaultChecked />
           </Form.Item>
+
+          {/* 试运行：脱敏效果预览 */}
+          {preview && (
+            <div
+              style={{
+                background: 'rgba(0,0,0,0.02)',
+                border: '1px solid #f0f0f0',
+                borderRadius: 6,
+                padding: '8px 12px',
+                marginBottom: 8,
+              }}
+            >
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('Masking preview')}
+              </Typography.Text>
+              <div style={{ marginTop: 4 }}>
+                <Space size={8}>
+                  <code>{preview.original}</code>
+                  <ArrowRightOutlined style={{ color: '#999' }} />
+                  <Tag color="blue">{preview.masked}</Tag>
+                </Space>
+              </div>
+            </div>
+          )}
 
           <Divider />
 

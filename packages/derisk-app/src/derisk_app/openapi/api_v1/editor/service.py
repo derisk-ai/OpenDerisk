@@ -161,6 +161,8 @@ class EditorService(BaseComponent):
                     )[0]
 
                     conn = cfg.local_db_manager.get_connector(db_name)
+                    table_value = conn.run(find_chart["chart_sql"])
+                    table_value = _mask_chart_table_value(db_name, table_value)
                     detail: ChartDetail = ChartDetail(
                         chart_uid=find_chart["chart_uid"],
                         chart_type=find_chart["chart_type"],
@@ -169,10 +171,39 @@ class EditorService(BaseComponent):
                         db_name=db_name,
                         chart_name=find_chart["chart_name"],
                         chart_value=find_chart["values"],
-                        table_value=conn.run(find_chart["chart_sql"]),
+                        table_value=table_value,
                     )
                     return Result.succ(detail)
         return Result.failed(msg="Can't Find Chart Detail Info!")
+
+
+def _mask_chart_table_value(db_name: str, table_value):
+    """Apply privacy masking to a chart's raw table result.
+
+    ``conn.run()`` returns ``[column_tuple, row1, row2, ...]``. We resolve the
+    datasource from ``db_name`` and mask the data rows, preserving the
+    header-first structure expected by the chart renderer.
+    """
+    if not table_value or len(table_value) <= 1:
+        return table_value
+    try:
+        from derisk_serve.datasource.manages.connect_config_db import (
+            ConnectConfigDao,
+        )
+        from derisk_serve.sql_guard.masking import mask_run_result
+
+        ds_id = None
+        entity = ConnectConfigDao().get_by_names(db_name)
+        if entity:
+            ds_id = entity.id
+
+        columns = list(table_value[0])
+        rows = [list(r) for r in table_value[1:]]
+        _, masked_rows, _ = mask_run_result(ds_id, columns, rows)
+        return [table_value[0]] + masked_rows
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"chart table_value masking skipped: {e}")
+        return table_value
 
 
 def _parse_pure_dict(res_str: str) -> Dict:

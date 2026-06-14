@@ -240,13 +240,15 @@ class RDBMSConnectorResource(DBResource[DBParameters]):
         columns = result_lst[0]
         values = result_lst[1:]
 
-        # Apply data masking to sensitive columns
+        # Apply data masking to sensitive columns (datasource-scoped).
         masker = self._get_data_masker()
         if masker and columns and values:
             session_id = getattr(self, "_session_id", None)
+            datasource_id = getattr(self, "_datasource_id", None)
             columns, values = masker.mask_results(
                 columns,
                 values,
+                datasource_id=datasource_id,
                 session_id=session_id,
             )
 

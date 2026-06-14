@@ -14,6 +14,7 @@ import {
   getSensitiveColumns,
   addSensitiveColumn,
   toggleSensitiveColumn,
+  toggleTableMasking,
   updateSensitiveColumn,
   detectSensitiveColumns,
   refreshTableSampleData,
@@ -411,6 +412,25 @@ export default function DatabaseDetail({
     [datasourceId, message, refreshSensitive],
   );
 
+  // Enable/disable masking for ALL sensitive columns of the current table
+  const handleToggleTable = useCallback(
+    async (enabled: boolean) => {
+      if (!selectedTableName) return;
+      const [err] = await apiInterceptors(
+        toggleTableMasking(datasourceId, selectedTableName, enabled),
+      );
+      if (err) {
+        message.error('Failed to update table masking status');
+        return;
+      }
+      message.success(
+        enabled ? 'Masking enabled for all columns' : 'Masking disabled for all columns',
+      );
+      refreshSensitive();
+    },
+    [datasourceId, selectedTableName, message, refreshSensitive],
+  );
+
   // Add sensitive column manually
   const handleAddSensitive = useCallback(async () => {
     try {
@@ -782,6 +802,16 @@ export default function DatabaseDetail({
           >
             Add Manual
           </Button>
+          {currentTableSensitive.length > 0 && (
+            <>
+              <Button size="small" onClick={() => handleToggleTable(true)}>
+                Enable All
+              </Button>
+              <Button size="small" onClick={() => handleToggleTable(false)}>
+                Disable All
+              </Button>
+            </>
+          )}
         </Space>
 
         <Table
@@ -1221,10 +1251,33 @@ export default function DatabaseDetail({
                 </Button>
 
                 {tableDataLoading && <Empty description="Loading..." />}
-                {tableData && (
+                {tableData && (() => {
+                  const maskedSet = new Set(tableData.masked_columns || []);
+                  const buildColumns = () =>
+                    tableData.columns.map((col) => ({
+                      title: maskedSet.has(col) ? (
+                        <Tooltip title="This column is masked by privacy rules / 该列已按隐私规则脱敏">
+                          <span>
+                            <LockOutlined style={{ marginRight: 4, color: '#faad14' }} />
+                            {col}
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        col
+                      ),
+                      dataIndex: col,
+                      key: col,
+                      ellipsis: true,
+                    }));
+                  return (
                   <>
                     <Text type="secondary" className="mb-3 block">
                       Total: {tableData.total.toLocaleString()} rows
+                      {maskedSet.size > 0 && (
+                        <Tag color="warning" className="ml-2">
+                          <LockOutlined /> {maskedSet.size} masked column(s)
+                        </Tag>
+                      )}
                     </Text>
                     {tableData.first_rows.length > 0 && (
                       <>
@@ -1239,12 +1292,7 @@ export default function DatabaseDetail({
                             });
                             return obj;
                           })}
-                          columns={tableData.columns.map((col) => ({
-                            title: col,
-                            dataIndex: col,
-                            key: col,
-                            ellipsis: true,
-                          }))}
+                          columns={buildColumns()}
                           pagination={false}
                           size="small"
                           scroll={{ x: 'max-content' }}
@@ -1262,12 +1310,7 @@ export default function DatabaseDetail({
                             });
                             return obj;
                           })}
-                          columns={tableData.columns.map((col) => ({
-                            title: col,
-                            dataIndex: col,
-                            key: col,
-                            ellipsis: true,
-                          }))}
+                          columns={buildColumns()}
                           pagination={false}
                           size="small"
                           scroll={{ x: 'max-content' }}
@@ -1275,7 +1318,8 @@ export default function DatabaseDetail({
                       </>
                     )}
                   </>
-                )}
+                  );
+                })()}
                 {!tableData && !tableDataLoading && (
                   <Empty description="No data" />
                 )}

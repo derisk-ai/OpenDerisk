@@ -16,6 +16,8 @@ from .schemas import (
     BatchMaskingConfigResponse,
     GuardConfigResponse,
     GuardConfigUpdateRequest,
+    MaskingPreviewRequest,
+    MaskingPreviewResponse,
     RuleInfo,
     RuleUpdateRequest,
     SensitiveColumnCreateRequest,
@@ -376,25 +378,16 @@ async def detect_sensitive_columns(
 
 
 def _reload_masker_config(datasource_id: int) -> None:
-    """Reload masking configs into the DataMasker singleton."""
+    """Invalidate the masker cache for a datasource after config changes.
+
+    The next masking call lazily reloads the current enabled configs from
+    the store, so disables/deletes are reflected and the in-memory state can
+    never drift from the DB.
+    """
     try:
-        from derisk_serve.sql_guard.masking.config_db import SensitiveColumnDao
-        from derisk_serve.sql_guard.masking.masker import (
-            ColumnMaskingConfig,
-            get_data_masker,
-        )
+        from derisk_serve.sql_guard.masking.masker import get_data_masker
 
-        dao = SensitiveColumnDao()
-        masker = get_data_masker()
-        configs = dao.get_enabled_by_datasource(datasource_id)
-
-        for cfg in configs:
-            masker.configure_column(ColumnMaskingConfig(
-                table_name=cfg["table_name"],
-                column_name=cfg["column_name"],
-                sensitive_type=cfg["sensitive_type"],
-                mode=cfg.get("masking_mode", "mask"),
-            ))
+        get_data_masker().invalidate(datasource_id)
     except Exception as e:
         logger.warning(f"Failed to reload masker config: {e}")
 
@@ -495,3 +488,59 @@ async def batch_add_masking_config(
             errors=errors,
         )
     )
+
+
+@router.post(
+    "/sql-guard/masking/preview",
+    response_model=Result[MaskingPreviewResponse],
+)
+async def preview_masking(
+    request: MaskingPreviewRequest,
+) -> Result[MaskingPreviewResponse]:
+    """Preview the masking effect for a sample value (try-run).
+
+    Lets the UI show "original -> masked" before a rule is saved, so users
+    can see exactly what a sensitive_type / masking_mode combination does.
+    """
+    from derisk_serve.sql_guard.masking.masker import (
+        DataMasker,
+        MaskingContext,
+        MaskingMode,
+    )
+
+    mode = request.masking_mode or MaskingMode.MASK
+    value = request.sample_value or ""
+
+    if mode == MaskingMode.NONE:
+        masked = value
+    elif mode == MaskingMode.TOKEN:
+        # Show a representative token for the type.
+        ctx = MaskingContext(session_id="preview")
+        masked = ctx.get_or_create_token(value, request.sensitive_type)
+    else:
+        masked = DataMasker._partial_mask(value, request.sensitive_type)
+
+    return Result.succ(
+        MaskingPreviewResponse(
+            original=value,
+            masked=masked,
+            sensitive_type=request.sensitive_type,
+            masking_mode=mode,
+        )
+    )
+
+
+@router.put(
+    "/sql-guard/masking/{datasource_id}/tables/{table_name}/toggle",
+    response_model=Result[str],
+)
+async def toggle_table_masking(
+    datasource_id: int,
+    table_name: str,
+    enabled: bool = Query(...),
+) -> Result[str]:
+    """Enable or disable masking for ALL sensitive columns of a table."""
+    dao = _get_sensitive_dao()
+    count = dao.set_enabled_by_table(datasource_id, table_name, enabled)
+    _reload_masker_config(datasource_id)
+    return Result.succ(f"OK: {count} column(s) updated")

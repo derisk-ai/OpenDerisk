@@ -202,3 +202,20 @@ class BatchMaskingConfigResponse(BaseModel):
     total_configs_added: int
     matched_columns: List[Dict[str, str]]  # [{"table": "users", "column": "phone"}, ...]
     errors: List[str] = []
+
+
+class MaskingPreviewRequest(BaseModel):
+    """Request to preview the masking effect for a sample value."""
+
+    sensitive_type: str
+    masking_mode: str = "mask"
+    sample_value: str
+
+
+class MaskingPreviewResponse(BaseModel):
+    """Preview result: original value -> masked value."""
+
+    original: str
+    masked: str
+    sensitive_type: str
+    masking_mode: str
