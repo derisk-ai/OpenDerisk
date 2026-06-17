@@ -185,6 +185,10 @@ class DeliverFileTool(SandboxToolBase):
         oss_temp_url = None
         oss_object_path = None
         file_metadata = None
+        # 预览/下载 URL：在 AFS 分支内被赋值；若 AFS 抛异常或不可用，
+        # 这些变量保持 None，后续 render_dattach 会回退到 oss_temp_url。
+        preview_url_value = None
+        download_url_value = None
 
         if client.agent_file_system:
             try:
@@ -248,8 +252,28 @@ class DeliverFileTool(SandboxToolBase):
                 )
 
                 # 从元数据获取 OSS 信息
+                # 优先使用 download_url（不受预览白名单限制，对 .pptx/.docx/.xlsx
+                # 等所有文件类型都可生成），回退到 preview_url 和 oss_url。
+                # 仅接受 HTTP(S) URL，避免把 oss:// 这类无法直接访问的 URI
+                # 错误地透传给前端。
                 if file_metadata:
-                    oss_temp_url = file_metadata.preview_url
+                    preview_url_value = file_metadata.preview_url
+                    download_url_value = file_metadata.download_url
+                    oss_url_value = file_metadata.oss_url
+                    oss_temp_url = next(
+                        (
+                            url
+                            for url in (
+                                download_url_value,
+                                preview_url_value,
+                                oss_url_value,
+                            )
+                            if url
+                            and isinstance(url, str)
+                            and url.startswith(("http://", "https://"))
+                        ),
+                        None,
+                    )
                     oss_object_path = (
                         file_metadata.metadata.get("object_path")
                         if file_metadata.metadata
@@ -309,13 +333,32 @@ class DeliverFileTool(SandboxToolBase):
         try:
             from derisk.agent.core.file_system.dattach_utils import render_dattach
 
+            # preview_url 可能为 None（如 .pptx/.docx 等不在预览白名单的类型），
+            # 此时回退到 oss_temp_url（可下载链接）以保证前端有可用 URL。
+            dattach_preview_url = (
+                preview_url_value
+                if file_metadata
+                and preview_url_value
+                and isinstance(preview_url_value, str)
+                and preview_url_value.startswith(("http://", "https://"))
+                else oss_temp_url
+            )
+            dattach_download_url = (
+                download_url_value
+                if file_metadata
+                and download_url_value
+                and isinstance(download_url_value, str)
+                and download_url_value.startswith(("http://", "https://"))
+                else oss_temp_url
+            )
+
             dattach_content = render_dattach(
                 file_name=file_name,
                 file_url=oss_temp_url,
                 file_type=file_type,
                 object_path=oss_object_path,
-                preview_url=oss_temp_url,
-                download_url=oss_temp_url,
+                preview_url=dattach_preview_url,
+                download_url=dattach_download_url,
                 description=description.strip(),
                 mime_type=mime_type,
             )
