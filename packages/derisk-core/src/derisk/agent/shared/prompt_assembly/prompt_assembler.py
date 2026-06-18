@@ -3,7 +3,7 @@ PromptAssembler - Prompt 分层组装器
 
 核心功能：
 1. 分层组装：身份层 + 资源层 + 控制层
-2. 架构适配：支持 core_v1 和 core_v2 两种架构
+2. 架构适配：与 Agent 运行时无关
 
 分层结构：
 ┌─────────────────────────────────────────────────────────────────┐
@@ -95,25 +95,16 @@ class PromptAssembler:
         )
 
         # 方式2：使用配置
-        config = PromptAssemblyConfig(architecture="v2", language="en")
+        config = PromptAssemblyConfig(language="en")
         assembler = PromptAssembler(config)
         system_prompt = await assembler.assemble_system_prompt(...)
 
-    兼容两种架构：
-        # core_v1
+    使用方式：
         ctx = ResourceContext.from_v1_agent(agent)
         prompt = await assembler.assemble_system_prompt(
             user_system_prompt=profile.system_prompt_template,
             resource_context=ctx,
             **profile_vars
-        )
-
-        # core_v2
-        ctx = ResourceContext.from_v2_agent(agent)
-        prompt = await assembler.assemble_system_prompt(
-            user_system_prompt=info.system_prompt,
-            resource_context=ctx,
-            agent_name=info.name,
         )
     """
 

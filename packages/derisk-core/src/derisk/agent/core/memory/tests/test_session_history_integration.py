@@ -1,10 +1,7 @@
 """
-Integration Tests for Session History Manager with Core V1 and Core V2
+Integration Tests for Session History Manager
 
-测试 SessionHistoryManager 与实际 Agent 的集成:
-1. 与 ReActMasterAgent (Core V1) 的集成
-2. 与 EnhancedAgent (Core V2) 的集成
-3. 端到端的工作流测试
+测试 SessionHistoryManager 与 ReActMasterAgent 的集成与端到端工作流。
 """
 
 import asyncio
@@ -113,65 +110,6 @@ class TestCoreV1Integration:
         # 验证保存成功
         assert "session_123_1" in manager.hot_conversations
         assert len(manager._pure_model_outputs) > 0
-
-
-# =============================================================================
-# Core V2 Integration Tests
-# =============================================================================
-
-
-class TestCoreV2Integration:
-    """测试与 Core V2 (AgentBase) 的集成"""
-
-    @pytest.mark.asyncio
-    async def test_v2_agent_initialization(self):
-        """测试 V2 Agent 初始化 SessionHistoryManager"""
-        # 模拟 AgentBase 的初始化
-        with patch("derisk.agent.core_v2.agent_base.AgentBase") as MockAgentBase:
-            # 创建 mock agent
-            agent = Mock()
-            agent.conv_id = "session_456_1"
-            agent._session_history_manager = None
-
-            # 提取 session_id
-            session_id = agent.conv_id.rsplit("_", 1)[0]
-
-            # 初始化 SessionHistoryManager
-            agent._session_history_manager = SessionHistoryManager(
-                session_id=session_id,
-                config=SessionHistoryConfig(),
-            )
-
-            # 验证初始化成功
-            assert agent._session_history_manager.session_id == "session_456"
-
-    @pytest.mark.asyncio
-    async def test_v2_run_with_session_history(self):
-        """测试 V2 Agent 的 run() 方法集成 SessionHistory"""
-        # 创建 SessionHistoryManager
-        manager = SessionHistoryManager(
-            session_id="session_456",
-            config=SessionHistoryConfig(),
-        )
-
-        # 添加历史
-        conv = SessionConversation(
-            conv_id="session_456_1",
-            session_id="session_456",
-            user_query="Previous question",
-            has_tool_calls=False,
-            pure_model_output="Previous answer",
-        )
-        manager.hot_conversations["session_456_1"] = conv
-
-        # 模拟 run() 中的历史加载
-        history_context = await manager.build_history_context(
-            current_conv_id="session_456_2",
-            max_tokens=8000,
-        )
-
-        # 验证历史上下文可用于注入
-        assert len(history_context) > 0
 
 
 # =============================================================================

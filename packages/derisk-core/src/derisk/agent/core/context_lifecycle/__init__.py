@@ -80,7 +80,6 @@ from .context_assembler import (
 )
 from .agent_integration import (
     CoreAgentContextIntegration,
-    CoreV2AgentContextIntegration,
 )
 
 __all__ = [
@@ -115,5 +114,4 @@ __all__ = [
     "create_context_assembler",
     # Agent集成
     "CoreAgentContextIntegration",
-    "CoreV2AgentContextIntegration",
 ]

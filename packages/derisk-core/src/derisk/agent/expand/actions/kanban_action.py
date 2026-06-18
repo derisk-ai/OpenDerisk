@@ -6,7 +6,7 @@ from derisk.agent.core import system_tool_dict
 from derisk.agent.core.action.base import ToolCall, Action
 from derisk.agent.expand.actions.system_action import SystemAction
 from derisk.agent.expand.actions.tool_action import ToolInput
-from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
+from derisk.agent.expand.react_master_agent.kanban_manager import KanbanManager
 from derisk.agent.resource import BaseTool, ToolPack
 from derisk.vis import SystemVisTag
 from derisk.vis.schema import TodoListContent
@@ -44,7 +44,7 @@ class KanbanAction(SystemAction):
             agent: ConversableAgent = kwargs.get('agent')
             memory: AgentMemory = agent.memory if agent else None
             agent_context: AgentContext = kwargs.get('agent_context')
-            pm: AsyncKanbanManager = kwargs.get('pm')
+            pm: KanbanManager = kwargs.get('pm')
             received_message: AgentMessage = kwargs.get('received_message')
 
             return cls(action_uid=tool_call.tool_call_id,
@@ -72,7 +72,7 @@ class KanbanAction(SystemAction):
         logger.info(f"Tool Action gen view!{self.action_view_tag}")
         # 设置进度
 
-        pm: Optional[AsyncKanbanManager] = self.init_params.get('pm')
+        pm: Optional[KanbanManager] = self.init_params.get('pm')
         todo_dict = await pm.get_todolist_data()
 
         # Build visualization content

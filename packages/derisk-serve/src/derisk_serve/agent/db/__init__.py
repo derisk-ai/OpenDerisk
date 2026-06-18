@@ -8,6 +8,10 @@ from .gpts_worklog_db import (  # noqa: F401
     GptsWorkLogDao,
     GptsWorkLogEntity,
 )
+from .gpts_cold_segment_db import (  # noqa: F401
+    GptsColdSegmentDao,
+    GptsColdSegmentEntity,
+)
 from .gpts_kanban_db import (  # noqa: F401
     GptsKanbanDao,
     GptsKanbanEntity,

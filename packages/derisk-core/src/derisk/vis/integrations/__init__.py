@@ -32,7 +32,7 @@ def initialize_vis_system():
         return
     
     logger.info("[VIS] 开始初始化VIS系统...")
-    
+
     try:
         # 1. 应用Core Agent补丁
         from .integrations.core_integration import patch_conversable_agent
@@ -41,34 +41,26 @@ def initialize_vis_system():
             logger.info("[VIS] ✅ Core Agent集成完成")
         except Exception as e:
             logger.warning(f"[VIS] ❌ Core Agent集成失败: {e}")
-        
-        # 2. 应用Core_V2 Agent补丁
-        from .integrations.core_v2_integration import patch_agent_base_v2
-        try:
-            patch_agent_base_v2()
-            logger.info("[VIS] ✅ Core_V2 Agent集成完成")
-        except Exception as e:
-            logger.debug(f"[VIS] Core_V2 Agent集成跳过: {e}")
-        
-        # 3. 初始化实时推送
+
+        # 2. 初始化实时推送
         from .realtime import initialize_realtime_pusher
         try:
             initialize_realtime_pusher()
             logger.info("[VIS] ✅ 实时推送系统初始化完成")
         except Exception as e:
             logger.warning(f"[VIS] 实时推送系统初始化失败: {e}")
-        
-        # 4. 注册默认VIS组件
+
+        # 3. 注册默认VIS组件
         from .unified_converter import UnifiedVisManager
         try:
             converter = UnifiedVisManager.get_converter()
             logger.info("[VIS] ✅ 统一转换器初始化完成")
         except Exception as e:
             logger.warning(f"[VIS] 统一转换器初始化失败: {e}")
-        
+
         _INITIALIZED = True
         logger.info("[VIS] 🎉 VIS系统初始化完成!")
-        
+
     except Exception as e:
         logger.error(f"[VIS] 系统初始化失败: {e}", exc_info=True)
         raise
@@ -77,33 +69,25 @@ def initialize_vis_system():
 def get_vis_system_status() -> dict:
     """
     获取VIS系统状态
-    
+
     Returns:
         状态信息字典
     """
     from .unified_converter import UnifiedVisManager
-    
+
     status = {
         "initialized": _INITIALIZED,
         "core_integration": False,
-        "core_v2_integration": False,
         "realtime_pusher": False,
     }
-    
+
     try:
         from derisk.agent.core.base_agent import ConversableAgent
         if hasattr(ConversableAgent, 'initialize_vis'):
             status["core_integration"] = True
     except:
         pass
-    
-    try:
-        from derisk.agent.core_v2.agent_base import AgentBase
-        if hasattr(AgentBase, 'emit_thinking'):
-            status["core_v2_integration"] = True
-    except:
-        pass
-    
+
     try:
         from .realtime import get_realtime_pusher
         if get_realtime_pusher() is not None:

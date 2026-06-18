@@ -1,4 +1,4 @@
-# DERISK Core V1 架构文档
+# DERISK Core 架构文档
 
 ## 目录
 
@@ -12,13 +12,12 @@
 8. [使用示例](#8-使用示例)
 9. [用户交互系统](#9-用户交互系统)
 10. [Shared Infrastructure](#10-shared-infrastructure-共享基础设施)
-11. [与 Core V2 对比](#11-与-core-v2-对比)
 
 ---
 
 ## 1. 概述
 
-DERISK Core V1 是一个基于学术论文《A Survey on Large Language Model Based Autonomous Agents》设计的 Agent 框架。框架将 Agent 架构分为四个核心模块：
+DERISK Core 是一个基于学术论文《A Survey on Large Language Model Based Autonomous Agents》设计的 Agent 框架。框架将 Agent 架构分为四个核心模块：
 
 - **Profiling Module** - 角色配置与身份定义
 - **Memory Module** - 信息存储与记忆管理
@@ -1702,7 +1701,7 @@ completed, total = adapter.get_progress()
 
 ### 10.1 概述
 
-Core V1 与 Core V2 共享一套基础设施层，遵循**统一资源平面**设计原则：
+Core 架构使用一套基础设施层，遵循**统一资源平面**设计原则：
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1720,12 +1719,11 @@ Core V1 与 Core V2 共享一套基础设施层，遵循**统一资源平面**�
 │                    │  (会话上下文容器)    │                                   │
 │                    └──────────┬──────────┘                                   │
 └───────────────────────────────┼─────────────────────────────────────────────┘
-                    ┌───────────┴───────────┐
-                    │                       │
-        ┌───────────▼───────────┐ ┌─────────▼─────────────┐
-        │       Core V1         │ │       Core V2         │
-        │  (V1ContextAdapter)   │ │  (V2ContextAdapter)   │
-        └───────────────────────┘ └───────────────────────┘
+                                │
+                    ┌───────────▼───────────┐
+                    │       Core            │
+                    │  (V1ContextAdapter)   │
+                    └───────────────────────┘
 ```
 
 **设计原则：**
@@ -1832,7 +1830,7 @@ await manager.submit_deliverable(
 report = await manager.get_status_report()
 ```
 
-### 10.3 V1ContextAdapter - Core V1 适配器
+### 10.3 V1ContextAdapter - Core 适配器
 
 ```python
 from derisk.agent.shared import SharedSessionContext, V1ContextAdapter
@@ -1887,24 +1885,6 @@ await adapter.integrate_with_agent(
 3. **长任务启用 Kanban 模式**
 4. **工具输出超过阈值自动归档**
 5. **会话结束时调用 close() 清理资源**
-
----
-
-## 11. 与 Core V2 对比
-
-| 特性 | Core V1 | Core V2 |
-|------|---------|---------|
-| **设计理念** | 四模块架构（学术论文） | 配置驱动 + 钩子系统 |
-| **执行引擎** | ExecutionEngine + Hooks | AgentHarness + Checkpoint |
-| **记忆系统** | SimpleMemory + Memory层次 | MemoryCompaction + VectorMemory |
-| **权限系统** | PermissionRuleset | PermissionManager + InteractiveChecker |
-| **配置方式** | AgentInfo + Markdown | AgentConfig + YAML/JSON |
-| **场景扩展** | 手动创建 | 场景预设 + SceneProfile |
-| **模型监控** | 无 | ModelMonitor + TokenUsageTracker |
-| **可观测性** | 基础日志 | ObservabilityManager |
-| **沙箱** | SandboxManager | DockerSandbox + LocalSandbox |
-| **推理策略** | ReasoningAction | ReasoningStrategyFactory |
-| **长任务支持** | 有限 | 长任务执行器 + 检查点 |
 
 ---
 

@@ -10,7 +10,7 @@
 
 ---
 
-## 1. Core V1 (ReActMasterAgent) 使用方式
+## 1. ReActMasterAgent 使用方式
 
 ### 1.1 基本使用
 
@@ -71,204 +71,38 @@ if await recovery.has_recovery_state(session_id):
 
 ---
 
-## 2. Core V2 (ProductionAgent) 使用方式
+## 2. 完整示例
 
-### 2.1 基本使用
-
-```python
-from derisk.agent.core_v2.production_agent import ProductionAgent
-
-# 创建 Agent
-agent = ProductionAgent.create(
-    name="my-agent",
-    api_key="sk-xxx",
-)
-
-# 初始化交互能力
-agent.init_interaction(session_id="session_001")
-
-# 主动提问
-answer = await agent.ask_user(
-    question="请提供数据库连接信息",
-    title="需要您的输入",
-)
-
-# 确认操作
-confirmed = await agent.confirm("确定要部署吗？")
-
-# 选择
-choice = await agent.select(
-    message="请选择环境",
-    options=[
-        {"label": "开发环境", "value": "dev"},
-        {"label": "生产环境", "value": "prod"},
-    ],
-)
-
-# 方案选择
-plan = await agent.choose_plan([
-    {"id": "blue_green", "name": "蓝绿部署"},
-    {"id": "rolling", "name": "滚动更新"},
-])
-```
-
-### 2.2 工具授权
+### 2.1 带中断恢复的长时间任务
 
 ```python
-# 请求工具授权
-authorized = await agent.request_authorization(
-    tool_name="bash",
-    tool_args={"command": "rm -rf /data"},
-    reason="清理测试数据",
-)
-
-if authorized:
-    # 执行工具
-    result = await agent.execute_tool("bash", {"command": "rm -rf /data"})
-```
-
-### 2.3 通知
-
-```python
-# 进度通知
-await agent.notify_progress("正在处理...", progress=0.5)
-
-# 成功通知
-await agent.notify_success("任务完成")
-
-# 错误通知
-await agent.notify_error("发生错误")
-```
-
-### 2.4 Todo 管理
-
-```python
-# 创建 Todo
-todo_id = await agent.create_todo(
-    content="实现用户登录功能",
-    priority=1,
-)
-
-# 开始执行
-await agent.start_todo(todo_id)
-
-# 完成
-await agent.complete_todo(todo_id, result="登录功能已实现")
-
-# 获取进度
-completed, total = agent.get_progress()
-
-# 获取下一个待处理
-next_todo = agent.get_next_todo()
-```
-
-### 2.5 中断恢复
-
-```python
-# 创建检查点
-await agent.create_checkpoint(phase="before_critical_operation")
-
-# 检查恢复状态
-if await agent.has_recovery_state():
-    # 恢复执行
-    result = await agent.recover(resume_mode="continue")
-    
-    if result.success:
-        # 恢复对话历史
-        history = result.recovery_context.conversation_history
-        
-        # 恢复 Todo 列表
-        todos = result.recovery_context.todo_list
-        
-        # 恢复变量
-        variables = result.recovery_context.variables
-```
-
----
-
-## 3. 完整示例
-
-### 3.1 带 Todo 管理的任务执行
-
-```python
-from derisk.agent.core_v2.production_agent import ProductionAgent
-
-async def execute_with_todos():
-    agent = ProductionAgent.create(name="task-agent", api_key="sk-xxx")
-    agent.init_interaction(session_id="session_001")
-    
-    # 创建任务列表
-    todos = [
-        await agent.create_todo("分析需求", priority=2),
-        await agent.create_todo("设计方案", priority=1, dependencies=["分析需求"]),
-        await agent.create_todo("实现代码", priority=0, dependencies=["设计方案"]),
-        await agent.create_todo("测试验证", priority=0, dependencies=["实现代码"]),
-    ]
-    
-    # 执行任务
-    while True:
-        todo = agent.get_next_todo()
-        if not todo:
-            break
-        
-        await agent.start_todo(todo.id)
-        
-        try:
-            # 执行任务
-            result = await do_task(todo.content)
-            await agent.complete_todo(todo.id, result=result)
-            
-            # 进度通知
-            completed, total = agent.get_progress()
-            await agent.notify_progress(
-                f"进度: {completed}/{total}",
-                progress=completed / total,
-            )
-            
-        except Exception as e:
-            await agent.fail_todo(todo.id, error=str(e))
-            break
-    
-    # 最终报告
-    completed, total = agent.get_progress()
-    await agent.notify_success(f"任务完成: {completed}/{total}")
-```
-
-### 3.2 带中断恢复的长时间任务
-
-```python
-async def long_running_task():
-    agent = ProductionAgent.create(name="long-task-agent", api_key="sk-xxx")
-    agent.init_interaction(session_id="long_session")
-    
+async def long_running_task(agent):
     # 检查恢复
-    if await agent.has_recovery_state():
-        result = await agent.recover("continue")
+    recovery = get_recovery_coordinator()
+    if await recovery.has_recovery_state(session_id):
+        result = await agent.interaction.recover(resume_mode="continue")
         if result.success:
             print(f"从断点恢复: {result.summary}")
-    
+
     # 执行任务
     for step in range(100):
-        agent._current_step = step
-        
         # 每 10 步创建检查点
         if step % 10 == 0:
-            await agent.create_checkpoint(phase=f"step_{step}")
-        
+            await recovery.create_checkpoint(session_id, phase=f"step_{step}")
+
         # 执行步骤
         try:
             await do_step(step)
-        except Exception as e:
-            # 自动保存状态
-            await agent.create_checkpoint(phase="error")
+        except Exception:
+            await recovery.create_checkpoint(session_id, phase="error")
             raise
 ```
 
 ---
 
-## 4. 前端集成
+## 3. 前端集成
 
-### 4.1 WebSocket 连接
+### 3.1 WebSocket 连接
 
 ```typescript
 // 前端连接
@@ -297,7 +131,7 @@ function sendResponse(requestId: string, choice: string) {
 }
 ```
 
-### 4.2 恢复检测
+### 3.2 恢复检测
 
 ```typescript
 // 页面加载时检查恢复状态
@@ -314,9 +148,9 @@ async function checkRecovery(sessionId: string) {
 
 ---
 
-## 5. 生产环境配置
+## 4. 生产环境配置
 
-### 5.1 配置 InteractionGateway
+### 4.1 配置 InteractionGateway
 
 ```python
 from derisk.agent.interaction import InteractionGateway, set_interaction_gateway
@@ -330,7 +164,7 @@ gateway = InteractionGateway(
 set_interaction_gateway(gateway)
 ```
 
-### 5.2 配置 RecoveryCoordinator
+### 4.2 配置 RecoveryCoordinator
 
 ```python
 from derisk.agent.interaction import RecoveryCoordinator, set_recovery_coordinator
@@ -345,7 +179,7 @@ set_recovery_coordinator(recovery)
 
 ---
 
-## 6. 注意事项
+## 5. 注意事项
 
 1. **初始化顺序**：必须先调用 `init_interaction()` 才能使用交互能力
 2. **会话 ID**：每个会话需要唯一的 session_id 用于恢复

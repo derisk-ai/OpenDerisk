@@ -111,26 +111,6 @@ class TestInteractionIntegration:
         completed, total = recovery.get_progress("test_session")
         assert completed == 1
         assert total == 1
-    
-    @pytest.mark.asyncio
-    async def test_production_agent_interaction(self):
-        """测试 ProductionAgent 交互能力"""
-        from derisk.agent.core_v2.production_agent import ProductionAgent
-        from derisk.agent.core_v2.llm_adapter import LLMConfig, LLMFactory
-        
-        gateway = get_interaction_gateway()
-        gateway.ws_manager.add_connection("agent_test_session")
-        
-        info = type('AgentInfo', (), {'name': 'test-agent', 'max_steps': 5})()
-        llm_adapter = type('LLMAdapter', (), {
-            'generate': asyncio.coroutine(lambda self, **kwargs: type('Response', (), {'content': 'ok', 'tool_calls': None})())
-        })()
-        
-        agent = ProductionAgent(info=info, llm_adapter=llm_adapter)
-        agent.init_interaction(session_id="agent_test_session")
-        
-        assert agent._enhanced_interaction is not None
-        assert agent._session_id == "agent_test_session"
 
 
 class TestReActMasterInteraction:

@@ -1,7 +1,7 @@
 """
 ResourceInjector - 资源注入器
 
-提供统一的资源注入接口，支持 core_v1 和 core_v2 两种架构。
+提供统一的资源注入接口。
 
 资源类型：
 1. Sandbox - 沙箱环境
@@ -90,18 +90,10 @@ class ResourceInfo:
 @dataclass
 class ResourceContext:
     """
-    资源上下文 - 抽象不同架构的资源获取方式
-
-    支持两种架构：
-    1. core_v1 (expand/react_master_agent): 使用 resource_map, sandbox_manager 等
-    2. core_v2: 使用 resource, resource_map, sandbox_manager 等
+    资源上下文 - 抽象资源获取方式
 
     使用方式：
-        # core_v1 架构
         ctx = ResourceContext.from_v1_agent(agent)
-
-        # core_v2 架构
-        ctx = ResourceContext.from_v2_agent(agent)
     """
 
     # 资源映射
@@ -114,7 +106,7 @@ class ResourceContext:
     agent: Optional[Any] = None
 
     # 架构版本
-    architecture: str = "v1"  # "v1" or "v2"
+    architecture: str = "v1"
 
     # 缓存的资源信息
     _cached_resources: Dict[ResourceType, List[ResourceInfo]] = field(
@@ -123,7 +115,7 @@ class ResourceContext:
 
     @classmethod
     def from_v1_agent(cls, agent: Any) -> "ResourceContext":
-        """从 core_v1 Agent 创建上下文"""
+        """从 Agent 创建资源上下文"""
         resource_map = getattr(agent, "resource_map", {}) or {}
         sandbox_manager = getattr(agent, "sandbox_manager", None)
         logger.info(
@@ -135,25 +127,6 @@ class ResourceContext:
             sandbox_manager=sandbox_manager,
             agent=agent,
             architecture="v1",
-        )
-
-    @classmethod
-    def from_v2_agent(cls, agent: Any) -> "ResourceContext":
-        """从 core_v2 Agent 创建上下文"""
-        resource_map = getattr(agent, "resource_map", {}) or {}
-        sandbox_manager = getattr(agent, "sandbox_manager", None)
-
-        # core_v2 可能还有 resource 属性
-        if not resource_map and hasattr(agent, "resource"):
-            resource = getattr(agent, "resource", None)
-            if resource:
-                resource_map = {"default": [resource]}
-
-        return cls(
-            resource_map=resource_map,
-            sandbox_manager=sandbox_manager,
-            agent=agent,
-            architecture="v2",
         )
 
     def get_resources(self, resource_type: ResourceType) -> List[ResourceInfo]:

@@ -2,7 +2,7 @@
 
 ## 📋 概述
 
-本文档说明如何在现有的 core 和 core_v2 架构下集成第四层压缩机制(Session History Manager)。
+本文档说明如何在现有 core 架构下集成第四层压缩机制(Session History Manager)。
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 🏗️ 架构集成方案
 
-### 1. Core V1 集成 (ReActMasterAgent)
+### 1. ReActMasterAgent 集成
 
 **集成点:** `packages/derisk-core/src/derisk/agent/core/base_agent.py`
 
@@ -177,79 +177,7 @@ async def generate_reply(self, ...):
 
 ---
 
-### 2. Core V2 集成 (ReActReasoningAgent)
-
-**集成点:** `packages/derisk-core/src/derisk/agent/core_v2/agent_base.py`
-
-#### 2.1 在 AgentBase 中初始化
-
-```python
-from derisk.agent.core.memory.session_history import (
-    SessionHistoryManager,
-    SessionHistoryConfig,
-)
-
-class AgentBase(ABC):
-    def __init__(
-        self,
-        info: AgentInfo,
-        memory: Optional[UnifiedMemoryInterface] = None,
-        use_persistent_memory: bool = False,
-        gpts_memory: Optional["GptsMemory"] = None,
-        conv_id: Optional[str] = None,
-        # === 新增参数 ===
-        enable_session_history: bool = False,
-        session_history_config: Optional[SessionHistoryConfig] = None,
-    ):
-        # ... 现有初始化 ...
-        
-        # === 新增: Session History ===
-        self.enable_session_history = enable_session_history
-        self._session_history_manager: Optional[SessionHistoryManager] = None
-        
-        if enable_session_history and gpts_memory and conv_id:
-            # 从 conv_id 提取 session_id
-            session_id = conv_id.rsplit("_", 1)[0]  # 假设格式: session_id_round
-            
-            self._session_history_manager = SessionHistoryManager(
-                session_id=session_id,
-                gpts_memory=gpts_memory,
-                config=session_history_config or SessionHistoryConfig(),
-            )
-```
-
-#### 2.2 在 run() 方法中集成
-
-```python
-async def run(self, message: str, stream: bool = True) -> AsyncIterator[str]:
-    """主执行循环"""
-    
-    # === 新增: 加载 Session History ===
-    if self._session_history_manager:
-        await self._session_history_manager.load_session_history()
-        
-        # 构建历史上下文
-        history_context = await self._session_history_manager.build_history_context(
-            max_tokens=8000,
-        )
-        
-        # 注入到消息列表
-        if history_context:
-            self._messages.extend(history_context)
-    
-    # ... 现有执行循环 ...
-    
-    # === 新增: 保存对话历史 ===
-    if self._session_history_manager:
-        await self._session_history_manager.on_conversation_complete(
-            conv_id=self.conv_id,
-            messages=self._messages,
-        )
-```
-
----
-
-### 3. Prompt 模板集成
+### 2. Prompt 模板集成
 
 **集成点:** `packages/derisk-core/src/derisk/agent/expand/react_master_agent/prompt_fc.py`
 
@@ -372,29 +300,6 @@ agent = ReActMasterAgent(
 # 3. 自动检测和记录纯模型输出
 ```
 
-### 示例 2: 在 Core V2 Agent 中启用
-
-```python
-from derisk.agent.core_v2 import EnhancedAgent, AgentInfo
-from derisk.agent.core.memory.session_history import SessionHistoryConfig
-
-info = AgentInfo(
-    name="my_agent",
-    description="Agent with session history",
-    mode=AgentMode.AUTO,
-)
-
-agent = EnhancedAgent(
-    info=info,
-    gpts_memory=gpts_memory,
-    conv_id="session_123_1",
-    enable_session_history=True,  # 启用第四层
-    session_history_config=SessionHistoryConfig(
-        include_pure_model_outputs=True,
-    ),
-)
-```
-
 ---
 
 ## 📊 效果对比
@@ -489,15 +394,12 @@ agent._session_history_manager._pure_model_outputs.clear()
 
 ### Q3: 如何自定义摘要生成逻辑?
 
-重写 `_generate_summary` 方法:
+重写 `_generate_summary` 方法，自定义摘要逻辑：
 
 ```python
 async def _generate_summary(self, conv: SessionConversation):
-    # 使用 Layer 3 的 ImprovedSessionCompaction
-    from derisk.agent.core_v2.improved_compaction import ImprovedSessionCompaction
-    
-    compactor = ImprovedSessionCompaction()
-    # ... 自定义逻辑 ...
+    # 自定义摘要生成逻辑
+    ...
 ```
 
 ---
@@ -505,7 +407,6 @@ async def _generate_summary(self, conv: SessionConversation):
 ## 📚 相关文档
 
 - [WORKLOG_HISTORY_COMPACTION_ARCHITECTURE.md](../../docs/WORKLOG_HISTORY_COMPACTION_ARCHITECTURE.md) - 完整的三层压缩架构设计
-- [CORE_V2_ARCHITECTURE.md](../../docs/architecture/CORE_V2_ARCHITECTURE.md) - Core V2 架构文档
 - [session_history.py](./session_history.py) - SessionHistoryManager 源码
 
 ---
@@ -517,7 +418,7 @@ async def _generate_summary(self, conv: SessionConversation):
 1. ✅ **第四层压缩机制** - 管理跨对话的历史上下文
 2. ✅ **纯模型输出处理** - 专门记录和管理无工具调用的模型回复
 3. ✅ **三层存储策略** - Hot/Warm/Cold 自动分层
-4. ✅ **无缝集成** - 与现有 core 和 core_v2 架构完美兼容
+4. ✅ **无缝集成** - 与现有 core 架构兼容
 
 **关键创新:**
 - 通过 `has_tool_calls` 和 `pure_model_output` 字段专门处理纯模型输出

@@ -45,9 +45,8 @@ from .doom_loop_detector import (
     DoomLoopCheckResult,
 )
 
-# SessionCompaction and HistoryPruner removed in Phase 2 - replaced by UnifiedCompactionPipeline
-# 但 CompactionResult 仍在 compress_session 方法中使用
-from .session_compaction import CompactionResult
+# 历史压缩已统一收敛到 context_engine.ContextEngine（取代 SessionCompaction /
+# HistoryPruner / HistoryMessageBuilder / LayerManager 等历史 7 套机制）。
 from .truncation import Truncator, TruncationConfig
 
 from .prompt_fc import (
@@ -62,12 +61,6 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 
 # 新增模块导入
 from .work_log import WorkLogManager, create_work_log_manager
-from .history_message_builder import (
-    HistoryMessageBuilder,
-    create_history_message_builder,
-    CompressionConfig,
-    BuildResult,
-)
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
 from .kanban_manager import (
@@ -237,7 +230,10 @@ class ReActMasterAgent(ConversableAgent):
     # SystemEventManager 系统事件管理器（用于 VIS 渲染）
     _system_event_manager: Optional[SystemEventManager] = PrivateAttr(default=None)
 
-    # HistoryMessageBuilder 历史消息构建器（统一三层压缩）
+    # ContextEngine 统一上下文管理引擎（取代历史 7 套机制）
+    _context_engine: Optional[Any] = PrivateAttr(default=None)
+    _context_engine_initialized: bool = PrivateAttr(default=False)
+    # 历史 HistoryMessageBuilder 已退役；保留占位以兼容旧的 fallback 分支判断
     _history_message_builder: Optional[Any] = PrivateAttr(default=None)
     _history_builder_initialized: bool = PrivateAttr(default=False)
     _last_budget_event_data: Optional[Dict] = PrivateAttr(default=None)
@@ -306,8 +302,7 @@ class ReActMasterAgent(ConversableAgent):
             if not has_app_resource:
                 return
 
-            from ...core_v2.async_task_manager import AsyncTaskManager, AsyncTaskSpec
-            from ...core_v2.subagent_manager import SubagentManager as V2SubagentManager
+            from ...util.async_task_manager import AsyncTaskManager, AsyncTaskSpec
 
             # 创建一个轻量级 SubagentManager 适配器，包装 core v1 的 agent delegation
             class CoreV1SubagentAdapter:
@@ -1690,7 +1685,7 @@ class ReActMasterAgent(ConversableAgent):
 
         # ========== 确保核心组件已初始化 ==========
         await self._ensure_work_log_manager()
-        await self._ensure_history_message_builder()
+        await self._ensure_context_engine()
 
         # ========== 获取基本上下文 ==========
         conv_id = "default"
@@ -1736,28 +1731,34 @@ class ReActMasterAgent(ConversableAgent):
             f"history_budget={history_budget}"
         )
 
-        # ========== 通过 HistoryMessageBuilder 统一构建消息 ==========
+        # ========== 通过 ContextEngine 统一构建消息 ==========
+        # 单一权威路径：装配(唯一join+排序) → 分段 → 分层+剪枝 → cold重整 → 发送前不变量门禁
         all_conversation_messages = []
         history_layer_tokens = {"hot": 0, "warm": 0, "cold": 0}
-        build_result: Optional[BuildResult] = None
+        build_result = None  # BuildOutput（含 cleanup_hints）
 
-        if self._history_message_builder:
-            try:
-                build_result = await self._history_message_builder.build_messages_with_result(
-                    current_conv_id=conv_id,
-                    session_id=session_id,
-                    context_window=history_budget,
-                    include_current_conversation=True,
-                )
+        try:
+            build_result = await self._compute_context_engine_messages(
+                conv_id=conv_id,
+                session_id=session_id,
+                context_window=context_window,
+            )
+            if build_result is not None:
                 all_conversation_messages = build_result.messages
                 history_layer_tokens = build_result.layer_tokens
-
+                guard_report = build_result.guard_report
+                if guard_report and guard_report.repairs:
+                    logger.info(
+                        f"[ContextEngine] InvariantGuard repaired: {guard_report.repairs}"
+                    )
                 logger.info(
-                    f"[HistoryMessageBuilder] Built {len(all_conversation_messages)} total messages, "
-                    f"layer_tokens={history_layer_tokens}"
+                    f"[ContextEngine] Built {len(all_conversation_messages)} messages, "
+                    f"layer_tokens={history_layer_tokens}, "
+                    f"total_tokens={build_result.total_tokens}"
                 )
-            except Exception as e:
-                logger.error(f"[CRITICAL] Failed to build messages: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[CRITICAL] ContextEngine build failed: {e}", exc_info=True)
+            build_result = None
 
         # ========== Fallback: 若 builder 不可用，使用 base_agent 的 tool_messages ==========
         if not all_conversation_messages:
@@ -2506,10 +2507,10 @@ class ReActMasterAgent(ConversableAgent):
         if self._doom_loop_detector:
             stats["doom_loop"] = self._doom_loop_detector.get_stats()
 
-        if self._session_compaction:
+        if getattr(self, "_session_compaction", None):
             stats["compaction"] = self._session_compaction.get_stats()
 
-        if self._history_pruner:
+        if getattr(self, "_history_pruner", None):
             stats["prune"] = self._history_pruner.get_stats()
 
         return stats
@@ -2524,10 +2525,10 @@ class ReActMasterAgent(ConversableAgent):
         if self._doom_loop_detector:
             self._doom_loop_detector.reset()
 
-        if self._session_compaction:
+        if getattr(self, "_session_compaction", None):
             self._session_compaction.clear_history()
 
-        if self._history_pruner:
+        if getattr(self, "_history_pruner", None):
             self._history_pruner._prune_history.clear()
 
     async def save_conclusion_file(
@@ -2618,43 +2619,16 @@ class ReActMasterAgent(ConversableAgent):
         except Exception as e:
             logger.error(f"Failed to sync file workspace: {e}")
 
-    async def compress_session(self, force: bool = False) -> Optional[CompactionResult]:
+    async def compress_session(self, force: bool = False) -> Optional[Any]:
+        """手动触发会话压缩（已废弃）。
+
+        历史的 SessionCompaction 已被 ContextEngine 取代，压缩在每个 ReAct step
+        由引擎自动按需进行（cold 重整 + 持久化复用），无需手动触发。保留此方法
+        仅为向后兼容，直接返回 None。
         """
-        手动触发会话压缩
-
-        Args:
-            force: 是否强制压缩
-
-        Returns:
-            Optional[CompactionResult]: 压缩结果
-        """
-        if not self._session_compaction:
-            return None
-
-        # 获取当前消息
-        if self.not_null_agent_context:
-            messages = await self.memory.gpts_memory.get_messages(
-                self.not_null_agent_context.conv_id
-            )
-
-            # 设置 LLM 客户端
-            llm_client = self._get_llm_client()
-            if llm_client:
-                self._session_compaction.set_llm_client(llm_client)
-
-            result = await self._session_compaction.compact(
-                [item.to_agent_message() for item in messages], force=force
-            )
-
-            if result.success and result.messages_removed > 0:
-                # 更新内存中的消息
-                # 注意：这里需要考虑如何安全地替换消息
-                logger.info(
-                    f"Manual compression: removed {result.messages_removed} messages"
-                )
-
-            return result
-
+        logger.info(
+            "[compress_session] 已废弃：压缩由 ContextEngine 自动管理，无需手动触发"
+        )
         return None
 
     def record_phase_action(self, tool_name: str, success: bool):
@@ -3034,79 +3008,82 @@ class ReActMasterAgent(ConversableAgent):
                 f"WorkLogManager loaded: {len(self._work_log_manager.work_log)} entries"
             )
 
-    async def _ensure_history_message_builder(self):
-        """确保 HistoryMessageBuilder 已初始化。
+    async def _ensure_context_engine(self):
+        """确保 ContextEngine 已初始化（统一上下文管理引擎）。
 
-        依赖 WorkLogManager 已初始化。
+        一次性装配：summarize_fn 闭包 llm_client；events 对接 SystemEventManager；
+        cold_persistence 对接 gpts_cold_segments（不可用时降级内存）。
         """
-        if self._history_builder_initialized and self._history_message_builder:
-            return
+        if self._context_engine_initialized and self._context_engine:
+            return self._context_engine
 
-        if not hasattr(self, "_history_builder_init_lock"):
-            self._history_builder_init_lock = asyncio.Lock()
+        if not hasattr(self, "_context_engine_init_lock"):
+            self._context_engine_init_lock = asyncio.Lock()
 
-        async with self._history_builder_init_lock:
-            if self._history_builder_initialized and self._history_message_builder:
-                return
-
-            # 确保 WorkLogManager 先初始化
-            await self._ensure_work_log_manager()
-
-            gpts_memory_ref = (
-                self.memory.gpts_memory if self.memory else None
-            )
-
-            # 初始化 SessionHistoryManager（如果启用）
-            session_history_manager = getattr(self, "_session_history_manager", None)
-            if (
-                getattr(self, "enable_session_history", False)
-                and not session_history_manager
-                and self.agent_context
-            ):
-                try:
-                    from derisk.agent.core.memory.session_history import (
-                        SessionHistoryManager,
-                        SessionHistoryManagerConfig,
-                    )
-
-                    session_history_manager = SessionHistoryManager(
-                        session_id=self.agent_context.conv_session_id,
-                        gpts_memory=gpts_memory_ref,
-                        config=SessionHistoryManagerConfig(
-                            hot_ratio=0.45,
-                            warm_ratio=0.25,
-                            cold_ratio=0.10,
-                        ),
-                        work_log_manager=self._work_log_manager,
-                    )
-                    await session_history_manager.load_session_history()
-                    self._session_history_manager = session_history_manager
-                    logger.info(
-                        f"SessionHistoryManager initialized: "
-                        f"hot={len(session_history_manager.hot_conversations)}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to init SessionHistoryManager: {e}")
-
-            # 创建 HistoryMessageBuilder
+        async with self._context_engine_init_lock:
+            if self._context_engine_initialized and self._context_engine:
+                return self._context_engine
             try:
-                config = CompressionConfig()
-                llm_client = None
-                if hasattr(self, "llm_client"):
-                    llm_client = self.llm_client
+                from .context_engine import ContextEngine, EngineConfig
+                from .cold_persistence import DbColdPersistenceAdapter
+                from .engine_wiring import SystemEventAdapter, make_summarize_fn
 
-                self._history_message_builder = await create_history_message_builder(
-                    session_history_manager=session_history_manager,
-                    work_log_manager=self._work_log_manager,
-                    config=config,
-                    llm_client=llm_client,
-                    system_event_manager=self._system_event_manager,
-                    gpts_memory=gpts_memory_ref,
+                llm_client = getattr(self, "llm_client", None)
+                self._context_engine = ContextEngine(
+                    config=EngineConfig(),
+                    cold_persistence=DbColdPersistenceAdapter(),
+                    summarize_fn=make_summarize_fn(llm_client),
+                    events=SystemEventAdapter(self._system_event_manager),
                 )
-                self._history_builder_initialized = True
-                logger.info("HistoryMessageBuilder initialized successfully")
+                self._context_engine_initialized = True
+                logger.info("ContextEngine initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to init HistoryMessageBuilder: {e}", exc_info=True)
+                logger.error(f"Failed to init ContextEngine: {e}", exc_info=True)
+                self._context_engine = None
+            return self._context_engine
+
+    async def _compute_context_engine_messages(
+        self, conv_id: str, session_id: str, context_window: int
+    ):
+        """统一上下文构建路径：从权威存储装配 → 分层 → 压缩 → 门禁。
+
+        Returns:
+            BuildOutput（含 messages / layer_tokens / cleanup_hints / guard_report）
+            或 None（引擎不可用，调用方落回 fallback）。
+        """
+        engine = await self._ensure_context_engine()
+        if engine is None:
+            return None
+        if not (self.memory and hasattr(self.memory, "gpts_memory")):
+            return None
+
+        gpts_memory = self.memory.gpts_memory
+        # 1) 加载整个 session 的消息（按 session 存）
+        messages = await gpts_memory.get_session_messages(session_id)
+        if not messages:
+            return None
+
+        # 2) 加载每个 conv 的 work_log（按 conv 存）
+        conv_ids = {getattr(m, "conv_id", None) for m in messages}
+        conv_ids.discard(None)
+        conv_ids.add(conv_id)
+        work_logs_by_conv = {}
+        for cid in conv_ids:
+            try:
+                work_logs_by_conv[cid] = await gpts_memory.get_work_log(cid)
+            except Exception as e:
+                logger.warning(f"[ContextEngine] get_work_log({cid}) failed: {e}")
+                work_logs_by_conv[cid] = []
+
+        subagent_goal_id = getattr(self, "_subagent_goal_id", None)
+        return await engine.build_messages(
+            messages=messages,
+            work_logs_by_conv=work_logs_by_conv,
+            current_conv_id=conv_id,
+            session_id=session_id,
+            context_window=context_window,
+            subagent_goal_id=subagent_goal_id,
+        )
 
     async def _ensure_system_event_manager(self):
         """确保 SystemEventManager 已初始化并设置到 GptsMemory"""
@@ -3518,8 +3495,6 @@ from derisk.context.event import ActionPayload, EventType
 __all__ = [
     "ReActMasterAgent",
     "DoomLoopDetector",
-    "SessionCompaction",
-    "HistoryPruner",
     "KanbanManager",
     "validate_deliverable_schema",
 ]

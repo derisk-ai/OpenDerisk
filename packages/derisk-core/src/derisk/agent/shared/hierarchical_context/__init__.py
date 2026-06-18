@@ -76,11 +76,6 @@ from .integration_v1 import (
     HierarchicalContextIntegration,
     integrate_hierarchical_context,
 )
-from .integration_v2 import (
-    HierarchicalContextV2Integration,
-    HierarchicalContextCheckpoint,
-    extend_agent_harness_with_hierarchical_context,
-)
 
 from .prompt_integration import (
     HierarchicalContextPromptConfig,
@@ -145,12 +140,8 @@ __all__ = [
     "AsyncBatchProcessor",
     "get_global_manager",
     "create_async_manager",
-    # Core V1 集成
+    # Core 集成
     "HierarchicalContextMixin",
     "HierarchicalContextIntegration",
     "integrate_hierarchical_context",
-    # Core V2 集成
-    "HierarchicalContextV2Integration",
-    "HierarchicalContextCheckpoint",
-    "extend_agent_harness_with_hierarchical_context",
 ]

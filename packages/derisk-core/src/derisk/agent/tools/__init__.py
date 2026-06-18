@@ -105,7 +105,6 @@ from .resource_manager import (
 from .agent_adapter import (
     AgentToolAdapter,
     CoreToolAdapter,
-    CoreV2ToolAdapter,
     create_tool_adapter_for_agent,
     get_tools_for_agent,
 )
@@ -236,7 +235,6 @@ __all__ = [
     # Agent集成
     "AgentToolAdapter",
     "CoreToolAdapter",
-    "CoreV2ToolAdapter",
     "create_tool_adapter_for_agent",
     "get_tools_for_agent",
     # 迁移

@@ -1,11 +1,11 @@
 """
 Recovery Coordinator - 恢复协调器
 
-统一管理 Core V1 和 Core V2 的中断恢复
+统一管理 Core 的中断恢复
 支持任意点中断恢复、Todo/Kanban 续接
 """
 
-from typing import Dict, List, Optional, Any, Union, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from datetime import datetime
 import asyncio
 import json
@@ -27,7 +27,6 @@ from .interaction_gateway import StateStore, MemoryStateStore
 
 if TYPE_CHECKING:
     from derisk.agent.core import ConversableAgent
-    from derisk.agent.core_v2 import SimpleAgent
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,7 @@ class RecoveryCoordinator:
         step_index: int,
         phase: str,
         context: Dict[str, Any],
-        agent: Union["ConversableAgent", "SimpleAgent"],
+        agent: "ConversableAgent",
     ) -> str:
         """
         创建检查点
@@ -121,7 +120,7 @@ class RecoveryCoordinator:
         session_id: str,
         execution_id: str,
         interaction_request: InteractionRequest,
-        agent: Union["ConversableAgent", "SimpleAgent"],
+        agent: "ConversableAgent",
     ) -> str:
         """在交互请求发起时创建检查点"""
         checkpoint_id = await self.create_checkpoint(
@@ -307,7 +306,7 @@ class RecoveryCoordinator:
     
     async def _collect_snapshot_data(
         self,
-        agent: Union["ConversableAgent", "SimpleAgent"],
+        agent: "ConversableAgent",
     ) -> Dict[str, Any]:
         """收集快照数据"""
         data = {

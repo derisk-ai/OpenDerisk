@@ -30,12 +30,7 @@ from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
 from derisk.agent.expand.actions.agent_action import AgentStart
 from derisk.agent.expand.actions.code_action import CodeAction
 from derisk.agent.expand.actions.tool_action import ToolAction
-from derisk.agent.expand.react_agent.react_parser import (
-    CONST_LLMOUT_THOUGHT,
-    CONST_LLMOUT_TITLE,
-    CONST_LLMOUT_TOOLS,
-)
-from derisk.agent.core_v2.vis_manus_protocol import (
+from derisk.vis.vis_manus_protocol import (
     ManusStepType,
     ManusStepStatus,
     ManusOutputType,

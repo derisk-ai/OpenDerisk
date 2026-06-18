@@ -1,7 +1,7 @@
 """
 SharedSessionContext - 统一会话上下文容器
 
-作为 Core V1 和 Core V2 的共享基础设施，提供：
+作为 Core 的共享基础设施，提供：
 1. AgentFileSystem - 统一文件管理
 2. TaskBoardManager - Todo/Kanban 任务管理
 3. ContextArchiver - 上下文自动归档

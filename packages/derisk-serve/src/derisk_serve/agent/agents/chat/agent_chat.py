@@ -1097,7 +1097,7 @@ class AgentChat(BaseComponent, ABC):
             # 注意：每个Agent有独立的场景文件目录，避免多Agent共享沙箱时的冲突
             if sandbox_manager and app.scenes and len(app.scenes) > 0:
                 try:
-                    from derisk.agent.core_v2.scene_sandbox_initializer import (
+                    from derisk.agent.core.sandbox.scene_initializer import (
                         initialize_scenes_for_agent,
                     )
 
@@ -1303,7 +1303,7 @@ class AgentChat(BaseComponent, ABC):
 
                 if memory_resources:
                     try:
-                        from derisk.agent.core_v2.unified_memory.longterm_manager import (
+                        from derisk.agent.core.memory.longterm_manager import (
                             LongTermMemoryConfig,
                             create_memory_integration_bundle,
                         )
@@ -1344,7 +1344,7 @@ class AgentChat(BaseComponent, ABC):
                                         SimpleSQLiteMemoryConfig,
                                         SimpleSQLiteMemoryStore,
                                     )
-                                    from derisk.agent.core_v2.unified_memory.longterm_manager import (
+                                    from derisk.agent.core.memory.longterm_manager import (
                                         LongTermMemoryManager,
                                         MemorySpaceStrategy,
                                     )
@@ -1391,7 +1391,7 @@ class AgentChat(BaseComponent, ABC):
                                             recall_tracker=recall_tracker,
                                             hybrid_search_engine=HybridSearchEngine(),
                                         )
-                                        from derisk.agent.core_v2.unified_memory.longterm_manager import MemoryIntegrationBundle
+                                        from derisk.agent.core.memory.longterm_manager import MemoryIntegrationBundle
                                         memory_bundle = MemoryIntegrationBundle(
                                             config=memory_config,
                                             manager=manager,
@@ -1581,7 +1581,7 @@ class AgentChat(BaseComponent, ABC):
         Returns:
             注入的场景内容
         """
-        from derisk.agent.core_v2.scene_sandbox_initializer import get_scene_initializer
+        from derisk.agent.core.sandbox.scene_initializer import get_scene_initializer
 
         initializer = get_scene_initializer(sandbox_manager)
         scene_contents = []

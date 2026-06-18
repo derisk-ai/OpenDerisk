@@ -130,7 +130,6 @@ from derisk.agent.core.context_lifecycle import (
     ContextAssembler,
     create_context_assembler,
     CoreAgentContextIntegration,
-    CoreV2AgentContextIntegration,
 )
 
 __all__ = [
@@ -222,7 +221,6 @@ __all__ = [
     "ContextAssembler",
     "create_context_assembler",
     "CoreAgentContextIntegration",
-    "CoreV2AgentContextIntegration",
     # Interaction System (User Interaction)
     "InteractionAdapter",
     "create_interaction_adapter",

@@ -166,27 +166,6 @@ async def example_core_integration():
 
 
 # ═══════════════════════════════════════════════════════════════
-# 示例7: 集成Core_V2 Broadcaster
-# ═══════════════════════════════════════════════════════════════
-
-async def example_core_v2_integration():
-    """集成Core_V2 Broadcaster示例"""
-    
-    # 注意: 需要实际的Broadcaster实例
-    # from derisk.agent.core_v2.visualization.progress import ProgressBroadcaster
-    # broadcaster = ProgressBroadcaster()
-    
-    # converter = UnifiedVisConverter()
-    # converter.register_core_v2_broadcaster(broadcaster)
-    
-    # 自动订阅事件并转换为Part
-    # await broadcaster.thinking("正在思考...")
-    # await broadcaster.tool_started("bash", {"command": "ls"})
-    
-    print("Core_V2 Broadcaster集成示例 - 需要实际Broadcaster实例")
-
-
-# ═══════════════════════════════════════════════════════════════
 # 运行所有示例
 # ═══════════════════════════════════════════════════════════════
 
@@ -217,11 +196,6 @@ async def main():
     print("示例6: Core Agent集成")
     print("=" * 60)
     await example_core_integration()
-    
-    print("\n" + "=" * 60)
-    print("示例7: Core_V2 Broadcaster集成")
-    print("=" * 60)
-    await example_core_v2_integration()
 
 
 if __name__ == "__main__":

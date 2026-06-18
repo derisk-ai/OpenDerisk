@@ -1,16 +1,16 @@
 """File I/O Integration for Agent Architectures
 
-This module provides integration helpers for using file I/O functionality
-in both core and core_v2 agent architectures.
+This module provides integration helpers for file I/O functionality used by
+agent runtime. Two flavours are exposed:
 
-Usage for core (PDCA-style agents):
+- PDCA-style agents:
     from derisk.agent.core.file_io_integration import (
         get_file_storage_client,
         create_agent_file_system,
         process_user_files,
     )
 
-Usage for core_v2 (React-style agents):
+- React-style agents:
     from derisk.agent.core.file_io_integration import (
         FileIOContext,
         initialize_file_io_for_agent,
@@ -167,7 +167,7 @@ async def process_user_files(
 
 
 class FileIOContext:
-    """Context manager for file I/O operations in core_v2 agents.
+    """Context manager for file I/O operations in React-style agents.
 
     This class provides a unified interface for file operations
     that works with both local and remote sandbox environments.
