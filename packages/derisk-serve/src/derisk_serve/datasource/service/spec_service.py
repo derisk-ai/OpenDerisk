@@ -308,7 +308,9 @@ class DbSpecService:
                 lines.append("\nIndexes:")
                 for idx in indexes:
                     idx_name = idx.get("name", "")
-                    idx_cols = ", ".join(idx.get("columns", []))
+                    idx_cols = ", ".join(
+                        str(c) for c in idx.get("columns", []) if c is not None
+                    )
                     unique = " (UNIQUE)" if idx.get("unique", False) else ""
                     lines.append(f"  - {idx_name}({idx_cols}){unique}")
 
@@ -316,9 +318,13 @@ class DbSpecService:
             if foreign_keys:
                 lines.append("\nForeign keys:")
                 for fk in foreign_keys:
-                    src_cols = ", ".join(fk.get("constrained_columns", []))
+                    src_cols = ", ".join(
+                        str(c) for c in fk.get("constrained_columns", []) if c is not None
+                    )
                     ref_table = fk.get("referred_table", "")
-                    ref_cols = ", ".join(fk.get("referred_columns", []))
+                    ref_cols = ", ".join(
+                        str(c) for c in fk.get("referred_columns", []) if c is not None
+                    )
                     lines.append(
                         f"  - ({src_cols}) -> {ref_table}({ref_cols})"
                     )
