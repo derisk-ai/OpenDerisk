@@ -5,7 +5,7 @@ ToolAuthorizationMiddleware - 工具授权中间件
 - 当 cwd 在 sandbox work_dir 内：无需额外授权
 - 当 cwd 在 sandbox work_dir 外：需要用户授权
 
-支持 Core 和 CoreV2 两种架构，统一授权流程。
+支持统一的授权流程（直接回调或通过 InteractionGateway）。
 """
 
 import os
@@ -276,7 +276,7 @@ class ToolAuthorizationMiddleware:
             context=tool_context,
         )
 
-        # CoreV2 架构
+        # 通过 InteractionGateway
         middleware = ToolAuthorizationMiddleware(
             interaction_gateway=gateway,
         )
@@ -296,7 +296,7 @@ class ToolAuthorizationMiddleware:
 
         Args:
             user_callback: 用户授权回调函数，接收 context 和 check_result，返回是否授权
-            interaction_gateway: InteractionGateway 实例（用于 CoreV2）
+            interaction_gateway: InteractionGateway 实例（异步用户交互）
             session_auth_cache: 会话级授权缓存
         """
         self._user_callback = user_callback
@@ -471,7 +471,7 @@ class ToolAuthorizationMiddleware:
                 logger.error(f"[AuthMiddleware] User callback failed: {e}")
                 return False
 
-        # 2. 使用 InteractionGateway（CoreV2 架构）
+        # 2. 使用 InteractionGateway
         if self._interaction_gateway:
             return await self._request_via_gateway(auth_context, check_result)
 

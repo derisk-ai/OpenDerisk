@@ -1,7 +1,7 @@
 """
 GptsMessageMemory统一存储适配器
 
-将Core V2的GptsMessageMemory适配到统一存储
+将GptsMessageMemory适配到统一存储
 底层继续使用gpts_messages表，但通过UnifiedMessage接口
 """
 import logging
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class GptsMessageMemoryUnifiedAdapter:
     """GptsMessageMemory统一存储适配器
     
-    为Core V2的GptsMessageMemory提供统一接口
+    为GptsMessageMemory提供统一接口
     底层继续使用gpts_messages表
     """
     

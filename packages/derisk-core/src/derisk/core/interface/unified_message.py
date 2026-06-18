@@ -1,7 +1,7 @@
 """
 统一消息模型
 
-用于统一Core V1和Core V2的消息格式，支持双向转换
+用于统一 BaseMessage 与 GptsMessage 消息格式，支持双向转换
 """
 import uuid
 import json
@@ -14,7 +14,7 @@ from datetime import datetime
 class UnifiedMessage:
     """统一消息模型
     
-    支持Core V1（BaseMessage）和Core V2（GptsMessage）的双向转换
+    支持BaseMessage 与 GptsMessage的双向转换
     """
     
     # 基础字段（必填字段放在前面）
@@ -99,11 +99,11 @@ class UnifiedMessage:
     
     @classmethod
     def from_gpts_message(cls, msg: 'GptsMessage') -> 'UnifiedMessage':
-        """从Core V2的GptsMessage转换
-        
+        """从 GptsMessage 转换
+
         Args:
             msg: GptsMessage实例
-            
+
         Returns:
             UnifiedMessage实例
         """
@@ -134,7 +134,7 @@ class UnifiedMessage:
             resource_info=msg.resource_info,
             rounds=msg.rounds or 0,
             metadata={
-                "source": "core_v2",
+                "source": "gpts",
                 "role": msg.role if hasattr(msg, 'role') else "assistant",
                 "metrics": msg.metrics.__dict__ if hasattr(msg, 'metrics') and msg.metrics else None
             },
@@ -172,7 +172,7 @@ class UnifiedMessage:
         return msg
     
     def to_gpts_message(self) -> 'GptsMessage':
-        """转换为Core V2的GptsMessage
+        """转换为 GptsMessage
         
         Returns:
             GptsMessage实例
@@ -275,7 +275,7 @@ class UnifiedMessage:
 class UnifiedConversationSummary:
     """统一对话摘要模型
 
-    用于统一Core V1（chat_history）和Core V2（gpts_conversations）的对话列表格式
+    用于统一chat_history 与 gpts_conversations 表的对话列表格式
     """
 
     # 基础字段（没有默认值的必须放在前面）

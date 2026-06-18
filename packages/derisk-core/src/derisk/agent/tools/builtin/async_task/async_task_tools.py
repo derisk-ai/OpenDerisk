@@ -141,7 +141,7 @@ class SpawnAgentTaskTool(ToolBase):
             )
 
         try:
-            from ....core_v2.async_task_manager import AsyncTaskSpec
+            from ....util.async_task_manager import AsyncTaskSpec
 
             spec = AsyncTaskSpec(
                 agent_name=agent_name,

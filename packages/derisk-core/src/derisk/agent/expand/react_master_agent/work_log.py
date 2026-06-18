@@ -32,10 +32,7 @@ from ...core.memory.gpts.file_base import (
     FileType,
 )
 
-from .history_message_builder import DEFAULT_CHARS_PER_TOKEN
-
-if TYPE_CHECKING:
-    from .layer_manager import LayerManager
+from .context_engine.text_utils import DEFAULT_CHARS_PER_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +99,7 @@ class WorkLogManager:
         session_id: str,
         agent_file_system: Optional[AgentFileSystem] = None,
         work_log_storage: Optional[WorkLogStorage] = None,
-        layer_manager: Optional["LayerManager"] = None,
+        layer_manager: Optional[Any] = None,
         context_window: Optional[int] = None,
     ):
         self.agent_id = agent_id
@@ -129,30 +126,9 @@ class WorkLogManager:
         # 对话内压缩缓存：conv_id -> WorkLogCompressionCache
         self.compression_cache: Dict[str, WorkLogCompressionCache] = {}
 
-        # 增量分层管理器：立即创建（使用默认配置）
-        if layer_manager:
-            self._layer_manager = layer_manager
-            logger.info(
-                f"WorkLogManager: LayerManager 已集成（外部传入），启用增量分层"
-            )
-        else:
-            from .layer_manager import LayerManager, LayerMigrationConfig
-
-            default_context_window = context_window or 256000
-            default_config = LayerMigrationConfig(
-                hot_ratio=0.45,
-                warm_ratio=0.25,
-                cold_ratio=0.10,
-                chars_per_token=self.chars_per_token,
-            )
-
-            self._layer_manager = LayerManager(config=default_config)
-            self._layer_manager.set_budgets(default_context_window)
-
-            logger.info(
-                f"WorkLogManager: LayerManager 自动创建，context_window={default_context_window}, "
-                f"hot_budget={self._layer_manager.hot.budget}, warm_budget={self._layer_manager.warm.budget}"
-            )
+        # 增量分层管理器：已退役。分层统一由 ContextEngine 在读取时无状态完成，
+        # work_log 只负责记录工具调用（作为 ContextEngine join 的数据源）。
+        self._layer_manager = None
 
         if work_log_storage:
             logger.info(f"WorkLogManager 初始化: 使用 WorkLogStorage 模式")
@@ -161,13 +137,9 @@ class WorkLogManager:
         else:
             logger.info(f"WorkLogManager 初始化: 仅内存模式")
 
-    def set_layer_manager(self, layer_manager: "LayerManager"):
-        """更新 LayerManager 配置（在 HistoryMessageBuilder 创建时调用）"""
-        self._layer_manager = layer_manager
-        logger.info(
-            f"WorkLogManager: LayerManager 配置已更新, "
-            f"hot_budget={layer_manager.hot.budget}, warm_budget={layer_manager.warm.budget}"
-        )
+    def set_layer_manager(self, layer_manager: Any):
+        """（已退役）分层由 ContextEngine 在读取时完成，此处为兼容保留的空操作。"""
+        return None
 
     @property
     def storage_mode(self) -> str:
@@ -609,8 +581,8 @@ class WorkLogManager:
         else:
             self.compression_cache.clear()
 
-    def get_layer_manager(self) -> Optional["LayerManager"]:
-        """获取 LayerManager 实例"""
+    def get_layer_manager(self) -> Optional[Any]:
+        """（已退役）始终返回 None。"""
         return self._layer_manager
 
     async def get_stats(self) -> Dict[str, Any]:

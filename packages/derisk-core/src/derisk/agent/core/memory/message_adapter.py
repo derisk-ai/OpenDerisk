@@ -1,18 +1,14 @@
-"""Unified Message Adapter for v1 and v2 AgentMessage.
+"""Unified Message Adapter for AgentMessage variants.
 
-Adapts both v1 (dataclass) and v2 (Pydantic) AgentMessage to a unified read interface.
+Adapts AgentMessage (and plain dict messages) to a unified read interface.
 Uses adapter pattern — does NOT modify existing AgentMessage classes.
 
 Also supports plain dict messages (as used in function_callning_reply_messages).
 
-v1 AgentMessage (dataclass in core/types.py):
+AgentMessage (dataclass in core/types.py):
     - tool_calls: Optional[List[Dict]]          # top-level field
     - context: Dict                              # contains tool_call_id, tool_calls
     - role, content, message_id, rounds, round_id, gmt_create, ...
-
-v2 AgentMessage (Pydantic in core_v2/agent_base.py):
-    - metadata: Dict                             # contains tool_calls, tool_call_id
-    - role, content, timestamp
 
 Plain dict messages (from base_agent.function_callning_reply_messages):
     - {"role": "ai"/"tool", "content": "...", "tool_calls": [...], "tool_call_id": "..."}

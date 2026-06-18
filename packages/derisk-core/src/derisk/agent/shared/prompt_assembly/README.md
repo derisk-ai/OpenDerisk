@@ -1,6 +1,6 @@
 # Prompt Assembly Module - 通用 Prompt 组装模块
 
-提供分层 Prompt 组装能力，兼容 core_v1 和 core_v2 两种架构。
+提供分层 Prompt 组装能力。
 
 ## 目录结构
 
@@ -59,9 +59,7 @@ from derisk.agent.shared.prompt_assembly import (
 )
 
 # 创建资源上下文
-ctx = ResourceContext.from_v1_agent(agent)  # core_v1
-# 或
-ctx = ResourceContext.from_v2_agent(agent)  # core_v2
+ctx = ResourceContext.from_v1_agent(agent)
 
 # 注入资源
 injector = ResourceInjector()
@@ -73,26 +71,18 @@ all_resources = await injector.inject_all(ctx)
 ```python
 from derisk.agent.shared.prompt_assembly import create_prompt_assembler
 
-# core_v1 架构
-assembler = create_prompt_assembler(architecture="v1", language="zh")
+assembler = create_prompt_assembler(language="zh")
 system_prompt = await assembler.assemble_system_prompt(
     user_system_prompt="你是一个专家...",
     resource_context=ctx,
     role="AI助手",
     name="Assistant",
 )
-
-# core_v2 架构
-assembler = create_prompt_assembler(architecture="v2", language="zh")
-system_prompt = await assembler.assemble_system_prompt(
-    resource_context=ctx,
-    agent_name="ReActAgent",
-)
 ```
 
 ## 架构集成
 
-### core_v1 (ReActMasterAgent)
+### ReActMasterAgent
 
 **集成位置**: `load_thinking_messages()` 方法
 
@@ -109,8 +99,7 @@ class ReActMasterAgent(ConversableAgent):
 
     def _get_prompt_assembler(self) -> PromptAssembler:
         if self._prompt_assembler is None:
-            config = PromptAssemblyConfig(architecture="v1")
-            self._prompt_assembler = PromptAssembler(config)
+            self._prompt_assembler = PromptAssembler()
         return self._prompt_assembler
 
     async def load_thinking_messages(self, ...):
@@ -127,42 +116,6 @@ class ReActMasterAgent(ConversableAgent):
             role=self.profile.role,
             name=self.profile.name,
         )
-```
-
-### core_v2 (ReActReasoningAgent)
-
-**集成位置**: `_build_system_prompt_with_assembler()` 方法
-
-```python
-# packages/derisk-core/src/derisk/agent/core_v2/builtin_agents/react_reasoning_agent.py
-
-from ...shared.prompt_assembly import (
-    PromptAssembler,
-    ResourceContext,
-)
-
-class ReActReasoningAgent(BaseBuiltinAgent):
-    _prompt_assembler: Optional[PromptAssembler] = None
-    
-    def _get_prompt_assembler(self) -> PromptAssembler:
-        if self._prompt_assembler is None:
-            config = PromptAssemblyConfig(architecture="v2")
-            self._prompt_assembler = PromptAssembler(config)
-        return self._prompt_assembler
-    
-    async def _build_system_prompt_with_assembler(self) -> str:
-        assembler = self._get_prompt_assembler()
-        resource_ctx = ResourceContext.from_v2_agent(self)
-        
-        return await assembler.assemble_system_prompt(
-            resource_context=resource_ctx,
-            agent_name=self.info.name,
-        )
-    
-    async def think(self, message: str, **kwargs):
-        # 使用新方法
-        system_prompt = await self._build_system_prompt_with_assembler()
-        # ...
 ```
 
 ## 前端集成

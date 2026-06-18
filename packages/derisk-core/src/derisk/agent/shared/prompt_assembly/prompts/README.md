@@ -1,12 +1,12 @@
 # Prompt 模板目录
 
-本目录包含分层 Prompt 模板，支持 core_v1 和 core_v2 两种架构。
+本目录包含分层 Prompt 模板。
 
 ## 分层组装
 
 系统默认使用分层组装模式，将 Prompt 分为三层：
 
-### ReActMasterAgent (core_v1)
+### ReActMasterAgent
 
 ```python
 from derisk.agent.expand.react_master_agent import ReActMasterAgent
@@ -25,20 +25,6 @@ agent = ReActMasterAgent(
 - 代码开发
 - 文档处理
 """,  # 仅身份内容
-    )
-)
-```
-
-### ReActReasoningAgent (core_v2)
-
-```python
-from derisk.agent.core_v2.builtin_agents import ReActReasoningAgent
-from derisk.agent.core_v2.agent_info import AgentInfo
-
-agent = ReActReasoningAgent(
-    info=AgentInfo(
-        name="ReActAgent",
-        max_steps=20,
     )
 )
 ```

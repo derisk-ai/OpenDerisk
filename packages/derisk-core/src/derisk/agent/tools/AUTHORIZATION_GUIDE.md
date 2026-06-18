@@ -32,7 +32,7 @@ result = await core_adapter.execute_for_core(
 )
 ```
 
-### 2. CoreV2 架构集成
+### 2. 在 Agent 中创建适配器
 
 ```python
 from derisk.agent.tools import (
@@ -41,46 +41,37 @@ from derisk.agent.tools import (
 )
 
 # 在 Agent 初始化时创建适配器
-class MyAgent(BaseBuiltinAgent):
+class MyAgent(ConversableAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         # 创建工具适配器
         self._tool_adapter = create_tool_adapter_for_agent(
             agent=self,
             interaction_gateway=kwargs.get("interaction_gateway"),
         )
-        self._core_v2_adapter = self._tool_adapter.adapt_for_core_v2()
-    
+        self._core_adapter = self._tool_adapter.adapt_for_core()
+
     async def execute_tool(self, tool_name, tool_args, **kwargs):
         # 使用适配器执行工具（带授权检查）
-        result = await self._core_v2_adapter.execute_for_core_v2(
-            tool_call={
-                "name": tool_name,
+        result = await self._core_adapter.execute_for_core(
+            action_input={
+                "tool_name": tool_name,
                 "args": tool_args,
             },
-            execution_context=self.context,
+            agent_context=self.agent_context,
         )
-        
-        return ToolResult(
-            success=result["success"],
-            output=result["content"],
-            metadata=result["metadata"],
-        )
+
+        return result
 ```
 
-### 3. 在 Runtime 中设置 InteractionGateway
+### 3. 在运行时设置 InteractionGateway
 
 ```python
-from derisk.agent.core_v2.integration import AgentRuntime
+# 在外部初始化好 gateway 后注入到 agent
+agent.set_interaction_gateway(gateway)
 
-runtime = AgentRuntime(
-    agent=agent,
-    interaction_gateway=gateway,
-)
-
-# 这会调用 agent.set_interaction_gateway(gateway)
-# 如果 agent 有 tool_adapter，也会自动设置
+# 如果 agent 有 tool_adapter，也要同步设置
 if hasattr(agent, "_tool_adapter"):
     agent._tool_adapter.set_interaction_gateway(gateway)
 ```

@@ -143,6 +143,15 @@ class SystemEventType(Enum):
     TOKEN_BUDGET_SUMMARY = "token_budget_summary"
     """Token预算汇总"""
 
+    COMPRESSION_START = "compression_start"
+    """开始压缩历史上下文（cold 重整）"""
+
+    COMPRESSION_COMPLETE = "compression_complete"
+    """历史上下文压缩完成"""
+
+    COMPRESSION_LLM_FAILED = "compression_llm_failed"
+    """历史压缩 LLM 调用失败，降级为截断兜底"""
+
 
 class EventPhase(Enum):
     """Event phase classification."""
@@ -197,6 +206,9 @@ EVENT_PHASE_MAP: Dict[SystemEventType, EventPhase] = {
     SystemEventType.TOKEN_BUDGET_ALLOCATED: EventPhase.EXECUTION,
     SystemEventType.TOKEN_BUDGET_LAYER_USED: EventPhase.EXECUTION,
     SystemEventType.TOKEN_BUDGET_SUMMARY: EventPhase.EXECUTION,
+    SystemEventType.COMPRESSION_START: EventPhase.EXECUTION,
+    SystemEventType.COMPRESSION_COMPLETE: EventPhase.EXECUTION,
+    SystemEventType.COMPRESSION_LLM_FAILED: EventPhase.EXECUTION,
 }
 
 

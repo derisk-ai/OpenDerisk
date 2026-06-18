@@ -5,7 +5,7 @@ Layer 2: Pruning — prune old tool outputs in history to save tokens.
 Layer 3: Compaction & Archival — compress + archive old messages into chapters.
 Layer 4: Multi-Turn History — compress cross-round conversation history.
 
-Works with both v1 (core) and v2 (core_v2) AgentMessage via UnifiedMessageAdapter.
+Works with AgentMessage via UnifiedMessageAdapter.
 
 Monitoring Integration:
     This module integrates with `context_metrics.ContextMetricsCollector` to provide
@@ -1109,7 +1109,7 @@ class UnifiedCompactionPipeline:
                 key_info_section=key_info_section,
             )
 
-            from derisk.agent.core_v2.llm_utils import call_llm
+            from derisk.agent.util.llm.call_utils import call_llm
 
             result = await call_llm(
                 self.llm_client,

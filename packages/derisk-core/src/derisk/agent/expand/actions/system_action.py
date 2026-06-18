@@ -4,7 +4,7 @@ from derisk.agent import Resource, AgentMemory, ConversableAgent, AgentContext, 
 from derisk.agent.core import system_tool_dict
 from derisk.agent.core.action.base import ToolCall
 from derisk.agent.expand.actions.tool_action import ToolAction, ToolInput
-from derisk.agent.expand.pdca_agent.plan_manager import AsyncKanbanManager
+from derisk.agent.expand.react_master_agent.kanban_manager import KanbanManager
 from derisk.agent.resource import BaseTool
 from derisk.vis import SystemVisTag
 
@@ -39,7 +39,7 @@ class SystemAction(ToolAction):
             agent: ConversableAgent = kwargs.get('agent')
             memory: AgentMemory = agent.memory if agent else None
             agent_context: AgentContext = kwargs.get('agent_context')
-            pm: AsyncKanbanManager = kwargs.get('pm')
+            pm: KanbanManager = kwargs.get('pm')
             received_message: AgentMessage = kwargs.get('received_message')
 
             return cls(action_uid=tool_call.tool_call_id,

@@ -1,9 +1,8 @@
 """
 AgentToolAdapter - Agent工具适配器
 
-提供Core和CoreV2 Agent与新工具框架的集成适配：
+提供 Agent 与新工具框架的集成适配：
 - Core Agent适配
-- CoreV2 Agent适配
 - 工具执行统一接口
 """
 
@@ -57,7 +56,7 @@ class AgentToolAdapter:
         初始化适配器
 
         Args:
-            agent: Agent实例（Core或CoreV2）
+            agent: Agent实例
             registry: 工具注册表
             tool_ids: 可用工具ID列表（用于过滤）
             interaction_gateway: InteractionGateway 实例（用于用户授权交互）
@@ -257,7 +256,7 @@ class AgentToolAdapter:
                 )
                 context.setdefault("user_id", getattr(agent_ctx, "user_id", None))
 
-            # CoreV2 Agent特有字段
+            # 备用 context 字段
             if hasattr(self._agent, "context"):
                 agent_ctx = self._agent.context
                 context.setdefault(
@@ -347,10 +346,6 @@ class AgentToolAdapter:
     def adapt_for_core(self) -> "CoreToolAdapter":
         """适配Core Agent"""
         return CoreToolAdapter(self)
-
-    def adapt_for_core_v2(self) -> "CoreV2ToolAdapter":
-        """适配CoreV2 Agent"""
-        return CoreV2ToolAdapter(self)
 
 
 class CoreToolAdapter:
@@ -446,91 +441,6 @@ class CoreToolAdapter:
         }
 
 
-class CoreV2ToolAdapter:
-    """
-    CoreV2 Agent工具适配器
-
-    提供CoreV2 Agent与工具框架的桥接
-    """
-
-    def __init__(self, adapter: AgentToolAdapter):
-        self._adapter = adapter
-
-    def to_harness_format(self) -> Dict[str, Any]:
-        """
-        转换为CoreV2 Harness格式
-
-        Returns:
-            Dict: CoreV2 Harness的工具配置
-        """
-        tools = self._adapter.get_available_tools()
-
-        return {
-            "tools": [t.to_openai_tool() for t in tools],
-            "tool_configs": {
-                t.metadata.name: {
-                    "timeout": t.metadata.timeout,
-                    "risk_level": t.metadata.risk_level.value,
-                    "requires_permission": t.metadata.requires_permission,
-                }
-                for t in tools
-            },
-        }
-
-    async def execute_for_core_v2(
-        self, tool_call: Dict[str, Any], execution_context: Any = None
-    ) -> Dict[str, Any]:
-        """
-        为CoreV2 Agent执行工具
-
-        Args:
-            tool_call: 工具调用信息
-            execution_context: CoreV2执行上下文
-
-        Returns:
-            Dict: CoreV2工具执行结果
-        """
-        tool_name = tool_call.get("name") or tool_call.get("function", {}).get("name")
-        args = tool_call.get("args") or tool_call.get("function", {}).get(
-            "arguments", {}
-        )
-
-        if isinstance(args, str):
-            import json
-
-            args = json.loads(args)
-
-        context = {}
-        if execution_context:
-            context["agent_id"] = getattr(execution_context, "agent_id", None)
-            context["conversation_id"] = getattr(
-                execution_context, "conversation_id", None
-            )
-            context["trace_id"] = getattr(execution_context, "trace_id", None)
-
-            # 注入 sandbox_client（用于 cwd 授权检查）
-            sandbox_manager = getattr(execution_context, "sandbox_manager", None)
-            if sandbox_manager:
-                context["sandbox_client"] = getattr(sandbox_manager, "client", None)
-                if not context["sandbox_client"]:
-                    context["sandbox_client"] = getattr(
-                        sandbox_manager, "get_client", lambda: None
-                    )()
-
-        result = await self._adapter.execute_tool(tool_name, args, context)
-
-        return {
-            "tool_call_id": tool_call.get("id"),
-            "role": "tool",
-            "name": tool_name,
-            "content": str(result.output)
-            if result.success
-            else f"Error: {result.error}",
-            "success": result.success,
-            "metadata": result.metadata,
-        }
-
-
 # === 便捷函数 ===
 
 
@@ -562,7 +472,7 @@ def get_tools_for_agent(agent_type: str = "core") -> List[Dict[str, Any]]:
     获取Agent可用的工具列表
 
     Args:
-        agent_type: Agent类型 (core/core_v2)
+        agent_type: Agent类型
 
     Returns:
         List[Dict]: 工具列表

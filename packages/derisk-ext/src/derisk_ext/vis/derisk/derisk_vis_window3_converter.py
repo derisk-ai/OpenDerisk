@@ -20,11 +20,6 @@ from derisk.agent.core.user_proxy_agent import HUMAN_ROLE
 from derisk.agent.expand.actions.agent_action import AgentStart
 from derisk.agent.expand.actions.code_action import CodeAction
 from derisk.agent.expand.actions.tool_action import ToolAction
-from derisk.agent.expand.react_agent.react_parser import (
-    CONST_LLMOUT_THOUGHT,
-    CONST_LLMOUT_TITLE,
-    CONST_LLMOUT_TOOLS,
-)
 from derisk.vis.schema import VisAttachListContent, VisAttachContent
 from derisk.vis.vis_converter import SystemVisTag
 from derisk_ext.vis.common.tags.derisk_attach import DeriskAttach
@@ -550,10 +545,10 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             content = gpt_msg.content
             if agent and agent.agent_parser:
                 thought = agent.agent_parser.parse_streaming_xml(
-                    gpt_msg.content, CONST_LLMOUT_THOUGHT
+                    gpt_msg.content, "thought"
                 )
                 title = agent.agent_parser.parse_streaming_xml(
-                    gpt_msg.content, CONST_LLMOUT_TITLE
+                    gpt_msg.content, "scratch_pad"
                 )
 
         elif stream_msg:
@@ -570,13 +565,13 @@ class DeriskIncrVisWindow3Converter(DeriskVisIncrConverter):
             agent = senders_map.get(sender_name) if senders_map else None
             if agent and agent.agent_parser and prev_content:
                 title = agent.agent_parser.parse_streaming_xml(
-                    prev_content, CONST_LLMOUT_TITLE
+                    prev_content, "scratch_pad"
                 )
                 thought = agent.agent_parser.parse_streaming_xml(
-                    prev_content, CONST_LLMOUT_THOUGHT
+                    prev_content, "thought"
                 )
                 tools = agent.agent_parser.parse_streaming_xml(
-                    prev_content, CONST_LLMOUT_TOOLS
+                    prev_content, "tool_calls"
                 )
                 if tools or thought:
                     title = None

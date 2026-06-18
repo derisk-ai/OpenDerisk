@@ -985,9 +985,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         app_resp.system_prompt_template = r_engine_system_prompt_t
                 elif is_v2_agent:
                     logger.info("构建模式初始化Core_v2 Agent system_prompt模版！")
-                    app_resp.system_prompt_template = _get_v2_agent_system_prompt(
-                        app_config
-                    )
+                    app_resp.system_prompt_template = _get_default_system_prompt()
                 else:
                     if not app_resp.team_mode == TeamMode.NATIVE_APP.value and ag:
                         prompt_template, template_format = ag.prompt_template(
@@ -1009,9 +1007,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         app_resp.user_prompt_template = r_engine_user_prompt_t
                 elif is_v2_agent:
                     logger.info("构建模式初始化Core_v2 Agent user_prompt模版！")
-                    app_resp.user_prompt_template = _get_v2_agent_user_prompt(
-                        app_config
-                    )
+                    app_resp.user_prompt_template = _get_default_user_prompt()
                 else:
                     if not app_resp.team_mode == TeamMode.NATIVE_APP.value and ag:
                         logger.info(f"初始化[{app_resp.agent}]user_prompt模版！")
@@ -1219,9 +1215,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         logger.info(
                             "旧版应用同步：初始化Core_v2 Agent system_prompt模版！"
                         )
-                        gpts_app.system_prompt_template = _get_v2_agent_system_prompt(
-                            None
-                        )
+                        gpts_app.system_prompt_template = _get_default_system_prompt()
                     elif ag:
                         prompt_template, template_format = ag.prompt_template(
                             "system", gpts_app.language
@@ -1238,7 +1232,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                         logger.info(
                             "旧版应用同步：初始化Core_v2 Agent user_prompt模版！"
                         )
-                        gpts_app.user_prompt_template = _get_v2_agent_user_prompt(None)
+                        gpts_app.user_prompt_template = _get_default_user_prompt()
                     elif ag:
                         prompt_template, template_format = ag.prompt_template(
                             "user", gpts_app.language
@@ -1653,32 +1647,6 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             session.merge(entity)
             session.commit()
             logger.info(f"Set app {app_code} published status to {published}")
-
-
-def _get_v2_agent_system_prompt(app_config) -> str:
-    """
-    获取 Core_v2 Agent 的默认 System Prompt
-
-    返回空字符串，让用户编辑的内容作为身份层注入。
-    完整的 system prompt 由 PromptAssembler 在运行时动态组装：
-    - Layer 1: 身份层（用户编辑的内容）
-    - Layer 2: 动态资源层（PromptAssembler 自动注入）
-    - Layer 3: 系统控制层（workflow/exceptions/delivery）
-    """
-    return ""
-
-
-def _get_v2_agent_user_prompt(app_config) -> str:
-    """
-    获取 Core_v2 Agent 的默认 User Prompt
-
-    返回空字符串，让用户编辑的内容作为前缀注入。
-    完整的 user prompt 由 PromptAssembler 在运行时动态组装：
-    - 用户编辑的自定义内容
-    - 历史对话（动态注入）
-    - 用户问题（动态注入）
-    """
-    return ""
 
 
 def _get_default_system_prompt() -> str:

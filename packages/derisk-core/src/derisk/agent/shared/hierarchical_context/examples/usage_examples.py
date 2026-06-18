@@ -266,40 +266,6 @@ class DecoratedAgent(ConversableAgent):
 
 
 # ============================================================
-# 示例6: Core V2 集成
-# ============================================================
-
-from derisk.agent.core_v2.agent_harness import AgentHarness
-from derisk.agent.shared.hierarchical_context import (
-    extend_agent_harness_with_hierarchical_context,
-)
-
-
-async def core_v2_example():
-    """Core V2集成示例"""
-    
-    # 创建AgentHarness
-    agent = MyReActAgent()
-    harness = AgentHarness(agent)
-    
-    # 扩展分层上下文能力
-    hc_integration = extend_agent_harness_with_hierarchical_context(harness)
-    
-    # 开始执行
-    execution_id = await harness.start_execution(
-        task="构建一个上下文管理系统",
-    )
-    
-    # 分层上下文自动记录和压缩
-    
-    # 获取检查点数据
-    checkpoint_data = hc_integration.get_checkpoint_data(execution_id)
-    
-    # 恢复
-    # await hc_integration.restore_from_checkpoint(execution_id, checkpoint_data, file_system)
-
-
-# ============================================================
 # 示例7: 完整配置示例
 # ============================================================
 

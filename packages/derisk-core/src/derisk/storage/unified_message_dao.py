@@ -352,7 +352,7 @@ class UnifiedMessageDAO:
         page: int = 1,
         page_size: int = 20,
     ) -> dict:
-        """统一查询对话列表（Core V1 + Core V2）
+        """统一查询对话列表（chat_history + gpts_conversations）
 
         同时查询 chat_history 和 gpts_conversations 表，合并结果返回
 
@@ -377,7 +377,7 @@ class UnifiedMessageDAO:
         # 1. 查询 Core V1 (chat_history)
         v1_items = await self._list_conversations_v1(user_id, sys_code, filter_text)
 
-        # 2. 查询 Core V2 (gpts_conversations)
+        # 2. 查询 gpts_conversations
         v2_items = await self._list_conversations_v2(user_id, sys_code, filter_text)
 
         # 3. 合并结果（去重：同一 conv_id 优先保留 v2 记录）
@@ -489,7 +489,7 @@ class UnifiedMessageDAO:
         sys_code: Optional[str] = None,
         filter_text: Optional[str] = None,
     ) -> List:
-        """查询 Core V2 (gpts_conversations) 的对话列表
+        """查询 gpts_conversations 的对话列表
 
         Args:
             user_id: 用户ID

@@ -70,22 +70,16 @@ agent = ReActMasterAgent(
 await agent.act(message, sender)
 ```
 
-## PDCAAgent 迁移指南
+## Kanban 模式
 
-如果你之前使用 PDCAAgent，现在可以通过以下方式迁移：
+启用 Kanban 任务规划模式：
 
 ```python
-# 旧代码 (PDCAAgent)
-from derisk.agent.expand.pdca_agent import PDCAAgent
-
-agent = PDCAAgent()
-
-# 新代码 (ReActMasterAgent with Kanban)
 from derisk.agent.expand.react_master_agent import ReActMasterAgent
 
 agent = ReActMasterAgent(enable_kanban=True)
 
-# API 兼容
+# 使用
 await agent.create_kanban(mission, stages)
 await agent.submit_deliverable(stage_id, deliverable, reflection)
 await agent.read_deliverable(stage_id)
@@ -126,19 +120,6 @@ from .doom_loop_detector import (
     IntelligentDoomLoopDetector,
     DoomLoopCheckResult,
     DoomLoopAction,
-)
-from .session_compaction import (
-    SessionCompaction,
-    CompactionResult,
-    CompactionConfig,
-    TokenEstimator,
-)
-from .prune import (
-    HistoryPruner,
-    PruneResult,
-    PruneConfig,
-    MessageClassifier,
-    prune_messages,
 )
 from .truncation import (
     Truncator,
@@ -209,15 +190,6 @@ __all__ = [
     "IntelligentDoomLoopDetector",
     "DoomLoopCheckResult",
     "DoomLoopAction",
-    "SessionCompaction",
-    "CompactionResult",
-    "CompactionConfig",
-    "TokenEstimator",
-    "HistoryPruner",
-    "PruneResult",
-    "PruneConfig",
-    "MessageClassifier",
-    "prune_messages",
     "Truncator",
     "TruncationResult",
     "TruncationConfig",

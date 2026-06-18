@@ -2,7 +2,7 @@
 统一消息API端点
 
 提供统一的历史消息查询和渲染API
-支持Core V1和Core V2架构
+支持 Agent 架构
 """
 import json
 import logging
@@ -49,7 +49,7 @@ async def list_conversations(
     """
     获取对话列表（统一API）
     
-    同时查询Core V1（chat_history）和Core V2（gpts_conversations）的对话记录
+    同时查询chat_history 与 gpts_conversations 表的对话记录
     
     参数:
     - user_id: 用户ID
@@ -115,15 +115,15 @@ async def get_conversation_messages(
     """
     获取对话历史消息（统一API）
     
-    支持Core V1和Core V2的消息格式
+    支持 BaseMessage 与 GptsMessage 消息格式
     
     参数:
     - conv_id: 对话ID
     - limit: 消息数量限制
     - offset: 偏移量
-    - include_thinking: 是否包含思考过程（Core V2专用）
-    - include_tool_calls: 是否包含工具调用（Core V2专用）
-    - include_action_report: 是否包含动作报告（Core V2专用）
+    - include_thinking: 是否包含思考过程
+    - include_tool_calls: 是否包含工具调用
+    - include_action_report: 是否包含动作报告
     """
     try:
         messages = await unified_dao.get_messages_by_conv_id(
@@ -223,7 +223,7 @@ async def get_conversation_render(
     打开历史对话时重新渲染，支持Redis缓存
     
     render_type:
-    - vis: VIS可视化格式（Core V2）
+    - vis: VIS可视化格式
     - markdown: Markdown格式（Core V1/V2）
     - simple: 简单格式（Core V1）
     """

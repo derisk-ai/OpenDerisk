@@ -20,7 +20,7 @@ from derisk.agent.core.memory.gpts.file_base import FileType
 
 if TYPE_CHECKING:
     try:
-        from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
+        from derisk.agent.core.file_system.agent_file_system import AgentFileSystem
     except ImportError:
         AgentFileSystem = None
 
@@ -664,12 +664,11 @@ async def create_truncator_with_fs(
         Truncator: 配置了 AgentFileSystem 的截断器
     """
     try:
-        from derisk.agent.expand.pdca_agent.agent_file_system import AgentFileSystem
+        from derisk.agent.core.file_system.agent_file_system import AgentFileSystem
 
         afs = AgentFileSystem(
             conv_id=conv_id,
             session_id=session_id or conv_id,
-            gpts_memory=gpts_memory,
             oss_client=oss_client,
         )
 

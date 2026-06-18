@@ -342,8 +342,6 @@ class FileSystem:
 
 
 # 兼容性别名，使旧代码可以直接使用 FileSystem 而不需要改 import
-# 如果需要使用 V3 版本，可以显式导入:
-# from derisk.agent.expand.pdca_agent.file_system_v3 import FileSystem as FileSystemV3
 
 # 保持与旧版本相同的导出
 __all__ = ["FileSystem"]

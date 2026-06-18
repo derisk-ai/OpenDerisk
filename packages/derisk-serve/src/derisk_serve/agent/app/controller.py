@@ -318,30 +318,17 @@ async def get_agent_default_prompt(
 
         if agent is None:
             from derisk_serve.building.app.service.service import (
-                _get_v2_agent_system_prompt,
-                _get_v2_agent_user_prompt,
                 _get_default_system_prompt,
                 _get_default_user_prompt,
             )
 
-            if agent_name and (
-                "v2" in agent_name.lower() or "core_v2" in agent_name.lower()
-            ):
-                logger.info(
-                    f"Agent '{agent_name}' not found in AgentManager, returning Core_v2 default prompts"
-                )
-                result = {
-                    "system_prompt_template": _get_v2_agent_system_prompt(None),
-                    "user_prompt_template": _get_v2_agent_user_prompt(None),
-                }
-            else:
-                logger.warning(
-                    f"Agent '{agent_name}' not found, returning generic default prompts"
-                )
-                result = {
-                    "system_prompt_template": _get_default_system_prompt(),
-                    "user_prompt_template": _get_default_user_prompt(),
-                }
+            logger.warning(
+                f"Agent '{agent_name}' not found, returning generic default prompts"
+            )
+            result = {
+                "system_prompt_template": _get_default_system_prompt(),
+                "user_prompt_template": _get_default_user_prompt(),
+            }
 
             return Result.succ(result)
 

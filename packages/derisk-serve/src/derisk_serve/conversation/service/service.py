@@ -281,7 +281,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         _total_start = time.time()
 
         # ===== 统一消息读取策略 =====
-        # 先尝试从gpts_messages读取（Core V2）
+        # 先尝试从gpts_messages读取
         # 如果没有，再从chat_history读取（Core V1）
 
         conv_uid = (
@@ -290,7 +290,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             else request.get("conv_uid")
         )
 
-        # 1. 尝试从gpts_messages读取（Core V2）
+        # 1. 尝试从gpts_messages读取
         _step_start = time.time()
         messages_v2 = self._get_messages_from_gpts(conv_uid)
         logger.info(
@@ -368,7 +368,7 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return result
 
     def _get_messages_from_gpts(self, conv_uid: str) -> List[MessageVo]:
-        """从gpts_messages表读取消息（Core V2）
+        """从gpts_messages表读取消息
 
         Args:
             conv_uid: 对话ID，可能是 conv_id 或 conv_session_id

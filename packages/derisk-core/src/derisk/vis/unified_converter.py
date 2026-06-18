@@ -1,8 +1,7 @@
 """
 统一的VIS转换器
 
-整合Core和Core_V2架构的VIS桥接层
-提供统一的可视化接口
+整合 Core 架构的VIS桥接层，提供统一的可视化接口。
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from derisk.vis.vis_converter import VisProtocolConverter
 
 if TYPE_CHECKING:
     from derisk.agent.core.base_agent import ConversableAgent
-    from derisk.agent.core_v2.visualization.progress import ProgressBroadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -25,109 +23,75 @@ logger = logging.getLogger(__name__)
 class UnifiedVisConverter(VisProtocolConverter):
     """
     统一的VIS转换器
-    
+
     功能:
-    1. 整合Core和Core_V2的VIS桥接层
-    2. 自动渲染Part为VIS组件
+    1. 整合 Core 架构的 VIS 桥接层
+    2. 自动渲染 Part 为 VIS 组件
     3. 支持流式更新和增量传输
-    4. 保持向后兼容
-    
+
     示例:
-        # 方式1: 注册Core Agent
         from derisk.agent.core.base_agent import ConversableAgent
-        
+
         agent = ConversableAgent(...)
         converter = UnifiedVisConverter()
         converter.register_core_agent(agent)
-        
-        # 方式2: 注册Core_V2 Broadcaster
-        from derisk.agent.core_v2.visualization.progress import ProgressBroadcaster
-        
-        broadcaster = ProgressBroadcaster()
-        converter.register_core_v2_broadcaster(broadcaster)
-        
-        # 自动渲染
+
         async for vis_output in converter.render_stream():
             print(vis_output)
     """
-    
+
     def __init__(self, **kwargs):
         """初始化统一转换器"""
         super().__init__(paths=[], **kwargs)
-        
+
         # Part流(响应式)
         self._part_stream = Signal(PartContainer())
-        
+
         # 桥接层实例
         self._core_bridge = None
-        self._core_v2_bridge = None
-        
+
         # 渲染效果
         self._render_effect: Optional[Effect] = None
-        
+
         # VIS组件缓存
         self._vis_cache: Dict[str, str] = {}
-    
+
     @property
     def render_name(self) -> str:
         """渲染器名称"""
         return "unified_vis"
-    
+
     @property
     def description(self) -> str:
         """描述"""
-        return "统一的VIS转换器,支持Core和Core_V2架构"
-    
+        return "统一的VIS转换器"
+
     @property
     def incremental(self) -> bool:
         """是否支持增量更新"""
         return True
-    
+
     @property
     def web_use(self) -> bool:
         """是否用于Web"""
         return True
-    
+
     def register_core_agent(self, agent: "ConversableAgent"):
         """
         注册Core Agent
-        
+
         Args:
             agent: ConversableAgent实例
         """
         from .bridges.core_bridge import CoreVisBridge
-        
+
         self._core_bridge = CoreVisBridge(agent)
-        
+
         # 订阅Part变化
         self._core_bridge.part_stream.subscribe(self._on_parts_update)
-        
+
         logger.info(f"[UnifiedVisConverter] 已注册Core Agent: {agent.name}")
-    
-    def register_core_v2_broadcaster(
-        self,
-        broadcaster: "ProgressBroadcaster",
-        auto_subscribe: bool = True
-    ):
-        """
-        注册Core_V2 Broadcaster
-        
-        Args:
-            broadcaster: ProgressBroadcaster实例
-            auto_subscribe: 是否自动订阅
-        """
-        from .bridges.core_v2_bridge import CoreV2VisBridge
-        
-        self._core_v2_bridge = CoreV2VisBridge(
-            broadcaster=broadcaster,
-            auto_subscribe=auto_subscribe
-        )
-        
-        # 订阅Part变化
-        self._core_v2_bridge.part_stream.subscribe(self._on_parts_update)
-        
-        logger.info("[UnifiedVisConverter] 已注册Core_V2 Broadcaster")
-    
+
     def _on_parts_update(self, container: PartContainer):
         """
         Part更新回调
@@ -392,7 +356,6 @@ class UnifiedVisConverter(VisProtocolConverter):
             "type_distribution": type_count,
             "cache_size": len(self._vis_cache),
             "has_core_bridge": self._core_bridge is not None,
-            "has_core_v2_bridge": self._core_v2_bridge is not None,
         }
 
 

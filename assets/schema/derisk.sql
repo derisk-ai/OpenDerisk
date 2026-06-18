@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-06-14 21:50:40
+-- Generated: 2026-06-18 21:28:46
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -182,6 +182,27 @@ CREATE TABLE IF NOT EXISTS `user_recent_apps` (
   KEY `idx_user_r_app_code` (`app_code`),
   KEY `idx_user_code` (`user_code`),
   KEY `idx_last_accessed` (`last_accessed`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: gpts_cold_segments
+-- Source Model: GptsColdSegmentEntity
+CREATE TABLE IF NOT EXISTS `gpts_cold_segments` (
+  `id` INT NOT NULL AUTO_INCREMENT COMMENT 'autoincrement id',
+  `session_id` VARCHAR(255) NOT NULL COMMENT 'The session id of the conversation',
+  `conv_id` VARCHAR(255) NOT NULL COMMENT 'The conv id that produced this handoff',
+  `content_hash` VARCHAR(64) NOT NULL COMMENT 'Stable fingerprint of cold unit ids (cache key)',
+  `segment_index` INT NOT NULL DEFAULT 0 COMMENT 'Segment index (reserved)',
+  `summary` LONGTEXT NULL COMMENT 'Handoff summary content',
+  `source_message_ids` TEXT NULL COMMENT 'Source unit message ids (JSON array)',
+  `original_tokens` INT NOT NULL DEFAULT 0 COMMENT 'Estimated original token count',
+  `compressed_tokens` INT NOT NULL DEFAULT 0 COMMENT 'Estimated compressed token count',
+  `degraded` INT NOT NULL DEFAULT 0 COMMENT 'Whether this was a truncation fallback (not normally persisted)',
+  `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'create time',
+  `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'last update time',
+  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_cold_session_hash` (`session_id`, `content_hash`),
+  KEY `idx_cold_session` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: gpts_conversations
@@ -922,20 +943,6 @@ CREATE TABLE IF NOT EXISTS `knowledge_yuque` (
   `read_count` INT NULL,
   `comments_count` INT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Table: scene_strategy
--- Source Model: SceneStrategyEntity
-CREATE TABLE IF NOT EXISTS `scene_strategy` (
-  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Table: app_scene_binding
--- Source Model: AppSceneBindingEntity
-CREATE TABLE IF NOT EXISTS `app_scene_binding` (
-  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: skill_sync_task
