@@ -530,3 +530,69 @@ export interface NativeAppScenesResponse {
   scene_name: string;
   param_need: ParamNeed[];
 }
+
+// --------------------------------------------------------------------------
+// Unified Hook System types
+// --------------------------------------------------------------------------
+
+export type HookKind = 'agent' | 'api' | 'cli';
+
+export type BlockingPolicy = 'continue' | 'deny' | 'abort' | 'modify';
+
+export type HookTriggerType =
+  | 'pre_tool_use'
+  | 'post_tool_use'
+  | 'conversation_start'
+  | 'conversation_complete'
+  | 'state_change'
+  | 'user_prompt_submit'
+  | 'error_occurred';
+
+export interface HookEndpointConfig {
+  kind: HookKind;
+  // agent
+  agent_name?: string;
+  agent_app_code?: string;
+  // api
+  api_url?: string;
+  api_headers?: Record<string, string>;
+  api_auth_token?: string;
+  // cli
+  cli_command?: string;
+  cli_allowlist?: string[];
+  cli_in_sandbox?: boolean;
+  cli_cwd?: string;
+  // generic
+  timeout?: number;
+  blocking?: boolean;
+  default_on_error?: BlockingPolicy;
+}
+
+export interface HookTriggerConfig {
+  trigger_type: HookTriggerType;
+  tool_name_globs?: string[];
+  state_from?: string;
+  state_to?: string;
+  extra?: Record<string, any>;
+}
+
+export interface HookConfigItem {
+  name: string;
+  enabled: boolean;
+  trigger: HookTriggerConfig;
+  endpoint: HookEndpointConfig;
+  description?: string;
+  priority?: number;
+}
+
+export interface TeamHookConfig {
+  enabled: boolean;
+  hooks: HookConfigItem[];
+  plugin_paths: string[];
+}
+
+export const DEFAULT_TEAM_HOOK_CONFIG: TeamHookConfig = {
+  enabled: false,
+  hooks: [],
+  plugin_paths: [],
+};

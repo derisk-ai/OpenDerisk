@@ -27,6 +27,7 @@ const tabs = [
   { key: 'memory', labelKey: 'builder_tab_memory' },
   { key: 'database', labelKey: 'builder_tab_database' },
   { key: 'distributed', labelKey: 'builder_tab_distributed' },
+  { key: 'hooks', labelKey: 'builder_tab_hooks' },
 ];
 
 export default function AgentHeader({ activeTab, onTabChange }: AgentHeaderProps) {

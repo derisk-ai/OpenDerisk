@@ -398,6 +398,71 @@ class ToolAction(Action[ToolInput]):
                 tool_args=param.args,
                 start_time=start_time,
             )
+        ## 统一 Hook: pre_tool_use 阻断点
+        try:
+            hook_decision = await self._invoke_pre_tool_hook(
+                memory=memory,
+                agent=agent,
+                agent_context=agent_context,
+                tool_info=tool_info,
+                tool_args=tool_args,
+                param=param,
+            )
+        except Exception as _hook_err:
+            logger.warning(
+                f"[ToolAction] pre_tool_use hook crashed and was skipped: {_hook_err}"
+            )
+            hook_decision = None
+
+        if hook_decision is not None:
+            from ...core.hook import BlockingPolicy
+
+            action = hook_decision.action
+            reason = hook_decision.reason or "blocked by hook"
+            if action == BlockingPolicy.MODIFY and hook_decision.modified_input:
+                tool_args.update(hook_decision.modified_input)
+                if param.args is not None:
+                    try:
+                        param.args.update(hook_decision.modified_input)
+                    except Exception:  # noqa: BLE001
+                        pass
+            elif action == BlockingPolicy.DENY:
+                metrics.end_time_ms = time.time_ns() // 1_000_000
+                cost_ms = metrics.end_time_ms - metrics.start_time_ms
+                metrics.cost_seconds = round(cost_ms / 1000, 2)
+                return ActionOutput(
+                    action_id=self.action_uid,
+                    name=self.name,
+                    is_exe_success=False,
+                    action=tool_info.name,
+                    action_name=self._get_tool_attr(tool_info, "description"),
+                    action_input=json.dumps(param.args, ensure_ascii=False),
+                    content=f"[Hook] Tool '{tool_info.name}' was blocked: {reason}",
+                    state=Status.FAILED.value,
+                    terminate=False,
+                    cost_ms=cost_ms,
+                    metrics=metrics,
+                    start_time=start_time,
+                )
+            elif action == BlockingPolicy.ABORT:
+                metrics.end_time_ms = time.time_ns() // 1_000_000
+                cost_ms = metrics.end_time_ms - metrics.start_time_ms
+                metrics.cost_seconds = round(cost_ms / 1000, 2)
+                return ActionOutput(
+                    action_id=self.action_uid,
+                    name=self.name,
+                    is_exe_success=False,
+                    action=tool_info.name,
+                    action_name=self._get_tool_attr(tool_info, "description"),
+                    action_input=json.dumps(param.args, ensure_ascii=False),
+                    content=f"[Hook] Conversation aborted by hook: {reason}",
+                    state=Status.FAILED.value,
+                    terminate=True,
+                    cost_ms=cost_ms,
+                    metrics=metrics,
+                    start_time=start_time,
+                )
+
         ## 检查工具审批
         env_context = agent_context.env_context or {}
         eval_mode = env_context.get(EVAL_MODE_KEY, False)
@@ -473,6 +538,21 @@ class ToolAction(Action[ToolInput]):
         metrics.result_tokens = len(str(result_content))
         cost_ms = metrics.end_time_ms - metrics.start_time_ms
         metrics.cost_seconds = round(cost_ms / 1000, 2)
+
+        ## 统一 Hook: post_tool_use（fire-and-forget）
+        try:
+            await self._invoke_post_tool_hook(
+                memory=memory,
+                agent=agent,
+                agent_context=agent_context,
+                tool_info=tool_info,
+                tool_args=tool_args,
+                param=param,
+                tool_result=tool_result,
+                success=tool_result.get("success", False),
+            )
+        except Exception as _hook_err:
+            logger.debug(f"[ToolAction] post_tool_use hook skipped: {_hook_err}")
 
         ## 大结果归档处理 - 使用 Truncator
         # 注意：read_file 工具用于读取已归档文件，不应再次截断归档，否则会形成死循环
@@ -1222,3 +1302,76 @@ class ToolAction(Action[ToolInput]):
 
     async def gen_content(self, tool_result: Any) -> Any:
         return tool_result["content"]
+
+    # ------------------------------------------------------------------
+    # 统一 Hook 系统辅助方法
+    # ------------------------------------------------------------------
+    async def _invoke_pre_tool_hook(
+        self,
+        memory: AgentMemory,
+        agent: ConversableAgent,
+        agent_context: AgentContext,
+        tool_info: BaseTool,
+        tool_args: dict,
+        param: ToolInput,
+    ):
+        """触发 pre_tool_use hook，返回阻断决策。无效或无配置时返回 None。"""
+        gpts_memory = getattr(memory, "gpts_memory", None) if memory else None
+        if gpts_memory is None or not hasattr(gpts_memory, "trigger_hook_blocking"):
+            return None
+        # 同步把 sandbox_client 放到 hook runtime 中，方便 cli_in_sandbox=True 的场景
+        sandbox_client = None
+        if agent and getattr(agent, "sandbox_manager", None):
+            sandbox_client = getattr(agent.sandbox_manager, "client", None)
+        if sandbox_client is not None:
+            try:
+                gpts_memory.update_hook_runtime(
+                    agent_context.conv_id, sandbox_client=sandbox_client
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        ctx = {
+            "tool_name": tool_info.name,
+            "tool_input": dict(param.args or {}),
+            "agent_name": agent.name if agent else None,
+            "agent_role": getattr(agent, "role", None) if agent else None,
+            "session_id": agent_context.conv_session_id,
+            "app_code": getattr(agent_context, "gpts_app_code", None),
+        }
+        decision = await gpts_memory.trigger_hook_blocking(
+            agent_context.conv_id, "pre_tool_use", ctx
+        )
+        from ...core.hook import BlockingPolicy
+
+        if decision is None or decision.action == BlockingPolicy.CONTINUE:
+            return None
+        return decision
+
+    async def _invoke_post_tool_hook(
+        self,
+        memory: AgentMemory,
+        agent: ConversableAgent,
+        agent_context: AgentContext,
+        tool_info: BaseTool,
+        tool_args: dict,
+        param: ToolInput,
+        tool_result: dict,
+        success: bool,
+    ) -> None:
+        gpts_memory = getattr(memory, "gpts_memory", None) if memory else None
+        if gpts_memory is None or not hasattr(gpts_memory, "trigger_hook"):
+            return
+        ctx = {
+            "tool_name": tool_info.name,
+            "tool_input": dict(param.args or {}),
+            "tool_response": tool_result.get("content"),
+            "success": bool(success),
+            "agent_name": agent.name if agent else None,
+            "agent_role": getattr(agent, "role", None) if agent else None,
+            "session_id": agent_context.conv_session_id,
+            "app_code": getattr(agent_context, "gpts_app_code", None),
+        }
+        await gpts_memory.trigger_hook(
+            agent_context.conv_id, "post_tool_use", ctx
+        )

@@ -372,6 +372,26 @@ class DeliverFileTool(SandboxToolBase):
 
         return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
 
+    def _get_file_storage_client(self) -> Any:
+        """从全局 SystemApp 获取 FileStorageClient。
+
+        本地（无沙箱）部署下用它把工作区文件存入文件存储系统并生成可访问的
+        HTTP URL（本地存储后端 SimpleDistributedStorage 会生成
+        http://host:port/api/v2/serve/file/files/... 形式的链接）。
+        未配置时返回 None。
+        """
+        try:
+            from derisk.core.interface.file import FileStorageClient
+            from derisk.component import SystemApp
+
+            system_app = SystemApp.get_instance()
+            if system_app is None:
+                return None
+            return FileStorageClient.get_instance(system_app, default_component=None)
+        except Exception as exc:
+            logger.warning(f"[deliver_file] 获取 FileStorageClient 失败: {exc}")
+            return None
+
     async def _execute_local(
         self,
         path: str,
@@ -403,26 +423,69 @@ class DeliverFileTool(SandboxToolBase):
 
         mime_type = _get_mime_type(file_name)
 
-        # 尝试上传到 OSS
-        oss_temp_url = None
-        oss_object_path = None
+        # 通过 AgentFileSystem + FileStorageClient 存储文件并生成可访问 URL。
+        # 优先使用 download_url（不受预览白名单限制，对 .pptx/.docx/.xlsx 等
+        # 所有文件类型都可生成），回退到 preview_url。仅接受 HTTP(S) URL。
+        web_url = None
+        object_path = None
+        file_size = None
+        file_storage_client = self._get_file_storage_client()
 
-        try:
-            from derisk.storage.oss import get_oss_client
+        if file_storage_client is not None:
+            try:
+                from derisk.agent.core.file_system.agent_file_system import (
+                    AgentFileSystem,
+                )
+                from derisk.agent.core.memory.gpts.file_base import FileType
 
-            oss_client = get_oss_client()
-            if oss_client:
                 async with aiofiles.open(path, "rb") as f:
                     file_content = await f.read()
 
-                oss_object_path = f"deliverables/{file_name}"
-                oss_temp_url = await oss_client.put_object(
-                    object_name=oss_object_path,
-                    data=file_content,
+                conv_id = self._get_conversation_id(context)
+                afs = AgentFileSystem(
+                    conv_id=conv_id,
+                    file_storage_client=file_storage_client,
                 )
-                logger.info(f"[deliver_file] Local file uploaded to OSS: {file_name}")
-        except Exception as exc:
-            logger.warning(f"[deliver_file] Local OSS upload failed: {exc}")
+
+                extension = file_path.suffix.lstrip(".") or "bin"
+                file_metadata = await afs.save_binary_file(
+                    file_key=file_name,
+                    data=file_content,
+                    file_type=FileType.DELIVERABLE,
+                    extension=extension,
+                    file_name=file_name,
+                    tool_name="deliver_file",
+                    is_deliverable=False,
+                    description=description.strip(),
+                    metadata={"file_category": file_type},
+                )
+
+                web_url = next(
+                    (
+                        url
+                        for url in (
+                            file_metadata.download_url,
+                            file_metadata.preview_url,
+                            file_metadata.oss_url,
+                        )
+                        if url
+                        and isinstance(url, str)
+                        and url.startswith(("http://", "https://"))
+                    ),
+                    None,
+                )
+                object_path = (
+                    file_metadata.metadata.get("object_path")
+                    if file_metadata.metadata
+                    else None
+                )
+                file_size = file_metadata.file_size
+                logger.info(
+                    f"[deliver_file] Local file stored via AFS: "
+                    f"file_name={file_name}, url={web_url}"
+                )
+            except Exception as exc:
+                logger.warning(f"[deliver_file] Local file storage failed: {exc}")
 
         # 构建返回信息
         result_parts = [
@@ -431,7 +494,12 @@ class DeliverFileTool(SandboxToolBase):
             f"📁 类型: {file_type}",
         ]
 
-        if not oss_temp_url:
+        if not web_url:
+            logger.warning(
+                f"[deliver_file] Storage upload failed for {path}. "
+                f"File exists locally but is not accessible via web URL. "
+                f"Please check storage configuration."
+            )
             result_parts.append(
                 "\n⚠️ **注意：文件已标记，但无法生成可访问的预览/下载链接。**\n"
                 "请检查存储配置是否正确。"
@@ -444,11 +512,12 @@ class DeliverFileTool(SandboxToolBase):
 
             dattach_content = render_dattach(
                 file_name=file_name,
-                file_url=oss_temp_url,
+                file_url=web_url,
+                file_size=file_size,
                 file_type=file_type,
-                object_path=oss_object_path,
-                preview_url=oss_temp_url,
-                download_url=oss_temp_url,
+                object_path=object_path,
+                preview_url=web_url,
+                download_url=web_url,
                 description=description.strip(),
                 mime_type=mime_type,
             )
@@ -456,35 +525,6 @@ class DeliverFileTool(SandboxToolBase):
             result_parts.append(dattach_content)
         except Exception as exc:
             logger.warning(f"[deliver_file] d-attach 渲染失败: {exc}")
-            result_parts.append(f"\n\n**下载链接:** {oss_temp_url}")
-
-        if oss_object_path:
-            result_parts.append(f"\n**OSS 对象路径:** {oss_object_path}")
-
-        return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
-
-        # 4. 生成 d-attach 组件
-        try:
-            from derisk.agent.core.file_system.dattach_utils import render_dattach
-
-            dattach_content = render_dattach(
-                file_name=file_name,
-                file_url=oss_temp_url,
-                file_type=file_type,
-                object_path=oss_object_path,
-                preview_url=oss_temp_url,
-                download_url=oss_temp_url,
-                description=description.strip(),
-                mime_type=mime_type,
-            )
-            result_parts.append("\n\n**交付文件:**")
-            result_parts.append(dattach_content)
-        except Exception as exc:
-            logger.warning(f"[deliver_file] d-attach 渲染失败: {exc}")
-            result_parts.append(f"\n\n**下载链接:** {oss_temp_url}")
-
-        # 添加 OSS 对象路径（如果有）
-        if oss_object_path:
-            result_parts.append(f"\n**OSS 对象路径:** {oss_object_path}")
+            result_parts.append(f"\n\n**下载链接:** {web_url}")
 
         return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)

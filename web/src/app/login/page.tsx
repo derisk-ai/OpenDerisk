@@ -92,8 +92,16 @@ export default function LoginPage() {
       localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
       localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
     } catch { /* will be loaded by layout */ }
-    router.replace('/');
-  }, [router]);
+    const nextRaw = searchParams?.get('next') || '/';
+    let next = '/';
+    try {
+      const decoded = decodeURIComponent(nextRaw);
+      if (decoded.startsWith('/') && !decoded.startsWith('/login')) next = decoded;
+    } catch {
+      next = '/';
+    }
+    router.replace(next);
+  }, [router, searchParams]);
 
   const handleLocalLogin = async () => {
     setLocalError('');

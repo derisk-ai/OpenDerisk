@@ -36,6 +36,11 @@
     "providers": [],
     "admin_users": []
   },
+  "feature_plugins": {
+    "permissions": {
+      "enabled": true
+    }
+  },
   "workspace": "/Users/tuyang/.derisk/workspace",
   "log_level": "INFO",
   "server": {

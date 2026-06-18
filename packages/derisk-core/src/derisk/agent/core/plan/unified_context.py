@@ -146,6 +146,12 @@ class UnifiedTeamContext(BaseModel):
 
     ext_config: Optional[Dict[str, Any]] = Field(None, description="扩展配置")
 
+    hook_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="统一 Hook 系统配置（pre/post tool, 生命周期, CLI/API/Agent 落点）。"
+        "Schema 见 derisk.agent.core.hook.schema.TeamHookConfig",
+    )
+
     def is_v2(self) -> bool:
         """是否使用 Core_v2 架构"""
         return self.agent_version == "v2"

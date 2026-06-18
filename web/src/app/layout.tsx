@@ -71,6 +71,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const { i18n } = useTranslation();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const authCheckInProgress = useRef(false);
 
   const isPublicRoute = pathname?.startsWith("/login") || pathname?.startsWith("/auth/callback");
@@ -79,23 +80,12 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
     setMounted(true);
   }, []);
 
-  // 非阻塞：后台校验 OAuth，若开启且未登录则跳转。OAuth 关闭时用 mock；OAuth 开启且未登录时再跳转
   useEffect(() => {
     if (!mounted || isPublicRoute || authCheckInProgress.current) return;
 
     const checkAuth = async () => {
       authCheckInProgress.current = true;
       try {
-        const oauthStatus = await authService.getOAuthStatus();
-        if (!oauthStatus.enabled) {
-          // OAuth disabled — use mock user (backward compatible, no login required)
-          const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
-          localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
-          localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
-          window.dispatchEvent(new Event('userinfochanged'));
-          return;
-        }
-        // OAuth enabled — try to load authenticated user
         const me = await authService.getMe();
         const user = {
           user_channel: me.user_channel,
@@ -108,18 +98,21 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
         localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
         window.dispatchEvent(new Event('userinfochanged'));
+        setAuthChecked(true);
       } catch {
-        // Not authenticated — redirect to login
+        localStorage.removeItem(STORAGE_USERINFO_KEY);
+        localStorage.removeItem(STORAGE_USERINFO_VALID_TIME_KEY);
         const currentPath = window.location.pathname;
         if (!currentPath.startsWith("/login") && !currentPath.startsWith("/auth/callback")) {
-          window.location.href = "/login";
+          const next = encodeURIComponent(currentPath + window.location.search);
+          window.location.href = `/login?next=${next}`;
         }
       } finally {
         authCheckInProgress.current = false;
       }
     };
     checkAuth();
-  }, [mounted]); // 只依赖 mounted，pathname 变化不重新检查
+  }, [mounted, isPublicRoute]);
 
   // 公开页面：直接渲染（无侧边栏）
   if (isPublicRoute) {
@@ -129,6 +122,19 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         theme={{ token: { colorPrimary: "#0C75FC", borderRadius: 4 }, algorithm: undefined }}
       >
         <App>{children}</App>
+      </ConfigProvider>
+    );
+  }
+
+  if (!authChecked) {
+    return (
+      <ConfigProvider
+        locale={i18n.language === "en" ? enUS : zhCN}
+        theme={{ token: { colorPrimary: "#0C75FC", borderRadius: 4 }, algorithm: undefined }}
+      >
+        <App className="w-screen h-screen flex items-center justify-center">
+          <Spin />
+        </App>
       </ConfigProvider>
     );
   }

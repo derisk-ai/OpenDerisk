@@ -2332,6 +2332,40 @@ class ReActMasterAgent(ConversableAgent):
                                     f"Layer 4: Failed to complete conversation round: {e}"
                                 )
 
+                            # 统一 Hook：触发 conversation_complete（fire-and-forget）
+                            try:
+                                if (
+                                    self.memory
+                                    and self.memory.gpts_memory
+                                    and self.not_null_agent_context
+                                ):
+                                    await self.memory.gpts_memory.trigger_hook(
+                                        self.not_null_agent_context.conv_id,
+                                        "conversation_complete",
+                                        {
+                                            "agent_name": self.name,
+                                            "agent_role": getattr(self, "role", None),
+                                            "session_id": getattr(
+                                                self.not_null_agent_context,
+                                                "conv_session_id",
+                                                None,
+                                            ),
+                                            "app_code": getattr(
+                                                self.not_null_agent_context,
+                                                "gpts_app_code",
+                                                None,
+                                            ),
+                                            "final_answer": result.view
+                                            or result.content
+                                            or "",
+                                            "success": bool(result.is_exe_success),
+                                        },
+                                    )
+                            except Exception as _hook_err:  # noqa: BLE001
+                                logger.debug(
+                                    f"[ReActMasterAgent] conversation_complete hook skipped: {_hook_err}"
+                                )
+
                         act_outs.append(result)
                     else:
                         logger.warning(
@@ -3120,6 +3154,46 @@ class ReActMasterAgent(ConversableAgent):
             logger.info(
                 f"[ReActMasterAgent] SystemEventManager 已设置: conv_id={conv_id[:8]}"
             )
+
+            # 统一 Hook：根据 team_context.hook_config 装配 HookManager 并触发 conversation_start
+            try:
+                team_context = None
+                if self.not_null_agent_context:
+                    team_context = getattr(
+                        self.not_null_agent_context, "team_context", None
+                    )
+                runtime: Dict[str, Any] = {}
+                sb_manager = getattr(self, "sandbox_manager", None)
+                if sb_manager is not None:
+                    runtime["sandbox_client"] = getattr(sb_manager, "client", None)
+                manager = await self.memory.gpts_memory.init_hook_manager(
+                    conv_id=conv_id,
+                    team_context=team_context,
+                    runtime=runtime,
+                )
+                if manager is not None:
+                    await self.memory.gpts_memory.trigger_hook(
+                        conv_id,
+                        "conversation_start",
+                        {
+                            "agent_name": self.name,
+                            "agent_role": getattr(self, "role", None),
+                            "session_id": getattr(
+                                self.not_null_agent_context,
+                                "conv_session_id",
+                                None,
+                            ),
+                            "app_code": getattr(
+                                self.not_null_agent_context,
+                                "gpts_app_code",
+                                None,
+                            ),
+                        },
+                    )
+            except Exception as _hook_err:  # noqa: BLE001
+                logger.warning(
+                    f"[ReActMasterAgent] HookManager init/start trigger failed: {_hook_err}"
+                )
 
     async def _record_action_to_work_log(
         self,

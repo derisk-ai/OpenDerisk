@@ -889,6 +889,7 @@ export const CommonEn = {
 
   // Distributed Configuration
   builder_tab_distributed: 'Distributed',
+  builder_tab_hooks: 'Hooks',
   distributed_storage_title: 'Storage Configuration',
   distributed_storage_backend: 'Storage Backend',
   distributed_worker_pool_title: 'Worker Pool Configuration',

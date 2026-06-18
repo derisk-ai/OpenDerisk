@@ -8,6 +8,7 @@ from derisk._private.pydantic import (
     model_validator,
 )
 from ...resource.base import AgentResource
+from ..hook.schema import TeamHookConfig, parse_team_hook_config
 
 
 class TeamContext(BaseModel):
@@ -46,6 +47,11 @@ class TeamContext(BaseModel):
     use_sandbox: Optional[bool]= Field(
         False, description="This Agent Use sandbox"
     )
+    hook_config: Optional[TeamHookConfig] = Field(
+        None,
+        description="Unified hook configuration. Drives pre/post tool blocking, "
+        "lifecycle webhooks, CLI plugins (incl. Claude Code), etc.",
+    )
 
 
     @model_validator(mode="before")
@@ -68,6 +74,10 @@ class TeamContext(BaseModel):
                     elif isinstance(item, AgentResource):
                         new_resources.append(item)
                 values["resources"] = new_resources
+        if "hook_config" in values and values["hook_config"] is not None:
+            parsed = parse_team_hook_config(values["hook_config"])
+            if parsed is not None:
+                values["hook_config"] = parsed
         return values
 
     def to_dict(self):
