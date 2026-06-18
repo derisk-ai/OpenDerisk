@@ -278,6 +278,37 @@ async def get_table_spec(
                     f"Requested: {names}, Returned: {names[:MAX_TABLES_PER_QUERY]}"
                 )
                 names = names[:MAX_TABLES_PER_QUERY]
+        elif question:
+            # question 已提供但未命中推荐分支：
+            #   - ds_id 未解析到（db_name 未在 connect_config 配置、且 agent
+            #     resource_map 中无对应 DBResource）
+            #   - 或 ds_id 存在但 SchemaLinkService 未安装/返回空
+            # 两种情况都回退到实时拉取表名列表，供 Agent 显式指定 table_names
+            logger.warning(
+                f"[get_table_spec] question provided but recommend mode "
+                f"did not return tables for db_name={db_name}, "
+                f"ds_id={ds_id}; falling back to live table listing"
+            )
+            connector = _get_connector()
+            all_tables = list(connector.get_table_names() or [])
+            if not all_tables:
+                return (
+                    f"Error: No tables found in database '{db_name}'. "
+                    "Please verify db_name is correct."
+                )
+            preview = ", ".join(all_tables[:20])
+            more = (
+                f"\n... (共 {len(all_tables)} 张表，仅显示前 20 张)"
+                if len(all_tables) > 20
+                else ""
+            )
+            return (
+                f"Schema linking is unavailable for '{db_name}' "
+                f"(ds_id={ds_id}).\n"
+                f"Available tables: {preview}{more}\n"
+                "Please call get_table_spec again with explicit "
+                "'table_names' from the list above."
+            )
         else:
             return (
                 "Error: Please provide either 'table_names' or 'question'. "
