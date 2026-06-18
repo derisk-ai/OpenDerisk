@@ -895,6 +895,7 @@ export const CommonZh: Resources['translation'] = {
 
   // Distributed Configuration (分布式配置)
   builder_tab_distributed: '分布式配置',
+  builder_tab_hooks: 'Hook 系统',
   distributed_storage_title: '存储配置',
   distributed_storage_backend: '存储后端',
   distributed_worker_pool_title: 'Worker池配置',

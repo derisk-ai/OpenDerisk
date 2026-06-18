@@ -20,6 +20,7 @@ import TabMemory from './components/tab-memory';
 import TabDatabase from './components/tab-database';
 import TabScenes from './components/tab-scenes';
 import TabRuntime from './components/tab-runtime';
+import TabHooks from './components/tab-hooks';
 import ChatContent from './components/chat-content';
 import { AppstoreOutlined, EditOutlined, MessageOutlined } from '@ant-design/icons';
 
@@ -178,6 +179,8 @@ export default function AgentBuilder() {
         return <TabScenes />;
       case 'runtime':
         return <TabRuntime />;
+      case 'hooks':
+        return <TabHooks />;
       default:
         return <TabOverview />;
     }

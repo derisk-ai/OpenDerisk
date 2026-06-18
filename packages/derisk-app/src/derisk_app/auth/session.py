@@ -7,17 +7,60 @@ import logging
 import os
 import secrets
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Default secret for JWT signing (override via env OAUTH2_SESSION_SECRET)
-DEFAULT_SECRET = "derisk-oauth2-session-secret-change-in-production"
 SESSION_EXPIRE_SECONDS = 7 * 24 * 3600  # 7 days
+
+_cached_secret: Optional[str] = None
+
+
+def _secret_file_path() -> Path:
+    from derisk.configs.model_config import get_derisk_home
+
+    return Path(get_derisk_home()) / ".session_secret"
+
+
+def _load_or_create_dev_secret() -> str:
+    """Persist a random secret under the workspace so dev sessions survive restarts."""
+    path = _secret_file_path()
+    try:
+        if path.exists():
+            value = path.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        value = secrets.token_urlsafe(48)
+        path.write_text(value, encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        logger.warning(
+            "OAUTH2_SESSION_SECRET not set — generated a per-install secret at %s. "
+            "Set OAUTH2_SESSION_SECRET in production for stable, shared signing keys.",
+            path,
+        )
+        return value
+    except Exception as e:
+        logger.error(
+            "Failed to persist a session secret (%s); falling back to in-memory value. "
+            "Sessions will be invalidated on every restart.",
+            e,
+        )
+        return secrets.token_urlsafe(48)
 
 
 def _get_secret() -> str:
-    return os.environ.get("OAUTH2_SESSION_SECRET", DEFAULT_SECRET)
+    global _cached_secret
+    env_secret = os.environ.get("OAUTH2_SESSION_SECRET")
+    if env_secret:
+        return env_secret
+    if _cached_secret is None:
+        _cached_secret = _load_or_create_dev_secret()
+    return _cached_secret
 
 
 def _sign(payload: str) -> str:

@@ -271,6 +271,10 @@ class ConversationCache:
         ## SystemEventManager 用于记录系统事件
         self.event_manager: Optional[Any] = None
 
+        ## 统一 Hook 管理器（按需懒加载）
+        ## 由 GptsMemory.init_hook_manager 在对话启动时根据 team_context.hook_config 装配
+        self.hook_manager: Optional[Any] = None
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -2346,3 +2350,74 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
                 logger.debug(f"Cleared todos from db storage: {conv_id}")
             except Exception as e:
                 logger.error(f"Failed to clear todos from db: {e}")
+
+    # ------------------------------------------------------------------
+    # 统一 Hook 系统接入
+    # ------------------------------------------------------------------
+    async def init_hook_manager(
+        self,
+        conv_id: str,
+        team_context: Any,
+        runtime: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
+        """根据 TeamContext.hook_config 为指定对话装配 HookManager.
+
+        会话开始时由上层调用一次。如果配置缺失或被禁用，返回 None。
+        """
+        from ...hook import build_hook_manager
+
+        cache = await self._get_or_create_cache(conv_id)
+        manager = build_hook_manager(team_context, runtime=runtime)
+        cache.hook_manager = manager
+        if manager is not None:
+            logger.info(
+                "Hook manager initialised for conv_id=%s with %d hooks",
+                conv_id,
+                len(manager.hooks),
+            )
+        return manager
+
+    def update_hook_runtime(self, conv_id: str, **kwargs: Any) -> None:
+        """运行期补充 HookManager 的 runtime（如 sandbox_client）。"""
+        cache = self._get_cache_sync(conv_id)
+        if cache and cache.hook_manager is not None:
+            cache.hook_manager.update_runtime(**kwargs)
+
+    def get_hook_manager(self, conv_id: str) -> Optional[Any]:
+        cache = self._get_cache_sync(conv_id)
+        return cache.hook_manager if cache else None
+
+    async def trigger_hook(
+        self,
+        conv_id: str,
+        trigger_type: str,
+        context: Dict[str, Any],
+    ) -> bool:
+        """fire-and-forget 触发指定类型的 hook。返回 True 表示已派发。"""
+        manager = self.get_hook_manager(conv_id)
+        if manager is None or not manager.enabled:
+            return False
+        ctx = dict(context or {})
+        ctx.setdefault("conv_id", conv_id)
+        await manager.trigger(trigger_type, ctx)
+        return True
+
+    async def trigger_hook_blocking(
+        self,
+        conv_id: str,
+        trigger_type: str,
+        context: Dict[str, Any],
+    ) -> Any:
+        """同步阻断式触发，返回合并后的 HookDecision。
+
+        无 hook 命中或未启用时返回 `HookDecision.cont()` 等价于放行。
+        """
+        from ...hook import HookDecision
+
+        manager = self.get_hook_manager(conv_id)
+        if manager is None or not manager.enabled:
+            return HookDecision.cont()
+        ctx = dict(context or {})
+        ctx.setdefault("conv_id", conv_id)
+        return await manager.trigger_blocking(trigger_type, ctx)
+

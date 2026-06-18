@@ -111,7 +111,7 @@ export interface UseStreamingFunctionCallReturn {
  *   return (
  *     <div>
  *       {isStreaming && <Spinner />}
- *       {/* Render streaming params */}
+ *       {/* Render streaming params *\/}
  *     </div>
  *   );
  * }
