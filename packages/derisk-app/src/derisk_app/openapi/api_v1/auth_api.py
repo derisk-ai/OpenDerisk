@@ -288,6 +288,25 @@ async def oauth_callback(
 @router.get("/me")
 async def get_current_user(request: Request):
     """Get current logged-in user. Returns 401 if not authenticated."""
+    if not _is_auth_required():
+        return JSONResponse(
+            content={
+                "user": {
+                    "id": 0,
+                    "name": "derisk",
+                    "fullname": "DeRisk",
+                    "email": "",
+                    "avatar": "",
+                },
+                "user_channel": "mock",
+                "user_no": "0",
+                "nick_name": "DeRisk",
+                "avatar_url": "",
+                "email": "",
+                "role": "admin",
+            }
+        )
+
     token = request.cookies.get("derisk_session") or request.headers.get(
         "Authorization", ""
     ).replace("Bearer ", "")
