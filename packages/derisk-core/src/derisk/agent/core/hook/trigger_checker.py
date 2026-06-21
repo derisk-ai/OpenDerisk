@@ -31,7 +31,20 @@ class HookTriggerChecker:
         if trigger_type == HookTriggerType.STATE_CHANGE.value:
             return self._match_state(hook, context)
 
+        if trigger_type == HookTriggerType.TURN_COMPLETE.value:
+            return self._match_every_n_turns(hook, context)
+
         return True
+
+    @staticmethod
+    def _match_every_n_turns(hook: HookConfig, context: Dict[str, Any]) -> bool:
+        n = hook.trigger.every_n_turns
+        if n is None or n <= 1:
+            return True
+        round_ = context.get("round") or 0
+        if round_ <= 0:
+            return False
+        return (round_ % n) == 0
 
     @staticmethod
     def _match_tool(hook: HookConfig, context: Dict[str, Any]) -> bool:

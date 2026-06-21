@@ -290,8 +290,11 @@ class DeliverFileTool(SandboxToolBase):
         # 2. 如果 AgentFileSystem 不可用，尝试直接通过 write_chat_file 转存
         if not oss_temp_url:
             try:
-                # 先读取文件内容
-                file_info = await client.file.read(sandbox_path)
+                # 先读取文件内容（二进制方式，兼容 pptx/docx 等二进制文件）
+                try:
+                    file_info = await client.file.read(sandbox_path, format="bytes")
+                except TypeError:
+                    file_info = await client.file.read(sandbox_path)
                 file_content = getattr(file_info, "content", "")
 
                 if file_content and hasattr(client.file, "write_chat_file"):
@@ -318,16 +321,20 @@ class DeliverFileTool(SandboxToolBase):
 
         # 检查 OSS 是否成功上传
         if not oss_temp_url:
-            logger.warning(
-                f"[deliver_file] Storage upload failed for {sandbox_path}. "
+            # 存储上传失败：文件存在于沙箱但无法生成可访问的 URL，
+            # 对用户不可见，必须以失败返回，避免上游（master agent / LLM）
+            # 误以为交付成功。
+            error_msg = (
+                f"Storage upload failed for {sandbox_path}. "
                 f"File exists in sandbox but is not accessible via web URL. "
                 f"Please check storage configuration."
             )
-            result_parts.append(
-                "\n⚠️ **注意：文件已标记，但无法生成可访问的预览/下载链接。**\n"
-                "请检查存储配置是否正确。"
+            logger.warning(f"[deliver_file] {error_msg}")
+            return ToolResult.fail(
+                error=error_msg,
+                tool_name=self.name,
+                error_code="STORAGE_UPLOAD_FAILED",
             )
-            return ToolResult.ok(output="\n".join(result_parts), tool_name=self.name)
 
         # 生成 d-attach 组件
         try:

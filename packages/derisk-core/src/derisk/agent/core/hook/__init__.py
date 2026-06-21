@@ -24,6 +24,8 @@ from .executors import (
     BaseHookExecutor,
     CliHookExecutor,
     ExecutorRegistry,
+    FunctionHookExecutor,
+    FunctionRegistry,
     get_executor,
 )
 from .claude_code_plugin import load_plugin_hooks
@@ -46,6 +48,8 @@ __all__ = [
     "BaseHookExecutor",
     "CliHookExecutor",
     "ExecutorRegistry",
+    "FunctionHookExecutor",
+    "FunctionRegistry",
     "build_hook_manager",
     "get_executor",
     "load_plugin_hooks",

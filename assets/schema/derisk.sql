@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-06-17 06:14:39
+-- Generated: 2026-06-21 20:22:20
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -204,7 +204,6 @@ CREATE TABLE IF NOT EXISTS `gpts_cold_segments` (
   UNIQUE KEY `uk_cold_session_hash` (`session_id`, `content_hash`),
   KEY `idx_cold_session` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 
 -- Table: gpts_conversations
 -- Source Model: GptsConversationsEntity
@@ -944,20 +943,6 @@ CREATE TABLE IF NOT EXISTS `knowledge_yuque` (
   `read_count` INT NULL,
   `comments_count` INT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Table: scene_strategy
--- Source Model: SceneStrategyEntity
-CREATE TABLE IF NOT EXISTS `scene_strategy` (
-  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Table: app_scene_binding
--- Source Model: AppSceneBindingEntity
-CREATE TABLE IF NOT EXISTS `app_scene_binding` (
-  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: skill_sync_task

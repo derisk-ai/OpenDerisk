@@ -53,6 +53,8 @@ class LongTermMemoryConfig:
     space_strategies: Dict[str, MemorySpaceStrategy] = field(default_factory=dict)
     # Whether to enable recall tracking
     recall_tracking_enabled: bool = True
+    # Tier 2 reflection cadence: run cross-turn consolidation every N turns.
+    reflection_interval: int = 10
 
     @classmethod
     def from_resource_value(cls, value: Any) -> Optional["LongTermMemoryConfig"]:
@@ -87,6 +89,7 @@ class LongTermMemoryConfig:
             max_distance=parsed.get("max_distance", 0.4),
             min_content_length=parsed.get("min_content_length", 50),
             wing=parsed.get("wing", "default"),
+            reflection_interval=parsed.get("reflection_interval", 10),
         )
 
 
@@ -117,6 +120,9 @@ class LongTermMemoryManager:
         strategies: Optional[Dict[str, MemorySpaceStrategy]] = None,
         recall_tracker: Optional[RecallTracker] = None,
         hybrid_search_engine: Optional[Any] = None,  # HybridSearchEngine
+        lifecycle_hooks: Optional[Any] = None,
+        snapshot_manager: Optional[Any] = None,
+        promotion_engine: Optional[Any] = None,
     ):
         """Initialize the manager.
 
@@ -127,6 +133,9 @@ class LongTermMemoryManager:
             strategies: Dict mapping memory_id to MemorySpaceStrategy
             recall_tracker: RecallTracker instance
             hybrid_search_engine: HybridSearchEngine instance
+            lifecycle_hooks: Optional DefaultLifecycleHooks for tier 3 curation
+            snapshot_manager: Optional FrozenSnapshotManager for tier 3 snapshots
+            promotion_engine: Optional MemoryPromotionEngine for tier 3 promotion
         """
         self._config = config
         self._memory_stores = memory_stores
@@ -134,6 +143,9 @@ class LongTermMemoryManager:
         self._strategies = strategies or {}
         self._recall_tracker = recall_tracker or RecallTracker()
         self._hybrid_search_engine = hybrid_search_engine
+        self._lifecycle_hooks = lifecycle_hooks
+        self._snapshot_manager = snapshot_manager
+        self._promotion_engine = promotion_engine
         self._last_conversation_content: Optional[str] = None
 
     @property
@@ -159,6 +171,7 @@ class LongTermMemoryManager:
         query: str,
         top_k: Optional[int] = None,
         use_hybrid_search: bool = True,
+        exclude_rooms: Optional[List[str]] = None,
     ) -> str:
         """Retrieve relevant memories from all bound spaces before agent reasoning.
 
@@ -169,6 +182,9 @@ class LongTermMemoryManager:
             query: The user's question or current context
             top_k: Override config.top_k if provided
             use_hybrid_search: If True, use HybridSearchEngine (temporal decay + MMR)
+            exclude_rooms: Rooms to skip (e.g. static-layer rooms like "profile"
+                that are already frozen into system prompt — avoids duplicate
+                injection).
 
         Returns:
             Formatted memory text for context injection
@@ -177,6 +193,7 @@ class LongTermMemoryManager:
             return ""
 
         top_k = top_k or self._config.top_k
+        exclude_rooms_set = set(exclude_rooms or [])
         all_entries: List[Tuple[str, MemoryEntry]] = []  # (space_name, entry)
 
         for memory_id, store in self._memory_stores.items():
@@ -201,6 +218,8 @@ class LongTermMemoryManager:
                         config=config,
                     )
                     for r in results:
+                        if exclude_rooms_set and r.room in exclude_rooms_set:
+                            continue
                         all_entries.append((space_name, MemoryEntry(
                             id=r.id,
                             content=r.content,
@@ -218,6 +237,8 @@ class LongTermMemoryManager:
                         max_distance=self._config.max_distance,
                     )
                     for entry in entries:
+                        if exclude_rooms_set and entry.room in exclude_rooms_set:
+                            continue
                         all_entries.append((space_name, entry))
 
                 # Track recall for promotion decisions
@@ -273,11 +294,24 @@ class LongTermMemoryManager:
         agent_response: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, bool]:
-        """Automatically write important content to memory spaces.
+        """Backward-compatible wrapper. Delegates to write_turn_lightweight."""
+        return await self.write_turn_lightweight(
+            user_message=user_message,
+            agent_response=agent_response,
+            metadata=metadata,
+        )
 
-        This method is called after agent completes its response.
-        Each space independently processes and writes content based on
-        its own strategy.
+    async def write_turn_lightweight(
+        self,
+        user_message: str,
+        agent_response: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, bool]:
+        """Tier 1: per-turn lightweight memory write.
+
+        Called (asynchronously, via the turn_complete hook) after each
+        successful agent turn. Each space independently processes and writes
+        content based on its own strategy.
 
         Args:
             user_message: The user's input message
@@ -381,6 +415,198 @@ class LongTermMemoryManager:
                 results[space_id] = False
 
         return results
+
+    async def reflect_on_last_n_turns(
+        self,
+        n: int = 10,
+        turns: Optional[List[Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, bool]:
+        """Tier 2: cross-turn reflection / consolidation.
+
+        Runs every N turns (N defaults to 10). Pulls the last N turns from
+        session history (caller may pass them in `turns`; otherwise we best-
+        effort pull from `_last_conversation_content`), feeds the combined
+        transcript through `processor.consolidate_memories` for cross-turn
+        dedup / refinement, and writes the consolidated entries.
+
+        Args:
+            n: Window size. Ignored when `turns` is provided.
+            turns: Optional pre-fetched list of {user, assistant} dicts.
+            metadata: Extra metadata to attach to writes.
+
+        Returns:
+            Dict mapping space_id to whether reflection wrote anything.
+        """
+        if not self.has_stores():
+            return {}
+
+        if turns is None:
+            turns = []
+        if not turns:
+            logger.debug("[LongTermMemory] tier 2: no turns to reflect on")
+            return {}
+
+        results: Dict[str, bool] = {}
+        transcript_parts = []
+        for t in turns:
+            u = (t.get("user") or "").strip()
+            a = (t.get("assistant") or "").strip()
+            if u or a:
+                transcript_parts.append(f"用户: {u}\n助手: {a}")
+        if not transcript_parts:
+            return {}
+        transcript = "\n\n".join(transcript_parts)
+
+        for space_id, store in self._memory_stores.items():
+            strategy = self._strategies.get(space_id)
+            processor = self._processors.get(space_id)
+            if strategy and not strategy.auto_extraction:
+                results[space_id] = False
+                continue
+            if processor is None:
+                results[space_id] = False
+                continue
+            try:
+                extracted = await processor.extract_key_content(
+                    conversation=transcript,
+                    extraction_prompt=strategy.extraction_prompt if strategy else None,
+                )
+                if not extracted:
+                    results[space_id] = False
+                    continue
+
+                # Retrieve existing and consolidate against the wider window
+                existing = await store.asearch_memory(
+                    query=transcript[:500],
+                    top_k=10,
+                    wing=self._config.wing,
+                    max_distance=self._config.max_distance,
+                )
+                threshold = strategy.consolidation_threshold if strategy else 0.7
+                consolidation = await processor.consolidate_memories(
+                    existing=existing,
+                    new=extracted,
+                    consolidation_threshold=threshold,
+                )
+
+                written = 0
+                for mem in consolidation.new_memories:
+                    await store.awrite_memory(
+                        content=mem.content,
+                        wing=self._config.wing,
+                        room=mem.room,
+                        metadata=mem.metadata,
+                    )
+                    written += 1
+
+                if self._config.enable_kg or (strategy and strategy.kg_extraction):
+                    triples = await processor.extract_triples(transcript)
+                    for triple in triples:
+                        try:
+                            await store.akg_add(
+                                subject=triple.get("subject", ""),
+                                predicate=triple.get("predicate", ""),
+                                object_=triple.get("object", ""),
+                            )
+                        except Exception as e:
+                            logger.warning(f"[Tier2] Failed to add KG triple: {e}")
+
+                results[space_id] = written > 0
+                logger.info(
+                    f"[LongTermMemory] Tier 2 reflection: {written} consolidated "
+                    f"memories for space {space_id}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[LongTermMemory] Tier 2 reflection failed for space {space_id}: {e}"
+                )
+                results[space_id] = False
+
+        return results
+
+    async def curate_session(
+        self,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Tier 3: session-end curation.
+
+        Triggered by the `conversation_complete` hook. Runs:
+        - lifecycle_hooks.on_session_end for any final extraction
+        - promotion_engine.run_promotion_sweep to promote hot memories
+        - snapshot_manager.capture_snapshot to freeze a session-end view
+
+        Returns:
+            Dict with per-space curation summary.
+        """
+        summary: Dict[str, Any] = {"spaces": {}}
+        if not self.has_stores():
+            return summary
+
+        history = conversation_history or []
+
+        # Run lifecycle hook if attached (best-effort).
+        try:
+            from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
+            if isinstance(getattr(self, "_lifecycle_hooks", None), DefaultLifecycleHooks):
+                # Default is no-op; real implementations can plug in here.
+                await self._lifecycle_hooks.on_session_end(history)
+        except Exception as e:
+            logger.warning(f"[Tier3] lifecycle on_session_end failed: {e}")
+
+        for space_id, store in self._memory_stores.items():
+            space_summary: Dict[str, Any] = {}
+            try:
+                # Promotion sweep — best-effort, requires recall_tracker stats.
+                promotion_engine = getattr(self, "_promotion_engine", None)
+                if promotion_engine is not None:
+                    try:
+                        promo_result = await promotion_engine.run_promotion_sweep(
+                            space_id=space_id,
+                            store=store,
+                        )
+                        space_summary["promotions"] = getattr(
+                            promo_result, "promoted_count", 0
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            f"[Tier3] promotion sweep skipped for {space_id}: {e}"
+                        )
+
+                # Snapshot — best-effort.
+                snapshot_manager = getattr(self, "_snapshot_manager", None)
+                if snapshot_manager is not None:
+                    try:
+                        # Aggregate content for snapshot
+                        content_preview = ""
+                        for msg in history[-5:]:
+                            role = msg.get("role", "")
+                            c = msg.get("content", "")
+                            if isinstance(c, str):
+                                content_preview += f"{role}: {c}\n"
+                        snapshot_manager.capture_snapshot(
+                            space_id=space_id,
+                            content=content_preview,
+                            memory_count=-1,
+                        )
+                        space_summary["snapshot_captured"] = True
+                    except Exception as e:
+                        logger.debug(
+                            f"[Tier3] snapshot capture skipped for {space_id}: {e}"
+                        )
+
+                summary["spaces"][space_id] = space_summary
+            except Exception as e:
+                logger.warning(
+                    f"[LongTermMemory] Tier 3 curation failed for space {space_id}: {e}"
+                )
+                summary["spaces"][space_id] = {"error": str(e)}
+
+        logger.info(
+            f"[LongTermMemory] Tier 3 curation done for {len(summary['spaces'])} spaces"
+        )
+        return summary
 
     def _get_primary_store(self) -> Tuple[Optional[str], Optional[MemoryStoreBase]]:
         """Get the primary memory store (first one in config)."""
@@ -673,6 +899,9 @@ async def create_memory_integration_bundle(
         strategies=strategies,
         recall_tracker=recall_tracker,
         hybrid_search_engine=hybrid_search,
+        lifecycle_hooks=lifecycle_hooks,
+        snapshot_manager=snapshot_manager,
+        promotion_engine=promotion_engine,
     )
 
     return MemoryIntegrationBundle(

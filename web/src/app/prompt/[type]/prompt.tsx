@@ -256,6 +256,7 @@ const AddOrEditPrompt: React.FC = () => {
         setLlmLoading(true);
         await fetchEventSource(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/prompt/template/debug`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             [HEADER_USER_ID_KEY]: getUserId() ?? '',

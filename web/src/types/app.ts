@@ -403,6 +403,18 @@ export type IApp = {
   resource_agent?: ResourceAgent[];
   /**
    * 记忆资源绑定
+   *
+   * value JSON 结构：
+   *   {
+   *     memories: Array<{ memory_id: string; memory_name: string }>,
+   *     auto_memory: boolean,            // 默认 true
+   *     enable_kg: boolean,              // 默认 false
+   *     top_k: number,                   // 默认 5
+   *     reflection_interval: number,     // 默认 10（每 N 轮触发 tier 2 反思）
+   *     max_distance?: number,           // 默认 0.4
+   *     min_content_length?: number,     // 默认 50
+   *     wing?: string                    // 默认 "default"
+   *   }
    */
   resource_memory?: Array<{
     type: string;
@@ -535,7 +547,7 @@ export interface NativeAppScenesResponse {
 // Unified Hook System types
 // --------------------------------------------------------------------------
 
-export type HookKind = 'agent' | 'api' | 'cli';
+export type HookKind = 'agent' | 'api' | 'cli' | 'function';
 
 export type BlockingPolicy = 'continue' | 'deny' | 'abort' | 'modify';
 
@@ -544,6 +556,7 @@ export type HookTriggerType =
   | 'post_tool_use'
   | 'conversation_start'
   | 'conversation_complete'
+  | 'turn_complete'
   | 'state_change'
   | 'user_prompt_submit'
   | 'error_occurred';
@@ -562,6 +575,8 @@ export interface HookEndpointConfig {
   cli_allowlist?: string[];
   cli_in_sandbox?: boolean;
   cli_cwd?: string;
+  // function (in-process callable registered via FunctionRegistry)
+  function_name?: string;
   // generic
   timeout?: number;
   blocking?: boolean;
@@ -573,6 +588,9 @@ export interface HookTriggerConfig {
   tool_name_globs?: string[];
   state_from?: string;
   state_to?: string;
+  /** Only fire every N turns. Used with turn_complete.
+   * null/1 = every turn. N>1 fires when round % N == 0. */
+  every_n_turns?: number | null;
   extra?: Record<string, any>;
 }
 

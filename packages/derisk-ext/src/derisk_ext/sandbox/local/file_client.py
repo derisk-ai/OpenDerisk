@@ -107,7 +107,7 @@ class LocalFileClient(FileClient):
 
         return FileInfo(
             path=path,
-            content=content if format == "text" else None,
+            content=content,
             name=os.path.basename(path),
         )
 

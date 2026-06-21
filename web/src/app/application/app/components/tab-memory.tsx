@@ -1,91 +1,103 @@
 'use client';
 import { apiInterceptors, getSpaceList } from '@/client/api';
+import { disableAppMemory, enableAppMemory } from '@/client/api/app';
 import { AppContext } from '@/contexts';
+import { notification } from 'antd';
 import {
-  CheckCircleFilled,
-  SearchOutlined,
-  PlusOutlined,
-  ReloadOutlined,
   BulbOutlined,
+  CaretDownOutlined,
+  CaretRightOutlined,
   NodeIndexOutlined,
+  ReloadOutlined,
+  SwapOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { Input, Spin, Switch, Tooltip, InputNumber } from 'antd';
+import {
+  Button,
+  InputNumber,
+  message,
+  Select,
+  Spin,
+  Switch,
+  Tooltip,
+} from 'antd';
 import { useContext, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+interface MemoryConfig {
+  auto_memory: boolean;
+  enable_kg: boolean;
+  top_k: number;
+  reflection_interval: number;
+}
+
+const DEFAULT_CONFIG: MemoryConfig = {
+  auto_memory: true,
+  enable_kg: false,
+  top_k: 5,
+  reflection_interval: 10,
+};
+
 export default function TabMemory() {
   const { t } = useTranslation();
-  const { appInfo, fetchUpdateApp } = useContext(AppContext);
-  const [searchValue, setSearchValue] = useState('');
+  const { appInfo, fetchUpdateApp, refreshAppInfo } = useContext(AppContext);
+  const [switching, setSwitching] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [draft, setDraft] = useState<MemoryConfig | null>(null);
+  const [hookDraft, setHookDraft] = useState<Record<string, any>[] | null>(null);
 
-  // Fetch all Memory-type knowledge spaces directly from space list
-  const { data: memoryData, loading, refresh } = useRequest(
-    async () => {
-      const [, data] = await apiInterceptors(getSpaceList());
-      return data;
-    }
-  );
+  // Fetch all knowledge spaces
+  const { data: spaceData, loading, refresh } = useRequest(async () => {
+    const [, data] = await apiInterceptors(getSpaceList());
+    return data;
+  });
 
-  // Extract memory-compatible knowledge spaces (vector_type=Memory)
-  const allMemorySpaces = useMemo(() => {
-    if (!memoryData) return [];
-    return memoryData
+  // Filter Memory-type spaces
+  const memorySpaces = useMemo(() => {
+    if (!spaceData) return [];
+    return spaceData
       .filter((space: any) => space.vector_type === 'Memory')
       .map((space: any) => ({
-        key: space.knowledge_id || space.id,
         value: space.knowledge_id || space.id,
         label: space.name,
         name: space.name,
         description: space.desc,
-        vector_type: space.vector_type,
       }));
-  }, [memoryData]);
+  }, [spaceData]);
 
-  // Get currently enabled memory space ids
-  const enabledMemoryIds = useMemo(() => {
-    const resourceMemory = appInfo?.resource_memory?.[0]?.value;
-    if (!resourceMemory) return [];
+  // Parse current resource_memory
+  const parsed = useMemo(() => {
+    const value = appInfo?.resource_memory?.[0]?.value;
+    if (!value) return null;
     try {
-      const parsed = JSON.parse(resourceMemory);
-      return (parsed?.memories || []).map((m: any) => m.memory_id);
+      return JSON.parse(value);
     } catch {
-      return [];
+      return null;
     }
   }, [appInfo?.resource_memory]);
 
-  // Get memory config from resource_memory
-  const memoryConfig = useMemo(() => {
-    const resourceMemory = appInfo?.resource_memory?.[0]?.value;
-    if (!resourceMemory) return { auto_memory: true, enable_kg: true, top_k: 5 };
-    try {
-      const parsed = JSON.parse(resourceMemory);
-      return {
-        auto_memory: parsed?.auto_memory ?? true,
-        enable_kg: parsed?.enable_kg ?? true,
-        top_k: parsed?.top_k ?? 5,
-      };
-    } catch {
-      return { auto_memory: true, enable_kg: true, top_k: 5 };
-    }
-  }, [appInfo?.resource_memory]);
+  const enabled = useMemo(() => {
+    return Boolean(parsed?.memories && parsed.memories.length > 0);
+  }, [parsed]);
 
-  // Filter by search
-  const filteredSpaces = useMemo(() => {
-    if (!searchValue) return allMemorySpaces;
-    const lower = searchValue.toLowerCase();
-    return allMemorySpaces.filter(
-      (k) =>
-        (k.label || k.name || '').toLowerCase().includes(lower) ||
-        (k.key || '').toLowerCase().includes(lower)
-    );
-  }, [allMemorySpaces, searchValue]);
+  const currentMemory = parsed?.memories?.[0];
 
-  // Build the resource_memory value
-  const buildResourceMemory = (
-    memories: any[],
-    config: { auto_memory: boolean; enable_kg: boolean; top_k: number }
-  ) => {
+  const currentConfig: MemoryConfig = useMemo(
+    () => ({
+      auto_memory: parsed?.auto_memory ?? DEFAULT_CONFIG.auto_memory,
+      enable_kg: parsed?.enable_kg ?? DEFAULT_CONFIG.enable_kg,
+      top_k: parsed?.top_k ?? DEFAULT_CONFIG.top_k,
+      reflection_interval: parsed?.reflection_interval ?? DEFAULT_CONFIG.reflection_interval,
+    }),
+    [parsed],
+  );
+
+  // The draft is what's currently being edited; falls back to currentConfig
+  const editConfig = draft ?? currentConfig;
+  const dirty = draft !== null;
+
+  const buildResourceMemory = (memories: any[], config: MemoryConfig) => {
     return [
       {
         ...(appInfo?.resource_memory?.[0] || {}),
@@ -96,176 +108,365 @@ export default function TabMemory() {
           auto_memory: config.auto_memory,
           enable_kg: config.enable_kg,
           top_k: config.top_k,
+          reflection_interval: config.reflection_interval,
         }),
       },
     ];
   };
 
-  // Get current memories list
-  const getCurrentMemories = () => {
+  const handleToggleMemory = async (on: boolean) => {
+    if (!appInfo?.app_code) return;
+    setSwitching(true);
     try {
-      const resourceMemory = appInfo?.resource_memory?.[0]?.value;
-      if (resourceMemory) {
-        return JSON.parse(resourceMemory)?.memories || [];
+      const [err, data, raw] = on
+        ? await apiInterceptors(enableAppMemory(appInfo.app_code), notification)
+        : await apiInterceptors(disableAppMemory(appInfo.app_code), notification);
+      // eslint-disable-next-line no-console
+      console.log('[tab-memory] toggle', on ? 'enable' : 'disable', 'err:', err, 'data:', data, 'raw:', raw);
+      if (err) {
+        console.error('[tab-memory] toggle failed:', err, 'raw response:', raw);
+        message.error(
+          `${on ? 'enable' : 'disable'} memory failed: ${raw?.err_msg || err?.message || 'unknown'}`,
+        );
+        return;
       }
-    } catch {}
-    return [];
-  };
-
-  // Toggle memory space on/off
-  const handleToggle = (space: any) => {
-    const memoryId = space.key || space.value;
-    const memoryName = space.label || space.name;
-    const isEnabled = enabledMemoryIds.includes(memoryId);
-    const currentMemories = getCurrentMemories();
-
-    if (isEnabled) {
-      const updated = currentMemories.filter((m: any) => m.memory_id !== memoryId);
-      fetchUpdateApp({
-        ...appInfo,
-        resource_memory: updated.length > 0 ? buildResourceMemory(updated, memoryConfig) : [],
-      });
-    } else {
-      const updated = [...currentMemories, { memory_id: memoryId, memory_name: memoryName }];
-      fetchUpdateApp({
-        ...appInfo,
-        resource_memory: buildResourceMemory(updated, memoryConfig),
-      });
+      message.success(on ? t('memory_enable_memory') : `${t('memory_enable_memory')} · off`);
+      setDraft(null);
+      refreshAppInfo?.();
+    } catch (e) {
+      console.error('[tab-memory] toggle exception:', e);
+      message.error(`toggle memory exception: ${(e as Error)?.message || e}`);
+    } finally {
+      setSwitching(false);
     }
   };
 
-  // Update config toggles
-  const handleConfigChange = (key: string, value: any) => {
-    const currentMemories = getCurrentMemories();
-    const newConfig = { ...memoryConfig, [key]: value };
-    fetchUpdateApp({
+  // Save advanced config changes via the standard edit flow
+  const handleSaveAdvanced = async () => {
+    if (!draft || !appInfo) return;
+    const memories = parsed?.memories || [];
+    if (memories.length === 0) {
+      message.warning(t('memory_no_space_bound'));
+      return;
+    }
+    await fetchUpdateApp({
       ...appInfo,
-      resource_memory: buildResourceMemory(currentMemories, newConfig),
+      resource_memory: buildResourceMemory(memories, draft),
+    });
+    setDraft(null);
+  };
+
+  const handleConfigChange = (key: keyof MemoryConfig, value: any) => {
+    setDraft({ ...(draft ?? currentConfig), [key]: value });
+  };
+
+  const handleChangeSpace = async (memoryId: string) => {
+    if (!appInfo) return;
+    const space = memorySpaces.find((s: any) => s.value === memoryId);
+    const newMemories = [
+      {
+        memory_id: memoryId,
+        memory_name: space?.name || '',
+      },
+    ];
+    await fetchUpdateApp({
+      ...appInfo,
+      resource_memory: buildResourceMemory(newMemories, currentConfig),
     });
   };
 
-  // Navigate to create a new knowledge space (Memory type)
-  const handleCreateMemorySpace = () => {
-    window.open('/knowledge', '_blank');
+  // ----- Memory tier hooks (visible + editable) -----
+  const TIER_LABEL_KEYS: Record<number, string> = {
+    0: 'memory_hook_tier0',
+    1: 'memory_hook_tier1',
+    2: 'memory_hook_tier2',
+    3: 'memory_hook_tier3',
+  };
+
+  // Hooks persisted in team_context.hook_config.hooks; filter the 4 memory tiers
+  // and sort by tier number (parsed from name suffix: memory_tier{N}_*).
+  const memoryHooks = useMemo(() => {
+    const tc = appInfo?.team_context as any;
+    const hookConfig = tc?.hook_config;
+    const hooks: any[] = hookConfig?.hooks || [];
+    // eslint-disable-next-line no-console
+    console.log('[tab-memory] team_context:', tc, 'hook_config:', hookConfig, 'all hooks count:', hooks.length, 'memory hooks:', hooks.filter((h: any) => h?.name?.startsWith('memory_tier')));
+    return hooks
+      .filter((h: any) => typeof h?.name === 'string' && h.name.startsWith('memory_tier'))
+      .map((h: any) => {
+        const m = /^memory_tier(\d+)_/.exec(h.name);
+        return { ...h, _tier: m ? Number(m[1]) : 99 };
+      })
+      .sort((a: any, b: any) => a._tier - b._tier);
+  }, [appInfo?.team_context]);
+
+  const hookEditList = hookDraft ?? memoryHooks;
+  const hookDirty = hookDraft !== null;
+
+  const handleHookFieldChange = (name: string, key: string, value: any) => {
+    const next = (hookDraft ?? memoryHooks).map((h: any) =>
+      h.name === name ? { ...h, [key]: value } : h,
+    );
+    // Keep trigger.every_n_turns in sync if present.
+    setHookDraft(next);
+  };
+
+  const handleSaveHooks = async () => {
+    if (!hookDraft || !appInfo) return;
+    const teamContext = { ...((appInfo.team_context as any) || {}) };
+    const hookConfig = { ...(teamContext.hook_config || {}) };
+    const otherHooks = (hookConfig.hooks || []).filter(
+      (h: any) => !(typeof h?.name === 'string' && h.name.startsWith('memory_tier')),
+    );
+    // Strip the _tier helper field before persisting.
+    const cleanedMemoryHooks = hookDraft.map(({ _tier, ...rest }: any) => rest);
+    hookConfig.hooks = [...otherHooks, ...cleanedMemoryHooks];
+    hookConfig.enabled = true;
+    teamContext.hook_config = hookConfig;
+    await fetchUpdateApp({
+      ...appInfo,
+      team_context: teamContext,
+    });
+    setHookDraft(null);
   };
 
   return (
-    <div className="flex-1 overflow-hidden flex flex-col h-full">
-      {/* Config section */}
-      <div className="px-5 py-3 border-b border-gray-100/40">
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <BulbOutlined className="text-violet-500 text-sm" />
-            <span className="text-[13px] text-gray-600">{t('memory_auto_memory')}</span>
-            <Switch
-              size="small"
-              checked={memoryConfig.auto_memory}
-              onChange={(v) => handleConfigChange('auto_memory', v)}
-            />
+    <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 custom-scrollbar">
+      {/* Top: enable switch */}
+      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
+            <BulbOutlined className="text-violet-500" />
           </div>
-          <div className="flex items-center gap-2">
-            <NodeIndexOutlined className="text-violet-500 text-sm" />
-            <span className="text-[13px] text-gray-600">{t('memory_enable_kg')}</span>
-            <Switch
-              size="small"
-              checked={memoryConfig.enable_kg}
-              onChange={(v) => handleConfigChange('enable_kg', v)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] text-gray-600">{t('memory_top_k')}</span>
-            <InputNumber
-              size="small"
-              min={1}
-              max={20}
-              value={memoryConfig.top_k}
-              onChange={(v) => handleConfigChange('top_k', v || 5)}
-              className="w-16"
-            />
+          <div>
+            <div className="text-[14px] font-medium text-gray-800">
+              {t('memory_enable_memory')}
+            </div>
+            <div className="text-[12px] text-gray-400 mt-0.5">
+              {t('memory_enable_memory_desc')}
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Search + Actions bar */}
-      <div className="px-5 py-3 border-b border-gray-100/40 flex items-center gap-2">
-        <Input
-          prefix={<SearchOutlined className="text-gray-400" />}
-          placeholder={t('builder_search_placeholder')}
-          value={searchValue}
-          onChange={(e) => setSearchValue(e.target.value)}
-          allowClear
-          className="rounded-lg h-9 flex-1"
-        />
-        <Tooltip title={t('builder_refresh')}>
-          <button
-            onClick={refresh}
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200/80 bg-white hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-all flex-shrink-0"
-          >
-            <ReloadOutlined className={`text-sm ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </Tooltip>
-        <button
-          onClick={handleCreateMemorySpace}
-          className="h-9 px-3 flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[13px] font-medium shadow-lg shadow-violet-500/25 hover:shadow-xl hover:shadow-violet-500/30 transition-all flex-shrink-0"
-        >
-          <PlusOutlined className="text-xs" />
-          {t('builder_create_new')}
-        </button>
-      </div>
-
-      {/* Memory spaces list */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 custom-scrollbar">
-        <Spin spinning={loading}>
-          {filteredSpaces.length > 0 ? (
-            <div className="grid grid-cols-1 gap-2">
-              {filteredSpaces.map((space, idx) => {
-                const key = space.key || space.value;
-                const isEnabled = enabledMemoryIds.includes(key);
-                return (
-                  <div
-                    key={`${key}-${idx}`}
-                    className={`group flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
-                      isEnabled
-                        ? 'border-violet-200/80 bg-violet-50/30 shadow-sm'
-                        : 'border-gray-100/80 bg-gray-50/20 hover:border-gray-200/80 hover:bg-gray-50/40'
-                    }`}
-                    onClick={() => handleToggle(space)}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                          isEnabled ? 'bg-violet-100' : 'bg-gray-100'
-                        }`}
-                      >
-                        <BulbOutlined
-                          className={`text-sm ${isEnabled ? 'text-violet-500' : 'text-gray-400'}`}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium text-gray-700 truncate">
-                          {space.label || space.name}
-                        </div>
-                        <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                          {space.description || space.key || '--'}
-                        </div>
-                      </div>
-                    </div>
-                    {isEnabled && (
-                      <CheckCircleFilled className="text-violet-500 text-base ml-2 flex-shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            !loading && (
-              <div className="text-center py-12 text-gray-300 text-xs">
-                {t('builder_no_items')}
-              </div>
-            )
-          )}
+        <Spin spinning={switching} size="small">
+          <Switch
+            checked={enabled}
+            onChange={handleToggleMemory}
+            disabled={switching}
+          />
         </Spin>
       </div>
+
+      {/* Current space */}
+      {enabled && (
+        <div className="p-4 rounded-xl border border-gray-100 bg-white">
+          <div className="flex items-center gap-3">
+            <NodeIndexOutlined className="text-violet-500" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[12px] text-gray-400">
+                {t('memory_current_space')}
+              </div>
+              <div className="text-[14px] font-medium text-gray-800 truncate mt-0.5">
+                {currentMemory?.memory_name || t('memory_no_space_bound')}
+              </div>
+            </div>
+            <Tooltip title={t('memory_change_space')}>
+              <Select
+                size="small"
+                value={currentMemory?.memory_id}
+                onChange={handleChangeSpace}
+                className="min-w-[180px]"
+                placeholder={t('memory_change_space')}
+                showSearch
+                optionFilterProp="label"
+                options={memorySpaces}
+                suffixIcon={<SwapOutlined />}
+              />
+            </Tooltip>
+            <Tooltip title={t('builder_refresh')}>
+              <button
+                onClick={refresh}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200/80 bg-white hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-all flex-shrink-0"
+              >
+                <ReloadOutlined className={`text-xs ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      )}
+
+      {/* Advanced settings */}
+      {enabled && (
+        <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
+          <button
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/50 transition-colors"
+          >
+            <span className="text-[13px] font-medium text-gray-700">
+              {t('memory_advanced_settings')}
+            </span>
+            {advancedOpen ? (
+              <CaretDownOutlined className="text-gray-400 text-xs" />
+            ) : (
+              <CaretRightOutlined className="text-gray-400 text-xs" />
+            )}
+          </button>
+          {advancedOpen && (
+            <div className="px-4 pb-4 pt-1 border-t border-gray-50">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 mt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-gray-600">
+                    {t('memory_auto_memory')}
+                  </span>
+                  <Switch
+                    size="small"
+                    checked={editConfig.auto_memory}
+                    onChange={(v) => handleConfigChange('auto_memory', v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-gray-600">
+                    {t('memory_enable_kg')}
+                  </span>
+                  <Switch
+                    size="small"
+                    checked={editConfig.enable_kg}
+                    onChange={(v) => handleConfigChange('enable_kg', v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-gray-600">
+                    {t('memory_top_k')}
+                  </span>
+                  <InputNumber
+                    size="small"
+                    min={1}
+                    max={20}
+                    value={editConfig.top_k}
+                    onChange={(v) => handleConfigChange('top_k', v || 5)}
+                    className="w-20"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-gray-600">
+                    {t('memory_reflection_interval')}
+                  </span>
+                  <InputNumber
+                    size="small"
+                    min={1}
+                    max={100}
+                    value={editConfig.reflection_interval}
+                    onChange={(v) => handleConfigChange('reflection_interval', v || 10)}
+                    className="w-20"
+                  />
+                </div>
+              </div>
+              {dirty && (
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button size="small" onClick={() => setDraft(null)}>
+                    Cancel
+                  </Button>
+                  <Button size="small" type="primary" onClick={handleSaveAdvanced}>
+                    Save
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Memory tier hooks (visible + editable) */}
+      {enabled && memoryHooks.length > 0 && (
+        <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 flex items-start gap-2">
+            <ThunderboltOutlined className="text-violet-500 mt-0.5" />
+            <div>
+              <div className="text-[13px] font-medium text-gray-700">
+                {t('memory_hooks_section')}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-0.5">
+                {t('memory_hooks_section_desc')}
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {hookEditList.map((hook: any) => {
+              const tier = hook._tier ?? 99;
+              const isTier3 = tier === 3;
+              const enabledVal = hook.enabled !== false;
+              const everyN =
+                hook.trigger?.every_n_turns ?? (isTier3 ? null : 1);
+              return (
+                <div
+                  key={hook.name}
+                  className="px-4 py-3 flex items-center gap-4"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-gray-700">
+                      {t(TIER_LABEL_KEYS[tier] || `Tier ${tier}`)}
+                    </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5 truncate">
+                      {hook.description || hook.name}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[12px] text-gray-500">
+                    <span>{t('memory_hook_every_n')}</span>
+                    {isTier3 ? (
+                      <span className="text-gray-400">
+                        {t('memory_hook_session_end')}
+                      </span>
+                    ) : (
+                      <InputNumber
+                        size="small"
+                        min={1}
+                        max={100}
+                        value={everyN}
+                        onChange={(v) => {
+                          const next = (hookDraft ?? memoryHooks).map(
+                            (h: any) =>
+                              h.name === hook.name
+                                ? {
+                                    ...h,
+                                    trigger: {
+                                      ...(h.trigger || {}),
+                                      every_n_turns: v || 1,
+                                    },
+                                  }
+                                : h,
+                          );
+                          setHookDraft(next);
+                        }}
+                        className="w-20"
+                      />
+                    )}
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={enabledVal}
+                    onChange={(v) => handleHookFieldChange(hook.name, 'enabled', v)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {hookDirty && (
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-50">
+              <Button size="small" onClick={() => setHookDraft(null)}>
+                Cancel
+              </Button>
+              <Button size="small" type="primary" onClick={handleSaveHooks}>
+                {t('memory_hook_save')}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!enabled && (
+        <div className="text-center py-8 text-gray-300 text-xs">
+          {t('memory_enable_memory_desc')}
+        </div>
+      )}
     </div>
   );
 }

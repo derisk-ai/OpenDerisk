@@ -139,8 +139,10 @@ class AgentFileSystem:
         if not self.sandbox:
             self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def _compute_hash(self, data: Union[str, Dict, List]) -> str:
+    def _compute_hash(self, data: Union[str, bytes, Dict, List]) -> str:
         """计算数据哈希（用于去重）."""
+        if isinstance(data, bytes):
+            return hashlib.md5(data).hexdigest()
         if isinstance(data, (dict, list)):
             content_str = json.dumps(data, sort_keys=True, ensure_ascii=False)
         else:
@@ -238,10 +240,16 @@ class AgentFileSystem:
                     safe_key = f"{safe_key}.{extension}"
                 work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
                 sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
-                await self.sandbox.file.create(
-                    sandbox_path, content_bytes.decode("utf-8")
-                )
-                logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+                try:
+                    await self.sandbox.file.create(
+                        sandbox_path, content_bytes.decode("utf-8")
+                    )
+                    logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+                except UnicodeDecodeError:
+                    # 二进制文件无法以文本形式写入 sandbox，跳过冗余副本
+                    logger.info(
+                        f"[AFSv3] Skip binary sandbox copy: {sandbox_path}"
+                    )
 
             return uri, len(content_bytes)
         except Exception as e:
@@ -268,8 +276,15 @@ class AgentFileSystem:
         if self.sandbox:
             work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
             sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
-            await self.sandbox.file.create(sandbox_path, content_bytes.decode("utf-8"))
-            logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+            try:
+                await self.sandbox.file.create(
+                    sandbox_path, content_bytes.decode("utf-8")
+                )
+                logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+            except UnicodeDecodeError:
+                logger.info(
+                    f"[AFSv3] Skip binary sandbox copy: {sandbox_path}"
+                )
         else:
             await asyncio.to_thread(local_path.write_bytes, content_bytes)
 
@@ -283,9 +298,17 @@ class AgentFileSystem:
 
                 work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
                 sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
-                file_info = await self.sandbox.file.read(sandbox_path)
+                try:
+                    file_info = await self.sandbox.file.read(
+                        sandbox_path, format="bytes"
+                    )
+                except TypeError:
+                    file_info = await self.sandbox.file.read(sandbox_path)
                 if file_info.content:
-                    temp_file.write_text(file_info.content, encoding="utf-8")
+                    if isinstance(file_info.content, bytes):
+                        temp_file.write_bytes(file_info.content)
+                    else:
+                        temp_file.write_text(file_info.content, encoding="utf-8")
                     await asyncio.to_thread(
                         self._oss_client.upload_file, str(temp_file), oss_object_name
                     )
@@ -327,8 +350,15 @@ class AgentFileSystem:
         if self.sandbox:
             work_dir = getattr(self.sandbox, "work_dir", "/home/ubuntu")
             sandbox_path = f"{work_dir}/{self.goal_id}/{safe_key}"
-            await self.sandbox.file.create(sandbox_path, content_bytes.decode("utf-8"))
-            logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+            try:
+                await self.sandbox.file.create(
+                    sandbox_path, content_bytes.decode("utf-8")
+                )
+                logger.info(f"[AFSv3] Saved to sandbox: {sandbox_path}")
+            except UnicodeDecodeError:
+                logger.info(
+                    f"[AFSv3] Skip binary sandbox copy: {sandbox_path}"
+                )
         else:
             await asyncio.to_thread(local_path.write_bytes, content_bytes)
 
@@ -407,8 +437,17 @@ class AgentFileSystem:
             local_path = Path(path)
 
             if self.sandbox:
-                file_info = await self.sandbox.file.read(str(local_path))
-                return file_info.content.encode("utf-8") if file_info.content else None
+                try:
+                    file_info = await self.sandbox.file.read(
+                        str(local_path), format="bytes"
+                    )
+                except TypeError:
+                    file_info = await self.sandbox.file.read(str(local_path))
+                if not file_info.content:
+                    return None
+                if isinstance(file_info.content, bytes):
+                    return file_info.content
+                return file_info.content.encode("utf-8")
             else:
                 if await asyncio.to_thread(local_path.exists):
                     return await asyncio.to_thread(local_path.read_bytes)
@@ -1318,7 +1357,15 @@ class AgentFileSystem:
                     f"Please provide file_content for {sandbox_path}"
                 )
             try:
-                file_info = await self.sandbox.file.read(sandbox_path)
+                # 优先以二进制方式读取，避免对 pptx/docx/xlsx 等二进制文件
+                # 做 utf-8 decode 时抛 UnicodeDecodeError。文本文件回退到 text。
+                try:
+                    file_info = await self.sandbox.file.read(
+                        sandbox_path, format="bytes"
+                    )
+                except TypeError:
+                    # 老版本 sandbox client 不支持 format 参数
+                    file_info = await self.sandbox.file.read(sandbox_path)
                 file_content = getattr(file_info, "content", "")
                 if not file_content:
                     raise ValueError(f"Empty content from sandbox: {sandbox_path}")
@@ -1517,7 +1564,12 @@ class AgentFileSystem:
         if file_content is None:
             if self.sandbox:
                 try:
-                    file_info = await self.sandbox.file.read(sandbox_path)
+                    try:
+                        file_info = await self.sandbox.file.read(
+                            sandbox_path, format="bytes"
+                        )
+                    except TypeError:
+                        file_info = await self.sandbox.file.read(sandbox_path)
                     file_content = getattr(file_info, "content", "")
                 except Exception as e:
                     logger.warning(f"[AFSv3] Failed to read from sandbox: {e}")

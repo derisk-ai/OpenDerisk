@@ -114,8 +114,8 @@ export default function LoginPage() {
       await authService.localLogin({ username: username.trim(), password });
       await saveUserAndRedirect();
     } catch (e: any) {
-      const detail = e?.response?.data?.detail;
-      setLocalError(typeof detail === 'string' ? detail : 'Login failed. Please check your credentials.');
+      const detail = e?.response?.data?.detail ?? e?.response?.data?.err_msg;
+      setLocalError(typeof detail === 'string' && detail ? detail : 'Login failed. Please check your credentials.');
     } finally {
       setSubmitting(false);
     }
@@ -144,8 +144,8 @@ export default function LoginPage() {
       });
       await saveUserAndRedirect();
     } catch (e: any) {
-      const detail = e?.response?.data?.detail;
-      setLocalError(typeof detail === 'string' ? detail : 'Registration failed');
+      const detail = e?.response?.data?.detail ?? e?.response?.data?.err_msg;
+      setLocalError(typeof detail === 'string' && detail ? detail : 'Registration failed');
     } finally {
       setSubmitting(false);
     }

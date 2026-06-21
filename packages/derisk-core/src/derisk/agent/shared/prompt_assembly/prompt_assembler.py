@@ -128,6 +128,7 @@ class PromptAssembler:
         self,
         user_system_prompt: Optional[str] = None,
         resource_context: Optional[ResourceContext] = None,
+        memory_static_block: Optional[str] = None,
         **kwargs,
     ) -> str:
         """
@@ -136,6 +137,8 @@ class PromptAssembler:
         Args:
             user_system_prompt: 用户输入的系统提示模板（身份层内容）
             resource_context: 资源上下文（用于注入资源层）
+            memory_static_block: 静态记忆层（room=profile/preference 的记忆，
+                整个 session 内冻结，保持 prefix cache 稳定）。注入在身份层之后。
             **kwargs: 模板变量
 
         Returns:
@@ -147,6 +150,10 @@ class PromptAssembler:
         # Layer 1: 身份层
         identity_content = await self._assemble_identity(user_system_prompt, **kwargs)
         sections.append(identity_content)
+
+        # Layer 1.5: 静态记忆层（冻结，保 prefix cache）
+        if memory_static_block and memory_static_block.strip():
+            sections.append(memory_static_block.strip())
 
         # Layer 2: 动态资源层
         if resource_context:

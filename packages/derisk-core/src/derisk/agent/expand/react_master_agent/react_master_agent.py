@@ -1378,13 +1378,34 @@ class ReActMasterAgent(ConversableAgent):
             # 根据 mode 选择组装方式
             # ========== system_prompt 组装（独立 try-catch）==========
             try:
-                # 分层组装：身份层 + 资源层 + 控制层
+                # 静态记忆层：从 read pipeline 取冻结块（session 级不变）
+                memory_static_block = None
+                try:
+                    if (
+                        hasattr(self, "_memory_bundle")
+                        and self._memory_bundle
+                        and self.not_null_agent_context
+                    ):
+                        pipeline = self.memory.gpts_memory.get_memory_pipeline(
+                            self.not_null_agent_context.conv_id
+                        )
+                        if pipeline is not None and not pipeline.static_loaded:
+                            await self.memory.gpts_memory.load_memory_static_block(
+                                self.not_null_agent_context.conv_id
+                            )
+                        if pipeline is not None:
+                            memory_static_block = pipeline.static_block
+                except Exception as _static_err:  # noqa: BLE001
+                    logger.debug(f"[MemoryRead] static block load skipped: {_static_err}")
+
+                # 分层组装：身份层 + 静态记忆层 + 资源层 + 控制层
                 system_prompt = await assembler.assemble_system_prompt(
                     user_system_prompt=user_identity,
                     resource_context=resource_ctx,
+                    memory_static_block=memory_static_block,
                     **render_vars,
                 )
-                logger.info("PromptAssembler: 分层组装完成（身份层 + 资源层 + 控制层）")
+                logger.info("PromptAssembler: 分层组装完成（身份层 + 静态记忆层 + 资源层 + 控制层）")
             except Exception as e:
                 logger.warning(f"PromptAssembler: system_prompt 组装失败，回退到默认 prompt: {e}")
                 import traceback
@@ -1425,25 +1446,49 @@ class ReActMasterAgent(ConversableAgent):
                 # question 在 base_agent.py 的 _vm 中已注册，会出现在 bind_vars 中
                 user_render_vars = {k: v for k, v in render_vars.items() if k != 'question'}
 
-                # ========== Memory Retrieval (V1 Integration) ==========
-                # Retrieve relevant memories from bound memory spaces before generating user_prompt
+                # ========== Memory Read Pipeline (hermes-aligned) ==========
+                # Dynamic layer: consume the prefetch cache warmed by the
+                # previous turn's turn_complete hook (non-blocking). First
+                # turn or not-ready prefetch falls back to sync retrieval.
+                # Static layer (room=profile/preference) is injected into
+                # system_prompt separately, not here.
                 memory_context = None
                 if hasattr(self, "_memory_bundle") and self._memory_bundle:
                     try:
                         bundle = self._memory_bundle
-                        memory_context = await bundle.manager.retrieve_relevant_memories(
-                            query=user_question,
-                            top_k=bundle.config.top_k,
-                            use_hybrid_search=True,
-                        )
+                        conv_id = self.not_null_agent_context.conv_id
+                        pipeline = self.memory.gpts_memory.get_memory_pipeline(conv_id)
+                        if pipeline is not None:
+                            # Non-blocking consume of last turn's prefetch.
+                            memory_context = await pipeline.consume_prefetch(timeout=0.0)
+                            if memory_context:
+                                logger.info(
+                                    f"[MemoryRead] prefetch hit: {len(memory_context)} chars"
+                                )
+                        # Sync fallback: first turn, prefetch not ready, or no pipeline.
+                        if not memory_context:
+                            memory_context = await bundle.manager.retrieve_relevant_memories(
+                                query=user_question,
+                                top_k=bundle.config.top_k,
+                                use_hybrid_search=True,
+                                exclude_rooms=["profile", "preference"],
+                            )
+                            if memory_context:
+                                logger.info(
+                                    f"[MemoryRead] sync fallback: {len(memory_context)} chars"
+                                )
                         if memory_context:
                             # Store for potential use in other methods
                             self._memory_context = memory_context
-                            logger.info(
-                                f"[MemoryIntegration] Retrieved memories: {len(memory_context)} chars"
+                            # Wrap in <memory-context> fence so the LLM
+                            # treats it as reference data, and the stream
+                            # scrubber can strip it from UI output.
+                            from derisk.agent.core.memory.read_pipeline import (
+                                build_memory_context_block,
                             )
+                            memory_context = build_memory_context_block(memory_context)
                     except Exception as e:
-                        logger.warning(f"[MemoryIntegration] Retrieval failed: {e}")
+                        logger.warning(f"[MemoryRead] pipeline consume failed: {e}")
 
                 # Determine memory_content for user_prompt:
                 # - If memory bundle exists and retrieved content, use that
