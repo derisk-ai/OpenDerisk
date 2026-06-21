@@ -189,6 +189,63 @@ async def building_edit(
         logger.exception(" app edit exception!")
         return Result.failed(err_code="E11002", msg=f"edit app error: {ex}")
 
+
+@router.post("/building/memory/{app_code}/enable")
+async def enable_app_memory(
+        app_code: str,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
+):
+    """Enable long-term memory for an app with a single switch.
+
+    Auto-creates a per-agent Memory space if none is bound; idempotent if
+    already enabled.
+    """
+    try:
+        resp = await service.enable_memory(app_code)
+        return Result.succ(resp)
+    except Exception as ex:
+        logger.exception("enable_app_memory exception!")
+        return Result.failed(err_code="E11003", msg=f"enable memory error: {ex}")
+
+
+@router.post("/building/memory/{app_code}/disable")
+async def disable_app_memory(
+        app_code: str,
+        user_info: UserRequest = Depends(get_user_from_headers),
+        service: Service = Depends(get_service),
+        user: Optional[UserRequest] = Depends(_require_agent_write()),
+):
+    """Disable long-term memory for an app (clears binding, preserves space)."""
+    try:
+        resp = await service.disable_memory(app_code)
+        return Result.succ(resp)
+    except Exception as ex:
+        logger.exception("disable_app_memory exception!")
+        return Result.failed(err_code="E11004", msg=f"disable memory error: {ex}")
+
+
+@router.get("/building/hooks/functions")
+async def list_hook_functions(
+        user_info: UserRequest = Depends(get_user_from_headers),
+):
+    """List in-process function names registered with FunctionRegistry.
+
+    Used by the Hooks tab to populate the function_name dropdown for
+    `kind=function` endpoints. Returns a list of {name} — descriptions
+    aren't tracked at registration time, so callers that need context
+    (e.g. memory tier 0/1) should hard-code that knowledge client-side.
+    """
+    try:
+        from derisk.agent.core.hook.executors import FunctionRegistry
+
+        names = sorted(FunctionRegistry.names())
+        return Result.succ({"functions": [{"name": n} for n in names]})
+    except Exception as ex:
+        logger.exception("list_hook_functions exception!")
+        return Result.failed(err_code="E11005", msg=f"list hook functions error: {ex}")
+
 @router.post("/edit")
 async def old_edit(
         gpts_app: ServeRequest,

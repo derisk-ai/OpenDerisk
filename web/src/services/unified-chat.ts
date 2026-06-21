@@ -28,6 +28,7 @@ async function chatV1(config: ChatConfig, callbacks: any, controller: AbortContr
   const params = { ...config };
   await fetchEventSource(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}/api/v1/chat/completions`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json', [HEADER_USER_ID_KEY]: getUserId() ?? '' },
     body: JSON.stringify(params),
     signal: controller.signal,

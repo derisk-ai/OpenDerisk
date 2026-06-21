@@ -275,6 +275,14 @@ class ConversationCache:
         ## 由 GptsMemory.init_hook_manager 在对话启动时根据 team_context.hook_config 装配
         self.hook_manager: Optional[Any] = None
 
+        ## 绑定的长期记忆 bundle。由 GptsMemory.register_memory_bundle 在
+        ## agent 构造时设置，init_hook_manager 会读取它来追加 memory hooks。
+        self.memory_bundle: Optional[Any] = None
+
+        ## 记忆读取管线（prefetch cache + scrubber + static block）。
+        ## 由 GptsMemory.get_memory_pipeline 懒加载，会话级生命周期。
+        self.memory_pipeline: Optional[Any] = None
+
         self.last_access = time.time()
         self.lock = asyncio.Lock()  # 会话级锁
 
@@ -2365,17 +2373,216 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         会话开始时由上层调用一次。如果配置缺失或被禁用，返回 None。
         """
         from ...hook import build_hook_manager
+        from ...hook.manager import HookManager
+        from ...hook.schema import TeamHookConfig
 
         cache = await self._get_or_create_cache(conv_id)
         manager = build_hook_manager(team_context, runtime=runtime)
+        # 自举：team 没配 hook_config，但已绑定 memory bundle 时，
+        # 建一个空 HookManager 让默认 memory hooks 能挂上。
+        # 这样"绑了 memory resource 即自动启用记忆"。
+        if manager is None:
+            try:
+                from ..hook_dispatcher import get_memory_bundle
+
+                if get_memory_bundle(conv_id) is not None:
+                    manager = HookManager(
+                        TeamHookConfig(enabled=True, hooks=[]),
+                        runtime=runtime or {},
+                    )
+                    logger.info(
+                        "HookManager bootstrapped from memory bundle for conv_id=%s "
+                        "(team_context.hook_config not configured)",
+                        conv_id,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug("memory bundle bootstrap check failed: %s", e)
         cache.hook_manager = manager
         if manager is not None:
+            # Register the generic agent_dispatcher so kind=agent hooks
+            # route by agent_name: tier 0/1 sentinels go through the
+            # deterministic fast path (prefetch + per-turn write), tier
+            # 2/3 dispatch to the real MemoryReflectAgent /
+            # MemoryCurateAgent registered in AgentManager.
+            try:
+                from ..agent_dispatcher import agent_dispatcher
+
+                manager.update_runtime(agent_dispatcher=agent_dispatcher)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("agent_dispatcher registration skipped: %s", e)
+            # If a memory bundle was registered before the hook manager
+            # existed (typical: agent_chat builds the bundle during agent
+            # construction, react_master_agent builds the hook manager
+            # later), append the default memory hooks now. Look at the
+            # cache first, then fall back to the module-level registry
+            # (the cache may not have existed when the bundle was
+            # registered, so cache.memory_bundle could still be None).
+            bundle = getattr(cache, "memory_bundle", None)
+            if bundle is None:
+                try:
+                    from ..hook_dispatcher import get_memory_bundle
+
+                    bundle = get_memory_bundle(conv_id)
+                    if bundle is not None:
+                        cache.memory_bundle = bundle
+                except Exception:  # noqa: BLE001
+                    pass
+            if bundle is not None:
+                try:
+                    from ..hook_dispatcher import default_memory_hooks
+
+                    # Dedup by hook name: if team_context.hook_config.hooks
+                    # already contains memory tier hooks (user-managed via
+                    # the Memory tab UI), don't re-append. This lets the
+                    # persisted hooks be the source of truth while still
+                    # auto-injecting for legacy apps that haven't saved
+                    # hook_config yet.
+                    existing_names = {h.name for h in manager.hooks}
+                    new_hooks = [
+                        h
+                        for h in default_memory_hooks(bundle.config)
+                        if h.name not in existing_names
+                    ]
+                    if new_hooks:
+                        manager.append_hooks(new_hooks)
+                        logger.info(
+                            "Memory hooks appended for conv_id=%s "
+                            "(%d new, %d already present)",
+                            conv_id,
+                            len(new_hooks),
+                            len(existing_names),
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "Deferred memory hook append failed for conv_id=%s: %s",
+                        conv_id,
+                        e,
+                    )
             logger.info(
                 "Hook manager initialised for conv_id=%s with %d hooks",
                 conv_id,
                 len(manager.hooks),
             )
         return manager
+
+    def register_memory_bundle(self, conv_id: str, bundle: Any) -> None:
+        """Bind a LongTermMemory bundle to a conversation.
+
+        Stashes the bundle on the conversation cache so that:
+        (a) the memory hook dispatcher can look it up by conv_id, and
+        (b) `init_hook_manager` can append the default memory hooks when
+            the HookManager is built (which may happen after this call).
+
+        Also attempts an immediate `append_hooks` if a HookManager is
+        already bound (so agents whose hook manager existed before the
+        bundle still get the memory hooks).
+        """
+        try:
+            from ..hook_dispatcher import register_memory_bundle
+
+            register_memory_bundle(conv_id, bundle)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("register_memory_bundle failed: %s", e)
+        cache = self._get_cache_sync(conv_id)
+        if cache is not None:
+            cache.memory_bundle = bundle
+            manager = getattr(cache, "hook_manager", None)
+            if manager is not None:
+                try:
+                    from ..hook_dispatcher import default_memory_hooks
+
+                    # Dedup by name (see init_hook_manager for rationale).
+                    existing_names = {h.name for h in manager.hooks}
+                    new_hooks = [
+                        h
+                        for h in default_memory_hooks(bundle.config)
+                        if h.name not in existing_names
+                    ]
+                    if new_hooks:
+                        manager.append_hooks(new_hooks)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "Immediate memory hook append failed for conv_id=%s: %s",
+                        conv_id,
+                        e,
+                    )
+
+    def unregister_memory_bundle(self, conv_id: str) -> None:
+        """Drop the bundle binding for a conversation."""
+        try:
+            from ..hook_dispatcher import unregister_memory_bundle
+
+            unregister_memory_bundle(conv_id)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("unregister_memory_bundle failed: %s", e)
+        cache = self._get_cache_sync(conv_id)
+        if cache is not None:
+            cache.memory_bundle = None
+            cache.memory_pipeline = None
+
+    def get_memory_pipeline(self, conv_id: str) -> Optional[Any]:
+        """Get or lazily create the per-conv MemoryReadPipeline.
+
+        Returns None if no conversation cache exists yet.
+        """
+        cache = self._get_cache_sync(conv_id)
+        if cache is None:
+            return None
+        if cache.memory_pipeline is None:
+            try:
+                from ..read_pipeline import MemoryReadPipeline
+
+                cache.memory_pipeline = MemoryReadPipeline()
+                # Register with hook_dispatcher so the tier-0 prefetch
+                # hook can find this pipeline by conv_id.
+                try:
+                    from ..hook_dispatcher import register_memory_pipeline
+
+                    register_memory_pipeline(conv_id, cache.memory_pipeline)
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning("get_memory_pipeline init failed: %s", e)
+                return None
+        return cache.memory_pipeline
+
+    async def load_memory_static_block(self, conv_id: str) -> Optional[str]:
+        """Load the frozen static memory block for a conversation.
+
+        Called once at session start (after init_hook_manager). Idempotent.
+        """
+        pipeline = self.get_memory_pipeline(conv_id)
+        if pipeline is None:
+            return None
+        if pipeline.static_loaded:
+            return pipeline.static_block
+        bundle = None
+        cache = self._get_cache_sync(conv_id)
+        if cache is not None:
+            bundle = getattr(cache, "memory_bundle", None)
+        if bundle is None:
+            try:
+                from ..hook_dispatcher import get_memory_bundle
+
+                bundle = get_memory_bundle(conv_id)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            return await pipeline.load_static_block(bundle)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("load_memory_static_block failed: %s", e)
+            return None
+
+    def append_hooks(self, conv_id: str, hooks: List[Any]) -> bool:
+        """Append hook configs to a conversation's HookManager at runtime.
+
+        Returns True if appended, False if no HookManager is bound.
+        """
+        manager = self.get_hook_manager(conv_id)
+        if manager is None:
+            return False
+        manager.append_hooks(hooks)
+        return True
 
     def update_hook_runtime(self, conv_id: str, **kwargs: Any) -> None:
         """运行期补充 HookManager 的 runtime（如 sandbox_client）。"""
@@ -2395,10 +2602,57 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
     ) -> bool:
         """fire-and-forget 触发指定类型的 hook。返回 True 表示已派发。"""
         manager = self.get_hook_manager(conv_id)
-        if manager is None or not manager.enabled:
+        if manager is None:
+            # Lazy bootstrap: if a memory bundle is registered but no
+            # HookManager was built (e.g. the agent type doesn't call
+            # init_hook_manager — only ReactMasterAgent does), build one
+            # now so memory hooks can still fire.
+            try:
+                from ..hook_dispatcher import get_memory_bundle
+
+                if get_memory_bundle(conv_id) is not None:
+                    manager = await self.init_hook_manager(
+                        conv_id=conv_id,
+                        team_context=None,
+                        runtime={},
+                    )
+                    logger.info(
+                        "[trigger_hook] lazy-bootstrapped HookManager for conv=%s",
+                        conv_id,
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    "[trigger_hook] lazy bootstrap failed for conv=%s: %s",
+                    conv_id,
+                    e,
+                )
+        if manager is None:
+            logger.debug(
+                "[trigger_hook] no HookManager for conv=%s (%s) — "
+                "no memory bundle registered (bind a memory space?)",
+                conv_id,
+                trigger_type,
+            )
+            return False
+        if not manager.enabled:
+            logger.debug(
+                "[trigger_hook] HookManager disabled for conv=%s (%s) — "
+                "no hooks appended (memory bundle registered?)",
+                conv_id,
+                trigger_type,
+            )
             return False
         ctx = dict(context or {})
         ctx.setdefault("conv_id", conv_id)
+        matched = manager._matching(trigger_type, ctx)  # noqa: SLF001
+        logger.info(
+            "[trigger_hook] conv=%s %s round=%s → %d hook(s) matched: %s",
+            conv_id,
+            trigger_type,
+            ctx.get("round"),
+            len(matched),
+            [h.name for h in matched],
+        )
         await manager.trigger(trigger_type, ctx)
         return True
 

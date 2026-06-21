@@ -80,6 +80,18 @@ class HookManager:
         """Late-binding for runtime values like the sandbox client."""
         self.runtime.update({k: v for k, v in kwargs.items() if v is not None})
 
+    def append_hooks(self, hooks: List[HookConfig]) -> None:
+        """Append hooks at runtime and re-sort by priority.
+
+        Used by higher-level subsystems (e.g. the memory integration) to
+        register their own hooks after the HookManager has been built from
+        `team_context.hook_config`, without mutating the team config.
+        """
+        if not hooks:
+            return
+        self._hooks.extend(hooks)
+        self._hooks.sort(key=lambda h: h.priority)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

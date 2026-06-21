@@ -18,7 +18,7 @@ _cached_secret: Optional[str] = None
 
 
 def _secret_file_path() -> Path:
-    from derisk.configs.model_config import get_derisk_home
+    from derisk_core.config.home import get_derisk_home
 
     return Path(get_derisk_home()) / ".session_secret"
 

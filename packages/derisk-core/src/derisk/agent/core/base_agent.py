@@ -1293,36 +1293,66 @@ class ConversableAgent(Role, Agent):
 
             reply_message.success = is_success
 
-            # ========== Memory Auto-Write (V1 Integration) ==========
-            # Write conversation to memory bundle after agent completes
-            if hasattr(self, "_memory_bundle") and self._memory_bundle and is_success:
+            # ========== Memory: decoupled via hook (tier 1/2 fire on turn_complete) ==========
+            # Memory writes are now dispatched asynchronously by the unified
+            # hook system. Tier 1 (per-turn lightweight write) and tier 2
+            # (every-N-turns reflection) both fire on `turn_complete` and
+            # run in background tasks; the agent turn returns immediately.
+            if is_success and self.memory and self.memory.gpts_memory and self.not_null_agent_context:
                 try:
-                    bundle = self._memory_bundle
-                    # Get user question and agent response
                     question = received_message.content or ""
                     ai_message = reply_message.content or ""
-
-                    # Extract text from multimodal content if needed
                     if hasattr(self, "_extract_text_from_content"):
                         try:
                             question = self._extract_text_from_content(question)
                             ai_message = self._extract_text_from_content(ai_message)
                         except Exception:
                             pass
-
-                    if question and ai_message:
-                        write_results = await bundle.manager.write_memory_auto(
-                            user_message=question,
-                            agent_response=ai_message,
-                            metadata={
-                                "conv_id": getattr(self.agent_context, "conv_id", ""),
-                                "agent_name": self.name,
-                                "check_pass": is_success,
-                            },
-                        )
-                        logger.info(f"[MemoryIntegration] Auto-write results: {write_results}")
-                except Exception as e:
-                    logger.warning(f"[MemoryIntegration] Auto-write failed: {e}")
+                    # interrupted = ask_user paused the loop OR the action
+                    # output reports a non-terminal state. The prefetch hook
+                    # (tier 0) reads this to skip warming the cache with a
+                    # query that didn't reach a real assistant response.
+                    interrupted = any(
+                        getattr(a, "ask_user", False) for a in act_outs
+                    ) if act_outs else False
+                    # `round` MUST be the conversation turn number (not
+                    # current_retry_counter, which resets to 0 every
+                    # generate_reply call and only counts LLM retries
+                    # within a single turn). every_n_turns filtering in
+                    # HookTriggerChecker reads `round` — a wrong value
+                    # makes tier 2 reflection never fire.
+                    turn_round = getattr(reply_message, "rounds", None) or 1
+                    # `interrupted` goes at the top level (not nested in
+                    # `extra`) — HookManager._build_event moves unknown
+                    # top-level fields into HookEvent.extra, so the
+                    # dispatcher can read event["extra"]["interrupted"].
+                    await self.memory.gpts_memory.trigger_hook(
+                        self.not_null_agent_context.conv_id,
+                        "turn_complete",
+                        {
+                            "agent_name": self.name,
+                            "agent_role": getattr(self, "role", None),
+                            "session_id": getattr(
+                                self.not_null_agent_context,
+                                "conv_session_id",
+                                None,
+                            ),
+                            "app_code": getattr(
+                                self.not_null_agent_context,
+                                "gpts_app_code",
+                                None,
+                            ),
+                            "round": turn_round,
+                            "user_prompt": question,
+                            "final_answer": ai_message,
+                            "success": is_success,
+                            "interrupted": interrupted,
+                        },
+                    )
+                except Exception as _hook_err:  # noqa: BLE001
+                    logger.debug(
+                        f"[BaseAgent] turn_complete hook skipped: {_hook_err}"
+                    )
 
             # 6.final message adjustment
             await self.adjust_final_message(is_success, reply_message)
@@ -1414,6 +1444,24 @@ class ConversableAgent(Role, Agent):
                 cu_content_incr = "正在思考规划..."
             else:
                 return
+        # Scrub <memory-context> fence from streaming content delta so the
+        # memory block never leaks to the UI. The scrubber is stateful
+        # across chunks (spans can straddle deltas). Reset on first chunk.
+        if cu_content_incr and self.not_null_agent_context:
+            try:
+                pipeline = self.memory.gpts_memory.get_memory_pipeline(
+                    self.not_null_agent_context.conv_id
+                )
+                if pipeline is not None:
+                    if is_first_chunk:
+                        pipeline.reset_scrubber()
+                    visible = pipeline.scrub_stream_delta(cu_content_incr)
+                    if not visible:
+                        # Entirely inside a memory-context span — skip push.
+                        return
+                    cu_content_incr = visible
+            except Exception as _scrub_err:  # noqa: BLE001
+                logger.debug(f"[MemoryRead] stream scrub skipped: {_scrub_err}")
         temp_message = {
             "uid": reply_message_id,
             "type": "incr",

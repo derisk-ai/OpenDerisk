@@ -24,6 +24,7 @@ class HookKind(str, Enum):
     AGENT = "agent"
     API = "api"
     CLI = "cli"
+    FUNCTION = "function"
 
 
 class BlockingPolicy(str, Enum):
@@ -54,6 +55,7 @@ class HookTriggerType(str, Enum):
     STATE_CHANGE = "state_change"
     USER_PROMPT_SUBMIT = "user_prompt_submit"
     ERROR_OCCURRED = "error_occurred"
+    TURN_COMPLETE = "turn_complete"
 
 
 VALID_TRIGGER_TYPES = {t.value for t in HookTriggerType}
@@ -123,6 +125,16 @@ class HookEndpointConfig(BaseModel):
         description="Working directory for the CLI command (sandbox path or host path)",
     )
 
+    # --- function kind ---
+    function_name: Optional[str] = Field(
+        None,
+        description=(
+            "Registered internal callable name. Resolved via FunctionRegistry "
+            "at execution time. Use this for in-process hooks that do not "
+            "need an LLM or a real Agent (e.g. memory tier 0/1 fast paths)."
+        ),
+    )
+
     # --- generic ---
     timeout: int = Field(30, description="Per-execution timeout in seconds")
     blocking: bool = Field(
@@ -152,6 +164,11 @@ class HookTriggerConfig(BaseModel):
     )
     state_to: Optional[str] = Field(
         None, description="Filter on state_change: to-state"
+    )
+    every_n_turns: Optional[int] = Field(
+        None,
+        description="Only fire every N turns. Used with turn_complete. "
+        "None or 1 means every turn. N>1 fires only when round % N == 0.",
     )
     extra: Dict[str, Any] = Field(default_factory=dict)
 

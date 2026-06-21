@@ -61,6 +61,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
       try {
         await fetchEventSource(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? ''}${queryAgentURL}`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             [HEADER_USER_ID_KEY]: getUserId() ?? '',

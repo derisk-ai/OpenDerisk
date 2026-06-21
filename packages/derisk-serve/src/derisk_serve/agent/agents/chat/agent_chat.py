@@ -1412,6 +1412,21 @@ class AgentChat(BaseComponent, ABC):
                             if memory_bundle:
                                 # Inject bundle to agent via private attribute
                                 recipient._memory_bundle = memory_bundle
+                                # Register the bundle with the conversation's
+                                # HookManager so the memory dispatcher can
+                                # find it, and so the default memory hooks
+                                # (tier 1/2/3) get appended — either now
+                                # (if HookManager already exists) or
+                                # deferred to init_hook_manager.
+                                try:
+                                    conv_id = recipient.agent_context.conv_id
+                                    recipient.memory.gpts_memory.register_memory_bundle(
+                                        conv_id, memory_bundle
+                                    )
+                                except Exception as hook_e:
+                                    logger.warning(
+                                        f"[AgentChat] Memory hook registration failed: {hook_e}"
+                                    )
                                 logger.info(
                                     f"[AgentChat] Memory bundle created for {app.app_code}: "
                                     f"{len(memory_bundle.manager.memory_stores)} stores"

@@ -4,6 +4,7 @@ import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App,
+  AutoComplete,
   Badge,
   Button,
   Card,
@@ -23,6 +24,7 @@ import {
   ApiOutlined,
   CodeOutlined,
   DeleteOutlined,
+  FunctionOutlined,
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -32,6 +34,8 @@ import {
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { AppContext } from '@/contexts';
+import { apiInterceptors } from '@/client/api';
+import { getAgentList, getHookFunctions } from '@/client/api/app';
 import {
   BlockingPolicy,
   DEFAULT_TEAM_HOOK_CONFIG,
@@ -50,6 +54,7 @@ const TRIGGER_OPTIONS: { value: HookTriggerType; label: string; description: str
   { value: 'post_tool_use', label: 'post_tool_use', description: '工具执行后（异步）' },
   { value: 'conversation_start', label: 'conversation_start', description: '对话开始' },
   { value: 'conversation_complete', label: 'conversation_complete', description: '对话完成' },
+  { value: 'turn_complete', label: 'turn_complete', description: '每轮对话结束（记忆写入/反思）' },
   { value: 'state_change', label: 'state_change', description: '会话状态变化' },
   { value: 'user_prompt_submit', label: 'user_prompt_submit', description: '用户提交输入' },
   { value: 'error_occurred', label: 'error_occurred', description: '出现错误' },
@@ -59,6 +64,7 @@ const KIND_OPTIONS: { value: HookKind; label: string; icon: React.ReactNode }[] 
   { value: 'api', label: 'API (HTTP POST)', icon: <ApiOutlined /> },
   { value: 'cli', label: 'CLI (沙箱内执行)', icon: <CodeOutlined /> },
   { value: 'agent', label: 'Agent (派发 Agent 处理)', icon: <RobotOutlined /> },
+  { value: 'function', label: 'Function (进程内调用)', icon: <FunctionOutlined /> },
 ];
 
 const BLOCKING_POLICY_OPTIONS: { value: BlockingPolicy; label: string }[] = [
@@ -98,6 +104,61 @@ export default function TabHooks() {
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<string[]>([]);
+  // Registered agents for the agent-name dropdown (kind=agent endpoint).
+  const [agentOptions, setAgentOptions] = useState<
+    { value: string; label: string; desc?: string }[]
+  >([
+    { value: 'MemoryReflectAgent', label: 'MemoryReflectAgent', desc: '记忆 tier 2：每 N 轮反思' },
+    { value: 'MemoryCurateAgent', label: 'MemoryCurateAgent', desc: '记忆 tier 3：会话归档' },
+  ]);
+
+  // Registered in-process functions for the function-name dropdown
+  // (kind=function endpoint). Memory tier 0/1 fast paths live here.
+  const [functionOptions, setFunctionOptions] = useState<
+    { value: string; label: string; desc?: string }[]
+  >([
+    { value: 'memory_prefetch', label: 'memory_prefetch', desc: '记忆 tier 0：预取（确定性）' },
+    { value: 'memory_write_turn', label: 'memory_write_turn', desc: '记忆 tier 1：每轮写入（确定性）' },
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiInterceptors(getAgentList())
+      .then(([err, res]) => {
+        if (cancelled || err || !res?.agents) return;
+        const fetched = res.agents
+          .filter(
+            a => !agentOptions.some(existing => existing.value === a.name),
+          )
+          .map(a => ({
+            value: a.name,
+            label: a.name,
+            desc: a.description,
+          }));
+        if (fetched.length) setAgentOptions(prev => [...prev, ...fetched]);
+      })
+      .catch(() => {
+        // Silent — agent list is a convenience; the AutoComplete still
+        // accepts manual input as a fallback.
+      });
+    apiInterceptors(getHookFunctions())
+      .then(([err, res]) => {
+        if (cancelled || err || !res?.functions) return;
+        const fetched = res.functions
+          .filter(
+            f => !functionOptions.some(existing => existing.value === f.name),
+          )
+          .map(f => ({ value: f.name, label: f.name }));
+        if (fetched.length) setFunctionOptions(prev => [...prev, ...fetched]);
+      })
+      .catch(() => {
+        // Silent — function list is a convenience.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load from team_context.hook_config
   useEffect(() => {
@@ -267,14 +328,74 @@ export default function TabHooks() {
         </div>
       );
     }
+    if (ep.kind === 'function') {
+      return (
+        <div className="space-y-3">
+          <Alert
+            type="info"
+            showIcon
+            message={t(
+              'hooks_function_hint',
+              '进程内 Python callable，由 FunctionRegistry 按 name 解析；不走 LLM、不走 AgentManager。适合每轮触发的轻量任务（如记忆 tier 0/1）',
+            )}
+          />
+          <div>
+            <Text className="text-xs text-gray-500">Function name</Text>
+            <AutoComplete
+              className="w-full"
+              value={ep.function_name}
+              onChange={v => updateEndpoint(idx, { function_name: v })}
+              placeholder="从下拉列表选择，或手动输入 function name"
+              options={functionOptions.map(o => ({
+                value: o.value,
+                label: (
+                  <span>
+                    <Text strong>{o.label}</Text>
+                    {o.desc && (
+                      <Text type="secondary" className="ml-2 text-xs">
+                        {o.desc}
+                      </Text>
+                    )}
+                  </span>
+                ),
+              }))}
+              filterOption={(input, option) =>
+                (option?.value as string)
+                  ?.toLowerCase()
+                  .includes(input.toLowerCase())
+              }
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         <div>
           <Text className="text-xs text-gray-500">目标 Agent name</Text>
-          <Input
-            placeholder="e.g. ApprovalAgent"
+          <AutoComplete
+            className="w-full"
             value={ep.agent_name}
-            onChange={e => updateEndpoint(idx, { agent_name: e.target.value })}
+            onChange={v => updateEndpoint(idx, { agent_name: v })}
+            placeholder="从下拉列表选择，或手动输入 agent name"
+            options={agentOptions.map(o => ({
+              value: o.value,
+              label: (
+                <span>
+                  <Text strong>{o.label}</Text>
+                  {o.desc && (
+                    <Text type="secondary" className="ml-2 text-xs">
+                      {o.desc}
+                    </Text>
+                  )}
+                </span>
+              ),
+            }))}
+            filterOption={(input, option) =>
+              (option?.value as string)
+                ?.toLowerCase()
+                .includes(input.toLowerCase())
+            }
           />
         </div>
         <div>
@@ -303,7 +424,7 @@ export default function TabHooks() {
             <p className="text-xs text-gray-500 mt-0.5">
               {t(
                 'hooks_subtitle',
-                'API / CLI / Agent 三种落点；支持工具调用前后阻断、参数改写，兼容 Claude Code plugin',
+                'API / CLI / Agent / Function 四种落点；支持工具调用前后阻断、参数改写，兼容 Claude Code plugin',
               )}
             </p>
           </div>
@@ -393,7 +514,12 @@ export default function TabHooks() {
                             onChange={v => updateHook(idx, { enabled: v })}
                             onClick={(_, ev) => ev.stopPropagation()}
                           />
-                          <Tag color={ep.kind === 'cli' ? 'volcano' : ep.kind === 'api' ? 'blue' : 'purple'}>
+                          <Tag color={
+                            ep.kind === 'cli' ? 'volcano'
+                            : ep.kind === 'api' ? 'blue'
+                            : ep.kind === 'function' ? 'green'
+                            : 'purple'
+                          }>
                             {ep.kind.toUpperCase()}
                           </Tag>
                           <Tag color="default">{hook.trigger.trigger_type}</Tag>
@@ -470,6 +596,25 @@ export default function TabHooks() {
                             }))}
                           />
                         </div>
+                        {hook.trigger.trigger_type === 'turn_complete' && (
+                          <div>
+                            <Text className="text-xs text-gray-500">
+                              每 N 轮触发（留空或 1 = 每轮）
+                            </Text>
+                            <InputNumber
+                              min={1}
+                              max={1000}
+                              className="w-full"
+                              placeholder="留空 = 每轮；10 = 每 10 轮"
+                              value={hook.trigger.every_n_turns ?? undefined}
+                              onChange={v =>
+                                updateTrigger(idx, {
+                                  every_n_turns: v == null ? null : v,
+                                })
+                              }
+                            />
+                          </div>
+                        )}
                         <div>
                           <Text className="text-xs text-gray-500">
                             {t('hooks_field_tool_globs', '工具名匹配（fnmatch；多个逗号分隔）')}

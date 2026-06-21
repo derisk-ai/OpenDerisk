@@ -23,7 +23,7 @@ import logging
 import os
 import shlex
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from .schema import (
     BlockingPolicy,
@@ -332,6 +332,81 @@ class AgentHookExecutor(BaseHookExecutor):
 
 
 # ---------------------------------------------------------------------------
+# Function (in-process callable)
+# ---------------------------------------------------------------------------
+
+
+class FunctionRegistry:
+    """Process-level registry of in-process hook callables.
+
+    Callables are addressed by string name (so HookConfig stays JSON-
+    serialisable and can be persisted in team_context.hook_config).
+
+    Registered functions must accept ``(event: dict, runtime: dict)`` and
+    return either ``None`` / non-dict (treated as continue) or a dict
+    matching the HookDecision payload schema (``{"action": ...}``).
+    """
+
+    _registry: Dict[str, Callable[..., Any]] = {}
+
+    @classmethod
+    def register(cls, name: str, fn: Callable[..., Any]) -> None:
+        cls._registry[name] = fn
+
+    @classmethod
+    def unregister(cls, name: str) -> None:
+        cls._registry.pop(name, None)
+
+    @classmethod
+    def get(cls, name: str) -> Optional[Callable[..., Any]]:
+        return cls._registry.get(name)
+
+    @classmethod
+    def names(cls) -> list:
+        return list(cls._registry.keys())
+
+
+class FunctionHookExecutor(BaseHookExecutor):
+    """Resolve `endpoint.function_name` via FunctionRegistry and call it.
+
+    Used for in-process hooks that don't need an LLM or a real Agent —
+    e.g. the memory tier 0/1 fast paths (prefetch, per-turn write).
+    Failures fall back to `endpoint.default_on_error` and never propagate
+    to the hook executor.
+    """
+
+    async def execute(
+        self,
+        event: HookEvent,
+        endpoint: HookEndpointConfig,
+        runtime: Optional[Dict[str, Any]] = None,
+    ) -> HookDecision:
+        name = endpoint.function_name
+        if not name:
+            logger.warning(
+                "FunctionHookExecutor: endpoint has no function_name; skipping"
+            )
+            return _on_error(endpoint, "missing function_name")
+        fn = FunctionRegistry.get(name)
+        if fn is None:
+            logger.warning(
+                "FunctionHookExecutor: function %s not registered; skipping",
+                name,
+            )
+            return _on_error(endpoint, f"function {name} not registered")
+        try:
+            reply = await fn(event.to_dict(), runtime or {})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "FunctionHookExecutor: function %s raised: %s", name, e
+            )
+            return _on_error(endpoint, f"function error: {e}")
+        if isinstance(reply, dict):
+            return _parse_decision_payload(reply)
+        return HookDecision.cont()
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -344,6 +419,7 @@ class ExecutorRegistry:
             HookKind.API: ApiHookExecutor(),
             HookKind.CLI: CliHookExecutor(),
             HookKind.AGENT: AgentHookExecutor(),
+            HookKind.FUNCTION: FunctionHookExecutor(),
         }
 
     def get(self, kind: HookKind) -> BaseHookExecutor:

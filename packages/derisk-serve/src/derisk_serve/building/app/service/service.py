@@ -3,7 +3,8 @@ import logging
 import uuid
 from copy import deepcopy
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+from fastapi import HTTPException
 from sqlalchemy import or_
 
 from derisk._private.config import Config
@@ -42,6 +43,74 @@ logger = logging.getLogger(__name__)
 CFG = Config()
 
 global_system_app: Optional[SystemApp] = None
+
+# Hook names produced by derisk.agent.core.memory.hook_dispatcher.default_memory_hooks.
+# Used to dedup user-visible memory tier hooks in team_context.hook_config.hooks.
+MEMORY_HOOK_NAME_PREFIX = "memory_tier"
+
+
+def _inject_memory_hooks(team_context_dict: Dict[str, Any], config_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace memory tier hooks in team_context.hook_config.hooks with fresh defaults.
+
+    Existing `memory_tier*` entries (by name prefix) are removed and the
+    latest `default_memory_hooks(config_payload)` output is appended.
+    This keeps the persisted schema in sync with the code — e.g. when
+    tier 0/1 endpoints migrate from `kind=agent` + sentinel agent_name
+    to `kind=function`, re-toggling enable_memory rewrites old entries
+    instead of leaving dead config behind. Business hooks are preserved.
+
+    Forces hook_config.enabled = True — build_hook_manager returns None
+    when the master switch is off, which would silently disable memory.
+
+    Mutates and returns the input dict.
+    """
+    from derisk.agent.core.memory.hook_dispatcher import default_memory_hooks
+
+    hook_config = team_context_dict.get("hook_config") or {}
+    if not isinstance(hook_config, dict):
+        return team_context_dict
+    existing_hooks = hook_config.get("hooks") or []
+    # Drop any prior memory_tier* entries (could be legacy schema), then
+    # append fresh defaults so callers always see the current shape.
+    kept_hooks = [
+        h
+        for h in existing_hooks
+        if not (
+            isinstance(h, dict)
+            and str(h.get("name", "")).startswith(MEMORY_HOOK_NAME_PREFIX)
+        )
+    ]
+    for h in default_memory_hooks(config_payload):
+        kept_hooks.append(h.to_dict())
+    hook_config["hooks"] = kept_hooks
+    hook_config["enabled"] = True
+    team_context_dict["hook_config"] = hook_config
+    return team_context_dict
+
+
+def _strip_memory_hooks(team_context_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove all memory_tier* hooks from team_context.hook_config.hooks.
+
+    Leaves hook_config.enabled and any business hooks untouched — the
+    user may have other hooks that should keep running.
+    """
+    hook_config = team_context_dict.get("hook_config") or {}
+    if not isinstance(hook_config, dict):
+        return team_context_dict
+    hooks = hook_config.get("hooks") or []
+    hook_config["hooks"] = [
+        h
+        for h in hooks
+        if not (
+            isinstance(h, dict)
+            and str(h.get("name", "")).startswith(MEMORY_HOOK_NAME_PREFIX)
+        )
+    ]
+    team_context_dict["hook_config"] = hook_config
+    return team_context_dict
+
+
+
 
 
 def get_config_service() -> AppConfigService:
@@ -365,6 +434,192 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         return await self.app_detail(
             app_code=request.app_code, specify_config_code=config_code
         )
+
+    @staticmethod
+    def _default_memory_embedding_model() -> Optional[str]:
+        """Pick an embedding model for auto-created Memory spaces.
+
+        Prefers the RAG serve config; falls back to the first configured
+        embedding model on the global CFG. Returns None if none available
+        (Memory storage handles None by using its own default).
+        """
+        try:
+            from derisk_serve.rag.service.service import Service as RagService
+
+            rag = RagService.get_instance(CFG.SYSTEM_APP)
+            if rag is not None and getattr(rag, "_serve_config", None):
+                emb = rag._serve_config.embedding_model
+                if emb and emb != "None":
+                    return emb
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[enable_memory] RAG service unavailable: %s", e)
+
+        try:
+            models = CFG.embedding_models or []
+            if models:
+                return models[0]
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    @staticmethod
+    def _parse_resource_memory(resource_memory: Optional[List]) -> dict:
+        """Parse the first entry of resource_memory[].value JSON to a dict."""
+        if not resource_memory:
+            return {}
+        try:
+            first = resource_memory[0]
+            value = getattr(first, "value", None) if not isinstance(first, dict) else first.get("value")
+            if not value:
+                return {}
+            return json.loads(value) if isinstance(value, str) else (value or {})
+        except (json.JSONDecodeError, IndexError, TypeError) as e:
+            logger.warning("[enable_memory] failed to parse resource_memory: %s", e)
+            return {}
+
+    async def enable_memory(self, app_code: str) -> Dict[str, Any]:
+        """Enable long-term memory for an app with a single switch.
+
+        Idempotent: if the app already has a bound memory space, returns it
+        immediately. Otherwise, auto-creates a per-agent Memory space named
+        ``{app_name} 记忆`` and writes default tier configs into
+        ``resource_memory``.
+
+        Returns:
+            ``{memory_id, memory_name, config}`` — config is the parsed
+            LongTermMemoryConfig dict that was persisted.
+        """
+        app = await self.app_detail(app_code)
+        if not app:
+            raise ValueError(f"应用不存在[{app_code}]")
+
+        existing = self._parse_resource_memory(app.resource_memory)
+        existing_memories = existing.get("memories") or []
+        if existing_memories:
+            # Already bound — reuse the existing memory_id / memory_name.
+            # We still fall through to the unified inject-and-save path so
+            # team_context.hook_config always gets the memory tier hooks
+            # (no separate backfill branch — single code path, less bug
+            # surface). Space creation is skipped.
+            knowledge_id = existing_memories[0].get("memory_id")
+            space_name = existing_memories[0].get("memory_name") or f"{app.app_name} 记忆"
+            config_payload = existing
+            logger.info(
+                "[enable_memory] reusing existing space id=%s name=%s",
+                knowledge_id, space_name,
+            )
+        else:
+            # Auto-create a per-agent Memory space.
+            from derisk_serve.rag.api.schemas import SpaceServeRequest
+            from derisk_serve.rag.service.service import Service as RagService
+
+            rag_service = RagService.get_instance(self._system_app)
+            if rag_service is None:
+                raise RuntimeError("RAG service not available; cannot create memory space")
+
+            space_name = f"{app.app_name} 记忆"
+            embedding_model = self._default_memory_embedding_model()
+            context = json.dumps({"embedding_model": embedding_model}) if embedding_model else None
+
+            space_req = SpaceServeRequest(
+                name=space_name,
+                vector_type="Memory",
+                storage_type="Memory",
+                domain_type="Memory",
+                desc=f"Auto-created memory space for agent {app.app_name}",
+                owner=app.user_code,
+                context=context,
+            )
+
+            try:
+                knowledge_id = rag_service.create_space(space_req)
+            except HTTPException as e:
+                if getattr(e, "status_code", None) == 400:
+                    # Duplicate name — reuse the existing space.
+                    existing_space = rag_service.get({"name": space_name})
+                    if not existing_space:
+                        raise
+                    knowledge_id = existing_space.knowledge_id
+                else:
+                    raise
+
+            config_payload = {
+                "memories": [{"memory_id": knowledge_id, "memory_name": space_name}],
+                "auto_memory": True,
+                "enable_kg": False,
+                "top_k": 5,
+                "reflection_interval": 10,
+            }
+
+        new_resource_memory = [
+            {
+                "type": "memory",
+                "name": "memory",
+                "value": json.dumps(config_payload, ensure_ascii=False),
+            }
+        ]
+
+        # Unified inject-and-save: always write resource_memory + inject
+        # memory tier hooks into team_context.hook_config.
+        app_dict = app.to_dict()
+        team_context_dict = app_dict.get("team_context") or {}
+        if not isinstance(team_context_dict, dict):
+            logger.warning(
+                "[enable_memory] team_context is %s, expected dict; skipping hook inject",
+                type(team_context_dict).__name__,
+            )
+            team_context_dict = {}
+        _inject_memory_hooks(team_context_dict, config_payload)
+
+        edit_request = ServeRequest(
+            **{
+                **app_dict,
+                "team_context": team_context_dict,
+                "resource_memory": new_resource_memory,
+            }
+        )
+        await self.edit(edit_request)
+
+        logger.info(
+            "[enable_memory] app=%s memory_id=%s space=%s hooks injected",
+            app_code, knowledge_id, space_name,
+        )
+        return {
+            "memory_id": knowledge_id,
+            "memory_name": space_name,
+            "config": config_payload,
+        }
+
+    async def disable_memory(self, app_code: str) -> Dict[str, Any]:
+        """Disable long-term memory for an app.
+
+        Clears ``resource_memory`` but does NOT delete the bound Memory space
+        — the user may re-enable memory and reuse the same space.
+
+        Returns:
+            ``{"disabled": True}``
+        """
+        app = await self.app_detail(app_code)
+        if not app:
+            raise ValueError(f"应用不存在[{app_code}]")
+
+        if not app.resource_memory:
+            return {"disabled": True}
+
+        app_dict = app.to_dict()
+        team_context_dict = app_dict.get("team_context") or {}
+        _strip_memory_hooks(team_context_dict)
+
+        edit_request = ServeRequest(
+            **{
+                **app_dict,
+                "team_context": team_context_dict,
+                "resource_memory": [],
+            }
+        )
+        await self.edit(edit_request)
+        logger.info("[disable_memory] app=%s memory cleared (space preserved)", app_code)
+        return {"disabled": True}
 
     async def publish(
         self,
