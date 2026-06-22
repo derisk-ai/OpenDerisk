@@ -380,17 +380,22 @@ class UnifiedMessageDAO:
         # 2. 查询 gpts_conversations
         v2_items = await self._list_conversations_v2(user_id, sys_code, filter_text)
 
-        # 3. 合并结果（去重：同一 conv_id 优先保留 v2 记录）
-        seen_conv_ids = set()
+        # 3. 合并结果（去重：同一对话优先保留 v2 记录）
+        # v2 表 (gpts_conversations) 的 conv_id 形如 "<conv_session_id>_<order>"，
+        # conv_session_id 字段才等于 v1 表 (chat_history) 的 conv_uid。
+        # 因此用 conv_session_id（v2 优先）或 conv_id（v1 fallback）作为去重 key。
+        seen_keys = set()
         all_items = []
         # v2 优先
         for item in v2_items:
-            if item.conv_id not in seen_conv_ids:
-                seen_conv_ids.add(item.conv_id)
+            key = item.conv_session_id or item.conv_id
+            if key not in seen_keys:
+                seen_keys.add(key)
                 all_items.append(item)
         for item in v1_items:
-            if item.conv_id not in seen_conv_ids:
-                seen_conv_ids.add(item.conv_id)
+            key = item.conv_session_id or item.conv_id
+            if key not in seen_keys:
+                seen_keys.add(key)
                 all_items.append(item)
 
         # 4. 按时间倒序排序
