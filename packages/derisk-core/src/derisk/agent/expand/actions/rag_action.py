@@ -6,7 +6,13 @@ from typing import Optional, List, Any
 from derisk.agent import ActionOutput, AgentResource, Resource, ResourceType, Action
 from derisk.vis import Vis
 from derisk.vis.schema import StepInfo, VisStepContent
-from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_serve.rag.api.schemas import KnowledgeSearchResponse  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeSearchResponse = None  # type: ignore[assignment]
+
 from .tool_action import ToolAction
 from ...core.schema import Status
 from ...resource import ResourcePack

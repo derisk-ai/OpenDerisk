@@ -4,10 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from derisk.model.cluster.apiserver.api import APISettings
-
 router = APIRouter()
-api_settings = APISettings()
 get_bearer_token = HTTPBearer(auto_error=False)
 
 logger = logging.getLogger(__name__)

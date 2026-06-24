@@ -46,8 +46,6 @@ from derisk_serve.agent.resource import DeriskSkillResource
 from derisk_serve.schedule.local_scheduler import LocalScheduler
 from derisk.core.interface.scheduler import Scheduler
 from derisk.core import HumanMessage, StorageConversation
-from derisk.model import DefaultLLMClient
-from derisk.model.cluster import WorkerManagerFactory
 from derisk.util.data_util import first
 from derisk.util.date_utils import current_ms
 from derisk.util.executor_utils import ExecutorFactory, execute_no_wait, run_async_tasks
@@ -194,7 +192,7 @@ class AgentChat(BaseComponent, ABC):
         self,
         system_app: SystemApp,
         gpts_memory: Optional[GptsMemory] = None,
-        llm_provider: Optional[DefaultLLMClient] = None,
+        llm_provider: Optional[Any] = None,
     ):
         self.gpts_conversations = GptsConversationsDao()
         self.gpts_messages_dao = GptsMessagesDao()
@@ -365,13 +363,9 @@ class AgentChat(BaseComponent, ABC):
             await GlobalSandboxManagerCache.cleanup_and_remove(sandbox_key)
 
     def after_start(self):
-        if not self.llm_provider:
-            worker_manager = CFG.SYSTEM_APP.get_component(
-                ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-            ).create()
-            self.llm_provider = DefaultLLMClient(
-                worker_manager, auto_convert_message=True
-            )
+        # LLM client is resolved per-request by AIWrapper + ProviderRegistry
+        # reading from agent.llm config; no shared llm_provider is needed.
+        pass
 
     async def save_conversation(
         self,
@@ -1144,14 +1138,8 @@ class AgentChat(BaseComponent, ABC):
                 )
             team_mode = TeamMode(app.team_mode)
             ## 模型服务
-            if not self.llm_provider:
-                worker_manager = CFG.SYSTEM_APP.get_component(
-                    ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-                ).create()
-                self.llm_provider = DefaultLLMClient(
-                    worker_manager, auto_convert_message=True
-                )
-
+            # LLM client is resolved by AIWrapper via ProviderRegistry at
+            # call time (reading agent.llm config). llm_client is left None.
             llm_config = LLMConfig(
                 llm_client=self.llm_provider,
                 llm_strategy=LLMStrategyType(app.llm_config.llm_strategy),
@@ -1325,89 +1313,80 @@ class AgentChat(BaseComponent, ABC):
                         )
 
                         if memory_config and memory_config.memories:
-                            # Try standard bundle creation first
-                            memory_bundle = await create_memory_integration_bundle(
-                                config=memory_config,
-                                system_app=CFG.SYSTEM_APP,
-                            )
-
-                            # Fallback to SimpleSQLite if bundle creation failed
-                            if not memory_bundle:
-                                logger.warning(
-                                    "[AgentChat] MemPalace bundle unavailable; "
-                                    "falling back to SimpleSQLite — UI memory "
-                                    "views will NOT reflect these writes. "
-                                    "Install mempalace to keep read/write unified."
+                            # Short-term memory via SimpleSQLite (mempalace
+                            # integration has been removed; long-term plan
+                            # is to route agent convo fragments as L0
+                            # verbats with extract_mode="convo" into a
+                            # designated knowledge space — see RFC 001 §3.3).
+                            memory_bundle = None
+                            try:
+                                from derisk_ext.storage.memory.simple_sqlite_store import (
+                                    SimpleSQLiteMemoryConfig,
+                                    SimpleSQLiteMemoryStore,
                                 )
-                                try:
-                                    from derisk_ext.storage.memory.simple_sqlite_store import (
-                                        SimpleSQLiteMemoryConfig,
-                                        SimpleSQLiteMemoryStore,
+                                from derisk.agent.core.memory.longterm_manager import (
+                                    LongTermMemoryManager,
+                                    MemoryIntegrationBundle,
+                                    MemorySpaceStrategy,
+                                )
+
+                                memory_stores = {}
+                                strategies = {}
+                                for mem_item in memory_config.memories:
+                                    mem_id = mem_item.get("memory_id")
+                                    if not mem_id:
+                                        continue
+                                    fallback_cfg = SimpleSQLiteMemoryConfig(
+                                        enable_kg=memory_config.enable_kg,
                                     )
-                                    from derisk.agent.core.memory.longterm_manager import (
-                                        LongTermMemoryManager,
-                                        MemorySpaceStrategy,
+                                    store = SimpleSQLiteMemoryStore(
+                                        config=fallback_cfg,
+                                        index_name=mem_id,
+                                    )
+                                    memory_stores[mem_id] = store
+                                    strategies[mem_id] = MemorySpaceStrategy(
+                                        space_id=mem_id,
+                                        auto_extraction=memory_config.auto_memory,
+                                        kg_extraction=memory_config.enable_kg,
+                                    )
+                                    logger.info(
+                                        f"[AgentChat] Created SimpleSQLite store for {mem_id}"
                                     )
 
-                                    # Create SimpleSQLite stores for each memory space
-                                    memory_stores = {}
-                                    strategies = {}
-                                    for mem_item in memory_config.memories:
-                                        mem_id = mem_item.get("memory_id")
-                                        if not mem_id:
-                                            continue
-                                        fallback_cfg = SimpleSQLiteMemoryConfig(
-                                            enable_kg=memory_config.enable_kg,
-                                        )
-                                        store = SimpleSQLiteMemoryStore(
-                                            config=fallback_cfg,
-                                            index_name=mem_id,
-                                        )
-                                        memory_stores[mem_id] = store
-                                        strategies[mem_id] = MemorySpaceStrategy(
-                                            space_id=mem_id,
-                                            auto_extraction=memory_config.auto_memory,
-                                            kg_extraction=memory_config.enable_kg,
-                                        )
-                                        logger.info(
-                                            f"[AgentChat] Created SimpleSQLite store for {mem_id}"
-                                        )
+                                if memory_stores:
+                                    from derisk.storage.memory.recall_tracker import RecallTracker
+                                    from derisk.storage.memory.promotion import MemoryPromotionEngine
+                                    from derisk.storage.memory.hybrid_search import HybridSearchEngine
+                                    from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
+                                    from derisk.storage.memory.snapshot import FrozenSnapshotManager
 
-                                    if memory_stores:
-                                        from derisk.storage.memory.recall_tracker import RecallTracker
-                                        from derisk.storage.memory.promotion import MemoryPromotionEngine
-                                        from derisk.storage.memory.hybrid_search import HybridSearchEngine
-                                        from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
-                                        from derisk.storage.memory.snapshot import FrozenSnapshotManager
-
-                                        recall_tracker = RecallTracker()
-                                        promotion_engine = MemoryPromotionEngine(
-                                            recall_tracker=recall_tracker,
-                                        )
-                                        manager = LongTermMemoryManager(
-                                            config=memory_config,
-                                            memory_stores=memory_stores,
-                                            strategies=strategies,
-                                            recall_tracker=recall_tracker,
-                                            hybrid_search_engine=HybridSearchEngine(),
-                                        )
-                                        from derisk.agent.core.memory.longterm_manager import MemoryIntegrationBundle
-                                        memory_bundle = MemoryIntegrationBundle(
-                                            config=memory_config,
-                                            manager=manager,
-                                            processors={},
-                                            strategies=strategies,
-                                            recall_tracker=recall_tracker,
-                                            hybrid_search=HybridSearchEngine(),
-                                            lifecycle_hooks=DefaultLifecycleHooks(),
-                                            snapshot_manager=FrozenSnapshotManager(),
-                                            promotion_engine=promotion_engine,
-                                        )
-                                        logger.info(
-                                            f"[AgentChat] Fallback bundle created with {len(memory_stores)} SimpleSQLite stores"
-                                        )
-                                except Exception as fallback_e:
-                                    logger.warning(f"[AgentChat] Fallback also failed: {fallback_e}")
+                                    recall_tracker = RecallTracker()
+                                    promotion_engine = MemoryPromotionEngine(
+                                        recall_tracker=recall_tracker,
+                                    )
+                                    manager = LongTermMemoryManager(
+                                        config=memory_config,
+                                        memory_stores=memory_stores,
+                                        strategies=strategies,
+                                        recall_tracker=recall_tracker,
+                                        hybrid_search_engine=HybridSearchEngine(),
+                                    )
+                                    memory_bundle = MemoryIntegrationBundle(
+                                        config=memory_config,
+                                        manager=manager,
+                                        processors={},
+                                        strategies=strategies,
+                                        recall_tracker=recall_tracker,
+                                        hybrid_search=HybridSearchEngine(),
+                                        lifecycle_hooks=DefaultLifecycleHooks(),
+                                        snapshot_manager=FrozenSnapshotManager(),
+                                        promotion_engine=promotion_engine,
+                                    )
+                                    logger.info(
+                                        f"[AgentChat] Memory bundle created with {len(memory_stores)} SimpleSQLite stores"
+                                    )
+                            except Exception as bundle_e:
+                                logger.warning(f"[AgentChat] Memory bundle creation failed: {bundle_e}")
 
                             if memory_bundle:
                                 # Inject bundle to agent via private attribute

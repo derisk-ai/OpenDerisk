@@ -42,6 +42,7 @@ import type {
   ManusStepData,
 } from '@/types/manus';
 import { ee, EVENTS } from '@/utils/event-emitter';
+import { transformFileUrl } from '@/utils';
 import {
   OutputRenderer,
   TerminalRenderer,
@@ -263,7 +264,7 @@ const resolveTaskFilePreviewUrl = (file: ManusTaskFileItem): string | null => {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       return `${apiBaseUrl}/api/v2/serve/file/files/preview?uri=${encodeURIComponent(raw)}`;
     }
-    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('http')) return transformFileUrl(raw);
   }
   // 2. Try object_path → API endpoint (same as VisDAttach)
   if (file.object_path) {
@@ -280,7 +281,7 @@ const resolveTaskFileDownloadUrl = (file: ManusTaskFileItem): string | null => {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
       return `${apiBaseUrl}/api/v2/serve/file/files/preview?uri=${encodeURIComponent(raw)}&download=true`;
     }
-    if (raw.startsWith('http')) return raw;
+    if (raw.startsWith('http')) return transformFileUrl(raw);
   }
   if (file.object_path) {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
@@ -401,7 +402,7 @@ const resolveFileUrl = (file: ManusDeliverableFile): string | null => {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
     return `${apiBaseUrl}/api/v2/serve/file/files/preview?uri=${encodeURIComponent(raw)}`;
   }
-  return raw;
+  return transformFileUrl(raw);
 };
 
 /** Deliverable content view — fetches remote content and renders inline */
@@ -514,7 +515,7 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
           <span className="text-4xl">📦</span>
           <span className="text-sm">{file_name}</span>
           {(resolvedUrl || download_url) ? (
-            <a href={resolvedUrl || download_url} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
+            <a href={resolvedUrl || transformFileUrl(download_url || '')} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
               下载文件
             </a>
           ) : (
@@ -528,7 +529,7 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
           <span className="text-4xl">📦</span>
           <span className="text-sm">{file_name}</span>
           {(resolvedUrl || download_url) ? (
-            <a href={resolvedUrl || download_url} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
+            <a href={resolvedUrl || transformFileUrl(download_url || '')} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium">
               下载文件
             </a>
           ) : (
@@ -540,7 +541,7 @@ const DeliverableContentView: FC<{ file: ManusDeliverableFile }> = ({ file }) =>
       return (
         <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
           {(resolvedUrl || download_url) ? (
-            <a href={resolvedUrl || download_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+            <a href={resolvedUrl || transformFileUrl(download_url || '')} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
               下载文件: {file_name}
             </a>
           ) : (

@@ -3,7 +3,11 @@
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from derisk.rag.retriever.rerank import RetrieverNameRanker
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.retriever.rerank import RetrieverNameRanker  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    RetrieverNameRanker = None  # type: ignore[assignment]
 
 from .. import AgentMessage, Agent
 from ..core.action.blank_action import BlankAction
@@ -50,7 +54,8 @@ class SimpleAssistantAgent(ConversableAgent):
     def __init__(self, **kwargs):
         """Create a new SummaryAssistantAgent instance."""
         super().__init__(**kwargs)
-        self._post_reranks = [RetrieverNameRanker(5)]
+        # TODO: rewire to new knowledge module (Task #9)
+        self._post_reranks = [RetrieverNameRanker(5)] if RetrieverNameRanker else []
         self._init_actions([BlankAction])
 
     async def load_resource(self, question: str, is_retry_chat: bool = False):

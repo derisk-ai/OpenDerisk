@@ -314,8 +314,13 @@ class ConversableAgent(Role, Agent):
             self.language = _language
 
         # Initialize LLM Server
-        if self.llm_config and self.llm_config.llm_client:
-            self.llm_client = AIWrapper(llm_client=self.llm_config.llm_client)
+        if self.llm_config:
+            if self.llm_config.llm_client:
+                self.llm_client = AIWrapper(llm_client=self.llm_config.llm_client)
+            else:
+                # New provider-based architecture: no legacy LLMClient is injected.
+                # AIWrapper resolves the provider from ModelConfigCache at call time.
+                self.llm_client = AIWrapper()
 
         temp_profile = self.profile
         from copy import deepcopy

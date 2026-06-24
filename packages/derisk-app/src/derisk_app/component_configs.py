@@ -8,13 +8,22 @@ from derisk.configs.model_config import MODEL_DISK_CACHE_DIR, resolve_root_path
 from derisk.util.executor_utils import DefaultExecutorFactory
 from derisk.vis.vis_manage import initialize_vis_convert
 from derisk_app.config import ApplicationConfig, ServiceWebParameters
-from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgePackSearchResource = None  # type: ignore[assignment]
+
 from derisk_serve.agent.resource.tool.local_tool import LocalToolPack
 from derisk_serve.agent.resource.tool.mcp import MCPSSEToolPack
 from derisk_serve.agent.resource.tool.mcp_collect import MCPCollectSSEToolPack
 from derisk_serve.agent.resource.derisk_skill import DeriskSkillResource
 
-from derisk_serve.rag.storage_manager import StorageManager
+try:
+    from derisk_serve.rag.storage_manager import StorageManager  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    StorageManager = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +32,6 @@ def initialize_components(
     param: ApplicationConfig,
     system_app: SystemApp,
 ):
-    from derisk.model.cluster.controller.controller import controller
     from derisk_app.initialization.embedding_component import (
         _initialize_embedding_model,
         _initialize_rerank_model,
@@ -44,9 +52,12 @@ def initialize_components(
         DefaultExecutorFactory, max_workers=web_config.default_thread_pool_size
     )
     system_app.register(DefaultScheduler)
-    system_app.register_instance(controller)
     system_app.register(ConnectorManager)
-    system_app.register(StorageManager)
+    # StorageManager was removed along with derisk_serve.rag; skip registration
+    # when absent. Asset/datasource storage_manager accessors will surface a
+    # clear error at call time if invoked without a rag module.
+    if StorageManager is not None:
+        system_app.register(StorageManager)
 
     system_app.register_instance(multi_agents)
     # Always register the embedding factory (even with no default model yet) so
@@ -117,7 +128,10 @@ def _initialize_resource_manager(system_app: SystemApp):
     from derisk.agent.resource.manage import get_resource_manager, initialize_resource, _SYSTEM_APP as check_system_app
     from derisk_serve.agent.resource.app import GptAppResource
     from derisk_serve.agent.resource.datasource import DatasourceResource
-    from derisk_serve.agent.resource.knowledge import KnowledgeSpaceRetrieverResource
+
+    # TODO: rewire to new knowledge module (Task #9)
+    # Old KnowledgeSpaceRetrieverResource was removed along with derisk_serve.rag.
+    KnowledgeSpaceRetrieverResource = None  # type: ignore[assignment]
 
     from derisk.agent.resource.reasoning_engine import ReasoningEngineResource
     from derisk.agent.resource.memory import MemoryResource
@@ -142,7 +156,8 @@ def _initialize_resource_manager(system_app: SystemApp):
         f"[ResourceInit] DatasourceResource registered with alias='datasource', "
         f"type_to_resources_keys={list(rm._type_to_resources.keys())}"
     )
-    rm.register_resource(KnowledgeSpaceRetrieverResource)
+    # TODO: rewire to new knowledge module (Task #9)
+    # rm.register_resource(KnowledgeSpaceRetrieverResource)
     rm.register_resource(GptAppResource)
     rm.register_resource(resource_instance=fetch)
     rm.register_resource(resource_instance=list_derisk_support_models)
@@ -153,7 +168,9 @@ def _initialize_resource_manager(system_app: SystemApp):
     rm.register_resource(AgentSkillResource)
     rm.register_resource(DeriskSkillResource)
     rm.register_resource(ReasoningEngineResource)
-    rm.register_resource(KnowledgePackSearchResource)
+    # TODO: rewire to new knowledge module (Task #9)
+    if KnowledgePackSearchResource is not None:
+        rm.register_resource(KnowledgePackSearchResource)
     rm.register_resource(MemoryResource)
     rm.register_resource(WorkflowResource)
 
@@ -383,7 +400,8 @@ def _initialize_operators():
         HOLLMOperator,
         HOStreamingLLMOperator,
     )
-    from derisk_app.operators.rag import HOKnowledgeOperator  # noqa: F401
+    # TODO: rewire to new knowledge module (Task #9)
+    # from derisk_app.operators.rag import HOKnowledgeOperator  # noqa: F401
     from derisk_serve.agent.resource.datasource import DatasourceResource  # noqa: F401
 
 

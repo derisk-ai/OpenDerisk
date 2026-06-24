@@ -487,10 +487,10 @@ async def _test_agent():
 
     It will not run in the production environment.
     \"\"\"
-    from derisk.model.proxy import OpenAILLMClient
     from derisk.agent import AgentContext, AgentMemory, UserProxyAgent, LLMConfig
+    from derisk.agent.util.llm.llm_client import AIWrapper
 
-    llm_client = OpenAILLMClient(model_alias="gpt-3.5-turbo")
+    llm_client = AIWrapper()
     context: AgentContext = AgentContext(conv_id="summarize")
 
     agent_memory: AgentMemory = AgentMemory()

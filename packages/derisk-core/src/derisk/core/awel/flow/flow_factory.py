@@ -70,7 +70,7 @@ class FlowNodeData(BaseModel):
         description="Id of the node",
         examples=[
             "operator_llm_operator___$$___llm___$$___v1_0",
-            "resource_derisk.model.proxy.llms.chatgpt.OpenAILLMClient_0",
+            "resource_derisk.agent.util.llm.llm_client.AIWrapper_0",
         ],
     )
     position: FlowPositionData = Field(..., description="Position of the node")
@@ -113,7 +113,7 @@ class FlowEdgeData(BaseModel):
     source: str = Field(
         ...,
         description="Source node data id",
-        examples=["resource_derisk.model.proxy.llms.chatgpt.OpenAILLMClient_0"],
+        examples=["resource_derisk.agent.util.llm.llm_client.AIWrapper_0"],
     )
     source_order: int = Field(
         description="The order of the source node in the source node's output",

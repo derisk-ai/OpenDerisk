@@ -184,7 +184,7 @@ class LLMConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    llm_client: Optional[LLMClient] = Field(default_factory=LLMClient)
+    llm_client: Optional[LLMClient] = Field(default=None)
     llm_strategy: LLMStrategyType = Field(default=LLMStrategyType.Default)
     llm_param: Optional[dict] = defaultdict(dict)
     mist_keys: Optional[List[str]] = None

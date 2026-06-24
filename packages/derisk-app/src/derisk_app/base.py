@@ -39,37 +39,6 @@ def server_init(param: ApplicationConfig, system_app: SystemApp):
     signal.signal(signal.SIGINT, signal_handler)
 
 
-def _create_model_start_listener(system_app: SystemApp):
-    def startup_event(wh):
-        print("begin run _add_app_startup_event")
-        # Seed the embedding registry from every running text2vec worker, no
-        # matter how it was deployed (derisk.json replay, worker model-storage
-        # replay, or runtime add). This makes the registry the single source of
-        # truth for "which embedding models are usable / which is default".
-        try:
-            from derisk_app.initialization.embedding_component import (
-                get_embedding_registry,
-            )
-
-            inner = getattr(wh, "worker_manager", None) or wh
-            workers = getattr(inner, "workers", None) or {}
-            registry = get_embedding_registry()
-            for worker_key in workers.keys():
-                # worker_key format: "<model_name>@<worker_type>"
-                if worker_key.endswith("@text2vec"):
-                    model_name = worker_key.rsplit("@", 1)[0]
-                    registry.add(model_name)
-            if not registry.is_empty():
-                logger.info(
-                    f"Embedding registry seeded from running workers: "
-                    f"{registry.list()} (default='{registry.get_default()}')"
-                )
-        except Exception as e:
-            logger.warning(f"Failed to seed embedding registry from workers: {e}")
-
-    return startup_event
-
-
 def _initialize_db_storage(param: ServiceConfig, system_app: SystemApp):
     """Initialize the db storage.
 

@@ -1,3 +1,6 @@
+from typing import Optional
+
+
 def get_or_build_memory(
     agent_id: str,
 ) -> Optional["PreferenceMemory"]:
@@ -7,8 +10,11 @@ def get_or_build_memory(
     Returns:
         PreferenceMemory or None if vector store is not configured
     """
-    from typing import Optional
-    from derisk_serve.rag.storage_manager import StorageManager
+    # TODO: rewire to new knowledge module (Task #9)
+    try:
+        from derisk_serve.rag.storage_manager import StorageManager
+    except ImportError:
+        return None
     from derisk_ext.agent.memory.preference import PreferenceMemory
     from derisk_ext.agent.memory.session import (
         _METADATA_SESSION_ID,

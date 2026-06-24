@@ -12,11 +12,21 @@ from derisk.storage.knowledge_graph.base import ParagraphChunk
 from derisk.storage.vector_store.base import VectorStoreConfig
 from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util.i18n_utils import _
-from derisk_ext.rag.retriever.graph_retriever.graph_retriever import GraphRetriever
-from derisk_ext.rag.transformer.community_summarizer import CommunitySummarizer
-from derisk_ext.rag.transformer.graph_embedder import GraphEmbedder
-from derisk_ext.rag.transformer.graph_extractor import GraphExtractor
-from derisk_ext.rag.transformer.text_embedder import TextEmbedder
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_ext.rag.retriever.graph_retriever.graph_retriever import GraphRetriever  # type: ignore
+    from derisk_ext.rag.transformer.community_summarizer import CommunitySummarizer  # type: ignore
+    from derisk_ext.rag.transformer.graph_embedder import GraphEmbedder  # type: ignore
+    from derisk_ext.rag.transformer.graph_extractor import GraphExtractor  # type: ignore
+    from derisk_ext.rag.transformer.text_embedder import TextEmbedder  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    GraphRetriever = None  # type: ignore[assignment]
+    CommunitySummarizer = None  # type: ignore[assignment]
+    GraphEmbedder = None  # type: ignore[assignment]
+    GraphExtractor = None  # type: ignore[assignment]
+    TextEmbedder = None  # type: ignore[assignment]
+
 from derisk_ext.storage.graph_store.tugraph_store import TuGraphStoreConfig
 from derisk_ext.storage.knowledge_graph.community.community_store import CommunityStore
 from derisk_ext.storage.knowledge_graph.knowledge_graph import (

@@ -20,8 +20,6 @@ from derisk.agent.resource import get_resource_manager
 from derisk.agent.util.llm.llm import LLMStrategyType
 from derisk.component import BaseComponent, ComponentType, SystemApp
 from derisk.core import LLMClient, PromptTemplate
-from derisk.model.cluster import WorkerManagerFactory
-from derisk.model.cluster.client import DefaultLLMClient
 from derisk_serve.core import blocking_func_to_async
 from derisk_serve.prompt.api.endpoints import get_service
 
@@ -83,12 +81,9 @@ class AppManager(BaseComponent, ABC):
             context: AgentContext,
     ) -> ConversableAgent:
         # init default llm provider
-        llm_provider = DefaultLLMClient(
-            self.system_app.get_component(
-                ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-            ).create(),
-            auto_convert_message=True,
-        )
+        # LLM client is resolved by AIWrapper via ProviderRegistry at call
+        # time (reading agent.llm config). Pass None here.
+        llm_provider = None
 
         # init team employees
         # TODO employee has it own llm provider

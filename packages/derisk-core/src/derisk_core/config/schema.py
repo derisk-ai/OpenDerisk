@@ -338,7 +338,7 @@ class FeaturePluginEntry(BaseModel):
 class MemoryStorageConfig(BaseModel):
     """Memory storage configuration for the memory module."""
 
-    type: str = "mempalace"
+    type: str = "simple_sqlite"
     palace_path: Optional[str] = None
     enable_kg: bool = True
     default_wing: Optional[str] = None

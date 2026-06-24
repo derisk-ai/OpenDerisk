@@ -9,8 +9,6 @@ from derisk.core.interface.prompt import (
     SystemPromptTemplate,
     get_template_vars,
 )
-from derisk.model import DefaultLLMClient
-from derisk.model.cluster import WorkerManagerFactory
 from derisk.storage.metadata import BaseDao
 from derisk.util.json_utils import compare_json_properties_ex, find_json_objects
 from derisk.util.pagination_utils import PaginationResult
@@ -277,10 +275,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
         if not debug_input.user_input:
             raise ValueError("请输入你的提问!")
         try:
-            worker_manager = self._system_app.get_component(
-                ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-            ).create()
-            llm_client = DefaultLLMClient(worker_manager, auto_convert_message=True)
+            from derisk.agent.util.llm.llm_client import AIWrapper
+
+            llm_client = AIWrapper()
         except Exception as e:
             raise ValueError("LLM prepare failed!", e)
 
@@ -347,10 +344,16 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             raise ValueError("参数准备失败！" + str(e))
 
         try:
-            model_request = ModelRequest(**payload)
-
-            async for output in llm_client.generate_stream(model_request.copy()):  # type: ignore
-                res_content = output.gen_text_with_thinking()
+            # Stream output via AIWrapper.create (uses ProviderRegistry under
+            # the hood, reading agent.llm config). Yields AgentLLMOut objects.
+            async for output in llm_client.create(
+                messages=debug_messages,
+                llm_model=debug_input.debug_model,
+                temperature=debug_input.temperature,
+                max_new_tokens=metadata.context_length,
+                stream_out=True,
+            ):
+                res_content = getattr(output, "text", None) or str(output)
                 if res_content:
                     escaped_text = res_content.replace("\n", "\\n")
                     yield f"data: {escaped_text}\n\n"

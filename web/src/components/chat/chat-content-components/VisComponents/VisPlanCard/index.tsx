@@ -27,7 +27,7 @@ const VisPlanCard = ({ data }: IProps) => {
                 onClick={() => window.open(planItem?.task_link)}
               >
                 <span>@</span>
-                {planItem?.agent_link && <Avatar src={planItem?.agent_link}></Avatar>}
+                {planItem?.agent_link && <Avatar src={planItem?.agent_link || undefined}></Avatar>}
                 <span>{planItem?.agent_name || '-'}</span>
               </Space>
             </Space>

@@ -28,12 +28,6 @@ from derisk.core.schema.api import (
     UsageInfo,
     ChatCompletionResponse,
 )
-from derisk.model.base import FlatSupportedModel
-from derisk.model.cluster import (
-    BaseModelController,
-    WorkerManager,
-    WorkerManagerFactory,
-)
 from derisk.util.data_util import first
 from derisk.util.executor_utils import (
     DefaultExecutorFactory,
@@ -41,8 +35,15 @@ from derisk.util.executor_utils import (
 )
 from derisk.util.file_client import FileClient
 from derisk.util.tracer import SpanType, root_tracer
-from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
-from derisk_app.knowledge.service import KnowledgeService
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_app.knowledge.request.request import KnowledgeSpaceRequest  # type: ignore
+    from derisk_app.knowledge.service import KnowledgeService  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeSpaceRequest = None  # type: ignore[assignment]
+    KnowledgeService = None  # type: ignore[assignment]
+
 from derisk_app.openapi.api_view_model import (
     ChatCompletionResponseStreamChoice,
     ChatCompletionStreamResponse,
@@ -64,7 +65,8 @@ from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 router = APIRouter()
 CFG = Config()
 logger = logging.getLogger(__name__)
-knowledge_service = KnowledgeService()
+# TODO: rewire to new knowledge module (Task #9)
+knowledge_service = KnowledgeService() if KnowledgeService else None
 
 model_semaphore = None
 global_counter = 0
@@ -166,6 +168,9 @@ def get_db_list_info(user_id: str = None):
 
 def knowledge_list_info():
     """return knowledge space list"""
+    # TODO: rewire to new knowledge module (Task #9)
+    if KnowledgeSpaceRequest is None or knowledge_service is None:
+        return {}
     params: dict = {}
     request = KnowledgeSpaceRequest()
     spaces = knowledge_service.get_knowledge_space(request)
@@ -176,6 +181,9 @@ def knowledge_list_info():
 
 def knowledge_list(user_id: str = None):
     """return knowledge space list"""
+    # TODO: rewire to new knowledge module (Task #9)
+    if KnowledgeSpaceRequest is None or knowledge_service is None:
+        return []
     request = KnowledgeSpaceRequest(user_id=user_id)
     spaces = knowledge_service.get_knowledge_space(request)
     space_list = []
@@ -186,20 +194,6 @@ def knowledge_list(user_id: str = None):
         params.update({"space_id": space.id})
         space_list.append(params)
     return space_list
-
-
-def get_model_controller() -> BaseModelController:
-    controller = CFG.SYSTEM_APP.get_component(
-        ComponentType.MODEL_CONTROLLER, BaseModelController
-    )
-    return controller
-
-
-def get_worker_manager() -> WorkerManager:
-    worker_manager = CFG.SYSTEM_APP.get_component(
-        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-    ).create()
-    return worker_manager
 
 
 def get_fs() -> FileStorageClient:
@@ -660,30 +654,31 @@ async def terminate_topic(
 
 
 @router.get("/v1/model/types")
-async def model_types(controller: BaseModelController = Depends(get_model_controller)):
-    logger.info("/controller/model/types")
+async def model_types():
+    """Return LLM model names configured in AppConfig.agent_llm.
+
+    The old controller.get_all_instances() fallback has been removed; this
+    endpoint now reads only from the agent.llm config (synced from
+    AppConfig.agent_llm via /api/v1/config/* endpoints).
+    """
+    logger.info("/v1/model/types")
     try:
         types = set()
-        config_models_found = False
 
-        # 1. Get models from system_app.config (JSON configuration) - PRIORITY
         system_app = SystemApp.get_instance()
         if system_app and system_app.config:
-            # PRIORITY 1: Try app_config from configs dict (JSON config source)
-            # This is the most reliable source as it's always updated via /api/v1/config/import
+            # PRIORITY 1: app_config from configs dict (JSON config source).
             app_config = system_app.config.configs.get("app_config")
             agent_llm_conf = None
 
             if app_config:
                 agent_llm_attr = getattr(app_config, "agent_llm", None)
                 if agent_llm_attr:
-                    # Convert frontend format to backend format
                     agent_llm_dict = (
                         agent_llm_attr.model_dump(mode="json")
                         if hasattr(agent_llm_attr, "model_dump")
                         else dict(agent_llm_attr)
                     )
-                    # Convert providers -> provider, models -> model
                     if "providers" in agent_llm_dict:
                         providers = agent_llm_dict.pop("providers")
                         if isinstance(providers, list):
@@ -697,17 +692,17 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
                             agent_llm_dict["provider"] = converted
                     agent_llm_conf = agent_llm_dict
 
-            # PRIORITY 2: Try "agent.llm" direct key (fallback for TOML config)
+            # PRIORITY 2: TOML "agent.llm" direct key.
             if not agent_llm_conf:
                 agent_llm_conf = system_app.config.get("agent.llm")
 
-            # PRIORITY 3: If not found, try "agent" -> "llm" (nested dict access)
+            # PRIORITY 3: nested "agent" -> "llm".
             if not agent_llm_conf:
                 agent_conf = system_app.config.get("agent")
                 if isinstance(agent_conf, dict):
                     agent_llm_conf = agent_conf.get("llm")
 
-            # PRIORITY 4: Check for flattened keys (fallback)
+            # PRIORITY 4: flattened keys.
             if not agent_llm_conf:
                 flattened = system_app.config.get_all_by_prefix("agent.llm.")
                 if flattened:
@@ -718,28 +713,13 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
 
             # Parse models from Multi-Provider List Structure [[agent.llm.provider]]
             if agent_llm_conf and isinstance(agent_llm_conf.get("provider"), list):
-                providers = agent_llm_conf.get("provider")
-                for p_conf in providers:
+                for p_conf in agent_llm_conf.get("provider"):
                     if isinstance(p_conf, dict) and "model" in p_conf:
                         p_models = p_conf.get("model")
                         if isinstance(p_models, list):
                             for m in p_models:
                                 if isinstance(m, dict) and "name" in m:
-                                    m_name = m.get("name")
-                                    # Add model name to types
-                                    types.add(m_name)
-                                    config_models_found = True
-
-        # 2. Only get models from controller if no config models found (fallback)
-        if not config_models_found:
-            models = await controller.get_all_instances(healthy_only=True)
-            for model in models:
-                worker_name, worker_type = model.model_name.split("@")
-                if worker_type == "llm" and worker_name not in [
-                    "codegpt_proxyllm",
-                    "text2sql_proxyllm",
-                ]:
-                    types.add(worker_name)
+                                    types.add(m.get("name"))
 
         return Result.succ(list(types))
 
@@ -750,24 +730,6 @@ async def model_types(controller: BaseModelController = Depends(get_model_contro
 @router.get("/v1/test")
 async def test():
     return "service status is UP"
-
-
-@router.get(
-    "/v1/model/supports",
-    deprecated=True,
-    description="This endpoint is deprecated. Please use "
-    "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0.",
-)
-async def model_supports(worker_manager: WorkerManager = Depends(get_worker_manager)):
-    logger.warning(
-        "The endpoint `/api/v1/model/supports` is deprecated. Please use "
-        "`/api/v2/serve/model/model-types` instead. It will be removed in v0.8.0."
-    )
-    try:
-        models = await worker_manager.supported_models()
-        return Result.succ(FlatSupportedModel.from_supports(models))
-    except Exception as e:
-        return Result.failed(code="E000X", msg=f"Fetch supportd models error {e}")
 
 
 async def flow_stream_generator(func, incremental: bool, model_name: str):

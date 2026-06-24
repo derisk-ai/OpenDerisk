@@ -78,10 +78,9 @@ async def analyze_image(
 ) -> Dict[str, Any]:
     """分析图片"""
     from derisk.model.image_analysis.analyzer import ImageAnalyzer
-    from derisk.model import DefaultLLMClient
 
-    llm_client = DefaultLLMClient()
-    analyzer = ImageAnalyzer(llm_client=llm_client, model_name=model)
+    # LLM client is resolved by AIWrapper via ProviderRegistry at call time.
+    analyzer = ImageAnalyzer(llm_client=None, model_name=model)
 
     import base64
 

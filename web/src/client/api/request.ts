@@ -44,21 +44,6 @@ import {
   PostEditorSQLRunParams,
   PostSQLEditorSubmitParams,
 } from '@/types/editor';
-import {
-  AddKnowledgeParams,
-  ArgumentsParams,
-  ChunkListParams,
-  DocumentParams,
-  GraphVisResult,
-  IArguments,
-  IChunkList,
-  IChunkStrategyResponse,
-  IDocumentResponse,
-  ISpace,
-  ISyncBatchParameter,
-  ISyncBatchResponse,
-  SpaceConfig,
-} from '@/types/knowledge';
 import { BaseModelParams, IModelData, StartModelParams, SupportModel } from '@/types/model';
 import { AxiosRequestConfig } from 'axios';
 import { DELETE, GET, POST, PUT } from '.';
@@ -353,59 +338,7 @@ export const getEditorSql = (id: string, round: string | number) => {
 };
 
 /** knowledge */
-export const getArguments = (knowledgeName: string) => {
-  return POST<any, IArguments>(`/knowledge/${knowledgeName}/arguments`, {});
-};
-export const saveArguments = (knowledgeName: string, data: ArgumentsParams) => {
-  return POST<ArgumentsParams, IArguments>(`/knowledge/${knowledgeName}/argument/save`, data);
-};
-
-export const getSpaceList = (data?: any) => {
-  return POST<any, Array<ISpace>>('/knowledge/space/list', data ?? {});
-};
-export const getDocumentList = (spaceName: string, data: Record<string, number | Array<number>>) => {
-  return POST<Record<string, number | Array<number>>, IDocumentResponse>(`/knowledge/${spaceName}/document/list`, data);
-};
-export const getGraphVis = (spaceName: string, data: { limit: number }) => {
-  return POST<Record<string, number>, GraphVisResult>(`/knowledge/${spaceName}/graphvis`, data);
-};
-
-export const addDocument = (knowledgeName: string, data: DocumentParams) => {
-  return POST<DocumentParams, number>(`/knowledge/${knowledgeName}/document/add`, data);
-};
-
-export const addSpace = (data: AddKnowledgeParams) => {
-  return POST<AddKnowledgeParams, number>(`/knowledge/space/add`, data);
-};
-
-export const getChunkStrategies = () => {
-  return GET<null, Array<IChunkStrategyResponse>>('/knowledge/document/chunkstrategies');
-};
-
-export const syncDocument = (spaceName: string, data: Record<string, Array<number>>) => {
-  return POST<Record<string, Array<number>>, string | null>(`/knowledge/${spaceName}/document/sync`, data);
-};
-
-export const syncBatchDocument = (spaceName: string, data: Array<ISyncBatchParameter>) => {
-  return POST<Array<ISyncBatchParameter>, ISyncBatchResponse>(`/knowledge/${spaceName}/document/sync_batch`, data);
-};
-
-export const uploadDocument = (knowLedgeName: string, data: FormData) => {
-  return POST<FormData, number>(`/knowledge/${knowLedgeName}/document/upload`, data);
-};
-
-export const getChunkList = (spaceName: string, data: ChunkListParams) => {
-  return POST<ChunkListParams, IChunkList>(`/knowledge/${spaceName}/chunk/list`, data);
-};
-
-export const delDocument = (spaceName: string, data: Record<string, number>) => {
-  return POST<Record<string, number>, null>(`/knowledge/${spaceName}/document/delete`, data);
-};
-
-export const delSpace = (data: Record<string, string>) => {
-  return POST<Record<string, string>, null>(`/knowledge/space/delete`, data);
-};
-
+// TODO: rewire to new knowledge-vault page — old knowledge API functions removed.
 // Memory APIs
 export const getMemoryStatus = (spaceId: string) => {
   return GET<null, Record<string, any>>(`/memory/${spaceId}/status`);
@@ -589,22 +522,14 @@ export const modelSearch = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/controller/models', data);
 };
 
-export const getKnowledgeAdmins = (spaceId: string) => {
-  return GET<string, Record<string, any>>(`/knowledge/users/list?space_id=${spaceId}`);
-};
-export const updateKnowledgeAdmins = (data: Record<string, string>) => {
-  return POST<Record<string, any>, any[]>(`/knowledge/users/update`, data);
-};
+// TODO: rewire to new knowledge-vault page — getKnowledgeAdmins / updateKnowledgeAdmins removed (hit /knowledge/users/...).
+// TODO: rewire to new knowledge-vault page — getSpaceConfig removed (hit /knowledge/space/config).
 
 /** AWEL Flow */
 
 /** app */
 export const delApp = (data: Record<string, string>) => {
   return POST<Record<string, string>, []>('/api/v1/app/remove', data);
-};
-
-export const getSpaceConfig = () => {
-  return GET<string, SpaceConfig>(`/knowledge/space/config`);
 };
 
 /** MCP */

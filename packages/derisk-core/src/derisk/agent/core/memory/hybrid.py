@@ -87,9 +87,11 @@ class HybridMemory(Memory, Generic[T]):
         )
 
         if not embeddings:
-            from derisk.rag.embedding import DefaultEmbeddingFactory
-
-            embeddings = DefaultEmbeddingFactory.openai()
+            # TODO: rewire to new knowledge module (Task #9)
+            raise RuntimeError(
+                "DefaultEmbeddingFactory was removed with the old rag module; "
+                "embeddings must be supplied by the caller."
+            )
 
         vstore_path = vstore_path or os.path.join(DATA_DIR, "agent_memory")
 

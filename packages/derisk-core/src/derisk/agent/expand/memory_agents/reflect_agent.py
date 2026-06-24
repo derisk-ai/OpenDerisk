@@ -48,6 +48,9 @@ class MemoryReflectAgent(MemoryAgentBase):
             category="agent",
             key="derisk_agent_expand_memory_reflect_agent_profile_desc",
         ),
+        # 见 curate_agent.py 同款注释：让 mgr.get("MemoryReflectAgent")
+        # 能解析到 role="Memory Reflect Agent"。
+        aliases=["MemoryReflectAgent"],
     )
 
     async def _run_memory_task(

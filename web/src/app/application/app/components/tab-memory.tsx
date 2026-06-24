@@ -1,5 +1,6 @@
 'use client';
-import { apiInterceptors, getSpaceList } from '@/client/api';
+// TODO: rewire to new knowledge-vault page — getSpaceList removed from @/client/api.
+import { apiInterceptors } from '@/client/api';
 import { disableAppMemory, enableAppMemory } from '@/client/api/app';
 import { AppContext } from '@/contexts';
 import { notification } from 'antd';
@@ -12,7 +13,8 @@ import {
   SwapOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { useRequest } from 'ahooks';
+// TODO: rewire to new knowledge-vault page — useRequest removed (was used for getSpaceList).
+// import { useRequest } from 'ahooks';
 import {
   Button,
   InputNumber,
@@ -47,11 +49,11 @@ export default function TabMemory() {
   const [draft, setDraft] = useState<MemoryConfig | null>(null);
   const [hookDraft, setHookDraft] = useState<Record<string, any>[] | null>(null);
 
+  // TODO: rewire to new knowledge-vault page — getSpaceList removed; spaceData stays empty until rewired.
   // Fetch all knowledge spaces
-  const { data: spaceData, loading, refresh } = useRequest(async () => {
-    const [, data] = await apiInterceptors(getSpaceList());
-    return data;
-  });
+  const spaceData: any[] = [];
+  const loading = false;
+  const refresh = async () => {};
 
   // Filter Memory-type spaces
   const memorySpaces = useMemo(() => {
@@ -126,7 +128,7 @@ export default function TabMemory() {
       if (err) {
         console.error('[tab-memory] toggle failed:', err, 'raw response:', raw);
         message.error(
-          `${on ? 'enable' : 'disable'} memory failed: ${raw?.err_msg || err?.message || 'unknown'}`,
+          `${on ? 'enable' : 'disable'} memory failed: ${err?.message || 'unknown'}`,
         );
         return;
       }
@@ -403,7 +405,7 @@ export default function TabMemory() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-medium text-gray-700">
-                      {t(TIER_LABEL_KEYS[tier] || `Tier ${tier}`)}
+                      {TIER_LABEL_KEYS[tier] ? t(TIER_LABEL_KEYS[tier] as any) : `Tier ${tier}`}
                     </div>
                     <div className="text-[11px] text-gray-400 mt-0.5 truncate">
                       {hook.description || hook.name}

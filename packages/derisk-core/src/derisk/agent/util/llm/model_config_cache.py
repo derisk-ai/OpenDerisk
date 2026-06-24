@@ -134,19 +134,43 @@ def parse_provider_configs(
     """
     model_configs = {}
 
+    # 输入验证日志
     if not global_agent_conf:
+        logger.warning("[parse_provider_configs] Input is None or empty")
         return model_configs
+
+    logger.info(
+        f"[parse_provider_configs] Input keys: {list(global_agent_conf.keys())}"
+    )
 
     providers_list = global_agent_conf.get("provider")
 
-    if not isinstance(providers_list, list):
+    if not providers_list:
+        logger.warning(
+            f"[parse_provider_configs] No 'provider' key found, available keys: {list(global_agent_conf.keys())}"
+        )
         return model_configs
 
-    for provider_conf in providers_list:
+    if not isinstance(providers_list, list):
+        logger.warning(
+            f"[parse_provider_configs] 'provider' is not a list, type: {type(providers_list)}"
+        )
+        return model_configs
+
+    logger.info(
+        f"[parse_provider_configs] Processing {len(providers_list)} providers"
+    )
+
+    for idx, provider_conf in enumerate(providers_list):
         if not isinstance(provider_conf, dict):
+            logger.warning(
+                f"[parse_provider_configs] Provider[{idx}] is not a dict, skipping"
+            )
             continue
 
         provider_name = provider_conf.get("provider", "default")
+        logger.info(f"[parse_provider_configs] Processing provider '{provider_name}'")
+
         p_defaults = {
             k: v for k, v in provider_conf.items() if k not in ["model", "provider"]
         }
@@ -156,47 +180,82 @@ def parse_provider_configs(
             p_defaults["base_url"] = p_defaults["api_base"]
 
         p_models = provider_conf.get("model", [])
-        if isinstance(p_models, list):
-            for m_conf in p_models:
-                if not isinstance(m_conf, dict):
-                    continue
+        if not p_models:
+            logger.warning(
+                f"[parse_provider_configs] Provider '{provider_name}' has no 'model' key"
+            )
+            continue
 
-                model_name = m_conf.get("name") or m_conf.get("model")
-                if not model_name:
-                    continue
+        if not isinstance(p_models, list):
+            logger.warning(
+                f"[parse_provider_configs] Provider '{provider_name}' models is not a list, type: {type(p_models)}"
+            )
+            continue
 
-                final_conf_dict = deepcopy(p_defaults)
-                final_conf_dict.update(m_conf)
-                if "api_base" in final_conf_dict and "base_url" not in final_conf_dict:
-                    final_conf_dict["base_url"] = final_conf_dict["api_base"]
-                if "name" in final_conf_dict and "model" not in final_conf_dict:
-                    final_conf_dict["model"] = model_name
+        logger.info(
+            f"[parse_provider_configs] Provider '{provider_name}' has {len(p_models)} models"
+        )
 
-                is_multimodal = m_conf.get(
-                    "is_multimodal", m_conf.get("supports_vision", False)
+        for m_idx, m_conf in enumerate(p_models):
+            if not isinstance(m_conf, dict):
+                logger.warning(
+                    f"[parse_provider_configs] Provider '{provider_name}' model[{m_idx}] is not a dict, skipping"
                 )
-                final_conf_dict["is_multimodal"] = bool(is_multimodal)
+                continue
 
-                api_key_ref = final_conf_dict.get("api_key_ref", "")
-                if api_key_ref and not final_conf_dict.get("api_key"):
-                    try:
-                        from derisk_core.config.encryption import (
-                            ConfigReferenceResolver,
+            model_name = m_conf.get("name") or m_conf.get("model")
+            if not model_name:
+                logger.warning(
+                    f"[parse_provider_configs] Provider '{provider_name}' model[{m_idx}] has no 'name' or 'model' field, skipping"
+                )
+                continue
+
+            logger.info(
+                f"[parse_provider_configs] Registering model '{provider_name}/{model_name}'"
+            )
+
+            final_conf_dict = deepcopy(p_defaults)
+            final_conf_dict.update(m_conf)
+            if "api_base" in final_conf_dict and "base_url" not in final_conf_dict:
+                final_conf_dict["base_url"] = final_conf_dict["api_base"]
+            if "name" in final_conf_dict and "model" not in final_conf_dict:
+                final_conf_dict["model"] = model_name
+
+            is_multimodal = m_conf.get(
+                "is_multimodal", m_conf.get("supports_vision", False)
+            )
+            final_conf_dict["is_multimodal"] = bool(is_multimodal)
+
+            api_key_ref = final_conf_dict.get("api_key_ref", "")
+            if api_key_ref and not final_conf_dict.get("api_key"):
+                try:
+                    from derisk_core.config.encryption import (
+                        ConfigReferenceResolver,
+                    )
+
+                    resolved_value = ConfigReferenceResolver.resolve(api_key_ref)
+                    if resolved_value and isinstance(resolved_value, str):
+                        final_conf_dict["api_key"] = resolved_value
+                        logger.debug(
+                            f"[parse_provider_configs] Resolved api_key_ref for {provider_name}/{model_name}: "
+                            f"{resolved_value[:8]}...{resolved_value[-4:] if len(resolved_value) > 12 else ''}"
                         )
+                except Exception as e:
+                    logger.warning(
+                        f"[parse_provider_configs] Failed to resolve api_key_ref for {provider_name}/{model_name}: {e}"
+                    )
 
-                        resolved_value = ConfigReferenceResolver.resolve(api_key_ref)
-                        if resolved_value and isinstance(resolved_value, str):
-                            final_conf_dict["api_key"] = resolved_value
-                            logger.debug(
-                                f"Resolved api_key_ref for {provider_name}/{model_name}: "
-                                f"{resolved_value[:8]}...{resolved_value[-4:] if len(resolved_value) > 12 else ''}"
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to resolve api_key_ref for {provider_name}/{model_name}: {e}"
-                        )
+            config_key = f"{provider_name}/{model_name}"
+            model_configs[config_key] = final_conf_dict
 
-                config_key = f"{provider_name}/{model_name}"
-                model_configs[config_key] = final_conf_dict
+    logger.info(
+        f"[parse_provider_configs] Total registered: {len(model_configs)} models"
+    )
+    if model_configs:
+        logger.info(
+            f"[parse_provider_configs] Registered models: {list(model_configs.keys())}"
+        )
+    else:
+        logger.warning("[parse_provider_configs] No models were registered!")
 
     return model_configs

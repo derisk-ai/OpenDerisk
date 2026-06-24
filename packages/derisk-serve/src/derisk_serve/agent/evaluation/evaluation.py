@@ -17,7 +17,13 @@ from derisk.core.interface.evaluation import (
     EvaluationResult,
     Evaluator,
 )
-from derisk.rag.evaluation import RetrieverSimilarityMetric
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.evaluation import RetrieverSimilarityMetric  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    RetrieverSimilarityMetric = None  # type: ignore[assignment]
+
 from derisk_serve.agent.agents.controller import multi_agents
 
 logger = logging.getLogger(__name__)

@@ -21,7 +21,6 @@ from derisk.core.schema.api import (
     ErrorResponse,
     UsageInfo,
 )
-from derisk.model.cluster.apiserver.api import APISettings
 from derisk.util.executor_utils import blocking_func_to_async
 from derisk.util.tracer import SpanType, root_tracer
 from derisk_app.openapi.api_v1.api_v1 import (
@@ -35,7 +34,6 @@ from derisk_serve.agent.agents.controller import multi_agents
 from derisk_serve.flow.api.endpoints import get_service
 
 router = APIRouter()
-api_settings = APISettings()
 get_bearer_token = HTTPBearer(auto_error=False)
 
 

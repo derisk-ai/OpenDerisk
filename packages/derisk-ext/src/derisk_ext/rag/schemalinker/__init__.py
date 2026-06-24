@@ -1,1 +1,0 @@
-"""Module of SchemaLinker."""

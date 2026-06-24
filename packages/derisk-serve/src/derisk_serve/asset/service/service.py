@@ -11,12 +11,24 @@ from pydantic import BaseModel
 from derisk.component import SystemApp
 from derisk.core import Chunk, Document
 from derisk.jieba import jieba_util
-from derisk.rag.embedding.embedding_factory import RerankEmbeddingFactory
-from derisk.rag.retriever.rerank import RerankEmbeddingsRanker
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.embedding.embedding_factory import RerankEmbeddingFactory  # type: ignore
+    from derisk.rag.retriever.rerank import RerankEmbeddingsRanker  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    RerankEmbeddingFactory = None  # type: ignore[assignment]
+    RerankEmbeddingsRanker = None  # type: ignore[assignment]
+
 from derisk.storage.metadata import BaseDao
 from derisk.util import PaginationResult
 from derisk_serve.core import BaseService
-from derisk_serve.rag.service.service import Service as KnowledgeService
+
+try:
+    from derisk_serve.rag.service.service import Service as KnowledgeService  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeService = None  # type: ignore[assignment]
+
 from ..api.schemas import AssetDocumentResponse, AssetKnowledgeSearchRequest, \
     AssetKnowledgeResponse, AssetToolResponse, AssetAgentResponse, \
     RecommendationFunctionScoreConfig, FunctionScoreFieldFactor, FunctionScoreGauss, \
@@ -24,8 +36,17 @@ from ..api.schemas import AssetDocumentResponse, AssetKnowledgeSearchRequest, \
     AssetAgentRequest
 
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
-from ...rag.api.schemas import SpaceServeResponse
-from ...rag.storage_manager import StorageManager
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from ...rag.api.schemas import SpaceServeResponse  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    SpaceServeResponse = None  # type: ignore[assignment]
+
+try:
+    from ...rag.storage_manager import StorageManager  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    StorageManager = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 

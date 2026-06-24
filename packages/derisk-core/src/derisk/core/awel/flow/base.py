@@ -801,7 +801,7 @@ class BaseMetadata(BaseResource):
         description="The id of the operator or resource",
         examples=[
             "operator_llm_operator___$$___llm___$$___v1",
-            "resource_derisk.model.proxy.llms.chatgpt.OpenAILLMClient",
+            "resource_derisk.agent.util.llm.llm_client.AIWrapper",
         ],
     )
 
@@ -1024,7 +1024,7 @@ class ResourceMetadata(BaseMetadata, TypeMetadata):
         description="The parent class of the resource",
         examples=[
             "derisk.core.interface.llm.LLMClient",
-            "resource_derisk.model.proxy.llms.chatgpt.OpenAILLMClient",
+            "resource_derisk.agent.util.llm.llm_client.AIWrapper",
         ],
     )
 

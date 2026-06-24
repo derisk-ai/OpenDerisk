@@ -15,7 +15,12 @@ from .config import (
     SERVE_CONFIG_KEY_PREFIX,  # noqa: F401
     ServeConfig,
 )
-from ..rag.storage_manager import StorageManager
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from ..rag.storage_manager import StorageManager  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    StorageManager = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 

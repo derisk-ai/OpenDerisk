@@ -115,7 +115,7 @@ export * from './app';
 export * from './chat';
 export * from './evaluate';
 export * from './flow';
-export * from './knowledge';
+// TODO: rewire to new knowledge-vault page — `export * from './knowledge';` removed.
 export * from './prompt';
 export * from './request';
 export * from './tools';

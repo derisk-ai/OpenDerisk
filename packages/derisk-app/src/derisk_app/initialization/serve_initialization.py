@@ -26,12 +26,12 @@ def scan_serve_configs():
         "derisk_serve.feedback",
         "derisk_serve.file",
         "derisk_serve.flow",
-        "derisk_serve.model",
         "derisk_serve.mcp",
         "derisk_serve.multimodal",
         "derisk_serve.prompt",
         "derisk_serve.skill",
-        "derisk_serve.rag",
+        # TODO: rewire to new knowledge module (Task #9)
+        # "derisk_serve.rag",
         "derisk_serve.building.app",
         "derisk_serve.building.config",
         "derisk_serve.building.recommend_question",
@@ -159,31 +159,34 @@ def register_serve_apps(
     # # ################################ AWEL Flow Serve Register End ###################
 
     # ################################ Rag Serve Register Begin #######################
-
-    from derisk_serve.rag.serve import Serve as RagServe
-
-    rag_config = app_config.rag
-    llm_configs = app_config.models
-
-    # Register serve app
-    system_app.register(
-        RagServe,
-        config=get_config(
-            serve_configs,
-            RagServe.name,
-            derisk_serve.rag.serve.ServeConfig,
-            embedding_model=llm_configs.default_embedding,
-            rerank_model=llm_configs.default_reranker,
-            chunk_size=rag_config.chunk_size,
-            chunk_overlap=rag_config.chunk_overlap,
-            similarity_top_k=rag_config.similarity_top_k,
-            query_rewrite=rag_config.query_rewrite,
-            max_chunks_once_load=rag_config.max_chunks_once_load,
-            max_threads=rag_config.max_threads,
-            rerank_top_k=rag_config.rerank_top_k,
-            api_keys=global_api_keys,
-        ),
-    )
+    # TODO: rewire to new knowledge module (Task #9)
+    # Old RagServe module was physically removed along with derisk_serve.rag.
+    # The new knowledge module will be re-registered here once it ships a Serve.
+    #
+    # from derisk_serve.rag.serve import Serve as RagServe
+    #
+    # rag_config = app_config.rag
+    # llm_configs = app_config.models
+    #
+    # # Register serve app
+    # system_app.register(
+    #     RagServe,
+    #     config=get_config(
+    #         serve_configs,
+    #         RagServe.name,
+    #         derisk_serve.rag.serve.ServeConfig,
+    #         embedding_model=llm_configs.default_embedding,
+    #         rerank_model=llm_configs.default_reranker,
+    #         chunk_size=rag_config.chunk_size,
+    #         chunk_overlap=rag_config.chunk_overlap,
+    #         similarity_top_k=rag_config.similarity_top_k,
+    #         query_rewrite=rag_config.query_rewrite,
+    #         max_chunks_once_load=rag_config.max_chunks_once_load,
+    #         max_threads=rag_config.max_threads,
+    #         rerank_top_k=rag_config.rerank_top_k,
+    #         api_keys=global_api_keys,
+    #     ),
+    # )
 
     # ################################ Rag Serve Register End #########################
 
@@ -268,6 +271,21 @@ def register_serve_apps(
 
     # ################################ File Serve Register End ########################
 
+    # ################################ Knowledge Serve Register Begin ##################
+    from derisk_serve.knowledge.serve import Serve as KnowledgeServe
+
+    system_app.register(
+        KnowledgeServe,
+        config=get_config(
+            serve_configs,
+            KnowledgeServe.name,
+            derisk_serve.knowledge.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Knowledge Serve Register End ####################
+
     # ################################ Multimodal Serve Register Begin ##############
     from derisk_serve.multimodal.serve import Serve as MultimodalServe
 
@@ -302,21 +320,10 @@ def register_serve_apps(
     )
     # ################################ Evaluate Serve Register End ####################
 
-    # ################################ Model Serve Register Begin #####################
-    from derisk_serve.model.serve import Serve as ModelServe
-
-    # Register serve model
-    system_app.register(
-        ModelServe,
-        config=get_config(
-            serve_configs,
-            ModelServe.name,
-            derisk_serve.model.serve.ServeConfig,
-            model_storage=app_config.service.web.model_storage,
-            api_keys=global_api_keys,
-        ),
-    )
-    # ################################ Model Serve Register End #######################
+    # ################################ Model Serve Removed ###########################
+    # Old cluster-based model serve module was physically removed.
+    # New model management only handles AgentLLM provider configuration.
+    # ################################ Model Serve Removed ###########################
 
     # ################################ App Building Serve Register Begin #####################
     from derisk_serve.building.app.serve import Serve as AppServe

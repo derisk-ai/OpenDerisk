@@ -5,12 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 
-from derisk.component import ComponentType, SystemApp
-from derisk.model.cluster import (
-    BaseModelController,
-    WorkerManager,
-    WorkerManagerFactory,
-)
+from derisk.component import SystemApp
 from derisk_serve.core import Result
 from derisk_serve.evaluate.api.schemas import EvaluateServeRequest
 from derisk_serve.evaluate.config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
@@ -33,20 +28,6 @@ def get_service() -> Service:
 
 def get_prompt_service() -> PromptService:
     return global_system_app.get_component("derisk_serve_prompt_service", PromptService)
-
-
-def get_worker_manager() -> WorkerManager:
-    worker_manager = global_system_app.get_component(
-        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-    ).create()
-    return worker_manager
-
-
-def get_model_controller() -> BaseModelController:
-    controller = global_system_app.get_component(
-        ComponentType.MODEL_CONTROLLER, BaseModelController
-    )
-    return controller
 
 
 get_bearer_token = HTTPBearer(auto_error=False)

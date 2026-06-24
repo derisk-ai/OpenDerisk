@@ -13,7 +13,12 @@ from fastapi import File, UploadFile
 
 from derisk._private.pydantic import BaseModel, ConfigDict, Field, validator
 from derisk.core import HumanMessage
-from derisk_ext.rag.chunk_manager import ChunkParameters
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_ext.rag.chunk_manager import ChunkParameters  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    ChunkParameters = None  # type: ignore[assignment]
 
 
 class ChatCompletionRequestBody(BaseModel):

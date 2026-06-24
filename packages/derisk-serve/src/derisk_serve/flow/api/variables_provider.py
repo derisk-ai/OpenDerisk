@@ -197,17 +197,37 @@ class BuiltinLLMVariablesProvider(BuiltinVariablesProvider):
         user_name: Optional[str],
         expect_worker_type: str = "llm",
     ) -> List[StorageVariables]:
-        from derisk.model.cluster.controller.controller import BaseModelController
+        model_names: List[str] = []
+        system_app = self.system_app
+        if system_app and system_app.config:
+            agent_llm_conf = system_app.config.get("agent.llm")
+            if not agent_llm_conf:
+                agent_conf = system_app.config.get("agent")
+                if isinstance(agent_conf, dict):
+                    agent_llm_conf = agent_conf.get("llm")
 
-        controller = BaseModelController.get_instance(self.system_app)
-        models = await controller.get_all_instances(healthy_only=True)
-        model_dict = {}
-        for model in models:
-            worker_name, worker_type = model.model_name.split("@")
-            if expect_worker_type == worker_type:
-                model_dict[worker_name] = model
+            if agent_llm_conf:
+                if isinstance(agent_llm_conf.get("provider"), list):
+                    for p_conf in agent_llm_conf.get("provider"):
+                        if isinstance(p_conf, dict) and "model" in p_conf:
+                            p_models = p_conf.get("model")
+                            if isinstance(p_models, list):
+                                for m in p_models:
+                                    if isinstance(m, dict) and "name" in m:
+                                        model_names.append(m.get("name"))
+                if isinstance(agent_llm_conf.get("models"), list):
+                    for m in agent_llm_conf.get("models"):
+                        if isinstance(m, dict) and "model" in m:
+                            model_names.append(m.get("model"))
+                elif agent_llm_conf.get("model"):
+                    model_names.append(agent_llm_conf.get("model"))
+
+        seen = set()
         variables = []
-        for worker_name, model in model_dict.items():
+        for worker_name in model_names:
+            if not worker_name or worker_name in seen:
+                continue
+            seen.add(worker_name)
             variables.append(
                 StorageVariables(
                     key=key,
@@ -370,7 +390,8 @@ class BuiltinKnowledgeSpacesVariablesProvider(BuiltinVariablesProvider):
         user_name: Optional[str] = None,
     ) -> List[StorageVariables]:
         """Get the builtin variables."""
-        from derisk_serve.rag.service.service import Service, SpaceServeRequest
+        # TODO: rewire to new knowledge module (Task #9)
+        from derisk_serve.rag.service.service import Service, SpaceServeRequest  # type: ignore
 
         # TODO: Query with user_name and sys_code
         knowledge_list = Service.get_instance(self.system_app).get_list(

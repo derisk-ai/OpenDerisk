@@ -46,6 +46,11 @@ class MemoryCurateAgent(MemoryAgentBase):
             category="agent",
             key="derisk_agent_expand_memory_curate_agent_profile_desc",
         ),
+        # AgentManager 注册时以 `role` 字符串（"Memory Curate Agent"）
+        # 作为 key，而 hook_dispatcher 通过 `name`（"MemoryCurateAgent"）
+        # 调用 mgr.get(...)。注册别名让两条路径对齐，否则 tier 3 curate
+        # 会被 agent_dispatcher 跳过。
+        aliases=["MemoryCurateAgent"],
     )
 
     async def _run_memory_task(

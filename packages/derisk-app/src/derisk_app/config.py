@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 from derisk.datasource.parameter import BaseDatasourceParameters
 from derisk.model.parameter import (
     ModelsDeployParameters,
-    ModelServiceConfig,
 )
 from derisk.storage.cache.manager import ModelCacheParameters
 from derisk.storage.vector_store.base import VectorStoreConfig
@@ -26,8 +25,8 @@ class MemoryStorageConfig(BaseParameters):
     """Memory storage configuration for the memory module."""
 
     type: Optional[str] = field(
-        default="mempalace",
-        metadata={"help": _("Memory store provider type (e.g. mempalace, custom)")},
+        default="simple_sqlite",
+        metadata={"help": _("Memory store provider type (e.g. simple_sqlite, custom)")},
     )
     palace_path: Optional[str] = field(
         default=None,
@@ -312,10 +311,6 @@ class ServiceConfig(BaseParameters):
     web: ServiceWebParameters = field(
         default_factory=ServiceWebParameters,
         metadata={"help": _("Web service configuration")},
-    )
-    model: ModelServiceConfig = field(
-        default_factory=ModelServiceConfig,
-        metadata={"help": _("Model service configuration")},
     )
 
 
