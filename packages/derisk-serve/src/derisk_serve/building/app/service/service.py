@@ -510,8 +510,9 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
             )
         else:
             # Auto-create a per-agent Memory space.
-            from derisk_serve.rag.api.schemas import SpaceServeRequest
-            from derisk_serve.rag.service.service import Service as RagService
+            # TODO: rewire to new knowledge module (Task #9)
+            from derisk_serve.rag.api.schemas import SpaceServeRequest  # type: ignore
+            from derisk_serve.rag.service.service import Service as RagService  # type: ignore
 
             rag_service = RagService.get_instance(self._system_app)
             if rag_service is None:

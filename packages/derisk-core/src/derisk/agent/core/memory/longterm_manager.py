@@ -322,13 +322,30 @@ class LongTermMemoryManager:
             Dict mapping space_id to whether something was written
         """
         if not self._config.auto_memory:
+            logger.info(
+                "[LongTermMemory] write_turn_lightweight skipped: auto_memory=False"
+            )
             return {}
 
         if not self.has_stores():
+            logger.info(
+                "[LongTermMemory] write_turn_lightweight skipped: no memory stores bound"
+            )
             return {}
 
         results = {}
         conversation = f"用户: {user_message.strip()}\n助手: {agent_response.strip()}"
+        conv_id = (metadata or {}).get("conv_id")
+        round_no = (metadata or {}).get("round")
+        logger.info(
+            "[LongTermMemory] write_turn_lightweight start conv=%s round=%s "
+            "spaces=%d user_len=%d ai_len=%d",
+            conv_id,
+            round_no,
+            len(self._memory_stores),
+            len(user_message or ""),
+            len(agent_response or ""),
+        )
 
         for space_id, store in self._memory_stores.items():
             strategy = self._strategies.get(space_id)
@@ -336,6 +353,10 @@ class LongTermMemoryManager:
 
             # Check if auto-extraction is enabled for this space
             if strategy and not strategy.auto_extraction:
+                logger.info(
+                    "[LongTermMemory] space=%s skipped: auto_extraction=False",
+                    space_id,
+                )
                 results[space_id] = False
                 continue
 
@@ -348,6 +369,11 @@ class LongTermMemoryManager:
                     )
 
                     if not extracted:
+                        logger.info(
+                            "[LongTermMemory] space=%s skipped: extract_key_content "
+                            "returned empty",
+                            space_id,
+                        )
                         results[space_id] = False
                         continue
 
@@ -392,13 +418,21 @@ class LongTermMemoryManager:
 
                     results[space_id] = True
                     logger.info(
-                        f"[LongTermMemory] Processed {len(extracted)} memories "
-                        f"for space {space_id}"
+                        "[LongTermMemory] space=%s wrote (processor path) "
+                        "extracted=%d new=%d",
+                        space_id,
+                        len(extracted),
+                        len(consolidation.new_memories),
                     )
                 else:
                     # Fallback to keyword-based extraction (existing behavior)
                     content = self._extract_noteworthy_content(user_message, agent_response)
                     if not content:
+                        logger.info(
+                            "[LongTermMemory] space=%s skipped: _extract_noteworthy_content "
+                            "returned None (below importance threshold)",
+                            space_id,
+                        )
                         results[space_id] = False
                         continue
 
@@ -409,11 +443,29 @@ class LongTermMemoryManager:
                         room=room,
                     )
                     results[space_id] = True
+                    logger.info(
+                        "[LongTermMemory] space=%s wrote (fallback path) room=%s "
+                        "content_len=%d",
+                        space_id,
+                        room,
+                        len(content),
+                    )
 
             except Exception as e:
-                logger.warning(f"Failed to auto-write memory for space {space_id}: {e}")
+                logger.warning(
+                    "[LongTermMemory] space=%s auto-write failed: %s",
+                    space_id,
+                    e,
+                    exc_info=True,
+                )
                 results[space_id] = False
 
+        logger.info(
+            "[LongTermMemory] write_turn_lightweight done conv=%s round=%s results=%s",
+            conv_id,
+            round_no,
+            results,
+        )
         return results
 
     async def reflect_on_last_n_turns(
@@ -730,7 +782,15 @@ async def create_long_term_memory_manager(
         return None
 
     from derisk.component import ComponentType
-    from derisk_serve.rag.storage_manager import StorageManager
+    # TODO: rewire to new knowledge module (Task #9)
+    try:
+        from derisk_serve.rag.storage_manager import StorageManager
+    except ImportError:
+        logger.warning(
+            "StorageManager unavailable (old rag module removed); "
+            "skipping long-term memory manager init."
+        )
+        return None
 
     try:
         storage_manager: StorageManager = system_app.get_component(
@@ -834,7 +894,15 @@ async def create_memory_integration_bundle(
         return None
 
     from derisk.component import ComponentType
-    from derisk_serve.rag.storage_manager import StorageManager
+    # TODO: rewire to new knowledge module (Task #9)
+    try:
+        from derisk_serve.rag.storage_manager import StorageManager
+    except ImportError:
+        logger.warning(
+            "StorageManager unavailable (old rag module removed); "
+            "skipping memory integration bundle."
+        )
+        return None
 
     try:
         storage_manager: StorageManager = system_app.get_component(

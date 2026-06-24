@@ -18,22 +18,29 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import React, { memo, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { transformFileUrl } from "@/utils";
 
 const UserIcon: React.FC = () => {
-  let user: any = {};
-  try {
-    user = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? "{}");
-  } catch (e) {
-    console.error(e);
-  }
+  const [user, setUser] = React.useState<any>({});
+
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_USERINFO_KEY);
+      if (stored) {
+        setUser(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   return (
     <Avatar
-      src={user?.avatar_url}
+      src={user?.avatar_url || undefined}
       className="bg-gradient-to-tr from-[#31afff] to-[#1677ff] cursor-pointer shrink-0"
       size={32}
     >
-      {user?.nick_name}
+      {user?.nick_name?.charAt(0) || "U"}
     </Avatar>
   );
 };
@@ -43,7 +50,7 @@ const AgentIcon: React.FC = () => {
   
   return (
     <Avatar
-      src={appInfo?.icon}
+      src={appInfo?.icon || undefined}
       className="bg-gradient-to-tr from-[#52c41a] to-[#389e0d] cursor-pointer shrink-0"
       size={32}
     >
@@ -277,7 +284,7 @@ const ChatContent: React.FC<{
                         // @ts-ignore
                         img: ({ src, alt, ...props }) => (
                           <img
-                            src={src}
+                            src={transformFileUrl(src || '')}
                             alt={alt || 'image'}
                             className='max-w-full md:max-w-[80%] lg:max-w-[70%] object-contain'
                             style={{ maxHeight: '200px' }}

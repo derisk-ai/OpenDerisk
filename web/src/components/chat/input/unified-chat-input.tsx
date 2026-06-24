@@ -42,7 +42,8 @@ import {
 } from 'antd';
 import { useRequest } from 'ahooks';
 import classNames from 'classnames';
-import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2, getDbList, getSpaceList, getSkillList, getMCPList } from '@/client/api';
+import { apiInterceptors, getModelList, clearChatHistory, stopChat, postChatModeParamsFileLoad, getResourceV2, getDbList, getSkillList, getMCPList } from '@/client/api';
+import { listSpaces } from '@/client/api/knowledge-vault';
 import { ChatContentContext, SelectedSkill } from '@/contexts';
 import ModelIcon from '@/components/icons/model-icon';
 import { IModelData } from '@/types/model';
@@ -379,13 +380,20 @@ const UnifiedChatInput: React.FC<UnifiedChatInputProps> = ({
     }
   }, [dbList.length]);
 
-  // 获取知识库列表（延迟加载）
+  // 获取知识库列表（延迟加载）— 新 vault backend，space 用 slug 标识
   const fetchSpaceList = useCallback(async () => {
     if (spaceList.length > 0) return;
     setSpaceLoading(true);
     try {
-      const [, data] = await apiInterceptors(getSpaceList());
-      if (data) setSpaceList(data);
+      const [, data] = await apiInterceptors(listSpaces());
+      if (data) {
+        // Map new {slug, root} to the legacy shape expected downstream.
+        setSpaceList(data.map((s: { slug: string; root: string }) => ({
+          knowledge_id: s.slug,
+          name: s.slug,
+          desc: s.root,
+        })));
+      }
     } finally {
       setSpaceLoading(false);
     }

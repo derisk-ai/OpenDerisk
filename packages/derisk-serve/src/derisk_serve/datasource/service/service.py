@@ -19,7 +19,12 @@ from derisk_serve.datasource.manages.connect_config_db import (
     ConnectConfigEntity,
 )
 
-from ...rag.storage_manager import StorageManager
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from ...rag.storage_manager import StorageManager  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    StorageManager = None  # type: ignore[assignment]
+
 from ..api.schemas import (
     DatasourceCreateRequest,
     DatasourceQueryResponse,

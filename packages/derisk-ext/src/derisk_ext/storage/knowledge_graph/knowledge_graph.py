@@ -8,13 +8,24 @@ from typing import List, Optional
 
 from derisk.core import Chunk, Embeddings, LLMClient
 from derisk.core.awel.flow import Parameter, ResourceCategory, register_resource
-from derisk.rag.transformer.keyword_extractor import KeywordExtractor
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.transformer.keyword_extractor import KeywordExtractor  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KeywordExtractor = None  # type: ignore[assignment]
+
 from derisk.storage.graph_store.base import GraphStoreBase, GraphStoreConfig
 from derisk.storage.graph_store.graph import Graph
 from derisk.storage.knowledge_graph.base import KnowledgeGraphBase, KnowledgeGraphConfig
 from derisk.storage.vector_store.filters import MetadataFilters
 from derisk.util.i18n_utils import _
-from derisk_ext.rag.transformer.triplet_extractor import TripletExtractor
+
+try:
+    from derisk_ext.rag.transformer.triplet_extractor import TripletExtractor  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    TripletExtractor = None  # type: ignore[assignment]
+
 from derisk_ext.storage.graph_store.factory import GraphStoreFactory
 from derisk_ext.storage.graph_store.tugraph_store import TuGraphStoreConfig
 from derisk_ext.storage.knowledge_graph.community.base import GraphStoreAdapter

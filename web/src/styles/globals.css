@@ -171,11 +171,31 @@ table {
 }
 
 .rc-md-editor {
-  height: inherit;
+  height: 100% !important;
+}
+
+.rc-md-editor .editor-container {
+  height: 100% !important;
 }
 
 .rc-md-editor .editor-container>.section {
   border-right: none !important;
+}
+
+.rc-md-editor .editor-container .section-container {
+  height: 100% !important;
+}
+
+.rc-md-editor .editor-container .section-container .section {
+  height: 100% !important;
+}
+
+.rc-md-editor .editor-container .section-container .section .rc-md-navigation {
+  flex-shrink: 0;
+}
+
+.rc-md-editor .editor-container .section-container .section .rc-md-editor {
+  height: 100% !important;
 }
 .ant-spin-nested-loading .ant-spin-container {
   height: 100% !important;
@@ -194,6 +214,71 @@ table {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 24px;
+}
+
+/* Knowledge Vault: make tab panels fill the sidebar height */
+.kv-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.kv-tabs .ant-tabs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.kv-tabs .ant-tabs-nav {
+  padding: 0 8px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.kv-tabs .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kv-tabs .ant-tabs-content {
+  height: 100%;
+}
+
+.kv-tabs .ant-tabs-tabpane {
+  height: 100%;
+  overflow: hidden;
+}
+
+.kv-tabs .ant-tabs-tabpane > div {
+  height: 100%;
+}
+
+/* Knowledge Vault: compact tree indentation */
+.kv-tree .ant-tree-treenode {
+  padding: 1px 0 !important;
+}
+
+.kv-tree .ant-tree-indent-unit {
+  width: 12px !important;
+}
+
+.kv-tree .ant-tree-node-content-wrapper {
+  padding: 0 2px !important;
+  min-height: 22px !important;
+  line-height: 22px !important;
+}
+
+.kv-tree .ant-tree-switcher {
+  width: 16px !important;
+  line-height: 22px !important;
+}
+
+.kv-tree .ant-tree-iconEle {
+  margin-right: 2px !important;
+}
+
+.kv-tree .ant-tree-title {
+  font-size: 12px;
 }
 
 @media (max-width: 768px) {

@@ -1471,22 +1471,15 @@ orders,customers,products,order_items
             except Exception:
                 pass
 
-        # Try to get LLM client from Config
+        # Try to get LLM client from AIWrapper (reads agent.llm config via
+        # ProviderRegistry + ModelConfigCache).
         if not llm_client:
             try:
-                from derisk.model import DefaultLLMClient
-                from derisk.model.cluster import WorkerManagerFactory
-                from derisk.component import ComponentType
+                from derisk.agent.util.llm.llm_client import AIWrapper
 
-                # Try to get from system app if available
-                system_app = kwargs.get("context", {}).get("system_app") if kwargs.get("context") else None
-                if system_app:
-                    worker_manager = system_app.get_component(
-                        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-                    ).create()
-                    llm_client = DefaultLLMClient(worker_manager, auto_convert_message=True)
+                llm_client = AIWrapper()
             except Exception as e:
-                logger.warning(f"Failed to get LLM client: {e}")
+                logger.warning(f"Failed to create AIWrapper: {e}")
 
         if not llm_client:
             return (
@@ -1496,18 +1489,16 @@ orders,customers,products,order_items
                 f"_关键词搜索: search_tables(db_name='{db_name}', question='{search_context}')_"
             )
 
-        # Call LLM
-        from derisk.core import ModelRequest
-
-        model_request = ModelRequest(
-            model="",  # Use default model
-            messages=[{"role": "user", "content": llm_prompt}],
-            temperature=0.1,  # Low temperature for deterministic output
-        )
-
+        # Call LLM via AIWrapper.create (uses ProviderRegistry under the hood).
         llm_response = ""
-        async for output in llm_client.generate_stream(model_request):
-            llm_response += output.text or ""
+        async for output in llm_client.create(
+            messages=[{"role": "user", "content": llm_prompt}],
+            temperature=0.1,
+            stream_out=True,
+        ):
+            # AIWrapper.create yields AgentLLMOut objects; extract .text.
+            text = getattr(output, "text", None) or str(output)
+            llm_response += text or ""
 
         # Parse LLM response - extract table names
         llm_response = llm_response.strip()

@@ -166,31 +166,6 @@ cli.add_command(quickstart)
 add_command_alias(stop_all, name="all", parent_group=stop)
 
 try:
-    from derisk.model.cli import (
-        _stop_all_model_server,
-        model_cli_group,
-        start_apiserver,
-        start_model_controller,
-        start_model_worker,
-        stop_apiserver,
-        stop_model_controller,
-        stop_model_worker,
-    )
-
-    add_command_alias(model_cli_group, name="model", parent_group=cli)
-    add_command_alias(start_model_controller, name="controller", parent_group=start)
-    add_command_alias(start_model_worker, name="worker", parent_group=start)
-    add_command_alias(start_apiserver, name="apiserver", parent_group=start)
-
-    add_command_alias(stop_model_controller, name="controller", parent_group=stop)
-    add_command_alias(stop_model_worker, name="worker", parent_group=stop)
-    add_command_alias(stop_apiserver, name="apiserver", parent_group=stop)
-    stop_all_func_list.append(_stop_all_model_server)
-
-except ImportError as e:
-    logging.warning(f"Integrating derisk model command line tool failed: {e}")
-
-try:
     from derisk_app._cli import (
         _stop_all_derisk_server,
         migration,

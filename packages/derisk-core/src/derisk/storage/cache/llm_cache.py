@@ -19,7 +19,6 @@ class LLMCacheKeyData:
     temperature: Optional[float] = 0.7
     max_new_tokens: Optional[int] = None
     top_p: Optional[float] = 1.0
-    # See derisk.model.base.ModelType
     model_type: Optional[str] = "huggingface"
 
 

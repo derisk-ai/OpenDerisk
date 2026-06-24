@@ -474,9 +474,9 @@ function SideBar() {
       ...(hasResourceRead('knowledge') ? [{
         key: 'knowledge',
         name: t('knowledge_base'),
-        isActive: pathname.startsWith('/knowledge'),
+        isActive: pathname.startsWith('/knowledge-vault'),
         icon: <BookOutlined className='w-5 h-5 text-gray-500' />,
-        path: '/knowledge',
+        path: '/knowledge-vault',
       }] : []),
       // agent_skills requires tool:read
       ...(hasResourceRead('tool') ? [{
@@ -590,7 +590,7 @@ function SideBar() {
         icon: <AppstoreOutlined className='w-5 h-5 text-gray-500' />,
         path: '/',
         children: applicationChildren,
-        isActive: pathname.startsWith('/application') || pathname.startsWith('/agent-skills') || pathname.startsWith('/mcp') || pathname.startsWith('/database') || pathname.startsWith('/knowledge'),
+        isActive: pathname.startsWith('/application') || pathname.startsWith('/agent-skills') || pathname.startsWith('/mcp') || pathname.startsWith('/database') || pathname.startsWith('/knowledge-vault'),
       }] : []),
       // Only show configuration management if there are visible children
       ...(configChildren.length > 0 ? [{

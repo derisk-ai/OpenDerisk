@@ -58,7 +58,8 @@ def _build_embedding_fn(app_config):
     if not api_url:
         return None
 
-    from derisk.rag.embedding.embeddings import OpenAPIEmbeddings
+    # TODO: rewire to new knowledge module (Task #9)
+    from derisk.rag.embedding.embeddings import OpenAPIEmbeddings  # type: ignore
 
     logger.info(
         "Building OpenAPIEmbeddings: model=%s url=%s", model_name, api_url

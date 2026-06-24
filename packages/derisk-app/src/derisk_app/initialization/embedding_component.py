@@ -4,12 +4,22 @@ import logging
 import threading
 from typing import Any, List, Optional, Type
 
-from derisk.component import ComponentType, SystemApp
+from derisk.component import BaseComponent, SystemApp
 from derisk.core import Embeddings, RerankEmbeddings
-from derisk.rag.embedding.embedding_factory import (
-    EmbeddingFactory,
-    RerankEmbeddingFactory,
-)
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.embedding.embedding_factory import (  # type: ignore
+        EmbeddingFactory,
+        RerankEmbeddingFactory,
+    )
+except ImportError:  # pragma: no cover - rag module removed
+    # Fall back to BaseComponent so the factories still satisfy the Component
+    # protocol (name attribute, init_app lifecycle) when derisk.rag is absent.
+    EmbeddingFactory = BaseComponent  # type: ignore[assignment,misc]
+    RerankEmbeddingFactory = BaseComponent  # type: ignore[assignment,misc]
+
+from .proxy_embedding import ProxyEmbeddings, ProxyRerankEmbeddings
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +29,11 @@ class EmbeddingModelRegistry:
 
     This is the single source of truth for "which embedding models exist and
     which one is the default", independent of how a model was added — at
-    startup from config, or at runtime by deploying a worker via the model
-    management page.
+    startup from config, or at runtime by registering a provider config.
 
     The ``RemoteEmbeddingFactory`` resolves its model name from this registry
-    at ``create()`` time, so newly-deployed embedding models become usable by
-    the RAG / memory subsystems without restarting the server or
+    at ``create()`` time, so newly-registered embedding models become usable
+    by the RAG / memory subsystems without restarting the server or
     re-registering the ``embedding_factory`` component.
 
     "Default = first added" semantics: the default is the first model added,
@@ -90,6 +99,29 @@ def get_embedding_registry() -> EmbeddingModelRegistry:
     return _embedding_registry
 
 
+def _resolve_embedding_config(model_name: str):
+    """Look up an ``EmbeddingModelConfig`` by name from AppConfig.
+
+    Returns ``None`` if not found. Imports are lazy so this module can be
+    loaded before the config system is ready.
+    """
+    try:
+        from derisk._private.config import Config
+
+        system_app = Config().SYSTEM_APP
+        if not system_app or not system_app.config:
+            return None
+        app_config = system_app.config.configs.get("app_config")
+        if not app_config:
+            return None
+        for emb in getattr(app_config, "embeddings", None) or []:
+            if getattr(emb, "name", None) == model_name:
+                return emb
+    except Exception as e:
+        logger.debug(f"Resolve embedding config failed: {e}")
+    return None
+
+
 def _initialize_embedding_model(
     system_app: SystemApp,
     default_embedding_name: Optional[str] = None,
@@ -106,8 +138,8 @@ def _initialize_embedding_model(
     if not system_app.get_component(
         "embedding_factory", EmbeddingFactory, default_component=None
     ):
-        logger.info("Register RemoteEmbeddingFactory (dynamic default)")
-        system_app.register(RemoteEmbeddingFactory)
+        logger.info("Register ProxyEmbeddingFactory (dynamic default)")
+        system_app.register(ProxyEmbeddingFactory)
 
 
 def _initialize_rerank_model(
@@ -115,13 +147,20 @@ def _initialize_rerank_model(
     default_rerank_model_name: Optional[str] = None,
 ):
     if default_rerank_model_name:
-        logger.info("Register remote RemoteRerankEmbeddingFactory")
+        logger.info("Register ProxyRerankEmbeddingFactory")
         system_app.register(
-            RemoteRerankEmbeddingFactory, model_name=default_rerank_model_name
+            ProxyRerankEmbeddingFactory, model_name=default_rerank_model_name
         )
 
 
-class RemoteEmbeddingFactory(EmbeddingFactory):
+class ProxyEmbeddingFactory(EmbeddingFactory):
+    """Factory that produces ``ProxyEmbeddings`` from config.
+
+    Resolves the current default model from ``EmbeddingModelRegistry`` at
+    ``create()`` time and looks up its ``EmbeddingModelConfig`` from
+    ``AppConfig.embeddings`` to construct a ``ProxyEmbeddings``.
+    """
+
     def __init__(self, system_app, model_name: str = None, **kwargs: Any) -> None:
         super().__init__(system_app=system_app)
         # Optional seed default; the registry is authoritative.
@@ -137,27 +176,26 @@ class RemoteEmbeddingFactory(EmbeddingFactory):
     def create(
         self, model_name: str = None, embedding_cls: Type = None
     ) -> "Embeddings":
-        from derisk.model.cluster import WorkerManagerFactory
-        from derisk.model.cluster.embedding.remote_embedding import RemoteEmbeddings
-
         if embedding_cls:
             raise NotImplementedError
-        # Explicit model_name (e.g. per knowledge-space) wins; otherwise resolve
-        # the current default from the registry at call time.
         resolved = model_name or _embedding_registry.get_default()
         if not resolved:
             raise ValueError(
                 "No embedding model available. Add a text2vec (embedding) model "
-                "on the model management page (/models) before using knowledge "
-                "bases or memory."
+                "in Config -> Embeddings before using knowledge bases or memory."
             )
-        worker_manager = self.system_app.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        return RemoteEmbeddings(resolved, worker_manager)
+        config = _resolve_embedding_config(resolved)
+        if config is None:
+            raise ValueError(
+                f"Embedding model '{resolved}' is registered but has no "
+                f"EmbeddingModelConfig entry in AppConfig.embeddings."
+            )
+        return ProxyEmbeddings(config)
 
 
-class RemoteRerankEmbeddingFactory(RerankEmbeddingFactory):
+class ProxyRerankEmbeddingFactory(RerankEmbeddingFactory):
+    """Factory that produces ``ProxyRerankEmbeddings`` from config."""
+
     def __init__(self, system_app, model_name: str = None, **kwargs: Any) -> None:
         super().__init__(system_app=system_app)
         self._default_model_name = model_name
@@ -170,16 +208,18 @@ class RemoteRerankEmbeddingFactory(RerankEmbeddingFactory):
     def create(
         self, model_name: str = None, embedding_cls: Type = None
     ) -> "RerankEmbeddings":
-        from derisk.model.cluster import WorkerManagerFactory
-        from derisk.model.cluster.embedding.remote_embedding import (
-            RemoteRerankEmbeddings,
-        )
-
         if embedding_cls:
             raise NotImplementedError
-        worker_manager = self.system_app.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        return RemoteRerankEmbeddings(
-            model_name or self._default_model_name, worker_manager
-        )
+        resolved = model_name or self._default_model_name
+        if not resolved:
+            raise ValueError(
+                "No rerank model configured. Add a rerank model in Config -> "
+                "Embeddings before using rerank."
+            )
+        config = _resolve_embedding_config(resolved)
+        if config is None:
+            raise ValueError(
+                f"Rerank model '{resolved}' is registered but has no "
+                f"EmbeddingModelConfig entry in AppConfig.embeddings."
+            )
+        return ProxyRerankEmbeddings(config)

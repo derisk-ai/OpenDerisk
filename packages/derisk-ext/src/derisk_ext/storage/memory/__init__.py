@@ -1,21 +1,13 @@
 """Memory store implementations."""
 
-# SimpleSQLiteMemoryStore - always available (no external dependencies)
+# SimpleSQLiteMemoryStore - always available (no external dependencies).
+# This is the default short-term memory backend. Long-term plan is to
+# route agent conversation fragments as L0 verbats with
+# extract_mode="convo" into a designated knowledge space (RFC 001 §3.3).
 from derisk_ext.storage.memory.simple_sqlite_store import (  # noqa: F401
     SimpleSQLiteMemoryConfig,
     SimpleSQLiteMemoryStore,
 )
-
-# MemPalaceMemoryStore - requires mempalace>=3.3.0
-try:
-    from derisk_ext.storage.memory.mempalace_store import (  # noqa: F401
-        MemPalaceMemoryConfig,
-        MemPalaceMemoryStore,
-    )
-except ImportError:
-    # MemPalace not installed, will use SimpleSQLite fallback
-    MemPalaceMemoryConfig = None  # type: ignore
-    MemPalaceMemoryStore = None  # type: ignore
 
 # LettaMemoryStore - requires Letta backend
 try:
@@ -30,8 +22,6 @@ except ImportError:
 __all__ = [
     "SimpleSQLiteMemoryConfig",
     "SimpleSQLiteMemoryStore",
-    "MemPalaceMemoryConfig",
-    "MemPalaceMemoryStore",
     "LettaMemoryStore",
     "LettaMemoryConfig",
 ]

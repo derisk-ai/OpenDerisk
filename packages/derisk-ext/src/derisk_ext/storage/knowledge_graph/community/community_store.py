@@ -5,7 +5,13 @@ import logging
 from typing import List, Optional
 
 from derisk.storage.vector_store.base import VectorStoreBase
-from derisk_ext.rag.transformer.community_summarizer import CommunitySummarizer
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_ext.rag.transformer.community_summarizer import CommunitySummarizer  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    CommunitySummarizer = None  # type: ignore[assignment]
+
 from derisk_ext.storage.knowledge_graph.community.base import (
     Community,
     GraphStoreAdapter,

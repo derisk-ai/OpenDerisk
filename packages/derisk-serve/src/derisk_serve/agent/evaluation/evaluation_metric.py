@@ -8,12 +8,20 @@ from derisk.core.interface.evaluation import (
     EvaluationMetric,
     metric_manage,
 )
-from derisk.rag.evaluation.answer import AnswerRelevancyMetric
-from derisk.rag.evaluation.retriever import (
-    RetrieverHitRateMetric,
-    RetrieverMRRMetric,
-    RetrieverSimilarityMetric,
-)
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.evaluation.answer import AnswerRelevancyMetric  # type: ignore
+    from derisk.rag.evaluation.retriever import (  # type: ignore
+        RetrieverHitRateMetric,
+        RetrieverMRRMetric,
+        RetrieverSimilarityMetric,
+    )
+except ImportError:  # pragma: no cover - rag module removed
+    AnswerRelevancyMetric = None  # type: ignore[assignment]
+    RetrieverHitRateMetric = None  # type: ignore[assignment]
+    RetrieverMRRMetric = None  # type: ignore[assignment]
+    RetrieverSimilarityMetric = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +130,12 @@ class IntentMetric(EvaluationMetric[str, str], ABC):
         )
 
 
-metric_manage.register_metric(RetrieverHitRateMetric)
-metric_manage.register_metric(RetrieverMRRMetric)
-metric_manage.register_metric(RetrieverSimilarityMetric)
-metric_manage.register_metric(AnswerRelevancyMetric)
+# TODO: rewire to new knowledge module (Task #9)
+if RetrieverHitRateMetric is not None:
+    metric_manage.register_metric(RetrieverHitRateMetric)
+if RetrieverMRRMetric is not None:
+    metric_manage.register_metric(RetrieverMRRMetric)
+if RetrieverSimilarityMetric is not None:
+    metric_manage.register_metric(RetrieverSimilarityMetric)
+if AnswerRelevancyMetric is not None:
+    metric_manage.register_metric(AnswerRelevancyMetric)

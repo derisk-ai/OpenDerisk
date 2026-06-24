@@ -186,6 +186,7 @@ class RDBMSConnectorResource(DBResource[DBParameters]):
         self, db: str, question: Optional[str] = None
     ) -> Union[str, List[str]]:
         """Return the schema link of the database."""
+        # TODO: rewire to new knowledge module (Task #9)
         from derisk_ext.rag.summary.rdbms_db_summary import _parse_db_summary
 
         return _parse_db_summary(self.connector)

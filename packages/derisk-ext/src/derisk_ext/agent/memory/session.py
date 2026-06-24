@@ -15,7 +15,12 @@ from derisk.storage.vector_store.filters import MetadataFilters, MetadataFilter
 from derisk.util.annotations import mutable
 from derisk.util.id_generator import new_id
 from derisk.util.string_utils import determine
-from derisk_ext.rag.transformer.memory_extractor import MemoryCondenseExtractor
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_ext.rag.transformer.memory_extractor import MemoryCondenseExtractor  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    MemoryCondenseExtractor = None  # type: ignore[assignment]
 
 _FORGET_PLACEHOLDER = "[FORGET]"
 _MERGE_PLACEHOLDER = "[MERGE]"

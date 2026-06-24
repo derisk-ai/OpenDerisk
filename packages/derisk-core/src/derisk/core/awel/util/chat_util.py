@@ -141,50 +141,34 @@ async def chat_stream_with_dag_task(
                 error_code=1, text=simple_error_msg, incremental=incremental
             )
     else:
-        from derisk.model.utils.chatgpt_utils import OpenAIStreamingOutputOperator
-
-        if OpenAIStreamingOutputOperator and isinstance(
-            task, OpenAIStreamingOutputOperator
-        ):
-            full_text = ""
-            async for output in await task.call_stream(request):
-                model_output = parse_openai_output(output)
-                # The output of the OpenAI streaming API is incremental
+        full_text = ""
+        previous_text = ""
+        async for output in await task.call_stream(request):
+            model_output = parse_single_output(
+                output, is_sse, covert_to_str=covert_to_str
+            )
+            model_output.incremental = incremental
+            if task.incremental_output:
+                # Output is incremental, append the text
                 full_text += model_output.text
-                model_output.incremental = incremental
-                model_output.text = model_output.text if incremental else full_text
-                yield model_output
-                if not model_output.success:
-                    break
-        else:
-            full_text = ""
-            previous_text = ""
-            async for output in await task.call_stream(request):
-                model_output = parse_single_output(
-                    output, is_sse, covert_to_str=covert_to_str
+            else:
+                # Output is not incremental, last output is the full text
+                full_text = model_output.text
+            if not incremental:
+                # Return the full text
+                model_output.text = full_text
+            else:
+                # Return the incremental text
+                delta_text = full_text[len(previous_text) :]
+                previous_text = (
+                    full_text
+                    if len(full_text) > len(previous_text)
+                    else previous_text
                 )
-                model_output.incremental = incremental
-                if task.incremental_output:
-                    # Output is incremental, append the text
-                    full_text += model_output.text
-                else:
-                    # Output is not incremental, last output is the full text
-                    full_text = model_output.text
-                if not incremental:
-                    # Return the full text
-                    model_output.text = full_text
-                else:
-                    # Return the incremental text
-                    delta_text = full_text[len(previous_text) :]
-                    previous_text = (
-                        full_text
-                        if len(full_text) > len(previous_text)
-                        else previous_text
-                    )
-                    model_output.text = delta_text
-                yield model_output
-                if not model_output.success:
-                    break
+                model_output.text = delta_text
+            yield model_output
+            if not model_output.success:
+                break
 
 
 def parse_single_output(

@@ -11,7 +11,7 @@ import DoneIcon from './done-icon';
 import FileDone from './file-done';
 import FileError from './file-error';
 import FileSync from './file-sync';
-import Knowledge from './knowledge';
+// TODO: rewire to new knowledge-vault page — Knowledge icon removed.
 import ModelSvg from './model-svg';
 import PendingIcon from './pending-icon';
 import StarsSvg from './stars-svg';
@@ -34,7 +34,7 @@ export {
   FileDone,
   FileError,
   FileSync,
-  Knowledge,
+  // TODO: rewire to new knowledge-vault page — Knowledge icon removed.
   ModelSvg,
   PendingIcon,
   StarsSvg,

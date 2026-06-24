@@ -3,6 +3,7 @@
 import dataclasses
 import hashlib
 import io
+import ipaddress
 import logging
 import os
 import uuid
@@ -959,6 +960,24 @@ class SimpleDistributedStorage(StorageBackend):
             except Exception:
                 return False
 
+    @staticmethod
+    def _is_public_host(host: str) -> bool:
+        """Return True if host looks like a public hostname/IP."""
+        if not host:
+            return False
+        host = host.strip().lower()
+        if host in ("localhost", "0.0.0.0"):
+            return False
+        try:
+            addr = ipaddress.ip_address(host)
+            # Any IP address (public or private) is usable as long as it is not
+            # loopback/link-local. Private RFC1918 IPs may be valid in intranet
+            # deployments, so we only reject clearly non-routable addresses.
+            return not (addr.is_loopback or addr.is_link_local or addr.is_unspecified)
+        except ValueError:
+            # Not an IP address -> treat as a hostname/domain name (public enough)
+            return True
+
     def get_public_url(
         self,
         fm: FileMetadata,
@@ -979,8 +998,17 @@ class SimpleDistributedStorage(StorageBackend):
         bucket = fm.bucket
         node_address = self._parse_node_address(fm)
 
-        # Construct HTTP URL
-        url = f"http://{node_address}{self._api_prefix}/{bucket}/{file_id}"
+        host, _sep, _port = node_address.partition(":")
+        public_host = self._is_public_host(host)
+
+        # Construct URL. For non-public bind addresses (e.g. 0.0.0.0, localhost),
+        # return a relative URL so the browser uses whatever host it is currently
+        # accessing. This avoids broken absolute URLs like http://0.0.0.0:7777
+        # when the service is deployed behind a reverse proxy or on a remote host.
+        if public_host:
+            url = f"http://{node_address}{self._api_prefix}/{bucket}/{file_id}"
+        else:
+            url = f"{self._api_prefix}/{bucket}/{file_id}"
 
         # Add query parameters from metadata and params
         query_params = {}

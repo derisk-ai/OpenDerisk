@@ -300,29 +300,73 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
 
                 case AppParamType.Model:
                     types = set()
-                    from derisk.model.cluster import BaseModelController
-
-                    controller = CFG.SYSTEM_APP.get_component(
-                        ComponentType.MODEL_CONTROLLER, BaseModelController
-                    )
-                    models = await controller.get_all_instances(healthy_only=True)
                     model_select_list = []
-                    for model in models:
-                        worker_name, worker_type = model.model_name.split("@")
-                        if worker_type == "llm" and worker_name not in [
-                            "codegpt_proxyllm",
-                            "text2sql_proxyllm",
-                        ]:
-                            types.add(worker_name)
-                            model_select_list.append(
-                                {
-                                    "label": f"{worker_name}[{worker_type}]",
-                                    "key": worker_name,
-                                    "value": worker_name,
-                                }
-                            )
+
+                    if CFG.SYSTEM_APP and CFG.SYSTEM_APP.config:
+                        agent_llm_conf = CFG.SYSTEM_APP.config.get("agent.llm")
+                        if not agent_llm_conf:
+                            agent_conf = CFG.SYSTEM_APP.config.get("agent")
+                            if isinstance(agent_conf, dict):
+                                agent_llm_conf = agent_conf.get("llm")
+
+                        if agent_llm_conf and isinstance(
+                            agent_llm_conf.get("provider"), list
+                        ):
+                            for p_conf in agent_llm_conf.get("provider"):
+                                if isinstance(p_conf, dict) and "model" in p_conf:
+                                    p_models = p_conf.get("model")
+                                    if isinstance(p_models, list):
+                                        for m in p_models:
+                                            if isinstance(m, dict) and "name" in m:
+                                                worker_name = m.get("name")
+                                                if worker_name not in [
+                                                    "codegpt_proxyllm",
+                                                    "text2sql_proxyllm",
+                                                ]:
+                                                    types.add(worker_name)
+                                                    model_select_list.append(
+                                                        {
+                                                            "label": f"{worker_name}[llm]",
+                                                            "key": worker_name,
+                                                            "value": worker_name,
+                                                        }
+                                                    )
+
+                        if agent_llm_conf and isinstance(
+                            agent_llm_conf.get("models"), list
+                        ):
+                            for m in agent_llm_conf.get("models"):
+                                if isinstance(m, dict) and "model" in m:
+                                    worker_name = m.get("model")
+                                    if worker_name not in [
+                                        "codegpt_proxyllm",
+                                        "text2sql_proxyllm",
+                                    ]:
+                                        types.add(worker_name)
+                                        model_select_list.append(
+                                            {
+                                                "label": f"{worker_name}[llm]",
+                                                "key": worker_name,
+                                                "value": worker_name,
+                                            }
+                                        )
+                        elif agent_llm_conf and agent_llm_conf.get("model"):
+                            worker_name = agent_llm_conf.get("model")
+                            if worker_name not in [
+                                "codegpt_proxyllm",
+                                "text2sql_proxyllm",
+                            ]:
+                                types.add(worker_name)
+                                model_select_list.append(
+                                    {
+                                        "label": f"{worker_name}[llm]",
+                                        "key": worker_name,
+                                        "value": worker_name,
+                                    }
+                                )
+
                     item.param_type_options = model_select_list
-                    if item.param_default_value == "index(1)":
+                    if item.param_default_value == "index(1)" and len(model_select_list) > 1:
                         item.param_default_value = model_select_list[1]
                 case _:
                     pass

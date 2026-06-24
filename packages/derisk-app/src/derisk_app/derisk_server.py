@@ -76,7 +76,51 @@ def run_uvicorn(creator: AppCreator):
 
 
 def run_webserver(config_file: str = None):
+    """启动 Web 服务器。
+
+    Args:
+        config_file: TOML 配置文件路径（可选）。如果不指定，使用零配置模式。
+
+    启动流程：
+    1. 初始化 JSON 配置管理器（~/.derisk/derisk.json）
+    2. 加载 TOML 配置（可选）
+    3. 启动 uvicorn 服务
+    """
     init_json_config_manager()
+
+    # 记录 JSON 配置状态
+    try:
+        from derisk_core.config import ConfigManager
+        import os as _os
+
+        config_path = ConfigManager.get_config_path()
+        logger.info(f"[Startup] JSON config path: {config_path}")
+
+        if config_path and _os.path.exists(config_path):
+            cfg = ConfigManager.get()
+            if cfg:
+                agent_llm = getattr(cfg, "agent_llm", None)
+                if agent_llm:
+                    providers = (
+                        agent_llm.providers
+                        if hasattr(agent_llm, "providers")
+                        else []
+                    )
+                    models_count = 0
+                    for p in providers:
+                        if hasattr(p, "models"):
+                            models_count += len(p.models)
+                    logger.info(
+                        f"[Startup] agent_llm found: {len(providers)} providers, {models_count} models"
+                    )
+                else:
+                    logger.info("[Startup] No agent_llm in JSON config")
+            else:
+                logger.warning("[Startup] ConfigManager.get() returned None")
+        else:
+            logger.warning(f"[Startup] JSON config file not found: {config_path}")
+    except Exception as e:
+        logger.warning(f"[Startup] Failed to log config status: {e}")
 
     if config_file is None:
         creator = CustomAppCreator(config_file)

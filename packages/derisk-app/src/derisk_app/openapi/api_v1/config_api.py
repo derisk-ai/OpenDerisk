@@ -240,7 +240,8 @@ def _invalidate_embedding_caches() -> None:
     picked up immediately by subsequently created knowledge spaces / memory."""
     try:
         from derisk.component import SystemApp
-        from derisk_serve.rag.storage_manager import StorageManager
+        # TODO: rewire to new knowledge module (Task #9)
+        from derisk_serve.rag.storage_manager import StorageManager  # type: ignore
 
         system_app = SystemApp.get_instance()
         if not system_app:
@@ -1860,7 +1861,7 @@ async def get_memory_storage_config():
     memory_cfg = getattr(config.rag.storage, "memory", None)
     if memory_cfg is None:
         return JSONResponse(content={"success": True, "data": {
-            "type": "mempalace", "enable_kg": True,
+            "type": "simple_sqlite", "enable_kg": True,
             "use_builtin_embedding": False, "auto_memory": True,
             "auto_memory_top_k": 5, "auto_memory_max_distance": 0.4,
         }})
@@ -1898,3 +1899,79 @@ async def update_memory_storage_config(request: Dict[str, Any]):
         })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/startup-status")
+async def get_startup_status():
+    """获取启动状态信息，用于验证模型配置是否正确加载。
+
+    返回:
+        - config_path: JSON 配置文件路径
+        - agent_llm_present: 是否有 agent_llm 配置
+        - config_models: 配置文件中的模型列表
+        - cache_models: ModelConfigCache 中的模型列表
+        - is_synced: 配置和缓存是否同步
+        - warning: 如果有问题，提供警告信息
+    """
+    try:
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+        from derisk_core.config import ConfigManager
+
+        manager = get_config_manager()
+        config = manager.get()
+        config_path = manager.get_config_path()
+
+        # 检查 JSON 配置中的 agent_llm
+        agent_llm = getattr(config, "agent_llm", None)
+        config_models = []
+        if agent_llm:
+            providers = (
+                agent_llm.providers if hasattr(agent_llm, "providers") else []
+            )
+            for p in providers:
+                if hasattr(p, "provider"):
+                    provider_name = p.provider
+                    models = p.models if hasattr(p, "models") else []
+                    for m in models:
+                        if hasattr(m, "name"):
+                            config_models.append(f"{provider_name}/{m.name}")
+
+        # 检查 ModelConfigCache
+        cached_models = ModelConfigCache.get_all_models()
+        cached_model_keys = ModelConfigCache.get_all_model_keys()
+
+        # 检查同步状态
+        is_synced = set(config_models) == set(cached_model_keys)
+
+        status = {
+            "config_path": config_path,
+            "agent_llm_present": agent_llm is not None,
+            "config_models_count": len(config_models),
+            "config_models": config_models,
+            "cache_models_count": len(cached_models),
+            "cache_models": cached_models,
+            "cache_model_keys": cached_model_keys,
+            "is_synced": is_synced,
+        }
+
+        # 添加警告信息
+        if not cached_models and config_models:
+            status["warning"] = (
+                "Config has models but ModelConfigCache is empty. "
+                "Call /api/v1/config/refresh-model-cache to sync."
+            )
+        elif cached_models and not config_models:
+            status["warning"] = (
+                "ModelConfigCache has models but config file does not. "
+                "This may indicate a stale cache. Call /api/v1/config/reload to refresh."
+            )
+        elif not is_synced:
+            status["warning"] = (
+                "Config and cache are not synchronized. "
+                f"Config has {len(config_models)} models, cache has {len(cached_models)} models."
+            )
+
+        return JSONResponse(content={"success": True, "data": status})
+    except Exception as e:
+        logger.exception("Failed to get startup status")
+        raise HTTPException(status_code=500, detail=str(e))

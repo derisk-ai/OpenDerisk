@@ -1,0 +1,97 @@
+# ============================================================
+# OpenDerisk 知识库分布式后端配置范例 (DistributedVaultFS)
+# ============================================================
+# 启用后，可以通过 API 创建 backend="distributed" 的知识空间，
+# 元数据存到关系数据库，blob 存到 S3，向量存到 pgvector。
+#
+# 三种典型部署形态：
+#
+# 1) 单库模式 (Postgres 一库通吃) — 最简，推荐入门
+#    [service.web.database] 配 Postgres，启用 pgvector 扩展即可。
+#
+# 2) 分库模式 (MySQL 关系 + Postgres pgvector 向量)
+#    [service.web.database] 配 MySQL，下面显式给 vector_dsn 指向 Postgres。
+#
+# 3) S3 独立桶
+#    默认复用 [knowledge] uploads_bucket；要独立桶就在下面设 s3_bucket。
+# ============================================================
+
+[system]
+language = "${env:DERISK_LANG:-zh}"
+api_keys = []
+encrypt_key = "${env:ENCRYPT_KEY:-your_secret_key_change_in_production}"
+
+# ---------- 应用数据库 (复用为分布式关系库) ----------
+[service.web]
+host = "0.0.0.0"
+port = "${env:WEB_SERVER_PORT:-7777}"
+
+# 单库模式：直接配 Postgres，配合 pgvector 扩展即可同时承担关系 + 向量
+[service.web.database]
+type = "postgresql"
+host = "${env:PG_HOST:-localhost}"
+port = "${env:PG_PORT:-5432}"
+user = "${env:PG_USER:-derisk}"
+password = "${env:PG_PASSWORD:-derisk}"
+database = "${env:PG_DB:-derisk}"
+
+# 分库模式示例 (取消注释切换)：
+# [service.web.database]
+# type = "mysql"
+# host = "${env:MYSQL_HOST:-localhost}"
+# port = "${env:MYSQL_PORT:-3306}"
+# user = "${env:MYSQL_USER:-root}"
+# password = "${env:MYSQL_PASSWORD:-}"
+# database = "${env:MYSQL_DB:-derisk}"
+
+# ---------- S3 / OSS / MinIO 后端 ----------
+# FileStorageClient 默认从 [[serves.backends]] 读取 storage_type；
+# 这里以 MinIO 为例 (S3 兼容)。
+[[serves.backends]]
+type = "s3"
+bucket = "${env:KS_BUCKET:-knowledge-distributed}"
+# AWS S3:
+# endpoint = "https://s3.us-east-1.amazonaws.com"
+# region = "us-east-1"
+# MinIO:
+endpoint = "${env:S3_ENDPOINT:-http://localhost:9000}"
+access_key = "${env:S3_ACCESS_KEY:-minioadmin}"
+secret_key = "${env:S3_SECRET_KEY:-minioadmin}"
+
+# ---------- 知识库 Serve 配置 ----------
+[knowledge]
+local_root = "~/.derisk/spaces"
+uploads_bucket = "${env:KS_BUCKET:-knowledge-distributed}"
+
+# 启用分布式后端 — 仅需 enabled = true，其余字段全部可选
+[knowledge.distributed]
+enabled = true
+
+# 向量存储类型：pgvector | milvus | chroma | lance
+# 默认 pgvector。切换向量库只需改这一行 + 配置对应字段。
+vector_store_type = "pgvector"
+
+# ---- pgvector 专用 ----
+# vector_dsn 留空 = 复用 [service.web.database] (单库模式)
+# 单库模式下 [service.web.database] 必须是 Postgres + pgvector 扩展
+# 分库模式 (关系是 MySQL 时) 在这里显式指定 Postgres pgvector DSN：
+# vector_dsn = "postgresql+asyncpg://derisk:derisk@localhost:5432/derisk_vector"
+
+# ---- milvus 专用 ----
+# vector_store_type = "milvus"
+# milvus_uri = "localhost:19530"
+# milvus_collection_prefix = "ks_"
+
+# ---- chroma 专用 (server 模式；嵌入式本地模式在多进程下不安全) ----
+# vector_store_type = "chroma"
+# chroma_uri = "http://localhost:8000"
+
+# ---- lance 专用 (S3-backed LanceDB，多进程共享) ----
+# vector_store_type = "lance"
+# lance_s3_uri = "s3://knowledge-distributed/knowledge-vectors"
+
+# S3 桶 — 留空 = 复用上面的 [knowledge] uploads_bucket
+# s3_bucket = "my-separate-bucket"
+
+# FileStorageClient 存储类型 — 留空 = 用 [[serves.backends]] 配置的默认值
+# s3_storage_type = "s3"

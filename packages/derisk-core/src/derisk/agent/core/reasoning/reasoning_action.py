@@ -25,7 +25,12 @@ from derisk.vis.schema import VisStepContent
 from derisk_serve.agent.resource.knowledge_pack import KnowledgePackSearchResource, \
     KnowledgeActionOperation
 from ... import GptsMemory, AgentResource, ConversableAgent, ResourceType, Resource
-from derisk_serve.rag.api.schemas import KnowledgeSearchResponse
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk_serve.rag.api.schemas import KnowledgeSearchResponse  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeSearchResponse = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 

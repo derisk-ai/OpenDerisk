@@ -19,10 +19,6 @@ dependencies = [
     "pyparsing",
     "aiosqlite",
     "bcrypt>=4.0.0",
-    # Memory store backend — required for the agent long-term memory feature
-    # (knowledge "记忆存储" spaces). Kept as a default dependency so that
-    # `uv sync` never strips it (which silently breaks memory write/read).
-    "mempalace>=3.3.0",
 ]
 
 [project.urls]

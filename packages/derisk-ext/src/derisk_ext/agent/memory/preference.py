@@ -563,6 +563,7 @@ class PreferenceMemory(LongTermMemory):
                 retrieved_memories.sort(key=lambda x: x.importance)
                 retrieved_memories.pop(0)
             elif discard_strategy == DiscardStrategy.CONDENSE.value:
+                # TODO: rewire to new knowledge module (Task #9)
                 from derisk_ext.rag.transformer.memory_extractor import \
                     MemoryCondenseExtractor
                 memory_extractor = MemoryCondenseExtractor(

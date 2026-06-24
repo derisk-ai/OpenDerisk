@@ -1,14 +1,14 @@
 """Memory store base class.
 
 Defines the abstract interface for pluggable memory storage providers.
-Any third-party memory system (MemPalace, custom, etc.) only needs to
-implement MemoryStoreBase to integrate with OpenDerisk's knowledge and
-agent pipeline.
+Any third-party memory system (custom, etc.) only needs to implement
+MemoryStoreBase to integrate with OpenDerisk's knowledge and agent
+pipeline.
 
 Architecture:
     IndexStoreBase (core storage interface)
         └── MemoryStoreBase (adds memory-specific ops)
-                ├── MemPalaceMemoryStore (mempalace provider)
+                ├── SimpleSQLiteMemoryStore (default)
                 └── ... (other providers)
 """
 

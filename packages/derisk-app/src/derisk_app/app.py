@@ -36,7 +36,6 @@ from derisk.util.i18n_utils import _
 from derisk.util.i18n_utils import set_default_language
 from derisk.util.tracer import initialize_tracer
 from derisk_app.base import (
-    _create_model_start_listener,
     _migration_db_storage,
     server_init,
 )
@@ -54,14 +53,11 @@ logger = logging.getLogger(__name__)
 
 
 def scan_configs():
-    from derisk.model import scan_model_providers
     from derisk_app.initialization.serve_initialization import scan_serve_configs
     from derisk_ext.storage import scan_storage_configs
     from derisk_serve.datasource.manages.connector_manager import ConnectorManager
 
     ConnectorManager.pkg_import()
-    # Register all model providers
-    scan_model_providers()
     # Register all serve configs
     scan_serve_configs()
     # Register all storage configs
@@ -71,10 +67,6 @@ def scan_configs():
 def load_config(config_file: str = None) -> ApplicationConfig:
     from derisk.configs.model_config import ROOT_PATH as DERISK_ROOT_PATH
     from derisk_ext.datasource.rdbms.conn_sqlite import SQLiteConnectorParameters
-    from derisk.model.parameter import (
-        ModelWorkerParameters,
-        ModelServiceConfig,
-    )
     from derisk.storage.cache.manager import ModelCacheParameters
     from derisk.util.tracer import TracerParameters
     from derisk.util.logger import LoggingParameters
@@ -122,9 +114,6 @@ def load_config(config_file: str = None) -> ApplicationConfig:
                         max_memory_mb=256,
                     ),
                 ),
-                model=ModelServiceConfig(
-                    worker=ModelWorkerParameters(host="127.0.0.1", port=8001),
-                ),
             ),
             trace=TracerParameters(),
             log=LoggingParameters(),
@@ -157,15 +146,32 @@ def load_config(config_file: str = None) -> ApplicationConfig:
 
 def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     """Lazy import to avoid high time cost"""
-    from derisk_app.knowledge.api import router as knowledge_router
+    # TODO: rewire to new knowledge module (Task #9)
+    knowledge_router = None
+    try:
+        from derisk_app.knowledge.api import router as knowledge_router  # type: ignore
+    except ImportError:
+        pass
     from derisk_app.openapi.api_v1.api_v1 import router as api_v1
     from derisk_app.openapi.api_v1.feedback.api_fb_v1 import router as api_fb_v1
     from derisk_app.openapi.api_v2.api_v2 import router as api_v2
+    from derisk_app.openapi.api_v2.model_api import router as model_api_router
 
     app.include_router(api_v1, prefix="/api", tags=["Chat"])
     app.include_router(api_v2, prefix="/api", tags=["ChatV2"])
     app.include_router(api_fb_v1, prefix="/api", tags=["FeedBack"])
-    app.include_router(knowledge_router, tags=["Knowledge"])
+    if knowledge_router is not None:
+        app.include_router(knowledge_router, tags=["Knowledge"])
+
+    # Compatibility model-management endpoints used by the web UI.
+    # The legacy cluster-based ModelServe module was removed; these endpoints
+    # return the configured AgentLLM provider models instead.
+    app.include_router(
+        model_api_router, prefix="/api/v2/serve/model", tags=["Model Management"]
+    )
+    app.include_router(
+        model_api_router, prefix="/api/v1/serve/model", tags=["Model Management"]
+    )
 
     from derisk_serve.agent.app.recommend_question.controller import (
         router as recommend_question_v1,
@@ -314,77 +320,144 @@ def _sync_app_config_to_system_app():
     is properly loaded into system_app.config and ModelConfigCache, making models
     available immediately without needing manual refresh.
     """
+    from derisk_core.config import ConfigManager
+
+    # Step 1: 确保 ConfigManager 已初始化
+    config_path = ConfigManager.get_config_path()
+    if not config_path:
+        logger.warning("ConfigManager not initialized, attempting to init from default path")
+        try:
+            ConfigManager.init()
+            config_path = ConfigManager.get_config_path()
+            logger.info(f"ConfigManager initialized at: {config_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize ConfigManager: {e}", exc_info=True)
+            return
+
+    # Step 2: 获取配置
     try:
-        from derisk_core.config import ConfigManager
-        from derisk.agent.util.llm.model_config_cache import (
-            ModelConfigCache,
-            parse_provider_configs,
-        )
-
         cfg = ConfigManager.get()
-
-        agent_llm_conf = getattr(cfg, "agent_llm", None)
-        if not agent_llm_conf:
-            logger.info("No agent_llm config in derisk.json")
+        if cfg is None:
+            logger.error("ConfigManager.get() returned None")
             return
+    except Exception as e:
+        logger.error(f"Failed to get config from ConfigManager: {e}", exc_info=True)
+        return
 
-        from derisk.component import SystemApp
+    # Step 3: 检查 agent_llm 配置
+    agent_llm_conf = getattr(cfg, "agent_llm", None)
+    if not agent_llm_conf:
+        logger.info("No agent_llm config in derisk.json")
+        return
 
-        system_app = SystemApp.get_instance()
-        if not system_app:
-            logger.warning("SystemApp not available, cannot sync app config")
-            return
-
-        from derisk_app.openapi.api_v1.config_api import (
-            _convert_agent_llm_to_system_format,
+    # 详细记录配置信息
+    try:
+        agent_llm_dict_raw = (
+            agent_llm_conf.model_dump(mode="json")
+            if hasattr(agent_llm_conf, "model_dump")
+            else dict(agent_llm_conf)
         )
+        providers_raw = agent_llm_dict_raw.get("providers", [])
+        models_count = sum(len(p.get("models", [])) for p in providers_raw if isinstance(p, dict))
+        logger.info(f"[ConfigSync] Found agent_llm: {len(providers_raw)} providers, {models_count} models")
+        for p in providers_raw:
+            if isinstance(p, dict):
+                provider_name = p.get("provider", "unknown")
+                model_names = [m.get("name", "unnamed") for m in p.get("models", []) if isinstance(m, dict)]
+                logger.info(f"[ConfigSync] Provider '{provider_name}': models={model_names}")
+    except Exception as e:
+        logger.warning(f"Failed to log agent_llm details: {e}")
 
+    # Step 4: 获取 SystemApp 实例
+    from derisk.component import SystemApp
+
+    system_app = SystemApp.get_instance()
+    if not system_app:
+        logger.warning("SystemApp not available, cannot sync app config")
+        return
+
+    # Step 5: 转换配置格式
+    from derisk_app.openapi.api_v1.config_api import (
+        _convert_agent_llm_to_system_format,
+    )
+    from derisk.agent.util.llm.model_config_cache import (
+        ModelConfigCache,
+        parse_provider_configs,
+    )
+
+    try:
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
+        providers_converted = agent_llm_dict.get("provider", [])
+        logger.info(f"[ConfigSync] Converted format: {len(providers_converted)} providers")
+    except Exception as e:
+        logger.error(f"Failed to convert agent_llm format: {e}", exc_info=True)
+        return
 
+    # Step 6: 同步到 system_app.config
+    try:
         system_app.config.set("agent.llm", agent_llm_dict, overwrite=True)
+        logger.info("[ConfigSync] Synced agent_llm to system_app.config")
+    except Exception as e:
+        logger.error(f"Failed to set agent.llm in system_app.config: {e}", exc_info=True)
 
+    # Step 7: 解析并注册模型到 ModelConfigCache
+    try:
         model_configs = parse_provider_configs(agent_llm_dict)
         if model_configs:
+            ModelConfigCache.clear()
             ModelConfigCache.register_configs(model_configs)
+            logger.info(f"[ConfigSync] Registered {len(model_configs)} models to ModelConfigCache")
+            for key in model_configs.keys():
+                logger.info(f"[ConfigSync]   Model registered: {key}")
+        else:
+            logger.warning("[ConfigSync] parse_provider_configs returned empty, no models registered")
+    except Exception as e:
+        logger.error(f"Failed to register models to ModelConfigCache: {e}", exc_info=True)
 
-        model_count = 0
-        for p in agent_llm_dict.get("provider", []):
-            if isinstance(p, dict):
-                model_count += len(p.get("model", []))
-
-        logger.info(
-            f"App config synced: {len(agent_llm_dict.get('provider', []))} providers, "
-            f"{model_count} models registered to ModelConfigCache"
-        )
-
-        default_model = getattr(cfg, "default_model", None)
-        if default_model:
+    # Step 8: 同步 default_model
+    default_model = getattr(cfg, "default_model", None)
+    if default_model:
+        try:
             default_model_dict = default_model.model_dump(mode="json")
             system_app.config.set("agent.default_model", default_model_dict, overwrite=True)
             if default_model.model_id:
                 system_app.config.set("agent.default_llm", default_model.model_id, overwrite=True)
-            logger.info(f"Default model synced: {default_model.model_id}")
+            logger.info(f"[ConfigSync] Default model synced: {default_model.model_id}")
+        except Exception as e:
+            logger.error(f"Failed to sync default_model: {e}", exc_info=True)
 
+    # Step 9: 最终验证
+    try:
+        registered_models = ModelConfigCache.get_all_models()
+        registered_keys = ModelConfigCache.get_all_model_keys()
+        if registered_models:
+            logger.info(
+                f"[ConfigSync Verification] SUCCESS: {len(registered_models)} models in cache"
+            )
+            logger.info(f"[ConfigSync Verification] Models: {registered_models}")
+        else:
+            logger.warning(
+                "[ConfigSync Verification] WARNING: ModelConfigCache is empty after sync!"
+            )
+            logger.warning(
+                "[ConfigSync Verification] Please check agent_llm configuration in derisk.json"
+            )
     except Exception as e:
-        logger.warning(f"Failed to sync app config to system_app: {e}")
+        logger.error(f"Failed to verify ModelConfigCache: {e}", exc_info=True)
 
 
 def _sync_persisted_embeddings_to_param(param):
-    """Inject embedding models persisted in derisk.json into ``param.models``.
+    """Seed the embedding registry from ``AppConfig.embeddings``.
 
-    This must run BEFORE ``initialize_components`` (which registers the
-    embedding factory and seeds the default) and BEFORE
-    ``initialize_worker_manager_in_client`` (which deploys
-    ``param.models.embeddings`` as local workers). By populating
-    ``param.models.embeddings`` / ``param.models.default_embedding`` here, the
-    existing startup deploy + factory-registration paths transparently make
-    page-added embedding models available again after a restart — no separate
-    replay hook needed.
+    Runs BEFORE ``initialize_components`` (which registers the embedding
+    factory and seeds the default). Each entry in ``AppConfig.embeddings``
+    is registered in the process-wide ``EmbeddingModelRegistry`` so that
+    ``ProxyEmbeddingFactory`` can pick it up at ``create()`` time. The
+    persisted ``default_embedding`` (if any) is honoured; otherwise
+    first-added wins.
     """
     try:
         from derisk_core.config import ConfigManager
-        from derisk.util.configure import ConfigurationManager
-        from derisk.core.interface.parameter import EmbeddingDeployModelParameters
         from derisk_app.initialization.embedding_component import (
             get_embedding_registry,
         )
@@ -395,31 +468,8 @@ def _sync_persisted_embeddings_to_param(param):
             return
 
         registry = get_embedding_registry()
-        existing_names = {e.name for e in param.models.embeddings}
-
         for emb in persisted:
             try:
-                params = {
-                    "name": emb.name,
-                    "provider": emb.provider,
-                }
-                if emb.api_key:
-                    params["api_key"] = emb.api_key
-                if emb.api_url:
-                    params["api_url"] = emb.api_url
-                if emb.backend:
-                    params["backend"] = emb.backend
-                if getattr(emb, "extra", None):
-                    params.update(emb.extra)
-
-                # Resolve the right provider-specific subclass exactly the way
-                # worker_manager.model_startup does at runtime.
-                deploy_params = ConfigurationManager(params).parse_config(
-                    EmbeddingDeployModelParameters
-                )
-                if emb.name not in existing_names:
-                    param.models.embeddings.append(deploy_params)
-                    existing_names.add(emb.name)
                 registry.add(emb.name)
             except Exception as one_err:
                 logger.warning(
@@ -434,11 +484,51 @@ def _sync_persisted_embeddings_to_param(param):
                 param.models.default_embedding = default_name
 
         logger.info(
-            f"Restored {len(param.models.embeddings)} persisted embedding model(s); "
+            f"Restored {len(persisted)} persisted embedding model(s); "
             f"default='{param.models.default_embedding}'"
         )
     except Exception as e:
         logger.warning(f"Failed to sync persisted embeddings: {e}")
+
+
+def _verify_model_cache_on_startup():
+    """验证启动后 ModelConfigCache 是否正确初始化。
+
+    此函数在 initialize_app() 完成后调用，用于确认模型配置同步是否成功。
+    """
+    try:
+        from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+
+        models = ModelConfigCache.get_all_models()
+        model_keys = ModelConfigCache.get_all_model_keys()
+
+        if models:
+            logger.info(
+                f"[Startup Verification] SUCCESS: ModelConfigCache initialized with {len(models)} models"
+            )
+            logger.info(f"[Startup Verification] Models: {models}")
+            logger.info(f"[Startup Verification] Model keys: {model_keys}")
+        else:
+            logger.warning(
+                "[Startup Verification] WARNING: ModelConfigCache is empty!"
+            )
+            logger.warning(
+                "[Startup Verification] Models will not work correctly until configured."
+            )
+            logger.warning(
+                "[Startup Verification] Solutions:"
+            )
+            logger.warning(
+                "[Startup Verification]   1. Configure agent_llm in ~/.derisk/derisk.json"
+            )
+            logger.warning(
+                "[Startup Verification]   2. Or call: curl -X POST http://localhost:7777/api/v1/config/refresh-model-cache"
+            )
+    except Exception as e:
+        logger.error(
+            f"[Startup Verification] FAILED: Error checking ModelConfigCache: {e}",
+            exc_info=True
+        )
 
 
 def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp):
@@ -450,15 +540,11 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
         args:List[str]
     """
 
-    # import after param is initialized, accelerate --help speed
-    from derisk.model.cluster import initialize_worker_manager_in_client
-
     web_config = param.service.web
     print(param)
 
     server_init(param, system_app)
     mount_routers(app, param)
-    model_start_listener = _create_model_start_listener(system_app)
 
     # Migration db storage, so you db models must be imported before this
     # Import cron module to register CronJobEntity before create_all
@@ -473,8 +559,8 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
 
     _sync_app_config_to_system_app()
 
-    # Restore page-added embedding models persisted in derisk.json into param
-    # so the existing startup deploy + factory-registration paths pick them up.
+    # Restore embedding models persisted in derisk.json: just register them in
+    # the process-wide registry so ProxyEmbeddingFactory can create them.
     _sync_persisted_embeddings_to_param(param)
 
     from derisk_app.component_configs import initialize_components
@@ -488,51 +574,14 @@ def initialize_app(param: ApplicationConfig, app: FastAPI, system_app: SystemApp
     # After init, when the database is ready
     system_app.after_init()
 
-    binding_port = web_config.port
-    binding_host = web_config.host
-    if not web_config.light:
-        from derisk.model.cluster.storage import ModelStorage
-        from derisk_serve.model.serve import Serve as ModelServe
-
-        logger.info(
-            "Model Unified Deployment Mode, run all services in the same process"
-        )
-        model_serve = ModelServe.get_instance(system_app)
-        # Persistent model storage
-        model_storage = ModelStorage(model_serve.model_storage)
-        initialize_worker_manager_in_client(
-            worker_params=param.service.model.worker,
-            models_config=param.models,
-            app=app,
-            binding_port=binding_port,
-            binding_host=binding_host,
-            start_listener=model_start_listener,
-            system_app=system_app,
-            model_storage=model_storage,
-        )
-
-    else:
-        # MODEL_SERVER is controller address now
-        controller_addr = web_config.controller_addr
-        param.models.llms = []
-        param.models.rerankers = []
-        param.models.embeddings = []
-        initialize_worker_manager_in_client(
-            worker_params=param.service.model.worker,
-            models_config=param.models,
-            app=app,
-            run_locally=False,
-            controller_addr=controller_addr,
-            binding_port=binding_port,
-            binding_host=binding_host,
-            start_listener=model_start_listener,
-            system_app=system_app,
-        )
-
     mount_static_files(app, param)
 
     # Before start, after on_init
     system_app.before_start()
+
+    # 验证模型缓存是否正确初始化
+    _verify_model_cache_on_startup()
+
     return param
 
 

@@ -33,31 +33,7 @@ class MixinLLMOperator(BaseLLM, BaseOperator, ABC):
         super().__init__(default_client, save_model_output=save_model_output)
 
     @property
-    def llm_client(self) -> LLMClient:
-        if not self._llm_client:
-            try:
-                from derisk.model.cluster import WorkerManagerFactory
-                from derisk.model.cluster.client import DefaultLLMClient
-
-                worker_manager_factory: WorkerManagerFactory = (
-                    self.system_app.get_component(
-                        ComponentType.WORKER_MANAGER_FACTORY,
-                        WorkerManagerFactory,
-                        default_component=None,
-                    )
-                )
-                if worker_manager_factory:
-                    self._llm_client = DefaultLLMClient(worker_manager_factory.create())
-            except Exception as e:
-                logger.warning(f"Load worker manager failed: {e}.")
-            if not self._llm_client:
-                # from derisk.model.proxy.llms.chatgpt import OpenAILLMClient
-
-                # logger.info("Can't find worker manager factory, use OpenAILLMClient.")
-                # self._llm_client = OpenAILLMClient()
-                from derisk.model.proxy import AIStudioProxyLLMClient
-                logger.info("Can't find worker manager factory, use AIStudioProxyLLMClient.")
-                self._llm_client = AIStudioProxyLLMClient()
+    def llm_client(self) -> Optional[LLMClient]:
         return self._llm_client
 
 

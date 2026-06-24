@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 from typing import List, Optional, Union
 
@@ -139,19 +140,74 @@ class Serve(BaseServe):
 
     def replace_uri(self, uri: str) -> str:
         """Replace the uri with the new uri"""
+
+        def _is_public_host(host: str) -> bool:
+            """Return True if host looks like a public hostname/IP."""
+            if not host:
+                return False
+            host = host.strip().lower()
+            if host in ("localhost", "0.0.0.0"):
+                return False
+            try:
+                addr = ipaddress.ip_address(host)
+                # Any IP address (public or private) is usable as long as it is not
+                # loopback/link-local. Private RFC1918 IPs may be valid in intranet
+                # deployments, so we only reject clearly non-routable addresses.
+                return not (addr.is_loopback or addr.is_link_local or addr.is_unspecified)
+            except ValueError:
+                # Not an IP address -> treat as a hostname/domain name (public enough)
+                return True
+
+        def _rewrite_file_api_url(url: str) -> str:
+            """Rewrite absolute file-API URLs that point to a non-routable host.
+
+            Storage backends such as SimpleDistributedStorage may return
+            ``http://0.0.0.0:7777/api/v2/serve/file/files/...``. When the host is
+            not public, convert to a relative URL so browsers use the host they
+            are currently accessing.
+            """
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(url)
+                if parsed.scheme not in ("http", "https"):
+                    return url
+                api_prefix = (
+                    self._api_prefix[0]
+                    if isinstance(self._api_prefix, list)
+                    else self._api_prefix
+                )
+                if not parsed.path.startswith(f"{api_prefix}/"):
+                    return url
+                if _is_public_host(parsed.hostname or ""):
+                    return url
+                query = f"?{parsed.query}" if parsed.query else ""
+                return f"{parsed.path}{query}"
+            except Exception:
+                return url
+
         try:
             new_uri = self.file_storage_client.get_public_url(uri)
+            new_uri = _rewrite_file_api_url(new_uri)
             if new_uri != uri:
                 return new_uri
             # If the uri is not changed, replace it with the new uri
             parsed_uri = FileStorageURI.parse(uri)
             bucket, file_id = parsed_uri.bucket, parsed_uri.file_id
-            node_address = self._serve_config.get_node_address()
             api_prefix = (
                 self._api_prefix[0]
                 if isinstance(self._api_prefix, list)
                 else self._api_prefix
             )
-            return f"http://{node_address}{api_prefix}/files/{bucket}/{file_id}"
+            node_address = self._serve_config.get_node_address()
+            host, _sep, _port = node_address.partition(":")
+            if _is_public_host(host):
+                return f"http://{node_address}{api_prefix}/files/{bucket}/{file_id}"
+            # Use a relative URL so the browser uses whatever host it is currently
+            # accessing. This avoids broken absolute URLs like http://0.0.0.0:7777
+            # when the service is deployed behind a reverse proxy or on a remote host.
+            # If an absolute public URL is required (e.g. for external LLM providers),
+            # configure derisk.serve.file.host to the public hostname/IP.
+            return f"{api_prefix}/files/{bucket}/{file_id}"
         except Exception as _e:
             return uri

@@ -1,6 +1,5 @@
 """Import all models to make sure they are registered with SQLAlchemy."""
 
-from derisk.model.cluster.registry_impl.db_storage import ModelInstanceEntity
 from derisk.model.streaming.db_models import StreamingToolConfig
 from derisk.storage.chat_history.chat_history_db import (
     ChatHistoryEntity,
@@ -17,10 +16,9 @@ from derisk_serve.file.models.models import ServeEntity as FileServeEntity
 from derisk_serve.flow.models.models import ServeEntity as FlowServeEntity
 from derisk_serve.flow.models.models import VariablesEntity as FlowVariableEntity
 from derisk_serve.prompt.models.models import ServeEntity as PromptManageEntity
-from derisk_serve.rag.models.chunk_db import DocumentChunkEntity
-from derisk_serve.rag.models.document_db import KnowledgeDocumentEntity
-from derisk_serve.rag.models.models import KnowledgeSpaceEntity
-from derisk_serve.model.models.models import ServeEntity as ModelManageentity
+# TODO: rewire to new knowledge module (Task #9)
+# Old rag DB models (DocumentChunkEntity, KnowledgeDocumentEntity, KnowledgeSpaceEntity)
+# were removed along with derisk_serve.rag. New knowledge module will register its own.
 from derisk_serve.config.models.models import ServeEntity as ConfigServeEntity
 from derisk_serve.building.app.models.models import ServeEntity as AppServeEntity
 from derisk_serve.building.app.models.models_details import AppDetailServeEntity
@@ -48,18 +46,17 @@ from derisk_app.feature_plugins.system_config_model import SystemConfigEntity
 _MODELS = [
     FileServeEntity,
     PromptManageEntity,
-    KnowledgeSpaceEntity,
-    KnowledgeDocumentEntity,
-    DocumentChunkEntity,
+    # TODO: rewire to new knowledge module (Task #9)
+    # KnowledgeSpaceEntity,
+    # KnowledgeDocumentEntity,
+    # DocumentChunkEntity,
     ChatFeedBackEntity,
     ConnectConfigEntity,
     ChatHistoryEntity,
     ChatHistoryMessageEntity,
-    ModelInstanceEntity,
     FlowServeEntity,
     RecommendQuestionEntity,
     FlowVariableEntity,
-    ModelManageentity,
     ConfigServeEntity,
     AppServeEntity,
     AppDetailServeEntity,

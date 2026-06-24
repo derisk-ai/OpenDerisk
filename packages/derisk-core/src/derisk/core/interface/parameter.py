@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from derisk.configs.model_config import get_device
 from derisk.util.configure import RegisterParameters
@@ -7,9 +7,6 @@ from derisk.util.i18n_utils import _
 from derisk.util.parameter_utils import BaseParameters
 from derisk.util.tracer import TracerParameters
 from derisk.util.utils import LoggingParameters
-
-if TYPE_CHECKING:
-    from derisk.model.parameter import WorkerType
 
 
 @dataclass
@@ -130,13 +127,6 @@ class LLMDeployModelParameters(BaseDeployModelParameters, RegisterParameters):
             return "proxy"
         return self.provider
 
-    @classmethod
-    def worker_type(cls) -> "WorkerType":
-        """Get the worker type."""
-        from derisk.model.parameter import WorkerType
-
-        return WorkerType.LLM
-
 
 @dataclass
 class EmbeddingDeployModelParameters(BaseDeployModelParameters, RegisterParameters):
@@ -148,13 +138,6 @@ class EmbeddingDeployModelParameters(BaseDeployModelParameters, RegisterParamete
         default=100, metadata={"help": _("Model concurrency limit")}
     )
 
-    @classmethod
-    def worker_type(cls) -> "WorkerType":
-        """Get the worker type."""
-        from derisk.model.parameter import WorkerType
-
-        return WorkerType.TEXT2VEC
-
 
 @dataclass
 class RerankerDeployModelParameters(BaseDeployModelParameters, RegisterParameters):
@@ -165,13 +148,6 @@ class RerankerDeployModelParameters(BaseDeployModelParameters, RegisterParameter
     concurrency: Optional[int] = field(
         default=50, metadata={"help": _("Model concurrency limit")}
     )
-
-    @classmethod
-    def worker_type(cls) -> "WorkerType":
-        """Get the worker type."""
-        from derisk.model.parameter import WorkerType
-
-        return WorkerType.RERANKER
 
 
 @dataclass

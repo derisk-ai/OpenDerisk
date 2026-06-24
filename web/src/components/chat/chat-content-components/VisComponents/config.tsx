@@ -12,7 +12,7 @@ import VisMonitor from './VisMonitor';
 import VisReadYuqueCard from './VisReadYuqueCard';
 import VisReportCard from './VisReportCard';
 import VisUtils from './VisUtils';
-import VisKnowledgeSpaceWindow from './VisKnowledgeSpaceWindow';
+// TODO: rewire to new knowledge-vault page — VisKnowledgeSpaceWindow removed.
 import VisAgentFolder from './VisAgentFolder';
 import { VisRunningWindowV2 } from './VisRunningWindowV2';
 import MarkdownCard from './MarkDownCard';
@@ -364,17 +364,9 @@ export const visComponentsRender: { [key: string]: (props: { children: React.Rea
     }
   },
   'knowledge-space-window': ({ children }) => {
+    // TODO: rewire to new knowledge-vault page — VisKnowledgeSpaceWindow removed.
     const content = String(children);
-    try {
-      const data = parseFirstJson(content);
-      return (
-        <ErrorBoundary resetKeys={[content]} fallbackRender={({ error }) => <VisParseError content={content} error={error} componentName="knowledge-space-window" />}>
-          <VisKnowledgeSpaceWindow data={data} />
-        </ErrorBoundary>
-      );
-    } catch (e) {
-      return <VisParseError content={content} error={e} componentName="knowledge-space-window" />;
-    }
+    return <MarkdownCard content={content} />;
   },
   'knowledge-planning-window': ({ children }) => {
     const content = String(children);

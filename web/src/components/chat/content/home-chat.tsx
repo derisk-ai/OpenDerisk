@@ -1,5 +1,6 @@
 'use client';
-import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList, getMCPList, getDbList, getSpaceList } from '@/client/api';
+import { apiInterceptors, getAppList, getAppInfo, getModelList, newDialogue, postChatModeParamsFileLoad, getSkillList, getToolList, getMCPList, getDbList } from '@/client/api';
+import { listSpaces } from '@/client/api/knowledge-vault';
 import { STORAGE_INIT_MESSAGE_KET } from '@/utils/constants/storage';
 import { transformFileUrl } from '@/utils';
 import { getFileIcon, formatFileSize } from '@/utils/fileUtils';
@@ -805,13 +806,20 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     }
   }, [dbList.length]);
 
-  // 获取知识库列表（延迟加载）
+  // 获取知识库列表（延迟加载）— 新 vault backend，space 用 slug 标识
   const fetchSpaceListData = useCallback(async () => {
     if (spaceListData.length > 0) return;
     setSpaceLoading(true);
     try {
-      const [, data] = await apiInterceptors(getSpaceList());
-      if (data) setSpaceListData(data);
+      const [, data] = await apiInterceptors(listSpaces());
+      if (data) {
+        // Map new {slug, root} to the legacy shape expected downstream.
+        setSpaceListData(data.map((s: { slug: string; root: string }) => ({
+          knowledge_id: s.slug,
+          name: s.slug,
+          desc: s.root,
+        })));
+      }
     } finally {
       setSpaceLoading(false);
     }

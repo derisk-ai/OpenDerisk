@@ -14,7 +14,13 @@ from typing import Callable, List, Optional, Sequence
 from derisk._private.llm_metadata import LLMMetadata
 from derisk._private.pydantic import BaseModel, Field, PrivateAttr
 from derisk.core.interface.prompt import get_template_vars
-from derisk.rag.text_splitter.token_splitter import TokenTextSplitter
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.text_splitter.token_splitter import TokenTextSplitter  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    TokenTextSplitter = None  # type: ignore[assignment]
+
 from derisk.util.global_helper import globals_helper
 
 DEFAULT_PADDING = 5
@@ -180,10 +186,15 @@ class PromptHelper(BaseModel):
         prompt_template: str,
         num_chunks: int = 1,
         padding: int = DEFAULT_PADDING,
-    ) -> TokenTextSplitter:
+    ) -> "TokenTextSplitter":  # type: ignore[valid-type]
         """Get text splitter configured to maximally pack available context window,
         taking into account of given prompt, and desired number of chunks.
         """
+        if TokenTextSplitter is None:
+            raise RuntimeError(
+                "TokenTextSplitter unavailable; old rag module removed. "
+                "TODO: rewire to new knowledge module (Task #9)"
+            )
         chunk_size = self._get_available_chunk_size(
             prompt_template, num_chunks, padding=padding
         )

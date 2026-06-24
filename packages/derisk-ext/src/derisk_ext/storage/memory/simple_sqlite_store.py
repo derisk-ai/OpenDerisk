@@ -1,13 +1,13 @@
 """Simple SQLite-based Memory Store.
 
 A lightweight MemoryStore implementation that uses SQLite for storage
-and simple text matching for search. Does not require external dependencies
-like mempalace or vector databases.
+and simple text matching for search. Does not require external
+dependencies like vector databases. This is the default short-term
+memory backend.
 
 Useful for:
 - Development and testing
 - Simple deployments without vector infrastructure
-- Fallback when mempalace is not available
 """
 
 import json
@@ -205,7 +205,9 @@ class SimpleSQLiteMemoryStore(MemoryStoreBase):
         """Search memories using simple text matching.
 
         Note: This is a simple implementation using LIKE and word matching.
-        For production use with vector search, use MemPalaceMemoryStore.
+        For production use with vector search, route agent conversation
+        fragments as L0 verbats (extract_mode="convo") into a knowledge
+        space — see RFC 001 §3.3.
         """
         conn = self._get_conn()
         cursor = conn.cursor()

@@ -10,18 +10,46 @@ from derisk.agent.resource.knowledge import (
     RetrieverResourceParameters,
 )
 from derisk.core import Chunk
-from derisk.rag.knowledge.base import DirectoryModeType
-from derisk.rag.transformer.tag_extractor import MetadataTag
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.knowledge.base import DirectoryModeType  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    class DirectoryModeType:  # type: ignore[no-redef]
+        """Stub used when the old rag module is not available."""
+
+        class DOCUMENT:
+            value = "document"
+
+try:
+    from derisk.rag.transformer.tag_extractor import MetadataTag  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    MetadataTag = None  # type: ignore[assignment]
+
 from derisk.storage.vector_store.filters import MetadataFilters, MetadataFilter, \
     FilterCondition
 from derisk.util import ParameterDescription
 from derisk.util.i18n_utils import _
-from derisk_serve.rag.api.schemas import (
-    KnowledgeSearchRequest,
-    KnowledgeSearchResponse, KnowledgeSearchDirectoryRequest,
-)
-from derisk_serve.rag.service.service import Service
-from derisk_serve.rag.service.yuque_service import YuqueService
+
+try:
+    from derisk_serve.rag.api.schemas import (  # type: ignore
+        KnowledgeSearchRequest,
+        KnowledgeSearchResponse, KnowledgeSearchDirectoryRequest,
+    )
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeSearchRequest = None  # type: ignore[assignment]
+    KnowledgeSearchResponse = None  # type: ignore[assignment]
+    KnowledgeSearchDirectoryRequest = None  # type: ignore[assignment]
+
+try:
+    from derisk_serve.rag.service.service import Service  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    Service = None  # type: ignore[assignment]
+
+try:
+    from derisk_serve.rag.service.yuque_service import YuqueService  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    YuqueService = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -306,8 +334,9 @@ class KnowledgePackSearchResource(RetrieverResource):
     def resource_parameters_class(
         cls, **kwargs
     ) -> Type[KnowledgePackLoadResourceParameters]:
-        from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
-        from derisk_app.knowledge.service import KnowledgeService
+        # TODO: rewire to new knowledge module (Task #9)
+        from derisk_app.knowledge.request.request import KnowledgeSpaceRequest  # type: ignore
+        from derisk_app.knowledge.service import KnowledgeService  # type: ignore
 
         knowledge_space_service = KnowledgeService()
         knowledge_spaces = knowledge_space_service.get_knowledge_space(
@@ -566,8 +595,9 @@ class KnowledgePackSearchResource(RetrieverResource):
 
 
     def get_knowledge_spaces_info(self, **kwargs):
-        from derisk_app.knowledge.request.request import KnowledgeSpaceRequest
-        from derisk_app.knowledge.service import KnowledgeService
+        # TODO: rewire to new knowledge module (Task #9)
+        from derisk_app.knowledge.request.request import KnowledgeSpaceRequest  # type: ignore
+        from derisk_app.knowledge.service import KnowledgeService  # type: ignore
 
         knowledge_space_service = KnowledgeService()
         knowledge_spaces = knowledge_space_service.get_knowledge_space(

@@ -2,28 +2,28 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 
-from derisk.component import ComponentType, SystemApp
+from derisk.component import SystemApp
 from derisk.core.interface.evaluation import (
     EVALUATE_FILE_COL_ANSWER,
     EvaluationResult,
     metric_manage,
 )
-from derisk.model import DefaultLLMClient
-from derisk.model.cluster import WorkerManagerFactory
-from derisk.rag.embedding.embedding_factory import EmbeddingFactory
-from derisk.rag.evaluation import RetrieverEvaluator
-from derisk.rag.evaluation.answer import AnswerRelevancyMetric
-from derisk.rag.evaluation.retriever import RetrieverSimilarityMetric
+
+try:
+    from derisk.rag.evaluation.answer import AnswerRelevancyMetric  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    AnswerRelevancyMetric = None  # type: ignore[assignment]
+
 from derisk.storage.metadata import BaseDao
-from derisk.storage.vector_store.base import VectorStoreConfig
-from derisk_serve.rag.operators.knowledge_space import SpaceRetrieverOperator
 
 from ...agent.agents.controller import multi_agents
 from ...agent.evaluation.evaluation import AgentEvaluator, AgentOutputOperator
 from ...core import BaseService
 from ...prompt.service.service import Service as PromptService
-from ...rag.connector import VectorStoreConnector
-from ...rag.service.service import Service as RagService
+
+# derisk_serve.rag was removed; recall evaluation (which depended on
+# RagService) is no longer available. APP-scene evaluation still works.
+
 from ..api.schemas import EvaluateServeRequest, EvaluateServeResponse, EvaluationScene
 from ..config import SERVE_SERVICE_COMPONENT_NAME, ServeConfig
 from ..models.models import ServeDao, ServeEntity
@@ -31,10 +31,6 @@ from ..models.models import ServeDao, ServeEntity
 logger = logging.getLogger(__name__)
 
 executor = ThreadPoolExecutor(max_workers=5)
-
-
-def get_rag_service(system_app) -> RagService:
-    return system_app.get_component("derisk_rag_service", RagService)
 
 
 def get_prompt_service(system_app) -> PromptService:
@@ -53,7 +49,6 @@ class Service(BaseService[ServeEntity, EvaluateServeRequest, EvaluateServeRespon
         self._serve_config: ServeConfig = config
         self._dao: ServeDao = dao
         super().__init__(system_app)
-        self.rag_service = get_rag_service(system_app)
         self.prompt_service = get_prompt_service(system_app)
 
     def init_app(self, system_app: SystemApp) -> None:
@@ -99,48 +94,11 @@ class Service(BaseService[ServeEntity, EvaluateServeRequest, EvaluateServeRespon
 
         results = []
         if EvaluationScene.RECALL.value == scene_key:
-            embedding_factory = self._system_app.get_component(
-                "embedding_factory", EmbeddingFactory
-            )
-            embeddings = embedding_factory.create()
-
-            config = VectorStoreConfig(
-                name=scene_value,
-                embedding_fn=embeddings,
-            )
-            space = self.rag_service.get({"space_id": str(scene_value)})
-            if not space:
-                raise ValueError(f"Space {scene_value} not found")
-            vector_store_connector = VectorStoreConnector(
-                vector_store_type=space.storage_type,
-                vector_store_config=config,
-                system_app=self._system_app,
-            )
-            evaluator = RetrieverEvaluator(
-                operator_cls=SpaceRetrieverOperator,
-                embeddings=embeddings,
-                operator_kwargs={
-                    "space_id": str(scene_value),
-                    "top_k": self._serve_config.similarity_top_k,
-                    "vector_store_connector": vector_store_connector,
-                },
-            )
-            metrics = []
-            metric_name_list = evaluate_metrics
-            for name in metric_name_list:
-                if name == "RetrieverSimilarityMetric":
-                    metrics.append(RetrieverSimilarityMetric(embeddings=embeddings))
-                else:
-                    metrics.append(metric_manage.get_by_name(name)())
-
-            for dataset in datasets:
-                chunks = self.rag_service.get_chunk_list(
-                    {"doc_name": dataset.get("doc_name")}
-                )
-                contexts = [chunk.content for chunk in chunks]
-                dataset["contexts"] = contexts
-            results = await evaluator.evaluate(
-                datasets, metrics=metrics, parallel_num=parallel_num
+            # Recall evaluation depended on derisk_serve.rag (RagService),
+            # which has been removed. APP-scene evaluation still works.
+            raise NotImplementedError(
+                "Recall evaluation is unavailable: derisk_serve.rag module "
+                "was removed. Use APP-scene evaluation instead."
             )
         elif EvaluationScene.APP.value == scene_key:
             evaluator = AgentEvaluator(
@@ -154,10 +112,9 @@ class Service(BaseService[ServeEntity, EvaluateServeRequest, EvaluateServeRespon
             metric_name_list = evaluate_metrics
             for name in metric_name_list:
                 if name == AnswerRelevancyMetric.name():
-                    worker_manager = self._system_app.get_component(
-                        ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-                    ).create()
-                    llm_client = DefaultLLMClient(worker_manager=worker_manager)
+                    # LLM client is resolved by AIWrapper via ProviderRegistry
+                    # at call time (reading agent.llm config). Pass None here.
+                    llm_client = None
                     prompt = self.prompt_service.get_template(context.get("prompt"))
                     metrics.append(
                         AnswerRelevancyMetric(

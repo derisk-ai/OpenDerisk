@@ -14,6 +14,8 @@ dependencies = [
     "pymysql",
     "allpairspy",
     "httpx>=0.24.0",
+    "aiosqlite>=0.20.0",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -75,7 +77,13 @@ storage_chromadb = [
 storage_elasticsearch = ["elasticsearch"]
 storage_obvector = ["pyobvector"]
 storage_oss2 = ["oss2==2.18.4"]
-storage_mempalace = ["mempalace>=3.3.0"]
+storage_mempalace = []  # removed: mempalace integration dropped, short-term memory uses SimpleSQLite
+
+knowledge_local = [
+    # LocalVaultFS recommended: vector store + filesystem watcher
+    "lancedb>=0.10.0",
+    "watchfiles>=0.21.0",
+]
 proxy_tongyi = [
     # For tongyi proxy embedding model
     "dashscope"

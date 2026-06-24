@@ -9,8 +9,6 @@ from derisk.agent import (
 )
 from derisk.component import BaseComponent, ComponentType, SystemApp
 from derisk.core.interface.message import HumanMessage
-from derisk.model.cluster import WorkerManagerFactory
-from derisk.model.cluster.client import DefaultLLMClient
 from derisk_serve.building.app.service.service import Service as AppService
 from .chat.agent_chat_async import AsyncAgentChat
 from .chat.agent_chat_background import BackGroundAgentChat
@@ -19,7 +17,12 @@ from .chat.agent_chat_simple import SimpleAgentChat
 
 from ...building.app.api.schema_app import GptsApp
 from ...building.config.api.schemas import ChatInParamValue
-from ...rag.retriever.knowledge_space import KnowledgeSpaceRetriever
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from ...rag.retriever.knowledge_space import KnowledgeSpaceRetriever  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    KnowledgeSpaceRetriever = None  # type: ignore[assignment]
 
 CFG = Config()
 
@@ -55,17 +58,12 @@ class MultiAgents(BaseComponent, ABC):
         )
 
     async def async_after_start(self):
-        worker_manager = CFG.SYSTEM_APP.get_component(
-            ComponentType.WORKER_MANAGER_FACTORY, WorkerManagerFactory
-        ).create()
-        self.llm_provider = DefaultLLMClient(
-            worker_manager, auto_convert_message=True
-        )
-
-        self.simpale_chat = SimpleAgentChat(self.system_app, llm_provider=self.llm_provider)
-        self.quick_chat = QuickAgentChat(self.system_app, llm_provider=self.llm_provider)
-        self.background_chat = BackGroundAgentChat(self.system_app, llm_provider=self.llm_provider)
-        self.async_chat = AsyncAgentChat(self.system_app, llm_provider=self.llm_provider)
+        # LLM client wiring is handled per-chat by AIWrapper + ProviderRegistry
+        # (reading agent.llm config); no shared llm_provider is needed here.
+        self.simpale_chat = SimpleAgentChat(self.system_app)
+        self.quick_chat = QuickAgentChat(self.system_app)
+        self.background_chat = BackGroundAgentChat(self.system_app)
+        self.async_chat = AsyncAgentChat(self.system_app)
 
     async def quick_app_chat(self, conv_session_id,
                              user_query: Union[str, HumanMessage],

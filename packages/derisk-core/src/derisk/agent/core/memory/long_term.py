@@ -5,7 +5,20 @@ from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional
 
 from derisk.core import Chunk
-from derisk.rag.retriever.time_weighted import TimeWeightedEmbeddingRetriever
+
+# TODO: rewire to new knowledge module (Task #9)
+try:
+    from derisk.rag.retriever.time_weighted import TimeWeightedEmbeddingRetriever  # type: ignore
+except ImportError:  # pragma: no cover - rag module removed
+    class TimeWeightedEmbeddingRetriever:  # type: ignore[no-redef]
+        """Stub used when the old rag module is not available."""
+
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "TimeWeightedEmbeddingRetriever unavailable; old rag module removed. "
+                "TODO: rewire to new knowledge module (Task #9)"
+            )
+
 from derisk.storage.vector_store.base import VectorStoreBase
 from derisk.storage.vector_store.filters import MetadataFilter, MetadataFilters
 from derisk.util.annotations import immutable, mutable
