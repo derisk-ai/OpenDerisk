@@ -76,6 +76,10 @@ from derisk_serve.building.app.api.schemas import ServerResponse
 from derisk_serve.building.app.service.service import Service as AppService
 from derisk_serve.building.config.api.schemas import ChatInParamValue, AppParamType
 from derisk_serve.conversation.serve import Serve as ConversationServe
+from derisk_serve.workspace.context_builder import (
+    build_workspace_context,
+    render_workspace_context_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +95,43 @@ CFG = Config()
 
 def get_app_service() -> AppService:
     return AppService.get_instance(CFG.SYSTEM_APP)
+
+
+def _inject_workspace_context(agent_chat, ext_info):
+    """把 workspace_context + 物化资源注入 ext_info。
+
+    抽出为独立函数便于测试。物化的 dynamic_resources/extra_agents
+    会合并到 ext_info，后续 _build_agent_by_gpts 会消费。
+    """
+    workspace_id = ext_info.get("workspace_id") if ext_info else None
+    task_id = ext_info.get("task_id") if ext_info else None
+    if not workspace_id:
+        return
+    try:
+        ws_ctx = build_workspace_context(
+            agent_chat.system_app,
+            int(workspace_id),
+            task_id=int(task_id) if task_id else None,
+        )
+        ext_info["workspace_context"] = ws_ctx
+        summary = render_workspace_context_summary(ws_ctx)
+        if summary:
+            existing_sys_prompt = ext_info.get("system_prompt") or ""
+            ext_info["system_prompt"] = (
+                existing_sys_prompt + "\n\n" + summary
+            ).strip()
+
+        # 物化资源注入（命脉：空间资源变成 Agent 真能力）
+        materialized = ws_ctx.get("materialized") or {}
+        existing_dyn = ext_info.get("dynamic_resources") or []
+        existing_dyn.extend(materialized.get("dynamic_resources") or [])
+        ext_info["dynamic_resources"] = existing_dyn
+
+        existing_extra = ext_info.get("extra_agents") or []
+        existing_extra.extend(materialized.get("extra_agents") or [])
+        ext_info["extra_agents"] = existing_extra
+    except Exception as e:
+        logger.warning(f"workspace context injection failed: {e}")
 
 
 def _format_vis_msg(msg: str):
@@ -684,6 +725,9 @@ class AgentChat(BaseComponent, ABC):
         await self.dynamic_resource_adapter(gpt_app, ext_info)
         if not gpt_app:
             raise ValueError(f"Not found app {gpts_name}!")
+
+        # Workspace context + 物化资源注入
+        _inject_workspace_context(self, ext_info)
 
         # init gpts  memory
         vis_render = ext_info.get("vis_render", None)
