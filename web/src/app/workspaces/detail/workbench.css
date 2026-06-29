@@ -1,0 +1,152 @@
+/* 任务工作台样式 — BEM .ws-wb-* */
+.ws-wb {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ws-wb__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--ws-border, #e5e7eb);
+  background: var(--ws-bg, #fff);
+}
+
+.ws-wb__back {
+  cursor: pointer;
+  color: var(--ws-text-secondary, #6b7280);
+  font-size: 14px;
+}
+
+.ws-wb__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ws-text, #111827);
+}
+
+.ws-wb__meta {
+  font-size: 12px;
+  color: var(--ws-text-secondary, #6b7280);
+}
+
+.ws-wb__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-wb__section {
+  border: 1px solid var(--ws-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--ws-bg, #fff);
+}
+
+.ws-wb__section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text-secondary, #6b7280);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ws-border, #e5e7eb);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ws-wb__progress {
+  padding: 8px 14px;
+}
+
+.ws-wb__step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--ws-text, #111827);
+}
+
+.ws-wb__step-icon {
+  width: 16px;
+  text-align: center;
+}
+
+.ws-wb__step-name {
+  flex: 1;
+}
+
+.ws-wb__step-tool {
+  color: var(--ws-text-secondary, #6b7280);
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+
+.ws-wb__step-duration {
+  color: var(--ws-text-secondary, #6b7280);
+  font-size: 12px;
+}
+
+.ws-wb__step--done .ws-wb__step-icon { color: #10b981; }
+.ws-wb__step--running .ws-wb__step-icon { color: #3b82f6; }
+.ws-wb__step--pending .ws-wb__step-icon { color: #d1d5db; }
+
+.ws-wb__artifact {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-wb__artifact-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ws-wb__artifact-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ws-wb__dialog {
+  padding: 8px 14px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ws-wb__dialog-msg {
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--ws-text, #111827);
+}
+
+.ws-wb__dialog-msg--user { color: var(--ws-text-secondary, #6b7280); }
+.ws-wb__dialog-expand {
+  font-size: 12px;
+  color: var(--ws-accent, #3b82f6);
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.ws-wb__input {
+  border-top: 1px solid var(--ws-border, #e5e7eb);
+  padding: 12px 20px;
+  background: var(--ws-bg, #fff);
+}
+
+.ws-wb__input textarea {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--ws-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+}
+
+.ws-wb__input textarea:focus {
+  border-color: var(--ws-accent, #3b82f6);
+}
