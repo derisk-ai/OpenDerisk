@@ -1,0 +1,136 @@
+/* 空间大厅样式 — BEM .ws-lobby-* */
+.ws-lobby {
+  display: flex;
+  gap: 20px;
+  padding: 16px 20px;
+  min-height: 0;
+  align-items: flex-start;
+}
+
+.ws-lobby__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-lobby__rail {
+  width: 280px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 16px;
+}
+
+.ws-lobby__section {
+  border: 1px solid var(--ws-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--ws-bg, #fff);
+}
+
+.ws-lobby__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--ws-border, #e5e7eb);
+}
+
+.ws-lobby__section-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ws-text, #111827);
+}
+
+.ws-lobby__task-list {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-lobby__task-card {
+  cursor: pointer;
+}
+
+.ws-lobby__task-card .ant-card-body {
+  padding: 12px 14px;
+}
+
+.ws-lobby__task-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ws-text, #111827);
+  margin-bottom: 8px;
+}
+
+.ws-lobby__task-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ws-text-secondary, #6b7280);
+}
+
+.ws-lobby__hosted-grid {
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ws-lobby__hosted-card .ant-card-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ws-lobby__delivery-list {
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-lobby__delivery-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ws-text, #111827);
+  padding: 6px 0;
+}
+
+.ws-lobby__delivery-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ws-text-secondary, #6b7280);
+}
+
+.ws-lobby__quick {
+  padding: 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ws-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ws-text-secondary, #6b7280);
+}
+
+@media (max-width: 900px) {
+  .ws-lobby {
+    flex-direction: column;
+  }
+
+  .ws-lobby__rail {
+    width: 100%;
+    position: static;
+  }
+}
