@@ -287,7 +287,7 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
             AssetService,
         )
 
-        now = datetime.utcnow()
+        now = datetime.now()
         month_ago = now - timedelta(days=30)
 
         try:
@@ -295,7 +295,7 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
                 ASSET_SERVICE_COMPONENT_NAME, AssetService
             )
             assets = asset_svc.list_assets(
-                AssetListFilter(workspace_id=workspace_id)
+                AssetListFilter(workspace_id=workspace_id, limit=10000)
             ) or []
             assets_count = len(assets)
         except Exception as e:
@@ -307,7 +307,7 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
                 TASK_SERVICE_COMPONENT_NAME, TaskService
             )
             tasks = task_svc.list_tasks(
-                TaskListFilter(workspace_id=workspace_id)
+                TaskListFilter(workspace_id=workspace_id, limit=10000)
             ) or []
             trend_map: dict = {}
             for t in tasks:
