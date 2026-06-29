@@ -211,6 +211,10 @@ async def list_model_types(
                     # so expose an empty list to keep the form from crashing.
                     "params": [],
                     "provider": provider_name,
+                    "protocol": model_conf.get("protocol", provider_name),
+                    "model_type": model_conf.get("model_type", "llm"),
+                    "capabilities": model_conf.get("capabilities", []),
+                    "is_multimodal": model_conf.get("is_multimodal", False),
                     "description": model_conf.get("description", ""),
                 }
             )

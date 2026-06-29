@@ -30,6 +30,14 @@ def scan_serve_configs():
         "derisk_serve.multimodal",
         "derisk_serve.prompt",
         "derisk_serve.skill",
+        "derisk_serve.workspace",
+        "derisk_serve.task",
+        "derisk_serve.playbook",
+        "derisk_serve.artifact",
+        "derisk_serve.workspace_asset",
+        "derisk_serve.delivery",
+        "derisk_serve.intervention",
+        "derisk_serve.trigger",
         # TODO: rewire to new knowledge module (Task #9)
         # "derisk_serve.rag",
         "derisk_serve.building.app",
@@ -421,6 +429,126 @@ def register_serve_apps(
     )
 
     # ################################ Skill Serve Register End   ################
+
+    # ################################ Workspace Serve Register Begin ################
+    from derisk_serve.workspace.serve import Serve as WorkspaceServe
+
+    system_app.register(
+        WorkspaceServe,
+        config=get_config(
+            serve_configs,
+            WorkspaceServe.name,
+            derisk_serve.workspace.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Workspace Serve Register End   ################
+
+    # ################################ Task Serve Register Begin ################
+    from derisk_serve.task.serve import Serve as TaskServe
+
+    system_app.register(
+        TaskServe,
+        config=get_config(
+            serve_configs,
+            TaskServe.name,
+            derisk_serve.task.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Task Serve Register End   ################
+
+    # ################################ Playbook Serve Register Begin ################
+    from derisk_serve.playbook.serve import Serve as PlaybookServe
+
+    system_app.register(
+        PlaybookServe,
+        config=get_config(
+            serve_configs,
+            PlaybookServe.name,
+            derisk_serve.playbook.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Playbook Serve Register End   ################
+
+    # ################################ Artifact Serve Register Begin ################
+    from derisk_serve.artifact.serve import Serve as ArtifactServe
+
+    system_app.register(
+        ArtifactServe,
+        config=get_config(
+            serve_configs,
+            ArtifactServe.name,
+            derisk_serve.artifact.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Artifact Serve Register End   ################
+
+    # ################################ WorkspaceAsset Serve Register Begin ################
+    from derisk_serve.workspace_asset.serve import Serve as WorkspaceAssetServe
+
+    system_app.register(
+        WorkspaceAssetServe,
+        config=get_config(
+            serve_configs,
+            WorkspaceAssetServe.name,
+            derisk_serve.workspace_asset.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ WorkspaceAsset Serve Register End   ################
+
+    # ################################ Delivery Serve Register Begin ################
+    from derisk_serve.delivery.serve import Serve as DeliveryServe
+
+    system_app.register(
+        DeliveryServe,
+        config=get_config(
+            serve_configs,
+            DeliveryServe.name,
+            derisk_serve.delivery.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Delivery Serve Register End   ################
+
+    # ################################ Intervention Serve Register Begin ################
+    from derisk_serve.intervention.serve import Serve as InterventionServe
+
+    system_app.register(
+        InterventionServe,
+        config=get_config(
+            serve_configs,
+            InterventionServe.name,
+            derisk_serve.intervention.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Intervention Serve Register End   ################
+
+    # ################################ Trigger Serve Register Begin ################
+    from derisk_serve.trigger.serve import Serve as TriggerServe
+
+    system_app.register(
+        TriggerServe,
+        config=get_config(
+            serve_configs,
+            TriggerServe.name,
+            derisk_serve.trigger.serve.ServeConfig,
+            api_keys=global_api_keys,
+        ),
+    )
+
+    # ################################ Trigger Serve Register End   ################
 
     # ################################ Version Serve Register Begin ####################
     from derisk_serve.version.serve import Serve as VersionServe

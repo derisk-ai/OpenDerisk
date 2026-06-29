@@ -9,7 +9,7 @@ use derisk;
 -- MySQL DDL Script for Derisk
 -- Version: 0.3.0
 -- Generated from SQLAlchemy ORM Models
--- Generated: 2026-06-24 22:55:19
+-- Generated: 2026-06-25 10:59:36
 -- ============================================================
 
 SET NAMES utf8mb4;
@@ -50,13 +50,17 @@ CREATE TABLE IF NOT EXISTS `chat_history` (
   `gmt_create` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
   `gmt_modified` DATETIME NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Record update time',
   `app_code` VARCHAR(255) NULL COMMENT 'App unique code',
+  `workspace_id` BIGINT NULL COMMENT 'workspace id, NULL for HomeChat',
+  `task_id` BIGINT NULL COMMENT 'task id this conversation belongs to',
   `gmt_modify` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_conv_uid` (`conv_uid`),
   KEY `idx_q_user` (`user_name`),
   KEY `idx_q_mode` (`chat_mode`),
   KEY `idx_q_conv` (`summary`),
-  KEY `idx_chat_his_app_code` (`app_code`)
+  KEY `idx_chat_his_app_code` (`app_code`),
+  KEY `idx_chat_his_workspace` (`workspace_id`),
+  KEY `idx_chat_his_task` (`task_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: chat_history_message
@@ -780,4 +784,327 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================
 -- End of DDL Script
+-- ============================================================
+-- ============================================================
+-- Scenario Workspace MVP tables
+-- ============================================================
+
+-- Table: server_app_workspace
+CREATE TABLE IF NOT EXISTS `server_app_workspace` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_code` VARCHAR(64) NOT NULL,
+  `name` VARCHAR(128) NOT NULL,
+  `description` VARCHAR(1024) NULL,
+  `type` VARCHAR(32) NOT NULL DEFAULT 'scenario' COMMENT 'scenario/team',
+  `scenario_type` VARCHAR(64) NULL COMMENT 'sre/data_ops/...',
+  `owner_user_id` INT NOT NULL,
+  `default_agent_app_code` VARCHAR(128) NULL,
+  `settings_json` TEXT NULL,
+  `is_archived` TINYINT NOT NULL DEFAULT 0,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_workspace_code` (`workspace_code`),
+  KEY `idx_workspace_owner` (`owner_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_workspace_member
+CREATE TABLE IF NOT EXISTS `server_app_workspace_member` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `user_id` INT NOT NULL,
+  `role` VARCHAR(32) NOT NULL DEFAULT 'contributor' COMMENT 'owner/contributor/approver/viewer',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_workspace_member` (`workspace_id`, `user_id`),
+  KEY `idx_wm_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_workspace_resource
+CREATE TABLE IF NOT EXISTS `server_app_workspace_resource` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `type` VARCHAR(32) NOT NULL COMMENT 'data_source/knowledge_space/environment/mcp/skill/llm_model',
+  `name` VARCHAR(128) NOT NULL,
+  `category` VARCHAR(32) NOT NULL DEFAULT 'scenario_bound',
+  `physical_ref` VARCHAR(256) NULL,
+  `config_json` TEXT NULL,
+  `access_mode` VARCHAR(16) NOT NULL DEFAULT 'read',
+  `is_active` TINYINT NOT NULL DEFAULT 1,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_workspace_resource` (`workspace_id`, `type`, `name`),
+  KEY `idx_wr_workspace` (`workspace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_workspace_conv_link
+CREATE TABLE IF NOT EXISTS `server_app_workspace_conv_link` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `conv_uid` VARCHAR(128) NOT NULL,
+  `task_id` INT NULL,
+  `user_id` INT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_workspace_conv` (`workspace_id`, `conv_uid`),
+  KEY `idx_wcl_user` (`user_id`),
+  KEY `idx_wcl_task` (`task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_task
+CREATE TABLE IF NOT EXISTS `server_app_task` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `parent_task_id` INT NULL,
+  `type` VARCHAR(32) NOT NULL DEFAULT 'adhoc' COMMENT 'routine/pipeline/incident/adhoc',
+  `title` VARCHAR(256) NOT NULL,
+  `description` TEXT NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'draft' COMMENT 'draft/pending_trigger/running/awaiting_human/blocked/delivered/closed/archived/failed',
+  `priority` VARCHAR(16) NULL DEFAULT 'normal',
+  `triggered_by` VARCHAR(32) NOT NULL DEFAULT 'manual' COMMENT 'timer/webhook/alert/manual',
+  `trigger_ref` VARCHAR(64) NULL,
+  `playbook_id` INT NULL,
+  `playbook_version_id` INT NULL,
+  `conv_session_id` VARCHAR(64) NULL COMMENT 'conversation session id bound to this task',
+  `created_by_user_id` INT NULL,
+  `assigned_agents_json` TEXT NULL,
+  `context_json` TEXT NULL,
+  `due_at` DATETIME NULL,
+  `started_at` DATETIME NULL,
+  `closed_at` DATETIME NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_task_conv_session` (`conv_session_id`),
+  KEY `idx_task_workspace` (`workspace_id`),
+  KEY `idx_task_status` (`status`),
+  KEY `idx_task_playbook` (`playbook_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_task_relation
+CREATE TABLE IF NOT EXISTS `server_app_task_relation` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `parent_task_id` INT NOT NULL,
+  `child_task_id` INT NOT NULL,
+  `relation_type` VARCHAR(32) NOT NULL DEFAULT 'spawned_by',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_task_relation` (`parent_task_id`, `child_task_id`, `relation_type`),
+  KEY `idx_tr_child` (`child_task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_playbook
+CREATE TABLE IF NOT EXISTS `server_app_playbook` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `name` VARCHAR(128) NOT NULL,
+  `scenario_type` VARCHAR(64) NULL,
+  `task_type` VARCHAR(32) NULL,
+  `trigger_json` TEXT NULL,
+  `declaration_dsl_json` TEXT NULL,
+  `current_version` INT NOT NULL DEFAULT 1,
+  `is_active` TINYINT NOT NULL DEFAULT 1,
+  `created_by_user_id` INT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_playbook_workspace` (`workspace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_playbook_version
+CREATE TABLE IF NOT EXISTS `server_app_playbook_version` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `playbook_id` INT NOT NULL,
+  `version` INT NOT NULL,
+  `declaration_dsl_json` TEXT NULL,
+  `changelog` VARCHAR(512) NULL,
+  `created_by_user_id` INT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_playbook_version` (`playbook_id`, `version`),
+  KEY `idx_pv_playbook` (`playbook_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_artifact
+CREATE TABLE IF NOT EXISTS `server_app_artifact` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `task_id` INT NOT NULL,
+  `workspace_id` INT NOT NULL,
+  `type` VARCHAR(32) NOT NULL COMMENT 'report/analysis/dataset',
+  `title` VARCHAR(256) NOT NULL,
+  `content_ref` VARCHAR(512) NULL,
+  `content_text` TEXT NULL,
+  `current_version` INT NOT NULL DEFAULT 1,
+  `provenance_json` TEXT NULL,
+  `is_shared` TINYINT NOT NULL DEFAULT 0,
+  `created_by_agent` VARCHAR(128) NULL,
+  `created_by_user` INT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_artifact_task` (`task_id`),
+  KEY `idx_artifact_workspace` (`workspace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_artifact_version
+CREATE TABLE IF NOT EXISTS `server_app_artifact_version` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `artifact_id` INT NOT NULL,
+  `version` INT NOT NULL,
+  `content_ref` VARCHAR(512) NULL,
+  `diff_summary` TEXT NULL,
+  `created_by` VARCHAR(128) NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_artifact_version` (`artifact_id`, `version`),
+  KEY `idx_av_artifact` (`artifact_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_workspace_asset
+CREATE TABLE IF NOT EXISTS `server_app_workspace_asset` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `type` VARCHAR(32) NOT NULL COMMENT 'historical_artifact/case',
+  `name` VARCHAR(256) NOT NULL,
+  `description` VARCHAR(1024) NULL,
+  `scope` VARCHAR(32) NOT NULL DEFAULT 'workspace',
+  `content_ref` VARCHAR(512) NULL,
+  `content_text` TEXT NULL,
+  `current_version` INT NOT NULL DEFAULT 1,
+  `source_task_id` INT NULL,
+  `source_artifact_id` INT NULL,
+  `tags_json` TEXT NULL,
+  `is_published` TINYINT NOT NULL DEFAULT 0,
+  `created_by` VARCHAR(128) NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_asset_workspace` (`workspace_id`),
+  KEY `idx_asset_task` (`source_task_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_workspace_asset_version
+CREATE TABLE IF NOT EXISTS `server_app_workspace_asset_version` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `asset_id` INT NOT NULL,
+  `version` INT NOT NULL,
+  `content_ref` VARCHAR(512) NULL,
+  `diff_summary` TEXT NULL,
+  `created_by` VARCHAR(128) NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_workspace_asset_version` (`asset_id`, `version`),
+  KEY `idx_asv_asset` (`asset_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_task_asset_link
+CREATE TABLE IF NOT EXISTS `server_app_task_asset_link` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `task_id` INT NOT NULL,
+  `asset_id` INT NOT NULL,
+  `link_type` VARCHAR(32) NOT NULL COMMENT 'consumed/produced',
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_task_asset_link` (`task_id`, `asset_id`, `link_type`),
+  KEY `idx_tal_asset` (`asset_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_delivery
+CREATE TABLE IF NOT EXISTS `server_app_delivery` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `artifact_id` INT NULL,
+  `task_id` INT NOT NULL,
+  `workspace_id` INT NOT NULL,
+  `category` VARCHAR(32) NOT NULL DEFAULT 'notify',
+  `channel` VARCHAR(32) NOT NULL COMMENT 'email/feishu/in_app',
+  `target` VARCHAR(512) NOT NULL,
+  `title` VARCHAR(256) NULL,
+  `message` TEXT NULL,
+  `format` VARCHAR(32) NOT NULL DEFAULT 'message_card',
+  `status` VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT 'pending/sent/failed',
+  `require_intervention` VARCHAR(32) NOT NULL DEFAULT 'none',
+  `intervention_id` INT NULL,
+  `scheduled_at` DATETIME NULL,
+  `sent_at` DATETIME NULL,
+  `result_json` TEXT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_task` (`task_id`),
+  KEY `idx_delivery_workspace` (`workspace_id`),
+  KEY `idx_delivery_artifact` (`artifact_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_intervention
+CREATE TABLE IF NOT EXISTS `server_app_intervention` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `task_id` INT NOT NULL,
+  `workspace_id` INT NOT NULL,
+  `type` VARCHAR(32) NOT NULL DEFAULT 'review',
+  `status` VARCHAR(32) NOT NULL DEFAULT 'requested' COMMENT 'requested/resolved/aborted',
+  `requested_by` VARCHAR(32) NOT NULL DEFAULT 'system',
+  `requested_at` DATETIME NULL,
+  `question_json` TEXT NULL,
+  `context_json` TEXT NULL,
+  `resolved_by_user_id` INT NULL,
+  `resolved_at` DATETIME NULL,
+  `decision_json` TEXT NULL,
+  `distillation_json` TEXT NULL,
+  `linked_asset_id` INT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_intervention_task` (`task_id`),
+  KEY `idx_intervention_workspace` (`workspace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table: server_app_trigger_source
+CREATE TABLE IF NOT EXISTS `server_app_trigger_source` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `workspace_id` INT NOT NULL,
+  `type` VARCHAR(32) NOT NULL COMMENT 'timer/webhook/alert/manual',
+  `name` VARCHAR(256) NOT NULL,
+  `config_json` TEXT NULL,
+  `target_playbook_id` INT NOT NULL,
+  `is_active` TINYINT NOT NULL DEFAULT 1,
+  `last_fired_at` DATETIME NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_trigger_workspace` (`workspace_id`),
+  KEY `idx_trigger_playbook` (`target_playbook_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Alter: chat_history add workspace_id/task_id (NULL for legacy rows)
+ALTER TABLE `chat_history`
+  ADD COLUMN `workspace_id` BIGINT NULL COMMENT 'workspace id, NULL for HomeChat' AFTER `app_code`;
+ALTER TABLE `chat_history`
+  ADD COLUMN `task_id` BIGINT NULL COMMENT 'task id this conversation belongs to' AFTER `workspace_id`;
+ALTER TABLE `chat_history`
+  ADD INDEX `idx_chat_his_workspace` (`workspace_id`);
+ALTER TABLE `chat_history`
+  ADD INDEX `idx_chat_his_task` (`task_id`);
+
+-- Alter: gpts_conversations add workspace_id/task_id (NULL for legacy rows)
+ALTER TABLE `gpts_conversations`
+  ADD COLUMN `workspace_id` INT NULL COMMENT 'workspace id, NULL for legacy/HomeChat conversations' AFTER `user_code`;
+ALTER TABLE `gpts_conversations`
+  ADD COLUMN `task_id` INT NULL COMMENT 'task id this conversation belongs to' AFTER `workspace_id`;
+ALTER TABLE `gpts_conversations`
+  ADD INDEX `idx_gpts_conv_workspace` (`workspace_id`);
+ALTER TABLE `gpts_conversations`
+  ADD INDEX `idx_gpts_conv_task` (`task_id`);
+
+-- Alter: server_app_task add conv_session_id
+ALTER TABLE `server_app_task`
+  ADD COLUMN `conv_session_id` VARCHAR(64) NULL COMMENT 'conversation session id bound to this task' AFTER `playbook_version_id`;
+ALTER TABLE `server_app_task`
+  ADD UNIQUE KEY `uk_task_conv_session` (`conv_session_id`);
+ALTER TABLE `server_app_task`
+  ADD INDEX `idx_task_conv_session` (`conv_session_id`);
+
+-- ============================================================
+-- End of Scenario Workspace MVP tables
 -- ============================================================
