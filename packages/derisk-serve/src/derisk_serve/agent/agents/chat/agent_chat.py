@@ -134,6 +134,30 @@ def _inject_workspace_context(agent_chat, ext_info):
         logger.warning(f"workspace context injection failed: {e}")
 
 
+# workspace 流式事件白名单
+WORKSPACE_EVENT_TYPES = frozenset(
+    {
+        "task_created",
+        "context_loaded",
+        "intervention_triggered",
+        "artifact_produced",
+        "delivery_sent",
+        "asset_referenced",
+    }
+)
+
+
+def format_workspace_event(event_type: str, payload: dict) -> str:
+    """格式化 workspace 结构化事件为 SSE chunk。
+
+    与现有 vis.type=metadata/interrupt/error 同协议，前端 use-chat.ts 白名单 fast-return。
+    """
+    if event_type not in WORKSPACE_EVENT_TYPES:
+        raise ValueError(f"unsupported workspace event type: {event_type}")
+    body = orjson.dumps({"vis": {"type": event_type, "payload": payload}})
+    return f"data:{body.decode()}\n\n"
+
+
 def _format_vis_msg(msg: str):
     content = json.dumps({"vis": msg}, default=serialize, ensure_ascii=False)
     return f"data:{content} \n"
@@ -873,6 +897,24 @@ class AgentChat(BaseComponent, ABC):
                     exc = task.exception()
                     logger.error(f"Task failed immediately: {exc}")
                     raise exc
+
+                # workspace context 注入后，yield context_loaded 事件给前端
+                if ext_info.get("workspace_id"):
+                    ws_ctx = ext_info.get("workspace_context") or {}
+                    resources = ws_ctx.get("resources") or []
+                    yield task, format_workspace_event(
+                        "context_loaded",
+                        {
+                            "workspace_id": int(ext_info["workspace_id"]),
+                            "resources": [
+                                {"type": r.get("type"), "name": r.get("name")}
+                                for r in resources
+                            ],
+                            "materialized_count": len(
+                                (ws_ctx.get("materialized") or {}).get("dynamic_resources") or []
+                            ),
+                        },
+                    ), agent_conv_id
 
                 # 首先发送 session metadata，包含 conv_session_id 和 conv_uid
                 metadata_content = orjson.dumps(
