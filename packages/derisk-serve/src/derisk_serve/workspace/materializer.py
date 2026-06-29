@@ -53,11 +53,14 @@ def _materialize_mcp(physical_ref: str, config: Dict[str, Any]) -> Optional[Agen
     return AgentResource.from_dict(
         {
             "type": "mcp(derisk)",
+            "name": _get_mcp_field(mcp_info, "name") or physical_ref,
             "value": {
-                "mcp_servers": _get_mcp_field(mcp_info, "mcp_servers", []),
-                "headers": _get_mcp_field(mcp_info, "headers", {}),
-                "source": _get_mcp_field(mcp_info, "source", "sse"),
-                "timeout": _get_mcp_field(mcp_info, "timeout", 30),
+                "mcp_code": physical_ref,
+                "name": _get_mcp_field(mcp_info, "name") or physical_ref,
+                "mcp_servers": _get_mcp_field(mcp_info, "sse_url"),
+                "headers": _get_mcp_field(mcp_info, "sse_headers") or {},
+                "source": _get_mcp_field(mcp_info, "type") or "sse",
+                "timeout": 30,
             },
         }
     )
@@ -143,7 +146,10 @@ def materialize_resources(system_app, workspace_id: int) -> MaterializedResource
             )
             continue
         try:
-            config = _parse_config(getattr(r, "config_json", None))
+            raw_config = getattr(r, "config", None)
+            if raw_config is None:
+                raw_config = getattr(r, "config_json", None)
+            config = _parse_config(raw_config)
             physical_ref = getattr(r, "physical_ref", None)
             materialized = handler(physical_ref, config)
             if materialized is None:
