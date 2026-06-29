@@ -7,6 +7,19 @@ import { message } from 'antd';
 import { useCallback, useState } from 'react';
 import { VisParser } from '@/utils/parse-vis';
 
+export type WorkspaceEventType =
+  | 'task_created'
+  | 'context_loaded'
+  | 'intervention_triggered'
+  | 'artifact_produced'
+  | 'delivery_sent'
+  | 'asset_referenced';
+
+export interface WorkspaceEvent {
+  type: WorkspaceEventType;
+  payload: Record<string, any>;
+}
+
 type Props = {
   queryAgentURL?: string;
   app_code?: string;
@@ -21,6 +34,7 @@ type ChatParams = {
   onClose?: () => void;
   onDone?: () => void;
   onError?: (content: string, error?: Error) => void;
+  onWorkspaceEvent?: (event: WorkspaceEvent) => void;
 };
 
 export function parseChunkData(
@@ -45,7 +59,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
   const [ctrl, setCtrl] = useState<AbortController>({} as AbortController);
 
   const chatV1 = useCallback(
-    async ({ data, onMessage, onClose, onDone, onError, ctrl }: ChatParams) => {
+    async ({ data, onMessage, onClose, onDone, onError, onWorkspaceEvent, ctrl }: ChatParams) => {
       ctrl && setCtrl(ctrl);
       if (!data?.user_input && !data?.doc_id) {
         message.warning(i18n.t('no_context_tip'));
@@ -90,6 +104,16 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
                   return;
                 } else if (vis.type === 'error') {
                   onError?.(vis.content || '对话发生错误');
+                  return;
+                } else if (
+                  vis.type === 'task_created' ||
+                  vis.type === 'context_loaded' ||
+                  vis.type === 'intervention_triggered' ||
+                  vis.type === 'artifact_produced' ||
+                  vis.type === 'delivery_sent' ||
+                  vis.type === 'asset_referenced'
+                ) {
+                  onWorkspaceEvent?.(vis as WorkspaceEvent);
                   return;
                 }
               }
