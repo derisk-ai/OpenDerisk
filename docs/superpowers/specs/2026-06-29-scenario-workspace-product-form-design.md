@@ -435,6 +435,46 @@ Consumer（多数人）
 
 终态含四类 Delivery（Notify / Publish / Execute / Host），交付中心是四类交付的统一管理入口。
 
+#### 5.6.0 交付链路的职责分层
+
+交付分两段，Agent 与程序职责清晰分工：
+
+```
+Generate 段（Agent 主导）
+  Agent 产出 Artifact（报告/operation_plan/deliverable_app/...）
+  Agent 识别交付意图（"发给 SRE 组" / "部署运行"）
+       ↓
+Deliver 段（程序主导，Agent 不参与执行）
+  程序按 Playbook 声明或 Agent 解析的意图调用 Delivery 服务
+  Delivery 服务按 channel 执行（notify/publish/execute/host）
+  Execute 类强制 Approve + rollback 保护
+  Host 类走生命周期管理
+       ↓
+结果回流
+  delivery.result_json 记录结果
+  Execute 产出 operation_result Artifact
+  失败走重试/回滚/告警（工程化路径）
+```
+
+**Deliver 段四类交付都程序完成，Agent 不参与执行**：
+
+| 交付类别 | 谁执行 | 理由 |
+|---|---|---|
+| **Notify** | 程序 | 确定性操作（收件人/格式/渠道都是 Playbook 声明的），Agent 来做只是多一次 LLM 调用，慢且不可靠 |
+| **Publish** | 程序 | 确定性操作（写入目标/格式/外部资产 ref 都是声明好的），程序调适配器即可 |
+| **Execute** | 程序（Agent 最不该做） | operation_plan 已人 Approve，执行就是按 plan 调 action_executor。Agent 介入会引入"临时改主意"风险，破坏 Approve 的确定性，审计失效 |
+| **Host** | 程序 | 确定性部署（构建+部署+健康检查），工程化流程，Agent 来做没价值 |
+
+**Agent 在 Deliver 段的角色**：只做"意图解析 + 调用 Delivery 服务"，不做执行。即使临时交付（用户在对话里说"把这份报告发给老板"，无预设 Playbook），也走程序化 Delivery 服务——Agent 解析意图传 `artifact_id + channel + target`，程序执行。所有 Deliver 路径统一，可审计。
+
+**为什么 Deliver 段不该 Agent 做**：
+- 确定性丢失：Playbook 声明 `delivery: notify/email/sre-team@...`，程序按声明执行是确定的。Agent 可能"临时觉得飞书更合适"就改渠道，破坏声明式契约
+- 可审计性破坏：Execute 类必须可追溯"按 Approve 的 plan 执行"，Agent 介入执行 = 执行过程不可预测 = 审计失效
+- 性能与成本：发邮件这种确定性操作调 LLM 是浪费
+- 失败处理复杂化：程序失败走重试/回滚/告警是工程化路径，Agent 失败要处理 LLM 不确定性，复杂度爆炸
+
+
+
 **交付中心**（`/workspaces/{id}/deliveries`）：
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -558,6 +598,161 @@ Consumer（多数人）
 
 ---
 
+### 5.9 触发与调度
+
+场景空间有两类定时/事件需求，走两条不同的路。**`derisk_serve.cron` 是通用基础模块，不耦合业务逻辑**——所有业务语义（workspace / trigger / 维护作业）在业务层。
+
+#### 5.9.1 两类需求的本质区分
+
+| 类别 | 例子 | 本质 | 归属模块 |
+|---|---|---|---|
+| **A. 任务触发型** | 定时跑容量巡检、IM 消息触发任务、API 触发任务、监控告警触发任务 | **创建一个 Task**，走 Playbook 执行 | `derisk_serve.trigger`（已有 workspace_id + target_playbook_id） |
+| **B. 空间维护型** | 定期整理 Asset、生成 Playbook 演化提议、llm-wiki 知识结构化、归档长期未访问的托管实例 | **不创建 Task**，是空间自身的后台维护作业 | `derisk_serve.workspace.automation`（新增子模块） |
+
+**关键区分**：
+- A 类是"用户配置意图 → 定时/事件触发任务"——trigger 模块本职，已有 workspace 维度
+- B 类是"空间自己定期整理自己"——不是任务，是维护作业，跟 Playbook/Task 无关
+- 两类塞进同一模块会混乱：A 类有 target_playbook_id，B 类没有；A 类创建 Task，B 类不创建；A 类用户配置，B 类空间内置
+
+#### 5.9.2 A 类：任务触发（trigger 模块，补 timer 自调度）
+
+现状 trigger 的 timer 不自调度（MVP 留的口子，config.cron 只存不执行）。需补：
+- trigger 创建/更新 timer 类型时，**注册到 `derisk_serve.cron`**（cron payload 是"调 trigger.fire 端点"）
+- cron 到点只负责"回调这个 payload"，不关心 payload 是什么业务
+- trigger.fire 被回调后创建 Task，走 Playbook 执行
+- 删 trigger 时同步删 cron job
+
+四类触发方式：
+
+| 触发方式 | 现状 | 终态 |
+|---|---|---|
+| **timer** | config.cron 只存不执行，靠外部 cron 调 fire | 注册到 cron 模块自调度，到点自动 fire |
+| **webhook** | `/triggers/{id}/webhook` 公开端点，已有 | IM 平台（飞书/钉钉）配回调 URL 到此端点 → fire → Task |
+| **alert** | `/triggers/{id}/alert` 公开端点，已有 | 监控告警 webhook POST 到此端点 → fire → Task |
+| **manual** | 已有 | 用户在空间大厅快捷发起 / 任务工作台输入框发指令 → Task |
+
+**IM 触发**：复用 trigger 现有 webhook 端点，不新接。IM 平台侧配回调 URL 即可。
+**API 触发**：复用 `/triggers/fire`（API key 鉴权），外部系统调即可。
+
+#### 5.9.3 B 类：空间维护（workspace automation 子模块）
+
+空间维护作业是空间业务概念，归 `derisk_serve.workspace.automation` 管，不塞进通用 cron 模块：
+
+- workspace serve 新增 `automation` 子模块
+- 空间创建时，automation 注册一组"空间维护作业"到 `derisk_serve.cron`（cron payload 是"调 workspace automation 的某个维护方法"）
+- cron 到点回调，automation 负责实际维护逻辑
+- cron 模块保持通用（只管"到点回调 payload"），不知道 workspace、不知道"整理 Asset"、不知道业务语义
+
+空间内置维护作业：
+
+| 维护作业 | 做什么 | 频率 |
+|---|---|---|
+| **Asset 归档** | 长期未引用的 Asset 归档（content_ref 指向对象存储，DB 只存元数据） | 每周 |
+| **Playbook 演化提议** | 扫描 Skill 调用统计 + gate 触发分析，生成演化提议（只提议不自动改） | 每周 |
+| **llm-wiki 知识结构化** | 定期把散落 L0 加工成 L1/L2，反哺 Asset 检索 | 每日 |
+| **托管实例休眠** | 长期未访问的 Host 实例自动休眠或归档，释放资源 | 每日 |
+| **空间成长统计** | 计算"本月空间成长"卡片数据（沉淀数/演化提议数/任务趋势/图谱节点数） | 每日 |
+
+#### 5.9.4 分层原则
+
+```
+通用基础层：derisk_serve.cron
+  职责：到点回调 payload（at/every/cron 三种调度）
+  不做：不知道 workspace、不知道业务语义
+  ─────────────────────────────────────
+业务层：derisk_serve.trigger / derisk_serve.workspace.automation
+  trigger：任务触发（timer 注册到 cron，fire 创建 Task）
+  automation：空间维护（注册到 cron，回调执行维护方法）
+  ─────────────────────────────────────
+死代码：derisk_app/initialization/scheduler.py
+  全项目无人用，建议清理（另提 issue，不在本 spec 范围）
+```
+
+---
+
+### 5.10 Playbook 与 Agent 动态能力的结合
+
+**这是空间能力的命脉**。Agent 架构已支持运行时动态传入 MCP / Skill / 子 Agent / 数据源 / 知识库 / 自定义资源，Playbook 是声明层——两者结合 = "声明即运行"。
+
+#### 5.10.1 Agent 动态资源能力现状（已支持）
+
+`aggregation_chat` 通过两条并行通道接收运行时动态资源：
+
+| 通道 | 传入方式 | 支持的资源类型 |
+|---|---|---|
+| `chat_in_params: List[ChatInParamValue]` | 结构化，每项含 param_type/sub_type/param_value | Skill / MCP / 数据源 / 知识库 / 文件 / 模型策略 / Temperature / MaxNewTokens |
+| `ext_info["extraTools"]` / `["dynamic_resources"]` / `["extra_agents"]` | 直接传已构建对象 | 工具（MCP/HTTP/LOCAL/SKILL）/ 动态资源 / 子 Agent |
+| `ResourceManager.register_resource` | 注册新 type | **自定义资源类型**（场景专属） |
+
+**已支持运行时动态传入**：工具（MCP/HTTP/LOCAL/SKILL）、数据库、Skill、子 Agent、知识库、文件、模型策略、自定义资源类型。
+**仍是静态配置**：App 本身的 agent 类型 / team_mode / system_prompt_template / Sandbox / LLM 渠道。
+
+#### 5.10.2 核心缺口（必须补）
+
+> `workspace_resource.physical_ref` 到 `AgentResource` 的自动物化链路**未实现**——当前 `build_workspace_context` 只把 `physical_ref` 作为字符串塞进 system_prompt，没有实际物化成 Agent 可调用的工具/资源。
+
+**现状**：空间挂载资源（`workspace_resource` 表存了 skill/mcp/knowledge_space/data_source 的 physical_ref），Agent 运行时只看到 prompt 里的 ref 字符串，**不能实际调用**。空间资源是"装饰"不是"能力"。
+
+**终态**：空间挂载资源是 Playbook 声明，运行时物化成 Agent 实际工具/能力，Agent 能直接调用。空间资源是"能力"。
+
+#### 5.10.3 Playbook DSL → Agent 运行时注入的映射
+
+Playbook runtime 的职责：把 `workspace_resource.physical_ref` 解析成 `AgentResource`，组装 `chat_in_params` + `dynamic_resources` + `extra_agents`，注入 `aggregation_chat`。
+
+| Playbook DSL 声明 | → | Agent 运行时注入 |
+|---|---|---|
+| `skills: [ref(resource:sre_capacity_bundle)]` | → | `chat_in_params.sub_type="agent_skill"` × N（SkillBundle 展开成多个 skill） |
+| `context.resources: [ref(resource:prod_core_db)]` | → | `chat_in_params.sub_type="datasource"` |
+| `context.resources: [ref(resource:k8s_mcp)]` | → | `chat_in_params.sub_type="mcp(derisk)"`（get_mcp_info 取 mcp_servers/headers/source/timeout） |
+| `context.resources: [ref(resource:ops_knowledge)]` | → | `chat_in_params` 走 knowledge ResourceManager |
+| `context.resources: [ref(resource:analyzer_agent)]` | → | `ext_info["extra_agents"]`（动态子 Agent，`_build_extra_employees` 构建） |
+| `context.resources: [ref(resource:custom_slo)]` | → | 自定义资源类型（ResourceManager.register_resource 注册） |
+| `gates: [...]` | → | 空间层监控 AgentRun 输出（不改 Agent） |
+| `deliverables: [...]` | → | 空间层校验产出完整性（不改 Agent） |
+| `distill: [...]` | → | 空间层强制沉淀（不改 Agent） |
+
+#### 5.10.4 SkillBundle 与动态 Skill 的关系
+
+SkillBundle 是空间层的**能力包抽象**（一组协同 Skill），不是新机制：
+- 空间挂载 SkillBundle = 管理一组协同 Skill 的打包
+- 运行时物化时，SkillBundle 展开成多个 `chat_in_params.sub_type="agent_skill"` 项
+- Agent 架构本来就能动态接收多个 Skill——SkillBundle 是空间层对这些 Skill 的"组织抽象"，运行时展开
+
+这样 SkillBundle 不重复造 Agent 的 Skill 加载机制，只是空间层的管理单元。
+
+#### 5.10.5 自定义资源类型
+
+Agent 架构支持 `ResourceManager.register_resource` 注册新 type。场景空间可定义场景专属资源类型：
+- SRE 场景：`slo` / `oncall_rotation` / `runbook_target`
+- 数据运营：`data_pipeline` / `bi_dashboard`
+- 市场售前：`api_endpoint` / `code_repo`
+
+注册成 Agent 可识别的资源类型后，Agent 能直接调用这些场景资源（如查 SLO、查 oncall、触发流水线），不只是看 prompt 字符串。
+
+**扩展机制**：`ResourceManager.register_resource` 注册新 type，subclass 实现 `resource_parameters_class`。`chat_in_params` 中未识别的 `sub_type` 会尝试包成 `AgentResource.from_dict` 透传。
+
+#### 5.10.6 空间层约束不改 Agent
+
+`gates` / `deliverables` / `distill` 是空间层约束，通过监控 AgentRun 输出实现，不改 Agent 架构：
+
+- `gates`：空间层监控 AgentRun 输出的结构化字段，匹配 condition 时创建 `human_intervention`，Task 进入 `awaiting_human`
+- `deliverables`：Task 关闭前空间层校验产出完整性（是否产出了声明类型的 Artifact？是否执行了声明渠道的 Delivery？）
+- `distill`：Task 关闭前空间层校验沉淀完整性（是否完成了声明类型的 Asset 沉淀？）
+
+**关键立场**：Agent 架构负责"动态加载资源 + 自主编排"，空间层负责"声明资源 + 监控约束 + 校验产出"。两者职责清晰，不互相侵入。
+
+#### 5.10.7 结合的产品价值
+
+- **声明即运行**：Playbook 声明 `ref(resource:xxx)`，运行时自动物化成 Agent 实际能力，不需要用户手动配 Agent 工具
+- **空间资源是真能力**：空间挂载的资源 Agent 能直接调用，不是 prompt 装饰
+- **SkillBundle 是组织抽象**：空间层管理协同 Skill 包，运行时展开成 Agent 动态 Skill
+- **场景资源可扩展**：场景专属资源（SLO/oncall/pipeline）注册成 Agent 可识别类型
+- **Agent 架构不被侵入**：gates/deliverables/distill 是空间层约束，不改 Agent
+
+**这是"空间越用越懂团队"的命脉**——如果空间挂载的资源 Agent 用不了，Playbook 就只是文档；运行时物化链路打通后，Playbook 是可执行的能力配置。
+
+---
+
 ## 6. 三机制在产品里的完整可见性
 
 三机制（协作 / 进化 / 交付）是产品愿景的三个支柱，必须在 UI 上可见，否则价值不可感知。
@@ -602,6 +797,7 @@ Consumer（多数人）
 | **空间大厅作为进空间默认页** | §5.1 | 主体切换为大厅（进行中任务/栖居交付物/最近交付/快捷发起） |
 | **本月空间成长卡片** | §5.1 侧栏 | 新查询 + 新卡片（沉淀数/演化提议数/任务趋势/知识图谱节点数）。注：演化提议 P2 才做生成，P0 期间此项恒为 0，卡片先占位 |
 | **顶部 workspace 切换器** | §4.3 | 顶部下拉，列我加入的空间 |
+| **workspace_resource 物化链路** | §5.10 | Playbook runtime 把 `physical_ref` 解析成 `AgentResource`，组装 `chat_in_params` + `dynamic_resources` + `extra_agents` 注入 aggregation_chat。这是空间能力的命脉——没有它空间资源是装饰 |
 
 ### 8.2 P1（产品形态完整度，应做）
 
@@ -613,6 +809,7 @@ Consumer（多数人）
 | **快捷发起按钮** | §5.1 | 空间大厅基于已挂载 Playbook 一键发起 |
 | **我的视图扩成跨空间工作面板** | §5.8 | 5 块：待我处理/我发起的/我参与的产出/我访问过的栖居交付物/我加入的空间 |
 | **交付内容图谱化（结合 llm-wiki）** | §5.7 | 新增 artifact extract_mode + Artifact 创建后触发 ingest + context_builder 查询 llm-wiki 图谱 |
+| **trigger timer 自调度** | §5.9.2 | trigger 创建/更新 timer 时注册到 `derisk_serve.cron`，cron 到点回调 trigger.fire。cron 保持通用不耦合业务 |
 
 ### 8.3 P2（终态能力落地，按 DESIGN 路线图）
 
@@ -623,6 +820,8 @@ Consumer（多数人）
 | **Execute 类交付** | §5.6 | operation_plan + 强制 Approve + dry-run + rollback + operation_result distill |
 | **Host 类交付与托管运行时** | §5.6 + §5.1 栖居区 | artifact_hosting 表 + web_runtime/dashboard_viewer/data_explorer/doc_site/notebook_runtime + 托管应用中心 UI + 生命周期管理 |
 | **Playbook 自演化** | §5.4 演化提议 tab | Skill 调用统计 + gate 触发分析 + 演化提议生成 + 版本审批 |
+| **空间维护作业（workspace automation）** | §5.9.3 | workspace.automation 子模块 + 空间内置维护作业（Asset 归档/演化提议/llm-wiki 结构化/托管休眠/成长统计）注册到 cron |
+| **自定义资源类型注册** | §5.10.5 | 场景专属资源（slo/oncall/pipeline 等）通过 ResourceManager.register_resource 注册成 Agent 可识别类型 |
 | **跨空间 Asset 共享** | §5.7 | 先让单空间跑通后再做 |
 | **Asset 语义子类型完整** | §5.7 | Metric/Dimension/Catalog/Lineage/Template 等完整子类型 |
 
@@ -651,12 +850,15 @@ P0 是叙事翻盘，P1 是完整度，P2 是终态能力。三档全部完成�
 13. **不做"把 chat 退化为子页"**：任务工作台是空间主入口，不是 `/workspaces/{id}/chat` 子页。空间首页就是任务工作台 + 侧栏。
 14. **不做"重造知识系统"**：交付内容图谱化结合 llm-wiki，不独立建。WorkspaceAsset 与 llm-wiki 双路径并存，不硬结合。
 15. **不动 HomeChat / Application Builder / Agent / Skill / MCP / Knowledge Vault**：独立产品边界，场景空间只复用 Agent 框架作为引擎。
+16. **不重造调度器/不耦合 cron 通用模块**：`derisk_serve.cron` 是通用基础模块（只管"到点回调 payload"），不耦合 workspace / trigger / 业务语义。任务触发走 trigger（timer 注册到 cron），空间维护走 workspace.automation（注册到 cron），cron 模块保持通用。
+17. **不让 Agent 参与 Deliver 段执行**：Deliver 段四类交付（Notify/Publish/Execute/Host）都程序完成。Agent 只做 Generate 段（产出 Artifact + 识别交付意图），Deliver 段只解析意图调 Delivery 服务，不执行。Execute 类尤其不能 Agent 做——Approve 后必须按 plan 确定执行。
+18. **不让 Agent 侵入空间层约束**：gates / deliverables / distill 是空间层约束，通过监控 AgentRun 输出实现，不改 Agent 架构。Agent 架构负责"动态加载资源 + 自主编排"，空间层负责"声明资源 + 监控约束 + 校验产出"，两者职责清晰不互相侵入。
 
 ---
 
 ## 10. 产品形态一句话
 
-> **场景空间是 OpenDerisk 里长出来的独立产品——默认用标准 Agent 模板 BAIZE + 剧本加载即运行（不强制配 Agent），以"任务工作台"为主体（不是 chat），输入框常驻底部跨任务通用，进空间默认看到空间大厅（任务/栖居交付物/介入概览），创建空间即带内置剧本立即可跑，Playbook 编排 Builder 建的原子能力，四类交付（Notify/Publish/Execute/Host）让产出真正栖居落地，Artifact 进 llm-wiki 图谱化 + Task close 强制 distill 沉淀 Asset，让空间越用越懂团队。HomeChat、Application Builder 保持原状，场景空间只复用 Agent 框架作为引擎。**
+> **场景空间是 OpenDerisk 里长出来的独立产品——默认用标准 Agent 模板 BAIZE + 剧本加载即运行（不强制配 Agent），以"任务工作台"为主体（不是 chat），输入框常驻底部跨任务通用，进空间默认看到空间大厅（任务/栖居交付物/介入概览），创建空间即带内置剧本立即可跑；Playbook 声明的资源运行时物化成 Agent 动态能力（声明即运行，空间资源是真能力不是 prompt 装饰），四类交付（Notify/Publish/Execute/Host）由程序确定性执行让产出真正栖居落地，Artifact 进 llm-wiki 图谱化 + Task close 强制 distill 沉淀 Asset，触发与空间维护复用通用 cron 调度器但业务语义在业务层，让空间越用越懂团队。HomeChat、Application Builder 保持原状，场景空间只复用 Agent 框架作为引擎。**
 
 ---
 
