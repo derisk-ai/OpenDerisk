@@ -1,5 +1,4 @@
 """Tests for build_workspace_context materialized field."""
-import pytest
 from unittest.mock import MagicMock, patch
 from derisk_serve.workspace.context_builder import build_workspace_context
 
@@ -22,6 +21,7 @@ def test_build_context_includes_materialized_key():
             dynamic_resources=[MagicMock(type="mcp(derisk)")],
             extra_agents=[],
         )
+        system_app.get_component.return_value = MockWsService.return_value
         ctx = build_workspace_context(system_app, workspace_id=1)
     assert "materialized" in ctx
     assert "dynamic_resources" in ctx["materialized"]
@@ -44,6 +44,7 @@ def test_build_context_materialized_empty_on_failure():
         )
         MockWsService.return_value.list_members.return_value = []
         MockWsService.return_value.list_resources.return_value = []
+        system_app.get_component.return_value = MockWsService.return_value
         ctx = build_workspace_context(system_app, workspace_id=1)
     assert ctx["materialized"]["dynamic_resources"] == []
     assert ctx["materialized"]["extra_agents"] == []

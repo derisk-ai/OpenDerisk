@@ -9,7 +9,6 @@ Given a workspace_id and (optional) task, returns a dict summary containing:
 The playbook_runtime injects this into ext_info.workspace_context before
 calling app_chat, so the prompt renderer can stitch it into the system prompt.
 """
-import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -35,7 +34,8 @@ def build_workspace_context(
 
     Returns:
         dict with keys: workspace, members, resources, current_task,
-                        recent_tasks, recent_assets, task_artifacts, task_interventions
+                        recent_tasks, recent_assets, task_artifacts,
+                        task_interventions, materialized
     """
     context: Dict[str, Any] = {
         "workspace_id": workspace_id,
@@ -47,6 +47,7 @@ def build_workspace_context(
         "recent_assets": [],
         "task_artifacts": [],
         "task_interventions": [],
+        "materialized": {"dynamic_resources": [], "extra_agents": []},
     }
 
     try:
