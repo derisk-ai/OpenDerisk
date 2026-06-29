@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Button, Input, Tag } from 'antd';
 import { useRequest } from 'ahooks';
 import {
@@ -50,9 +50,9 @@ export function Workbench({
   );
   const interventions = interventionsRes?.[1];
 
-  const handleWorkspaceEvent = (event: WorkspaceEvent) => {
+  const handleWorkspaceEvent = useCallback((event: WorkspaceEvent) => {
     setEvents((prev) => [...prev, event]);
-  };
+  }, []);
 
   const progressSteps = useMemo(() => {
     // 从 events 推导进展步骤（context_loaded → 后续 tool 调用）
@@ -81,9 +81,9 @@ export function Workbench({
 
   const dialogMessages = useMemo(() => {
     // P0 简化版：从 events 取 asset_referenced / artifact_produced 等
-    return events
-      .filter((e) => e.type === 'asset_referenced' || e.type === 'artifact_produced')
-      .slice(-3);
+    return events.filter(
+      (e) => e.type === 'asset_referenced' || e.type === 'artifact_produced'
+    );
   }, [events]);
 
   return (
