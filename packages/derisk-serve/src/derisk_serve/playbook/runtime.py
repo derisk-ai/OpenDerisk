@@ -110,7 +110,12 @@ async def run_task(
             logger.warning(f"task start skipped or failed: {e}")
 
     # 物化空间资源，透传给 Agent
-    materialized = materialize_resources(system_app, task.workspace_id)
+    try:
+        materialized = materialize_resources(system_app, task.workspace_id)
+    except Exception as e:
+        logger.exception(f"materialize resources failed for task {task_id}: {e}")
+        task_service.transition(task_id, "failed")
+        return {"task_id": task_id, "status": "failed", "error": f"materialize failed: {e}"}
 
     # Launch agent in the task's conversation session
     logger.info(
