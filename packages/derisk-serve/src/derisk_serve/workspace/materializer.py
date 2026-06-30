@@ -107,16 +107,104 @@ def _materialize_llm_model(
     return None
 
 
-# type → 物化函数分派表
+# type → 物化函数名分派表（字符串，便于运行时通过 globals 解析并支持 patch）
 _MATERIALIZE_DISPATCH = {
-    "mcp": _materialize_mcp,
-    "data_source": _materialize_datasource,
-    "skill": _materialize_skill,
-    "agent_skill": _materialize_skill,
-    "knowledge_space": _materialize_knowledge_space,
-    "app": _materialize_app_as_extra_agent,
-    "llm_model": _materialize_llm_model,
+    "mcp": "_materialize_mcp",
+    "data_source": "_materialize_datasource",
+    "skill": "_materialize_skill",
+    "agent_skill": "_materialize_skill",
+    "knowledge_space": "_materialize_knowledge_space",
+    "app": "_materialize_app_as_extra_agent",
+    "llm_model": "_materialize_llm_model",
 }
+
+
+def _declaration_item_to_ref_config(
+    item: Any, item_type: Optional[str] = None
+) -> tuple[Optional[str], Dict[str, Any]]:
+    """Normalize a playbook declaration item into (physical_ref, config).
+
+    Supports the v1 string form (skill code) as well as dict forms.
+    """
+    if isinstance(item, str):
+        return item, {}
+    if not isinstance(item, dict):
+        return None, {}
+    if item_type is None:
+        item_type = item.get("type")
+    if item_type == "mcp":
+        physical_ref = item.get("server_name") or item.get("name") or item.get("ref")
+    else:
+        physical_ref = item.get("name") or item.get("ref")
+    if not physical_ref:
+        return None, {}
+    config = {k: v for k, v in item.items() if k != "type"}
+    return physical_ref, config
+
+
+def materialize_playbook_declaration(
+    system_app, declaration_dsl_json: Optional[Dict[str, Any]]
+) -> List["AgentResource"]:
+    """Materialize skills + context.resources from a playbook declaration.
+
+    Reuses ``_MATERIALIZE_DISPATCH`` handlers. Returns a flat list of
+    ``AgentResource`` objects; ``app`` resources are skipped because they
+    produce ``extra_agents`` dicts rather than ``AgentResource``.
+    """
+    if not declaration_dsl_json:
+        return []
+
+    resources: List["AgentResource"] = []
+
+    skills = declaration_dsl_json.get("skills") or []
+    for skill in skills:
+        if isinstance(skill, str):
+            skill_type = "skill"
+        else:
+            skill_type = skill.get("type") or "skill"
+        if skill_type == "app":
+            continue
+        handler_name = _MATERIALIZE_DISPATCH.get(skill_type) or _MATERIALIZE_DISPATCH.get("skill")
+        if handler_name is None:
+            continue
+        # Resolve via globals so unit-test patches to module-level handlers apply.
+        handler = globals().get(handler_name)
+        if handler is None:
+            continue
+        physical_ref, config = _declaration_item_to_ref_config(skill, skill_type)
+        if physical_ref is None:
+            continue
+        try:
+            materialized = handler(physical_ref, config)
+            if materialized is not None:
+                resources.append(materialized)
+        except Exception:
+            continue
+
+    ctx = declaration_dsl_json.get("context") or {}
+    for res in ctx.get("resources") or []:
+        if not isinstance(res, dict):
+            continue
+        res_type = res.get("type")
+        if res_type == "app":
+            continue
+        handler_name = _MATERIALIZE_DISPATCH.get(res_type)
+        if handler_name is None:
+            continue
+        handler = globals().get(handler_name)
+        if handler is None:
+            continue
+        physical_ref, config = _declaration_item_to_ref_config(res, res_type)
+        if physical_ref is None:
+            continue
+        try:
+            materialized = handler(physical_ref, config)
+            if materialized is not None:
+                resources.append(materialized)
+        except Exception:
+            continue
+
+    return resources
 
 
 def materialize_resources(system_app, workspace_id: int) -> MaterializedResources:
@@ -138,12 +226,15 @@ def materialize_resources(system_app, workspace_id: int) -> MaterializedResource
         if not getattr(r, "is_active", True):
             continue
         rtype = r.type
-        handler = _MATERIALIZE_DISPATCH.get(rtype)
-        if handler is None:
+        handler_name = _MATERIALIZE_DISPATCH.get(rtype)
+        if handler_name is None:
             logger.warning(
                 f"materializer skip unsupported type={rtype} name={r.name} "
                 f"(P2 will register via ResourceManager)"
             )
+            continue
+        handler = globals().get(handler_name)
+        if handler is None:
             continue
         try:
             raw_config = getattr(r, "config", None)
