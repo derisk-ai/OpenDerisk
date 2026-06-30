@@ -1,0 +1,417 @@
+/* ============================================
+   File Preview Modal — Clean & Professional
+   对标 VS Code / GitHub 风格，克制、清晰、实用
+   ============================================ */
+
+/* Reset Ant Modal chrome */
+.previewModal {
+  :global(.ant-modal-content) {
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+    box-shadow: none;
+    border: none;
+  }
+
+  :global(.ant-modal-body) {
+    padding: 0;
+  }
+
+  :global(.ant-modal-wrap) {
+    overflow: hidden;
+  }
+}
+
+/* ---- Wrapper & Animation ---- */
+.modalWrapper {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 6%), 0 8px 32px rgb(0 0 0 / 12%);
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  pointer-events: none;
+}
+
+.modalWrapper.animateIn {
+  animation: fade-in 0.25s ease-out forwards;
+  pointer-events: auto;
+}
+
+.modalWrapper.animateOut {
+  animation: fade-out 0.2s ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* ---- Header ---- */
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fileIconWrap {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f0f0f0;
+  color: #595959;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.headerInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.fileName {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f1f1f;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileType {
+  font-size: 11px;
+  font-weight: 400;
+  color: #8c8c8c;
+  line-height: 16px;
+}
+
+.closeButton {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8c8c8c;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.closeButton:hover {
+  background: #f0f0f0;
+  color: #434343;
+}
+
+/* ---- Toolbar ---- */
+.codeToolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.toolbarBtn {
+  font-size: 12px;
+  color: #8c8c8c;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 26px;
+  line-height: 26px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.toolbarBtn:hover {
+  color: #434343;
+  background: #f0f0f0;
+}
+
+.toolbarBtnActive {
+  color: #1677ff;
+  background: #e6f4ff;
+  border-color: #91caff;
+}
+
+.toolbarBtnActive:hover {
+  color: #1677ff;
+  background: #bae0ff;
+  border-color: #91caff;
+}
+
+/* ---- Body ---- */
+.modalBody {
+  min-height: 200px;
+  max-height: 75vh;
+  overflow: auto;
+}
+
+/* CodePreview 在 modal 内时去掉自身圆角，贴合容器 */
+.modalBody :global(.code-preview-class) pre {
+  border-radius: 0 !important;
+  margin: 0 !important;
+}
+
+/* ---- Loading ---- */
+.loadingContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: 40px;
+}
+
+.loadingContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.loadingIcon {
+  font-size: 28px;
+  color: #8c8c8c;
+  animation: icon-spin 1s linear infinite;
+}
+
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loadingText {
+  font-size: 13px;
+  color: #8c8c8c;
+}
+
+.loadingProgress {
+  width: 160px;
+  height: 2px;
+  background: #f0f0f0;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.loadingBar {
+  height: 100%;
+  width: 40%;
+  background: #d9d9d9;
+  border-radius: 1px;
+  animation: loading-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* ---- Error ---- */
+.errorContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  gap: 12px;
+  padding: 40px;
+}
+
+.errorIcon {
+  font-size: 32px;
+}
+
+/* ---- Image Preview ---- */
+.imageContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #fafafa;
+}
+
+.previewImage {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 4px;
+}
+
+.imagePlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  min-height: 200px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+/* ---- HTML Preview ---- */
+.htmlPreviewContainer {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+.htmlPreviewFrame {
+  width: 100%;
+  height: 65vh;
+  border: none;
+  background: #fff;
+}
+
+.htmlActions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  z-index: 10;
+}
+
+.actionButton {
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(4px);
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  transition: all 0.15s ease;
+}
+
+.actionButton:hover {
+  background: #fff;
+  border-color: #d9d9d9;
+  color: #1f1f1f;
+}
+
+/* ---- Tabs (HTML preview/source) ---- */
+.previewTabs {
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+    padding: 0 16px;
+    background: #fafafa;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  :global(.ant-tabs-tab) {
+    padding: 8px 12px;
+    margin: 0;
+    border-radius: 0;
+    transition: color 0.15s ease;
+    font-size: 13px;
+  }
+
+  :global(.ant-tabs-tab:hover) {
+    color: #1f1f1f;
+  }
+
+  :global(.ant-tabs-tab-active) {
+    background: transparent;
+    font-weight: 500;
+  }
+
+  :global(.ant-tabs-ink-bar) {
+    background: #1677ff;
+  }
+}
+
+.tabLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: inherit;
+}
+
+/* ---- Code & Markdown ---- */
+.codeContainer {
+  max-height: 65vh;
+  overflow: auto;
+  background: transparent;
+  padding: 0;
+}
+
+.markdownContainer {
+  max-height: 65vh;
+  overflow: auto;
+  padding: 20px 24px;
+  background: #fff;
+}
+
+/* ---- Scrollbar (neutral, subtle) ---- */
+.modalBody::-webkit-scrollbar,
+.codeContainer::-webkit-scrollbar,
+.markdownContainer::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.modalBody::-webkit-scrollbar-track,
+.codeContainer::-webkit-scrollbar-track,
+.markdownContainer::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modalBody::-webkit-scrollbar-thumb,
+.codeContainer::-webkit-scrollbar-thumb,
+.markdownContainer::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 3px;
+}
+
+.modalBody::-webkit-scrollbar-thumb:hover,
+.codeContainer::-webkit-scrollbar-thumb:hover,
+.markdownContainer::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
+}
