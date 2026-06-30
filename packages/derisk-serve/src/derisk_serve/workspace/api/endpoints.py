@@ -4,12 +4,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
 
 from derisk.component import SystemApp
 from derisk_serve.core import Result
 
 from .schemas import (
+    RenameConversationRequest,
+    SetCurrentConversationRequest,
     WorkspaceListFilter,
     WorkspaceMemberListRequest,
     WorkspaceMemberRequest,
@@ -301,19 +302,11 @@ async def lookup_conversation(
         return Result.failed(str(e))
 
 
-class SetCurrentConversationRequest(BaseModel):
-    conv_uid: str
-
-
-class RenameConversationRequest(BaseModel):
-    title: str
-
-
 @router.get("/workspaces/{workspace_id}/conversations/current", response_model=Result,
             dependencies=[Depends(check_api_key)])
 async def get_current_conversation(
     workspace_id: int,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    user_id: Optional[int] = Header(None, alias="X-User-ID"),
     service: Service = Depends(get_service),
 ) -> Result:
     try:
@@ -330,7 +323,7 @@ async def get_current_conversation(
 async def set_current_conversation(
     workspace_id: int,
     request: SetCurrentConversationRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    user_id: Optional[int] = Header(None, alias="X-User-ID"),
     service: Service = Depends(get_service),
 ) -> Result:
     try:

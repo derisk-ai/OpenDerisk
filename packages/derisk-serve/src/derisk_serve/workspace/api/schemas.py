@@ -121,3 +121,11 @@ class WorkspaceResourceResponse(BaseModel):
 class WorkspaceResourceListRequest(BaseModel):
     workspace_id: int
     type: Optional[str] = None
+
+
+class SetCurrentConversationRequest(BaseModel):
+    conv_uid: str
+
+
+class RenameConversationRequest(BaseModel):
+    title: str
