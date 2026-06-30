@@ -40,7 +40,8 @@ class InterventionEntity(Model):
     __tablename__ = INTERVENTION_TABLE_NAME
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(Integer, nullable=False, index=True)
+    task_id = Column(Integer, nullable=True, index=True)
+    conv_uid = Column(String(255), nullable=True, index=True)
     workspace_id = Column(Integer, nullable=False, index=True)
     type = Column(String(32), nullable=False, default="review")
     status = Column(String(32), nullable=False, default="requested")
@@ -75,6 +76,7 @@ class InterventionDao(BaseDao[InterventionEntity, InterventionRequest, Intervent
         return InterventionRequest(
             id=entity.id,
             task_id=entity.task_id,
+            conv_uid=entity.conv_uid,
             workspace_id=entity.workspace_id,
             type=entity.type,
             requested_by=entity.requested_by,
@@ -86,6 +88,7 @@ class InterventionDao(BaseDao[InterventionEntity, InterventionRequest, Intervent
         return InterventionResponse(
             id=entity.id,
             task_id=entity.task_id,
+            conv_uid=entity.conv_uid,
             workspace_id=entity.workspace_id,
             type=entity.type,
             status=entity.status,
@@ -101,6 +104,42 @@ class InterventionDao(BaseDao[InterventionEntity, InterventionRequest, Intervent
             gmt_created=entity.gmt_created.isoformat() if entity.gmt_created else "",
             gmt_modified=entity.gmt_modified.isoformat() if entity.gmt_modified else "",
         )
+
+    def create(
+        self,
+        request: Optional[InterventionRequest] = None,
+        query: bool = True,
+        **kwargs: Any,
+    ) -> Union[InterventionEntity, InterventionResponse]:
+        """Create an intervention entity.
+
+        Supports the standard BaseDao path (``request`` object) and a keyword
+        path used for lobby-mode writes where no task exists yet.
+        """
+        if request is not None:
+            return super().create(request, query=query)
+
+        data = dict(kwargs)
+        question_json = _dump_json(data.pop("question_json", None))
+        context_json = _dump_json(data.pop("context_json", None))
+        if "user_id" in data and "requested_by" not in data:
+            data["requested_by"] = data.pop("user_id")
+
+        entity = InterventionEntity(**data)
+        entity.question_json = question_json
+        entity.context_json = context_json
+
+        session = self.get_raw_session()
+        try:
+            session.add(entity)
+            session.commit()
+            session.refresh(entity)
+            return entity
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def list_by_filter(self, f: InterventionListFilter) -> List[InterventionResponse]:
         session = self.get_raw_session()

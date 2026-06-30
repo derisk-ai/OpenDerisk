@@ -1043,7 +1043,8 @@ CREATE TABLE IF NOT EXISTS `server_app_delivery` (
 -- Table: server_app_intervention
 CREATE TABLE IF NOT EXISTS `server_app_intervention` (
   `id` INT NOT NULL AUTO_INCREMENT,
-  `task_id` INT NOT NULL,
+  `task_id` INT NULL,
+  `conv_uid` VARCHAR(255) NULL,
   `workspace_id` INT NOT NULL,
   `type` VARCHAR(32) NOT NULL DEFAULT 'review',
   `status` VARCHAR(32) NOT NULL DEFAULT 'requested' COMMENT 'requested/resolved/aborted',
@@ -1060,6 +1061,7 @@ CREATE TABLE IF NOT EXISTS `server_app_intervention` (
   `gmt_modified` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_intervention_task` (`task_id`),
+  KEY `idx_intervention_conv_uid` (`conv_uid`),
   KEY `idx_intervention_workspace` (`workspace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -8,7 +8,8 @@ from ..config import SERVE_APP_NAME_HUMP
 
 class InterventionRequest(BaseModel):
     id: Optional[int] = None
-    task_id: int
+    task_id: Optional[int] = None
+    conv_uid: Optional[str] = None
     workspace_id: int
     type: str = Field(default="review", description="MVP only: review")
     requested_by: str = Field(default="system", description="system / agent / user")
@@ -18,7 +19,8 @@ class InterventionRequest(BaseModel):
 
 class InterventionResponse(BaseModel):
     id: int
-    task_id: int
+    task_id: Optional[int] = None
+    conv_uid: Optional[str] = None
     workspace_id: int
     type: str
     status: str = "requested"
