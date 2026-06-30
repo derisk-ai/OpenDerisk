@@ -178,7 +178,10 @@ def materialize_playbook_declaration(
             materialized = handler(physical_ref, config)
             if materialized is not None:
                 resources.append(materialized)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"materializer playbook fail type={skill_type} name={physical_ref}: {e}"
+            )
             continue
 
     ctx = declaration_dsl_json.get("context") or {}
@@ -201,7 +204,10 @@ def materialize_playbook_declaration(
             materialized = handler(physical_ref, config)
             if materialized is not None:
                 resources.append(materialized)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"materializer playbook fail type={res_type} name={physical_ref}: {e}"
+            )
             continue
 
     return resources
