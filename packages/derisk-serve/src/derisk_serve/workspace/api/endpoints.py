@@ -2,8 +2,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 from derisk.component import SystemApp
 from derisk_serve.core import Result
@@ -297,6 +298,63 @@ async def lookup_conversation(
         return Result.succ(service.get_conversation_workspace(conv_uid))
     except Exception as e:
         logger.exception("conversation lookup exception!")
+        return Result.failed(str(e))
+
+
+class SetCurrentConversationRequest(BaseModel):
+    conv_uid: str
+
+
+class RenameConversationRequest(BaseModel):
+    title: str
+
+
+@router.get("/workspaces/{workspace_id}/conversations/current", response_model=Result,
+            dependencies=[Depends(check_api_key)])
+async def get_current_conversation(
+    workspace_id: int,
+    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    service: Service = Depends(get_service),
+) -> Result:
+    try:
+        return Result.succ(service.get_current_conversation(
+            workspace_id=workspace_id, user_id=user_id
+        ))
+    except Exception as e:
+        logger.exception("get current conversation exception!")
+        return Result.failed(str(e))
+
+
+@router.post("/workspaces/{workspace_id}/conversations/set-current", response_model=Result,
+             dependencies=[Depends(check_api_key)])
+async def set_current_conversation(
+    workspace_id: int,
+    request: SetCurrentConversationRequest,
+    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    service: Service = Depends(get_service),
+) -> Result:
+    try:
+        return Result.succ(service.set_current_conversation(
+            workspace_id=workspace_id, user_id=user_id, conv_uid=request.conv_uid
+        ))
+    except Exception as e:
+        logger.exception("set current conversation exception!")
+        return Result.failed(str(e))
+
+
+@router.patch("/conversations/{conv_uid}/rename", response_model=Result,
+              dependencies=[Depends(check_api_key)])
+async def rename_conversation(
+    conv_uid: str,
+    request: RenameConversationRequest,
+    service: Service = Depends(get_service),
+) -> Result:
+    try:
+        return Result.succ(service.rename_conversation(
+            conv_uid=conv_uid, title=request.title
+        ))
+    except Exception as e:
+        logger.exception("rename conversation exception!")
         return Result.failed(str(e))
 
 
