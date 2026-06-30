@@ -124,6 +124,8 @@ class WorkspaceConversationLinkEntity(Model):
     conv_uid = Column(String(255), nullable=False, unique=True, index=True)
     task_id = Column(Integer, nullable=True, index=True)
     user_id = Column(Integer, nullable=True, index=True)
+    is_current = Column(Boolean, nullable=False, default=False, index=True)
+    title = Column(String(255), nullable=True)
 
     gmt_created = Column(DateTime, name="gmt_create", default=datetime.now)
     gmt_modified = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -151,13 +153,20 @@ class WorkspaceConversationLinkDao(
             "conv_uid": entity.conv_uid,
             "task_id": entity.task_id,
             "user_id": entity.user_id,
+            "title": entity.title,
+            "is_current": entity.is_current,
             "gmt_created": entity.gmt_created.isoformat() if entity.gmt_created else "",
             "gmt_modified": entity.gmt_modified.isoformat() if entity.gmt_modified else "",
         }
 
     def link(
-        self, workspace_id: int, conv_uid: str,
-        task_id: Optional[int] = None, user_id: Optional[int] = None,
+        self,
+        workspace_id: int,
+        conv_uid: str,
+        task_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+        title: Optional[str] = None,
+        set_current: bool = False,
     ) -> WorkspaceConversationLinkEntity:
         session = self.get_raw_session()
         try:
@@ -172,17 +181,95 @@ class WorkspaceConversationLinkDao(
                     existing.task_id = task_id
                 if user_id is not None:
                     existing.user_id = user_id
+                if title is not None:
+                    existing.title = title
                 session.commit()
+                if set_current:
+                    self._set_current_internal(workspace_id, user_id, conv_uid)
                 return existing
             row = WorkspaceConversationLinkEntity(
                 workspace_id=workspace_id,
                 conv_uid=conv_uid,
                 task_id=task_id,
                 user_id=user_id,
+                title=title,
+                is_current=False,
             )
             session.add(row)
             session.commit()
+            if set_current:
+                self._set_current_internal(workspace_id, user_id, conv_uid)
             return row
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _set_current_internal(
+        self,
+        workspace_id: int,
+        user_id: Optional[int],
+        conv_uid: str,
+    ) -> None:
+        session = self.get_raw_session()
+        try:
+            session.query(WorkspaceConversationLinkEntity).filter(
+                WorkspaceConversationLinkEntity.workspace_id == workspace_id,
+                WorkspaceConversationLinkEntity.user_id == user_id,
+                WorkspaceConversationLinkEntity.conv_uid != conv_uid,
+            ).update(
+                {WorkspaceConversationLinkEntity.is_current: False},
+                synchronize_session=False,
+            )
+            session.query(WorkspaceConversationLinkEntity).filter(
+                WorkspaceConversationLinkEntity.workspace_id == workspace_id,
+                WorkspaceConversationLinkEntity.user_id == user_id,
+                WorkspaceConversationLinkEntity.conv_uid == conv_uid,
+            ).update(
+                {WorkspaceConversationLinkEntity.is_current: True},
+                synchronize_session=False,
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_current(
+        self, workspace_id: int, user_id: Optional[int]
+    ) -> Optional[WorkspaceConversationLinkEntity]:
+        session = self.get_raw_session()
+        try:
+            return (
+                session.query(WorkspaceConversationLinkEntity)
+                .filter(
+                    WorkspaceConversationLinkEntity.workspace_id == workspace_id,
+                    WorkspaceConversationLinkEntity.user_id == user_id,
+                    WorkspaceConversationLinkEntity.is_current.is_(True),
+                )
+                .order_by(WorkspaceConversationLinkEntity.gmt_modified.desc())
+                .first()
+            )
+        finally:
+            session.close()
+
+    def rename(
+        self, conv_uid: str, title: str
+    ) -> Optional[WorkspaceConversationLinkEntity]:
+        session = self.get_raw_session()
+        try:
+            entity = (
+                session.query(WorkspaceConversationLinkEntity)
+                .filter(WorkspaceConversationLinkEntity.conv_uid == conv_uid)
+                .first()
+            )
+            if entity is None:
+                return None
+            entity.title = title
+            session.commit()
+            return entity
         except Exception:
             session.rollback()
             raise
