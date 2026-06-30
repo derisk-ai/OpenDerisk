@@ -624,6 +624,89 @@ class BAIZESubsystemAdapter:
 
 **关键原则**：子系统内部实现不动，只改它们的"事件输出口"——从 `push_context_event`/`push_message` 改为调用 `BAIZESubsystemAdapter.emit()`。
 
+### 10.7 实时可观测性：token 消耗 + 对话状态展示
+
+V2 内核的事件驱动 + 持久化 + 状态可查天然支持实时可观测性。无需新基建，只需在事件流上加字段 + 前端加 handler。
+
+#### 10.7.1 数据来源
+
+| 指标 | 来源 | 实现位置 |
+|---|---|---|
+| 单次 LLM 调用 token | LLM provider 返回的 `usage`（prompt_tokens / completion_tokens / total_tokens） | P1：`llm_token` 事件的 `output` 字段透传 `usage` |
+| 累计 token（per conv / per step / per agent） | `StateStore.get_events(conv_id)` 聚合 | P1：新增 `usage_metric` 事件类型，每次 LLM 调用后 emit |
+| context window 占比 | `model_config_cache.py` 已缓存各模型 window size | P1：`usage_metric.payload` 带 `context_window` + `ratio` |
+| 当前对话状态 | `StateStore.get_step_state(step_id)` 返回 `StepState` + snapshot | P0 已有，P3 前端消费 |
+
+#### 10.7.2 事件扩展
+
+`llm_token` 事件的 `output` 字段增加 `usage` 子字段（向后兼容，老消费者忽略即可）：
+
+```python
+StepEvent(
+    event_type="llm_token",
+    output={
+        "token": "你好",           # 增量文本（已有）
+        "usage": {                  # 新增
+            "prompt_tokens": 1234,
+            "completion_tokens": 56,
+            "total_tokens": 1290,
+        },
+    },
+)
+```
+
+新增 `usage_metric` 事件类型，每次 LLM 调用结束后 emit，带累计值 + 占比：
+
+```python
+StepEvent(
+    event_type="usage_metric",
+    output={
+        "step_id": "step-1",
+        "agent_id": "agent-1",
+        "llm_call_id": "call-xyz",
+        "model": "claude-sonnet-4-6",
+        "this_call": {"prompt": 1234, "completion": 56, "total": 1290},
+        "cumulative": {                          # 当前 step 累计
+            "prompt": 5000, "completion": 200, "total": 5200,
+        },
+        "context_window": 200000,               # 来自 model_config_cache
+        "ratio": 0.026,                         # cumulative.total / context_window
+    },
+)
+```
+
+`EVENT_TYPES` 集合（10.2 节）追加 `"usage_metric"`。
+
+#### 10.7.3 SSE 适配 + 前端渲染
+
+SSE 适配层（10.3 节）转发 `usage_metric` 为前端可消费的事件：
+
+```python
+elif event.type == "usage_metric":
+    yield f'data:{{"vis":{{"type":"usage_metric","payload":{json.dumps(event.payload)}}}}}\n\n'
+```
+
+前端 `use-chat.ts` 增加 `usage_metric` handler，渲染形态**两种共存**：
+
+- **A. 顶部状态条**：整个对话一个累计计数 + 当前 step 的 `StepState`（INIT/THINKING/ACTING/AWAITING_USER/...）
+- **B. 每条 AI 消息行内**：本步 token 数 + 状态徽章
+
+两种形态共用同一份数据源（`usage_metric` 事件 + `step_state` 快照），只是渲染位置不同。
+
+#### 10.7.4 落地节奏
+
+| 阶段 | 工作 |
+|---|---|
+| **P0** | 已有：`StepEvent` schema 支持 `output` 自由 dict；`StateStore.get_step_state` 可查当前状态 |
+| **P1** | `llm_token.output.usage` 透传；新增 `usage_metric` 事件类型；`EVENT_TYPES` 追加 |
+| **P3** | SSE 适配层转发 `usage_metric`；前端 `use-chat.ts` 加 handler；顶部状态条 + 消息行内徽章 |
+
+#### 10.7.5 边界
+
+- **不引入新表**：token 数据完全走 `step_event` 表，`usage_metric` 是事件类型不是新实体
+- **不阻塞主流程**：`usage_metric` 是 fire-and-forget，前端渲染失败不影响 Agent 执行
+- **不替代计费**：这是 UX 层的实时展示，计费仍以 provider 账单为准
+
 ---
 
 ## 11. BAIZE 子系统适配 + 测试 + 迁移路径
