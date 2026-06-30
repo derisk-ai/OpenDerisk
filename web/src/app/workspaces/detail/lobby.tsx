@@ -1,7 +1,9 @@
 'use client';
 
-import { Button, Card, Tag } from 'antd';
+import { useState, useRef } from 'react';
+import { Button, Card, Input, Tag } from 'antd';
 import { useRequest } from 'ahooks';
+import Link from 'next/link';
 import {
   apiInterceptors,
   listTasks,
@@ -9,16 +11,38 @@ import {
   listDeliveries,
   listPlaybooks,
 } from '@/client/api';
+import ChatSession, { ChatSessionHandle } from '@/components/chat/chat-session';
+import type { WorkspaceEvent } from '@/hooks/use-chat';
 import { GrowthCard } from './growth-card';
 import './lobby.css';
 
 export interface LobbyProps {
   workspaceId: number;
+  workspaceCode: string;
+  workspaceName: string;
+  workspaceType: string;
+  appCode: string;
+  convUid: string;
   onSelectTask: (taskId: number) => void;
   onQuickStart: (playbookId: number) => void;
 }
 
-export function Lobby({ workspaceId, onSelectTask, onQuickStart }: LobbyProps) {
+export function Lobby({
+  workspaceId,
+  workspaceCode,
+  workspaceName,
+  workspaceType,
+  appCode,
+  convUid,
+  onSelectTask,
+  onQuickStart,
+}: LobbyProps) {
+  const [input, setInput] = useState('');
+  const chatSessionRef = useRef<ChatSessionHandle>(null);
+
+  const handleWorkspaceEvent = (event: WorkspaceEvent) => {
+    // Lobby does not render task progress events; keep callback for ChatSession.
+  };
   const { data: tasksRes } = useRequest(
     async () => apiInterceptors(listTasks({ workspace_id: workspaceId, status: 'running' })),
     { refreshDeps: [workspaceId] },
@@ -52,6 +76,17 @@ export function Lobby({ workspaceId, onSelectTask, onQuickStart }: LobbyProps) {
   return (
     <div className="ws-lobby">
       <div className="ws-lobby__main">
+        {/* 空间身份条 */}
+        <section className="ws-lobby__identity">
+          <div className="ws-lobby__identity-title">
+            <h2>{workspaceName}</h2>
+            <Tag>{workspaceType}</Tag>
+          </div>
+          <p className="ws-lobby__identity-guide">
+            在底部输入框下指令，或从下方快捷发起选一个剧本。
+          </p>
+        </section>
+
         {/* 进行中任务 */}
         <section className="ws-lobby__section">
           <div className="ws-lobby__section-head">
@@ -84,7 +119,7 @@ export function Lobby({ workspaceId, onSelectTask, onQuickStart }: LobbyProps) {
           </div>
           <div className="ws-lobby__hosted-grid">
             {hostedArtifacts.length === 0 && (
-              <div className="ws-empty">P8 上线后这里展示托管运行的交付物</div>
+              <div className="ws-empty">暂无在运行的交付物</div>
             )}
             {hostedArtifacts.map((a: any) => (
               <Card key={a.id} size="small" className="ws-lobby__hosted-card">
@@ -115,17 +150,66 @@ export function Lobby({ workspaceId, onSelectTask, onQuickStart }: LobbyProps) {
         {/* 快捷发起 */}
         <section className="ws-lobby__section">
           <div className="ws-lobby__section-head">
-            <h3>快捷发起</h3>
+            <div className="ws-lobby__section-head-text">
+              <h3>快捷发起</h3>
+              <span className="ws-lobby__section-sub">选择一个剧本，快速发起一个任务</span>
+            </div>
           </div>
           <div className="ws-lobby__quick">
             {(playbooks || []).slice(0, 4).map((p: any) => (
-              <Button key={p.id} onClick={() => onQuickStart(p.id)}>
-                + {p.name}
+              <Button
+                key={p.id}
+                className="ws-lobby__quick-btn"
+                onClick={() => onQuickStart(p.id)}
+              >
+                <span className="ws-lobby__quick-name">发起: {p.name}</span>
+                {(p.scenario_type || p.task_type) && (
+                  <span className="ws-lobby__quick-desc">{p.scenario_type || p.task_type}</span>
+                )}
               </Button>
             ))}
-            <Button type="dashed">+ 自定义</Button>
+            {(playbooks || []).length === 0 && (
+              <div className="ws-empty">
+                空间还没有剧本。去
+                <Link href={`/workspaces/detail/playbooks?id=${workspaceCode}`}>
+                  剧本管理
+                </Link>
+                创建一个，或直接在底部输入框下指令。
+              </div>
+            )}
           </div>
         </section>
+
+        {/* 输入框常驻底部 */}
+        <div className="ws-lobby__input">
+          <Input.TextArea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="发起新任务或给空间下指令…"
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            onPressEnter={(e) => {
+              if (!e.shiftKey) {
+                e.preventDefault();
+                if (input.trim()) {
+                  chatSessionRef.current?.sendMessage(input);
+                  setInput('');
+                }
+              }
+            }}
+          />
+        </div>
+
+        {/* ChatSession 隐藏，作为对话内核 + 事件源 */}
+        <div style={{ display: 'none' }}>
+          <ChatSession
+            ref={chatSessionRef}
+            convUid={convUid}
+            appCode={appCode}
+            workspaceId={workspaceId}
+            minimal
+            onWorkspaceEvent={handleWorkspaceEvent}
+          />
+        </div>
       </div>
 
       {/* 侧栏：成长卡 */}
