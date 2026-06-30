@@ -237,6 +237,15 @@ class WorkspaceConversationLinkDao(
         finally:
             session.close()
 
+    def set_current(
+        self,
+        workspace_id: int,
+        user_id: Optional[int],
+        conv_uid: str,
+    ) -> None:
+        """Public wrapper to set the current conversation for a workspace/user."""
+        self._set_current_internal(workspace_id, user_id, conv_uid)
+
     def get_current(
         self, workspace_id: int, user_id: Optional[int]
     ) -> Optional[WorkspaceConversationLinkEntity]:

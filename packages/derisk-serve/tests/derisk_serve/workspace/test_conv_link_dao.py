@@ -94,17 +94,23 @@ def test_service_set_current_persists(service, db_session):
     service.set_current_conversation(workspace_id=1, user_id=1, conv_uid="conv-2")
 
     current = service.get_current_conversation(workspace_id=1, user_id=1)
-    assert current.conv_uid == "conv-2"
+    assert current["conv_uid"] == "conv-2"
     refreshed_first = _refresh(db_session, "conv-1")
     refreshed_second = _refresh(db_session, "conv-2")
     assert refreshed_first.is_current is False
     assert refreshed_second.is_current is True
 
 
+def test_service_set_current_wrong_user_raises(service):
+    WorkspaceConversationLinkDao().link(workspace_id=1, conv_uid="conv-1", user_id=2)
+    with pytest.raises(ValueError, match="not linked to workspace 1 for user 1"):
+        service.set_current_conversation(workspace_id=1, user_id=1, conv_uid="conv-1")
+
+
 def test_service_rename(service, db_session):
     WorkspaceConversationLinkDao().link(workspace_id=1, conv_uid="conv-1", user_id=1)
     renamed = service.rename_conversation(conv_uid="conv-1", title="my title")
-    assert renamed.title == "my title"
+    assert renamed["title"] == "my title"
     refreshed = _refresh(db_session, "conv-1")
     assert refreshed.title == "my title"
 

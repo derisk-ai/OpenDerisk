@@ -20,7 +20,6 @@ from ..api.schemas import (
 from ..config import ServeConfig
 from ..models.models import (
     WorkspaceConversationLinkDao,
-    WorkspaceConversationLinkEntity,
     WorkspaceDao,
     WorkspaceEntity,
     WorkspaceMemberDao,
@@ -359,29 +358,36 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
 
     def get_current_conversation(
         self, workspace_id: int, user_id: Optional[int]
-    ) -> Optional[WorkspaceConversationLinkEntity]:
-        return self._conv_link_dao.get_current(
+    ) -> Optional[Dict[str, Any]]:
+        row = self._conv_link_dao.get_current(
             workspace_id=workspace_id, user_id=user_id
         )
+        return self._conv_link_dao.to_response(row) if row else None
 
     def set_current_conversation(
         self, workspace_id: int, user_id: Optional[int], conv_uid: str
-    ) -> WorkspaceConversationLinkEntity:
+    ) -> Dict[str, Any]:
         link = self._conv_link_dao.get_by_conv(conv_uid)
         if link is None or link.workspace_id != workspace_id:
             raise ValueError(
                 f"Conversation {conv_uid} not linked to workspace {workspace_id}"
             )
-        self._conv_link_dao._set_current_internal(workspace_id, user_id, conv_uid)
+        if user_id is not None and link.user_id != user_id:
+            raise ValueError(
+                f"Conversation {conv_uid} not linked to workspace {workspace_id} "
+                f"for user {user_id}"
+            )
+        self._conv_link_dao.set_current(workspace_id, user_id, conv_uid)
         current = self._conv_link_dao.get_current(
             workspace_id=workspace_id, user_id=user_id
         )
         if current is None:
             raise ValueError("Failed to set current conversation")
-        return current
+        return self._conv_link_dao.to_response(current)
 
     def rename_conversation(
         self, conv_uid: str, title: str
-    ) -> Optional[WorkspaceConversationLinkEntity]:
+    ) -> Optional[Dict[str, Any]]:
         self._conv_link_dao.rename(conv_uid=conv_uid, title=title)
-        return self._conv_link_dao.get_by_conv(conv_uid)
+        entity = self._conv_link_dao.get_by_conv(conv_uid)
+        return self._conv_link_dao.to_response(entity) if entity else None
