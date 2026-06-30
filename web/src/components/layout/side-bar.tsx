@@ -25,6 +25,7 @@ import Icon, {
   ExperimentOutlined,
   SafetyOutlined,
   TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
 import { authService } from '@/services/auth';
@@ -41,6 +42,7 @@ import ModelSvg from '../icons/model-svg';
 import ChatIcon from '../icons/chat-icon';
 import MenuList from './menlist';
 import UserBar from './user-bar';
+import { WorkspaceSwitcher } from './workspace-switcher';
 import copy from 'copy-to-clipboard';
 import { useUserPermissions } from '@/hooks/use-user-permissions';
 
@@ -601,6 +603,21 @@ function SideBar() {
         children: configChildren,
         isActive: pathname.startsWith('/models') || pathname.startsWith('/vis-merge-test') || pathname.startsWith('/cron') || pathname.startsWith('/channel') || pathname.startsWith('/settings/config') || pathname.startsWith('/settings/plugin-market') || pathname.startsWith('/settings/permissions') || pathname.startsWith('/audit-logs') || pathname.startsWith('/monitoring'),
       }] : []),
+      // Scenario Workspace entry
+      {
+        key: 'workspaces',
+        name: t('workspaces') || 'Workspaces',
+        icon: <TeamOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/workspaces',
+        isActive: pathname.startsWith('/workspaces') || pathname.startsWith('/me'),
+      },
+      {
+        key: 'me',
+        name: t('me') || 'My View',
+        icon: <UserOutlined className='w-5 h-5 text-gray-500' />,
+        path: '/me',
+        isActive: pathname === '/me',
+      },
     ];
     return items;
   }, [t, pathname, appLists, oauthEnabled, hasResourceRead, hasPermission]);
@@ -796,7 +813,12 @@ function SideBar() {
         <Link href='/' className='flex flex-row justify-between items-center mb-2 pl-1'>
           <Image src={isMenuExpand ? logo : '/LOGO_SMALL.png'} alt='DB-GPT' width={120} height={30} className="object-contain" />
         </Link>
-        
+
+        {/* Workspace Switcher */}
+        <div className="side-bar-workspace-switcher w-full mb-3 px-1">
+          <WorkspaceSwitcher />
+        </div>
+
         {/* New Chat Button */}
         <Link 
           href="/chat" 
