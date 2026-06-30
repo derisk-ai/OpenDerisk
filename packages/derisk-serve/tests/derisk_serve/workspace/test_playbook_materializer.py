@@ -14,12 +14,13 @@ def test_materialize_playbook_declaration_handles_skills_and_resources():
     fake_system_app = MagicMock()
     with patch("derisk_serve.workspace.materializer._materialize_skill") as ms, \
          patch("derisk_serve.workspace.materializer._materialize_mcp") as mm:
-        ms.return_value = [MagicMock(spec=[], name="skill-resource")]
-        mm.return_value = [MagicMock(spec=[], name="mcp-resource")]
+        ms.return_value = MagicMock(spec=[], name="skill-resource")
+        mm.return_value = MagicMock(spec=[], name="mcp-resource")
         result = materialize_playbook_declaration(fake_system_app, declaration)
         assert len(result) == 2
-        ms.assert_called_once()
-        mm.assert_called_once()
+        assert all(not isinstance(r, list) for r in result)
+        ms.assert_called_once_with("skill-a", {"name": "skill-a"})
+        mm.assert_called_once_with("s1", {"name": "mcp-x", "server_name": "s1"})
 
 
 def test_materialize_playbook_declaration_handles_string_skills():
