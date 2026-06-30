@@ -12,30 +12,40 @@ P0 完成后场景空间已有 Lobby（空间大厅）+ Workbench（任务工作
 2. **无会话管理 UI**：用户不能查看/切换/重置会话，convUid 只存在浏览器 localStorage，换设备即丢
 3. **convUid 映射游离**：后端已有 `WorkspaceConversationLink` 表 + 3 个 endpoint + DAO + service 方法，但前端完全没用
 4. **Agent 不能控制空间**：当前 `_inject_workspace_context` 只注入 system_prompt 摘要 + 物化只读资源（MCP/datasource/skill/kb/app/llm），Agent 无法 list_tasks / create_task / send_delivery / bind_resource / publish_asset
+5. **剧本 declaration 未物化**：`PlaybookEntity.declaration_dsl_json` 已声明 skills/context.resources/deliverables，但 runtime 只是字符串拼到 user_query，没有真正物化成 AgentResource 注入。任务执行时 Agent 拿不到剧本声明的任务专属能力（如 SRE 巡检剧本声明的 `prometheus_query` skill + `alert_manager` mcp）
 
-**目标**：让场景空间 Agent 既能"了解"空间（已部分实现），又能"控制"空间（新做），且区分空间级与任务级两种上下文。
+**目标**：让场景空间 Agent 既能"了解"空间，又能"控制"空间，且按**三层模型**（空间基线 / 空间操作 / 剧本能力）精准加载上下文与工具。
 
 ## 2. 核心设计原则
 
 > **空间 = 一组资源 + 权限 + 工具集合**。同一空间下，任务上下文 vs 非任务上下文加载的内容不同。
 >
-> **任务模式更干净简单**：Workbench 只挂当前任务相关上下文与工具，不挂空间全局操作工具；Lobby 挂空间全局视角。
+> 注入分**三层**，按上下文叠加：
+> - **空间基线层**（Lobby + Workbench 都继承）：空间身份/成员摘要、空间级只读工具、空间绑定的物化资源（MCP/datasource/kb/skill/app/llm）
+> - **空间操作层**（仅 Lobby）：空间级写工具（起任务/绑资源/publish asset/trigger_playbook/send_delivery）+ 空间资产查询
+> - **剧本能力层**（仅 Workbench）：剧本 declaration 声明的 skills/mcp/resources 物化为任务级增量能力 + 任务级读写工具
 
 注入差异矩阵：
 
-| 注入项 | Lobby (task_id=NULL) | Workbench (task_id=N) |
-|---|---|---|
-| system_prompt 摘要 | 空间身份/成员/资源/最近任务/最近资产 | **仅** current_task 详情 + task_artifacts + task_interventions（不带空间全量信息） |
-| dynamic_resources | 空间级绑定资源（已有 materializer） | 同空间级（资源仍属空间） |
-| 读工具 | 7 个空间级只读工具 | 3 个任务级只读工具 |
-| 写工具 | 5 个空间级写工具 | 3 个任务级写工具 |
-| 权限 | 起任务/发空间交付/绑资源/publish asset | 仅限本 task：提交 artifact / 更新本 task 状态 / 为本 task 请求 intervention |
+| 层 | 内容 | Lobby (task_id=NULL) | Workbench (task_id=N) |
+|---|---|---|---|
+| 空间基线 | system_prompt 空间身份/成员摘要 | ✅ | ✅ |
+| 空间基线 | 空间绑定物化资源（MCP/datasource/kb/skill/app/llm） | ✅ | ✅ |
+| 空间基线 | 空间级只读工具（list_tasks/get_task/list_artifacts/list_deliveries/list_workspace_resources） | ✅ | ✅ |
+| 空间操作 | 空间级写工具（create_task/send_delivery/bind_resource/publish_asset/trigger_playbook） | ✅ | ❌ |
+| 空间操作 | 空间资产查询（list_workspace_assets/get_workspace_growth） | ✅ | ❌ |
+| 空间操作 | system_prompt 拼最近任务/最近资产（空间记忆） | ✅ | ❌ |
+| 剧本能力 | 剧本 declaration.skills 物化为 agent_skill 资源 | ❌ | ✅ |
+| 剧本能力 | 剧本 declaration.context.resources 物化为任务级 AgentResource | ❌ | ✅ |
+| 剧本能力 | 任务级只读工具（get_current_task_detail/list_task_artifacts/list_task_interventions） | ❌ | ✅ |
+| 剧本能力 | 任务级写工具（submit_artifact_for_task/update_task_status/request_intervention） | ❌ | ✅ |
+| 剧本能力 | system_prompt 拼 current_task + task_artifacts + task_interventions | ❌ | ✅ |
 
 **关键原则**：
-- Workbench 模式**不挂** `list_tasks` / `create_task` / `bind_resource` / `list_workspace_assets` / `get_workspace_growth` 等空间级工具——任务模式下 Agent 视野应聚焦本任务，不被空间全局能力干扰
-- Lobby 模式**不挂** `submit_artifact_for_task` / `update_task_status` / `request_intervention` / `get_current_task_detail` 等任务级工具——大厅无任务上下文，不能"代表任务"操作
-- 上下文摘要同样精简：Workbench 的 system_prompt 不拼空间成员/最近任务/最近资产，只拼 current_task + task_artifacts + task_interventions
-- `build_workspace_toolkit(system_app, workspace_id, user_id, task_id=None)` 的 task_id 参数决定加载**哪套**（不是叠加）工具
+- **空间基线两层都继承**：任务模式下 Agent 仍能用空间绑定的 MCP / 数据源 / 知识库，仍能 list_tasks 看空间里其它任务，仍能 list_artifacts 看历史交付——这些是空间成员的基线能力
+- **空间操作层 Lobby 独有**：不在任务执行中起任务/绑资源/publish asset，避免任务 Agent 越权改空间状态
+- **剧本能力层 Workbench 独有**：剧本 declaration 声明的 skills/mcp/resources 是任务专属增量能力（如 SRE 巡检剧本声明 `prometheus_query` skill + `alert_manager` mcp），物化后与空间基线资源一起注入
+- `build_workspace_toolkit(system_app, ws_id, user_id, task_id=None, playbook_declaration=None)` 的 task_id + playbook_declaration 决定加载哪些层
 
 ## 3. 架构总览
 
@@ -47,17 +57,21 @@ P0 完成后场景空间已有 Lobby（空间大厅）+ Workbench（任务工作
 │    ├─ conv_uid_task_42 task_id=42     (runtime 也用这个)          │
 │    └─ conv_uid_task_43 task_id=43                               │
 │                                                                  │
-│  Agent (chat_normal) 执行时 ext_info 注入 (基于 task_id 互斥区分):   │
-│    1. workspace_context (已有, build_workspace_context, 按 mode 精简) │
-│       Lobby: 空间身份/成员/资源/最近任务/最近资产                     │
-│       Workbench: 仅 current_task + task_artifacts + task_interventions │
-│    2. materialized dynamic_resources (已有, 空间级资源两模式都注入)   │
-│    3. workspace_control_tools (新, WorkspaceControlAgent, 互斥加载):  │
-│       Lobby: 7 空间级读 + 5 空间级写                                  │
-│       Workbench: 3 任务级读 + 3 任务级写                              │
-│       写工具内部 → intervention_service.create() → SSE 事件           │
-│       → 前端 VisConfirmCard → 用户 resolve → 后端执行写操作           │
-│       → 结果作为新 human 消息送回同一 conv_uid 下一轮                  │
+│  Agent (chat_normal) 执行时 ext_info 注入 (三层叠加, 按 task_id 区分): │
+│    1. workspace_context (已有, build_workspace_context, 按 mode 精简)   │
+│       空间基线 (两模式): workspace 身份/members/resources               │
+│       空间操作 (Lobby): + recent_tasks + recent_assets (空间记忆)       │
+│       剧本能力 (Workbench): + current_task + task_artifacts +           │
+│                              task_interventions                         │
+│    2. materialized dynamic_resources (空间基线, 两模式都注入)           │
+│       + playbook declaration 物化 (仅 Workbench, 任务专属 skill/mcp)    │
+│    3. workspace_control_tools (新, WorkspaceControlAgent, 三层叠加):    │
+│       空间基线 (两模式): 5 个只读                                      │
+│       空间操作 (Lobby): + 2 资产查询 + 5 空间写                         │
+│       剧本能力 (Workbench): + 3 任务读 + 3 任务写                       │
+│       写工具内部 → intervention_service.create() → SSE 事件             │
+│       → 前端 VisConfirmCard → 用户 resolve → 后端执行写操作             │
+│       → 结果作为新 human 消息送回同一 conv_uid 下一轮                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -177,9 +191,9 @@ agent_tools/
   control_agent.py     # WorkspaceControlAgent: ConversableAgent 子类，挂载这些 tools
 ```
 
-#### 4.2.2 工具清单
+#### 4.2.2 工具清单（三层叠加）
 
-**空间级只读（7 个，仅 Lobby / task_id=NULL 时注册）**：
+**层 1：空间基线只读（5 个，Lobby + Workbench 都注册）**：
 
 | 工具名 | 参数 | 调用 |
 |---|---|---|
@@ -188,38 +202,86 @@ agent_tools/
 | `list_artifacts` | `task_id?: int, limit?: int` | `ArtifactService.list_artifacts` |
 | `list_deliveries` | `task_id?: int, limit?: int` | `DeliveryService.list_deliveries` |
 | `list_workspace_resources` | (无) | `WorkspaceService.list_resources` |
+
+**层 2：空间操作（Lobby 独有，7 个：2 读 + 5 写）**：
+
+| 工具名 | 参数 | 调用 |
+|---|---|---|
 | `list_workspace_assets` | `limit?: int` | `AssetService.list_assets` |
 | `get_workspace_growth` | (无) | `WorkspaceService.get_growth` |
-
-**任务级只读（3 个，仅 Workbench / task_id=N 时注册）**：
-
-| 工具名 | 参数 | 调用 |
-|---|---|---|
-| `get_current_task_detail` | (无) | `TaskService.get_by_id(task_id)` |
-| `list_task_artifacts` | (无) | `ArtifactService.list_artifacts(task_id=task_id)` |
-| `list_task_interventions` | `status?: str` | `InterventionService.list_interventions(task_id=task_id)` |
-
-**空间级写工具（5 个，仅 Lobby 时注册，每个内部走 intervention）**：
-
-| 工具名 | 参数 | 调用 |
-|---|---|---|
 | `create_task` | `title: str, playbook_id: int, context?: dict` | intervention → `TaskService.create` |
 | `send_delivery` | `channel: str, content: str, category?: str` | intervention → `DeliveryService.send` (task_id=NULL) |
 | `bind_resource` | `type: str, name: str, physical_ref: str, access_mode?: str` | intervention → `WorkspaceService.add_resource` |
 | `publish_asset` | `artifact_id: int, name: str, description?: str, tags?: list` | intervention → `AssetService.publish` |
 | `trigger_playbook` | `playbook_id: int, context?: dict` | intervention → 等价 create_task + run_task |
 
-**任务级写工具（3 个，仅 Workbench 时注册）**：
+**层 3：剧本能力（Workbench 独有，6 个：3 读 + 3 写）**：
 
 | 工具名 | 参数 | 调用 |
 |---|---|---|
+| `get_current_task_detail` | (无) | `TaskService.get_by_id(task_id)` |
+| `list_task_artifacts` | (无) | `ArtifactService.list_artifacts(task_id=task_id)` |
+| `list_task_interventions` | `status?: str` | `InterventionService.list_interventions(task_id=task_id)` |
 | `submit_artifact_for_task` | `type: str, title: str, content: str` | intervention → `ArtifactService.create(task_id=task_id)` |
 | `update_task_status` | `status: str, note?: str` | intervention → `TaskService.update({id: task_id, status})` |
 | `request_intervention` | `question: str, context?: dict` | `InterventionService.create(task_id=task_id, type='review')` |
 
-**互斥原则**：Lobby 与 Workbench 工具集**不重叠**——同一 Agent 在不同上下文看到的工具列表完全不同，确保任务模式干净聚焦。
+**工具计数**：
+- Lobby = 层 1（5）+ 层 2（7）= 12 工具
+- Workbench = 层 1（5）+ 层 3（6）= 11 工具
+- 层 2 与层 3 **不重叠**——Lobby 不挂任务级工具，Workbench 不挂空间操作工具，避免越权
 
-#### 4.2.3 写工具 intervention 流程（非阻塞）
+#### 4.2.3 剧本 declaration 物化（Workbench 增量能力）
+
+`PlaybookEntity.declaration_dsl_json` 已有结构（runtime.py:242-249 已读但未物化）：
+
+```json
+{
+  "skills": ["prometheus_query", "log_retrieval"],
+  "context": {
+    "resources": [
+      {"type": "mcp", "name": "alert_manager", "physical_ref": "mcp_alertmgr"},
+      {"type": "data_source", "name": "metrics_db", "physical_ref": "ds_prom"}
+    ]
+  },
+  "deliverables": [{"type": "report", "title": "巡检报告"}],
+  "distill": {"forced": false}
+}
+```
+
+新增 `packages/derisk-serve/src/derisk_serve/workspace/agent_tools/playbook_materializer.py`：
+
+```python
+def materialize_playbook_declaration(
+    system_app, declaration: Dict[str, Any],
+) -> MaterializedResources:
+    """把剧本 declaration 声明的 skills/resources 物化为 AgentResource。
+    复用 materializer.py 的 _materialize_mcp / _materialize_data_source /
+    _materialize_skill 等已有函数，传入 declaration 的 resources 列表。
+    返回 MaterializedResources(dynamic_resources, extra_agents)。"""
+```
+
+注入路径（`_inject_workspace_context` 在 task_id 非空时追加）：
+
+```python
+if task_id:
+    # 1. 取 task → playbook → declaration
+    task = task_service.get_by_id(task_id)
+    playbook = playbook_service.get_by_id(task.playbook_id)
+    declaration = json.loads(playbook.declaration_dsl_json or "{}")
+    # 2. 物化 declaration 资源
+    playbook_materialized = materialize_playbook_declaration(
+        agent_chat.system_app, declaration,
+    )
+    existing_dyn = ext_info.get("dynamic_resources") or []
+    existing_dyn.extend(playbook_materialized.dynamic_resources)
+    ext_info["dynamic_resources"] = existing_dyn
+    # extra_agents 同理
+```
+
+Workbench 的 dynamic_resources = 空间基线物化资源 + 剧本 declaration 物化资源，两者叠加。
+
+#### 4.2.4 写工具 intervention 流程（非阻塞）
 
 ```python
 # write_tools.py 示意
@@ -257,7 +319,7 @@ def make_create_task_tool(system_app, workspace_id, user_id, task_id=None):
     )
 ```
 
-#### 4.2.4 resolve 后回灌
+#### 4.2.5 resolve 后回灌
 
 新增 `InterventionService.execute_resolved(intervention_id)`：
 
@@ -283,16 +345,23 @@ def execute_resolved(self, intervention_id: int) -> Dict[str, Any]:
 
 注意：intervention 表当前没有 `conv_uid` 字段——需要从 `WorkspaceConversationLink` 反查。`InterventionEntity` 新增 `conv_uid` 列（写工具创建 intervention 时填入当前会话的 conv_uid），方便 resolve 后回灌。
 
-#### 4.2.5 工具挂载 — WorkspaceControlAgent
+#### 4.2.6 工具挂载 — WorkspaceControlAgent
 
 新建 `WorkspaceControlAgent(ConversableAgent)`：
 
 ```python
 class WorkspaceControlAgent(ConversableAgent):
     """挂载空间控制工具的子 Agent。通过 extra_agents 注入到 aggregation_chat。
-    工具集按 task_id 互斥：Lobby 模式挂空间级（7读+5写），Workbench 模式挂任务级（3读+3写）。"""
-    def __init__(self, system_app, workspace_id, user_id, task_id=None):
-        tools = build_workspace_toolkit(system_app, workspace_id, user_id, task_id)
+    工具集按 task_id 三层叠加：
+      - 空间基线（必挂）：5 个空间级只读
+      - 空间操作（task_id=NULL 时挂）：7 个空间级写+资产查询
+      - 剧本能力（task_id=N 时挂）：6 个任务级读写
+    """
+    def __init__(self, system_app, workspace_id, user_id, task_id=None, playbook_declaration=None):
+        tools = build_workspace_toolkit(
+            system_app, workspace_id, user_id,
+            task_id=task_id, playbook_declaration=playbook_declaration,
+        )
         super().__init__(
             name="workspace_control" if not task_id else f"workspace_control_task_{task_id}",
             llm_config=...,  # 用父 Agent 的 llm
@@ -306,27 +375,38 @@ class WorkspaceControlAgent(ConversableAgent):
 # 已有: ext_info["extra_agents"] 已扩展 materialized.extra_agents
 # 新增:
 if ext_info.get("workspace_id"):
+    playbook_declaration = None
+    if task_id:
+        # 取剧本 declaration 供工具层 + 资源物化用
+        task = task_service.get_by_id(int(task_id))
+        if task and task.playbook_id:
+            playbook = playbook_service.get_by_id(task.playbook_id)
+            playbook_declaration = json.loads(playbook.declaration_dsl_json or "{}") if playbook else None
     control_agent = WorkspaceControlAgent(
         agent_chat.system_app,
         int(workspace_id),
         user_id=ext_info.get("user_id"),
         task_id=int(task_id) if task_id else None,
+        playbook_declaration=playbook_declaration,
     )
     existing_extra = ext_info.get("extra_agents") or []
     existing_extra.append(control_agent)
     ext_info["extra_agents"] = existing_extra
 ```
 
-#### 4.2.6 build_workspace_context 精简（Workbench 模式）
+#### 4.2.7 build_workspace_context 按层精简
 
-当前 `build_workspace_context` 在 task_id 非空时仍会拼空间全量信息（workspace/members/resources/recent_tasks/recent_assets）。改为：
+当前 `build_workspace_context` 在 task_id 非空时仍会拼空间全量信息。改为按层：
 
-- task_id=NULL（Lobby）：保持当前行为，拼空间身份/成员/资源/最近任务/最近资产
-- task_id=N（Workbench）：**不拼** workspace/members/recent_tasks/recent_assets，只拼 current_task + task_artifacts + task_interventions
+- **空间基线**（两模式都拼）：workspace 身份 + members + resources + （Lobby 才有的 recent_tasks/recent_assets 作为"空间记忆"）
+- **空间操作层**（仅 Lobby）：recent_tasks + recent_assets（空间全局视角的记忆）
+- **剧本能力层**（仅 Workbench）：current_task + task_artifacts + task_interventions
 
-实现：`render_workspace_context_summary(ctx, mode="lobby"|"workbench")` 加 mode 参数。Workbench 模式下 ws=None / members=[] / recent_tasks=[] / recent_assets=[] 直接跳过对应 section。
+实现：`render_workspace_context_summary(ctx, mode="lobby"|"workbench")` 加 mode 参数：
+- `mode="lobby"`：拼 workspace + members + resources + recent_tasks + recent_assets（不拼 current_task/task_artifacts，因为 Lobby 无任务上下文）
+- `mode="workbench"`：拼 workspace + members + resources（基线）+ current_task + task_artifacts + task_interventions（不拼 recent_tasks/recent_assets，任务模式不混空间记忆）
 
-#### 4.2.7 前端 VisConfirmCard 接入
+#### 4.2.8 前端 VisConfirmCard 接入
 
 `intervention_triggered` 事件流已经走通（P0 完成）。VisConfirmCard 已存在。改造点：
 
@@ -389,13 +469,14 @@ POST /interventions/{N}/resolve-and-execute
 ### 5.2 Workbench 任务对话 → 提交 artifact
 
 ```
-用户在 Workbench (task_id=42) 输入 "把刚才生成的报告作为 artifact 提交"
+用户在 Workbench (task_id=42, playbook=P) 输入 "把刚才生成的报告作为 artifact 提交"
   ↓
-_inject_workspace_context (task_id=42)
-  → system_prompt 仅拼 current_task + task_artifacts + task_interventions（精简模式，不带空间全量信息）
-  → dynamic_resources 仍注入空间级绑定资源（资源属空间）
-  → extra_agents 注入 WorkspaceControlAgent (task_id=42, 仅 6 个任务级工具: 3读+3写)
+_inject_workspace_context (task_id=42, playbook_declaration=...)
+  → system_prompt 拼空间基线(workspace+members+resources) + 剧本能力层(current_task+task_artifacts+task_interventions)
+  → dynamic_resources 注入: 空间基线物化资源 + 剧本 declaration 物化资源(如 prometheus_query skill + alert_manager mcp)
+  → extra_agents 注入 WorkspaceControlAgent (task_id=42, 11 工具: 5 空间基线只读 + 6 任务级读写)
   ↓
+Agent 看到 declaration.deliverables 期望产出 report 类型 artifact
 Agent 调 submit_artifact_for_task(type="report", title="巡检报告", content="...")
   ↓
 InterventionService.create(workspace_id, task_id=42, type="agent_tool_call", ...)
@@ -409,7 +490,10 @@ VisConfirmCard 同意 → resolve-and-execute
 Agent 告诉用户 "已提交 artifact #K"
 ```
 
-**注意**：Workbench 模式下 Agent **看不到** `list_tasks` / `create_task` / `bind_resource` 等空间级工具，不会被诱导去起任务或改空间资源；只看到本任务的精简上下文与任务级操作工具。
+**三层注入要点**：
+- **空间基线**让 Agent 知道自己在哪个空间、有哪些空间资源可用（包括空间绑定的 MCP/datasource）
+- **剧本能力层**让 Agent 拿到任务专属的 skills/mcp/resources（declaration 声明的）+ 任务级操作工具
+- Workbench 不挂 `create_task` / `bind_resource` / `publish_asset` 等空间操作工具——任务 Agent 不能越权改空间状态，只能推进本任务
 
 ## 6. 测试策略
 
@@ -418,7 +502,8 @@ Agent 告诉用户 "已提交 artifact #K"
 - `tests/derisk_serve/workspace/test_conv_link_dao.py` — is_current / set_current / get_current
 - `tests/derisk_serve/workspace/test_agent_tools.py` — 18 个工具的 happy path + intervention 流转
 - `tests/derisk_serve/workspace/test_intervention_execute.py` — resolve-and-execute 路由 + 回灌
-- `tests/derisk_serve/workspace/test_injection.py` — task_id=NULL vs task_id=N 的工具集互斥差异（Lobby 12 工具 / Workbench 6 工具，不重叠）
+- `tests/derisk_serve/workspace/test_injection.py` — 三层叠加验证：Lobby 12 工具 (5+7) / Workbench 11 工具 (5+6)，层 2 与层 3 不重叠
+- `tests/derisk_serve/workspace/test_playbook_materializer.py` — 剧本 declaration 的 skills/resources 物化为 AgentResource
 
 ### 6.2 集成测试
 
@@ -439,6 +524,8 @@ Agent 告诉用户 "已提交 artifact #K"
 4. **task.conv_session_id 为空的老 task**：Workbench fallback 到 lobbyConvUid，但日志 warning，建议后续跑迁移补全。
 5. **写工具的 question_json 格式**：必须在 spec 里冻结 schema，前端 VisConfirmCard 按 schema 渲染。
 6. **trigger_playbook 与 create_task 冗余**：trigger_playbook 实质是 create_task + 自动 run_task。保留两者，前者语义更明确（直接跑），后者只是建任务。
+7. **剧本 declaration 物化的资源与空间基线资源重复**：若 declaration 声明的 mcp 与空间绑定 mcp 重名，会出现重复 AgentResource。materializer 需按 (type, name) 去重，空间基线优先。
+8. **WorkspaceControlAgent 工具数量较多**：Lobby 12 / Workbench 11 工具，可能超出 LLM function calling 上限。若实际触发，P1 改为按 user query 意图动态裁剪。
 
 ## 8. 不在本期范围
 
@@ -453,6 +540,9 @@ Agent 告诉用户 "已提交 artifact #K"
 1. 进入 Lobby → 底部输入 "列一下空间里的任务" → Agent 调 `list_tasks` → 返回任务列表
 2. 在 Lobby 输入 "起一个巡检任务" → Agent 调 `create_task` → VisConfirmCard 弹出 → 同意 → task 创建 → Agent 告知 task id
 3. 进入 Workbench → 底部输入 "把当前结果作为 artifact 提交" → Agent 调 `submit_artifact_for_task` → VisConfirmCard → 同意 → artifact 创建
-4. 切换会话 → history 重拉，看到不同会话的历史
-5. 重置会话 → 新会话创建，旧会话仍可在列表里看到
-6. 换浏览器登录同一空间 → 当前会话从后端取，不再依赖 localStorage
+4. Workbench 模式下 Agent **能看到空间基线资源**（空间绑定的 MCP/datasource），且**额外拿到剧本 declaration 声明的 skills/mcp**（如 SRE 巡检剧本的 prometheus_query skill 可被 Agent 调用）
+5. Workbench 模式下 Agent **看不到** `create_task` / `bind_resource` / `publish_asset`（验证层 2 不挂）
+6. Lobby 模式下 Agent **看不到** `submit_artifact_for_task` / `update_task_status`（验证层 3 不挂）
+7. 切换会话 → history 重拉，看到不同会话的历史
+8. 重置会话 → 新会话创建，旧会话仍可在列表里看到
+9. 换浏览器登录同一空间 → 当前会话从后端取，不再依赖 localStorage
