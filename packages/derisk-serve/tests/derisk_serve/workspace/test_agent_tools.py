@@ -221,3 +221,156 @@ def test_list_workspace_members_graceful_when_no_service(fake_system_app):
         "members": [],
         "note": "no member service configured",
     }
+
+
+def test_write_tools_count(fake_system_app):
+    """build_write_tools returns exactly the 5 expected Layer-2 write tools."""
+    from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.write_tools.get_intervention_service"
+    ):
+        tools = build_write_tools(
+            fake_system_app,
+            workspace_id=1,
+            user_id="u1",
+            conv_uid="conv-1",
+            task_id=None,
+        )
+
+    names = {t.name for t in tools}
+    assert names == {
+        "start_task",
+        "close_task",
+        "publish_asset",
+        "create_delivery",
+        "update_workspace",
+    }
+
+
+def test_write_tool_creates_intervention_with_null_task(fake_system_app):
+    from derisk_serve.intervention.api.schemas import InterventionRequest
+    from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.write_tools.get_intervention_service"
+    ) as gis:
+        gis.return_value.create.return_value = MagicMock(id=42)
+        tools = build_write_tools(
+            fake_system_app,
+            workspace_id=1,
+            user_id="u1",
+            conv_uid="conv-1",
+            task_id=None,
+        )
+        start_task = _find_tool(tools, "start_task")
+        result = start_task._func(workspace_id=1, playbook_id=10)
+
+    assert result == {"intervention_id": 42, "status": "awaiting_human"}
+    request = gis.return_value.create.call_args.kwargs["request"]
+    assert isinstance(request, InterventionRequest)
+    assert request.task_id is None
+    assert request.conv_uid == "conv-1"
+    assert request.workspace_id == 1
+    assert request.requested_by == "u1"
+    assert request.question == {
+        "tool": "start_task",
+        "args": {"workspace_id": 1, "playbook_id": 10},
+    }
+
+
+def test_each_write_tool_uses_its_own_name_in_question(fake_system_app):
+    from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.write_tools.get_intervention_service"
+    ) as gis:
+        gis.return_value.create.return_value = MagicMock(id=1)
+        tools = build_write_tools(
+            fake_system_app,
+            workspace_id=2,
+            user_id="u2",
+            conv_uid="conv-2",
+            task_id=None,
+        )
+        for tool in tools:
+            gis.return_value.create.reset_mock()
+            tool._func(workspace_id=2)
+            request = gis.return_value.create.call_args.kwargs["request"]
+            assert request.question["tool"] == tool.name
+
+
+def test_playbook_tools_count(fake_system_app):
+    """build_playbook_tools returns exactly the 3 expected Layer-3 write tools."""
+    from derisk_serve.workspace.agent_tools.playbook_tools import build_playbook_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.playbook_tools.get_intervention_service"
+    ):
+        tools = build_playbook_tools(
+            fake_system_app,
+            workspace_id=1,
+            user_id="u1",
+            conv_uid="conv-1",
+            task_id=5,
+        )
+
+    names = {t.name for t in tools}
+    assert names == {
+        "launch_playbook",
+        "update_playbook",
+        "archive_playbook",
+    }
+
+
+def test_playbook_write_tool_creates_intervention(fake_system_app):
+    from derisk_serve.intervention.api.schemas import InterventionRequest
+    from derisk_serve.workspace.agent_tools.playbook_tools import build_playbook_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.playbook_tools.get_intervention_service"
+    ) as gis:
+        gis.return_value.create.return_value = MagicMock(id=7)
+        tools = build_playbook_tools(
+            fake_system_app,
+            workspace_id=1,
+            user_id="u1",
+            conv_uid="conv-1",
+            task_id=5,
+        )
+        launch = _find_tool(tools, "launch_playbook")
+        result = launch._func(workspace_id=1, playbook_id=10)
+
+    assert result == {"intervention_id": 7, "status": "awaiting_human"}
+    request = gis.return_value.create.call_args.kwargs["request"]
+    assert isinstance(request, InterventionRequest)
+    assert request.task_id == 5
+    assert request.conv_uid == "conv-1"
+    assert request.workspace_id == 1
+    assert request.requested_by == "u1"
+    assert request.question == {
+        "tool": "launch_playbook",
+        "args": {"workspace_id": 1, "playbook_id": 10},
+    }
+
+
+def test_each_playbook_tool_uses_its_own_name_in_question(fake_system_app):
+    from derisk_serve.workspace.agent_tools.playbook_tools import build_playbook_tools
+
+    with patch(
+        "derisk_serve.workspace.agent_tools.playbook_tools.get_intervention_service"
+    ) as gis:
+        gis.return_value.create.return_value = MagicMock(id=2)
+        tools = build_playbook_tools(
+            fake_system_app,
+            workspace_id=3,
+            user_id="u3",
+            conv_uid="conv-3",
+            task_id=9,
+        )
+        for tool in tools:
+            gis.return_value.create.reset_mock()
+            tool._func(workspace_id=3)
+            request = gis.return_value.create.call_args.kwargs["request"]
+            assert request.question["tool"] == tool.name
+            assert request.task_id == 9
