@@ -846,11 +846,14 @@ CREATE TABLE IF NOT EXISTS `server_app_workspace_conv_link` (
   `conv_uid` VARCHAR(128) NOT NULL,
   `task_id` INT NULL,
   `user_id` INT NULL,
+  `is_current` TINYINT(1) NOT NULL DEFAULT 0,
+  `title` VARCHAR(255) NULL,
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_workspace_conv` (`workspace_id`, `conv_uid`),
   KEY `idx_wcl_user` (`user_id`),
-  KEY `idx_wcl_task` (`task_id`)
+  KEY `idx_wcl_task` (`task_id`),
+  KEY `idx_wcl_current` (`is_current`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table: server_app_task
