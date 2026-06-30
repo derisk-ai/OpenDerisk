@@ -2,7 +2,7 @@
 import { apiInterceptors, getAppInfo, getChatHistory, getDialogueList } from '@/client/api';
 import { ChartData, ChatHistoryResponse, IChatDialogueSchema, UserChatContent } from '@/types/chat';
 import { IApp } from '@/types/app';
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useAsyncEffect, useDebounceFn, useRequest } from 'ahooks';
 import useChat, { WorkspaceEvent } from '@/hooks/use-chat';
 import useChatPolling from '@/hooks/use-chat-polling';
@@ -30,7 +30,11 @@ export interface ChatSessionProps {
   onWorkspaceEvent?: (event: WorkspaceEvent) => void;
 }
 
-export default function ChatSession(props: ChatSessionProps) {
+export interface ChatSessionHandle {
+  sendMessage: (text: string) => void;
+}
+
+const ChatSession = forwardRef<ChatSessionHandle, ChatSessionProps>(function ChatSession(props, ref) {
   const { t } = useTranslation();
 
   const searchParams = useSearchParams();
@@ -377,6 +381,12 @@ export default function ChatSession(props: ChatSessionProps) {
     [history, modelValue, chat, appInfo, isPollingMode, stopPolling, sseActive, props.onWorkspaceEvent],
   );
 
+  useImperativeHandle(ref, () => ({
+    sendMessage: (text: string) => {
+      handleChat(text);
+    },
+  }), [handleChat]);
+
   useAsyncEffect(async () => {
     // 如果是默认小助手，不获取历史记录
     if (isChatDefault) {
@@ -589,4 +599,6 @@ const sessionContent = (
   );
 
   return sessionContent;
-}
+});
+
+export default ChatSession;

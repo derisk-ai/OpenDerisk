@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { Button, Input, Tag } from 'antd';
 import { useRequest } from 'ahooks';
 import {
@@ -9,7 +9,7 @@ import {
   listInterventions,
   listArtifacts,
 } from '@/client/api';
-import ChatSession from '@/components/chat/chat-session';
+import ChatSession, { ChatSessionHandle } from '@/components/chat/chat-session';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import './workbench.css';
 
@@ -31,6 +31,7 @@ export function Workbench({
   const [dialogExpanded, setDialogExpanded] = useState(false);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
   const [input, setInput] = useState('');
+  const chatSessionRef = useRef<ChatSessionHandle>(null);
 
   const { data: taskRes } = useRequest(
     async () => apiInterceptors(getTaskInfo(taskId)),
@@ -176,9 +177,10 @@ export function Workbench({
           onPressEnter={(e) => {
             if (!e.shiftKey) {
               e.preventDefault();
-              // P0: 通过 ChatSession 发送（ChatSession 内部处理）
-              // 这里简化为清空——实际发送由 ChatSession 的 chat() 处理
-              setInput('');
+              if (input.trim()) {
+                chatSessionRef.current?.sendMessage(input);
+                setInput('');
+              }
             }
           }}
         />
@@ -187,6 +189,7 @@ export function Workbench({
       {/* ChatSession 隐藏，作为对话内核 + 事件源 */}
       <div style={{ display: 'none' }}>
         <ChatSession
+          ref={chatSessionRef}
           convUid={convUid}
           appCode={appCode}
           workspaceId={String(workspaceId)}
