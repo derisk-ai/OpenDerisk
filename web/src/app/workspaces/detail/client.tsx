@@ -278,6 +278,10 @@ export default function WorkspaceDetailPage() {
     );
   }
 
+  if (!workspaceId) {
+    return null;
+  }
+
   const scenario = ws.scenario_type || ws.type || 'scenario';
 
   return (
@@ -386,7 +390,7 @@ export default function WorkspaceDetailPage() {
         <div className="ws-console">
           {selectedTaskId === null ? (
             <Lobby
-              workspaceId={Number(workspaceId)}
+              workspaceId={workspaceId}
               onSelectTask={(tid) => setSelectedTaskId(tid)}
               onQuickStart={(pid) => {
                 // P0 简化：跳转到 triggers 页或调 createTask
@@ -396,7 +400,7 @@ export default function WorkspaceDetailPage() {
           ) : (
             <Workbench
               taskId={selectedTaskId}
-              workspaceId={Number(workspaceId)}
+              workspaceId={workspaceId}
               appCode={appCode}
               convUid={convUid || ''}
               onBack={() => setSelectedTaskId(null)}
