@@ -21,7 +21,6 @@ from derisk_serve.agent.agents.controller import multi_agents
 from derisk_serve.playbook.service.service import (
     PLAYBOOK_SERVICE_COMPONENT_NAME, PlaybookService,
 )
-from derisk_serve.workspace.materializer import materialize_resources
 from derisk_serve.workspace.service.service import (
     WORKSPACE_SERVICE_COMPONENT_NAME, WorkspaceService,
 )
@@ -109,14 +108,6 @@ async def run_task(
         except Exception as e:
             logger.warning(f"task start skipped or failed: {e}")
 
-    # 物化空间资源，透传给 Agent
-    try:
-        materialized = materialize_resources(system_app, task.workspace_id)
-    except Exception as e:
-        logger.exception(f"materialize resources failed for task {task_id}: {e}")
-        task_service.transition(task_id, "failed")
-        return {"task_id": task_id, "status": "failed", "error": f"materialize failed: {e}"}
-
     # Launch agent in the task's conversation session
     logger.info(
         f"[playbook runtime] starting task={task_id} conv={task.conv_session_id} "
@@ -131,8 +122,6 @@ async def run_task(
         sys_code=sys_code,
         workspace_id=task.workspace_id,
         task_id=task.id,
-        dynamic_resources=materialized.dynamic_resources,
-        extra_agents=materialized.extra_agents,
     )
 
     if not agent_conv_id:
