@@ -391,6 +391,11 @@ export default function WorkspaceDetailPage() {
           {selectedTaskId === null ? (
             <Lobby
               workspaceId={workspaceId}
+              workspaceCode={workspaceCode}
+              workspaceName={ws.name}
+              workspaceType={scenario}
+              appCode={appCode}
+              convUid={convUid || ''}
               onSelectTask={(tid) => setSelectedTaskId(tid)}
               onQuickStart={(pid) => {
                 // P0 简化：跳转到 triggers 页或调 createTask

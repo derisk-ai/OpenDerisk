@@ -37,16 +37,8 @@ export function GrowthCard({ workspaceId }: GrowthCardProps) {
   return (
     <Card size="small" title="本月空间成长" className="ws-growth-card">
       <Statistic title="沉淀 Asset" value={data?.assets_count ?? 0} />
-      <Statistic
-        title="Playbook 演化提议"
-        value={data?.evolution_proposals_count ?? 0}
-        suffix={data?.evolution_proposals_count === 0 ? '(P2 上线)' : ''}
-      />
-      <Statistic
-        title="知识图谱节点"
-        value={data?.knowledge_graph_nodes ?? 0}
-        suffix={data?.knowledge_graph_nodes === 0 ? '(P1 上线)' : ''}
-      />
+      <Statistic title="Playbook 演化提议" value={data?.evolution_proposals_count ?? 0} />
+      <Statistic title="知识图谱节点" value={data?.knowledge_graph_nodes ?? 0} />
       <div className="ws-growth-card__trend">
         <span className="ws-growth-card__trend-label">任务趋势</span>
         <span className="ws-growth-card__trend-value">
