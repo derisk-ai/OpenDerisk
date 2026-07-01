@@ -1,9 +1,10 @@
 'use client';
 
 import {
-  apiInterceptors, listInterventions, resolveIntervention, abortIntervention,
+  apiInterceptors, listInterventions, resolveAndExecuteIntervention, abortIntervention,
   getWorkspaceInfo, createAsset,
 } from '@/client/api';
+import { getUserId } from '@/utils';
 import { Button, Form, Input, Modal, message } from 'antd';
 import { WarningOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
@@ -88,18 +89,20 @@ export default function InterventionsPage() {
         return;
       }
       const assetId = assetRes?.id;
-      const [err] = await apiInterceptors(resolveIntervention(resolveOpen!.id, {
-        decision: { comment: values.decision || 'approved' },
+      const userId = getUserId();
+      const [err] = await apiInterceptors(resolveAndExecuteIntervention(resolveOpen!.id, {
+        decision: { action: 'approved', comment: values.decision },
         distillation: {
           asset_name: values.asset_name,
           summary: values.summary,
           asset_id: assetId,
         },
         linked_asset_id: assetId,
+        resolved_by_user_id: userId ? Number(userId) : undefined,
       }));
       setSaving(false);
       if (err) { message.error(err.message); return; }
-      message.success(t('interventions.resolved') || 'Resolved + Asset created');
+      message.success(t('interventions.resolved') || 'Executed + Asset created');
       setResolveOpen(null);
       form.resetFields();
       refresh();
