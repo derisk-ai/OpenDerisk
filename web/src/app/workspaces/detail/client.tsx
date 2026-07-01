@@ -3,7 +3,8 @@
 import {
   apiInterceptors, getWorkspaceInfo, listTasks, listArtifacts,
   listAssets, listInterventions, listTriggers, listPlaybooks,
-  createConversation,
+  createConversation, getCurrentConversation, setCurrentConversation,
+  linkConversation, getTaskInfo,
 } from '@/client/api';
 import { Button, Spin } from 'antd';
 import { useRequest } from 'ahooks';
@@ -11,7 +12,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Lobby } from './lobby';
 import { Workbench } from './workbench';
-import { useState, useEffect } from 'react';
+import { ConversationSwitcher } from './conversation-switcher';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ThunderboltOutlined,
@@ -27,10 +29,6 @@ import {
   ArrowRightOutlined,
 } from '@ant-design/icons';
 import '../workspaces.css';
-
-function workspaceConvKey(workspaceCode: string) {
-  return `ws_conv_${workspaceCode}`;
-}
 
 interface SignalChainProps {
   workspaceCode: string;
@@ -177,26 +175,36 @@ export default function WorkspaceDetailPage() {
   const workspaceId = ws?.id;
   const appCode = ws?.default_agent_app_code || 'chat_normal';
 
-  useEffect(() => {
-    if (!workspaceCode || !workspaceId) return;
-    const stored = typeof window !== 'undefined' ? localStorage.getItem(workspaceConvKey(workspaceCode)) : '';
-    if (stored) {
-      setConvUid(stored);
-      return;
-    }
-    createConversation({ workspace_id: workspaceId, app_code: appCode }).then((res: { data?: { data?: { conv_uid?: string } } }) => {
-      const data = res?.data?.data;
-      const uid = data?.conv_uid;
-      if (uid) {
-        localStorage.setItem(workspaceConvKey(workspaceCode), uid);
-        setConvUid(uid);
+  // Load or create workspace-level current conversation from backend.
+  useRequest(
+    async () => {
+      const [, current] = await apiInterceptors(getCurrentConversation(workspaceId));
+      if (current?.conv_uid) {
+        setConvUid(current.conv_uid);
+        return;
       }
-    }).catch(() => {
-      const uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      localStorage.setItem(workspaceConvKey(workspaceCode), uid);
-      setConvUid(uid);
-    });
-  }, [workspaceCode, workspaceId, appCode]);
+      // Create + link + set as current
+      const [, newConv] = await apiInterceptors(createConversation({}));
+      if (!newConv?.conv_uid) return;
+      await apiInterceptors(
+        linkConversation({
+          workspace_id: workspaceId,
+          conv_uid: newConv.conv_uid,
+          user_id: undefined,
+        })
+      );
+      await apiInterceptors(setCurrentConversation(workspaceId, newConv.conv_uid));
+      setConvUid(newConv.conv_uid);
+    },
+    { ready: !!workspaceId }
+  );
+
+  // Resolve task-scoped conversation for Workbench.
+  const { data: taskRes } = useRequest(
+    async () => selectedTaskId ? apiInterceptors(getTaskInfo(selectedTaskId)) : null,
+    { refreshDeps: [selectedTaskId] }
+  );
+  const taskConvUid = taskRes?.[1]?.conv_session_id || convUid;
 
   const { data: tasks } = useRequest(async () => {
     if (!workspaceId) return [];
@@ -294,6 +302,13 @@ export default function WorkspaceDetailPage() {
             <div className="ws-console-avatar"><TeamOutlined /></div>
             <div style={{ minWidth: 0 }}>
               <h2 className="ws-console-title">{ws.name}</h2>
+              {selectedTaskId === null && (
+                <ConversationSwitcher
+                  workspaceId={workspaceId}
+                  currentConvUid={convUid}
+                  onChanged={(newUid) => setConvUid(newUid)}
+                />
+              )}
               <div className="ws-console-sub">
                 {ws.workspace_code} · {scenario}
               </div>
@@ -407,7 +422,7 @@ export default function WorkspaceDetailPage() {
               taskId={selectedTaskId}
               workspaceId={workspaceId}
               appCode={appCode}
-              convUid={convUid || ''}
+              convUid={taskConvUid || ''}
               onBack={() => setSelectedTaskId(null)}
             />
           )}
