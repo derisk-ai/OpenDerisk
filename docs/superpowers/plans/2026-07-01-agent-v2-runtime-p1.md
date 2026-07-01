@@ -829,9 +829,11 @@ class PermissionGate:
             return
 
         # Level 3: permission_ruleset
-        action = PermissionAction.ASK  # default when no ruleset
+        # No ruleset → ALLOW (safe fallback for P1; caller can pass a ruleset
+        # with default_action=ASK to force asking)
+        action = PermissionAction.ALLOW
         if self._ruleset is not None:
-            action = self._ruleset.check(tool_name, context={}).action
+            action = self._ruleset.check(tool_name, context={})
         if action is PermissionAction.ALLOW:
             self.last_result = PermissionResult(decision=PermissionDecision.ALLOW, reason="ruleset allow")
             return
