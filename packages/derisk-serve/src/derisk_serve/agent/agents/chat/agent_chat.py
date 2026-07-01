@@ -133,9 +133,11 @@ def _inject_workspace_context(
             existing_dyn.extend(materialized.get("dynamic_resources") or [])
             ext_info["dynamic_resources"] = existing_dyn
 
-            existing_extra = ext_info.get("extra_agents") or []
+            existing_extra = ext_info.get("extra_agents")
+            if existing_extra is None:
+                existing_extra = []
+                ext_info["extra_agents"] = existing_extra
             existing_extra.extend(materialized.get("extra_agents") or [])
-            ext_info["extra_agents"] = existing_extra
 
         ctx = build_workspace_context(
             system_app=system_app,
