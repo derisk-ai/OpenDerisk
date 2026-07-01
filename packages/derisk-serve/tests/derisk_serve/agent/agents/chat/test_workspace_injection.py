@@ -247,3 +247,50 @@ async def test_build_extra_employees_passes_through_prebuilt_agent():
     assert len(employees) == 1
     assert employees[0] is agent
     fake_app_service.app_detail.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_workspace_control_agent_has_llm_config():
+    """WorkspaceControlAgent 通过 build_workspace_toolkit 构建后 llm_config 非空。"""
+    system_app = MagicMock()
+    with patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_read_tools",
+        return_value=[],
+    ), patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_write_tools",
+        return_value=[],
+    ):
+        agent = build_workspace_toolkit(
+            system_app=system_app,
+            workspace_id=1,
+            user_id=None,
+            conv_uid="conv-1",
+            mode="lobby",
+        )
+
+    assert isinstance(agent, ConversableAgent)
+    assert agent.llm_config is not None
+
+
+@pytest.mark.asyncio
+async def test_workspace_control_agent_forwarded_llm_config():
+    """显式传入的 llm_config 被透传到 WorkspaceControlAgent。"""
+    system_app = MagicMock()
+    cfg = LLMConfig(llm_param={"temperature": 0.42})
+    with patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_read_tools",
+        return_value=[],
+    ), patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_write_tools",
+        return_value=[],
+    ):
+        agent = build_workspace_toolkit(
+            system_app=system_app,
+            workspace_id=1,
+            user_id=None,
+            conv_uid="conv-1",
+            mode="lobby",
+            llm_config=cfg,
+        )
+
+    assert agent.llm_config is cfg

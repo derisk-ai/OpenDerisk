@@ -111,6 +111,7 @@ def _inject_workspace_context(
     system_prompt: List[str],
     extra_agents: List,
     ext_info: Optional[Dict[str, Any]] = None,
+    llm_config: Optional[LLMConfig] = None,
 ) -> None:
     """把 workspace 上下文摘要和 WorkspaceControlAgent 注入对话。
 
@@ -157,6 +158,7 @@ def _inject_workspace_context(
             conv_uid=conv_uid,
             task_id=int(task_id) if task_id else None,
             mode=mode,
+            llm_config=llm_config,
         )
         if agent is not None:
             extra_agents.append(agent)
@@ -793,6 +795,7 @@ class AgentChat(BaseComponent, ABC):
             system_prompt=system_prompt_parts,
             extra_agents=ext_info.setdefault("extra_agents", []),
             ext_info=ext_info,
+            llm_config=LLMConfig(llm_client=self.llm_provider),
         )
         if system_prompt_parts:
             ext_info["system_prompt"] = "\n\n".join(system_prompt_parts).strip()
