@@ -108,6 +108,26 @@ async def abort_intervention(
         return Result.failed(str(e))
 
 
+@router.post("/interventions/{intervention_id}/resolve-and-execute",
+             response_model=Result[InterventionResponse],
+             dependencies=[Depends(check_api_key)])
+async def resolve_and_execute(
+    intervention_id: int, request: InterventionResolveRequest,
+    service: InterventionService = Depends(get_service),
+) -> Result[InterventionResponse]:
+    try:
+        entity = await service.execute_resolved(
+            intervention_id=intervention_id,
+            decision=request.decision,
+            distillation=request.distillation,
+            resolved_by_user_id=request.resolved_by_user_id,
+        )
+        return Result.succ(service.dao.to_response(entity))
+    except Exception as e:
+        logger.exception("intervention resolve-and-execute exception!")
+        return Result.failed(str(e))
+
+
 def init_endpoints(system_app: SystemApp, config: ServeConfig) -> None:
     global global_system_app
     system_app.register(InterventionService, config=config)
