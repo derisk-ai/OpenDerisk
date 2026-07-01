@@ -110,7 +110,7 @@ async def test_ask_emits_awaiting_event_and_persists_checkpoint(store, stream):
     class FakeAdapter:
         async def request_tool_permission(self, tool_name, tool_args, **kwargs):
             class FakeResponse:
-                action = "allow_once"
+                choice = "allow_once"
                 status = None
             return FakeResponse()
     gate = _gate(store, stream, ruleset=ruleset, interaction_adapter=FakeAdapter())
@@ -152,7 +152,7 @@ async def test_ask_allow_session_caches_for_session(store, stream):
     class FakeAdapter:
         async def request_tool_permission(self, tool_name, tool_args, **kwargs):
             class FakeResponse:
-                action = "allow_session"
+                choice = "allow_session"
                 status = None
             return FakeResponse()
     cache = SessionPermissionCache()
@@ -186,3 +186,73 @@ async def test_no_ruleset_but_ask_action_without_adapter_raises(store, stream):
     with pytest.raises(NoInteractionAdapterError):
         async for _ in gate.check({"tool": "rm", "input": {}}):
             pass
+
+
+async def test_ask_reads_response_choice_not_action(store, stream):
+    """P1 I-1 fix: gate reads response.choice, not response.action."""
+    ruleset = PermissionRuleset(rules={
+        "rm": PermissionRule(tool_pattern="rm", action=PermissionAction.ASK)
+    }, default_action=PermissionAction.ALLOW)
+
+    class FakeAdapter:
+        async def request_tool_permission(self, tool_name, tool_args, **kwargs):
+            # Real InteractionResponse has .choice, NOT .action
+            from derisk.agent.interaction.interaction_protocol import InteractionResponse
+            return InteractionResponse(
+                request_id="req-x",
+                choice="allow_once",
+            )
+
+    gate = _gate(store, stream, ruleset=ruleset, interaction_adapter=FakeAdapter())
+    events = [e async for e in gate.check({"tool": "rm", "input": {"path": "/x"}})]
+    assert gate.last_result.decision is PermissionDecision.ALLOW
+
+
+async def test_ask_deny_when_response_choice_is_none(store, stream):
+    """If response.choice is None (e.g. user dismissed), default to deny."""
+    ruleset = PermissionRuleset(rules={
+        "rm": PermissionRule(tool_pattern="rm", action=PermissionAction.ASK)
+    }, default_action=PermissionAction.ALLOW)
+
+    class FakeAdapter:
+        async def request_tool_permission(self, tool_name, tool_args, **kwargs):
+            from derisk.agent.interaction.interaction_protocol import InteractionResponse
+            return InteractionResponse(request_id="req-x", choice=None)
+
+    gate = _gate(store, stream, ruleset=ruleset, interaction_adapter=FakeAdapter())
+    events = [e async for e in gate.check({"tool": "rm", "input": {}})]
+    assert gate.last_result.decision is PermissionDecision.DENY
+
+
+async def test_check_accepts_emit_callable_for_correct_seq(store, stream):
+    """P1 I-2 fix: when emit callable is passed, gate uses it (correct seq)."""
+    ruleset = PermissionRuleset(rules={
+        "rm": PermissionRule(tool_pattern="rm", action=PermissionAction.ASK)
+    }, default_action=PermissionAction.ALLOW)
+
+    class FakeAdapter:
+        async def request_tool_permission(self, tool_name, tool_args, **kwargs):
+            from derisk.agent.interaction.interaction_protocol import InteractionResponse
+            return InteractionResponse(request_id="req-x", choice="allow_once")
+
+    gate = _gate(store, stream, ruleset=ruleset, interaction_adapter=FakeAdapter())
+
+    # Fake emit: increments seq, persists, returns the event
+    seq = {"n": 100}
+    captured = {}
+    async def fake_emit(state, event_type, input_data=None, output_data=None):
+        from derisk.agent.core.v2.step_event import StepEvent
+        import time
+        evt = StepEvent(
+            event_id=f"evt-{seq['n']}", step_id=gate._step_id, conv_id=gate._conv_id,
+            agent_id=gate._agent_id, parent_step_id=None, state=state,
+            event_type=event_type, input=input_data or {}, output=output_data or {},
+            seq=seq["n"], timestamp=time.time(),
+        )
+        seq["n"] += 1
+        captured["event"] = evt
+        return evt
+
+    events = [e async for e in gate.check({"tool": "rm", "input": {}}, emit=fake_emit)]
+    # The emitted event should have seq=100, not seq=0
+    assert events[0].seq == 100

@@ -93,14 +93,11 @@ async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
         )
 
 
-async def _run_acting_phase(emit, gate, tool_calls, acting_fn):
+async def _run_acting_phase(emit, gate, tool_calls, acting_fn, state_store=None):
     """ACTING + OBSERVING 阶段。每个 tool_call 前 PermissionGate.check()。"""
-    # TODO(P2): delete interaction_checkpoint after tool execution (allow path)
-    # or denial. PermissionGate.check() persists but does not delete (deferred
-    # from Task 4). The runtime is the right place to delete.
     for tc in tool_calls:
         if gate is not None:
-            async for perm_event in gate.check(tc):
+            async for perm_event in gate.check(tc, emit=emit):
                 yield perm_event
             result = gate.last_result
             if result.decision == PermissionDecision.DENY:
@@ -109,8 +106,9 @@ async def _run_acting_phase(emit, gate, tool_calls, acting_fn):
                     input_data=tc, output_data={"denied": True, "reason": result.reason},
                 )
                 continue
-            # AWAITING path already emitted its event via gate.check()
-            # ALLOW falls through to execute
+            # ALLOW path: delete the interaction checkpoint (if a request_id was set)
+            if result.request_id and state_store is not None:
+                await state_store.delete_interaction_checkpoint(result.request_id)
         yield await emit(StepState.ACTING, "tool_call", input_data=tc)
         if acting_fn is not None:
             result_dict = await acting_fn(tc)
@@ -146,7 +144,7 @@ async def run_step(
         return
 
     if result_box["tool_calls"]:
-        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn):
+        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn, state_store=state_store):
             yield e
 
     yield await emit(StepState.DONE, "step_done")
@@ -205,7 +203,7 @@ async def resume_step(
         return
 
     if result_box["tool_calls"]:
-        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn):
+        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn, state_store=state_store):
             yield e
 
     yield await emit(StepState.DONE, "step_done")

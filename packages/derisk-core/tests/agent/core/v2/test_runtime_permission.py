@@ -82,7 +82,7 @@ async def test_run_step_with_permission_ask_emits_awaiting(store):
     }, default_action=PermissionAction.ALLOW)
     class FakeAdapter:
         async def request_tool_permission(self, tool_name, tool_args, **kwargs):
-            class R: action = "allow_once"
+            class R: choice = "allow_once"
             return R()
     gate = _make_gate(store, ruleset=ruleset, adapter=FakeAdapter())
     events = []
