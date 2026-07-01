@@ -34,5 +34,5 @@ export const renameConversation = (conv_uid: string, title: string) =>
 
 export const resolveAndExecuteIntervention = (
   intervention_id: number,
-  data: { decision: string; distillation?: string; resolved_by_user_id?: string },
+  data: { decision: Record<string, any>; distillation?: Record<string, any>; resolved_by_user_id?: number },
 ) => POST(`/api/v1/serve_intervention_service/interventions/${intervention_id}/resolve-and-execute`, data);
