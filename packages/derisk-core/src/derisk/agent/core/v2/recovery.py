@@ -10,10 +10,8 @@
 - DONE → 继续下一个 step
 """
 from __future__ import annotations
-import time
 from typing import List, Optional, Tuple, Dict, Any
 from derisk.agent.core.v2.state_store import StateStore
-from derisk.agent.core.v2.event_stream import EventStream
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.step_state import StepState
 
@@ -39,7 +37,6 @@ class RecoveryCoordinatorV2:
         renew_interval_seconds: int = 10,
     ):
         self._store = state_store
-        self._stream = EventStream(state_store)
         self.lease_ttl_seconds = lease_ttl_seconds
         self.renew_interval_seconds = renew_interval_seconds
 

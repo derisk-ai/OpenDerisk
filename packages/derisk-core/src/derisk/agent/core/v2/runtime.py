@@ -11,8 +11,8 @@ thinking_fn / acting_fn 可注入，P0 测试用桩，P1+ 接真实 LLM 和工�
 from __future__ import annotations
 import uuid
 import time
-from typing import AsyncGenerator, Callable, Awaitable, Optional, List
-from derisk.agent.core.v2.step_state import StepState, validate_transition
+from typing import AsyncGenerator, Callable, Awaitable, Optional
+from derisk.agent.core.v2.step_state import StepState
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.event_stream import EventStream
