@@ -1,7 +1,7 @@
 """WorkspaceControlAgent wraps FunctionTools; injected into chat via extra_agents."""
 from typing import List, Optional
 
-from derisk.agent import ConversableAgent
+from derisk.agent import ConversableAgent, LLMConfig
 from derisk.agent.core.profile import ProfileConfig
 
 from derisk_serve.workspace.agent_tools.playbook_tools import build_playbook_tools
@@ -32,9 +32,15 @@ class WorkspaceControlAgent(ConversableAgent):
     (non-blocking confirmation flow).
     """
 
-    def __init__(self, system_app, tools: List, name: str = "workspace_control"):
+    def __init__(
+        self,
+        system_app,
+        tools: List,
+        name: str = "workspace_control",
+        llm_config: Optional[LLMConfig] = None,
+    ):
         profile = ProfileConfig(name=name, role=name)
-        super().__init__(profile=profile)
+        super().__init__(profile=profile, llm_config=llm_config)
         self._tools = tools
         for tool in tools:
             self.available_system_tools[tool.name] = tool
@@ -47,6 +53,7 @@ def build_workspace_toolkit(
     conv_uid: Optional[str],
     task_id: Optional[int] = None,
     mode: str = "lobby",
+    llm_config: Optional[LLMConfig] = None,
 ) -> Optional[WorkspaceControlAgent]:
     """Build the workspace control Agent for the given mode.
 
@@ -78,4 +85,7 @@ def build_workspace_toolkit(
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    return WorkspaceControlAgent(system_app=system_app, tools=tools)
+    llm_config = llm_config or LLMConfig()
+    return WorkspaceControlAgent(
+        system_app=system_app, tools=tools, llm_config=llm_config
+    )
