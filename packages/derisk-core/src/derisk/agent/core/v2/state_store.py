@@ -54,6 +54,22 @@ class StateStore(ABC):
     @abstractmethod
     async def delete_interaction_checkpoint(self, request_id: str) -> None: ...
 
+    @abstractmethod
+    async def save_transcript(
+        self, transcript_id: str, task_id: str, sub_conv_id: str,
+        parent_step_id: str, parent_conv_id: str, agent_name: str,
+        status: str, latest_event_seq: int, payload: dict,
+    ) -> None: ...
+
+    @abstractmethod
+    async def get_transcript(self, transcript_id: str) -> Optional[dict]: ...
+
+    @abstractmethod
+    async def list_transcripts_for_parent(self, parent_conv_id: str) -> List[dict]: ...
+
+    @abstractmethod
+    async def delete_transcript(self, transcript_id: str) -> None: ...
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS step_event (
@@ -95,6 +111,21 @@ CREATE TABLE IF NOT EXISTS interaction_checkpoint (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_checkpoint_conv ON interaction_checkpoint(conv_id);
+
+CREATE TABLE IF NOT EXISTS agent_transcript (
+    transcript_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    sub_conv_id TEXT NOT NULL,
+    parent_step_id TEXT NOT NULL,
+    parent_conv_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    latest_event_seq INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_transcript_parent ON agent_transcript(parent_conv_id);
+CREATE INDEX IF NOT EXISTS idx_transcript_task ON agent_transcript(task_id);
 """
 
 
@@ -286,6 +317,81 @@ class DbStateStore(StateStore):
                 conn.execute(
                     "DELETE FROM interaction_checkpoint WHERE request_id = ?",
                     (request_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_do)
+
+    async def save_transcript(
+        self, transcript_id: str, task_id: str, sub_conv_id: str,
+        parent_step_id: str, parent_conv_id: str, agent_name: str,
+        status: str, latest_event_seq: int, payload: dict,
+    ) -> None:
+        def _do():
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO agent_transcript "
+                    "(transcript_id, task_id, sub_conv_id, parent_step_id, parent_conv_id, "
+                    "agent_name, status, latest_event_seq, payload, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (transcript_id, task_id, sub_conv_id, parent_step_id, parent_conv_id,
+                     agent_name, status, latest_event_seq,
+                     json.dumps(payload, ensure_ascii=False), time.time()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_do)
+
+    async def get_transcript(self, transcript_id: str) -> Optional[dict]:
+        def _do():
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT transcript_id, task_id, sub_conv_id, parent_step_id, "
+                    "parent_conv_id, agent_name, status, latest_event_seq, payload, updated_at "
+                    "FROM agent_transcript WHERE transcript_id = ?",
+                    (transcript_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                d = dict(row)
+                d["payload"] = json.loads(d["payload"])
+                return d
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_do)
+
+    async def list_transcripts_for_parent(self, parent_conv_id: str) -> List[dict]:
+        def _do():
+            conn = self._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT transcript_id, task_id, sub_conv_id, parent_step_id, "
+                    "parent_conv_id, agent_name, status, latest_event_seq, payload, updated_at "
+                    "FROM agent_transcript WHERE parent_conv_id = ? "
+                    "ORDER BY updated_at ASC",
+                    (parent_conv_id,),
+                ).fetchall()
+                result = []
+                for row in rows:
+                    d = dict(row)
+                    d["payload"] = json.loads(d["payload"])
+                    result.append(d)
+                return result
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_do)
+
+    async def delete_transcript(self, transcript_id: str) -> None:
+        def _do():
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "DELETE FROM agent_transcript WHERE transcript_id = ?",
+                    (transcript_id,),
                 )
                 conn.commit()
             finally:
