@@ -19,7 +19,6 @@ from derisk.agent.core.v2.subagent_handle import (
     SubAgentHandle, SubAgentMode, SubAgentStatus,
 )
 from derisk.agent.core.v2.runtime import run_step
-from derisk.agent.core.v2.step_state import StepState
 
 if TYPE_CHECKING:
     from derisk.agent.core.v2.state_store import StateStore
