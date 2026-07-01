@@ -54,7 +54,7 @@ export default function SearchPanel() {
         ]}
         className="mb-3"
       />
-      <Spin spinning={searching} className="flex-1 overflow-auto">
+      <Spin spinning={searching} wrapperClassName="flex-1 overflow-auto">
         {hits.length === 0 ? (
           <Empty description="输入关键词开始搜索" imageStyle={{ height: 40 }} />
         ) : (

@@ -9,6 +9,7 @@ from derisk.storage.memory.processor import (  # noqa: F401
     ExtractedMemory,
     ConsolidationResult,
 )
+from derisk.storage.memory.llm_processor import LLMMemoryProcessor  # noqa: F401
 from derisk.storage.memory.strategy import MemorySpaceStrategy  # noqa: F401
 from derisk.storage.memory.recall_tracker import (  # noqa: F401
     RecallTracker,
@@ -38,6 +39,7 @@ __all__ = [
     "MemoryStoreBase",
     "MemoryStoreConfig",
     "MemoryProcessor",
+    "LLMMemoryProcessor",
     "ExtractedMemory",
     "ConsolidationResult",
     "MemorySpaceStrategy",

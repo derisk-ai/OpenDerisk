@@ -52,6 +52,9 @@ export type NewDialogueParam = {
   skills?: string[];  // Array of skill names
   tools?: string[];   // Array of tool names
   mcp_servers?: string[];  // Array of mcp server names
+  // Scenario workspace context
+  workspace_id?: number;
+  workspace_context?: any;
 };
 
 export type ChatHistoryResponse = IChatDialogueMessageSchema[];

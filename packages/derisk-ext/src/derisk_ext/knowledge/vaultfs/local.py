@@ -229,13 +229,15 @@ class LocalVaultFS(BaseVaultFS):
     async def _verbat_insert(
         self, v: Verbat, inline_content: Optional[str], content_ref: Optional[str]
     ) -> None:
+        import json as _json
+        meta_json = _json.dumps(v.metadata) if v.metadata else None
         await self._db.execute(
             """
             INSERT INTO verbats
               (id, space_id, source_file, source_path, content_hash,
                extract_mode, content_date, filed_at, source_mtime,
-               normalize_version, deprecated, content, content_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+               normalize_version, deprecated, content, content_ref, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
             """,
             (
                 v.id,
@@ -250,6 +252,7 @@ class LocalVaultFS(BaseVaultFS):
                 v.normalize_version,
                 inline_content,
                 content_ref,
+                meta_json,
             ),
         )
         await self._db.commit()
@@ -880,12 +883,21 @@ class LocalVaultFS(BaseVaultFS):
     # SQLite-specific row mappers
     # ===================================================================
     def _row_to_verbat(self, r: aiosqlite.Row) -> Verbat:
+        import json as _json
         if r["content"] is not None:
             content = r["content"]
         elif r["content_ref"]:
             content = (self._root / r["content_ref"]).read_text(encoding="utf-8")
         else:
             content = ""
+
+        meta = None
+        meta_raw = r["metadata"] if "metadata" in r.keys() else None
+        if meta_raw:
+            try:
+                meta = _json.loads(meta_raw)
+            except Exception:
+                meta = None
 
         return Verbat(
             id=r["id"],
@@ -900,6 +912,7 @@ class LocalVaultFS(BaseVaultFS):
             source_mtime=r["source_mtime"],
             normalize_version=r["normalize_version"],
             deprecated=bool(r["deprecated"]),
+            metadata=meta,
         )
 
     def _row_to_edge(self, r: aiosqlite.Row) -> Edge:

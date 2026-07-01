@@ -1,22 +1,15 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { apiInterceptors } from '@/client/api';
 import { editDoc, getVerbat, readDoc, rebuildVerbatWiki } from '@/client/api/knowledge-vault';
 import type { DocRead, VerbatFull } from '@/types/knowledge-vault';
 import { FileTextOutlined, SaveOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Drawer, Empty, Spin, Tag, Tooltip, Typography, message } from 'antd';
-import MarkdownIt from 'markdown-it';
 import { useCallback, useEffect, useState } from 'react';
-import 'react-markdown-editor-lite/lib/index.css';
+import MarkdownEditor from './MarkdownEditor';
 import { useSpace } from './SpaceContext';
 
-const MdEditor = dynamic(() => import('react-markdown-editor-lite'), {
-  ssr: false,
-});
-
 const { Title } = Typography;
-const mdParser = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
 export default function WikiEditor() {
   const { slug, selectedDoc, refresh } = useSpace();
@@ -112,10 +105,10 @@ export default function WikiEditor() {
   }
 
   return (
-    <Spin spinning={loading} className="h-full">
+    <Spin spinning={loading} wrapperClassName="h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-white">
-          <FileTextOutlined className="text-violet-500" />
+          <FileTextOutlined className="text-[#0C75FC]" />
           <Title level={5} className="!mb-0 text-sm truncate" title={selectedDoc}>
             {doc?.title || selectedDoc}
           </Title>
@@ -138,29 +131,23 @@ export default function WikiEditor() {
           >
             AI 重新生成
           </Button>
-          <Button type="primary" icon={<SaveOutlined />} onClick={save} disabled={!dirty}>
+          <Button type="primary" icon={<SaveOutlined />} onClick={save} loading={saving} disabled={!dirty || saving}>
             保存
           </Button>
         </div>
         <div className="text-xs text-gray-400 px-4 py-2 bg-white truncate" title={selectedDoc}>
           {selectedDoc}
         </div>
-        <div className="flex-1 min-h-0 bg-white relative">
-          {!loading && draft === '' && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-              <Empty description="文档内容为空" imageStyle={{ height: 40 }} />
-            </div>
+        <div className="flex-1 min-h-0 bg-white overflow-hidden">
+          {!loading && (
+            <MarkdownEditor
+              value={draft}
+              onChange={(text) => {
+                setDraft(text);
+                setDirty(true);
+              }}
+            />
           )}
-          <MdEditor
-            value={draft}
-            style={{ height: '100%' }}
-            renderHTML={(text) => mdParser.render(text)}
-            onChange={({ text }) => {
-              setDraft(text);
-              setDirty(true);
-            }}
-            view={{ menu: true, md: true, html: true }}
-          />
         </div>
       </div>
       <Drawer

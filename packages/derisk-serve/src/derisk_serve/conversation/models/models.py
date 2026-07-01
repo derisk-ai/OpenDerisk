@@ -79,6 +79,8 @@ class ServeDao(BaseDao[ServeEntity, ServeRequest, ServerResponse]):
             chat_mode=entity.chat_mode,
             user_name="",
             sys_code=entity.sys_code,
+            workspace_id=entity.workspace_id,
+            task_id=entity.task_id,
             gmt_created=gmt_created,
             gmt_modified=gmt_modified,
         )

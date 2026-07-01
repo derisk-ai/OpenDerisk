@@ -40,6 +40,12 @@ class GptsConversationsEntity(Model):
 
     user_code = Column(String(255), nullable=True, comment="user code")
     sys_code = Column(String(255), nullable=True, comment="system app ")
+    workspace_id = Column(
+        Integer, nullable=True, index=True, comment="workspace id, NULL for legacy/HomeChat"
+    )
+    task_id = Column(
+        Integer, nullable=True, index=True, comment="task id this conversation belongs to"
+    )
     vis_render = Column(String(255), nullable=True, comment="vis mode of chat conversation ")
     extra=Column(Text(65535), nullable=True, comment="the extra info of the conversation")
     created_at = Column(

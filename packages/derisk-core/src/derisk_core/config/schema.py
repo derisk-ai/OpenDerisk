@@ -160,14 +160,28 @@ class LLMProviderModelConfig(BaseModel):
     name: str = Field(..., description="模型名称，如 gpt-4o, deepseek-chat")
     temperature: float = Field(0.7, description="模型温度参数")
     max_new_tokens: int = Field(4096, description="最大生成token数")
-    is_multimodal: bool = Field(False, description="是否支持多模态（图片输入）")
+    # 新增：模型类型与能力标签
+    model_type: str = Field("llm", description="模型类型: llm/embedding/rerank/video/image/audio/speech/moderation")
+    capabilities: List[str] = Field(default_factory=list, description="能力标签: text/vision/audio_input/audio_output/video_input/function_call/streaming")
     is_default: bool = Field(False, description="是否为该provider下的默认模型")
+    # 兼容旧配置
+    is_multimodal: bool = Field(False, description="是否支持多模态（图片输入），旧配置兼容字段")
+
+    def model_post_init(self, __context: Any) -> None:
+        """旧配置兼容：将 is_multimodal 转换为 capabilities 中的 vision"""
+        if self.is_multimodal and "vision" not in self.capabilities:
+            self.capabilities = list(self.capabilities) + ["vision"]
 
 
 class LLMProviderConfig(BaseModel):
-    """LLM Provider 配置"""
+    """LLM Provider 配置
+
+    provider: 来源/品牌，如 openai, alibaba, aws, azure, anthropic
+    protocol: 接入协议，如 openai, anthropic, theta, openai-compatible
+    """
 
     provider: str = "openai"
+    protocol: Optional[str] = None
     api_base: str = "https://api.openai.com/v1"
     api_key_ref: str = ""  # 引用 secrets 中的 key 名称
     models: List[LLMProviderModelConfig] = Field(
@@ -175,6 +189,28 @@ class LLMProviderConfig(BaseModel):
             LLMProviderModelConfig(name="gpt-4"),
         ]
     )
+
+    def model_post_init(self, __context: Any) -> None:
+        """旧配置兼容：未设置 protocol 时，根据 provider 推断"""
+        if not self.protocol:
+            self.protocol = infer_protocol_from_provider(self.provider)
+
+
+def infer_protocol_from_provider(provider: str) -> str:
+    """根据 provider 名称推断接入协议"""
+    name = (provider or "").strip().lower()
+    openai_compatible = {
+        "openai", "alibaba", "aliyun", "dashscope", "aws", "azure",
+        "deepseek", "zhipu", "moonshot", "openrouter", "siliconflow",
+        "custom", "tencent", "baidu", "volcengine", "minimax",
+    }
+    if name in openai_compatible:
+        return "openai"
+    if name in {"anthropic", "claude"}:
+        return "anthropic"
+    if name == "theta":
+        return "theta"
+    return name or "openai"
 
 
 class AgentLLMConfig(BaseModel):

@@ -21,6 +21,46 @@
 import { ins as request } from '../index';
 
 /**
+ * 任务步骤
+ */
+export interface TaskSpec {
+  name: string;
+  tool: string;
+  description: string;
+  required: boolean;
+}
+
+/**
+ * 产出物
+ */
+export interface DeliverableSpec {
+  name: string;
+  type: 'report' | 'data' | 'artifact' | 'decision';
+  format: 'markdown' | 'json' | 'text' | 'file';
+  description: string;
+}
+
+/**
+ * 触发类型
+ */
+export type TriggerType = 'keyword' | 'intent' | 'manual' | 'schedule';
+
+/**
+ * 介入模式
+ */
+export type InterventionMode = 'append' | 'prepend' | 'replace';
+
+/**
+ * 介入策略
+ */
+export type InterventionStrategy = 'oneshot' | 'continuous' | 'supervisor';
+
+/**
+ * 可见性
+ */
+export type Visibility = 'private' | 'team' | 'public';
+
+/**
  * 场景定义
  * 支持 YAML Front Matter 格式的 Markdown 内容
  */
@@ -30,8 +70,16 @@ export interface SceneDefinition {
   description: string;
   trigger_keywords: string[];
   trigger_priority: number;
+  trigger_type: TriggerType;
+  trigger_scope: string[];
   scene_role_prompt: string;
   scene_tools: string[];
+  intervention_mode: InterventionMode;
+  intervention_strategy: InterventionStrategy;
+  tags: string[];
+  visibility: Visibility;
+  tasks: TaskSpec[];
+  deliverables: DeliverableSpec[];
   created_at: string;
   updated_at: string;
   md_content?: string;
@@ -67,8 +115,16 @@ export interface SceneCreateRequest {
   description?: string;
   trigger_keywords?: string[];
   trigger_priority?: number;
+  trigger_type?: TriggerType;
+  trigger_scope?: string[];
   scene_role_prompt?: string;
   scene_tools?: string[];
+  intervention_mode?: InterventionMode;
+  intervention_strategy?: InterventionStrategy;
+  tags?: string[];
+  visibility?: Visibility;
+  tasks?: TaskSpec[];
+  deliverables?: DeliverableSpec[];
   md_content?: string;
 }
 
@@ -80,8 +136,16 @@ export interface SceneUpdateRequest {
   description?: string;
   trigger_keywords?: string[];
   trigger_priority?: number;
+  trigger_type?: TriggerType;
+  trigger_scope?: string[];
   scene_role_prompt?: string;
   scene_tools?: string[];
+  intervention_mode?: InterventionMode;
+  intervention_strategy?: InterventionStrategy;
+  tags?: string[];
+  visibility?: Visibility;
+  tasks?: TaskSpec[];
+  deliverables?: DeliverableSpec[];
   md_content?: string;
 }
 

@@ -123,3 +123,12 @@ export * from './skill';
 export * from './cron';
 export * from './channel';
 export * from './monitoring';
+// Scenario Workspace MVP modules
+export * from './workspace';
+export * from './task';
+export * from './playbook';
+export * from './artifact';
+export * from './workspace-asset';
+export * from './delivery';
+export * from './intervention';
+export * from './trigger';

@@ -1,6 +1,5 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { apiInterceptors } from '@/client/api';
 import {
   deleteRawFile,
@@ -11,17 +10,10 @@ import {
 } from '@/client/api/knowledge-vault';
 import type { VerbatFull } from '@/types/knowledge-vault';
 import { DeleteOutlined, EditOutlined, SaveOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { Button, Empty, Spin, Tag, Tooltip, message } from 'antd';
-import MarkdownIt from 'markdown-it';
+import { Button, Empty, Spin, Tag, message } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import 'react-markdown-editor-lite/lib/index.css';
+import MarkdownEditor from './MarkdownEditor';
 import { useSpace } from './SpaceContext';
-
-const MdEditor = dynamic(() => import('react-markdown-editor-lite'), {
-  ssr: false,
-});
-
-const mdParser = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
 export default function RawEditor() {
   const { slug, selectedRaw, setSelectedRaw, selectedVerbat, setSelectedVerbat, refresh } = useSpace();
@@ -158,10 +150,10 @@ export default function RawEditor() {
   }
 
   return (
-    <Spin spinning={loading} className="h-full">
+    <Spin spinning={loading} wrapperClassName="h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-white">
-          <EditOutlined className="text-violet-500" />
+          <EditOutlined className="text-[#0C75FC]" />
           <span className="text-sm font-medium text-gray-800 truncate" title={selectedRaw || undefined}>
             {displayPath}
           </span>
@@ -190,22 +182,16 @@ export default function RawEditor() {
             <div className="text-[11px] text-gray-400 px-4 py-2 bg-white">
               编辑 raw 原文件，保存后自动重新 ingest
             </div>
-            <div className="flex-1 min-h-0 bg-white relative">
-              {!loading && content === '' && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                  <Empty description="文件内容为空" imageStyle={{ height: 40 }} />
-                </div>
+            <div className="flex-1 min-h-0 bg-white overflow-hidden">
+              {!loading && (
+                <MarkdownEditor
+                  value={content}
+                  onChange={(text) => {
+                    setContent(text);
+                    setDirty(true);
+                  }}
+                />
               )}
-              <MdEditor
-                value={content}
-                style={{ height: '100%' }}
-                renderHTML={(text) => mdParser.render(text)}
-                onChange={({ text }) => {
-                  setContent(text);
-                  setDirty(true);
-                }}
-                view={{ menu: true, md: true, html: true }}
-              />
             </div>
           </>
         )}

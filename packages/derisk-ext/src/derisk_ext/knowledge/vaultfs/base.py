@@ -744,13 +744,13 @@ class BaseVaultFS(ABC):
         include_invalid: bool,
     ) -> list[Edge]: ...
 
-    async def graph_traverse(self, start: str, hop: int = 2, mode: str = "bfs") -> Subgraph:
+    async def graph_traverse(self, entity: str, hop: int = 2, mode: str = "bfs") -> Subgraph:
         if mode != "bfs":
             raise NotImplementedError("Only BFS supported in MVP")
 
         visited: set[str] = set()
         edges: list[Edge] = []
-        frontier: list[str] = [start]
+        frontier: list[str] = [entity]
         for _ in range(hop):
             next_frontier: list[str] = []
             for node in frontier:
@@ -766,8 +766,8 @@ class BaseVaultFS(ABC):
                         next_frontier.append(neighbor)
             frontier = next_frontier
 
-        all_nodes = sorted({start} | {e.subject for e in edges} | {e.object for e in edges})
-        return Subgraph(nodes=all_nodes, edges=edges, root=start)
+        all_nodes = sorted({entity} | {e.subject for e in edges} | {e.object for e in edges})
+        return Subgraph(nodes=all_nodes, edges=edges, root=entity)
 
     @abstractmethod
     async def _edges_for_node(self, node: str) -> list[Edge]: ...

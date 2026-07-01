@@ -30,6 +30,9 @@ export default function SpaceLayout({
     startW: 0,
   });
 
+  const hasLeft = Boolean(left);
+  const hasRight = Boolean(right);
+
   function startDrag(pane: 'left' | 'right', e: React.MouseEvent) {
     e.preventDefault();
     dragState.current = {
@@ -68,29 +71,37 @@ export default function SpaceLayout({
   }
 
   return (
-    <div className="flex h-full w-full bg-gray-50 overflow-hidden">
+    <div className="flex h-full w-full bg-[#FBFAF7] overflow-hidden">
       <VerticalNav />
-      <div
-        className="flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col"
-        style={{ width: leftWidth }}
-      >
-        {left}
-      </div>
-      <div
-        onMouseDown={(e) => startDrag('left', e)}
-        className="w-1 cursor-col-resize bg-gray-200 hover:bg-violet-300 transition-colors flex-shrink-0"
-      />
+      {hasLeft && (
+        <>
+          <div
+            className="flex-shrink-0 bg-white border-r border-[#ECEAE3] overflow-hidden flex flex-col"
+            style={{ width: leftWidth }}
+          >
+            {left}
+          </div>
+          <div
+            onMouseDown={(e) => startDrag('left', e)}
+            className="w-1 cursor-col-resize bg-[#ECEAE3] hover:bg-[#0C75FC]/40 transition-colors flex-shrink-0"
+          />
+        </>
+      )}
       <div className="flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">{center}</div>
-      <div
-        onMouseDown={(e) => startDrag('right', e)}
-        className="w-1 cursor-col-resize bg-gray-200 hover:bg-violet-300 transition-colors flex-shrink-0"
-      />
-      <div
-        className="flex-shrink-0 bg-white border-l border-gray-200 overflow-hidden flex flex-col"
-        style={{ width: rightWidth }}
-      >
-        {right}
-      </div>
+      {hasRight && (
+        <>
+          <div
+            onMouseDown={(e) => startDrag('right', e)}
+            className="w-1 cursor-col-resize bg-[#ECEAE3] hover:bg-[#0C75FC]/40 transition-colors flex-shrink-0"
+          />
+          <div
+            className="flex-shrink-0 bg-white border-l border-[#ECEAE3] overflow-hidden flex flex-col"
+            style={{ width: rightWidth }}
+          >
+            {right}
+          </div>
+        </>
+      )}
     </div>
   );
 }

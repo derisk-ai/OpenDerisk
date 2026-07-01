@@ -118,6 +118,17 @@ async def get_space(slug: str, service: Service = Depends(get_service)):
     )
 
 
+@router.delete("/spaces/{slug}", response_model=Result[Dict[str, bool]])
+async def delete_space(slug: str, service: Service = Depends(get_service)):
+    try:
+        await service.delete_space(slug)
+        return Result.succ({"ok": True})
+    except KeyError:
+        raise HTTPException(status_code=404, detail="space not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/spaces/{slug}", response_model=Result[SpaceInfo])
 async def update_space(
     slug: str,

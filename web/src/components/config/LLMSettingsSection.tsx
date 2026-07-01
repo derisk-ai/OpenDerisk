@@ -5,13 +5,14 @@ import {
   Alert,
   AutoComplete,
   Button,
-  Card,
+  Collapse,
   Form,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
-  Radio,
+  Select,
+  Slider,
   Space,
   Switch,
   Tag,
@@ -20,8 +21,6 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
-  KeyOutlined,
-  LinkOutlined,
   PlusOutlined,
   RobotOutlined,
   StarOutlined,
@@ -51,6 +50,40 @@ const BUILTIN_PROVIDER_OPTIONS = [
   { value: "openai", label: "OpenAI" },
   { value: "alibaba", label: "Alibaba / DashScope" },
   { value: "anthropic", label: "Anthropic / Claude" },
+  { value: "aws", label: "AWS" },
+  { value: "azure", label: "Azure" },
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "zhipu", label: "Zhipu" },
+  { value: "moonshot", label: "Moonshot" },
+  { value: "openrouter", label: "OpenRouter" },
+  { value: "siliconflow", label: "SiliconFlow" },
+];
+
+const BUILTIN_PROTOCOL_OPTIONS = [
+  { value: "openai", label: "OpenAI / OpenAI Compatible" },
+  { value: "anthropic", label: "Anthropic / Claude" },
+  { value: "theta", label: "Theta" },
+];
+
+const MODEL_TYPE_OPTIONS = [
+  { value: "llm", label: "LLM" },
+  { value: "embedding", label: "向量模型 (Embedding)" },
+  { value: "rerank", label: "排序模型 (Rerank)" },
+  { value: "video", label: "视频模型" },
+  { value: "image", label: "图像模型" },
+  { value: "audio", label: "音频模型" },
+  { value: "speech", label: "语音模型" },
+  { value: "moderation", label: "审核模型" },
+];
+
+const CAPABILITY_OPTIONS = [
+  { value: "text", label: "文本" },
+  { value: "vision", label: "视觉 (Vision)" },
+  { value: "audio_input", label: "音频输入" },
+  { value: "audio_output", label: "音频输出" },
+  { value: "video_input", label: "视频输入" },
+  { value: "function_call", label: "函数调用" },
+  { value: "streaming", label: "流式输出" },
 ];
 
 const PROVIDER_ALIASES: Record<string, string> = {
@@ -72,6 +105,49 @@ function buildDefaultSecretName(provider: string) {
   return `llm_provider_${normalized}_api_key`;
 }
 
+function inferProtocol(provider?: string) {
+  const name = (provider || "").trim().toLowerCase();
+  const openaiCompatible = new Set([
+    "openai", "alibaba", "aliyun", "dashscope", "aws", "azure",
+    "deepseek", "zhipu", "moonshot", "openrouter", "siliconflow",
+    "tencent", "baidu", "volcengine", "minimax",
+  ]);
+  if (openaiCompatible.has(name)) return "openai";
+  if (name === "anthropic" || name === "claude") return "anthropic";
+  if (name === "theta") return "theta";
+  return name || "openai";
+}
+
+const MAX_TOKENS_MARKS: Record<number, string> = {
+  0: "0",
+  1000000: "1M",
+};
+
+function formatTokens(value?: number) {
+  if (value === undefined || value === null) return "-";
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1024) return `${Math.round(value / 1024)}K`;
+  return value.toString();
+}
+
+function getDefaultCapabilities(modelType: string, isMultimodal?: boolean) {
+  const caps = new Set<string>(["text"]);
+  if (modelType === "llm" || modelType === "speech" || modelType === "moderation") {
+    caps.add("text");
+  }
+  if (isMultimodal) {
+    caps.add("vision");
+  }
+  if (modelType === "video") {
+    caps.add("video_input");
+  }
+  if (modelType === "audio") {
+    caps.add("audio_input");
+    caps.add("audio_output");
+  }
+  return Array.from(caps);
+}
+
 export default function LLMSettingsSection({ config, onChange }: Props) {
   const [form] = Form.useForm();
   const [llmKeys, setLLMKeys] = useState<LLMKeyItem[]>([]);
@@ -87,24 +163,41 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
 
   useEffect(() => {
     if (!config) return;
-    
+
     form.setFieldsValue({
       agent_llm: {
         temperature: config.agent_llm?.temperature ?? 0.7,
         providers:
-          config.agent_llm?.providers?.map((provider) => ({
-            provider: normalizeProviderName(provider.provider),
-            api_base: provider.api_base,
-            api_key_ref: provider.api_key_ref,
-            models:
-              provider.models?.map((model) => ({
-                name: model.name || "",
-                temperature: model.temperature ?? 0.7,
-                max_new_tokens: model.max_new_tokens ?? 4096,
-                is_multimodal: model.is_multimodal ?? false,
-                is_default: model.is_default ?? false,
-              })) || [],
-          })) || [],
+          config.agent_llm?.providers?.map((provider) => {
+            const providerName = normalizeProviderName(provider.provider);
+            const protocol = provider.protocol || inferProtocol(providerName);
+            return {
+              provider: providerName,
+              protocol,
+              api_base: provider.api_base,
+              api_key_ref: provider.api_key_ref,
+              models:
+                provider.models?.map((model) => {
+                  // 兼容旧配置：is_multimodal -> capabilities 包含 vision
+                  const capabilities =
+                    model.capabilities && model.capabilities.length > 0
+                      ? model.capabilities
+                      : getDefaultCapabilities(
+                          model.model_type || "llm",
+                          model.is_multimodal
+                        );
+                  return {
+                    name: model.name || "",
+                    temperature: model.temperature ?? 0.7,
+                    max_new_tokens: model.max_new_tokens ?? 4096,
+                    model_type: model.model_type || "llm",
+                    capabilities,
+                    is_multimodal: model.is_multimodal ?? false,
+                    is_default: model.is_default ?? false,
+                  };
+                }) || [],
+            };
+          }) || [],
       },
     });
   }, [config, form]);
@@ -140,11 +233,12 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
 
   const providerOptions = useMemo(() => {
     const values = new Set<string>();
+    const builtinSet = new Set(BUILTIN_PROVIDER_OPTIONS.map((item) => item.value));
     BUILTIN_PROVIDER_OPTIONS.forEach((item) => values.add(item.value));
     configuredProviders.forEach((item: any) => {
       if (item?.provider) {
         const normalized = normalizeProviderName(item.provider);
-        if (!["openai", "alibaba", "anthropic"].includes(normalized)) {
+        if (!builtinSet.has(normalized)) {
           values.add(normalized);
         }
       }
@@ -240,29 +334,38 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
           // Ensure only one model is_default per provider
           const models = (item.models || [])
             .filter((model: any) => model?.name)
-            .map((model: any, idx: number, arr: any[]) => ({
-              name: model.name,
-              temperature: model.temperature ?? 0.7,
-              max_new_tokens: model.max_new_tokens ?? 4096,
-              is_multimodal: model.is_multimodal ?? false,
-              is_default: arr.length === 1 ? true : (model.is_default ?? false),
-            }));
-          
+            .map((model: any, idx: number, arr: any[]) => {
+              const modelType = model.model_type || "llm";
+              const capabilities = model.capabilities?.length
+                ? model.capabilities
+                : getDefaultCapabilities(modelType, model.is_multimodal);
+              return {
+                name: model.name,
+                temperature: model.temperature ?? 0.7,
+                max_new_tokens: model.max_new_tokens ?? 4096,
+                model_type: modelType,
+                capabilities,
+                is_multimodal: model.is_multimodal ?? capabilities.includes("vision"),
+                is_default: arr.length === 1 ? true : (model.is_default ?? false),
+              };
+            });
+
           // If multiple models have is_default=true, only keep the first one
-          const defaultCount = models.filter(m => m.is_default).length;
+          const defaultCount = models.filter((m: any) => m.is_default).length;
           if (defaultCount > 1) {
-            models.forEach((m, idx) => {
+            models.forEach((m: any, idx: number) => {
               m.is_default = idx === 0;
             });
           }
-          
+
           // If no model is_default, set the first one as default
-          if (models.length > 0 && !models.some(m => m.is_default)) {
+          if (models.length > 0 && !models.some((m: any) => m.is_default)) {
             models[0].is_default = true;
           }
-          
+
           return {
             provider,
+            protocol: item.protocol || inferProtocol(provider),
             api_base: item.api_base || "",
             api_key_ref: (() => {
               // 优先使用用户手动输入的值
@@ -332,8 +435,7 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
       <Alert
         type="info"
         showIcon
-        message="新设计：默认模型设置已简化"
-        description="在每个 Provider 的模型列表中，直接勾选'设为默认'即可。每个 Provider 只能有一个默认模型。"
+        message="每个 Provider 只能设置一个默认模型"
         className="mb-4"
       />
 
@@ -357,224 +459,380 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                 />
               )}
 
-              {fields.map((field) => {
-                const providerName = normalizeProviderName(
-                  form.getFieldValue([
-                    "agent_llm",
-                    "providers",
-                    field.name,
-                    "provider",
-                  ])
-                );
-                const inlineModels =
-                  form.getFieldValue([
-                    "agent_llm",
-                    "providers",
-                    field.name,
-                    "models",
-                  ]) || [];
-                const providerKey = llmKeyMap[providerName];
-                const modelOptions = getProviderModels(providerName, inlineModels);
+              {fields.length > 0 && (
+                <Collapse
+                  bordered
+                  defaultActiveKey={
+                    fields.length <= 1 ? fields.map((f) => f.key.toString()) : []
+                  }
+                  className="provider-collapse"
+                >
+                  {fields.map((field) => {
+                    const providerName = normalizeProviderName(
+                      form.getFieldValue([
+                        "agent_llm",
+                        "providers",
+                        field.name,
+                        "provider",
+                      ])
+                    );
+                    const protocol = form.getFieldValue([
+                      "agent_llm",
+                      "providers",
+                      field.name,
+                      "protocol",
+                    ]);
+                    const inlineModels =
+                      form.getFieldValue([
+                        "agent_llm",
+                        "providers",
+                        field.name,
+                        "models",
+                      ]) || [];
+                    const providerKey = llmKeyMap[providerName];
+                    const modelOptions = getProviderModels(
+                      providerName,
+                      inlineModels
+                    );
+                    const defaultModel = inlineModels.find(
+                      (m: { is_default?: boolean }) => m.is_default
+                    );
+                    const defaultModelName = defaultModel?.name;
 
-                return (
-                  <Card
-                    key={field.key}
-                    className="border border-gray-200"
-                    extra={
-                      <Popconfirm
-                        title="确定删除该 Provider？"
-                        onConfirm={() => remove(field.name)}
-                      >
-                        <Button danger size="small" icon={<DeleteOutlined />}>
-                          删除
-                        </Button>
-                      </Popconfirm>
-                    }
-                  >
-                    <div className="grid grid-cols-2 gap-4">
-                      <Form.Item
-                        name={[field.name, "provider"]}
-                        label="Provider 名称"
-                        rules={[{ required: true, message: "请输入 Provider 名称" }]}
-                      >
-                        <AutoComplete
-                          options={providerOptions}
-                          placeholder="如 openai / deepseek / openrouter"
-                        />
-                      </Form.Item>
-                      <Form.Item
-                        name={[field.name, "api_base"]}
-                        label="API Base URL"
-                        rules={[{ required: true, message: "请输入 API Base URL" }]}
-                      >
-                        <Input placeholder="https://api.openai.com/v1" />
-                      </Form.Item>
-                    </div>
-
-                    <Form.Item
-                      name={[field.name, "api_key_ref"]}
-                      label="API Key 引用"
-                      tooltip="可以手动输入引用格式如 ${secrets.llm_provider_xxx_api_key}，或保存时自动生成"
-                    >
-                      <Input placeholder="${secrets.llm_provider_deepseek_api_key}" />
-                    </Form.Item>
-
-                    {providerKey && providerKey.is_configured && (
-                      <div className="mb-4 flex items-center gap-2">
-                        <CheckCircleOutlined className="text-green-500" />
-                        <Text type="success">
-                          已配置加密 API Key（{providerKey.description || providerKey.secret_name}）
-                        </Text>
-                        <Text type="secondary" className="text-xs">
-                          保存时将自动使用此密钥引用
-                        </Text>
-                      </div>
-                    )}
-
-                    <Form.List name={[field.name, "models"]}>
-                      {(modelFields, { add: addModel, remove: removeModel }) => (
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <Text strong>模型列表</Text>
-                            <Button
-                              type="link"
-                              size="small"
-                              icon={<PlusOutlined />}
-                              onClick={() => addModel()}
+                    return (
+                      <Collapse.Panel
+                        key={field.key}
+                        header={
+                          <div className="flex items-center justify-between w-full pr-4">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-800">
+                                {providerName || "未命名 Provider"}
+                              </span>
+                              {providerName && (
+                                <Tag className="text-xs text-gray-500 border-gray-200 bg-gray-50">
+                                  {protocol || inferProtocol(providerName)}
+                                </Tag>
+                              )}
+                              <Tag className="text-xs" color="blue">
+                                {inlineModels.length} 个模型
+                              </Tag>
+                              {defaultModelName && (
+                                <Tag
+                                  className="text-xs"
+                                  color="gold"
+                                  icon={<StarOutlined />}
+                                >
+                                  {defaultModelName}
+                                </Tag>
+                              )}
+                            </div>
+                            <Popconfirm
+                              title="确定删除该 Provider？"
+                              onConfirm={() => remove(field.name)}
                             >
-                              添加模型
-                            </Button>
+                              <Button
+                                type="text"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </div>
+                        }
+                      >
+                        <div className="space-y-3 pt-1">
+                          <div className="grid grid-cols-2 gap-4">
+                            <Form.Item
+                              name={[field.name, "provider"]}
+                              label="Provider 名称"
+                              rules={[
+                                { required: true, message: "请输入 Provider 名称" },
+                              ]}
+                            >
+                              <AutoComplete
+                                options={providerOptions}
+                                placeholder="如 openai / alibaba / aws / azure"
+                              />
+                            </Form.Item>
+                            <Form.Item
+                              name={[field.name, "protocol"]}
+                              label="接入协议"
+                              rules={[
+                                { required: true, message: "请选择接入协议" },
+                              ]}
+                            >
+                              <Select
+                                options={BUILTIN_PROTOCOL_OPTIONS}
+                                placeholder="选择协议"
+                              />
+                            </Form.Item>
                           </div>
 
-                          {modelFields.map((modelField) => {
-                            const modelName = form.getFieldValue([
-                              "agent_llm",
-                              "providers",
-                              field.name,
-                              "models",
-                              modelField.name,
-                              "name",
-                            ]);
-                            const isDefault = form.getFieldValue([
-                              "agent_llm",
-                              "providers",
-                              field.name,
-                              "models",
-                              modelField.name,
-                              "is_default",
-                            ]);
+                          <Form.Item
+                            name={[field.name, "api_base"]}
+                            label="API Base URL"
+                            rules={[
+                              { required: true, message: "请输入 API Base URL" },
+                            ]}
+                          >
+                            <Input placeholder="https://api.openai.com/v1" />
+                          </Form.Item>
 
-                            return (
-                              <Card
-                                key={modelField.key}
-                                size="small"
-                                className={isDefault ? "border-blue-300 bg-blue-50" : ""}
-                                extra={
-                                  <Popconfirm
-                                    title="确定删除该模型？"
-                                    onConfirm={() => removeModel(modelField.name)}
+                          <Form.Item
+                            name={[field.name, "api_key_ref"]}
+                            label="API Key 引用"
+                            tooltip="可以手动输入引用格式如 ${secrets.llm_provider_xxx_api_key}，或保存时自动生成"
+                          >
+                            <Input placeholder="${secrets.llm_provider_deepseek_api_key}" />
+                          </Form.Item>
+
+                          {providerKey && providerKey.is_configured && (
+                            <div className="mb-2 flex items-center gap-2">
+                              <CheckCircleOutlined className="text-green-500" />
+                              <Text type="success">
+                                已配置加密 API Key（
+                                {providerKey.description || providerKey.secret_name}
+                                ）
+                              </Text>
+                              <Text type="secondary" className="text-xs">
+                                保存时将自动使用此密钥引用
+                              </Text>
+                            </div>
+                          )}
+
+                          <Form.List name={[field.name, "models"]}>
+                            {(modelFields, {
+                              add: addModel,
+                              remove: removeModel,
+                            }) => (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Text strong>模型列表</Text>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    icon={<PlusOutlined />}
+                                    onClick={() => addModel()}
                                   >
-                                    <Button
-                                      danger
-                                      size="small"
-                                      icon={<DeleteOutlined />}
-                                    />
-                                  </Popconfirm>
-                                }
-                              >
-                                <div className="grid grid-cols-3 gap-3">
-                                  <Form.Item
-                                    name={[modelField.name, "name"]}
-                                    label="模型名称"
-                                    rules={[{ required: true, message: "请输入模型名称" }]}
-                                  >
-                                    <AutoComplete
-                                      options={modelOptions.map((item) => ({
-                                        value: item,
-                                      }))}
-                                      placeholder={
-                                        loadingModels
-                                          ? "加载中..."
-                                          : "选择或输入模型名"
-                                      }
-                                    />
-                                  </Form.Item>
-                                  <Form.Item
-                                    name={[modelField.name, "temperature"]}
-                                    label="Temperature"
-                                  >
-                                    <InputNumber
-                                      style={{ width: "100%" }}
-                                      min={0}
-                                      max={2}
-                                      step={0.1}
-                                    />
-                                  </Form.Item>
-                                  <Form.Item
-                                    name={[modelField.name, "max_new_tokens"]}
-                                    label="Max Tokens"
-                                    tooltip="请根据模型实际支持的最大token数设置"
-                                  >
-                                    <InputNumber
-                                      style={{ width: "100%" }}
-                                      min={1}
-                                      placeholder="4096"
-                                    />
-                                  </Form.Item>
+                                    添加模型
+                                  </Button>
                                 </div>
-                                <div className="flex items-center gap-4">
-                                  <Form.Item
-                                    name={[modelField.name, "is_multimodal"]}
-                                    valuePropName="checked"
-                                    className="!mb-0"
-                                  >
-                                    <Switch checkedChildren="多模态" unCheckedChildren="文本" />
-                                  </Form.Item>
-                                  <Form.Item
-                                    name={[modelField.name, "is_default"]}
-                                    className="!mb-0"
-                                  >
-                                    <Radio.Group
-                                      onChange={(e) => {
-                                        // 当设置为默认时，清除其他模型的 is_default
-                                        if (e.target.value) {
-                                          const currentModels = form.getFieldValue([
-                                            "agent_llm",
-                                            "providers",
-                                            field.name,
-                                            "models",
-                                          ]);
-                                          currentModels.forEach((m: any, idx: number) => {
-                                            if (idx !== modelField.name) {
-                                              form.setFieldValue([
-                                                "agent_llm",
-                                                "providers",
-                                                field.name,
-                                                "models",
-                                                idx,
-                                                "is_default",
-                                              ], false);
-                                            }
-                                          });
-                                        }
-                                      }}
-                                    >
-                                      <Radio value={true}>
-                                        <StarOutlined className="text-yellow-500" /> 设为默认
-                                      </Radio>
-                                      <Radio value={false}>普通模型</Radio>
-                                    </Radio.Group>
-                                  </Form.Item>
-                                </div>
-                              </Card>
-                            );
-                          })}
+
+                                {modelFields.length === 0 && (
+                                  <Text type="secondary">
+                                    该 Provider 下暂无模型
+                                  </Text>
+                                )}
+
+                                {modelFields.length > 0 && (
+                                  <>
+                                    <div className="grid grid-cols-12 gap-3 px-3 pb-1 text-xs text-gray-400 font-medium">
+                                      <div className="col-span-3">模型名称</div>
+                                      <div className="col-span-2">类型</div>
+                                      <div className="col-span-1">Temp</div>
+                                      <div className="col-span-3">Max Tokens</div>
+                                      <div className="col-span-2">能力标签</div>
+                                      <div className="col-span-1 text-right">默认 / 操作</div>
+                                    </div>
+
+                                    {modelFields.map((modelField) => {
+                                      const isDefault = form.getFieldValue([
+                                        "agent_llm",
+                                        "providers",
+                                        field.name,
+                                        "models",
+                                        modelField.name,
+                                        "is_default",
+                                      ]);
+
+                                      return (
+                                        <div
+                                          key={modelField.key}
+                                          className={`grid grid-cols-12 gap-3 items-start py-3 px-3 rounded-lg border transition-all ${
+                                            isDefault
+                                              ? "border-blue-200 bg-blue-50/70 shadow-sm"
+                                              : "border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm"
+                                          }`}
+                                        >
+                                          <div className="col-span-3">
+                                            <Form.Item
+                                              name={[modelField.name, "name"]}
+                                              rules={[
+                                                {
+                                                  required: true,
+                                                  message: "请输入模型名称",
+                                                },
+                                              ]}
+                                              className="!mb-0"
+                                            >
+                                              <AutoComplete
+                                                size="small"
+                                                style={{ width: "100%" }}
+                                                options={modelOptions.map((item) => ({
+                                                  value: item,
+                                                }))}
+                                                placeholder={
+                                                  loadingModels
+                                                    ? "加载中..."
+                                                    : "选择或输入模型名"
+                                                }
+                                              />
+                                            </Form.Item>
+                                          </div>
+                                          <div className="col-span-2">
+                                            <Form.Item
+                                              name={[modelField.name, "model_type"]}
+                                              rules={[
+                                                {
+                                                  required: true,
+                                                  message: "请选择模型类型",
+                                                },
+                                              ]}
+                                              className="!mb-0"
+                                            >
+                                              <Select
+                                                size="small"
+                                                options={MODEL_TYPE_OPTIONS}
+                                                placeholder="类型"
+                                              />
+                                            </Form.Item>
+                                          </div>
+                                          <div className="col-span-1">
+                                            <Form.Item
+                                              name={[modelField.name, "temperature"]}
+                                              className="!mb-0"
+                                            >
+                                              <InputNumber
+                                                size="small"
+                                                style={{ width: "100%" }}
+                                                min={0}
+                                                max={2}
+                                                step={0.1}
+                                              />
+                                            </Form.Item>
+                                          </div>
+                                          <div className="col-span-3">
+                                            <div className="flex items-center justify-between mb-1">
+                                              <span className="text-xs text-gray-400">Max Tokens</span>
+                                              <span className="text-xs font-semibold text-blue-600">
+                                                {formatTokens(
+                                                  form.getFieldValue([
+                                                    "agent_llm",
+                                                    "providers",
+                                                    field.name,
+                                                    "models",
+                                                    modelField.name,
+                                                    "max_new_tokens",
+                                                  ])
+                                                )}
+                                              </span>
+                                            </div>
+                                            <Form.Item
+                                              name={[
+                                                modelField.name,
+                                                "max_new_tokens",
+                                              ]}
+                                              className="!mb-0"
+                                              tooltip="请根据模型实际支持的最大 token 数设置"
+                                            >
+                                              <Slider
+                                                min={0}
+                                                max={1000000}
+                                                step={1024}
+                                                marks={MAX_TOKENS_MARKS}
+                                                tooltip={{
+                                                  formatter: (value) =>
+                                                    formatTokens(value),
+                                                }}
+                                              />
+                                            </Form.Item>
+                                          </div>
+                                          <div className="col-span-2">
+                                            <Form.Item
+                                              name={[
+                                                modelField.name,
+                                                "capabilities",
+                                              ]}
+                                              className="!mb-0"
+                                            >
+                                              <Select
+                                                size="small"
+                                                mode="multiple"
+                                                options={CAPABILITY_OPTIONS}
+                                                placeholder="能力标签"
+                                                maxTagCount={1}
+                                                maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                                              />
+                                            </Form.Item>
+                                          </div>
+                                          <div className="col-span-1 flex items-start justify-end gap-2">
+                                            <Form.Item
+                                              name={[modelField.name, "is_default"]}
+                                              valuePropName="checked"
+                                              className="!mb-0"
+                                            >
+                                              <Switch
+                                                size="small"
+                                                onChange={(checked) => {
+                                                  if (checked) {
+                                                    const currentModels =
+                                                      form.getFieldValue([
+                                                        "agent_llm",
+                                                        "providers",
+                                                        field.name,
+                                                        "models",
+                                                      ]);
+                                                    currentModels.forEach(
+                                                      (_m: unknown, idx: number) => {
+                                                        if (idx !== modelField.name) {
+                                                          form.setFieldValue(
+                                                            [
+                                                              "agent_llm",
+                                                              "providers",
+                                                              field.name,
+                                                              "models",
+                                                              idx,
+                                                              "is_default",
+                                                            ],
+                                                            false
+                                                          );
+                                                        }
+                                                      }
+                                                    );
+                                                  }
+                                                }}
+                                              />
+                                            </Form.Item>
+                                            <Popconfirm
+                                              title="确定删除该模型？"
+                                              onConfirm={() =>
+                                                removeModel(modelField.name)
+                                              }
+                                            >
+                                              <Button
+                                                danger
+                                                size="small"
+                                                icon={<DeleteOutlined />}
+                                              />
+                                            </Popconfirm>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </Form.List>
                         </div>
-                      )}
-                    </Form.List>
-                  </Card>
-                );
-              })}
+                      </Collapse.Panel>
+                    );
+                  })}
+                </Collapse>
+              )}
 
               <Button
                 type="dashed"
@@ -582,9 +840,19 @@ export default function LLMSettingsSection({ config, onChange }: Props) {
                 onClick={() =>
                   add({
                     provider: "",
+                    protocol: "openai",
                     api_base: "",
                     api_key_ref: "",
-                    models: [{ name: "", temperature: 0.7, max_new_tokens: 4096, is_multimodal: false, is_default: true }],
+                    models: [
+                      {
+                        name: "",
+                        temperature: 0.7,
+                        max_new_tokens: 4096,
+                        model_type: "llm",
+                        capabilities: ["text"],
+                        is_default: true,
+                      },
+                    ],
                   })
                 }
                 block

@@ -9,6 +9,13 @@ from derisk_ext.storage.memory.simple_sqlite_store import (  # noqa: F401
     SimpleSQLiteMemoryStore,
 )
 
+# KnowledgeVaultMemoryStore - routes the hermes 4-tier memory pipeline
+# into a per-agent llm-wiki Space (L0 Verbat / L1 Document / L2 Edge).
+from derisk_ext.storage.memory.knowledge_vault_store import (  # noqa: F401
+    KnowledgeVaultMemoryConfig,
+    KnowledgeVaultMemoryStore,
+)
+
 # LettaMemoryStore - requires Letta backend
 try:
     from derisk_ext.storage.memory.letta_adapter import (  # noqa: F401
@@ -22,6 +29,8 @@ except ImportError:
 __all__ = [
     "SimpleSQLiteMemoryConfig",
     "SimpleSQLiteMemoryStore",
+    "KnowledgeVaultMemoryConfig",
+    "KnowledgeVaultMemoryStore",
     "LettaMemoryStore",
     "LettaMemoryConfig",
 ]

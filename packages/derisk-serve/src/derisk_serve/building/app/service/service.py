@@ -509,45 +509,59 @@ class Service(BaseService[ServeEntity, ServeRequest, ServerResponse]):
                 knowledge_id, space_name,
             )
         else:
-            # Auto-create a per-agent Memory space.
-            # TODO: rewire to new knowledge module (Task #9)
-            from derisk_serve.rag.api.schemas import SpaceServeRequest  # type: ignore
-            from derisk_serve.rag.service.service import Service as RagService  # type: ignore
-
-            rag_service = RagService.get_instance(self._system_app)
-            if rag_service is None:
-                raise RuntimeError("RAG service not available; cannot create memory space")
-
-            space_name = f"{app.app_name} 记忆"
-            embedding_model = self._default_memory_embedding_model()
-            context = json.dumps({"embedding_model": embedding_model}) if embedding_model else None
-
-            space_req = SpaceServeRequest(
-                name=space_name,
-                vector_type="Memory",
-                storage_type="Memory",
-                domain_type="Memory",
-                desc=f"Auto-created memory space for agent {app.app_name}",
-                owner=app.user_code,
-                context=context,
+            # Auto-create a per-agent memory space in the new llm-wiki
+            # knowledge-vault system. The old `derisk_serve.rag` module has
+            # been removed; each agent now gets its own Space
+            # (slug = `memory-{app_code}`) as the 4-tier hermes memory sink.
+            from derisk_serve.knowledge.service.service import (
+                Service as KnowledgeService,
             )
+            from derisk.knowledge.schema import default_memory_schema_md
 
+            ks = KnowledgeService.get_instance(self._system_app)
+            if ks is None:
+                raise RuntimeError(
+                    "Knowledge service not available; cannot create memory space"
+                )
+
+            slug = f"memory-{app_code}"
+            embedding_model = self._default_memory_embedding_model()
             try:
-                knowledge_id = rag_service.create_space(space_req)
-            except HTTPException as e:
-                if getattr(e, "status_code", None) == 400:
-                    # Duplicate name — reuse the existing space.
-                    existing_space = rag_service.get({"name": space_name})
-                    if not existing_space:
-                        raise
-                    knowledge_id = existing_space.knowledge_id
-                else:
-                    raise
+                await ks.create_space(
+                    slug=slug,
+                    backend="local",
+                    default_agent_id=app_code,
+                    embedder_model=embedding_model,
+                )
+            except ValueError:
+                # Slug already exists — reuse. Safe because slug is deterministic.
+                logger.info("[enable_memory] reusing existing space slug=%s", slug)
+            except Exception as e:
+                # Surface unexpected errors but keep the message actionable.
+                logger.warning(
+                    "[enable_memory] create_space slug=%s raised %s; "
+                    "attempting to continue with existing space",
+                    slug, e,
+                )
+
+            vault = await ks.get_vault(slug)
+            try:
+                await vault.write_schema_md(default_memory_schema_md(app.app_name))
+            except Exception as e:
+                logger.warning(
+                    "[enable_memory] write_schema_md failed for slug=%s: %s",
+                    slug, e,
+                )
+
+            knowledge_id = slug
+            space_name = f"{app.app_name} 记忆"
 
             config_payload = {
                 "memories": [{"memory_id": knowledge_id, "memory_name": space_name}],
+                "store_type": "knowledge_vault",
+                "space_slug": slug,
                 "auto_memory": True,
-                "enable_kg": False,
+                "enable_kg": True,
                 "top_k": 5,
                 "reflection_interval": 10,
             }

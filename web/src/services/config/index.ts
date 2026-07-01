@@ -53,12 +53,18 @@ export interface LLMModelConfig {
   name: string;
   temperature: number;
   max_new_tokens: number;
+  // 新增模型类型与能力标签
+  model_type?: string;
+  capabilities?: string[];
+  // 兼容旧配置
   is_multimodal?: boolean;
   is_default?: boolean;
 }
 
 export interface LLMProviderConfig {
   provider: string;
+  // 新增：接入协议，与 provider 来源解耦
+  protocol: string;
   api_base: string;
   api_key_ref: string;
   models: LLMModelConfig[];

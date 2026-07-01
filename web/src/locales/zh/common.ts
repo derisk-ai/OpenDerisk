@@ -694,6 +694,7 @@ export const CommonZh: Resources['translation'] = {
   memory_hook_every_n: '每 N 轮',
   memory_hook_session_end: '会话结束',
   memory_hook_save: '保存 Hook 修改',
+  memory_agent_space: 'Agent 记忆空间',
   builder_select_agent: '请选择一个智能体开始编辑',
   explore_start_chat: '开始对话',
   explore_no_agents: '暂无智能体',

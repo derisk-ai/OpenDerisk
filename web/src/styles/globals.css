@@ -170,33 +170,10 @@ table {
   overflow-x: auto;
 }
 
-.rc-md-editor {
-  height: 100% !important;
+.ant-spin-nested-loading {
+  height: 100%;
 }
 
-.rc-md-editor .editor-container {
-  height: 100% !important;
-}
-
-.rc-md-editor .editor-container>.section {
-  border-right: none !important;
-}
-
-.rc-md-editor .editor-container .section-container {
-  height: 100% !important;
-}
-
-.rc-md-editor .editor-container .section-container .section {
-  height: 100% !important;
-}
-
-.rc-md-editor .editor-container .section-container .section .rc-md-navigation {
-  flex-shrink: 0;
-}
-
-.rc-md-editor .editor-container .section-container .section .rc-md-editor {
-  height: 100% !important;
-}
 .ant-spin-nested-loading .ant-spin-container {
   height: 100% !important;
   display: flex !important;
@@ -254,23 +231,45 @@ table {
 }
 
 /* Knowledge Vault: compact tree indentation */
+.kv-tree .ant-tree {
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+.kv-tree .ant-tree-list {
+  padding: 0 !important;
+}
+
+.kv-tree .ant-tree-list-holder,
+.kv-tree .ant-tree-list-holder-inner {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
 .kv-tree .ant-tree-treenode {
-  padding: 1px 0 !important;
+  padding: 2px 0 2px 2px !important;
+  margin: 0 !important;
 }
 
 .kv-tree .ant-tree-indent-unit {
-  width: 12px !important;
+  width: 6px !important;
 }
 
 .kv-tree .ant-tree-node-content-wrapper {
-  padding: 0 2px !important;
-  min-height: 22px !important;
-  line-height: 22px !important;
+  padding: 0 2px 0 0 !important;
+  min-height: 20px !important;
+  line-height: 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
 }
 
 .kv-tree .ant-tree-switcher {
-  width: 16px !important;
-  line-height: 22px !important;
+  width: 12px !important;
+  line-height: 20px !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .kv-tree .ant-tree-iconEle {
@@ -279,6 +278,68 @@ table {
 
 .kv-tree .ant-tree-title {
   font-size: 12px;
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+.kv-tree .ant-tree-node-content-wrapper .ant-tree-title > span {
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  width: 100% !important;
+}
+
+/* Knowledge Vault: markdown editor fills center pane and scrolls */
+.rc-md-editor {
+  height: 100% !important;
+  min-height: 0 !important;
+  border: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.rc-md-editor .editor-container {
+  flex: 1 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
+.rc-md-editor .editor-container>.section {
+  flex: 1 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.rc-md-editor .editor-container>.section>.section-container {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  padding: 8px 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.rc-md-editor .editor-container>.section>.section-container .html-wrap {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+}
+
+.rc-md-editor .editor-container .sec-md .input,
+.rc-md-editor .editor-container .sec-html .html-wrap {
+  height: 100% !important;
+  overflow: auto !important;
 }
 
 @media (max-width: 768px) {

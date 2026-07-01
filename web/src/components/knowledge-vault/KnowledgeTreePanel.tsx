@@ -58,7 +58,7 @@ export default function KnowledgeTreePanel({ onCreate }: { onCreate: () => void 
   }, [docs]);
 
   return (
-    <Spin spinning={loading} className="h-full">
+    <Spin spinning={loading} wrapperClassName="h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100 bg-white">
           <Title level={5} className="!mb-0 flex items-center gap-2 text-sm">
@@ -78,7 +78,7 @@ export default function KnowledgeTreePanel({ onCreate }: { onCreate: () => void 
             </Tooltip>
           </div>
         </div>
-        <div className="p-3 flex flex-col gap-2 overflow-hidden flex-1 bg-white">
+        <div className="p-2 flex flex-col gap-1 overflow-hidden flex-1 bg-white">
           {docs.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {Object.entries(grouped).map(([type, items]) => {

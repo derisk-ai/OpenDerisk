@@ -1347,6 +1347,12 @@ class ConversableAgent(Role, Agent):
                                 "gpts_app_code",
                                 None,
                             ),
+                            "user_id": getattr(
+                                self.not_null_agent_context, "user_id", None
+                            ),
+                            "user_name": getattr(
+                                self.not_null_agent_context, "user_name", None
+                            ),
                             "round": turn_round,
                             "user_prompt": question,
                             "final_answer": ai_message,

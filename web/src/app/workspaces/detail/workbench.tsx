@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
-import { Button, Input, Tag } from 'antd';
+import { useState, useMemo, useCallback } from 'react';
+import { Button, Tag } from 'antd';
 import { useRequest } from 'ahooks';
 import {
   apiInterceptors,
@@ -9,7 +9,8 @@ import {
   listInterventions,
   listArtifacts,
 } from '@/client/api';
-import ChatSession, { ChatSessionHandle } from '@/components/chat/chat-session';
+import ChatSession from '@/components/chat/chat-session';
+import UnifiedChatInput from '@/components/chat/input/unified-chat-input';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import './workbench.css';
 
@@ -30,8 +31,6 @@ export function Workbench({
 }: WorkbenchProps) {
   const [dialogExpanded, setDialogExpanded] = useState(false);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
-  const [input, setInput] = useState('');
-  const chatSessionRef = useRef<ChatSessionHandle>(null);
 
   const { data: taskRes } = useRequest(
     async () => apiInterceptors(getTaskInfo(taskId)),
@@ -167,35 +166,15 @@ export function Workbench({
         </div>
       </div>
 
-      {/* 输入框常驻底部 */}
+      {/* 输入框常驻底部 —— 复用首页标准多模态 Agent 输入框 */}
       <div className="ws-wb__input">
-        <Input.TextArea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={`给 task_${taskId} 下指令...`}
-          autoSize={{ minRows: 1, maxRows: 4 }}
-          onPressEnter={(e) => {
-            if (!e.shiftKey) {
-              e.preventDefault();
-              if (input.trim()) {
-                chatSessionRef.current?.sendMessage(input);
-                setInput('');
-              }
-            }
-          }}
-        />
-      </div>
-
-      {/* ChatSession 隐藏，作为对话内核 + 事件源 */}
-      <div style={{ display: 'none' }}>
         <ChatSession
-          ref={chatSessionRef}
           convUid={convUid}
           appCode={appCode}
           workspaceId={String(workspaceId)}
           taskId={String(taskId)}
-          minimal
           onWorkspaceEvent={handleWorkspaceEvent}
+          inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
         />
       </div>
     </div>
