@@ -204,7 +204,7 @@ export default function WorkspaceDetailPage() {
     async () => selectedTaskId ? apiInterceptors(getTaskInfo(selectedTaskId)) : null,
     { refreshDeps: [selectedTaskId] }
   );
-  const taskConvUid = taskRes?.[1]?.conv_session_id || convUid;
+  const taskConvUid = taskRes?.[1]?.conv_session_id || '';
 
   const { data: tasks } = useRequest(async () => {
     if (!workspaceId) return [];
@@ -417,14 +417,18 @@ export default function WorkspaceDetailPage() {
                 router.push(`/workspaces/detail?id=${workspaceCode}&trigger=${pid}`);
               }}
             />
-          ) : (
+          ) : taskConvUid ? (
             <Workbench
               taskId={selectedTaskId}
               workspaceId={workspaceId}
               appCode={appCode}
-              convUid={taskConvUid || ''}
+              convUid={taskConvUid}
               onBack={() => setSelectedTaskId(null)}
             />
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '120px 24px' }}>
+              <Spin size="large" />
+            </div>
           )}
         </div>
       </div>
