@@ -155,6 +155,44 @@ async def test_post_message_back_calls_app_chat(fake_system_app, service):
     assert call_kwargs["user_code"] == "1"
 
 
+@pytest.mark.asyncio
+async def test_post_message_back_uses_workspace_default_agent_app_code(
+    fake_system_app, service
+):
+    workspace = MagicMock(default_agent_app_code="scenario_workspace_agent")
+    workspace_service = MagicMock()
+    workspace_service.get_by_id.return_value = workspace
+    fake_system_app.get_component.return_value = workspace_service
+
+    with patch("derisk_serve.agent.agents.controller.multi_agents") as m:
+        m.app_chat.return_value = async_generator([])
+        await service._post_message_back(
+            "conv-1", "start_task", {"task_id": 1}, 1, workspace_id=42
+        )
+    m.app_chat.assert_called_once()
+    call_kwargs = m.app_chat.call_args.kwargs
+    assert call_kwargs["gpts_name"] == "scenario_workspace_agent"
+    workspace_service.get_by_id.assert_called_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_post_message_back_falls_back_when_workspace_has_no_default_app(
+    fake_system_app, service
+):
+    workspace = MagicMock(default_agent_app_code=None)
+    workspace_service = MagicMock()
+    workspace_service.get_by_id.return_value = workspace
+    fake_system_app.get_component.return_value = workspace_service
+
+    with patch("derisk_serve.agent.agents.controller.multi_agents") as m:
+        m.app_chat.return_value = async_generator([])
+        await service._post_message_back(
+            "conv-1", "start_task", {"task_id": 1}, 1, workspace_id=42
+        )
+    m.app_chat.assert_called_once()
+    assert m.app_chat.call_args.kwargs["gpts_name"] == "chat_normal"
+
+
 async def async_generator(items):
     for item in items:
         yield item

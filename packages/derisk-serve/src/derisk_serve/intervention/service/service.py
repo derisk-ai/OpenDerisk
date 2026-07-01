@@ -213,6 +213,7 @@ class InterventionService(BaseService[InterventionEntity, InterventionRequest, I
                     tool_name=tool_name,
                     result=result,
                     user_id=resolved_by_user_id,
+                    workspace_id=entity.workspace_id,
                 )
             except Exception:
                 logger.exception("failed to post message back after execution")
@@ -346,22 +347,56 @@ class InterventionService(BaseService[InterventionEntity, InterventionRequest, I
 
         raise ValueError(f"Unknown tool: {tool_name}")
 
+    def _resolve_gpts_name(self, workspace_id: Optional[int]) -> str:
+        """Return the workspace's default agent app code, or fall back.
+
+        Falls back to ``chat_normal`` when the workspace is missing or has no
+        configured default agent.
+        """
+        if not workspace_id:
+            return "chat_normal"
+        try:
+            from derisk_serve.workspace.service.service import (
+                WORKSPACE_SERVICE_COMPONENT_NAME,
+                WorkspaceService,
+            )
+
+            workspace_service = self._system_app.get_component(
+                WORKSPACE_SERVICE_COMPONENT_NAME, WorkspaceService
+            )
+            workspace = workspace_service.get_by_id(workspace_id)
+            if workspace and workspace.default_agent_app_code:
+                return workspace.default_agent_app_code
+        except Exception:
+            logger.warning(
+                "failed to resolve default_agent_app_code for workspace %s",
+                workspace_id,
+                exc_info=True,
+            )
+        logger.warning(
+            "workspace %s has no default_agent_app_code, falling back to chat_normal",
+            workspace_id,
+        )
+        return "chat_normal"
+
     async def _post_message_back(
         self,
         conv_uid: Optional[str],
         tool_name: str,
         result: dict,
         user_id: Optional[int],
+        workspace_id: Optional[int] = None,
     ):
         if not conv_uid:
             return
         try:
             from derisk_serve.agent.agents.controller import multi_agents
 
+            gpts_name = self._resolve_gpts_name(workspace_id)
             synthetic_query = f"[已确认执行工具 {tool_name}] 结果：{result}"
             async for _ in multi_agents.app_chat(
                 conv_uid=conv_uid,
-                gpts_name="chat_normal",
+                gpts_name=gpts_name,
                 user_query=synthetic_query,
                 user_code=str(user_id) if user_id is not None else None,
             ):
