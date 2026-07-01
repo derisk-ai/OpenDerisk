@@ -76,9 +76,13 @@ from derisk_serve.building.app.api.schemas import ServerResponse
 from derisk_serve.building.app.service.service import Service as AppService
 from derisk_serve.building.config.api.schemas import ChatInParamValue, AppParamType
 from derisk_serve.conversation.serve import Serve as ConversationServe
-from derisk_serve.workspace.context_builder import (
+from derisk_serve.workspace.agent_tools.context_builder import (
     build_workspace_context,
     render_workspace_context_summary,
+)
+from derisk_serve.workspace.agent_tools.toolkit import build_workspace_toolkit
+from derisk_serve.workspace.context_builder import (
+    build_workspace_context as _legacy_build_workspace_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,41 +101,65 @@ def get_app_service() -> AppService:
     return AppService.get_instance(CFG.SYSTEM_APP)
 
 
-def _inject_workspace_context(agent_chat, ext_info):
-    """把 workspace_context + 物化资源注入 ext_info。
+def _inject_workspace_context(
+    *,
+    system_app,
+    workspace_id: Optional[int],
+    user_id: Optional[str],
+    conv_uid: Optional[str],
+    task_id: Optional[int],
+    system_prompt: List[str],
+    extra_agents: List,
+    ext_info: Optional[Dict[str, Any]] = None,
+) -> None:
+    """把 workspace 上下文摘要和 WorkspaceControlAgent 注入对话。
 
-    抽出为独立函数便于测试。物化的 dynamic_resources/extra_agents
-    会合并到 ext_info，后续 _build_agent_by_gpts 会消费。
+    保留旧的 workspace_context dict + 物化资源注入，保证下游 context_loaded
+    事件和动态资源消费继续工作。
     """
-    workspace_id = ext_info.get("workspace_id") if ext_info else None
-    task_id = ext_info.get("task_id") if ext_info else None
     if not workspace_id:
         return
+    mode = "workbench" if task_id else "lobby"
     try:
-        ws_ctx = build_workspace_context(
-            agent_chat.system_app,
-            int(workspace_id),
+        if ext_info is not None:
+            ws_ctx_legacy = _legacy_build_workspace_context(
+                system_app,
+                int(workspace_id),
+                task_id=int(task_id) if task_id else None,
+            )
+            ext_info["workspace_context"] = ws_ctx_legacy
+            materialized = ws_ctx_legacy.get("materialized") or {}
+            existing_dyn = ext_info.get("dynamic_resources") or []
+            existing_dyn.extend(materialized.get("dynamic_resources") or [])
+            ext_info["dynamic_resources"] = existing_dyn
+
+            existing_extra = ext_info.get("extra_agents") or []
+            existing_extra.extend(materialized.get("extra_agents") or [])
+            ext_info["extra_agents"] = existing_extra
+
+        ctx = build_workspace_context(
+            system_app=system_app,
+            workspace_id=int(workspace_id),
+            user_id=user_id,
             task_id=int(task_id) if task_id else None,
+            mode=mode,
         )
-        ext_info["workspace_context"] = ws_ctx
-        summary = render_workspace_context_summary(ws_ctx)
+        summary = render_workspace_context_summary(ctx, mode=mode)
         if summary:
-            existing_sys_prompt = ext_info.get("system_prompt") or ""
-            ext_info["system_prompt"] = (
-                existing_sys_prompt + "\n\n" + summary
-            ).strip()
+            system_prompt.append(summary)
 
-        # 物化资源注入（命脉：空间资源变成 Agent 真能力）
-        materialized = ws_ctx.get("materialized") or {}
-        existing_dyn = ext_info.get("dynamic_resources") or []
-        existing_dyn.extend(materialized.get("dynamic_resources") or [])
-        ext_info["dynamic_resources"] = existing_dyn
-
-        existing_extra = ext_info.get("extra_agents") or []
-        existing_extra.extend(materialized.get("extra_agents") or [])
-        ext_info["extra_agents"] = existing_extra
-    except Exception as e:
-        logger.warning(f"workspace context injection failed: {e}")
+        agent = build_workspace_toolkit(
+            system_app=system_app,
+            workspace_id=int(workspace_id),
+            user_id=user_id,
+            conv_uid=conv_uid,
+            task_id=int(task_id) if task_id else None,
+            mode=mode,
+        )
+        if agent is not None:
+            extra_agents.append(agent)
+    except Exception:
+        logger.warning("workspace context injection failed", exc_info=True)
 
 
 # workspace 流式事件白名单
@@ -751,7 +779,21 @@ class AgentChat(BaseComponent, ABC):
             raise ValueError(f"Not found app {gpts_name}!")
 
         # Workspace context + 物化资源注入
-        _inject_workspace_context(self, ext_info)
+        system_prompt_parts = []
+        if ext_info.get("system_prompt"):
+            system_prompt_parts.append(ext_info["system_prompt"])
+        _inject_workspace_context(
+            system_app=self.system_app,
+            workspace_id=ext_info.get("workspace_id"),
+            user_id=user_code,
+            conv_uid=conv_id,
+            task_id=ext_info.get("task_id"),
+            system_prompt=system_prompt_parts,
+            extra_agents=ext_info.setdefault("extra_agents", []),
+            ext_info=ext_info,
+        )
+        if system_prompt_parts:
+            ext_info["system_prompt"] = "\n\n".join(system_prompt_parts).strip()
 
         # init gpts  memory
         vis_render = ext_info.get("vis_render", None)
