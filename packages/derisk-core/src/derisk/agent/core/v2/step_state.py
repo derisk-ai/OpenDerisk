@@ -29,6 +29,7 @@ VALID_TRANSITIONS: Dict[StepState, Tuple[StepState, ...]] = {
     StepState.THINKING: (
         StepState.ACTING,
         StepState.AWAITING_USER,
+        StepState.AWAITING_TOOL_PERMISSION,
         StepState.DONE,
         StepState.FAILED,
     ),

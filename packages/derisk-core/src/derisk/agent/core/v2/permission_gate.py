@@ -14,7 +14,7 @@ when asking; the caller reads gate.last_result for the final decision.
 from __future__ import annotations
 import time
 import uuid
-from typing import AsyncGenerator, Optional, TYPE_CHECKING
+from typing import AsyncGenerator, Callable, Optional, TYPE_CHECKING
 from derisk._private.pydantic import BaseModel, ConfigDict
 from derisk.agent.core.v2.permission_mode import PermissionMode
 from derisk.agent.core.v2.session_cache import SessionPermissionCache, hash_tool_input
@@ -83,9 +83,24 @@ class PermissionGate:
             decision=PermissionDecision.DENY, reason="not checked"
         )
 
-    async def check(self, tool_call: dict) -> AsyncGenerator[StepEvent, None]:
-        """Run the 5-level check. Yields AWAITING_TOOL_PERMISSION events when asking.
+    async def check(
+        self,
+        tool_call: dict,
+        emit: Optional[Callable] = None,
+    ) -> AsyncGenerator[StepEvent, None]:
+        """Run the 5-level check.
+
+        Yields AWAITING_TOOL_PERMISSION events when asking.
         Sets self.last_result. Caller reads last_result after generator exhausts.
+
+        Args:
+            tool_call: {"tool": str, "input": dict}
+            emit: optional runtime emit callable
+                (state, event_type, input_data, output_data) -> StepEvent.
+                When provided, the gate uses it to construct+persist the
+                AWAITING_TOOL_PERMISSION event (correct seq assigned by runtime).
+                When None, the gate constructs the event itself with seq=0
+                (unit-test mode; not safe for production replay ordering).
         """
         tool_name = tool_call.get("tool", "")
         tool_input = tool_call.get("input", {}) or {}
@@ -120,8 +135,8 @@ class PermissionGate:
             self.last_result = PermissionResult(decision=PermissionDecision.DENY, reason="ruleset deny")
             return
 
-        # Level 4: Tool.check_permissions — P1 defers this (no Tool integration yet)
-        # TODO(P2): if tool has check_permissions, call it; non-None result short-circuits
+        # Level 4: Tool.check_permissions — added in Task 4 (this task leaves it as no-op)
+        # Level 4 will be wired in Task 4; for now fall through to Level 5
 
         # Level 5: ask → emit event + persist + delegate
         if self._adapter is None:
@@ -138,50 +153,58 @@ class PermissionGate:
             "step_id": self._step_id,
             "conv_id": self._conv_id,
         }
-        # Persist checkpoint BEFORE emitting (durability before visibility)
         await self._store.save_interaction_checkpoint(
             request_id, self._step_id, self._conv_id, request_payload
         )
-        # Emit AWAITING_TOOL_PERMISSION event
-        event = StepEvent(
-            event_id=f"evt-{uuid.uuid4().hex[:8]}",
-            step_id=self._step_id,
-            conv_id=self._conv_id,
-            agent_id=self._agent_id,
-            parent_step_id=None,
-            state=StepState.AWAITING_TOOL_PERMISSION,
-            event_type="interaction_request",
-            input=request_payload,
-            output={},
-            seq=0,  # runtime's _make_emit will overwrite seq; gate uses 0 placeholder
-            timestamp=time.time(),
-        )
-        # Persist + yield via EventStream
-        persisted = await self._stream.emit(event)
-        yield persisted
+
+        if emit is not None:
+            # Runtime path: use the runtime's emit so seq is correctly assigned
+            persisted = await emit(
+                StepState.AWAITING_TOOL_PERMISSION,
+                "interaction_request",
+                input_data=request_payload,
+            )
+            yield persisted
+        else:
+            # Unit-test path: construct event directly with seq=0 placeholder
+            event = StepEvent(
+                event_id=f"evt-{uuid.uuid4().hex[:8]}",
+                step_id=self._step_id,
+                conv_id=self._conv_id,
+                agent_id=self._agent_id,
+                parent_step_id=None,
+                state=StepState.AWAITING_TOOL_PERMISSION,
+                event_type="interaction_request",
+                input=request_payload,
+                output={},
+                seq=0,
+                timestamp=time.time(),
+            )
+            persisted = await self._stream.emit(event)
+            yield persisted
 
         # Delegate to InteractionAdapter (blocks until user responds)
         response = await self._adapter.request_tool_permission(
             tool_name=tool_name, tool_args=tool_input,
         )
-        action_str = getattr(response, "action", "deny")
-        # Checkpoint deletion is deferred to the runtime (run_step) — it deletes
-        # after the tool executes (ALLOW) or skips (DENY). This way the request
-        # survives crashes between user approval and tool execution.
-
-        if action_str == "deny":
+        # P1 I-1 fix: read response.choice (the field on InteractionResponse),
+        # NOT response.action. Map: allow_once/allow_session → ALLOW; else DENY.
+        choice = getattr(response, "choice", None)
+        # Clean up checkpoint on denial; runtime cleans up on allow.
+        if choice not in ("allow_once", "allow_session"):
+            await self._store.delete_interaction_checkpoint(request_id)
             self._cache.deny(tool_name, input_hash)
             self.last_result = PermissionResult(
                 decision=PermissionDecision.DENY,
-                reason="user denied",
+                reason=f"user choice: {choice!r}",
                 request_id=request_id,
             )
             return
-        if action_str == "allow_session":
+        if choice == "allow_session":
             self._cache.allow_session(tool_name, input_hash)
-        # allow_once: no cache update
+        # allow_once: no cache update; checkpoint deletion deferred to runtime
         self.last_result = PermissionResult(
             decision=PermissionDecision.ALLOW,
-            reason=f"user {action_str}",
+            reason=f"user choice: {choice}",
             request_id=request_id,
         )
