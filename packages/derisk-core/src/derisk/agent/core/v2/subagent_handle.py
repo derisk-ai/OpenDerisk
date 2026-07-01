@@ -6,7 +6,6 @@ ASYNC mode: handle is returned immediately; transcript persisted to
 agent_transcript table; parent polls or receives notification injection.
 """
 from __future__ import annotations
-import time
 from enum import Enum
 from typing import Optional
 from derisk._private.pydantic import BaseModel, ConfigDict
