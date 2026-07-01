@@ -1,4 +1,4 @@
-import { POST, GET } from '..';
+import { POST, GET, PATCH } from '..';
 
 export const createWorkspace = (data: any) => POST('/api/v1/serve_workspace_service/workspaces/create', data);
 export const listWorkspaces = (data: any) => POST('/api/v1/serve_workspace_service/workspaces/list', data);
@@ -22,3 +22,17 @@ export const lookupConversation = (conv_uid: string) => GET(`/api/v1/serve_works
 
 export const createConversation = (data: { workspace_id?: number; task_id?: number; app_code?: string }) =>
   POST('/api/v1/serve_conversation_service/new', data);
+
+export const getCurrentConversation = (workspace_id: number) =>
+  GET(`/api/v1/serve_workspace_service/workspaces/${workspace_id}/conversations/current`);
+
+export const setCurrentConversation = (workspace_id: number, conv_uid: string) =>
+  POST(`/api/v1/serve_workspace_service/workspaces/${workspace_id}/conversations/set-current`, { conv_uid });
+
+export const renameConversation = (conv_uid: string, title: string) =>
+  PATCH(`/api/v1/serve_workspace_service/conversations/${conv_uid}/rename`, { title });
+
+export const resolveAndExecuteIntervention = (
+  intervention_id: number,
+  data: { decision: string; distillation?: string; resolved_by_user_id?: string },
+) => POST(`/api/v1/serve_intervention_service/interventions/${intervention_id}/resolve-and-execute`, data);
