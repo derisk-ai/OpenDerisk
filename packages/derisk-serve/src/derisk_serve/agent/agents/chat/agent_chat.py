@@ -195,6 +195,69 @@ def _format_vis_msg(msg: str):
     return f"data:{content} \n"
 
 
+def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
+    """幂等注册 idle memory curator cron job（每天凌晨 3 点）。
+
+    job_id 固定为 `memory-curator-{space_slug}`，重复调用时若 job 已存在则跳过。
+    cron job 触发时派发 MemoryCurateAgent，message 为 `curate:{space_slug}`，
+    agent 在 _run_memory_task 里识别该前缀走 curate_space 全量整理路径。
+    """
+    try:
+        from derisk_serve.cron.config import SERVE_SERVICE_COMPONENT_NAME
+        from derisk_serve.cron.service.service import Service as CronService
+        from derisk.cron.types import (
+            CronJobCreate,
+            CronPayload,
+            CronSchedule,
+            PayloadKind,
+            ScheduleKind,
+            SessionMode,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"[AgentChat] cron modules unavailable, skip curator cron: {e}"
+        )
+        return
+
+    try:
+        cron = system_app.get_component(SERVE_SERVICE_COMPONENT_NAME, CronService)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"[AgentChat] cron service unavailable for slug={space_slug}: {e}"
+        )
+        return
+
+    job_id = f"memory-curator-{space_slug}"
+    try:
+        existing = cron.get_job(job_id)
+    except Exception:  # noqa: BLE001
+        existing = None
+    if existing is not None:
+        return
+
+    cron.add_job(
+        CronJobCreate(
+            id=job_id,
+            name=f"Memory Curator for {space_slug}",
+            description="Daily idle curator: L1 umbrella merge + classification + backup",
+            enabled=True,
+            schedule=CronSchedule(
+                kind=ScheduleKind.CRON, expr="0 3 * * *", tz="Asia/Shanghai"
+            ),
+            payload=CronPayload(
+                kind=PayloadKind.AGENT_TURN,
+                message=f"curate:{space_slug}",
+                agent_id="MemoryCurateAgent",
+                session_mode=SessionMode.ISOLATED,
+                timeout_seconds=1800,
+            ),
+        )
+    )
+    logger.info(
+        f"[AgentChat] registered memory curator cron job_id={job_id} (0 3 * * *)"
+    )
+
+
 async def _build_conversation(
     conv_id: str,
     select_param: Union[str, Dict[str, Any]],
@@ -879,6 +942,8 @@ class AgentChat(BaseComponent, ABC):
 
             user_goal = json.dumps(user_query.to_dict(), ensure_ascii=False)
             user_goal = user_goal[: min(len(user_goal), 6500)] if user_goal else ""
+            workspace_id = ext_info.get("workspace_id")
+            task_id = ext_info.get("task_id")
             await self.gpts_conversations.a_add(
                 GptsConversationsEntity(
                     conv_id=agent_conv_id,
@@ -891,6 +956,8 @@ class AgentChat(BaseComponent, ABC):
                     auto_reply_count=0,
                     user_code=user_code,
                     sys_code=sys_code,
+                    workspace_id=int(workspace_id) if workspace_id else None,
+                    task_id=int(task_id) if task_id else None,
                     vis_render=vis_render,
                     extra=orjson.dumps(ext_info).decode(),
                 )
@@ -1428,6 +1495,7 @@ class AgentChat(BaseComponent, ABC):
                             LongTermMemoryConfig,
                             create_memory_integration_bundle,
                         )
+                        from derisk.storage.memory import LLMMemoryProcessor
 
                         # Parse from first memory resource item
                         memory_resource = memory_resources[0]
@@ -1446,44 +1514,110 @@ class AgentChat(BaseComponent, ABC):
                         )
 
                         if memory_config and memory_config.memories:
-                            # Short-term memory via SimpleSQLite (mempalace
-                            # integration has been removed; long-term plan
-                            # is to route agent convo fragments as L0
-                            # verbats with extract_mode="convo" into a
-                            # designated knowledge space — see RFC 001 §3.3).
+                            # Memory store factory: prefer knowledge-vault
+                            # (each agent gets its own llm-wiki Space as the
+                            # 4-tier hermes memory sink). Fall back to
+                            # SimpleSQLite if the Space is unavailable
+                            # (migration period / missing knowledge service).
                             memory_bundle = None
                             try:
-                                from derisk_ext.storage.memory.simple_sqlite_store import (
-                                    SimpleSQLiteMemoryConfig,
-                                    SimpleSQLiteMemoryStore,
+                                from derisk_ext.storage.memory.knowledge_vault_store import (
+                                    KnowledgeVaultMemoryConfig,
+                                    KnowledgeVaultMemoryStore,
                                 )
                                 from derisk.agent.core.memory.longterm_manager import (
                                     LongTermMemoryManager,
                                     MemoryIntegrationBundle,
                                     MemorySpaceStrategy,
                                 )
+                                from derisk_serve.knowledge.service.service import (
+                                    Service as KnowledgeService,
+                                )
 
                                 memory_stores = {}
                                 strategies = {}
+                                ks = None
+                                try:
+                                    ks = KnowledgeService.get_instance(self.system_app)
+                                except Exception as ks_e:
+                                    logger.warning(
+                                        f"[AgentChat] KnowledgeService unavailable: {ks_e}"
+                                    )
+
                                 for mem_item in memory_config.memories:
                                     mem_id = mem_item.get("memory_id")
                                     if not mem_id:
                                         continue
-                                    fallback_cfg = SimpleSQLiteMemoryConfig(
-                                        enable_kg=memory_config.enable_kg,
+
+                                    store = None
+                                    space_slug = (
+                                        mem_item.get("space_slug")
+                                        or (mem_id.startswith("memory-") and mem_id)
+                                        or None
                                     )
-                                    store = SimpleSQLiteMemoryStore(
-                                        config=fallback_cfg,
-                                        index_name=mem_id,
-                                    )
+                                    store_type = mem_item.get("store_type")
+
+                                    # Try knowledge-vault path first when we
+                                    # have a slug OR the memory_id looks like
+                                    # a slug (migration: old apps without
+                                    # explicit store_type but slug-shaped id).
+                                    if ks is not None and space_slug and (
+                                        store_type == "knowledge_vault"
+                                        or mem_id.startswith("memory-")
+                                    ):
+                                        try:
+                                            vault = await ks.get_vault(space_slug)
+                                            kv_cfg = KnowledgeVaultMemoryConfig(
+                                                space_slug=space_slug,
+                                                enable_kg=memory_config.enable_kg,
+                                            )
+                                            store = KnowledgeVaultMemoryStore(
+                                                config=kv_cfg,
+                                                vault=vault,
+                                                system_app=self.system_app,
+                                            )
+                                            logger.info(
+                                                f"[AgentChat] Created KnowledgeVaultMemoryStore for slug={space_slug}"
+                                            )
+                                            # 注册 idle curator cron job（幂等：
+                                            # job_id 固定，重复注册时 get_job 命中即跳过）
+                                            try:
+                                                _register_memory_curator_cron(
+                                                    self.system_app, space_slug
+                                                )
+                                            except Exception as cron_e:
+                                                logger.warning(
+                                                    f"[AgentChat] register memory curator "
+                                                    f"cron for slug={space_slug} failed: {cron_e}"
+                                                )
+                                        except Exception as kv_e:
+                                            logger.warning(
+                                                f"[AgentChat] KnowledgeVault store creation failed "
+                                                f"for slug={space_slug}: {kv_e}; falling back to SimpleSQLite"
+                                            )
+                                            store = None
+
+                                    if store is None:
+                                        from derisk_ext.storage.memory.simple_sqlite_store import (
+                                            SimpleSQLiteMemoryConfig,
+                                            SimpleSQLiteMemoryStore,
+                                        )
+                                        fallback_cfg = SimpleSQLiteMemoryConfig(
+                                            enable_kg=memory_config.enable_kg,
+                                        )
+                                        store = SimpleSQLiteMemoryStore(
+                                            config=fallback_cfg,
+                                            index_name=mem_id,
+                                        )
+                                        logger.info(
+                                            f"[AgentChat] Created SimpleSQLite store for {mem_id}"
+                                        )
+
                                     memory_stores[mem_id] = store
                                     strategies[mem_id] = MemorySpaceStrategy(
                                         space_id=mem_id,
                                         auto_extraction=memory_config.auto_memory,
                                         kg_extraction=memory_config.enable_kg,
-                                    )
-                                    logger.info(
-                                        f"[AgentChat] Created SimpleSQLite store for {mem_id}"
                                     )
 
                                 if memory_stores:
@@ -1492,6 +1626,38 @@ class AgentChat(BaseComponent, ABC):
                                     from derisk.storage.memory.hybrid_search import HybridSearchEngine
                                     from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
                                     from derisk.storage.memory.snapshot import FrozenSnapshotManager
+
+                                    # 为每个 space 建 LLMMemoryProcessor，复用
+                                    # agent 自己的 llm_client（与 agent 同模型），
+                                    # 驱动 tier2 reflect 的 L0→L1 抽取与合并。
+                                    processors = {}
+                                    llm_client = getattr(
+                                        getattr(recipient, "llm_config", None),
+                                        "llm_client",
+                                        None,
+                                    )
+                                    if llm_client is not None:
+                                        for mem_id in memory_stores.keys():
+                                            try:
+                                                processors[mem_id] = (
+                                                    LLMMemoryProcessor(
+                                                        llm_client=llm_client
+                                                    )
+                                                )
+                                            except Exception as proc_e:
+                                                logger.warning(
+                                                    f"[AgentChat] LLMMemoryProcessor "
+                                                    f"creation failed for {mem_id}: {proc_e}"
+                                                )
+                                        logger.info(
+                                            f"[AgentChat] Built {len(processors)} "
+                                            f"LLMMemoryProcessor(s) for memory spaces"
+                                        )
+                                    else:
+                                        logger.warning(
+                                            "[AgentChat] recipient has no llm_client; "
+                                            "tier2 reflect will be skipped"
+                                        )
 
                                     recall_tracker = RecallTracker()
                                     promotion_engine = MemoryPromotionEngine(
@@ -1507,7 +1673,7 @@ class AgentChat(BaseComponent, ABC):
                                     memory_bundle = MemoryIntegrationBundle(
                                         config=memory_config,
                                         manager=manager,
-                                        processors={},
+                                        processors=processors,
                                         strategies=strategies,
                                         recall_tracker=recall_tracker,
                                         hybrid_search=HybridSearchEngine(),
@@ -1516,7 +1682,7 @@ class AgentChat(BaseComponent, ABC):
                                         promotion_engine=promotion_engine,
                                     )
                                     logger.info(
-                                        f"[AgentChat] Memory bundle created with {len(memory_stores)} SimpleSQLite stores"
+                                        f"[AgentChat] Memory bundle created with {len(memory_stores)} stores"
                                     )
                             except Exception as bundle_e:
                                 logger.warning(f"[AgentChat] Memory bundle creation failed: {bundle_e}")

@@ -22,13 +22,14 @@ export const MDEditor: React.FC<MDEditorProps> = ({
   height = 400,
 }) => {
   return (
-    <div style={{ border: '1px solid #d9d9d9', borderRadius: 4 }}>
-      <Tabs defaultActiveKey="edit">
+    <div className="bp-md-wrap" style={{ borderRadius: 4 }}>
+      <Tabs defaultActiveKey="edit" size="small">
         <Tabs.TabPane tab="编辑" key="edit">
           <textarea
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
+            className="bp-md-textarea"
             style={{
               width: '100%',
               height: height,
@@ -36,8 +37,6 @@ export const MDEditor: React.FC<MDEditorProps> = ({
               border: 'none',
               outline: 'none',
               resize: 'vertical',
-              fontFamily: 'monospace',
-              fontSize: 14,
             }}
           />
         </Tabs.TabPane>

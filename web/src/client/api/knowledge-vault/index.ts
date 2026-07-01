@@ -41,6 +41,9 @@ export const createSpace = (req: CreateSpaceRequest) =>
 export const patchSpace = (slug: string, req: UpdateSpaceRequest) =>
   PATCH<UpdateSpaceRequest, SpaceInfo>(`${BASE}/spaces/${slug}`, req);
 
+export const deleteSpace = (slug: string) =>
+  DELETE<null, { ok: boolean }>(`${BASE}/spaces/${slug}`);
+
 // ----- raw (L0) -----
 
 export const getRawTree = (slug: string) =>

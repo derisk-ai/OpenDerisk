@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Button, Card, Input, Tag } from 'antd';
+import { Card, Button, Tag } from 'antd';
 import { useRequest } from 'ahooks';
 import Link from 'next/link';
 import {
@@ -11,7 +10,8 @@ import {
   listDeliveries,
   listPlaybooks,
 } from '@/client/api';
-import ChatSession, { ChatSessionHandle } from '@/components/chat/chat-session';
+import ChatSession from '@/components/chat/chat-session';
+import UnifiedChatInput from '@/components/chat/input/unified-chat-input';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import { GrowthCard } from './growth-card';
 import './lobby.css';
@@ -37,10 +37,7 @@ export function Lobby({
   onSelectTask,
   onQuickStart,
 }: LobbyProps) {
-  const [input, setInput] = useState('');
-  const chatSessionRef = useRef<ChatSessionHandle>(null);
-
-  const handleWorkspaceEvent = (event: WorkspaceEvent) => {
+  const handleWorkspaceEvent = (_event: WorkspaceEvent) => {
     // Lobby does not render task progress events; keep callback for ChatSession.
   };
   const { data: tasksRes } = useRequest(
@@ -180,34 +177,14 @@ export function Lobby({
           </div>
         </section>
 
-        {/* 输入框常驻底部 */}
+        {/* 输入框常驻底部 —— 复用首页标准多模态 Agent 输入框 */}
         <div className="ws-lobby__input">
-          <Input.TextArea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="发起新任务或给空间下指令…"
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            onPressEnter={(e) => {
-              if (!e.shiftKey) {
-                e.preventDefault();
-                if (input.trim()) {
-                  chatSessionRef.current?.sendMessage(input);
-                  setInput('');
-                }
-              }
-            }}
-          />
-        </div>
-
-        {/* ChatSession 隐藏，作为对话内核 + 事件源 */}
-        <div style={{ display: 'none' }}>
           <ChatSession
-            ref={chatSessionRef}
             convUid={convUid}
             appCode={appCode}
             workspaceId={workspaceId}
-            minimal
             onWorkspaceEvent={handleWorkspaceEvent}
+            inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
           />
         </div>
       </div>

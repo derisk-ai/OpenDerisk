@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS verbats (
     deprecated INTEGER DEFAULT 0,
     content TEXT,
     content_ref VARCHAR(1024),
+    metadata TEXT,
     UNIQUE(space_id, content_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_verbats_space ON verbats(space_id, filed_at);
@@ -211,6 +212,16 @@ class SQLAlchemyRelationalStore:
                     )
                 except Exception as e:
                     logger.debug("chunk_hash migration skipped: %s", e)
+                # Migration: add metadata column to verbats (v3).
+                try:
+                    await conn.execute(
+                        text(
+                            "ALTER TABLE verbats "
+                            "ADD COLUMN IF NOT EXISTS metadata TEXT"
+                        )
+                    )
+                except Exception as e:
+                    logger.debug("verbats.metadata migration skipped: %s", e)
             elif self._dialect == "mysql":
                 # CREATE FULLTEXT INDEX IF NOT EXISTS is not supported on
                 # older MySQL; use try/except.
@@ -251,6 +262,24 @@ class SQLAlchemyRelationalStore:
                         )
                 except Exception as e:
                     logger.debug("MySQL chunk_hash migration skipped: %s", e)
+                # Migration: add metadata column to verbats (v3).
+                try:
+                    row = await conn.execute(
+                        text(
+                            "SELECT COUNT(*) FROM information_schema.columns "
+                            "WHERE table_schema = DATABASE() "
+                            "AND table_name = 'verbats' "
+                            "AND column_name = 'metadata'"
+                        )
+                    )
+                    if row.scalar() == 0:
+                        await conn.execute(
+                            text(
+                                "ALTER TABLE verbats ADD COLUMN metadata TEXT"
+                            )
+                        )
+                except Exception as e:
+                    logger.debug("MySQL verbats.metadata migration skipped: %s", e)
             else:
                 logger.warning(
                     "Unknown dialect %s — FTS will fall back to LIKE",
@@ -299,14 +328,16 @@ class SQLAlchemyRelationalStore:
         content_ref: Optional[str],
     ) -> None:
         async with self._session() as s:
+            import json as _json
+            meta_json = _json.dumps(v.metadata) if v.metadata else None
             await s.execute(
                 text(
                     """
                     INSERT INTO verbats
                       (id, space_id, source_file, source_path, content_hash,
                        extract_mode, content_date, filed_at, source_mtime,
-                       normalize_version, deprecated, content, content_ref)
-                    VALUES (:id, :sid, :sf, :sp, :ch, :em, :cd, :fa, :sm, :nv, 0, :c, :cr)
+                       normalize_version, deprecated, content, content_ref, metadata)
+                    VALUES (:id, :sid, :sf, :sp, :ch, :em, :cd, :fa, :sm, :nv, 0, :c, :cr, :md)
                     """
                 ),
                 {
@@ -322,6 +353,7 @@ class SQLAlchemyRelationalStore:
                     "nv": v.normalize_version,
                     "c": inline_content,
                     "cr": content_ref,
+                    "md": meta_json,
                 },
             )
             await s.commit()

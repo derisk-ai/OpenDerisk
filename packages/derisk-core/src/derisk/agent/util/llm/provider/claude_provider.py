@@ -9,6 +9,7 @@ from derisk.core.interface.llm import ModelMetadata, ModelOutput, ModelRequest
 
 logger = logging.getLogger(__name__)
 
+@ProviderRegistry.register("anthropic", env_key="ANTHROPIC_API_KEY")
 @ProviderRegistry.register("claude", env_key="ANTHROPIC_API_KEY")
 class ClaudeProvider(LLMProvider):
     """Anthropic Claude LLM provider."""

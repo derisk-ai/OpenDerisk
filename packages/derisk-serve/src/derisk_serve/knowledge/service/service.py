@@ -19,8 +19,10 @@ row. For distributed spaces, the config is stored in the relational DB's
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -291,7 +293,12 @@ class Service(BaseComponent):
             )
 
     async def get_vault(self, slug: str) -> Any:
-        """Resolve slug to a VaultFS instance, creating + initializing if needed."""
+        """Resolve slug to a VaultFS instance, creating + initializing if needed.
+
+        For local spaces the canonical `space_id` is resolved from SQLite
+        *before* the vault is constructed, so the vault's `_space_id` always
+        matches the persisted id — no post-construction resync needed.
+        """
         if slug in self._vaults:
             return self._vaults[slug]
 
@@ -306,60 +313,103 @@ class Service(BaseComponent):
                 backend="distributed",
             )
         else:
-            space = Space(
-                id=new_space_id(),
-                slug=slug,
-                name=slug,
-                backend=self._serve_config.default_backend or "local",
-            )
+            # Resolve canonical id from the per-space SQLite before building
+            # the vault — avoids a generate-then-overwrite race that previously
+            # hid all pre-existing data after a restart.
+            space = await self._resolve_local_space(slug)
 
         vault = self._make_vault(space)
         await vault.initialize()
         self._vaults[slug] = vault
         self._spaces[slug] = space
 
-        # For local spaces, load/seed the per-space SQLite `spaces` row
+        # For local spaces, persist the resolved Space row back to SQLite so
+        # the same id is reused on the next restart. Distributed spaces have
+        # no per-space SQLite — their state lives in registry.json.
         if space.backend != "distributed":
-            await self._load_space_config(slug, vault)
+            await self._ensure_space_row_persisted(slug, vault, space)
 
         return vault
 
-    async def _load_space_config(self, slug: str, vault: LocalVaultFS) -> None:
-        """Load Space config from the per-space SQLite `spaces` row, or seed it."""
-        if slug in self._spaces:
-            return
-        try:
-            row = await vault._db.execute_fetchall(
-                "SELECT * FROM spaces WHERE slug=? LIMIT 1", (slug,)
-            )
-            if row:
-                r = row[0]
-                space = Space(
-                    id=r["id"],
-                    slug=r["slug"],
-                    name=r["name"] or slug,
-                    description=r["description"] or "",
-                    backend=r["backend"] or "local",
-                    embedder_model=r["embedder_model"],
-                    embedder_dimension=r["embedder_dimension"],
-                    default_agent_id=r["default_agent_id"],
-                    llm_model=r["llm_model"],
-                    multimodal_model=r["multimodal_model"],
-                )
-                self._spaces[slug] = space
-                return
-        except Exception as e:
-            logger.warning("Load space config failed for %s: %s", slug, e)
+    async def _resolve_local_space(self, slug: str) -> Space:
+        """Resolve the canonical Space (incl. id) for a local-backed slug.
 
-        # Seed a row
-        space = Space(
-            id=new_space_id(),
-            slug=slug,
-            name=slug,
-            backend="local",
-        )
-        await self._persist_space_config(slug, vault, space, is_new=True)
-        self._spaces[slug] = space
+        Order of precedence:
+        1. Existing `spaces` row in the per-space SQLite — authoritative.
+        2. Inferred id from `verbats`/`documents`/`edges` rows (orphan case:
+           spaces row missing but data exists) — prevents generating a fresh
+           id that would hide the data.
+        3. Newly generated id, persisted below as a fresh seed.
+
+        The vault is constructed with whatever id we return here, so no
+        post-construction resync is required.
+        """
+        backend = self._serve_config.default_backend or "local"
+        db_path = self._local_root / slug / ".ks" / "index.db"
+        if not db_path.exists():
+            # Fresh space — no SQLite to consult yet. Vault.initialize() will
+            # create the file; we just generate the id and persist later.
+            return Space(id=new_space_id(), slug=slug, name=slug, backend=backend)
+
+        import aiosqlite
+        try:
+            async with aiosqlite.connect(str(db_path)) as conn:
+                conn.row_factory = aiosqlite.Row
+                rows = await conn.execute_fetchall(
+                    "SELECT * FROM spaces WHERE slug=? LIMIT 1", (slug,)
+                )
+                if rows:
+                    r = rows[0]
+                    return Space(
+                        id=r["id"],
+                        slug=r["slug"],
+                        name=r["name"] or slug,
+                        description=r["description"] or "",
+                        backend=r["backend"] or backend,
+                        embedder_model=r["embedder_model"],
+                        embedder_dimension=r["embedder_dimension"],
+                        default_agent_id=r["default_agent_id"],
+                        llm_model=r["llm_model"],
+                        multimodal_model=r["multimodal_model"],
+                    )
+                inferred = await conn.execute_fetchall(
+                    "SELECT space_id FROM verbats WHERE space_id IS NOT NULL "
+                    "UNION SELECT space_id FROM documents WHERE space_id IS NOT NULL "
+                    "UNION SELECT space_id FROM edges WHERE space_id IS NOT NULL "
+                    "LIMIT 1"
+                )
+                if inferred:
+                    inferred_id = inferred[0][0]
+                    logger.warning(
+                        "spaces row missing for %s, inferring id from existing data: %s",
+                        slug, inferred_id,
+                    )
+                    return Space(id=inferred_id, slug=slug, name=slug, backend=backend)
+        except Exception as e:
+            logger.warning(
+                "Resolve local space failed for %s (will seed fresh): %s", slug, e
+            )
+
+        return Space(id=new_space_id(), slug=slug, name=slug, backend=backend)
+
+    async def _ensure_space_row_persisted(
+        self, slug: str, vault: LocalVaultFS, space: Space
+    ) -> None:
+        """Make sure SQLite `spaces` row matches the resolved Space.
+
+        - If the row exists, no-op (id was loaded from it).
+        - If absent, insert with the resolved id (covers the fresh-seed and
+          inferred-id branches). Idempotent.
+        """
+        try:
+            rows = await vault._db.execute_fetchall(
+                "SELECT id FROM spaces WHERE slug=? LIMIT 1", (slug,)
+            )
+            if rows:
+                return
+            await self._persist_space_config(slug, vault, space, is_new=True)
+        except Exception as e:
+            logger.warning("Persist space config failed for %s: %s", slug, e)
 
     async def _persist_space_config(
         self,
@@ -423,7 +473,7 @@ class Service(BaseComponent):
     async def get_space_config(self, slug: str) -> Space:
         """Return the cached Space config, loading it if needed."""
         if slug not in self._spaces:
-            await self.get_vault(slug)  # triggers _load_space_config
+            await self.get_vault(slug)  # resolves + caches Space
         return self._spaces[slug]
 
     async def update_space_config(
@@ -448,6 +498,43 @@ class Service(BaseComponent):
         vault = self._vaults[slug]
         await self._persist_space_config(slug, vault, space, is_new=False)
         return space
+
+    async def delete_space(self, slug: str) -> None:
+        """Delete a space and its local/distributed resources."""
+        # Ensure the space config is loaded first; this also validates it exists.
+        await self.get_space_config(slug)
+
+        backend = self._spaces.get(slug)
+        if backend and backend.backend:
+            backend_name = backend.backend
+        else:
+            backend_name = "local"
+
+        # Close and drop cached vault.
+        vault = self._vaults.pop(slug, None)
+        if vault is not None:
+            try:
+                await vault.close()
+            except Exception as e:
+                logger.warning("close vault for %s failed: %s", slug, e)
+
+        if backend_name == "distributed":
+            # Remove from registry.
+            registry = self._load_registry()
+            if slug in registry:
+                del registry[slug]
+                self._save_registry(registry)
+        else:
+            # Remove local directory.
+            local_path = self._local_root / slug
+            if local_path.exists():
+                try:
+                    await asyncio.to_thread(shutil.rmtree, local_path)
+                except Exception as e:
+                    logger.warning("remove local space %s failed: %s", slug, e)
+
+        # Drop cached config.
+        self._spaces.pop(slug, None)
 
     async def list_spaces(self) -> List[Dict[str, Any]]:
         """List all known spaces (local directories + distributed registry)."""

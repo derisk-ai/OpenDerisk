@@ -4,6 +4,23 @@ from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
+# 接入协议推断映射：provider 名称 -> 协议
+def infer_protocol(provider_name: str) -> str:
+    """根据 provider 来源名称推断接入协议"""
+    name = (provider_name or "").strip().lower()
+    openai_compatible = {
+        "openai", "alibaba", "aliyun", "dashscope", "aws", "azure",
+        "deepseek", "zhipu", "moonshot", "openrouter", "siliconflow",
+        "custom", "tencent", "baidu", "volcengine", "minimax",
+    }
+    if name in openai_compatible:
+        return "openai"
+    if name in {"anthropic", "claude"}:
+        return "anthropic"
+    if name == "theta":
+        return "theta"
+    return name or "openai"
+
 
 class ModelConfigCache:
     """全局模型配置缓存
@@ -104,6 +121,8 @@ class ModelConfigCache:
         """
         config = cls.get_config(model_key)
         if config:
+            if "capabilities" in config:
+                return "vision" in config["capabilities"]
             return config.get("is_multimodal", False)
         return False
 
@@ -119,6 +138,42 @@ class ModelConfigCache:
             if cls.is_multimodal(model_name):
                 multimodal_models.append(model_name)
         return multimodal_models
+
+    @classmethod
+    def get_model_type(cls, model_key: str) -> Optional[str]:
+        """获取模型类型
+
+        Args:
+            model_key: 可以是 "provider/model" 格式，或纯模型名
+
+        Returns:
+            模型类型，如果没找到配置返回 None
+        """
+        config = cls.get_config(model_key)
+        if config:
+            return config.get("model_type")
+        return None
+
+    @classmethod
+    def get_capabilities(cls, model_key: str) -> List[str]:
+        """获取模型能力标签
+
+        Args:
+            model_key: 可以是 "provider/model" 格式，或纯模型名
+
+        Returns:
+            能力标签列表，如果没找到配置返回空列表
+        """
+        config = cls.get_config(model_key)
+        if config:
+            capabilities = config.get("capabilities")
+            if capabilities:
+                return list(capabilities)
+            # 兼容旧配置
+            if config.get("is_multimodal"):
+                return ["text", "vision"]
+            return ["text"]
+        return []
 
 
 def parse_provider_configs(
@@ -176,6 +231,12 @@ def parse_provider_configs(
         }
         p_defaults["provider"] = provider_name
 
+        # 接入协议：优先使用显式配置，否则根据 provider 推断
+        protocol = provider_conf.get("protocol")
+        if not protocol:
+            protocol = infer_protocol(provider_name)
+        p_defaults["protocol"] = protocol
+
         if "api_base" in p_defaults and "base_url" not in p_defaults:
             p_defaults["base_url"] = p_defaults["api_base"]
 
@@ -220,6 +281,24 @@ def parse_provider_configs(
                 final_conf_dict["base_url"] = final_conf_dict["api_base"]
             if "name" in final_conf_dict and "model" not in final_conf_dict:
                 final_conf_dict["model"] = model_name
+
+            # 模型类型与能力标签
+            model_type = final_conf_dict.get("model_type")
+            if not model_type:
+                model_type = "llm"
+            final_conf_dict["model_type"] = model_type
+
+            capabilities = final_conf_dict.get("capabilities")
+            if not capabilities:
+                capabilities = []
+                # 兼容旧配置：is_multimodal -> vision
+                if final_conf_dict.get("is_multimodal") or final_conf_dict.get("supports_vision"):
+                    capabilities.append("vision")
+            # 去重并保持为列表
+            capabilities = list(dict.fromkeys(capabilities))
+            if "text" not in capabilities:
+                capabilities.insert(0, "text")
+            final_conf_dict["capabilities"] = capabilities
 
             is_multimodal = m_conf.get(
                 "is_multimodal", m_conf.get("supports_vision", False)

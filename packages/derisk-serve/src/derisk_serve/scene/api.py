@@ -39,6 +39,24 @@ router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 # ==================== 数据模型 ====================
 
 
+class TaskSpec(BaseModel):
+    """场景任务步骤"""
+
+    name: str = Field(..., description="任务名称")
+    tool: str = Field(default="", description="调用的工具名")
+    description: str = Field(default="", description="任务说明")
+    required: bool = Field(default=True, description="是否必须完成")
+
+
+class DeliverableSpec(BaseModel):
+    """场景产出物"""
+
+    name: str = Field(..., description="产出物名称")
+    type: str = Field(default="report", description="类型: report/data/artifact/decision")
+    format: str = Field(default="markdown", description="格式: markdown/json/text/file")
+    description: str = Field(default="", description="产出物说明")
+
+
 class SceneCreateRequest(BaseModel):
     """创建场景请求"""
 
@@ -47,8 +65,16 @@ class SceneCreateRequest(BaseModel):
     description: str = Field(default="", description="场景描述")
     trigger_keywords: List[str] = Field(default_factory=list, description="触发关键词")
     trigger_priority: int = Field(default=5, description="触发优先级")
+    trigger_type: str = Field(default="keyword", description="触发类型: keyword/intent/manual/schedule")
+    trigger_scope: List[str] = Field(default_factory=lambda: ["*"], description="触发范围")
     scene_role_prompt: str = Field(default="", description="场景角色设定")
     scene_tools: List[str] = Field(default_factory=list, description="场景工具")
+    intervention_mode: str = Field(default="append", description="介入模式: append/prepend/replace")
+    intervention_strategy: str = Field(default="oneshot", description="介入策略: oneshot/continuous/supervisor")
+    tags: List[str] = Field(default_factory=list, description="场景标签")
+    visibility: str = Field(default="team", description="可见性: private/team/public")
+    tasks: List[TaskSpec] = Field(default_factory=list, description="任务步骤")
+    deliverables: List[DeliverableSpec] = Field(default_factory=list, description="产出物")
     md_content: Optional[str] = Field(
         default=None, description="MD 文件内容（YAML Front Matter + Markdown）"
     )
@@ -61,8 +87,16 @@ class SceneUpdateRequest(BaseModel):
     description: Optional[str] = None
     trigger_keywords: Optional[List[str]] = None
     trigger_priority: Optional[int] = None
+    trigger_type: Optional[str] = None
+    trigger_scope: Optional[List[str]] = None
     scene_role_prompt: Optional[str] = None
     scene_tools: Optional[List[str]] = None
+    intervention_mode: Optional[str] = None
+    intervention_strategy: Optional[str] = None
+    tags: Optional[List[str]] = None
+    visibility: Optional[str] = None
+    tasks: Optional[List[TaskSpec]] = None
+    deliverables: Optional[List[DeliverableSpec]] = None
     md_content: Optional[str] = None
 
 
@@ -74,8 +108,16 @@ class SceneResponse(BaseModel):
     description: str
     trigger_keywords: List[str]
     trigger_priority: int
+    trigger_type: str = "keyword"
+    trigger_scope: List[str] = ["*"]
     scene_role_prompt: str
     scene_tools: List[str]
+    intervention_mode: str = "append"
+    intervention_strategy: str = "oneshot"
+    tags: List[str] = []
+    visibility: str = "team"
+    tasks: List[TaskSpec] = []
+    deliverables: List[DeliverableSpec] = []
     md_content: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -451,10 +493,18 @@ async def create_scene(request: SceneCreateRequest):
             "trigger_priority": extracted.get(
                 "trigger_priority", request.trigger_priority or 5
             ),
+            "trigger_type": request.trigger_type or "keyword",
+            "trigger_scope": request.trigger_scope or ["*"],
             "scene_role_prompt": extracted.get(
                 "scene_role_prompt", request.scene_role_prompt or ""
             ),
             "scene_tools": extracted.get("scene_tools", request.scene_tools or []),
+            "intervention_mode": request.intervention_mode or "append",
+            "intervention_strategy": request.intervention_strategy or "oneshot",
+            "tags": request.tags or [],
+            "visibility": request.visibility or "team",
+            "tasks": [t.model_dump() for t in request.tasks] if request.tasks else [],
+            "deliverables": [d.model_dump() for d in request.deliverables] if request.deliverables else [],
             "md_content": request.md_content,
             "created_at": now,
             "updated_at": now,
@@ -480,8 +530,16 @@ allow_tools: [{", ".join(request.scene_tools or [])}]
             "description": request.description,
             "trigger_keywords": request.trigger_keywords or [],
             "trigger_priority": request.trigger_priority or 5,
+            "trigger_type": request.trigger_type or "keyword",
+            "trigger_scope": request.trigger_scope or ["*"],
             "scene_role_prompt": request.scene_role_prompt or "",
             "scene_tools": request.scene_tools or [],
+            "intervention_mode": request.intervention_mode or "append",
+            "intervention_strategy": request.intervention_strategy or "oneshot",
+            "tags": request.tags or [],
+            "visibility": request.visibility or "team",
+            "tasks": [t.model_dump() for t in request.tasks] if request.tasks else [],
+            "deliverables": [d.model_dump() for d in request.deliverables] if request.deliverables else [],
             "md_content": md_content,
             "created_at": now,
             "updated_at": now,
@@ -520,10 +578,26 @@ async def update_scene(scene_id: str, request: SceneUpdateRequest):
         scene["trigger_keywords"] = request.trigger_keywords
     if request.trigger_priority is not None:
         scene["trigger_priority"] = request.trigger_priority
+    if request.trigger_type is not None:
+        scene["trigger_type"] = request.trigger_type
+    if request.trigger_scope is not None:
+        scene["trigger_scope"] = request.trigger_scope
     if request.scene_role_prompt is not None:
         scene["scene_role_prompt"] = request.scene_role_prompt
     if request.scene_tools is not None:
         scene["scene_tools"] = request.scene_tools
+    if request.intervention_mode is not None:
+        scene["intervention_mode"] = request.intervention_mode
+    if request.intervention_strategy is not None:
+        scene["intervention_strategy"] = request.intervention_strategy
+    if request.tags is not None:
+        scene["tags"] = request.tags
+    if request.visibility is not None:
+        scene["visibility"] = request.visibility
+    if request.tasks is not None:
+        scene["tasks"] = [t.model_dump() for t in request.tasks]
+    if request.deliverables is not None:
+        scene["deliverables"] = [d.model_dump() for d in request.deliverables]
     if request.md_content is not None:
         scene["md_content"] = request.md_content
         # 重新解析 front matter 更新其他字段

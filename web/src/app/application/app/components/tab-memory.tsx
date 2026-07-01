@@ -1,20 +1,20 @@
 'use client';
-// TODO: rewire to new knowledge-vault page — getSpaceList removed from @/client/api.
 import { apiInterceptors } from '@/client/api';
 import { disableAppMemory, enableAppMemory } from '@/client/api/app';
+import { getWikiTree, listSpaces, listVerbats } from '@/client/api/knowledge-vault';
 import { AppContext } from '@/contexts';
 import { notification } from 'antd';
 import {
   BulbOutlined,
   CaretDownOutlined,
   CaretRightOutlined,
+  FileTextOutlined,
   NodeIndexOutlined,
   ReloadOutlined,
   SwapOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-// TODO: rewire to new knowledge-vault page — useRequest removed (was used for getSpaceList).
-// import { useRequest } from 'ahooks';
+import { useRequest } from 'ahooks';
 import {
   Button,
   InputNumber,
@@ -36,7 +36,7 @@ interface MemoryConfig {
 
 const DEFAULT_CONFIG: MemoryConfig = {
   auto_memory: true,
-  enable_kg: false,
+  enable_kg: true,
   top_k: 5,
   reflection_interval: 10,
 };
@@ -48,25 +48,37 @@ export default function TabMemory() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [draft, setDraft] = useState<MemoryConfig | null>(null);
   const [hookDraft, setHookDraft] = useState<Record<string, any>[] | null>(null);
+  const [memoryContentOpen, setMemoryContentOpen] = useState(false);
 
-  // TODO: rewire to new knowledge-vault page — getSpaceList removed; spaceData stays empty until rewired.
-  // Fetch all knowledge spaces
-  const spaceData: any[] = [];
-  const loading = false;
-  const refresh = async () => {};
+  // Fetch all knowledge-vault spaces; filter by `memory-` slug prefix to
+  // identify per-agent memory spaces (each agent gets one Space on enable).
+  const {
+    data: spaceData,
+    loading,
+    refresh: refreshSpaces,
+  } = useRequest(listSpaces, {
+    cacheKey: 'kv-spaces',
+  });
 
-  // Filter Memory-type spaces
+  const refresh = async () => {
+    await refreshSpaces();
+  };
+
   const memorySpaces = useMemo(() => {
-    if (!spaceData) return [];
-    return spaceData
-      .filter((space: any) => space.vector_type === 'Memory')
-      .map((space: any) => ({
-        value: space.knowledge_id || space.id,
-        label: space.name,
-        name: space.name,
-        description: space.desc,
-      }));
-  }, [spaceData]);
+    const list = (spaceData as any)?.data?.data ?? [];
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((space: any) => (space.slug || '').startsWith('memory-'))
+      .map((space: any) => {
+        const suffix = (space.slug || '').replace(/^memory-/, '');
+        const short = suffix.length > 12 ? `${suffix.slice(0, 12)}…` : suffix;
+        return {
+          value: space.slug,
+          label: short ? `${short} 记忆` : t('memory_agent_space'),
+          slug: space.slug,
+        };
+      });
+  }, [spaceData, t]);
 
   // Parse current resource_memory
   const parsed = useMemo(() => {
@@ -168,7 +180,9 @@ export default function TabMemory() {
     const newMemories = [
       {
         memory_id: memoryId,
-        memory_name: space?.name || '',
+        memory_name: space?.label || `${memoryId} 记忆`,
+        store_type: 'knowledge_vault',
+        space_slug: memoryId,
       },
     ];
     await fetchUpdateApp({
@@ -176,6 +190,56 @@ export default function TabMemory() {
       resource_memory: buildResourceMemory(newMemories, currentConfig),
     });
   };
+
+  // ----- L0 Verbat / L1 Document preview (knowledge-vault) -----
+  const currentSlug = currentMemory?.memory_id || currentMemory?.space_slug;
+  const { data: verbatData, loading: verbatLoading } = useRequest(
+    async () => {
+      if (!currentSlug) return { data: [], total: 0 };
+      try {
+        return await listVerbats(currentSlug, 50, 0);
+      } catch {
+        return { data: [], total: 0 };
+      }
+    },
+    { refreshDeps: [currentSlug], cacheKey: `kv-verbats-${currentSlug}` },
+  );
+
+  const { data: wikiTree, loading: wikiLoading } = useRequest(
+    async () => {
+      if (!currentSlug) return { children: [] };
+      try {
+        return await getWikiTree(currentSlug);
+      } catch {
+        return { children: [] };
+      }
+    },
+    { refreshDeps: [currentSlug], cacheKey: `kv-wiki-${currentSlug}` },
+  );
+
+  const verbatList = useMemo(() => {
+    const raw = verbatData as any;
+    const items = raw?.data?.data?.items ?? raw?.data?.items ?? [];
+    return Array.isArray(items) ? items : [];
+  }, [verbatData]);
+
+  const wikiDocs = useMemo(() => {
+    const flat: any[] = [];
+    const walk = (nodes: any[]) => {
+      if (!Array.isArray(nodes)) return;
+      for (const n of nodes) {
+        if (n && n.is_dir === false) flat.push(n);
+        if (n?.children) walk(n.children);
+      }
+    };
+    const tree = (wikiTree as any)?.data?.data ?? (wikiTree as any)?.data ?? wikiTree;
+    if (Array.isArray(tree)) {
+      walk(tree);
+    } else if (tree?.children) {
+      walk(tree.children);
+    }
+    return flat;
+  }, [wikiTree]);
 
   // ----- Memory tier hooks (visible + editable) -----
   const TIER_LABEL_KEYS: Record<number, string> = {
@@ -329,11 +393,9 @@ export default function TabMemory() {
                   <span className="text-[12px] text-gray-600">
                     {t('memory_enable_kg')}
                   </span>
-                  <Switch
-                    size="small"
-                    checked={editConfig.enable_kg}
-                    onChange={(v) => handleConfigChange('enable_kg', v)}
-                  />
+                  <span className="text-[12px] text-gray-400">
+                    L2 Graph · {t('memory_enable_memory') ? 'on' : 'on'}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] text-gray-600">
@@ -467,6 +529,90 @@ export default function TabMemory() {
       {!enabled && (
         <div className="text-center py-8 text-gray-300 text-xs">
           {t('memory_enable_memory_desc')}
+        </div>
+      )}
+
+      {/* L0 Verbat / L1 Document preview (knowledge-vault backed memory) */}
+      {enabled && currentSlug && (
+        <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
+          <button
+            onClick={() => setMemoryContentOpen(!memoryContentOpen)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50/50 transition-colors"
+          >
+            <span className="text-[13px] font-medium text-gray-700 flex items-center gap-2">
+              <FileTextOutlined className="text-violet-500" />
+              Memory Content (L0 / L1)
+            </span>
+            {memoryContentOpen ? (
+              <CaretDownOutlined className="text-gray-400 text-xs" />
+            ) : (
+              <CaretRightOutlined className="text-gray-400 text-xs" />
+            )}
+          </button>
+          {memoryContentOpen && (
+            <div className="px-4 pb-4 pt-1 border-t border-gray-50">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 mt-3">
+                <div>
+                  <div className="text-[12px] font-medium text-gray-600 mb-2">
+                    L0 Verbats (tier1 raw)
+                  </div>
+                  <Spin spinning={verbatLoading} size="small">
+                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5">
+                      {verbatList.length === 0 ? (
+                        <div className="text-[11px] text-gray-300 py-4 text-center">
+                          no verbats yet
+                        </div>
+                      ) : (
+                        verbatList.map((v: any) => (
+                          <div
+                            key={v.id}
+                            className="text-[11px] text-gray-600 p-2 rounded border border-gray-100 bg-gray-50/50"
+                          >
+                            <div className="font-mono text-[10px] text-gray-400 truncate">
+                              {v.source_file}
+                            </div>
+                            <div className="line-clamp-2 mt-1">
+                              {v.content_preview || v.content}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Spin>
+                </div>
+                <div>
+                  <div className="text-[12px] font-medium text-gray-600 mb-2">
+                    L1 Documents (tier2 reflect)
+                  </div>
+                  <Spin spinning={wikiLoading} size="small">
+                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5">
+                      {wikiDocs.length === 0 ? (
+                        <div className="text-[11px] text-gray-300 py-4 text-center">
+                          no documents yet
+                        </div>
+                      ) : (
+                        wikiDocs.map((d: any) => (
+                          <div
+                            key={d.path}
+                            className="text-[11px] text-gray-600 p-2 rounded border border-gray-100 bg-gray-50/50"
+                          >
+                            <div className="font-mono text-[10px] text-gray-400 truncate">
+                              {d.path}
+                            </div>
+                            {(d.title || d.name) && (
+                              <div className="text-gray-700 mt-0.5 truncate">
+                                {d.title || d.name}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Spin>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

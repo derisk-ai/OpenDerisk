@@ -61,8 +61,9 @@ export const postScenes = () => {
 // };
 
 export const newDialogue = (data: NewDialogueParam) => {
+  const workspaceSuffix = data.workspace_id ? `&workspace_id=${data.workspace_id}` : '';
   return POST<NewDialogueParam, IChatDialogueSchema>(
-    `/api/v1/chat/dialogue/new?app_code=${data.app_code}`,
+    `/api/v1/chat/dialogue/new?app_code=${data.app_code}${workspaceSuffix}`,
     { ...data, user_code: data.user_code || getUserId() },
   );
 };

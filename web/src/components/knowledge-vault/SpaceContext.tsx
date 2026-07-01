@@ -4,20 +4,19 @@ import type { VerbatFull } from '@/types/knowledge-vault';
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 export type View = 'raw' | 'wiki' | 'graph' | 'schema' | 'lint' | 'settings';
-export type LeftTab = 'knowledge' | 'files';
 
 interface SpaceContextValue {
   slug: string;
   view: View;
   setView: (view: View) => void;
-  leftTab: LeftTab;
-  setLeftTab: (tab: LeftTab) => void;
   selectedRaw: string | null;
   setSelectedRaw: (path: string | null) => void;
   selectedDoc: string | null;
   setSelectedDoc: (path: string | null) => void;
   selectedVerbat: VerbatFull | null;
   setSelectedVerbat: (v: VerbatFull | null) => void;
+  selectedGraphEntity: string | null;
+  setSelectedGraphEntity: (entity: string | null) => void;
   refreshKey: number;
   refresh: () => void;
   openDoc: (path: string) => void;
@@ -44,10 +43,10 @@ export function SpaceProvider({
   children: React.ReactNode;
 }) {
   const [view, setViewState] = useState<View>(initialView);
-  const [leftTab, setLeftTab] = useState<LeftTab>('knowledge');
   const [selectedRaw, setSelectedRaw] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
   const [selectedVerbat, setSelectedVerbat] = useState<VerbatFull | null>(null);
+  const [selectedGraphEntity, setSelectedGraphEntity] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -88,14 +87,14 @@ export function SpaceProvider({
       slug,
       view,
       setView,
-      leftTab,
-      setLeftTab,
       selectedRaw,
       setSelectedRaw,
       selectedDoc,
       setSelectedDoc,
       selectedVerbat,
       setSelectedVerbat,
+      selectedGraphEntity,
+      setSelectedGraphEntity,
       refreshKey,
       refresh,
       openDoc,
@@ -105,10 +104,11 @@ export function SpaceProvider({
       slug,
       view,
       setView,
-      leftTab,
       selectedRaw,
       selectedDoc,
       selectedVerbat,
+      selectedGraphEntity,
+      setSelectedGraphEntity,
       refreshKey,
       refresh,
       openDoc,

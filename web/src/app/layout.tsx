@@ -15,7 +15,7 @@ import zhCN from "antd/locale/zh_CN";
 import Head from "next/head";
 import React, { useContext, useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import "./i18n";
 import "../styles/globals.css";
 import { Suspense } from 'react'

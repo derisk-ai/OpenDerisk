@@ -1071,8 +1071,9 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     let convUid = pendingConvUid;
     
     if (!convUid) {
+      const wsIdParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('workspace_id') : null;
       const [, dialogueRes] = await apiInterceptors(
-        newDialogue({ app_code: appCode, model: currentModel }),
+        newDialogue({ app_code: appCode, model: currentModel, workspace_id: wsIdParam ? Number(wsIdParam) : undefined }),
       );
       if (dialogueRes) {
         convUid = dialogueRes.conv_uid;
@@ -1159,8 +1160,9 @@ const [recommendedMcps, setRecommendedMcps] = useState<any[]>([]);
     let convUid = pendingConvUid;
     
     if (!convUid) {
+      const wsIdParam2 = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('workspace_id') : null;
       const [, res] = await apiInterceptors(
-        newDialogue({ app_code: appCode, model: selectedModel }),
+        newDialogue({ app_code: appCode, model: selectedModel, workspace_id: wsIdParam2 ? Number(wsIdParam2) : undefined }),
       );
       if (res) {
         convUid = res.conv_uid;

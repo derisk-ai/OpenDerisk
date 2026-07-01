@@ -28,6 +28,7 @@ export interface ChatSessionProps {
   taskId?: number | string;
   minimal?: boolean;
   onWorkspaceEvent?: (event: WorkspaceEvent) => void;
+  inputSlot?: (ctrl: AbortController) => React.ReactNode;
 }
 
 export interface ChatSessionHandle {
@@ -587,13 +588,17 @@ const sessionContent = (
           isPollingMode,
         }}
       >
-        {props.minimal ? contentRender() : (
-          <Flex flex={1} className='min-h-0 overflow-hidden'>
-            <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
-              <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
-            </Layout>
-          </Flex>
-        )}
+        {props.inputSlot
+          ? props.inputSlot(ctrl)
+          : props.minimal
+            ? contentRender()
+            : (
+              <Flex flex={1} className='min-h-0 overflow-hidden'>
+                <Layout className='bg-gradient-light bg-cover bg-center dark:bg-gradient-dark w-full h-full'>
+                  <Layout className='bg-transparent h-full'>{contentRender()}</Layout>
+                </Layout>
+              </Flex>
+            )}
       </ChatContentContext.Provider>
     </ContextMetricsProvider>
   );

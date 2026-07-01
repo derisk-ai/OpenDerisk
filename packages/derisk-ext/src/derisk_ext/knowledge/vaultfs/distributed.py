@@ -555,6 +555,7 @@ class DistributedVaultFS(BaseVaultFS):
         """Convert a relational row dict to a Verbat, resolving content
         from inline (DB) or S3 (content_ref) as needed.
         """
+        import json as _json
         content = r.get("content")
         if content is None and r.get("content_ref"):
             # content_ref is "s3://bucket/{mode}/{verbat_id}" — extract
@@ -567,6 +568,14 @@ class DistributedVaultFS(BaseVaultFS):
                 content = ""
         elif content is None:
             content = ""
+
+        meta = None
+        meta_raw = r.get("metadata")
+        if meta_raw:
+            try:
+                meta = _json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+            except Exception:
+                meta = None
 
         return Verbat(
             id=r["id"],
@@ -581,6 +590,7 @@ class DistributedVaultFS(BaseVaultFS):
             source_mtime=r.get("source_mtime"),
             normalize_version=r.get("normalize_version", 1),
             deprecated=bool(r.get("deprecated", 0)),
+            metadata=meta,
         )
 
     def _row_to_edge(self, r: dict) -> Edge:

@@ -258,12 +258,19 @@ async def memory_write_turn_function(
         )
         return {"action": "continue"}
 
+    # tier1 verbat 写入已被 chat_history_db 覆盖（raw 对话已持久化）。
+    # kv-backed bundle 跳过 tier1，避免冗余；非 kv store（如 SimpleSQLite
+    # fallback）仍走原路径保持向后兼容。
+    manager = bundle.manager
+    stores = getattr(manager, "memory_stores", {}) or {}
+    if stores and all(getattr(s, "vault", None) is not None for s in stores.values()):
+        return {"action": "continue"}
+
     user_msg = event.get("user_prompt") or ""
     ai_msg = event.get("final_answer") or ""
     if not (user_msg or ai_msg):
         return {"action": "continue"}
 
-    manager = bundle.manager
     app_code = event.get("app_code")
     logger.info(
         "[memory_write_turn] fired conv=%s round=%s",
@@ -278,6 +285,8 @@ async def memory_write_turn_function(
                 "conv_id": conv_id,
                 "agent_name": event.get("agent_name"),
                 "app_code": app_code,
+                "user_id": event.get("user_id"),
+                "user_name": event.get("user_name"),
                 "round": event.get("round"),
                 "tier": 1,
             },

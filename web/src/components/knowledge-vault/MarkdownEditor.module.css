@@ -1,0 +1,107 @@
+.markdownPreview {
+  line-height: 1.6;
+}
+
+.markdownPreview h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  color: #111827;
+}
+
+.markdownPreview h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: #111827;
+}
+
+.markdownPreview h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: #111827;
+}
+
+.markdownPreview p {
+  margin-bottom: 0.75rem;
+  color: #374151;
+}
+
+.markdownPreview ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #374151;
+}
+
+.markdownPreview ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #374151;
+}
+
+.markdownPreview li {
+  margin-bottom: 0.25rem;
+}
+
+.markdownPreview blockquote {
+  border-left: 4px solid #c4b5fd;
+  padding-left: 1rem;
+  font-style: italic;
+  margin: 1rem 0;
+  color: #4b5563;
+}
+
+.markdownPreview pre {
+  background: #f9fafb;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow: auto;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+}
+
+.markdownPreview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.markdownPreview p code {
+  background: #f3f4f6;
+  color: #7c3aed;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+.markdownPreview a {
+  color: #7c3aed;
+  text-decoration: underline;
+}
+
+.markdownPreview hr {
+  margin: 1.5rem 0;
+  border-color: #e5e7eb;
+}
+
+.markdownPreview table {
+  width: 100%;
+  font-size: 0.875rem;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+}
+
+.markdownPreview th,
+.markdownPreview td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.markdownPreview th {
+  background: #f9fafb;
+  font-weight: 500;
+}

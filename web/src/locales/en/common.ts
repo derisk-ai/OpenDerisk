@@ -688,6 +688,7 @@ export const CommonEn = {
   memory_hook_every_n: 'Every N turns',
   memory_hook_session_end: 'Session end',
   memory_hook_save: 'Save Hook Changes',
+  memory_agent_space: 'Agent Memory Space',
   builder_select_agent: 'Select an agent to start editing',
   explore_start_chat: 'Start Chat',
   explore_no_agents: 'No agents found',

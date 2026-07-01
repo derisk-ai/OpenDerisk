@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS verbats (
     -- content stored inline for small verbats, NULL for large (then on disk)
     content TEXT,
     content_ref TEXT,
+    -- v3: 记忆元数据 (author/user_id/conv_id/turn_round 等)，JSON 编码
+    metadata TEXT,
     UNIQUE(space_id, content_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_verbats_space ON verbats(space_id, filed_at);
@@ -158,6 +160,7 @@ async def init_schema(db) -> None:
     await db.executescript(SCHEMA_SQL)
     await _migrate_spaces_v2(db)
     await _migrate_chunks_hash(db)
+    await _migrate_verbats_metadata(db)
     await db.commit()
 
 
@@ -210,6 +213,22 @@ async def _migrate_chunks_hash(db) -> None:
         "CREATE INDEX IF NOT EXISTS idx_chunks_doc_hash "
         "ON document_chunks(document_id, chunk_hash)"
     )
+
+
+async def _migrate_verbats_metadata(db) -> None:
+    """Add `metadata` column to `verbats` if missing (idempotent).
+
+    v3: 承载记忆元数据 (author/user_id/conv_id/turn_round 等)，JSON 编码。
+    旧库通过 ALTER TABLE 平滑升级；新库由 CREATE TABLE 直接包含。
+    """
+    async with db.execute("PRAGMA table_info(verbats)") as cur:
+        rows = await cur.fetchall()
+    if not rows:
+        return
+    existing = {row[1] for row in rows}
+    if "metadata" in existing:
+        return
+    await db.execute("ALTER TABLE verbats ADD COLUMN metadata TEXT")
 
 
 def schema_version() -> int:

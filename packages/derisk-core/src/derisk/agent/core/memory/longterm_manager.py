@@ -361,6 +361,27 @@ class LongTermMemoryManager:
                 continue
 
             try:
+                # KnowledgeVaultMemoryStore short-circuit for tier1:
+                # route the raw conversation fragment directly to L0
+                # Verbat (extract_mode=convo), bypassing LLM extraction.
+                # The LLM-driven consolidation is deferred to tier2
+                # reflect, which reads these verbats back via search.
+                if (
+                    metadata or {}).get("tier") == 1 and _is_knowledge_vault_store(store):
+                    conv = f"用户: {user_message.strip()}\n助手: {agent_response.strip()}"
+                    await store.awrite_memory(
+                        content=conv,
+                        wing=self._config.wing,
+                        room="convo",
+                        metadata=metadata,
+                    )
+                    results[space_id] = True
+                    logger.info(
+                        "[LongTermMemory] space=%s tier1 wrote L0 Verbat (kv path)",
+                        space_id,
+                    )
+                    continue
+
                 # Use processor for LLM-based extraction if available
                 if processor:
                     extracted = await processor.extract_key_content(
@@ -543,13 +564,54 @@ class LongTermMemoryManager:
                 )
 
                 written = 0
+                now_iso = datetime.utcnow().isoformat()
                 for mem in consolidation.new_memories:
-                    await store.awrite_memory(
-                        content=mem.content,
-                        wing=self._config.wing,
-                        room=mem.room,
-                        metadata=mem.metadata,
-                    )
+                    if _is_knowledge_vault_store(store):
+                        # tier2 reflect -> L1 Document (type=memory|insight)
+                        # + derived-from edges back to source verbats.
+                        doc_type = "insight" if mem.room == "insight" else "memory"
+                        doc_path = f"wiki/{doc_type}s/{now_iso.replace(':', '-')}-{space_id[:8]}-{written}.md"
+                        src_v_ids = (mem.metadata or {}).get("source_verbat_ids", []) or []
+                        frontmatter = {
+                            "type": doc_type,
+                            "title": (mem.content[:40] + "...") if len(mem.content) > 40 else mem.content,
+                            "created": now_iso,
+                            "updated": now_iso,
+                            "source_conversation": (metadata or {}).get("conv_id"),
+                            "author": (metadata or {}).get("user_name"),
+                            "user_id": (metadata or {}).get("user_id"),
+                            "source_verbat_ids": src_v_ids,
+                        }
+                        mem_meta = dict(mem.metadata or {})
+                        mem_meta["tier"] = 2
+                        mem_meta["doc_path"] = doc_path
+                        mem_meta["frontmatter"] = frontmatter
+                        entry = await store.awrite_memory(
+                            content=mem.content,
+                            wing=self._config.wing,
+                            room=mem.room,
+                            metadata=mem_meta,
+                        )
+                        doc_id = entry.id if hasattr(entry, "id") else str(entry)
+                        # derived-from edges back to source verbats (if tracked)
+                        for v_id in (mem.metadata or {}).get("source_verbat_ids", []):
+                            try:
+                                await store.akg_add(
+                                    subject=f"doc:{doc_path}",
+                                    predicate="derived-from",
+                                    object_=f"verbat:{v_id}",
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"[Tier2] derived-from edge failed: {e}"
+                                )
+                    else:
+                        await store.awrite_memory(
+                            content=mem.content,
+                            wing=self._config.wing,
+                            room=mem.room,
+                            metadata=mem.metadata,
+                        )
                     written += 1
 
                 if self._config.enable_kg or (strategy and strategy.kg_extraction):
@@ -610,6 +672,9 @@ class LongTermMemoryManager:
         for space_id, store in self._memory_stores.items():
             space_summary: Dict[str, Any] = {}
             try:
+                # 会话结束轻量版：只跑 promotion + snapshot。
+                # L1 doc 的 umbrella 合并 + 三信号分类 + tar.gz 回滚
+                # 已搬到 idle curator（curate_space + cron job），不再在此处执行。
                 # Promotion sweep — best-effort, requires recall_tracker stats.
                 promotion_engine = getattr(self, "_promotion_engine", None)
                 if promotion_engine is not None:
@@ -660,6 +725,211 @@ class LongTermMemoryManager:
         )
         return summary
 
+    @staticmethod
+    async def curate_space(
+        space_slug: str,
+        system_app: Any,
+        llm_client: Any = None,
+    ) -> Dict[str, Any]:
+        """Idle curator entry (cron-triggered): full L1 consolidation.
+
+        不依赖 bundle —— 直接从 KnowledgeService 解析 vault，列举全部 L1
+        memory/insight docs，做 umbrella 合并 + 三信号分类 + tar.gz 回滚。
+
+        流程参考 hermes-agent curator.py：
+        1. tar.gz snapshot space dir（保留最近 5 份）
+        2. LLM 聚类：把全部 L1 doc 摘要喂给 LLM，输出 merge groups
+        3. 对每个 merge group 调 curate_merge（创建 umbrella doc +
+           merged-into/supersedes 边 + delete source docs）
+        4. 写 REPORT.md
+
+        Args:
+            space_slug: llm-wiki Space slug（如 memory-canvas-agent）
+            system_app: SystemApp，用于解析 KnowledgeService
+            llm_client: 可选 LLMClient；None 时尝试从 default LLM 取
+
+        Returns:
+            摘要 dict：{backed_up, merge_groups, merged_docs, report_path}
+        """
+        import os
+        import shutil
+        from derisk.storage.memory.llm_processor import LLMMemoryProcessor
+
+        report: Dict[str, Any] = {
+            "space_slug": space_slug,
+            "backed_up": False,
+            "merge_groups": [],
+            "merged_docs": 0,
+            "report_path": None,
+        }
+
+        # 1. 解析 vault
+        try:
+            from derisk_serve.knowledge.service.service import (
+                Service as KnowledgeService,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[curate_space] KnowledgeService import failed: %s", e)
+            return report
+        try:
+            ks = KnowledgeService.get_instance(system_app)
+            vault = await ks.get_vault(space_slug)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[curate_space] resolve vault slug=%s failed: %s", space_slug, e
+            )
+            return report
+
+        # 2. 列举全部 L1 memory/insight docs
+        l1_docs: List[Any] = []
+        for doc_type in ("memory", "insight"):
+            try:
+                docs = await vault.doc_list(type=doc_type, limit=100)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[curate_space] doc_list(%s) failed: %s", doc_type, e)
+                docs = []
+            l1_docs.extend(docs or [])
+        if not l1_docs:
+            logger.info("[curate_space] no L1 docs for slug=%s; skip", space_slug)
+            return report
+
+        # 3. tar.gz snapshot
+        space_root = None
+        try:
+            space_root = getattr(vault, "_root", None) or getattr(vault, "root", None)
+        except Exception:  # noqa: BLE001
+            pass
+        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        backup_dir = None
+        if space_root and os.path.isdir(space_root):
+            backup_dir = os.path.join(space_root, ".backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            try:
+                shutil.make_archive(
+                    os.path.join(backup_dir, f"curator-{ts}"),
+                    "gztar",
+                    root_dir=space_root,
+                )
+                report["backed_up"] = True
+                # 保留最近 5 份
+                backups = sorted(
+                    [f for f in os.listdir(backup_dir) if f.startswith("curator-")],
+                    reverse=True,
+                )
+                for old in backups[5:]:
+                    try:
+                        os.remove(os.path.join(backup_dir, old))
+                    except OSError:
+                        pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[curate_space] backup failed: %s", e)
+
+        # 4. LLM 聚类
+        processor = None
+        if llm_client is not None:
+            try:
+                processor = LLMMemoryProcessor(llm_client=llm_client)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[curate_space] processor init failed: %s", e)
+
+        merge_groups: List[List[str]] = []  # 每组是 doc path 列表
+        if processor is not None:
+            try:
+                merge_groups = await _cluster_l1_docs(processor, vault, l1_docs)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[curate_space] cluster failed: %s", e)
+        else:
+            # 无 LLM：退化为按 type 分组（同 type 全合并）—— 至少能跑
+            by_type: Dict[str, List[str]] = {}
+            for d in l1_docs:
+                p = d.path or ""
+                t = d.type or "memory"
+                by_type.setdefault(t, []).append(p)
+            merge_groups = [paths for paths in by_type.values() if len(paths) > 1]
+
+        report["merge_groups"] = merge_groups
+
+        # 5. 执行合并 —— 用 KnowledgeVaultMemoryStore.curate_merge
+        #    构造一个临时 store 实例（仅用 vault 引用，不依赖 bundle）
+        merged_total = 0
+        try:
+            from derisk_ext.storage.memory.knowledge_vault_store import (
+                KnowledgeVaultMemoryConfig,
+                KnowledgeVaultMemoryStore,
+            )
+            tmp_store = KnowledgeVaultMemoryStore(
+                config=KnowledgeVaultMemoryConfig(space_slug=space_slug),
+                vault=vault,
+                system_app=system_app,
+            )
+            now_iso = datetime.utcnow().isoformat()
+            for idx, paths in enumerate(merge_groups):
+                if not paths or len(paths) < 2:
+                    continue
+                merged_md = await _merge_doc_bodies(vault, paths)
+                if not merged_md:
+                    continue
+                target_path = (
+                    f"wiki/memories/curated-{ts}-{idx}.md"
+                )
+                frontmatter = {
+                    "type": "memory",
+                    "title": f"Curated merge {idx} ({len(paths)} docs) {ts}",
+                    "created": now_iso,
+                    "updated": now_iso,
+                    "merged_from": paths,
+                    "curator": "idle-cron",
+                }
+                try:
+                    await tmp_store.curate_merge(
+                        source_paths=paths,
+                        target_path=target_path,
+                        merged_content=merged_md,
+                        frontmatter=frontmatter,
+                    )
+                    merged_total += len(paths)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "[curate_space] curate_merge group %d failed: %s", idx, e
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[curate_space] merge phase failed: %s", e)
+        report["merged_docs"] = merged_total
+
+        # 6. REPORT.md
+        report_dir = None
+        if space_root:
+            report_dir = os.path.join(space_root, ".curator", ts)
+            try:
+                os.makedirs(report_dir, exist_ok=True)
+                lines = [
+                    "# Memory Curator Report",
+                    f"- space: {space_slug}",
+                    f"- timestamp: {ts}",
+                    f"- backed_up: {report['backed_up']}",
+                    f"- l1_docs_before: {len(l1_docs)}",
+                    f"- merge_groups: {len(merge_groups)}",
+                    f"- merged_docs: {merged_total}",
+                    "",
+                    "## Merge Groups",
+                ]
+                for i, g in enumerate(merge_groups):
+                    lines.append(f"### Group {i} ({len(g)} docs)")
+                    for p in g:
+                        lines.append(f"- {p}")
+                    lines.append("")
+                with open(os.path.join(report_dir, "REPORT.md"), "w") as f:
+                    f.write("\n".join(lines))
+                report["report_path"] = os.path.join(report_dir, "REPORT.md")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[curate_space] report write failed: %s", e)
+
+        logger.info(
+            "[curate_space] done slug=%s merged=%d groups=%d",
+            space_slug, merged_total, len(merge_groups),
+        )
+        return report
+
     def _get_primary_store(self) -> Tuple[Optional[str], Optional[MemoryStoreBase]]:
         """Get the primary memory store (first one in config)."""
         if not self._config.memories or not self._memory_stores:
@@ -674,6 +944,63 @@ class LongTermMemoryManager:
             return memory_id, store
 
         return None, None
+
+    async def _summarize_for_curate(
+        self,
+        candidates: List[MemoryEntry],
+        history_text: str,
+    ) -> Optional[str]:
+        """Produce merged markdown from tier3 candidate memories.
+
+        Joins the top candidate snippets into a single consolidated
+        markdown page. If a processor is available, we could LLM-summarize;
+        for now we concatenate with a header — the L2 edges created by
+        curate_merge preserve the provenance.
+        """
+        if not candidates:
+            return None
+        lines = ["# Curated Memory Merge\n"]
+        lines.append(f"Consolidated from {len(candidates)} entries.\n")
+        for i, e in enumerate(candidates, 1):
+            layer = e.metadata.get("layer", "?")
+            path = e.metadata.get("path") or e.metadata.get("verbat_id") or ""
+            lines.append(f"## Entry {i} [{layer}] {path}\n")
+            lines.append(e.content.strip() or "")
+            lines.append("")
+        return "\n".join(lines)
+
+    async def _summarize_for_paths(
+        self,
+        paths: List[str],
+        history_text: str,
+    ) -> Optional[str]:
+        """Produce merged markdown by reading L1 docs at the given paths.
+
+        Reads each path through the store's vault and concatenates the
+        bodies under a header. Provenance is preserved by the merged-into /
+        supersedes edges created in `curate_merge`.
+        """
+        if not paths:
+            return None
+        lines = ["# Curated Memory Merge\n"]
+        lines.append(f"Consolidated from {len(paths)} documents.\n")
+        for i, p in enumerate(paths, 1):
+            doc = None
+            try:
+                store = self._get_primary_store()[1]
+                vault = getattr(store, "vault", None) if store else None
+                if vault is not None:
+                    doc = await vault.doc_read(p)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[Tier3] doc_read %s failed: %s", p, e)
+            title = getattr(doc, "title", p) if doc else p
+            body = getattr(doc, "content", "") if doc else ""
+            lines.append(f"## Entry {i} {title}\n")
+            lines.append(f"_path: {p}_\n")
+            lines.append((body or "").strip())
+            lines.append("")
+        return "\n".join(lines)
+
 
     def _get_space_name(self, memory_id: str) -> str:
         """Get the display name for a memory space."""
@@ -992,3 +1319,120 @@ __all__ = [
     "create_long_term_memory_manager",
     "create_memory_integration_bundle",
 ]
+
+
+def _is_knowledge_vault_store(store: Any) -> bool:
+    """Duck-type check for KnowledgeVaultMemoryStore.
+
+    Avoids a hard import dependency on derisk_ext from derisk_core (which
+    would invert the package layering). We check for the `write_doc`
+    and `curate_merge` async helpers that only the knowledge-vault
+    adapter exposes.
+    """
+    return (
+        hasattr(store, "write_doc")
+        and hasattr(store, "curate_merge")
+        and hasattr(store, "vault")
+    )
+
+
+async def _cluster_l1_docs(
+    processor: Any, vault: Any, docs: List[Any]
+) -> List[List[str]]:
+    """LLM 聚类：把全部 L1 doc 摘要喂给 LLM，输出 merge groups。
+
+    用 consolidate_memories 的 LLM 调用通道（复用 _call_llm），但 prompt
+    换成聚类专用。返回 [[path1, path2], [path3, path4], ...]。
+
+    无 LLM 或解析失败时返回空列表（调用方退化到按 type 分组）。
+    """
+    import json as _json
+
+    # 拼摘要：每条 doc 取 title + path + 前 150 字
+    summaries: List[Dict[str, str]] = []
+    for d in docs:
+        title = getattr(d, "title", "") or getattr(d, "path", "")
+        path = getattr(d, "path", "") or ""
+        body_snippet = ""
+        try:
+            full = await vault.doc_read(path)
+            body_snippet = (getattr(full, "content", "") or "")[:150]
+        except Exception:  # noqa: BLE001
+            pass
+        summaries.append({
+            "path": path,
+            "title": title,
+            "snippet": body_snippet,
+        })
+
+    prompt = (
+        "你是记忆整理器。下面是空间里全部 L1 记忆文档的摘要。请把语义相关的"
+        "文档分到同一组（合并成一个 umbrella 文档），每组至少 2 个文档，"
+        "孤立的文档不分组。\n\n"
+        f"文档列表（JSON）：\n{_json.dumps(summaries, ensure_ascii=False)}\n\n"
+        "请以 JSON 输出，格式：\n"
+        '{{"groups": [[{{"path": "doc1"}}, {{"path": "doc2"}}], ...]}}\n'
+        "如果没有任何文档应该合并，返回 {{\"groups\": []}}。"
+    )
+    try:
+        text = await processor._call_llm(prompt)  # noqa: SLF001
+        parsed = _parse_json_lenient_cluster(text)
+        groups: List[List[str]] = []
+        for g in parsed.get("groups", []):
+            paths = [item.get("path") for item in g if isinstance(item, dict)]
+            paths = [p for p in paths if p]
+            if len(paths) >= 2:
+                groups.append(paths)
+        return groups
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[_cluster_l1_docs] LLM cluster failed: %s", e)
+        return []
+
+
+def _parse_json_lenient_cluster(text: str) -> Dict[str, Any]:
+    """宽松 JSON 解析：去 markdown fence，尝试直接 parse，失败则抓 {...} span。"""
+    import json as _json
+    import re as _re
+
+    if not text:
+        return {}
+    t = text.strip()
+    # 去 ```json ... ``` fence
+    fence = _re.search(r"```(?:json)?\s*([\s\S]*?)```", t)
+    if fence:
+        t = fence.group(1).strip()
+    try:
+        return _json.loads(t)
+    except Exception:  # noqa: BLE001
+        pass
+    # 抓最外层 {...}
+    m = _re.search(r"\{[\s\S]*\}", t)
+    if m:
+        try:
+            return _json.loads(m.group(0))
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+async def _merge_doc_bodies(vault: Any, paths: List[str]) -> Optional[str]:
+    """读取多个 L1 doc，拼成 merged markdown body。"""
+    if not paths:
+        return None
+    lines = ["# Curated Memory Merge\n"]
+    lines.append(f"Consolidated from {len(paths)} documents.\n")
+    for i, p in enumerate(paths, 1):
+        try:
+            doc = await vault.doc_read(p)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[_merge_doc_bodies] doc_read %s failed: %s", p, e)
+            doc = None
+        title = getattr(doc, "title", p) if doc else p
+        body = getattr(doc, "content", "") if doc else ""
+        lines.append(f"## Entry {i} {title}\n")
+        lines.append(f"_path: {p}_\n")
+        lines.append((body or "").strip())
+        lines.append("")
+    return "\n".join(lines)
+
+

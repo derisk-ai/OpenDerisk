@@ -218,6 +218,11 @@ class AIWrapper:
             return
 
         provider_name = self._llm_config.provider.lower()
+        # 接入协议：优先使用配置中的 protocol，否则根据 provider 推断
+        protocol = getattr(self._llm_config, "protocol", None) or provider_name
+        if not protocol:
+            from derisk.agent.util.llm.model_config_cache import infer_protocol
+            protocol = infer_protocol(provider_name)
         api_key = self._llm_config.api_key
         base_url = self._llm_config.base_url
 
@@ -273,8 +278,8 @@ class AIWrapper:
 
         kwargs = self._llm_config.extra_kwargs.copy()
 
-        provider = ProviderRegistry.create_provider(
-            name=provider_name,
+        provider = ProviderRegistry.create_provider_by_protocol(
+            protocol=protocol,
             api_key=final_api_key,
             base_url=base_url,
             model=self._llm_config.model,
@@ -285,7 +290,7 @@ class AIWrapper:
             self._provider = provider
         else:
             logger.warning(
-                f"Unknown provider: {provider_name}, falling back to legacy LLMClient if available"
+                f"Unknown protocol: {protocol} (provider={provider_name}), falling back to legacy LLMClient if available"
             )
 
     def _construct_create_params(self, create_config: Dict, extra_kwargs: Dict) -> Dict:
@@ -355,6 +360,11 @@ class AIWrapper:
                     try:
                         temp_llm_config = AgentLLMConfig.from_dict(model_config_dict)
                         provider_name = temp_llm_config.provider.lower()
+                        # 优先使用配置中的 protocol，否则根据 provider 推断
+                        protocol = model_config_dict.get("protocol")
+                        if not protocol:
+                            from derisk.agent.util.llm.model_config_cache import infer_protocol
+                            protocol = infer_protocol(provider_name)
 
                         base_url = temp_llm_config.base_url
 
@@ -393,8 +403,8 @@ class AIWrapper:
                             if env_key:
                                 api_key = os.getenv(env_key)
 
-                        provider = ProviderRegistry.create_provider(
-                            name=provider_name,
+                        provider = ProviderRegistry.create_provider_by_protocol(
+                            protocol=protocol,
                             api_key=api_key or "",
                             base_url=base_url,
                             model=temp_llm_config.model,
@@ -402,7 +412,7 @@ class AIWrapper:
                         if provider:
                             self._provider_cache[llm_model] = provider
                             logger.info(
-                                f"Created {provider_name} provider for model={llm_model}"
+                                f"Created {protocol} provider for model={llm_model} (provider={provider_name})"
                             )
                     except Exception as e:
                         logger.error(

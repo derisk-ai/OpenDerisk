@@ -23,13 +23,15 @@ export default function TabKnowledge() {
   );
 
   const allKnowledge = useMemo(() => {
-    return (knowledgeData || []).map((space: SpaceInfo) => ({
-      key: space.slug,
-      value: space.slug,
-      label: space.slug,
-      name: space.slug,
-      description: space.root,
-    }));
+    return (knowledgeData || [])
+      .filter((space: SpaceInfo) => !(space.slug || '').startsWith('memory-'))
+      .map((space: SpaceInfo) => ({
+        key: space.slug,
+        value: space.slug,
+        label: space.slug,
+        name: space.slug,
+        description: space.root,
+      }));
   }, [knowledgeData]);
 
   // Currently enabled knowledge slugs (legacy `knowledge_id` field name kept

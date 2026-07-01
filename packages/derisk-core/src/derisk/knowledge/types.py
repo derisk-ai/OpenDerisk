@@ -138,6 +138,7 @@ class Verbat:
     source_mtime: Optional[int] = None
     normalize_version: int = 1
     deprecated: bool = False
+    metadata: Optional[dict] = None  # author/user_id/conv_id/turn_round 等
 
     @classmethod
     def create(
@@ -149,6 +150,7 @@ class Verbat:
         source_path: Optional[str] = None,
         content_date: Optional[datetime] = None,
         source_mtime: Optional[int] = None,
+        metadata: Optional[dict] = None,
     ) -> "Verbat":
         import os
 
@@ -163,6 +165,7 @@ class Verbat:
             content_date=content_date,
             filed_at=datetime.utcnow(),
             source_mtime=source_mtime,
+            metadata=metadata,
         )
 
 

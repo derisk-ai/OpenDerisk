@@ -11,6 +11,8 @@ import RawCreateModal from './RawCreateModal';
 import WikiCreateModal from './WikiCreateModal';
 import type { View } from './SpaceContext';
 
+const LEFT_PANEL_VIEWS: View[] = ['raw', 'wiki', 'graph'];
+
 function SpacePageContent({
   slug,
   rawModalOpen,
@@ -24,7 +26,7 @@ function SpacePageContent({
   wikiModalOpen: boolean;
   setWikiModalOpen: (v: boolean) => void;
 }) {
-  const { setSelectedVerbat, setView, refresh } = useSpace();
+  const { setSelectedVerbat, setView, refresh, view } = useSpace();
 
   const handleVerbatSelect = useCallback(
     (verbat: VerbatOut) => {
@@ -44,11 +46,13 @@ function SpacePageContent({
     <>
       <SpaceLayout
         left={
-          <LeftSidebar
-            onCreateDoc={() => setWikiModalOpen(true)}
-            onCreateRaw={() => setRawModalOpen(true)}
-            onVerbatSelect={handleVerbatSelect}
-          />
+          LEFT_PANEL_VIEWS.includes(view) ? (
+            <LeftSidebar
+              onCreateDoc={() => setWikiModalOpen(true)}
+              onCreateRaw={() => setRawModalOpen(true)}
+              onVerbatSelect={handleVerbatSelect}
+            />
+          ) : null
         }
         center={<CenterPane />}
         right={<RightSidebar />}

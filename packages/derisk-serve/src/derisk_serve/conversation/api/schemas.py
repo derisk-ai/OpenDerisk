@@ -40,6 +40,14 @@ class ServeRequest(BaseModel):
             "derisk",
         ],
     )
+    workspace_id: Optional[int] = Field(
+        default=None,
+        description="The workspace id this conversation belongs to (NULL for HomeChat).",
+    )
+    task_id: Optional[int] = Field(
+        default=None,
+        description="The task id this conversation belongs to.",
+    )
 
     def to_dict(self, **kwargs) -> Dict[str, Any]:
         """Convert the model to a dictionary"""
@@ -115,6 +123,14 @@ class ServerResponse(BaseModel):
         examples=[
             "derisk",
         ],
+    )
+    workspace_id: Optional[int] = Field(
+        default=None,
+        description="The workspace id this conversation belongs to.",
+    )
+    task_id: Optional[int] = Field(
+        default=None,
+        description="The task id this conversation belongs to.",
     )
     gmt_created: Optional[str] = Field(
         default=None,

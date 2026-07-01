@@ -164,6 +164,85 @@ def default_schema_md(space_name: str = "Knowledge Space") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Default schema.md for per-agent memory spaces (hermes-aligned 4-tier)
+# ---------------------------------------------------------------------------
+
+MEMORY_PAGE_TYPES: list[PageType] = [
+    PageType("conversation-turn", "wiki/turns/", "tier1 L0 对话片段索引页"),
+    PageType("memory", "wiki/memories/", "tier2 提炼的事实陈述"),
+    PageType("insight", "wiki/insights/", "tier2 跨轮反思结论"),
+    PageType("entity", "wiki/entities/", "提及的人/物/概念"),
+    PageType("preference", "wiki/preferences/", "用户偏好"),
+]
+
+MEMORY_RELATION_TYPES: list[RelationType] = [
+    RelationType("derived-from", "source-of", "Memory/Insight 派生自某 ConversationTurn"),
+    RelationType("merged-into", "supersedes", "旧 Memory 合并入新 Memory（inverse: supersedes）"),
+    RelationType("supersedes", "merged-into", "新 Memory 取代旧 Memory（inverse: merged-into）"),
+    RelationType("about", "about-by", "Memory 关于某 Entity"),
+    RelationType("relates-to", "relates-to", "自反关联"),
+    RelationType("part-of", "has-part", "包含关系"),
+]
+
+
+def default_memory_schema_md(app_name: str) -> str:
+    """Generate schema.md for an agent memory space.
+
+    Each agent gets its own llm-wiki Space as the memory sink. The 4-tier
+    hermes pipeline writes to it as follows:
+
+    - tier1 (turn)  -> L0 Verbat (extract_mode=convo), no schema entry
+                       needed (L0 is schema-less raw)
+    - tier2 (reflect) -> L1 Document of type `memory` or `insight`,
+                         `derived-from` edges back to source verbats
+    - tier3 (curate) -> L1 doc merges + `merged-into` / `supersedes`
+                        edges with temporal validity
+    - tier0 (prefetch) -> `doc_search` (hybrid) + `verbat_search`
+    """
+    return f"""# {app_name} 记忆空间 Schema
+
+## Purpose
+Agent 长期记忆空间，由 hermes 风格 4-tier 管线自动维护：
+tier1 每轮对话片段落 L0 Verbat（extract_mode=convo），tier2 每 N 轮
+反思落 L1 Document（memory/insight），tier3 会话结束策展做 L1 合并
++ L2 edge 时效更新。tier0 prefetch 走 doc_search + verbat_search。
+
+## Page Types
+| type | dir | description |
+|---|---|---|
+| conversation-turn | wiki/turns/ | tier1 L0 对话片段索引页 |
+| memory | wiki/memories/ | tier2 提炼的事实陈述 |
+| insight | wiki/insights/ | tier2 跨轮反思结论 |
+| entity | wiki/entities/ | 提及的人/物/概念 |
+| preference | wiki/preferences/ | 用户偏好 |
+
+## Relation Types
+| type | inverse | description |
+|---|---|---|
+| derived-from | source-of | Memory/Insight 派生自某 ConversationTurn |
+| merged-into | supersedes | 旧 Memory 合并入新 Memory（inverse: supersedes） |
+| supersedes | merged-into | 新 Memory 取代旧 Memory（inverse: merged-into） |
+| about | about-by | Memory 关于某 Entity |
+| relates-to | relates-to | 自反关联 |
+| part-of | has-part | 包含关系 |
+
+## Ingest Workflow
+记忆 ingest 由 hermes 4-tier hook 自动驱动，不走文件上传 ingest 流水线：
+1. tier1：每轮对话片段直接 verbat_add（extract_mode=convo），不创建 L1
+2. tier2：LLM 反思生成 markdown -> doc_create(type=memory|insight) -> edge_add(derived-from)
+3. tier3：合并候选 doc -> curate_merge -> edge_invalidate(旧) + edge_add(merged-into/supersedes)
+
+## Lint Rules
+- orphan_pages: true
+- stale_edges: true
+- contradiction_detection: true
+- uncited_sources: true
+- dangling_links: true
+- frontmatter_required: [type, title, created, updated]
+"""
+
+
+# ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
 
@@ -448,6 +527,7 @@ __all__ = [
     "DEFAULT_PAGE_TYPES",
     "DEFAULT_RELATION_TYPES",
     "default_schema_md",
+    "default_memory_schema_md",
     "parse_schema",
     "validate_schema",
     "route_path",

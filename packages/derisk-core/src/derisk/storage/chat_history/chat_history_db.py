@@ -58,6 +58,12 @@ class ChatHistoryEntity(Model):
     )
     gmt_modified = Column(DateTime, default=datetime.now, comment="Record update time")
     app_code = Column(String(255), nullable=True, comment="App unique code")
+    workspace_id = Column(
+        Integer, nullable=True, index=True, comment="Workspace id, NULL for HomeChat"
+    )
+    task_id = Column(
+        Integer, nullable=True, index=True, comment="Task id this conversation belongs to"
+    )
 
     Index("idx_q_user", "user_name")
     Index("idx_q_mode", "chat_mode")

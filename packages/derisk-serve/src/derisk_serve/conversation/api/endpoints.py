@@ -132,27 +132,58 @@ async def query(
 )
 async def dialogue_new(
     data: Optional[Dict] = None,
+    workspace_id: Optional[int] = None,
+    task_id: Optional[int] = None,
     user: UserRequest = Depends(get_user_from_headers),
 ):
     unique_id = uuid.uuid1()
+    ws_id = workspace_id
+    task = task_id
     if data:
         app_code = data.get("app_code")
         user_code = data.get("user_code") or user.user_id
         sys_code = data.get("sys_code")
         chat_mode = data.get("chat_mode")
+        if ws_id is None:
+            ws_id = data.get("workspace_id")
+        if task is None:
+            task = data.get("task_id")
         res = ServerResponse(
             user_input="",
             conv_uid=str(unique_id),
             app_code=app_code or chat_mode,
             user_name=user_code,
             sys_code=sys_code,
+            workspace_id=ws_id,
+            task_id=task,
         )
     else:
         res = ServerResponse(
             user_input="",
             conv_uid=str(unique_id),
             user_name=user.user_id,
+            workspace_id=ws_id,
+            task_id=task,
         )
+
+    # Link conversation to workspace/task if provided
+    if ws_id:
+        try:
+            from derisk_serve.workspace.service.service import (
+                WORKSPACE_SERVICE_COMPONENT_NAME, WorkspaceService,
+            )
+            ws_service = global_system_app.get_component(
+                WORKSPACE_SERVICE_COMPONENT_NAME, WorkspaceService,
+            )
+            user_code = res.user_name
+            ws_service.link_conversation(
+                workspace_id=int(ws_id),
+                conv_uid=str(unique_id),
+                task_id=int(task) if task else None,
+                user_id=int(user_code) if user_code else None,
+            )
+        except Exception as e:
+            logger.warning(f"failed to link conversation to workspace {ws_id}: {e}")
 
     return Result.succ(res)
 

@@ -100,7 +100,7 @@ export default function FilesTreePanel({
   }
 
   return (
-    <Spin spinning={loading} className="h-full">
+    <Spin spinning={loading} wrapperClassName="h-full">
       <div className="flex flex-col h-full">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-100 bg-white">
           <span className="font-medium text-gray-800">Raw Files</span>
@@ -118,7 +118,7 @@ export default function FilesTreePanel({
             </Tooltip>
           </div>
         </div>
-        <div className="p-3 flex flex-col gap-2 overflow-hidden flex-1 bg-white">
+        <div className="p-2 flex flex-col gap-1 overflow-hidden flex-1 bg-white">
           <Dragger
             multiple
             showUploadList={false}
@@ -126,17 +126,17 @@ export default function FilesTreePanel({
               handleUpload(file);
               return false;
             }}
-            className="!bg-violet-50/30 !border-violet-200 !rounded-lg !py-2"
+            className="!bg-[#0C75FC]/[0.04] !border-[#0C75FC]/20 !rounded-lg !py-2"
           >
             <p className="ant-upload-drag-icon !mb-0.5">
-              <InboxOutlined className="text-violet-400 text-xl" />
+              <InboxOutlined className="text-[#0C75FC]/60 text-xl" />
             </p>
             <p className="ant-upload-text text-xs text-gray-600">拖拽或点击上传</p>
             <p className="ant-upload-hint text-[10px] text-gray-400">pdf / docx / pptx / txt / md / 图片 / 音频</p>
           </Dragger>
 
           {jobs.some((j) => j.status !== 'done' && j.status !== 'failed') && (
-            <div className="text-xs text-violet-700 bg-violet-50 px-2 py-1 rounded">
+            <div className="text-xs text-[#0C75FC] bg-[#0C75FC]/[0.06] px-2 py-1 rounded">
               {jobs.filter((j) => j.status !== 'done' && j.status !== 'failed').length} 个 ingest 任务进行中
             </div>
           )}
