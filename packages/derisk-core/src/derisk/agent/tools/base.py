@@ -182,6 +182,26 @@ class ToolBase(ABC):
         """
         pass
 
+    async def check_permissions(
+        self,
+        input: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Optional["PermissionCheckResult"]:
+        """Tool-defined permission check (spec §9.3 Level 4).
+
+        Override to provide tool-specific rules. Return None to fall through
+        to the next PermissionGate level (ask). Return a PermissionCheckResult
+        to short-circuit (allow/deny) or to force ask.
+
+        Args:
+            input: the tool's input args
+            context: optional runtime context (agent_id, conv_id, etc.)
+
+        Returns:
+            None (default, no opinion) or PermissionCheckResult(decision, reason)
+        """
+        return None
+
     async def on_register(self) -> None:
         """注册时调用"""
         self._initialized = True

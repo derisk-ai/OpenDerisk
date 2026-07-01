@@ -14,7 +14,7 @@ when asking; the caller reads gate.last_result for the final decision.
 from __future__ import annotations
 import time
 import uuid
-from typing import AsyncGenerator, Callable, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Callable, Optional, TYPE_CHECKING
 from derisk._private.pydantic import BaseModel, ConfigDict
 from derisk.agent.core.v2.permission_mode import PermissionMode
 from derisk.agent.core.v2.session_cache import SessionPermissionCache, hash_tool_input
@@ -57,6 +57,12 @@ class PermissionResult(BaseModel):
     request_id: Optional[str] = None
 
 
+class PermissionCheckResult(BaseModel):
+    model_config = ConfigDict(use_enum_values=False, arbitrary_types_allowed=True)
+    decision: str  # "allow" / "deny" / "ask"
+    reason: str = ""
+
+
 class PermissionGate:
     def __init__(
         self,
@@ -69,6 +75,7 @@ class PermissionGate:
         step_id: Optional[str] = None,
         conv_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        tool: Optional[Any] = None,
     ):
         self._store = state_store
         self._stream = event_stream
@@ -79,6 +86,7 @@ class PermissionGate:
         self._step_id = step_id
         self._conv_id = conv_id
         self._agent_id = agent_id
+        self._tool = tool
         self.last_result: PermissionResult = PermissionResult(
             decision=PermissionDecision.DENY, reason="not checked"
         )
@@ -128,15 +136,36 @@ class PermissionGate:
         action = PermissionAction.ALLOW
         if self._ruleset is not None:
             action = self._ruleset.check(tool_name, context={})
+
+        # Level 4: Tool.check_permissions (evaluated between ruleset and ask)
+        if self._tool is not None:
+            tool_result = await self._tool.check_permissions(tool_input, context={
+                "agent_id": self._agent_id,
+                "conv_id": self._conv_id,
+                "step_id": self._step_id,
+            })
+            if tool_result is not None:
+                if tool_result.decision == "allow":
+                    self.last_result = PermissionResult(
+                        decision=PermissionDecision.ALLOW,
+                        reason=f"tool check_permissions: {tool_result.reason}",
+                    )
+                    return
+                if tool_result.decision == "deny":
+                    self.last_result = PermissionResult(
+                        decision=PermissionDecision.DENY,
+                        reason=f"tool check_permissions: {tool_result.reason}",
+                    )
+                    return
+                # decision == "ask" → fall through to Level 5
+
+        # Apply ruleset decision when no tool opinion or tool returned None
         if action is PermissionAction.ALLOW:
             self.last_result = PermissionResult(decision=PermissionDecision.ALLOW, reason="ruleset allow")
             return
         if action is PermissionAction.DENY:
             self.last_result = PermissionResult(decision=PermissionDecision.DENY, reason="ruleset deny")
             return
-
-        # Level 4: Tool.check_permissions — added in Task 4 (this task leaves it as no-op)
-        # Level 4 will be wired in Task 4; for now fall through to Level 5
 
         # Level 5: ask → emit event + persist + delegate
         if self._adapter is None:
