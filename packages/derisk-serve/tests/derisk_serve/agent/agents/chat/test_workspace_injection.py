@@ -1,10 +1,23 @@
 """Tests for workspace materialized resource injection in aggregation_chat."""
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch
+
+# The task package __init__ eagerly imports endpoints -> runtime -> agent
+# controller, which requires derisk_app.config. Provide a lightweight stub so
+# unit tests can import chat modules without the full derisk_app package
+# installed.
+if "derisk_app.config" not in sys.modules:
+    sys.modules["derisk_app"] = MagicMock()
+    sys.modules["derisk_app.config"] = MagicMock()
+
+from derisk.agent import ConversableAgent, LLMConfig
 from derisk_serve.agent.agents.chat.agent_chat import (
     AgentChat,
     _inject_workspace_context,
 )
+from derisk_serve.workspace.agent_tools.toolkit import build_workspace_toolkit
 
 
 class _ConcreteAgentChat(AgentChat):
@@ -190,3 +203,47 @@ async def test_workspace_control_agent_appended_to_existing_empty_extra_agents()
     assert ext_info["extra_agents"] is extra_agents
     assert fake_agent in ext_info["extra_agents"]
     assert ext_info["extra_agents"].count(fake_agent) == 1
+
+
+@pytest.mark.asyncio
+async def test_build_extra_employees_passes_through_prebuilt_agent():
+    """_build_extra_employees 对 prebuilt agent 不调用 app_service.app_detail。"""
+    system_app = MagicMock()
+    with patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_read_tools",
+        return_value=[],
+    ), patch(
+        "derisk_serve.workspace.agent_tools.toolkit.build_write_tools",
+        return_value=[],
+    ):
+        agent = build_workspace_toolkit(
+            system_app=system_app,
+            workspace_id=1,
+            user_id=None,
+            conv_uid="conv-1",
+            mode="lobby",
+            llm_config=LLMConfig(),
+        )
+
+    agent_chat = object.__new__(_ConcreteAgentChat)
+
+    fake_app_service = MagicMock()
+    fake_app_service.app_detail = AsyncMock(
+        side_effect=AssertionError("app_detail should not be called for prebuilt agent")
+    )
+
+    with patch(
+        "derisk_serve.agent.agents.chat.agent_chat.get_app_service",
+        return_value=fake_app_service,
+    ):
+        employees = await agent_chat._build_extra_employees(
+            extra_agents=[agent],
+            context=MagicMock(),
+            agent_memory=MagicMock(),
+            rm=MagicMock(),
+            scheduler=None,
+        )
+
+    assert len(employees) == 1
+    assert employees[0] is agent
+    fake_app_service.app_detail.assert_not_awaited()

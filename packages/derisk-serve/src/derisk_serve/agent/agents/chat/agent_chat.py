@@ -1663,13 +1663,20 @@ class AgentChat(BaseComponent, ABC):
         logger.info(f"_build_extra_employees: need_sandbox={need_sandbox}")
 
         def _uniform(_extra_agent) -> dict:
-            """将参数转为同样的格式"""
+            """将参数转为同样的格式。
+
+            已经是构建好的 ConversableAgent 实例时，使用 sentinel 包装后原样透传，
+            避免被当作 app_code 字符串去查询应用详情而崩溃。
+            """
+            if isinstance(_extra_agent, ConversableAgent):
+                return {"__prebuilt_agent__": _extra_agent}
             if isinstance(_extra_agent, dict):
                 return _extra_agent
-            else:
-                return {"app_code": _extra_agent}
+            return {"app_code": _extra_agent}
 
         async def _build(_extra_agent) -> ConversableAgent:
+            if "__prebuilt_agent__" in _extra_agent:
+                return _extra_agent["__prebuilt_agent__"]
             app = await app_service.app_detail(
                 _extra_agent.get("app_code"),
                 specify_config_code=_extra_agent.get("config_code", None),
