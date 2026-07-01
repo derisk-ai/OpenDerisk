@@ -43,6 +43,17 @@ class StateStore(ABC):
     @abstractmethod
     async def scan_expired_leases(self) -> List[str]: ...
 
+    @abstractmethod
+    async def save_interaction_checkpoint(
+        self, request_id: str, step_id: str, conv_id: str, request_payload: dict
+    ) -> None: ...
+
+    @abstractmethod
+    async def get_interaction_checkpoint(self, request_id: str) -> Optional[dict]: ...
+
+    @abstractmethod
+    async def delete_interaction_checkpoint(self, request_id: str) -> None: ...
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS step_event (
@@ -75,6 +86,15 @@ CREATE TABLE IF NOT EXISTS agent_lease (
     lease_expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lease_expires ON agent_lease(lease_expires_at);
+
+CREATE TABLE IF NOT EXISTS interaction_checkpoint (
+    request_id TEXT PRIMARY KEY,
+    step_id TEXT NOT NULL,
+    conv_id TEXT NOT NULL,
+    request_payload TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_checkpoint_conv ON interaction_checkpoint(conv_id);
 """
 
 
@@ -222,3 +242,52 @@ class DbStateStore(StateStore):
             finally:
                 conn.close()
         return await asyncio.to_thread(_do)
+
+    async def save_interaction_checkpoint(
+        self, request_id: str, step_id: str, conv_id: str, request_payload: dict
+    ) -> None:
+        def _do():
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO interaction_checkpoint "
+                    "(request_id, step_id, conv_id, request_payload, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (request_id, step_id, conv_id,
+                     json.dumps(request_payload, ensure_ascii=False), time.time()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_do)
+
+    async def get_interaction_checkpoint(self, request_id: str) -> Optional[dict]:
+        def _do():
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT request_id, step_id, conv_id, request_payload, created_at "
+                    "FROM interaction_checkpoint WHERE request_id = ?",
+                    (request_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                d = dict(row)
+                d["request_payload"] = json.loads(d["request_payload"])
+                return d
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_do)
+
+    async def delete_interaction_checkpoint(self, request_id: str) -> None:
+        def _do():
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "DELETE FROM interaction_checkpoint WHERE request_id = ?",
+                    (request_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_do)
