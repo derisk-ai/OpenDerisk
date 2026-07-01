@@ -10,7 +10,7 @@ This keeps legacy Actions working without modification until P4 cleanup.
 from __future__ import annotations
 import uuid
 import time
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.step_state import StepState
 
