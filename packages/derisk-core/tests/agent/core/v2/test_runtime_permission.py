@@ -138,3 +138,30 @@ async def test_run_step_enforces_invalid_transition(store):
     # Invalid: INIT -> DONE (skips THINKING)
     with pytest.raises(IllegalTransitionError):
         _validate_and_track_transition("step-2", StepState.INIT, StepState.DONE)
+
+
+async def test_runtime_deletes_checkpoint_after_tool_executes(store):
+    """P1 follow-up: runtime deletes interaction_checkpoint after ALLOW + tool execution."""
+    ruleset = PermissionRuleset(rules={
+        "read_file": PermissionRule(tool_pattern="read_file", action=PermissionAction.ASK)
+    }, default_action=PermissionAction.ALLOW)
+    class FakeAdapter:
+        async def request_tool_permission(self, tool_name, tool_args, **kwargs):
+            from derisk.agent.interaction.interaction_protocol import InteractionResponse
+            return InteractionResponse(request_id="req-x", choice="allow_once")
+    gate = _make_gate(store, ruleset=ruleset, adapter=FakeAdapter())
+    events = []
+    async for e in run_step("agent-1", "conv-1", {"prompt": "hi"}, store,
+                             thinking_fn, acting_fn, permission_gate=gate):
+        events.append(e)
+    # After the step is DONE, no interaction_checkpoint should remain
+    from derisk.agent.core.v2.state_store import DbStateStore
+    # The store fixture is DbStateStore; iterate its rows
+    import sqlite3
+    if isinstance(store, DbStateStore):
+        conn = store._connect()
+        try:
+            rows = conn.execute("SELECT request_id FROM interaction_checkpoint").fetchall()
+        finally:
+            conn.close()
+        assert rows == [], f"expected no checkpoint left, got {rows}"
