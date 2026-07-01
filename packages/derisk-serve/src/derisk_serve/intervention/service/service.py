@@ -148,7 +148,12 @@ class InterventionService(BaseService[InterventionEntity, InterventionRequest, I
             return raw
         try:
             return json.loads(raw)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "failed to parse question_json for intervention %s: %s",
+                entity.id,
+                e,
+            )
             return {}
 
     async def execute_resolved(
@@ -333,6 +338,9 @@ class InterventionService(BaseService[InterventionEntity, InterventionRequest, I
                 pb.is_active = False
                 pb_session.commit()
                 return {"playbook_id": playbook_id, "archived": True}
+            except Exception:
+                pb_session.rollback()
+                raise
             finally:
                 pb_session.close()
 
