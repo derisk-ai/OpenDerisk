@@ -25,7 +25,7 @@ class IllegalTransitionError(Exception):
 
 
 VALID_TRANSITIONS: Dict[StepState, Tuple[StepState, ...]] = {
-    StepState.INIT: (StepState.THINKING,),
+    StepState.INIT: (StepState.THINKING, StepState.AWAITING_USER),
     StepState.THINKING: (
         StepState.ACTING,
         StepState.AWAITING_USER,
@@ -36,6 +36,7 @@ VALID_TRANSITIONS: Dict[StepState, Tuple[StepState, ...]] = {
         StepState.OBSERVING,
         StepState.AWAITING_TOOL_PERMISSION,
         StepState.AWAITING_SUB_AGENT,
+        StepState.DONE,
         StepState.FAILED,
     ),
     StepState.OBSERVING: (StepState.THINKING, StepState.DONE, StepState.FAILED),
