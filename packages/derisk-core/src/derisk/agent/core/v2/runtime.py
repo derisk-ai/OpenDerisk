@@ -37,16 +37,9 @@ def _validate_and_track_transition(step_id: str, prev: Optional[StepState], new:
 
     If prev is None, we trust the caller (initial state or resume from store).
     Consecutive events in the same state are allowed (e.g. multiple THINKING tokens).
-    Runtime-specific extra transitions:
-      - INIT -> AWAITING_USER: thinking_fn may request user input immediately.
-      - ACTING -> DONE: permission-denial path has no observation.
     """
     if prev is not None and prev is not new:
-        runtime_extra = {
-            (StepState.INIT, StepState.AWAITING_USER),
-            (StepState.ACTING, StepState.DONE),
-        }
-        if (prev, new) not in runtime_extra and not validate_transition(prev, new):
+        if not validate_transition(prev, new):
             raise IllegalTransitionError(
                 f"Invalid transition for step {step_id}: {prev.value} -> {new.value}"
             )

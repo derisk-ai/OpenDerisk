@@ -49,3 +49,22 @@ def test_awaiting_states_reachable_from_thinking_or_acting():
     ]:
         assert validate_transition(StepState.THINKING, awaiting) is True or \
                validate_transition(StepState.ACTING, awaiting) is True
+
+
+def test_init_can_transition_to_awaiting_user():
+    """P1 follow-up: thinking_fn can request user input before any token."""
+    assert validate_transition(StepState.INIT, StepState.AWAITING_USER)
+
+
+def test_acting_can_transition_to_done():
+    """P1 follow-up: permission-denial path skips OBSERVING, goes straight to DONE."""
+    assert validate_transition(StepState.ACTING, StepState.DONE)
+
+
+def test_runtime_extra_no_longer_needed():
+    """The runtime_extra workaround in runtime.py should be removed after folding."""
+    import derisk.agent.core.v2.runtime as runtime_mod
+    src = open(runtime_mod.__file__).read()
+    assert "runtime_extra" not in src, (
+        "runtime_extra workaround should be removed — transitions folded into VALID_TRANSITIONS"
+    )
