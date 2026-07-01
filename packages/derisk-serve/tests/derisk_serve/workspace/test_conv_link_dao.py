@@ -115,7 +115,22 @@ def test_service_rename(service, db_session):
     assert refreshed.title == "my title"
 
 
-def test_service_get_current_conversation_none_when_not_set(service):
+def test_first_link_becomes_current_when_none_set(service):
     WorkspaceConversationLinkDao().link(workspace_id=1, conv_uid="conv-1", user_id=1)
     current = service.get_current_conversation(workspace_id=1, user_id=1)
+    assert current["conv_uid"] == "conv-1"
+
+
+def test_subsequent_link_does_not_flip_current(service):
+    dao = WorkspaceConversationLinkDao()
+    dao.link(workspace_id=1, conv_uid="conv-1", user_id=1, set_current=True)
+    dao.link(workspace_id=1, conv_uid="conv-2", user_id=1, set_current=False)
+
+    current = service.get_current_conversation(workspace_id=1, user_id=1)
+    assert current["conv_uid"] == "conv-1"
+
+
+def test_link_without_user_id_does_not_auto_set_current(service):
+    WorkspaceConversationLinkDao().link(workspace_id=1, conv_uid="conv-1", user_id=None)
+    current = service.get_current_conversation(workspace_id=1, user_id=None)
     assert current is None

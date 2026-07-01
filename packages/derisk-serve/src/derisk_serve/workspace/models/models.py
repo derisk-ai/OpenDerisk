@@ -199,6 +199,8 @@ class WorkspaceConversationLinkDao(
             session.commit()
             if set_current:
                 self._set_current_internal(workspace_id, user_id, conv_uid)
+            elif user_id is not None and self.get_current(workspace_id, user_id) is None:
+                self._set_current_internal(workspace_id, user_id, conv_uid)
             return row
         except Exception:
             session.rollback()
