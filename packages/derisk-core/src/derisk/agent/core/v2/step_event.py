@@ -4,7 +4,8 @@ append-only：一旦写入不可修改。一个 step 产出多个 StepEvent
 （thinking 阶段多个 llm_token，acting 阶段 tool_call + tool_result）。
 """
 from __future__ import annotations
-from typing import Any, Optional
+import json
+from typing import Optional
 from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict
 from derisk.agent.core.v2.step_state import StepState
 
@@ -32,15 +33,14 @@ class StepEvent(BaseModel):
         """序列化为可存入 DB 的 dict（枚举转字符串）。"""
         d = model_to_dict(self)
         d["state"] = self.state.value
-        d["input"] = __import__("json").dumps(self.input)
-        d["output"] = __import__("json").dumps(self.output)
+        d["input"] = json.dumps(self.input)
+        d["output"] = json.dumps(self.output)
         d["parent_step_id"] = self.parent_step_id
         return d
 
     @staticmethod
     def from_storage_dict(d: dict) -> "StepEvent":
         """从 DB 行反序列化。"""
-        import json
         return StepEvent(
             event_id=d["event_id"],
             step_id=d["step_id"],
