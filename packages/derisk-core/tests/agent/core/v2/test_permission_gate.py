@@ -125,7 +125,8 @@ async def test_ask_emits_awaiting_event_and_persists_checkpoint(store, stream):
     cp = await store.get_interaction_checkpoint(request_id)
     assert cp is not None
     assert cp["step_id"] == "step-1"
-    # After response, checkpoint deleted and decision is ALLOW
+    # Decision is ALLOW after user responds; checkpoint deletion is deferred
+    # to the runtime (P2 refinement — see TODO in runtime.py:_run_acting_phase)
     assert gate.last_result.decision is PermissionDecision.ALLOW
 
 

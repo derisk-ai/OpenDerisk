@@ -15,7 +15,7 @@ from __future__ import annotations
 import time
 import uuid
 from typing import AsyncGenerator, Optional, TYPE_CHECKING
-from derisk._private.pydantic import BaseModel, ConfigDict, Field
+from derisk._private.pydantic import BaseModel, ConfigDict
 from derisk.agent.core.v2.permission_mode import PermissionMode
 from derisk.agent.core.v2.session_cache import SessionPermissionCache, hash_tool_input
 from derisk.agent.core.v2.step_event import StepEvent

@@ -10,7 +10,7 @@ import uuid
 import time
 from typing import AsyncGenerator, Callable, Awaitable, Optional, Dict
 from derisk.agent.core.v2.step_state import (
-    StepState, VALID_TRANSITIONS, validate_transition, IllegalTransitionError,
+    StepState, validate_transition, IllegalTransitionError,
 )
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
