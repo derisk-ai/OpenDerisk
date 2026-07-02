@@ -22,8 +22,21 @@ from derisk.agent.core.v2.permission_gate import (
     PermissionGate,
     PermissionResult,
     PermissionDecision,
+    PermissionCheckResult,
     NoInteractionAdapterError,
 )
+from derisk.agent.core.v2.subagent_handle import (
+    SubAgentHandle,
+    SubAgentMode,
+    SubAgentStatus,
+)
+from derisk.agent.core.v2.subagent_runtime import (
+    SubAgentRuntime,
+    SubAgentSpawnSpec,
+)
+from derisk.agent.core.v2.subagent_interaction_gateway import SubAgentInteractionGateway
+from derisk.agent.core.v2.spawn_subagent_tool import SpawnSubagentTool
+from derisk.agent.core.v2.ask_user_adapter import AskUserAdapter
 
 __all__ = [
     "StepState",
@@ -44,4 +57,13 @@ __all__ = [
     "SessionPermissionCache",
     "hash_tool_input",
     "NoInteractionAdapterError",
+    "SubAgentRuntime",
+    "SubAgentSpawnSpec",
+    "SubAgentHandle",
+    "SubAgentMode",
+    "SubAgentStatus",
+    "SubAgentInteractionGateway",
+    "SpawnSubagentTool",
+    "AskUserAdapter",
+    "PermissionCheckResult",
 ]
