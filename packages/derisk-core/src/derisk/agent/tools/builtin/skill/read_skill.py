@@ -104,13 +104,15 @@ class ReadSkillTool(SandboxToolBase):
 
         # 1. From pre-computed available_skills (name -> path mapping)
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                available_skills = config.get("available_skills", {})
-                if isinstance(available_skills, dict):
-                    for key in (skill_name, normalize_skill_name(skill_name)):
-                        if key in available_skills:
-                            return available_skills[key]
+            available_skills = getattr(context, "available_skills", None) or {}
+            if not available_skills:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    available_skills = config.get("available_skills", {})
+            if isinstance(available_skills, dict):
+                for key in (skill_name, normalize_skill_name(skill_name)):
+                    if key in available_skills:
+                        return available_skills[key]
 
         # 2. From sandbox client
         if client is not None:
@@ -123,16 +125,18 @@ class ReadSkillTool(SandboxToolBase):
                 # canonical join and let the caller's existence check report.
                 return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
-        # 3. From context.config["skill_dir"]
+        # 3. From context.skill_dir / context.config["skill_dir"]
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                skill_dir = config.get("skill_dir")
-                if skill_dir:
-                    resolved = resolve_local_skill_dir(skill_dir, skill_name)
-                    if resolved:
-                        return resolved
-                    return os.path.join(skill_dir, normalize_skill_name(skill_name))
+            skill_dir = getattr(context, "skill_dir", None)
+            if not skill_dir:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    skill_dir = config.get("skill_dir")
+            if skill_dir:
+                resolved = resolve_local_skill_dir(skill_dir, skill_name)
+                if resolved:
+                    return resolved
+                return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
         # 4. Local fallback: DATA_DIR/skill
         try:

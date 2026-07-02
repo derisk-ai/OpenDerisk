@@ -76,13 +76,15 @@ class ExecuteSkillScriptTool(SandboxToolBase):
         from ._skill_path_utils import normalize_skill_name, resolve_local_skill_dir
 
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                available_skills = config.get("available_skills", {})
-                if isinstance(available_skills, dict):
-                    for key in (skill_name, normalize_skill_name(skill_name)):
-                        if key in available_skills:
-                            return available_skills[key]
+            available_skills = getattr(context, "available_skills", None) or {}
+            if not available_skills:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    available_skills = config.get("available_skills", {})
+            if isinstance(available_skills, dict):
+                for key in (skill_name, normalize_skill_name(skill_name)):
+                    if key in available_skills:
+                        return available_skills[key]
 
         if client is not None:
             skill_dir = getattr(client, "skill_dir", None)
@@ -93,14 +95,16 @@ class ExecuteSkillScriptTool(SandboxToolBase):
                 return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                skill_dir = config.get("skill_dir")
-                if skill_dir:
-                    resolved = resolve_local_skill_dir(skill_dir, skill_name)
-                    if resolved:
-                        return resolved
-                    return os.path.join(skill_dir, normalize_skill_name(skill_name))
+            skill_dir = getattr(context, "skill_dir", None)
+            if not skill_dir:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    skill_dir = config.get("skill_dir")
+            if skill_dir:
+                resolved = resolve_local_skill_dir(skill_dir, skill_name)
+                if resolved:
+                    return resolved
+                return os.path.join(skill_dir, normalize_skill_name(skill_name))
 
         try:
             from derisk._private.config import Config

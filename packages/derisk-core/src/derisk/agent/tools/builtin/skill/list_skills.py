@@ -56,11 +56,13 @@ class ListSkillsTool(SandboxToolBase):
                 return skill_dir
 
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                skill_dir = config.get("skill_dir")
-                if skill_dir:
-                    return skill_dir
+            skill_dir = getattr(context, "skill_dir", None)
+            if not skill_dir:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    skill_dir = config.get("skill_dir")
+            if skill_dir:
+                return skill_dir
 
         try:
             from derisk._private.config import Config
@@ -100,11 +102,13 @@ class ListSkillsTool(SandboxToolBase):
 
         # Check pre-computed available_skills first
         if context:
-            config = context.config if hasattr(context, "config") else {}
-            if isinstance(config, dict):
-                available_skills = config.get("available_skills", {})
-                if isinstance(available_skills, dict) and available_skills:
-                    return self._format_skills_from_map(available_skills)
+            available_skills = getattr(context, "available_skills", None) or {}
+            if not available_skills:
+                config = getattr(context, "config", {})
+                if isinstance(config, dict):
+                    available_skills = config.get("available_skills", {})
+            if isinstance(available_skills, dict) and available_skills:
+                return self._format_skills_from_map(available_skills)
 
         if client is not None:
             return await self._execute_sandbox(args, context, client)
