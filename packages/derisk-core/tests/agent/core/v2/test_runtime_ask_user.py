@@ -1,9 +1,11 @@
-import pytest
-import tempfile
 import os
+import tempfile
+
+import pytest
+
 from derisk.agent.core.v2.runtime import run_step
 from derisk.agent.core.v2.state_store import DbStateStore
-from derisk.agent.core.v2.step_state import StepState
+from derisk.agent.core.v2.step_state import StepState, validate_transition
 
 
 @pytest.fixture
@@ -13,6 +15,11 @@ def store():
     s = DbStateStore(path)
     yield s
     os.unlink(path)
+
+
+async def test_acting_can_transition_to_awaiting_user():
+    """State machine allows legacy ask_user suspension during acting."""
+    assert validate_transition(StepState.ACTING, StepState.AWAITING_USER)
 
 
 async def test_acting_fn_returning_ask_user_emits_awaiting_user(store):
