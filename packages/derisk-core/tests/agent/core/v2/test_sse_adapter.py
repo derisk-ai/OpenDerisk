@@ -70,6 +70,15 @@ async def test_interaction_request_emits_intervention_triggered():
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_step_end_emits_both_step_end_and_done_marker():
+    events = [StreamEvent(type="step_end", payload={"conv_id": "c1", "step_id": "s1"}, seq=0)]
+    out = [s async for s in stream_to_sse(_gen(events))]
+    assert len(out) == 2
+    assert "step_end" in out[0]
+    assert "[DONE]" in out[1]
+
+
 async def test_workspace_emits_workspace_type():
     events = [StreamEvent(type="workspace", payload={"event_type": "task_created", "x": 1}, seq=0)]
     out = [s async for s in stream_to_sse(_gen(events))]

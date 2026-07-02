@@ -69,8 +69,15 @@ async def emit_usage_metric(
     llm_call_id: str,
     model: str,
     this_call: Dict[str, int],
+    current_state: StepState = StepState.THINKING,
 ) -> None:
-    """Emit a usage_metric StepEvent with this call, cumulative totals, and ratio."""
+    """Emit a usage_metric StepEvent with this call, cumulative totals, and ratio.
+
+    Args:
+        current_state: The current step state. Defaults to THINKING. Callers
+            should pass the actual current state (e.g., ACTING) to avoid
+            IllegalTransitionError.
+    """
     aggregate = await aggregate_usage(store, conv_id)
     cumulative = {
         "prompt": aggregate["prompt"] + int(this_call.get("prompt", 0) or 0),
@@ -81,7 +88,7 @@ async def emit_usage_metric(
     ratio = cumulative["total"] / context_window if context_window > 0 else 0.0
 
     await emit(
-        StepState.THINKING,
+        current_state,
         "usage_metric",
         output_data={
             "step_id": step_id,

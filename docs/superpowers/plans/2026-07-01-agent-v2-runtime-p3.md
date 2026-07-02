@@ -1835,3 +1835,9 @@ Plan complete and saved to `docs/superpowers/plans/2026-07-01-agent-v2-runtime-p
 **2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
 
 **Which approach?**
+
+---
+
+## P3 Final Review Deferrals
+
+- **Frontend unit tests (Tasks 10, 11)**: Skipped because `web/` package has no test runner installed (no jest/vitest, no `test` script in package.json). Type-check + lint pass. Unit tests deferred until a runner is configured.

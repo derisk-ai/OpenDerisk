@@ -15,7 +15,7 @@ def _make(state, event_type, output=None, input_=None, seq=0):
 def test_step_init_to_step_start():
     se = step_event_to_stream_event(_make(StepState.INIT, "step_init", input_={"prompt": "hi"}))
     assert se.type == "step_start"
-    assert se.payload["step_id"] == "step-1"
+    assert "step_id" not in se.payload
 
 
 def test_step_done_to_step_end():
