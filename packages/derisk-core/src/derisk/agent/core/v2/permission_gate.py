@@ -4,7 +4,7 @@ Spec §9.3. Levels (in order):
   1. PermissionMode short-circuit (bypass/auto/plan)
   2. session cache (allow_session)
   3. permission_ruleset (static rules: ALLOW/DENY/ASK)
-  4. (P1 deferred) Tool.check_permissions hook — no Tool integration yet
+  4. Tool.check_permissions hook (P2: implemented; opt-in via `tool` kwarg)
   5. ask → emit AWAITING_TOOL_PERMISSION event + persist checkpoint +
      delegate to InteractionAdapter.request_tool_permission
 
