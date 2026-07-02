@@ -37,6 +37,11 @@ class SpawnSubagentTool(ToolBase):
                     "description": "False=sync (block until done); True=async (return handle immediately)",
                 },
                 "context": {"type": "object", "default": {}},
+                "shared_conv": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "True=share parent conv_id (AgentStart semantics)",
+                },
             },
             "required": ["agent_name", "task"],
         }
@@ -76,6 +81,7 @@ class SpawnSubagentTool(ToolBase):
             thinking_fn=thinking_fn,
             acting_fn=acting_fn,
             interaction_gateway=interaction_gateway,
+            shared_conv=args.get("shared_conv", False),
         )
 
         handle = await self._runtime.spawn(spec)
