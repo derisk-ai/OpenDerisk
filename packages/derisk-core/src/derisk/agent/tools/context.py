@@ -58,7 +58,16 @@ class ToolContext(BaseModel):
 
     skill_dir: Optional[str] = Field(None, description="Skill 目录路径")
     available_skills: Dict[str, str] = Field(default_factory=dict, description="可用技能: name -> path")
-    
+
+    # v2 新增 —— 场景信息（G1）
+    scene: Optional[str] = Field(None, description="场景标识（如 data_analyst）")
+    scenario_id: Optional[str] = Field(None, description="场景实例 ID")
+    language: str = Field("zh", description="语言代码")
+
+    # v2 新增 —— step 元数据
+    step_id: Optional[str] = Field(None, description="V2 step ID")
+    round_index: int = Field(0, description="当前 turn 的 round 序号")
+
     class Config:
         arbitrary_types_allowed = True
     
