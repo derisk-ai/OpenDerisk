@@ -15,13 +15,16 @@ from derisk.agent.core.v2.step_state import (
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.event_stream import EventStream
+from derisk.agent.core.v2.thinking_chunk import ThinkingChunk
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.tools.context import ToolContext
 
 if TYPE_CHECKING:
     from derisk.agent.core.v2.subagent_runtime import SubAgentRuntime
 
 
-ThinkingFn = Callable[[dict], AsyncGenerator[dict, None]]
-ActingFn = Callable[[dict], Awaitable[dict]]
+ThinkingFn = Callable[[dict], AsyncGenerator[ThinkingChunk, None]]
+ActingFn = Callable[[V2ToolCall, ToolContext], Awaitable[V2ToolResult]]
 
 _AWAITING_STATES = {
     StepState.AWAITING_USER,
@@ -157,7 +160,28 @@ async def _run_acting_phase(
                 await state_store.delete_interaction_checkpoint(result.request_id)
         yield await emit(StepState.ACTING, "tool_call", input_data=tc)
         if acting_fn is not None:
-            result_dict = await acting_fn(tc)
+            # Convert dict to V2ToolCall
+            v2_call = V2ToolCall(
+                name=tc["tool"],
+                args=tc.get("input", {}),
+            )
+            # Construct ToolContext
+            ctx = ToolContext(
+                agent_id=parent_agent_id or "unknown",
+                agent_name="v2_agent",
+                conversation_id=conv_id or "unknown",
+            )
+            result = await acting_fn(v2_call, ctx)
+            # Convert V2ToolResult back to dict for event system
+            result_dict = {
+                "is_exe_success": result.success,
+                "content": str(result.output) if result.output is not None else "",
+                "tool_name": result.tool_name,
+            }
+            if result.error:
+                result_dict["error"] = result.error
+            if result.error_code:
+                result_dict["error_code"] = result.error_code
             # P2 follow-up: legacy ActionOutput.ask_user compat (§9.4)
             if isinstance(result_dict, dict) and "ask_user" in result_dict:
                 from derisk.agent.core.v2.ask_user_adapter import AskUserAdapter
