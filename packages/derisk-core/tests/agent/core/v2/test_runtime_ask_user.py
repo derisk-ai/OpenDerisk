@@ -41,7 +41,7 @@ async def test_acting_fn_returning_ask_user_emits_awaiting_user(store):
     observing = [e for e in events if e.state is StepState.OBSERVING]
     assert len(observing) == 0
     # Should NOT reach DONE (step is suspended waiting for user)
-    assert states[-1] is not StepState.DONE
+    assert StepState.DONE not in states
 
 
 async def test_acting_fn_returning_normal_result_still_emits_observing(store):

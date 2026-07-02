@@ -24,6 +24,7 @@ def test_legal_transitions():
     assert validate_transition(StepState.ACTING, StepState.OBSERVING) is True
     assert validate_transition(StepState.OBSERVING, StepState.THINKING) is True
     assert validate_transition(StepState.THINKING, StepState.AWAITING_USER) is True
+    assert validate_transition(StepState.ACTING, StepState.AWAITING_USER) is True
     assert validate_transition(StepState.AWAITING_USER, StepState.THINKING) is True
     assert validate_transition(StepState.ACTING, StepState.AWAITING_TOOL_PERMISSION) is True
     assert validate_transition(StepState.AWAITING_TOOL_PERMISSION, StepState.ACTING) is True
