@@ -99,15 +99,34 @@ def _check_write_permission(sql_type: str) -> Tuple[bool, str]:
     return (True, "")
 
 
-def _resolve_db_from_agent(db_name: str, kwargs: Dict) -> tuple:
-    """从 agent 的 resource_map 中解析数据库连接和 datasource_id。
+def _resolve_db_from_agent(db_name: str, kwargs: Dict, context=None) -> tuple:
+    """从 agent 的 resource_map 或 V2 ToolContext 中解析数据库连接和 datasource_id。
 
     agent 初始化时 DatasourceResource 已通过 db_id fallback 成功创建了 connector，
     这里复用该 connector，避免仅靠 db_name 查找 connect_config 失败的问题。
 
+    V2 优先: 从 context.get_resource("db_resource") 获取 DBResource；
+    BAIZE 回退: 从 kwargs["agent"].resource_map 获取。
+
     Returns:
         (connector, datasource_id): connector 可能为 None
     """
+    # V2 路径: 从 ToolContext 获取 db_resource
+    if context is not None:
+        db_resource = context.get_resource("db_resource")
+        if db_resource is not None:
+            connector = getattr(db_resource, "_connector", None) or getattr(
+                db_resource, "connector", None
+            )
+            ds_id = getattr(db_resource, "_datasource_id", None)
+            if connector:
+                logger.info(
+                    f"[db_tools] Resolved connector from V2 ToolContext "
+                    f"for db_name={db_name}, ds_id={ds_id}"
+                )
+                return connector, ds_id
+
+    # BAIZE 回退: 从 agent.resource_map 获取
     agent = kwargs.get("agent")
     if not agent:
         return None, None
@@ -180,6 +199,7 @@ async def get_table_spec(
     db_name: str,
     table_names: Optional[str] = None,
     question: Optional[str] = None,
+    context=None,
     **kwargs,
 ) -> str:
     """Get detailed table specs for specific tables in a database.
@@ -198,8 +218,8 @@ async def get_table_spec(
 
         CFG = Config()
 
-        # 优先从 agent 的 resource_map 中获取已初始化的 connector
-        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        # 优先从 agent 的 resource_map 或 V2 ToolContext 中获取已初始化的 connector
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs, context=context)
 
         # Resolve datasource
         ds_id = agent_ds_id
@@ -379,6 +399,7 @@ async def execute_sql(
     db_name: str,
     sql: str,
     page: int = 1,
+    context=None,
     **kwargs,
 ) -> str:
     """Execute a SQL query on the specified database.
@@ -407,8 +428,8 @@ async def execute_sql(
                 logger.warning(f"[execute_sql] Blocked write operation: {sql_type} on {db_name}")
                 return _format_error(error_msg, db_type="unknown", sql_type=sql_type)
 
-        # 优先从 agent 的 resource_map 中获取已初始化的 connector
-        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        # 优先从 agent 的 resource_map 或 V2 ToolContext 中获取已初始化的 connector
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs, context=context)
         connector = agent_connector
         if not connector:
             connector = CFG.local_db_manager.get_connector(db_name)
@@ -996,6 +1017,7 @@ async def list_tables(
     group: Optional[str] = None,
     page: int = 1,
     page_size: int = 100,
+    context=None,
     **kwargs,
 ) -> str:
     """List all tables in the specified database with optional group filter and pagination.
@@ -1020,8 +1042,8 @@ async def list_tables(
 
         CFG = Config()
 
-        # 优先从 agent 的 resource_map 中获取已初始化的 connector
-        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        # 优先从 agent 的 resource_map 或 V2 ToolContext 中获取已初始化的 connector
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs, context=context)
         ds_id = agent_ds_id
 
         # Resolve datasource_id if not from agent
@@ -1222,6 +1244,7 @@ async def search_tables(
     intents: Optional[str] = None,
     use_llm: bool = False,
     max_results: int = 15,
+    context=None,
     **kwargs,
 ) -> str:
     """Search for relevant tables based on natural language question or multiple intents.
@@ -1246,8 +1269,8 @@ async def search_tables(
 
         CFG = Config()
 
-        # 优先从 agent 的 resource_map 中获取 datasource_id
-        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs)
+        # 优先从 agent 的 resource_map 或 V2 ToolContext 中获取 datasource_id
+        agent_connector, agent_ds_id = _resolve_db_from_agent(db_name, kwargs, context=context)
         ds_id = agent_ds_id
 
         # Resolve datasource_id if not from agent

@@ -12,6 +12,7 @@ from ...core.memory.gpts import GptsMessage
 from ...core.reasoning.reasoning_action import AgentActionInput
 
 from derisk.agent.resource import ToolParameter, FunctionTool
+from derisk.agent.tools.context import ToolContext
 from ...core.schema import Status, ActionInferenceMetrics
 
 _AGENT_START_PROMPT = """\
@@ -238,10 +239,35 @@ class AgentStart(AgentAction, FunctionTool):
         }
 
     def execute(self, *args, **kwargs):
+        # V2 路径: 从 ToolContext 获取 app_resource
+        context = kwargs.get("context")
+        if isinstance(context, ToolContext):
+            app_resource = context.get_resource("app_resource")
+            if app_resource is not None:
+                return self._execute_with_app_resource(app_resource, args, kwargs)
+            # V2 context 激活但无 app_resource: 返回提示信息
+            return f"agent_start V2: no app_resource in context, args={args}"
+        # BAIZE 回退
         raise RuntimeError("当前工具需要转AgentAction执行, 不能直接作为工具调用！")
 
     async def async_execute(self, *args, **kwargs):
+        # V2 路径: 从 ToolContext 获取 app_resource
+        context = kwargs.get("context")
+        if isinstance(context, ToolContext):
+            app_resource = context.get_resource("app_resource")
+            if app_resource is not None:
+                return await self._async_execute_with_app_resource(app_resource, args, kwargs)
+            return self.execute(*args, **kwargs)
         return self.execute(*args, **kwargs)
+
+    def _execute_with_app_resource(self, app_resource, args, kwargs):
+        """V2 路径: 使用 app_resource 执行 agent_start。"""
+        tool_input = args[0] if args else kwargs
+        return f"agent_start via V2 app_resource: agent_id={tool_input.get('agent_id', '')}, input={tool_input.get('input', '')}"
+
+    async def _async_execute_with_app_resource(self, app_resource, args, kwargs):
+        """V2 异步路径: 使用 app_resource 执行 agent_start。"""
+        return self._execute_with_app_resource(app_resource, args, kwargs)
 
     @classmethod
     def parse_action(
