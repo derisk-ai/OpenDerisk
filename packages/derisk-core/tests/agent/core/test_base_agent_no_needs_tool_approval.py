@@ -1,4 +1,4 @@
-"""P4 Task 2: verify needs_tool_approval is removed from BaseAgent."""
+"""P4 Task 2: verify needs_tool_approval is removed from ConversableAgent."""
 
 
 def test_needs_tool_approval_removed():
