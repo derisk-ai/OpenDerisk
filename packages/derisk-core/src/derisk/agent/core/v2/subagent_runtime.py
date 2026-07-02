@@ -43,6 +43,7 @@ class SubAgentSpawnSpec(BaseModel):
     acting_fn: Optional[Any] = None
     interaction_gateway: Optional[Any] = None
     ruleset: Optional[Any] = None
+    shared_conv: bool = False  # v2 新增：True=共享父 conv_id（AgentStart 语义）
 
 
 class SubAgentRuntime:
@@ -65,7 +66,10 @@ class SubAgentRuntime:
             )
 
         task_id = f"task-{uuid.uuid4().hex[:8]}"
-        sub_conv_id = f"conv-{uuid.uuid4().hex[:8]}"
+        if spec.shared_conv:
+            sub_conv_id = spec.parent_conv_id  # 共享父 conv
+        else:
+            sub_conv_id = f"conv-{uuid.uuid4().hex[:8]}"
         now = time.time()
         mode = SubAgentMode.ASYNC if spec.run_in_background else SubAgentMode.SYNC
         handle = SubAgentHandle(
@@ -126,7 +130,7 @@ class SubAgentRuntime:
             async for event in run_step(
                 agent_id=f"subagent-{handle.task_id}",
                 conv_id=handle.sub_conv_id,
-                input_=input_,
+                input_={**input_, "is_subagent": True, "subagent_depth": spec.depth + 1},
                 state_store=self._store,
                 thinking_fn=spec.thinking_fn,
                 acting_fn=spec.acting_fn,
@@ -156,7 +160,7 @@ class SubAgentRuntime:
             async for event in run_step(
                 agent_id=f"subagent-{handle.task_id}",
                 conv_id=handle.sub_conv_id,
-                input_=input_,
+                input_={**input_, "is_subagent": True, "subagent_depth": spec.depth + 1},
                 state_store=self._store,
                 thinking_fn=spec.thinking_fn,
                 acting_fn=spec.acting_fn,
