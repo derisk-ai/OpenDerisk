@@ -116,6 +116,17 @@ class ActionOutput(BaseModel):
     # 是否流式Action
     stream: bool = False
 
+    def __getattribute__(self, name: str):
+        if name == "ask_user":
+            import warnings
+            warnings.warn(
+                "ActionOutput.ask_user is deprecated. "
+                "Return {'ask_user': ...} dict from acting_fn; "
+                "runtime auto-converts via AskUserAdapter (V2 runtime).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return super().__getattribute__(name)
 
     @model_validator(mode="before")
     @classmethod

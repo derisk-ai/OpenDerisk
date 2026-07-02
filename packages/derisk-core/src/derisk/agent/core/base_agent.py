@@ -2861,6 +2861,13 @@ class ConversableAgent(Role, Agent):
         self, event_type: EventType, payload: Payload, task_id: str, **kwargs
     ):
         """推送上下文事件"""
+        import warnings
+        warnings.warn(
+            "ConversableAgent.push_context_event is deprecated. "
+            "Use BAIZESubsystemAdapter.on_system_event() instead (V2 runtime).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not task_id:
             # todo @济空: 异常场景 不应该走进来 待排查
             logger.error(
