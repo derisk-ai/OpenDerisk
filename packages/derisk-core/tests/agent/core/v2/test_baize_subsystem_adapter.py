@@ -1,4 +1,3 @@
-import pytest
 from derisk.agent.core.v2.baize_subsystem_adapter import BAIZESubsystemAdapter
 from derisk.agent.core.v2.stream_event import StreamEvent
 
