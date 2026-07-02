@@ -42,7 +42,7 @@ VALID_TRANSITIONS: Dict[StepState, Tuple[StepState, ...]] = {
         StepState.DONE,
         StepState.FAILED,
     ),
-    StepState.OBSERVING: (StepState.THINKING, StepState.DONE, StepState.FAILED),
+    StepState.OBSERVING: (StepState.THINKING, StepState.ACTING, StepState.DONE, StepState.FAILED),
     StepState.AWAITING_USER: (StepState.THINKING, StepState.FAILED),
     StepState.AWAITING_TOOL_PERMISSION: (StepState.ACTING, StepState.FAILED),
     StepState.AWAITING_SUB_AGENT: (StepState.OBSERVING, StepState.FAILED),
