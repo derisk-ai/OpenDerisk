@@ -19,6 +19,10 @@ from derisk.agent.core.v2.subagent_handle import (
     SubAgentHandle, SubAgentMode, SubAgentStatus,
 )
 from derisk.agent.core.v2.runtime import run_step
+from derisk.agent.core.v2.subagent_interaction_gateway import SubAgentInteractionGateway
+from derisk.agent.core.v2.permission_gate import PermissionGate
+from derisk.agent.core.v2.permission_mode import PermissionMode
+from derisk.agent.core.v2.event_stream import EventStream
 
 if TYPE_CHECKING:
     from derisk.agent.core.v2.state_store import StateStore
@@ -38,6 +42,7 @@ class SubAgentSpawnSpec(BaseModel):
     thinking_fn: Optional[Any] = None
     acting_fn: Optional[Any] = None
     interaction_gateway: Optional[Any] = None
+    ruleset: Optional[Any] = None
 
 
 class SubAgentRuntime:
@@ -89,11 +94,31 @@ class SubAgentRuntime:
 
         return handle
 
+    def _make_permission_gate(self, handle: SubAgentHandle, spec: SubAgentSpawnSpec):
+        """Build a PermissionGate wired to the parent's gateway (if any)."""
+        if spec.interaction_gateway is None:
+            return None
+        sub_gateway = SubAgentInteractionGateway(
+            parent_gateway=spec.interaction_gateway,
+            sync=not spec.run_in_background,
+        )
+        return PermissionGate(
+            state_store=self._store,
+            event_stream=EventStream(self._store),
+            interaction_adapter=sub_gateway,
+            mode=PermissionMode.DEFAULT,
+            ruleset=spec.ruleset,
+            step_id=None,  # bound by run_step
+            conv_id=handle.sub_conv_id,
+            agent_id=f"subagent-{handle.task_id}",
+        )
+
     async def _run_subagent(self, handle: SubAgentHandle, spec: SubAgentSpawnSpec) -> None:
         """Sync mode: run sub-agent to completion before returning."""
         handle.status = SubAgentStatus.RUNNING
         self._handles[handle.task_id] = handle
         input_ = {"prompt": spec.task, **spec.context}
+        permission_gate = self._make_permission_gate(handle, spec)
         try:
             result = {"events": []}
             async for event in run_step(
@@ -104,6 +129,7 @@ class SubAgentRuntime:
                 thinking_fn=spec.thinking_fn,
                 acting_fn=spec.acting_fn,
                 parent_step_id=handle.parent_step_id,
+                permission_gate=permission_gate,
             ):
                 result["events"].append({
                     "seq": event.seq,
@@ -122,6 +148,7 @@ class SubAgentRuntime:
     ) -> None:
         """Async mode: run in background, update transcript periodically."""
         input_ = {"prompt": spec.task, **spec.context}
+        permission_gate = self._make_permission_gate(handle, spec)
         try:
             latest_seq = 0
             async for event in run_step(
@@ -132,6 +159,7 @@ class SubAgentRuntime:
                 thinking_fn=spec.thinking_fn,
                 acting_fn=spec.acting_fn,
                 parent_step_id=handle.parent_step_id,
+                permission_gate=permission_gate,
             ):
                 latest_seq = max(latest_seq, event.seq)
                 # Persist transcript snapshot every few events

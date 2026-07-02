@@ -121,3 +121,83 @@ async def test_sync_spawn_writes_subagent_events_to_same_store(store):
     states = [e.state.value for e in events]
     assert "init" in states
     assert "done" in states
+
+
+async def test_sync_subagent_delegates_asks_to_parent_gateway(store):
+    """P2 follow-up: sync sub-agent's ask_user bubbles to parent's gateway."""
+    from derisk.agent.core.v2.subagent_runtime import SubAgentRuntime, SubAgentSpawnSpec
+    from derisk.agent.interaction.interaction_protocol import InteractionResponse
+    from derisk_core.permission.ruleset import PermissionRuleset, PermissionRule, PermissionAction
+
+    parent_received = []
+
+    class FakeParentGateway:
+        async def send_and_wait(self, request):
+            parent_received.append(request)
+            return InteractionResponse(request_id=request.request_id, choice="allow_once")
+
+    # Sub-agent's thinking_fn triggers an ask via acting_fn (which is gated)
+    async def sub_thinking(input_):
+        yield {"token": "", "tool_calls": [{"tool": "ask_user_tool", "input": {"q": "name?"}}]}
+
+    async def sub_acting(tc):
+        return {"result": "ok"}
+
+    # Force the gate to ASK for ask_user_tool so we can prove delegation to parent.
+    ruleset = PermissionRuleset(rules={
+        "ask_user_tool": PermissionRule(tool_pattern="ask_user_tool", action=PermissionAction.ASK)
+    }, default_action=PermissionAction.ALLOW)
+
+    runtime = SubAgentRuntime(state_store=store, max_depth=5)
+    spec = SubAgentSpawnSpec(
+        agent_name="BAIZE",
+        task="ask parent",
+        run_in_background=False,
+        parent_step_id="step-p", parent_conv_id="conv-p", parent_agent_id="agent-p",
+        depth=0,
+        thinking_fn=sub_thinking,
+        acting_fn=sub_acting,
+        interaction_gateway=FakeParentGateway(),
+        ruleset=ruleset,
+    )
+    handle = await runtime.spawn(spec)
+    assert handle.status.value == "done"
+    # Parent gateway should have received the authorization request.
+    assert len(parent_received) >= 1
+    assert parent_received[0].tool_name == "ask_user_tool"
+
+
+async def test_async_subagent_auto_denies_asks(store):
+    """P2 follow-up: async sub-agent's asks auto-deny (no parent interruption)."""
+    from derisk.agent.core.v2.subagent_runtime import SubAgentRuntime, SubAgentSpawnSpec
+
+    class TrackingParentGateway:
+        def __init__(self):
+            self.received = []
+        async def send_and_wait(self, request):
+            self.received.append(request)
+            raise AssertionError("async sub-agent should NOT call parent gateway")
+
+    async def sub_thinking(input_):
+        yield {"token": "", "tool_calls": [{"tool": "ask_user_tool", "input": {"q": "name?"}}]}
+
+    async def sub_acting(tc):
+        return {"result": "auto-denied path"}
+
+    parent_gw = TrackingParentGateway()
+    runtime = SubAgentRuntime(state_store=store, max_depth=5)
+    spec = SubAgentSpawnSpec(
+        agent_name="BAIZE",
+        task="bg task",
+        run_in_background=True,
+        parent_step_id="step-p", parent_conv_id="conv-p", parent_agent_id="agent-p",
+        depth=0,
+        thinking_fn=sub_thinking,
+        acting_fn=sub_acting,
+        interaction_gateway=parent_gw,
+    )
+    handle = await runtime.spawn(spec)
+    # Wait for async task to finish
+    await runtime.wait(handle, timeout=2.0)
+    # Parent gateway was NOT called (auto-deny path)
+    assert parent_gw.received == []
