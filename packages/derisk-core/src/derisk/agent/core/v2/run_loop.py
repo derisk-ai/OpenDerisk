@@ -10,9 +10,6 @@ from derisk.agent.core.v2.runtime import run_step
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.step_state import StepState
-from derisk.agent.core.v2.thinking_chunk import ThinkingChunk, ToolCallChunk
-from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
-from derisk.agent.tools.context import ToolContext
 
 
 _AWAITING_STATES = {
@@ -60,6 +57,7 @@ async def run_loop(
 
     step_count = 0
     last_had_tool_calls = True
+    turn_complete_fired = False
 
     while step_count < max_steps and last_had_tool_calls:
         last_had_tool_calls = False
@@ -94,12 +92,6 @@ async def run_loop(
                 return
 
             if step_event.state == StepState.FAILED:
-                if hook_manager is not None:
-                    from derisk.agent.core.v2.hook_integration import (
-                        build_conversation_complete_context,
-                    )
-                    # error_occurred 也可触发，这里简化为直接 return
-                    pass
                 return
 
             if step_event.state == StepState.DONE and step_event.event_type == "step_done":
@@ -129,9 +121,10 @@ async def run_loop(
                         step_count=turn_ctx.step_count,
                     ),
                 )
+            turn_complete_fired = True
             break  # turn 结束，退出 loop
 
-    if step_count >= max_steps:
+    if step_count >= max_steps and not turn_complete_fired:
         # 达到上限，触发 turn_complete（interrupted=True）
         if hook_manager is not None:
             from derisk.agent.core.v2.hook_integration import (

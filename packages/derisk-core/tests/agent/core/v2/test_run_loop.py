@@ -88,3 +88,26 @@ async def test_turn_complete_hook_fires(store):
 async def test_awaiting_user_returns(store):
     """AWAITING_USER 状态时 run_loop 应 return（暂停）。"""
     pass  # TODO: 这个测试在 Task 16 完善
+
+
+async def test_max_steps_no_double_turn_complete(store):
+    """max_steps reached on no-tool step should fire turn_complete only once."""
+    call_count = {"n": 0}
+    async def thinking(input_):
+        call_count["n"] += 1
+        yield {"token": "x"}  # no tool_calls
+
+    hook_manager = MagicMock()
+    hook_manager.trigger = AsyncMock()
+    async for _ in run_loop(
+        agent_id="a1", conv_id="c1",
+        input_={"prompt": "hi", "session_id": "s1"},
+        state_store=store,
+        thinking_fn=thinking,
+        acting_fn=_acting_return_ok,
+        hook_manager=hook_manager,
+        max_steps=1,
+    ):
+        pass
+    turn_complete_calls = [c for c in hook_manager.trigger.call_args_list if c.args[0] == "turn_complete"]
+    assert len(turn_complete_calls) == 1, f"Expected 1 turn_complete, got {len(turn_complete_calls)}"
