@@ -117,6 +117,8 @@ class ActionOutput(BaseModel):
     stream: bool = False
 
     def __getattribute__(self, name: str):
+        # Fires on every access including hasattr()/getattr() introspection —
+        # acceptable trade-off since ask_user is a Pydantic field (can't use @property).
         if name == "ask_user":
             import warnings
             warnings.warn(
