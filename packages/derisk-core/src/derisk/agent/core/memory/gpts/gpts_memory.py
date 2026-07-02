@@ -851,6 +851,13 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
     async def queue_iterator(
         self, conv_id: str, timeout: Optional[float] = None
     ) -> Optional[QueueIterator]:
+        import warnings
+        warnings.warn(
+            "GptsMemory.queue_iterator is deprecated. "
+            "Use EventStream.subscribe() or step_event_to_stream_event() instead (V2 runtime).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         cache = await self._get_cache(conv_id)
         return QueueIterator(cache.channel, timeout=timeout) if cache else None
 
@@ -1241,6 +1248,13 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
         sender: Optional["ConversableAgent"] = None,  # type:ignore
         **kwargs,
     ):
+        import warnings
+        warnings.warn(
+            "GptsMemory.push_message is deprecated. "
+            "Use EventStream.emit() or BAIZESubsystemAdapter.on_worklog() instead (V2 runtime).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         cache = await self._get_cache(conv_id)
         if not cache or cache.stop_flag:
             return
