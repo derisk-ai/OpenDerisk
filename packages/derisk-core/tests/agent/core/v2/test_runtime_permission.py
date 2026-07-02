@@ -9,6 +9,8 @@ from derisk.agent.core.v2.permission_gate import PermissionGate, PermissionDecis
 from derisk.agent.core.v2.permission_mode import PermissionMode
 from derisk.agent.core.v2.session_cache import SessionPermissionCache
 from derisk.agent.core.v2.step_state import StepState, IllegalTransitionError
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.tools.context import ToolContext
 from derisk_core.permission.ruleset import PermissionRuleset, PermissionRule, PermissionAction
 
 
@@ -25,8 +27,8 @@ async def thinking_fn(input_):
     yield {"token": "", "tool_calls": [{"tool": "read_file", "input": {"path": "/x"}}]}
 
 
-async def acting_fn(tool_call):
-    return {"result": f"executed:{tool_call['tool']}"}
+async def acting_fn(tool_call: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+    return V2ToolResult.ok(output=f"executed:{tool_call.name}", tool_name=tool_call.name)
 
 
 def _make_gate(store, mode=PermissionMode.DEFAULT, ruleset=None, adapter=None):
@@ -53,7 +55,8 @@ async def test_run_step_with_permission_allow_executes_tool(store):
     tool_results = [e for e in events if e.event_type == "tool_result"]
     assert len(tool_calls) == 1
     assert len(tool_results) == 1
-    assert tool_results[0].output == {"result": "executed:read_file"}
+    assert tool_results[0].output["content"] == "executed:read_file"
+    assert tool_results[0].output["is_exe_success"] is True
     assert events[-1].state is StepState.DONE
 
 
