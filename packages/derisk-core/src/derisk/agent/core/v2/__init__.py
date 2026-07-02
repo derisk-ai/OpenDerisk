@@ -42,6 +42,25 @@ from derisk.agent.core.v2.stream_converter import step_event_to_stream_event
 from derisk.agent.core.v2.sse_adapter import stream_to_sse
 from derisk.agent.core.v2.baize_subsystem_adapter import BAIZESubsystemAdapter
 from derisk.agent.core.v2.usage_metric import emit_usage_metric, aggregate_usage
+from derisk.agent.core.v2.thinking_chunk import (
+    ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk,
+)
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.core.v2.tool_failure_tracker import ToolFailureTracker
+from derisk.agent.core.v2.retrying_thinking import retrying_thinking
+from derisk.agent.core.v2.tool_resolver import ToolResolver
+from derisk.agent.core.v2.tool_context_factory import ToolContextFactory
+from derisk.agent.core.v2.hook_integration import (
+    build_pre_tool_use_context,
+    build_post_tool_use_context,
+    build_turn_complete_context,
+    build_conversation_complete_context,
+)
+from derisk.agent.core.v2.memory_hook_setup import register_memory_hooks
+from derisk.agent.core.v2.default_acting import make_default_acting_fn
+from derisk.agent.core.v2.default_thinking import make_default_thinking_fn
+from derisk.agent.core.v2.llm_stream_adapter import make_derisk_llm_stream
+from derisk.agent.core.v2.run_loop import run_loop, trigger_conversation_complete
 
 __all__ = [
     "StepState",
@@ -78,4 +97,24 @@ __all__ = [
     "BAIZESubsystemAdapter",
     "emit_usage_metric",
     "aggregate_usage",
+    "ThinkingChunk",
+    "TokenChunk",
+    "ToolCallChunk",
+    "UsageChunk",
+    "V2ToolCall",
+    "V2ToolResult",
+    "ToolFailureTracker",
+    "retrying_thinking",
+    "ToolResolver",
+    "ToolContextFactory",
+    "build_pre_tool_use_context",
+    "build_post_tool_use_context",
+    "build_turn_complete_context",
+    "build_conversation_complete_context",
+    "register_memory_hooks",
+    "make_default_acting_fn",
+    "make_default_thinking_fn",
+    "make_derisk_llm_stream",
+    "run_loop",
+    "trigger_conversation_complete",
 ]
