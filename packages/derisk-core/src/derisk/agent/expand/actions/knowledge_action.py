@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 import json
 import logging
 from typing import Optional
@@ -102,11 +104,26 @@ class KnowledgeSearch(KnowledgeRetrieveAction, FunctionTool):
     def _execute_with_retriever(self, retriever, args, kwargs):
         """V2 路径: 使用 knowledge_retriever 执行搜索。"""
         tool_input = args[0] if args else kwargs
-        return f"knowledge_search via V2 retriever: query={tool_input.get('query', '')}"
+        query = tool_input.get("query", "")
+
+        def _run():
+            return asyncio.run(retriever.retrieve(query))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(_run).result()
+
+        if isinstance(result, list):
+            return "\n\n".join([getattr(c, "content", str(c)) for c in result])
+        return str(result)
 
     async def _async_execute_with_retriever(self, retriever, args, kwargs):
         """V2 异步路径: 使用 knowledge_retriever 执行搜索。"""
-        return self._execute_with_retriever(retriever, args, kwargs)
+        tool_input = args[0] if args else kwargs
+        query = tool_input.get("query", "")
+        result = await retriever.retrieve(query)
+        if isinstance(result, list):
+            return "\n\n".join([getattr(c, "content", str(c)) for c in result])
+        return str(result)
 
     @classmethod
     def parse_action(

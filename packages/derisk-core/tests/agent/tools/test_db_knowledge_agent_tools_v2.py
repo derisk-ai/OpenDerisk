@@ -6,7 +6,7 @@ AgentStart 工具迁移到 ToolContext。
 """
 
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 # Mock openai module (reasoning_engine.py imports BaseModel from openai)
@@ -137,18 +137,17 @@ class TestKnowledgeSearchV2Execute:
     """验证 KnowledgeSearch.execute() 从 context.get_resource("knowledge_retriever") 读取。"""
 
     def test_execute_with_v2_retriever(self):
-        """V2 路径: context 中有 knowledge_retriever 时使用 V2 路径。"""
-        mock_retriever = MagicMock()
+        """V2 路径: context 中有 knowledge_retriever 时调用 retriever.retrieve()。"""
+        mock_retriever = AsyncMock()
         ctx = ToolContext()
         ctx.set_resource("knowledge_retriever", mock_retriever)
 
         tool = KnowledgeSearch()
-        result = tool.execute(
+        tool.execute(
             {"query": "test query", "func": "search"},
             context=ctx,
         )
-        assert "V2 retriever" in result
-        assert "test query" in result
+        mock_retriever.retrieve.assert_called_once_with("test query")
 
     def test_execute_v2_context_no_retriever(self):
         """V2 context 激活但无 knowledge_retriever: 回退到 BAIZE 路径。"""
@@ -184,18 +183,17 @@ class TestKnowledgeSearchV2Execute:
         assert result.get("query") == "test"
 
     async def test_execute_integration_v2_retriever(self):
-        """execute() 集成测试: V2 context 路径。"""
-        mock_retriever = MagicMock()
+        """async_execute() 集成测试: V2 context 路径调用 retriever.retrieve()。"""
+        mock_retriever = AsyncMock()
         ctx = ToolContext()
         ctx.set_resource("knowledge_retriever", mock_retriever)
 
         tool = KnowledgeSearch()
-        result = await tool.async_execute(
+        await tool.async_execute(
             {"query": "integration test", "func": "search"},
             context=ctx,
         )
-        assert "V2 retriever" in result
-        assert "integration test" in result
+        mock_retriever.retrieve.assert_called_once_with("integration test")
 
     async def test_execute_integration_baize_fallback(self):
         """execute() 集成测试: BAIZE 回退路径。"""
@@ -211,19 +209,17 @@ class TestAgentStartV2Execute:
     """验证 AgentStart.execute() 从 context.get_resource("app_resource") 读取。"""
 
     def test_execute_with_v2_app_resource(self):
-        """V2 路径: context 中有 app_resource 时使用 V2 路径。"""
-        mock_app_resource = MagicMock()
+        """V2 路径: context 中有 app_resource 时调用 app_resource.async_execute()。"""
+        mock_app_resource = AsyncMock()
         ctx = ToolContext()
         ctx.set_resource("app_resource", mock_app_resource)
 
         tool = AgentStart()
-        result = tool.execute(
+        tool.execute(
             {"agent_id": "test_agent", "input": "do something"},
             context=ctx,
         )
-        assert "V2 app_resource" in result
-        assert "test_agent" in result
-        assert "do something" in result
+        mock_app_resource.async_execute.assert_called_once_with(user_input="do something")
 
     def test_execute_v2_context_no_app_resource(self):
         """V2 context 激活但无 app_resource: 返回提示信息（不抛异常）。"""
@@ -245,19 +241,17 @@ class TestAgentStartV2Execute:
             tool.execute({"agent_id": "test_agent", "input": "do something"})
 
     async def test_execute_integration_v2_app_resource(self):
-        """execute() 集成测试: V2 context 路径。"""
-        mock_app_resource = MagicMock()
+        """async_execute() 集成测试: V2 context 路径调用 app_resource.async_execute()。"""
+        mock_app_resource = AsyncMock()
         ctx = ToolContext()
         ctx.set_resource("app_resource", mock_app_resource)
 
         tool = AgentStart()
-        result = await tool.async_execute(
+        await tool.async_execute(
             {"agent_id": "sub_agent", "input": "integration task"},
             context=ctx,
         )
-        assert "V2 app_resource" in result
-        assert "sub_agent" in result
-        assert "integration task" in result
+        mock_app_resource.async_execute.assert_called_once_with(user_input="integration task")
 
     async def test_execute_integration_baize_raises(self):
         """execute() 集成测试: BAIZE 回退路径抛出 RuntimeError。"""
