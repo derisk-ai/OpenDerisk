@@ -17,6 +17,15 @@ from derisk.agent.core.v2 import (
     SessionPermissionCache,
     hash_tool_input,
     NoInteractionAdapterError,
+    SubAgentRuntime,
+    SubAgentSpawnSpec,
+    SubAgentHandle,
+    SubAgentMode,
+    SubAgentStatus,
+    SubAgentInteractionGateway,
+    SpawnSubagentTool,
+    AskUserAdapter,
+    PermissionCheckResult,
 )
 
 
@@ -37,3 +46,14 @@ def test_all_public_names_importable():
     assert PermissionDecision.DENY == "deny"
     assert PermissionDecision.AWAITING == "awaiting"
     assert issubclass(NoInteractionAdapterError, RuntimeError)
+
+
+def test_p2_exports():
+    assert SubAgentMode.SYNC.value == "sync"
+    assert SubAgentMode.ASYNC.value == "async"
+    assert SubAgentStatus.RUNNING.value == "running"
+    assert SubAgentStatus.DONE.value == "done"
+    assert callable(SubAgentRuntime)
+    assert callable(SpawnSubagentTool)
+    assert callable(AskUserAdapter)
+    assert PermissionCheckResult(decision="allow").decision == "allow"
