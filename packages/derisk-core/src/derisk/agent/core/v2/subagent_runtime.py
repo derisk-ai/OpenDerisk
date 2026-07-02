@@ -232,8 +232,30 @@ class SubAgentRuntime:
             pass
         return self._handles.get(handle.task_id, handle)
 
+    async def reconstruct_handle_from_transcript(self, task_id: str) -> Optional[SubAgentHandle]:
+        """Reconstruct a SubAgentHandle from the persisted async transcript."""
+        transcript = await self._store.get_transcript_by_task_id(task_id)
+        if transcript is None:
+            return None
+        return SubAgentHandle(
+            task_id=transcript["task_id"],
+            parent_step_id=transcript["parent_step_id"],
+            parent_conv_id=transcript["parent_conv_id"],
+            sub_conv_id=transcript["sub_conv_id"],
+            agent_name=transcript["agent_name"],
+            mode=SubAgentMode.ASYNC,
+            status=SubAgentStatus(transcript["status"]),
+            result=transcript["payload"].get("result"),
+            error=transcript["payload"].get("error"),
+            created_at=transcript["updated_at"],
+            updated_at=transcript["updated_at"],
+            transcript_id=transcript["transcript_id"],
+        )
+
     async def get_status(self, task_id: str) -> Optional[SubAgentHandle]:
-        return self._handles.get(task_id)
+        if task_id in self._handles:
+            return self._handles[task_id]
+        return await self.reconstruct_handle_from_transcript(task_id)
 
     async def cancel(self, task_id: str) -> bool:
         task = self._async_tasks.get(task_id)
@@ -254,4 +276,4 @@ class SubAgentRuntime:
 
     async def resume(self, task_id: str) -> Optional[SubAgentHandle]:
         """Re-attach to an async sub-agent. Returns current handle."""
-        return self._handles.get(task_id)
+        return await self.get_status(task_id)

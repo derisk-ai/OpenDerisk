@@ -65,6 +65,9 @@ class StateStore(ABC):
     async def get_transcript(self, transcript_id: str) -> Optional[dict]: ...
 
     @abstractmethod
+    async def get_transcript_by_task_id(self, task_id: str) -> Optional[dict]: ...
+
+    @abstractmethod
     async def list_transcripts_for_parent(self, parent_conv_id: str) -> List[dict]: ...
 
     @abstractmethod
@@ -354,6 +357,25 @@ class DbStateStore(StateStore):
                     "parent_conv_id, agent_name, status, latest_event_seq, payload, updated_at "
                     "FROM agent_transcript WHERE transcript_id = ?",
                     (transcript_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                d = dict(row)
+                d["payload"] = json.loads(d["payload"])
+                return d
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_do)
+
+    async def get_transcript_by_task_id(self, task_id: str) -> Optional[dict]:
+        def _do():
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT transcript_id, task_id, sub_conv_id, parent_step_id, "
+                    "parent_conv_id, agent_name, status, latest_event_seq, payload, updated_at "
+                    "FROM agent_transcript WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1",
+                    (task_id,),
                 ).fetchone()
                 if not row:
                     return None
