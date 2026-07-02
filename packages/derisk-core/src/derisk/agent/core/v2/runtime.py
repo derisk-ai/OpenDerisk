@@ -90,9 +90,12 @@ async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
             return
         if chunk.get("tool_calls"):
             result_box["tool_calls"].extend(chunk["tool_calls"])
+        output_data = {"token": chunk.get("token", "")}
+        if "usage" in chunk:
+            output_data["usage"] = chunk["usage"]
         yield await emit(
             StepState.THINKING, "llm_token",
-            output_data={"token": chunk.get("token", "")},
+            output_data=output_data,
         )
 
 
