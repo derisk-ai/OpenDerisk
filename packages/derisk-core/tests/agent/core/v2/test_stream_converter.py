@@ -67,5 +67,7 @@ def test_unknown_event_falls_back_to_workspace():
 
 
 def test_seq_and_timestamp_preserved():
-    se = step_event_to_stream_event(_make(StepState.INIT, "step_init", seq=42))
+    step_event = _make(StepState.INIT, "step_init", seq=42)
+    se = step_event_to_stream_event(step_event)
     assert se.seq == 42
+    assert se.timestamp == step_event.timestamp
