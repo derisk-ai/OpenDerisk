@@ -8,13 +8,16 @@ P1: + PermissionGate 在 ACTING 前拦截，AWAITING_TOOL_PERMISSION 状态
 from __future__ import annotations
 import uuid
 import time
-from typing import AsyncGenerator, Callable, Awaitable, Optional, Dict
+from typing import AsyncGenerator, Callable, Awaitable, Optional, Dict, TYPE_CHECKING
 from derisk.agent.core.v2.step_state import (
     StepState, validate_transition, IllegalTransitionError,
 )
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.event_stream import EventStream
+
+if TYPE_CHECKING:
+    from derisk.agent.core.v2.subagent_runtime import SubAgentRuntime
 
 
 ThinkingFn = Callable[[dict], AsyncGenerator[dict, None]]
@@ -93,9 +96,44 @@ async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
         )
 
 
-async def _run_acting_phase(emit, gate, tool_calls, acting_fn, state_store=None):
+async def _run_acting_phase(
+    emit, gate, tool_calls, acting_fn, state_store=None,
+    subagent_runtime=None, parent_step_id=None, parent_conv_id=None,
+    parent_agent_id=None,
+):
     """ACTING + OBSERVING 阶段。每个 tool_call 前 PermissionGate.check()。"""
     for tc in tool_calls:
+        # Sub-agent interception (spec §8)
+        if tc.get("tool") == "spawn_subagent" and subagent_runtime is not None:
+            from derisk.agent.core.v2.subagent_runtime import SubAgentSpawnSpec
+            spec_input = tc.get("input", {})
+            # Strip test-only injected callables from persisted event input
+            display_input = {k: v for k, v in spec_input.items() if not k.startswith("_")}
+            yield await emit(
+                StepState.AWAITING_SUB_AGENT, "subagent_spawn",
+                input_data={**tc, "input": display_input},
+            )
+            spec = SubAgentSpawnSpec(
+                agent_name=spec_input.get("agent_name", "unknown"),
+                task=spec_input.get("task", ""),
+                run_in_background=spec_input.get("run_in_background", False),
+                context=spec_input.get("context", {}),
+                parent_step_id=parent_step_id or "step-unknown",
+                parent_conv_id=parent_conv_id or "conv-unknown",
+                parent_agent_id=parent_agent_id or "agent-unknown",
+                depth=0,  # P2 simplification: depth tracking via context in P3
+                thinking_fn=spec_input.get("_sub_thinking_fn"),
+                acting_fn=spec_input.get("_sub_acting_fn"),
+                interaction_gateway=None,
+            )
+            handle = await subagent_runtime.spawn(spec)
+            yield await emit(
+                StepState.OBSERVING, "tool_result",
+                output_data=handle.to_payload(),
+            )
+            continue
+
+        # PermissionGate path (existing)
         if gate is not None:
             async for perm_event in gate.check(tc, emit=emit):
                 yield perm_event
@@ -128,6 +166,7 @@ async def run_step(
     acting_fn: Optional[ActingFn] = None,
     parent_step_id: Optional[str] = None,
     permission_gate: Optional[PermissionGate] = None,
+    subagent_runtime: Optional["SubAgentRuntime"] = None,
 ) -> AsyncGenerator[StepEvent, None]:
     """跑一个 step，yield 所有 StepEvent。每个事件持久化后再 yield。"""
     stream = EventStream(state_store)
@@ -144,7 +183,12 @@ async def run_step(
         return
 
     if result_box["tool_calls"]:
-        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn, state_store=state_store):
+        async for e in _run_acting_phase(
+            emit, permission_gate, result_box["tool_calls"], acting_fn,
+            state_store=state_store,
+            subagent_runtime=subagent_runtime,
+            parent_step_id=step_id, parent_conv_id=conv_id, parent_agent_id=agent_id,
+        ):
             yield e
 
     yield await emit(StepState.DONE, "step_done")
@@ -159,6 +203,7 @@ async def resume_step(
     acting_fn: Optional[ActingFn] = None,
     step_id: Optional[str] = None,
     permission_gate: Optional[PermissionGate] = None,
+    subagent_runtime: Optional["SubAgentRuntime"] = None,
 ) -> AsyncGenerator[StepEvent, None]:
     """从崩溃点续接。
 
@@ -167,8 +212,11 @@ async def resume_step(
     - 有 step_id 且最后状态是 THINKING/ACTING/OBSERVING/INIT：重做该 step
     """
     if not step_id:
-        async for e in run_step(agent_id, conv_id, input_, state_store,
-                                thinking_fn, acting_fn, permission_gate=permission_gate):
+        async for e in run_step(
+            agent_id, conv_id, input_, state_store,
+            thinking_fn, acting_fn, permission_gate=permission_gate,
+            subagent_runtime=subagent_runtime,
+        ):
             yield e
         return
 
@@ -203,7 +251,12 @@ async def resume_step(
         return
 
     if result_box["tool_calls"]:
-        async for e in _run_acting_phase(emit, permission_gate, result_box["tool_calls"], acting_fn, state_store=state_store):
+        async for e in _run_acting_phase(
+            emit, permission_gate, result_box["tool_calls"], acting_fn,
+            state_store=state_store,
+            subagent_runtime=subagent_runtime,
+            parent_step_id=step_id, parent_conv_id=conv_id, parent_agent_id=agent_id,
+        ):
             yield e
 
     yield await emit(StepState.DONE, "step_done")
