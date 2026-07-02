@@ -626,13 +626,6 @@ class ConversableAgent(Role, Agent):
         action = self.check_tool_permission(tool_name, command)
         return action == PermissionAction.DENY
 
-    def needs_tool_approval(
-        self, tool_name: str, command: Optional[str] = None
-    ) -> bool:
-        """检查工具是否需要用户批准"""
-        action = self.check_tool_permission(tool_name, command)
-        return action == PermissionAction.ASK
-
     def get_effective_max_steps(self) -> int:
         """获取有效的最大步骤数"""
         if self.max_steps is not None:
