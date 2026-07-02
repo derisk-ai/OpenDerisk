@@ -161,6 +161,7 @@ async def _run_acting_phase(
                         conv_id=conv_id or parent_conv_id or "conv-unknown",
                     )
                     # Re-emit via runtime's emit so seq is correct
+                    _step_state_tracker.pop(step_id or parent_step_id or "step-unknown", None)
                     yield await emit(
                         StepState.AWAITING_USER, "interaction_request",
                         input_data=ask_event.input,
