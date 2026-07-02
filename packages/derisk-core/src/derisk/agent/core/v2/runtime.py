@@ -102,6 +102,11 @@ async def _run_acting_phase(
     parent_agent_id=None, step_id=None, conv_id=None,
 ):
     """ACTING + OBSERVING 阶段。每个 tool_call 前 PermissionGate.check()。"""
+    if step_id is None:
+        raise ValueError("step_id is required for _run_acting_phase")
+    if conv_id is None:
+        raise ValueError("conv_id is required for _run_acting_phase")
+
     for tc in tool_calls:
         # Sub-agent interception (spec §8)
         if tc.get("tool") == "spawn_subagent" and subagent_runtime is not None:
@@ -157,11 +162,10 @@ async def _run_acting_phase(
                 if adapter is not None:
                     ask_event = await adapter.convert(
                         result_dict["ask_user"],
-                        step_id=step_id or parent_step_id or "step-unknown",
-                        conv_id=conv_id or parent_conv_id or "conv-unknown",
+                        step_id=step_id,
+                        conv_id=conv_id,
                     )
                     # Re-emit via runtime's emit so seq is correct
-                    _step_state_tracker.pop(step_id or parent_step_id or "step-unknown", None)
                     yield await emit(
                         StepState.AWAITING_USER, "interaction_request",
                         input_data=ask_event.input,
