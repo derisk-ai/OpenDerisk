@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 import json
 import logging
 import time
@@ -263,11 +265,22 @@ class AgentStart(AgentAction, FunctionTool):
     def _execute_with_app_resource(self, app_resource, args, kwargs):
         """V2 路径: 使用 app_resource 执行 agent_start。"""
         tool_input = args[0] if args else kwargs
-        return f"agent_start via V2 app_resource: agent_id={tool_input.get('agent_id', '')}, input={tool_input.get('input', '')}"
+        user_input = tool_input.get("input", "")
+
+        def _run():
+            return asyncio.run(app_resource.async_execute(user_input=user_input))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(_run).result()
+
+        return str(result)
 
     async def _async_execute_with_app_resource(self, app_resource, args, kwargs):
         """V2 异步路径: 使用 app_resource 执行 agent_start。"""
-        return self._execute_with_app_resource(app_resource, args, kwargs)
+        tool_input = args[0] if args else kwargs
+        user_input = tool_input.get("input", "")
+        result = await app_resource.async_execute(user_input=user_input)
+        return str(result)
 
     @classmethod
     def parse_action(
