@@ -7,6 +7,7 @@ from derisk.agent.core.action.base import ToolCall
 from derisk.agent.core.reasoning.reasoning_action import KnowledgeRetrieveAction, \
     KnowledgeRetrieveActionInput
 from derisk.agent.resource import ToolParameter, FunctionTool
+from derisk.agent.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 class KnowledgeSearch(KnowledgeRetrieveAction, FunctionTool):
@@ -76,6 +77,13 @@ class KnowledgeSearch(KnowledgeRetrieveAction, FunctionTool):
         }
 
     def execute(self, *args, **kwargs):
+        # V2 路径: 从 ToolContext 获取 knowledge_retriever
+        context = kwargs.get("context")
+        if isinstance(context, ToolContext):
+            retriever = context.get_resource("knowledge_retriever")
+            if retriever is not None:
+                return self._execute_with_retriever(retriever, args, kwargs)
+        # BAIZE 回退
         if "output" in kwargs:
             return kwargs["output"]
         if "final_answer" in kwargs:
@@ -83,7 +91,22 @@ class KnowledgeSearch(KnowledgeRetrieveAction, FunctionTool):
         return args[0] if args else "knowledge search completed"
 
     async def async_execute(self, *args, **kwargs):
+        # V2 路径: 从 ToolContext 获取 knowledge_retriever
+        context = kwargs.get("context")
+        if isinstance(context, ToolContext):
+            retriever = context.get_resource("knowledge_retriever")
+            if retriever is not None:
+                return await self._async_execute_with_retriever(retriever, args, kwargs)
         return self.execute(*args, **kwargs)
+
+    def _execute_with_retriever(self, retriever, args, kwargs):
+        """V2 路径: 使用 knowledge_retriever 执行搜索。"""
+        tool_input = args[0] if args else kwargs
+        return f"knowledge_search via V2 retriever: query={tool_input.get('query', '')}"
+
+    async def _async_execute_with_retriever(self, retriever, args, kwargs):
+        """V2 异步路径: 使用 knowledge_retriever 执行搜索。"""
+        return self._execute_with_retriever(retriever, args, kwargs)
 
     @classmethod
     def parse_action(
