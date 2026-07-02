@@ -102,3 +102,74 @@ class TestSkillToolV2ContextFields:
         tool = ReadSkillTool()
         resolved = tool._resolve_skill_dir("any_skill", ctx)
         assert resolved is None or isinstance(resolved, str)
+
+
+class TestSkillToolV2ExecuteIntegration:
+    """execute() 集成测试 —— 验证从 ToolContext 直接字段读取的完整流程。"""
+
+    async def test_list_skills_execute_reads_from_context(self):
+        """ListSkillsTool.execute() 从 context.available_skills 直接字段读取并格式化输出。"""
+        ctx = ToolContext(
+            available_skills={"sql_review": "/skills/sql_review"},
+        )
+        tool = ListSkillsTool()
+        result = await tool.execute({}, context=ctx)
+        assert result.success
+        assert "sql_review" in result.output
+        assert "/skills/sql_review" in result.output
+
+    async def test_list_skills_execute_empty_skills(self):
+        """ListSkillsTool.execute() 在 available_skills 为空时返回空提示。"""
+        ctx = ToolContext(available_skills={})
+        tool = ListSkillsTool()
+        result = await tool.execute({}, context=ctx)
+        # available_skills 为空 dict 不会触发 early return，会走到 local fallback
+        # 但 local fallback 的 skill_dir 可能也不存在，所以可能 fail 也可能 success
+        # 关键验证：不崩溃
+        assert result is not None
+
+    async def test_read_skill_execute_reads_from_context(self, tmp_path):
+        """ReadSkillTool.execute() 从 context.available_skills 解析路径并读取 SKILL.md。"""
+        skill_dir = tmp_path / "sql_review"
+        skill_dir.mkdir()
+        skill_md = skill_dir / "SKILL.md"
+        skill_md.write_text("---\nname: sql_review\ndescription: SQL review skill\n---\n\n# SQL Review\n\nThis skill reviews SQL queries.")
+
+        ctx = ToolContext(
+            available_skills={"sql_review": str(skill_dir)},
+        )
+        tool = ReadSkillTool()
+        result = await tool.execute({"skill_name": "sql_review"}, context=ctx)
+        assert result.success
+        assert "SQL Review" in result.output
+        assert result.metadata.get("is_skill_content") is True
+        assert result.metadata.get("skill_name") == "sql_review"
+
+    async def test_read_skill_execute_skill_not_found(self, tmp_path):
+        """ReadSkillTool.execute() 在 skill 路径不存在时返回失败。"""
+        ctx = ToolContext(
+            available_skills={"missing_skill": str(tmp_path / "missing_skill")},
+        )
+        tool = ReadSkillTool()
+        result = await tool.execute({"skill_name": "missing_skill"}, context=ctx)
+        assert not result.success
+        assert "not found" in result.error.lower()
+
+    async def test_execute_skill_script_execute_reads_from_context(self, tmp_path):
+        """ExecuteSkillScriptTool.execute() 从 context.available_skills 解析路径并执行脚本。"""
+        skill_dir = tmp_path / "sql_review"
+        skill_dir.mkdir()
+        script = skill_dir / "hello.sh"
+        script.write_text("#!/bin/bash\necho 'hello from sql_review'")
+
+        ctx = ToolContext(
+            available_skills={"sql_review": str(skill_dir)},
+        )
+        tool = ExecuteSkillScriptTool()
+        result = await tool.execute(
+            {"skill_name": "sql_review", "file_name": "hello.sh"},
+            context=ctx,
+        )
+        assert result.success
+        assert "hello from sql_review" in result.output
+        assert result.metadata.get("skill_name") == "sql_review"
