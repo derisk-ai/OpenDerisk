@@ -63,17 +63,17 @@ class SandboxToolBase(ToolBase):
                     return sandbox_manager.get_client()
             return None
 
-        # 尝试从 context 的 config 中获取
-        client = context.config.get("sandbox_client")
-        if client is not None:
-            return client
-
-        # 尝试从资源中获取
+        # V2 path: 优先从 get_resource 获取（ToolContextFactory.build() 注入）
         client = context.get_resource("sandbox_client")
         if client is not None:
             return client
 
-        # 尝试从 sandbox_manager 获取
+        # BAIZE 兼容路径: 从 context.config 获取
+        client = context.config.get("sandbox_client")
+        if client is not None:
+            return client
+
+        # BAIZE 兼容路径: 从 sandbox_manager 获取
         sandbox_manager = context.config.get("sandbox_manager")
         if sandbox_manager is not None:
             if hasattr(sandbox_manager, "client"):
