@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from derisk.agent.core.v2.spawn_subagent_tool import SpawnSubagentTool
 from derisk.agent.core.v2.subagent_runtime import SubAgentRuntime
 from derisk.agent.core.v2.state_store import DbStateStore
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.tools.context import ToolContext
 
 
 @pytest.fixture
@@ -20,8 +22,8 @@ async def _subagent_thinking(input_):
     yield {"token": "sub", "tool_calls": []}
 
 
-async def _subagent_acting(tc):
-    return {"result": "ok"}
+async def _subagent_acting(tc: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+    return V2ToolResult.ok(output="ok", tool_name=tc.name)
 
 
 def _make_tool(store, max_depth=5):

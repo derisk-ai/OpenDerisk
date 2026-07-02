@@ -7,6 +7,8 @@ from derisk.agent.core.v2.subagent_runtime import (
 )
 from derisk.agent.core.v2.subagent_handle import SubAgentMode, SubAgentStatus
 from derisk.agent.core.v2.state_store import DbStateStore
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.tools.context import ToolContext
 
 
 @pytest.fixture
@@ -23,8 +25,8 @@ async def _subagent_thinking(input_):
     yield {"token": "", "tool_calls": []}
 
 
-async def _subagent_acting(tc):
-    return {"result": f"sub:{tc.get('tool', '')}"}
+async def _subagent_acting(tc: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+    return V2ToolResult.ok(output=f"sub:{tc.name}", tool_name=tc.name)
 
 
 def _make_spec(parent_step_id="step-p", parent_conv_id="conv-p", run_in_background=False, depth=0):
@@ -140,8 +142,8 @@ async def test_sync_subagent_delegates_asks_to_parent_gateway(store):
     async def sub_thinking(input_):
         yield {"token": "", "tool_calls": [{"tool": "ask_user_tool", "input": {"q": "name?"}}]}
 
-    async def sub_acting(tc):
-        return {"result": "ok"}
+    async def sub_acting(tc: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+        return V2ToolResult.ok(output="ok", tool_name="ask_user_tool")
 
     # Force the gate to ASK for ask_user_tool so we can prove delegation to parent.
     ruleset = PermissionRuleset(rules={
@@ -181,8 +183,8 @@ async def test_async_subagent_auto_denies_asks(store):
     async def sub_thinking(input_):
         yield {"token": "", "tool_calls": [{"tool": "ask_user_tool", "input": {"q": "name?"}}]}
 
-    async def sub_acting(tc):
-        return {"result": "auto-denied path"}
+    async def sub_acting(tc: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+        return V2ToolResult.ok(output="auto-denied path", tool_name="ask_user_tool")
 
     parent_gw = TrackingParentGateway()
     runtime = SubAgentRuntime(state_store=store, max_depth=5)

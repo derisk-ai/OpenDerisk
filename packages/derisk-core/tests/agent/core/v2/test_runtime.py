@@ -6,6 +6,8 @@ from derisk.agent.core.v2.runtime import run_step, resume_step
 from derisk.agent.core.v2.state_store import DbStateStore
 from derisk.agent.core.v2.recovery import RecoveryCoordinatorV2
 from derisk.agent.core.v2.step_state import StepState
+from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
+from derisk.agent.tools.context import ToolContext
 
 
 @pytest.fixture
@@ -22,8 +24,8 @@ async def thinking_fn(input_):
     yield {"token": "world"}
 
 
-async def acting_fn(tool_call):
-    return {"result": f"executed:{tool_call['tool']}"}
+async def acting_fn(tool_call: V2ToolCall, ctx: ToolContext) -> V2ToolResult:
+    return V2ToolResult.ok(output=f"executed:{tool_call.name}", tool_name=tool_call.name)
 
 
 async def test_run_step_produces_init_thinking_done(store):
@@ -56,7 +58,8 @@ async def test_run_step_with_acting(store):
     tool_results = [e for e in events if e.event_type == "tool_result"]
     assert len(tool_calls) == 1
     assert len(tool_results) == 1
-    assert tool_results[0].output == {"result": "executed:read_file"}
+    assert tool_results[0].output["content"] == "executed:read_file"
+    assert tool_results[0].output["is_exe_success"] is True
 
 
 async def test_crash_recovery_resumes_awaiting(store):
