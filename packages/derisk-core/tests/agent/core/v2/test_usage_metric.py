@@ -6,6 +6,7 @@ import pytest
 from derisk.agent.core.v2.event_stream import EventStream
 from derisk.agent.core.v2.state_store import DbStateStore
 from derisk.agent.core.v2.usage_metric import aggregate_usage, emit_usage_metric
+from derisk.agent.core.v2.step_state import StepState
 
 
 @pytest.fixture
@@ -121,6 +122,25 @@ async def test_aggregate_usage_sums_all(store):
     assert agg["total"] == 350
     assert agg["prompt"] == 300
     assert agg["completion"] == 50
+
+
+async def test_emit_usage_metric_with_acting_state(store):
+    emit = await _fake_emit_factory(store)
+    await emit_usage_metric(
+        store=store,
+        emit=emit,
+        step_id="step-1",
+        conv_id="conv-1",
+        agent_id="agent-1",
+        llm_call_id="call-1",
+        model="claude-sonnet-4-6",
+        this_call={"prompt": 100, "completion": 20, "total": 120},
+        current_state=StepState.ACTING,
+    )
+    events = await store.get_events("conv-1")
+    usage_events = [e for e in events if e.event_type == "usage_metric"]
+    assert len(usage_events) == 1
+    assert usage_events[0].output["this_call"]["total"] == 120
 
 
 async def test_context_window_and_ratio(store):

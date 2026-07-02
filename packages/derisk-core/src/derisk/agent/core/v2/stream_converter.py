@@ -17,10 +17,6 @@ def step_event_to_stream_event(step_event: StepEvent) -> StreamEvent:
     payload = {
         **step_event.input,
         **step_event.output,
-        "step_id": step_event.step_id,
-        "conv_id": step_event.conv_id,
-        "agent_id": step_event.agent_id,
-        "parent_step_id": step_event.parent_step_id,
     }
 
     if event_type == "step_init" and state is StepState.INIT:

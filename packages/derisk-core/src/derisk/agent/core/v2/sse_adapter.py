@@ -55,6 +55,9 @@ async def stream_to_sse(
             yield _sse_data(
                 {"type": "error", "content": event.payload.get("message", "")}
             )
+        elif event.type == "step_end":
+            yield _sse_data({"type": event.type, "payload": event.payload})
+            yield 'data:{"vis":"[DONE]"} \n\n'
         elif event.type == "done":
             yield 'data:{"vis":"[DONE]"} \n\n'
         else:
