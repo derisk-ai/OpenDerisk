@@ -94,7 +94,9 @@ class SubAgentRuntime:
 
         return handle
 
-    def _make_permission_gate(self, handle: SubAgentHandle, spec: SubAgentSpawnSpec):
+    async def _make_permission_gate(
+        self, handle: SubAgentHandle, spec: SubAgentSpawnSpec
+    ):
         """Build a PermissionGate wired to the parent's gateway (if any)."""
         if spec.interaction_gateway is None:
             return None
@@ -118,7 +120,7 @@ class SubAgentRuntime:
         handle.status = SubAgentStatus.RUNNING
         self._handles[handle.task_id] = handle
         input_ = {"prompt": spec.task, **spec.context}
-        permission_gate = self._make_permission_gate(handle, spec)
+        permission_gate = await self._make_permission_gate(handle, spec)
         try:
             result = {"events": []}
             async for event in run_step(
@@ -148,7 +150,7 @@ class SubAgentRuntime:
     ) -> None:
         """Async mode: run in background, update transcript periodically."""
         input_ = {"prompt": spec.task, **spec.context}
-        permission_gate = self._make_permission_gate(handle, spec)
+        permission_gate = await self._make_permission_gate(handle, spec)
         try:
             latest_seq = 0
             async for event in run_step(
