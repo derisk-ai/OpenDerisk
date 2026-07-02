@@ -99,7 +99,7 @@ async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
 async def _run_acting_phase(
     emit, gate, tool_calls, acting_fn, state_store=None,
     subagent_runtime=None, parent_step_id=None, parent_conv_id=None,
-    parent_agent_id=None,
+    parent_agent_id=None, step_id=None, conv_id=None,
 ):
     """ACTING + OBSERVING 阶段。每个 tool_call 前 PermissionGate.check()。"""
     for tc in tool_calls:
@@ -150,6 +150,22 @@ async def _run_acting_phase(
         yield await emit(StepState.ACTING, "tool_call", input_data=tc)
         if acting_fn is not None:
             result_dict = await acting_fn(tc)
+            # P2 follow-up: legacy ActionOutput.ask_user compat (§9.4)
+            if isinstance(result_dict, dict) and "ask_user" in result_dict:
+                from derisk.agent.core.v2.ask_user_adapter import AskUserAdapter
+                adapter = AskUserAdapter(state_store=state_store) if state_store else None
+                if adapter is not None:
+                    ask_event = await adapter.convert(
+                        result_dict["ask_user"],
+                        step_id=step_id or parent_step_id or "step-unknown",
+                        conv_id=conv_id or parent_conv_id or "conv-unknown",
+                    )
+                    # Re-emit via runtime's emit so seq is correct
+                    yield await emit(
+                        StepState.AWAITING_USER, "interaction_request",
+                        input_data=ask_event.input,
+                    )
+                    return  # step suspended
             yield await emit(StepState.OBSERVING, "tool_result", output_data=result_dict)
 
 
@@ -188,8 +204,12 @@ async def run_step(
             state_store=state_store,
             subagent_runtime=subagent_runtime,
             parent_step_id=step_id, parent_conv_id=conv_id, parent_agent_id=agent_id,
+            step_id=step_id, conv_id=conv_id,
         ):
             yield e
+        # P2 follow-up: if acting phase suspended for user input, don't emit DONE
+        if _step_state_tracker.get(step_id) in _AWAITING_STATES:
+            return
 
     yield await emit(StepState.DONE, "step_done")
 
@@ -256,7 +276,11 @@ async def resume_step(
             state_store=state_store,
             subagent_runtime=subagent_runtime,
             parent_step_id=step_id, parent_conv_id=conv_id, parent_agent_id=agent_id,
+            step_id=step_id, conv_id=conv_id,
         ):
             yield e
+        # P2 follow-up: if acting phase suspended for user input, don't emit DONE
+        if _step_state_tracker.get(step_id) in _AWAITING_STATES:
+            return
 
     yield await emit(StepState.DONE, "step_done")
