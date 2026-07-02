@@ -57,6 +57,14 @@ export function parseChunkData(
 
 const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props) => {
   const [ctrl, setCtrl] = useState<AbortController>({} as AbortController);
+  const [usageMetrics, setUsageMetrics] = useState<{
+    total: number;
+    prompt: number;
+    completion: number;
+    context_window: number;
+    ratio: number;
+    step_state?: string;
+  } | null>(null);
 
   const chatV1 = useCallback(
     async ({ data, onMessage, onClose, onDone, onError, onWorkspaceEvent, ctrl }: ChatParams) => {
@@ -105,6 +113,9 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
                 } else if (vis.type === 'error') {
                   onError?.(vis.content || '对话发生错误');
                   return;
+                } else if (vis.type === 'usage_metric') {
+                  setUsageMetrics(vis.payload);
+                  return;
                 } else if (
                   vis.type === 'task_created' ||
                   vis.type === 'context_loaded' ||
@@ -151,7 +162,7 @@ const useChat = ({ queryAgentURL = '/api/v1/chat/completions', app_code }: Props
     [chatV1],
   );
 
-  return { chat, ctrl };
+  return { chat, ctrl, usageMetrics };
 };
 
 export default useChat;
