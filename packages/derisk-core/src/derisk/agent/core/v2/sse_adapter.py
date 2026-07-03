@@ -1,7 +1,17 @@
 """stream_to_sse — StreamEvent → SSE data line converter.
 
-Spec §10.3. Reuses existing VisProtocolConverter for content events (VIS markdown).
-Frontend SSE protocol unchanged — the adapter produces the same `data:{"vis":...}` format.
+Emits BAIZE-compatible vis format so the existing frontend (use-chat.ts) renders
+V2 events the same way it renders BAIZE events:
+  - text tokens  → data:{"vis":"<text>"}\n\n          (string vis, appended to current message)
+  - metadata     → data:{"vis":{"type":"metadata",...}}\n\n
+  - error        → data:{"vis":{"type":"error","content":"..."}}\n\n
+  - interaction  → data:{"vis":{"type":"intervention_triggered","payload":{...}}}\n\n
+  - usage_metric → data:{"vis":{"type":"usage_metric","payload":{...}}}\n\n
+  - done         → data:{"vis":"[DONE]"} \n\n
+
+Internal V2 events without a BAIZE equivalent (step_start, step_end, tool_call,
+tool_result, sub_agent_start) are suppressed — the frontend has no vis type for
+them and would otherwise render the raw object as text.
 """
 from __future__ import annotations
 
@@ -15,20 +25,20 @@ def _sse_data(vis: Any) -> str:
     return f"data:{json.dumps({'vis': vis}, ensure_ascii=False)}\n\n"
 
 
+def _sse_text(token: str) -> str:
+    """String vis — frontend appends to current message text."""
+    return f"data:{json.dumps({'vis': token}, ensure_ascii=False)}\n\n"
+
+
+def _sse_done() -> str:
+    return 'data:{"vis":"[DONE]"} \n\n'
+
+
 async def stream_to_sse(
     event_stream: AsyncGenerator[StreamEvent, None],
     vis_converter: Optional[Any] = None,
 ) -> AsyncGenerator[str, None]:
-    """Convert StreamEvents to SSE data lines.
-
-    Args:
-        event_stream: async generator of StreamEvent
-        vis_converter: optional VisProtocolConverter with .visualization(payload) -> str
-            (used for content events to produce VIS markdown)
-
-    Yields:
-        SSE-formatted strings (each ending with `\n\n`)
-    """
+    """Convert StreamEvents to BAIZE-compatible SSE data lines."""
     async for event in event_stream:
         if event.type == "metadata":
             yield _sse_data(
@@ -43,10 +53,11 @@ async def stream_to_sse(
                 yield _sse_data(vis_converter.visualization(event.payload))
             else:
                 yield _sse_data({"type": "content", "payload": event.payload})
-        elif event.type == "workspace":
-            inner_type = event.payload.get("event_type", "workspace")
-            inner_payload = {k: v for k, v in event.payload.items() if k != "event_type"}
-            yield _sse_data({"type": inner_type, "payload": inner_payload})
+        elif event.type == "llm_token":
+            # BAIZE compat: emit token as string vis so frontend appends to message
+            token = event.payload.get("token", "")
+            if token:
+                yield _sse_text(token)
         elif event.type == "interaction_request":
             yield _sse_data({"type": "intervention_triggered", "payload": event.payload})
         elif event.type == "usage_metric":
@@ -55,10 +66,12 @@ async def stream_to_sse(
             yield _sse_data(
                 {"type": "error", "content": event.payload.get("message", "")}
             )
-        elif event.type == "step_end":
-            yield _sse_data({"type": event.type, "payload": event.payload})
-            yield 'data:{"vis":"[DONE]"} \n\n'
+        elif event.type in ("step_start", "step_end", "tool_call", "tool_result",
+                            "sub_agent_start", "workspace"):
+            # No BAIZE vis equivalent — suppress to avoid raw-object-as-text rendering
+            continue
         elif event.type == "done":
-            yield 'data:{"vis":"[DONE]"} \n\n'
+            yield _sse_done()
         else:
-            yield _sse_data({"type": event.type, "payload": event.payload})
+            # Unknown type — suppress by default to avoid frontend fallback to text
+            continue

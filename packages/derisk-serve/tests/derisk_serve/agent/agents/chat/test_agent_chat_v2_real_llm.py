@@ -16,8 +16,9 @@ class TestV2RealLLMDispatch:
 
     @pytest.mark.asyncio
     async def test_v2_real_llm_produces_thinking_tokens(self):
-        """V2 dispatch with mock LLMClient yields token events from real thinking_fn."""
-        from derisk.core.interface.llm import ModelOutput
+        """V2 dispatch with mock AIWrapper yields token events from real thinking_fn."""
+        from derisk.agent.util.llm.llm_client import AgentLLMOut
+        from derisk.core.interface.llm import ModelInferenceMetrics
         from derisk.agent.core.v2 import (
             run_loop,
             DbStateStore,
@@ -26,16 +27,20 @@ class TestV2RealLLMDispatch:
         )
         from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
 
-        # Mock AIWrapper.create — BAIZE-pattern (ai_wrapper.create(stream_out=True) → yield ModelOutput)
+        # Mock AIWrapper.create — BAIZE-pattern, yields AgentLLMOut (production type)
         ai_wrapper = MagicMock()
 
         async def _fake_create(**kwargs):
-            yield ModelOutput(error_code=0, text="Hello")
-            yield ModelOutput(error_code=0, text=" from V2!")
-            yield ModelOutput(
-                error_code=0,
-                text="",
-                usage={"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+            yield AgentLLMOut(content="Hello", thinking_content=None)
+            yield AgentLLMOut(content=" from V2!", thinking_content=None)
+            yield AgentLLMOut(
+                content="",
+                thinking_content=None,
+                metrics=ModelInferenceMetrics(
+                    prompt_tokens=10,
+                    completion_tokens=3,
+                    total_tokens=13,
+                ),
             )
 
         ai_wrapper.create = _fake_create
@@ -95,7 +100,8 @@ class TestV2RealLLMDispatch:
     @pytest.mark.asyncio
     async def test_v2_real_llm_handles_tool_calls(self):
         """V2 dispatch yields tool_call events when LLM emits tool_calls."""
-        from derisk.core.interface.llm import ModelOutput
+        from derisk.agent.util.llm.llm_client import AgentLLMOut
+        from derisk.core.interface.llm import ModelInferenceMetrics
         from derisk.agent.core.v2 import (
             run_loop,
             DbStateStore,
@@ -107,9 +113,9 @@ class TestV2RealLLMDispatch:
         ai_wrapper = MagicMock()
 
         async def _fake_create(**kwargs):
-            yield ModelOutput(
-                error_code=0,
-                text="Let me check that.",
+            yield AgentLLMOut(
+                content="Let me check that.",
+                thinking_content=None,
                 tool_calls=[
                     {
                         "id": "call_1",
@@ -120,10 +126,14 @@ class TestV2RealLLMDispatch:
                     }
                 ],
             )
-            yield ModelOutput(
-                error_code=0,
-                text="",
-                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            yield AgentLLMOut(
+                content="",
+                thinking_content=None,
+                metrics=ModelInferenceMetrics(
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    total_tokens=15,
+                ),
             )
 
         ai_wrapper.create = _fake_create

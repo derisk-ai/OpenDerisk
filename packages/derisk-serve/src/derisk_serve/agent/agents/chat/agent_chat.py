@@ -2578,6 +2578,7 @@ class AgentChat(BaseComponent, ABC):
             scheduler: Scheduler = LocalScheduler(cache=cache)
 
             # V2 dispatch: minimal end-to-end path (no memory/sandbox/hook)
+            logger.info(f"[V2 dispatch check] gpts_app.agent_version={gpts_app.agent_version}")
             if gpts_app.agent_version == "v2":
                 import os
                 from derisk.configs.model_config import DATA_DIR
@@ -2591,6 +2592,8 @@ class AgentChat(BaseComponent, ABC):
                     make_derisk_llm_stream_fn,
                 )
                 from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
+
+                logger.info(f"[V2 dispatch] Entering V2 dispatch for conv_uid={conv_uid}")
 
                 # Extract user prompt text from the message
                 if isinstance(user_query.content, str):
@@ -2690,7 +2693,21 @@ class AgentChat(BaseComponent, ABC):
 
                 cache = await self.memory.cache(conv_uid)
                 try:
+                    # BAIZE 兼容：先发 metadata，前端 use-chat.ts 依赖它建立会话上下文
+                    metadata_content = orjson.dumps(
+                        {
+                            "vis": {
+                                "type": "metadata",
+                                "conv_session_id": conv_session_id,
+                                "conv_uid": conv_uid,
+                            }
+                        }
+                    ).decode("utf-8")
+                    if cache:
+                        cache.channel.put_nowait(f"data:{metadata_content}\n\n")
+
                     async def _v2_event_stream():
+                        event_count = 0
                         async for step_event in run_loop(
                             agent_id=gpts_app.app_code or "v2_agent",
                             conv_id=conv_uid,
@@ -2705,19 +2722,35 @@ class AgentChat(BaseComponent, ABC):
                             max_steps=1,
                             user_id=user_code,
                         ):
-                            yield step_event_to_stream_event(step_event)
+                            event_count += 1
+                            stream_event = step_event_to_stream_event(step_event)
+                            logger.debug(f"[V2 dispatch] step_event {event_count}: state={step_event.state}, event_type={step_event.event_type} -> stream_type={stream_event.type}")
+                            yield stream_event
+                        logger.info(f"[V2 dispatch] Total events yielded: {event_count}")
 
+                    sse_line_count = 0
                     async for sse_line in stream_to_sse(_v2_event_stream()):
+                        sse_line_count += 1
+                        logger.debug(f"[V2 dispatch] SSE line {sse_line_count}: {sse_line[:100]}")
                         if cache:
                             cache.channel.put_nowait(sse_line)
+                    logger.info(f"[V2 dispatch] Total SSE lines sent: {sse_line_count}")
                 except Exception as e:
                     logger.exception(f"[V2 dispatch] error: {e}")
                     if cache:
-                        error_msg = f"data: {{\"error\": \"V2 dispatch error: {str(e)}\"}}\n\n"
-                        cache.channel.put_nowait(error_msg)
+                        error_content = orjson.dumps(
+                            {
+                                "vis": {
+                                    "type": "error",
+                                    "content": f"V2 dispatch error: {str(e)}",
+                                }
+                            }
+                        ).decode("utf-8")
+                        cache.channel.put_nowait(f"data:{error_content}\n\n")
                 finally:
+                    # BAIZE 兼容：_format_vis_msg("[DONE]") 产出 data:{"vis":"[DONE]"} \n
                     if cache:
-                        cache.channel.put_nowait("[DONE]")
+                        cache.channel.put_nowait(_format_vis_msg("[DONE]"))
 
                 if await scheduler.running():
                     await scheduler.schedule()
