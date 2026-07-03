@@ -60,7 +60,7 @@ from derisk.agent.core.v2.hook_integration import (
 from derisk.agent.core.v2.memory_hook_setup import register_memory_hooks
 from derisk.agent.core.v2.default_acting import make_default_acting_fn
 from derisk.agent.core.v2.default_thinking import make_default_thinking_fn
-from derisk.agent.core.v2.llm_stream_adapter import make_derisk_llm_stream
+from derisk.agent.core.v2.llm_stream_adapter import make_derisk_llm_stream, make_derisk_llm_stream_fn
 from derisk.agent.core.v2.run_loop import run_loop, trigger_conversation_complete
 
 __all__ = [
@@ -119,6 +119,7 @@ __all__ = [
     "make_default_acting_fn",
     "make_default_thinking_fn",
     "make_derisk_llm_stream",
+    "make_derisk_llm_stream_fn",
     "run_loop",
     "trigger_conversation_complete",
 ]

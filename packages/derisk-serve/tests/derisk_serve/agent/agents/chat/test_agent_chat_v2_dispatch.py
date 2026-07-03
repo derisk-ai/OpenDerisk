@@ -12,6 +12,19 @@ from derisk_serve.agent.agents.chat.agent_chat import AgentChat
 from derisk_serve.building.app.api.schema_app import GptsApp
 
 
+async def _mock_llm_stream(request):
+    """Mock LLMClient.generate_stream — yields two tokens then usage."""
+    from derisk.core.interface.llm import ModelOutput
+
+    yield ModelOutput(error_code=0, text="Hello")
+    yield ModelOutput(error_code=0, text=" world")
+    yield ModelOutput(
+        error_code=0,
+        text="",
+        usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+    )
+
+
 def _make_v2_gpts_app():
     """Create a minimal GptsApp with agent_version='v2'."""
     from derisk_serve.building.config.api.schemas import LLMResource
@@ -81,7 +94,8 @@ class TestV2Dispatch:
         chat = _ConcreteAgentChat.__new__(_ConcreteAgentChat)
         chat.system_app = system_app
         chat.memory = memory
-        chat.llm_provider = None
+        chat.llm_provider = MagicMock()
+        chat.llm_provider.generate_stream = _mock_llm_stream
         chat.agent_manage = MagicMock()
         chat.gpts_conversations = MagicMock()
         chat.gpts_conversations.update = MagicMock()
@@ -97,6 +111,9 @@ class TestV2Dispatch:
 
         # Mock memory.cache to return our mock cache
         agent_chat.memory.cache = AsyncMock(return_value=cache)
+
+        # Mock memory.get_session_messages for V2 thinking_fn
+        agent_chat.memory.get_session_messages = AsyncMock(return_value=[])
 
         # Mock memory.init (called before _inner_chat in aggregation_chat)
         agent_chat.memory.init = AsyncMock()

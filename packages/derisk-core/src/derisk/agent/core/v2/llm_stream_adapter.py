@@ -56,3 +56,58 @@ def make_derisk_llm_stream(derisk_stream_fn: Callable) -> Callable:
                     yield {"usage": usage}
 
     return adapted_stream
+
+
+def make_derisk_llm_stream_fn(llm_client, model_alias: str):
+    """构造 default_thinking_fn 需要的 llm_stream_fn（dict chunk 格式）。
+
+    包装 LLMClient.generate_stream → yield {"token", "usage", "tool_calls"}.
+    """
+    from derisk.core.interface.llm import ModelRequest, ModelRequestContext
+
+    async def _stream(messages, model):
+        request = ModelRequest(
+            model=model or model_alias,
+            messages=messages,
+            context=ModelRequestContext(stream=True),
+        )
+        async for model_output in llm_client.generate_stream(request):
+            chunk = {}
+            text = getattr(model_output, "text", None) or ""
+            if text:
+                chunk["token"] = text
+            if getattr(model_output, "usage", None):
+                chunk["usage"] = model_output.usage
+            tool_calls = getattr(model_output, "tool_calls", None)
+            if tool_calls:
+                if isinstance(tool_calls, str):
+                    try:
+                        tool_calls = json.loads(tool_calls)
+                    except Exception:
+                        tool_calls = None
+                if isinstance(tool_calls, list):
+                    normalized = []
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            fn = tc.get("function") or {}
+                            normalized.append({
+                                "tool": fn.get("name") or tc.get("name") or tc.get("tool"),
+                                "input": _parse_args(fn.get("arguments") or tc.get("input") or tc.get("args") or {}),
+                            })
+                        else:
+                            normalized.append({"tool": str(tc), "input": {}})
+                    chunk["tool_calls"] = normalized
+            if chunk:
+                yield chunk
+
+    return _stream
+
+
+def _parse_args(args):
+    """tool_call arguments may be JSON string or dict."""
+    if isinstance(args, str):
+        try:
+            return json.loads(args)
+        except Exception:
+            return {"_raw": args}
+    return args or {}

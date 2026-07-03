@@ -2587,7 +2587,10 @@ class AgentChat(BaseComponent, ABC):
                     DbStateStore,
                     step_event_to_stream_event,
                     stream_to_sse,
+                    make_default_thinking_fn,
+                    make_derisk_llm_stream_fn,
                 )
+                from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
 
                 # Extract user prompt text from the message
                 if isinstance(user_query.content, str):
@@ -2611,9 +2614,47 @@ class AgentChat(BaseComponent, ABC):
                 else:
                     user_prompt = str(user_query.content)
 
-                # Minimal mock thinking_fn: single token, no tool calls
-                async def _v2_thinking(input_):
-                    yield {"token": "Hello from V2 agent!"}
+                # 构建真实 thinking_fn：LLMClient + ContextEngine
+                llm_stream_fn = make_derisk_llm_stream_fn(
+                    self.llm_provider,
+                    model_alias=gpts_app.llm_config.llm_strategy_value,
+                )
+
+                context_engine = ContextEngine()
+
+                async def _get_session_messages(session_id):
+                    msgs = await self.memory.get_session_messages(session_id)
+                    result = []
+                    for m in msgs:
+                        role = getattr(m, "role", None) or getattr(m, "sender", None) or "user"
+                        content = getattr(m, "content", "") or ""
+                        if role in ("human", "user"):
+                            role = "user"
+                        elif role in ("ai", "assistant", "view"):
+                            role = "assistant"
+                        elif role == "system":
+                            role = "system"
+                        result.append({"role": role, "content": content})
+                    return result
+
+                async def _get_work_log(conv_id):
+                    return []
+
+                async def _get_context_window(model):
+                    return 4096
+
+                system_prompt = gpts_app.system_prompt_template or ""
+
+                thinking_fn = make_default_thinking_fn(
+                    llm_stream_fn=llm_stream_fn,
+                    model_alias=gpts_app.llm_config.llm_strategy_value,
+                    context_engine=context_engine,
+                    memory_bundle=None,
+                    get_session_messages=_get_session_messages,
+                    get_work_log=_get_work_log,
+                    get_context_window=_get_context_window,
+                    system_prompt=system_prompt,
+                )
 
                 v2_state_dir = os.path.join(DATA_DIR, "v2_conv_state")
                 os.makedirs(v2_state_dir, exist_ok=True)
@@ -2628,10 +2669,11 @@ class AgentChat(BaseComponent, ABC):
                             conv_id=conv_uid,
                             input_={
                                 "prompt": user_prompt,
+                                "conv_id": conv_uid,
                                 "session_id": conv_session_id,
                             },
                             state_store=state_store,
-                            thinking_fn=_v2_thinking,
+                            thinking_fn=thinking_fn,
                             acting_fn=None,
                             max_steps=1,
                             user_id=user_code,
@@ -2643,6 +2685,9 @@ class AgentChat(BaseComponent, ABC):
                             cache.channel.put_nowait(sse_line)
                 except Exception as e:
                     logger.exception(f"[V2 dispatch] error: {e}")
+                    if cache:
+                        error_msg = f"data: {{\"error\": \"V2 dispatch error: {str(e)}\"}}\n\n"
+                        cache.channel.put_nowait(error_msg)
                 finally:
                     if cache:
                         cache.channel.put_nowait("[DONE]")
