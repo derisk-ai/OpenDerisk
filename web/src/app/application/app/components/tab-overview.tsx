@@ -3,7 +3,7 @@ import { getAppStrategy, getAppStrategyValues, promptTypeTarget, getChatLayout, 
 import { AppContext } from '@/contexts';
 import { safeJsonParse } from '@/utils/json';
 import { useRequest } from 'ahooks';
-import { Checkbox, Form, Input, InputNumber, Select, Tag, Modal, Switch, Tooltip } from 'antd';
+import { Checkbox, Form, Input, InputNumber, Radio, Select, Tag, Modal, Switch, Tooltip } from 'antd';
 import { isString, uniqBy } from 'lodash';
 import Image from 'next/image';
 import { useContext, useEffect, useMemo, useState } from 'react';
@@ -109,7 +109,7 @@ export default function TabOverview() {
         app_name: appInfo.app_name,
         app_describe: appInfo.app_describe,
         agent: v1AgentValue,
-        agent_version: 'v1',
+        agent_version: appInfo.agent_version || 'v1',
         llm_strategy: appInfo?.llm_config?.llm_strategy,
         llm_strategy_value: appInfo?.llm_config?.llm_strategy_value || [],
         chat_layout: layout?.chat_layout?.name || '',
@@ -221,6 +221,8 @@ export default function TabOverview() {
 
     if (fieldName === 'agent') {
       fetchUpdateApp({ ...appInfo, agent: fieldValue });
+    } else if (fieldName === 'agent_version') {
+      fetchUpdateApp({ ...appInfo, agent_version: fieldValue as string });
     } else if (fieldName === 'llm_strategy') {
       fetchUpdateApp({ ...appInfo, llm_config: { llm_strategy: fieldValue as string, llm_strategy_value: appInfo.llm_config?.llm_strategy_value || [] } });
     } else if (fieldName === 'llm_strategy_value') {
@@ -241,12 +243,13 @@ export default function TabOverview() {
       const currentTeamContext = typeof rawTeamContext === 'string'
         ? safeJsonParse(rawTeamContext, {})
         : (rawTeamContext || {});
+      const currentAgentVersion = form.getFieldValue('agent_version') || 'v1';
       const newTeamContext = {
         ...currentTeamContext,
-        agent_version: 'v1',
+        agent_version: currentAgentVersion,
         use_sandbox: fieldValue as boolean,
       };
-      fetchUpdateApp({ ...appInfo, agent_version: 'v1', team_context: newTeamContext });
+      fetchUpdateApp({ ...appInfo, agent_version: currentAgentVersion, team_context: newTeamContext });
     } else if (['home_scene_featured', 'home_scene_position', 'home_scene_icon', 'home_scene_color'].includes(fieldName)) {
       const currentExtConfig = appInfo?.ext_config || {};
       const currentHomeScene = currentExtConfig.home_scene || {};
@@ -344,6 +347,18 @@ export default function TabOverview() {
                     allowClear
                     className="w-full [&_.ant-select-selector]:!rounded-xl [&_.ant-select-selector]:border-gray-200 [&_.ant-select-selector]:focus-within:border-violet-400 [&_.ant-select-selector]:focus-within:ring-2 [&_.ant-select-selector]:focus-within:ring-violet-100"
                   />
+                </Form.Item>
+                {/* Runtime 版本选择器 */}
+                <Form.Item
+                  label={<span className="text-gray-600 font-medium text-[13px]">Runtime 版本</span>}
+                  name="agent_version"
+                  className="mb-0 col-span-2"
+                  tooltip="v1: 经典 BAIZE 运行时；v2: Core_v2 新运行时"
+                >
+                  <Radio.Group optionType="button" buttonStyle="solid">
+                    <Radio.Button value="v1">v1 (经典)</Radio.Button>
+                    <Radio.Button value="v2">v2 (Core_v2)</Radio.Button>
+                  </Radio.Group>
                 </Form.Item>
                 {is_reasoning_engine_agent && (
                   <Form.Item name="reasoning_engine" label={<span className="text-gray-600 font-medium text-[13px]">{t('baseinfo_reasoning_engine')}</span>} rules={[{ required: true, message: t('baseinfo_select_reasoning_engine') }]} className="mb-0 col-span-2">
