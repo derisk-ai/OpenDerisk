@@ -60,6 +60,10 @@ def _make_cache_mock():
     cache = MagicMock()
     cache.channel = asyncio.Queue()
     cache.stop_flag = False
+    # V2 dispatch reads cache.memory_bundle; explicit None matches production
+    # when no bundle has been registered (cache is a MagicMock, so getattr
+    # auto-creates a child mock that would otherwise be mistaken for a bundle).
+    cache.memory_bundle = None
     return cache
 
 

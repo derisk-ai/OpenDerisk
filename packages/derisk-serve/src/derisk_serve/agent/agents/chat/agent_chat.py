@@ -2577,7 +2577,7 @@ class AgentChat(BaseComponent, ABC):
             cache = await self.memory.cache(conv_uid)
             scheduler: Scheduler = LocalScheduler(cache=cache)
 
-            # V2 dispatch: minimal end-to-end path (no memory/sandbox/hook)
+            # V2 dispatch: full BAIZE-parity path with tools/memory/hooks
             logger.info(f"[V2 dispatch check] gpts_app.agent_version={gpts_app.agent_version}")
             if gpts_app.agent_version == "v2":
                 import os
@@ -2589,9 +2589,22 @@ class AgentChat(BaseComponent, ABC):
                     step_event_to_stream_event,
                     stream_to_sse,
                     make_default_thinking_fn,
+                    make_default_acting_fn,
                     make_derisk_llm_stream_fn,
+                    ToolResolver,
+                    ToolContextFactory,
+                    ToolFailureTracker,
+                    DoomLoopAdapter,
+                    TruncatorAdapter,
+                    register_memory_hooks,
                 )
                 from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
+                from derisk.agent.tools.registry import tool_registry
+                from derisk.agent.core.hook.manager import build_hook_manager
+                from derisk.agent.expand.react_master_agent.doom_loop_detector import (
+                    DoomLoopDetector,
+                )
+                from derisk.agent.expand.react_master_agent.truncation import Truncator
 
                 logger.info(f"[V2 dispatch] Entering V2 dispatch for conv_uid={conv_uid}")
 
@@ -2675,23 +2688,94 @@ class AgentChat(BaseComponent, ABC):
 
                 system_prompt = gpts_app.system_prompt_template or ""
 
+                # cache 可能被 BAIZE 路径（_build_agent_by_gpts）注册过 memory_bundle；
+                # V2 复用同一个 cache，所以能拿到。若未注册（V2 独立运行），为 None。
+                cache = await self.memory.cache(conv_uid)
+                memory_bundle = getattr(cache, "memory_bundle", None)
+                if memory_bundle is None:
+                    logger.info(
+                        f"[V2 dispatch] memory_bundle not registered for conv_uid={conv_uid}; "
+                        "memory injection disabled (V2 still works, just no long-term memory recall)"
+                    )
+
                 thinking_fn = make_default_thinking_fn(
                     llm_stream_fn=llm_stream_fn,
                     model_alias=gpts_app.llm_config.llm_strategy_value,
                     context_engine=context_engine,
-                    memory_bundle=None,
+                    memory_bundle=memory_bundle,
                     get_session_messages=_get_session_messages,
                     get_work_log=_get_work_log,
                     get_context_window=_get_context_window,
                     system_prompt=system_prompt,
                 )
 
+                # 构建 acting_fn：ToolResolver(系统工具) + ToolContextFactory + 适配器
+                # 注：resource_map / sandbox_tools / MCP resource_pack 当前不接入，
+                #     只接 tool_registry 中的系统工具。资源相关工具（execute_sql /
+                #     KnowledgeSearch）需后续接 resource_map 才能用。
+                tool_resolver = ToolResolver(
+                    system_tools=None,
+                    sandbox_tools=None,
+                    unified_registry=tool_registry,
+                    resource_pack=None,
+                    resource_map={},
+                    sandbox_manager=None,
+                )
+                tool_context_factory = ToolContextFactory(
+                    agent_id=gpts_app.app_code or "v2_agent",
+                    conv_id=conv_uid,
+                    user_id=user_code,
+                )
+                failure_tracker = ToolFailureTracker(max_failures=3)
+                doom_loop_adapter = DoomLoopAdapter(DoomLoopDetector())
+                truncator_adapter = TruncatorAdapter(Truncator())
+
+                acting_fn = make_default_acting_fn(
+                    tool_resolver=tool_resolver,
+                    doom_loop_detector=doom_loop_adapter,
+                    failure_tracker=failure_tracker,
+                    truncator=truncator_adapter,
+                    tool_context_factory=tool_context_factory,
+                    hook_manager=None,  # set below if hook_manager built
+                )
+
+                # 构建 HookManager：从 gpts_app.team_context.hook_config 解析
+                team_context = getattr(gpts_app, "team_context", None)
+                hook_manager = build_hook_manager(team_context)
+                if hook_manager is None:
+                    logger.info(
+                        f"[V2 dispatch] no hook_config on team_context; hooks disabled"
+                    )
+                else:
+                    # 把 hook_manager 注入 acting_fn（closure 不能改，所以重建 acting_fn）
+                    acting_fn = make_default_acting_fn(
+                        tool_resolver=tool_resolver,
+                        doom_loop_detector=doom_loop_adapter,
+                        failure_tracker=failure_tracker,
+                        truncator=truncator_adapter,
+                        tool_context_factory=tool_context_factory,
+                        hook_manager=hook_manager,
+                    )
+                    # 注册 memory tier0/1/2/3 hooks（仅当 memory_bundle 可用）
+                    if memory_bundle is not None:
+                        try:
+                            register_memory_hooks(
+                                hook_manager=hook_manager,
+                                memory_bundle=memory_bundle,
+                            )
+                            logger.info(
+                                f"[V2 dispatch] memory hooks registered (tier0/1/2/3)"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[V2 dispatch] register_memory_hooks failed: {e}"
+                            )
+
                 v2_state_dir = os.path.join(DATA_DIR, "v2_conv_state")
                 os.makedirs(v2_state_dir, exist_ok=True)
                 db_path = os.path.join(v2_state_dir, f"{conv_uid}.db")
                 state_store = DbStateStore(db_path)
 
-                cache = await self.memory.cache(conv_uid)
                 try:
                     # BAIZE 兼容：先发 metadata，前端 use-chat.ts 依赖它建立会话上下文
                     metadata_content = orjson.dumps(
@@ -2718,9 +2802,10 @@ class AgentChat(BaseComponent, ABC):
                             },
                             state_store=state_store,
                             thinking_fn=thinking_fn,
-                            acting_fn=None,
-                            max_steps=1,
+                            acting_fn=acting_fn,
+                            max_steps=20,
                             user_id=user_code,
+                            hook_manager=hook_manager,
                         ):
                             event_count += 1
                             stream_event = step_event_to_stream_event(step_event)
