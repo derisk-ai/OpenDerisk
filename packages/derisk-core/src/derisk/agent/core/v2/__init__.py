@@ -62,6 +62,7 @@ from derisk.agent.core.v2.default_acting import make_default_acting_fn
 from derisk.agent.core.v2.default_thinking import make_default_thinking_fn
 from derisk.agent.core.v2.llm_stream_adapter import make_derisk_llm_stream, make_derisk_llm_stream_fn
 from derisk.agent.core.v2.run_loop import run_loop, trigger_conversation_complete
+from derisk.agent.core.v2.compat_adapters import DoomLoopAdapter, TruncatorAdapter
 
 __all__ = [
     "StepState",
@@ -122,4 +123,6 @@ __all__ = [
     "make_derisk_llm_stream_fn",
     "run_loop",
     "trigger_conversation_complete",
+    "DoomLoopAdapter",
+    "TruncatorAdapter",
 ]

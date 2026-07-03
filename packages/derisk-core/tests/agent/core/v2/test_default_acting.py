@@ -51,6 +51,7 @@ def _make_acting_fn(tool, doom_loop=None, truncator=None, hook_manager=None):
     )
 
 
+@pytest.mark.asyncio
 async def test_execute_success():
     tool = FakeTool("read_file", V2ToolResult.ok(output="file content", tool_name="read_file"))
     acting_fn = _make_acting_fn(tool)
@@ -61,6 +62,7 @@ async def test_execute_success():
     assert result.output == "file content"
 
 
+@pytest.mark.asyncio
 async def test_doom_loop_blocks():
     tool = FakeTool("bash", V2ToolResult.ok(output="ok", tool_name="bash"))
     acting_fn = _make_acting_fn(tool, doom_loop=FakeDoomLoopBlock())
@@ -71,6 +73,7 @@ async def test_doom_loop_blocks():
     assert "doom loop" in result.error.lower()
 
 
+@pytest.mark.asyncio
 async def test_failure_tracker_blocks_after_threshold():
     tool = FakeTool("bash", V2ToolResult.fail(error="boom", tool_name="bash"))
     acting_fn = _make_acting_fn(tool)
@@ -85,6 +88,7 @@ async def test_failure_tracker_blocks_after_threshold():
     assert "blocked" in result.error.lower() or "阈值" in result.error
 
 
+@pytest.mark.asyncio
 async def test_unknown_tool_returns_fail():
     tool = FakeTool("read_file", V2ToolResult.ok(output="x", tool_name="read_file"))
     acting_fn = _make_acting_fn(tool)
@@ -95,6 +99,7 @@ async def test_unknown_tool_returns_fail():
     assert "未注册" in result.error or "not registered" in result.error.lower()
 
 
+@pytest.mark.asyncio
 async def test_pre_tool_use_hook_can_deny():
     from derisk.agent.core.hook.schema import HookDecision
     tool = FakeTool("bash", V2ToolResult.ok(output="ok", tool_name="bash"))
@@ -108,6 +113,7 @@ async def test_pre_tool_use_hook_can_deny():
     assert "hook denied" in result.error
 
 
+@pytest.mark.asyncio
 async def test_post_tool_use_hook_fires():
     from derisk.agent.core.hook.schema import HookDecision
     tool = FakeTool("bash", V2ToolResult.ok(output="ok", tool_name="bash"))
@@ -124,6 +130,7 @@ async def test_post_tool_use_hook_fires():
     assert call_args.args[0] == "post_tool_use"
 
 
+@pytest.mark.asyncio
 async def test_exception_recorded_as_failure():
     class CrashTool:
         name = "bash"
@@ -137,6 +144,7 @@ async def test_exception_recorded_as_failure():
     assert "执行异常" in result.error
 
 
+@pytest.mark.asyncio
 async def test_hook_deny_with_real_enum():
     """C1 regression: real HookDecision.deny() with BlockingPolicy enum should be honoured."""
     from derisk.agent.core.hook.schema import HookDecision
@@ -152,6 +160,7 @@ async def test_hook_deny_with_real_enum():
     assert "hook denied" in result.error
 
 
+@pytest.mark.asyncio
 async def test_hook_modify_with_real_enum():
     """C2 regression: real HookDecision.modify() with modified_input should apply changes."""
     from derisk.agent.core.hook.schema import HookDecision
