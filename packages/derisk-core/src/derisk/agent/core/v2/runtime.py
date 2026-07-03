@@ -15,7 +15,7 @@ from derisk.agent.core.v2.step_state import (
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.event_stream import EventStream
-from derisk.agent.core.v2.thinking_chunk import ThinkingChunk
+from derisk.agent.core.v2.thinking_chunk import ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk
 from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
 from derisk.agent.tools.context import ToolContext
 
@@ -79,23 +79,56 @@ def _make_emit(stream, step_id, conv_id, agent_id, parent_step_id, seq_start):
 
 
 async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
-    """INIT + THINKING 阶段。yield 事件，把 tool_calls/await_user 写入 result_box。"""
+    """INIT + THINKING 阶段。yield 事件，把 tool_calls/await_user 写入 result_box。
+
+    C3 fix: 兼容 dict yield（transitional tests）和 ThinkingChunk dataclass yield（default_thinking_fn）。
+    """
     yield await emit(StepState.INIT, "step_init", input_data=input_)
     result_box["tool_calls"] = []
     result_box["await_user"] = False
     async for chunk in thinking_fn(input_):
-        if chunk.get("await_user"):
+        # 兼容 dict（transitional）和 typed ThinkingChunk
+        if isinstance(chunk, dict):
+            await_user = chunk.get("await_user")
+            tool_calls = chunk.get("tool_calls")
+            token = chunk.get("token", "")
+            usage = chunk.get("usage")
+        elif isinstance(chunk, TokenChunk):
+            await_user = False
+            tool_calls = None
+            token = chunk.token
+            usage = chunk.usage
+        elif isinstance(chunk, ToolCallChunk):
+            await_user = False
+            tool_calls = chunk.tool_calls
+            token = ""
+            usage = None
+        elif isinstance(chunk, UsageChunk):
+            await_user = False
+            tool_calls = None
+            token = ""
+            usage = chunk.usage
+        else:
+            continue
+
+        if await_user:
             result_box["await_user"] = True
             yield await emit(
                 StepState.AWAITING_USER, "interaction_request",
                 input_data={"reason": "thinking_fn requested user input"},
             )
             return
-        if chunk.get("tool_calls"):
-            result_box["tool_calls"].extend(chunk["tool_calls"])
-        output_data = {"token": chunk.get("token", "")}
-        if "usage" in chunk:
-            output_data["usage"] = chunk["usage"]
+        if tool_calls:
+            # Normalize: V2ToolCall → {"tool": name, "input": args} dict
+            if isinstance(tool_calls, list) and tool_calls and isinstance(tool_calls[0], V2ToolCall):
+                result_box["tool_calls"].extend(
+                    {"tool": tc.name, "input": tc.args} for tc in tool_calls
+                )
+            else:
+                result_box["tool_calls"].extend(tool_calls)
+        output_data = {"token": token}
+        if usage:
+            output_data["usage"] = usage
         yield await emit(
             StepState.THINKING, "llm_token",
             output_data=output_data,
