@@ -26,10 +26,10 @@ class TestV2RealLLMDispatch:
         )
         from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
 
-        # Mock LLMClient that yields sequential tokens
-        llm_client = MagicMock()
+        # Mock AIWrapper.create — BAIZE-pattern (ai_wrapper.create(stream_out=True) → yield ModelOutput)
+        ai_wrapper = MagicMock()
 
-        async def _fake_generate_stream(request):
+        async def _fake_create(**kwargs):
             yield ModelOutput(error_code=0, text="Hello")
             yield ModelOutput(error_code=0, text=" from V2!")
             yield ModelOutput(
@@ -38,10 +38,10 @@ class TestV2RealLLMDispatch:
                 usage={"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
             )
 
-        llm_client.generate_stream = _fake_generate_stream
+        ai_wrapper.create = _fake_create
 
         # Build real thinking_fn
-        llm_stream_fn = make_derisk_llm_stream_fn(llm_client, model_alias="test-model")
+        llm_stream_fn = make_derisk_llm_stream_fn(ai_wrapper, model_alias="test-model")
 
         context_engine = ContextEngine()
 
@@ -104,9 +104,9 @@ class TestV2RealLLMDispatch:
         )
         from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
 
-        llm_client = MagicMock()
+        ai_wrapper = MagicMock()
 
-        async def _fake_generate_stream(request):
+        async def _fake_create(**kwargs):
             yield ModelOutput(
                 error_code=0,
                 text="Let me check that.",
@@ -126,9 +126,9 @@ class TestV2RealLLMDispatch:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        llm_client.generate_stream = _fake_generate_stream
+        ai_wrapper.create = _fake_create
 
-        llm_stream_fn = make_derisk_llm_stream_fn(llm_client, model_alias="test-model")
+        llm_stream_fn = make_derisk_llm_stream_fn(ai_wrapper, model_alias="test-model")
         context_engine = ContextEngine()
 
         thinking_fn = make_default_thinking_fn(

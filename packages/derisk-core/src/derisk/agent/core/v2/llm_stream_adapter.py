@@ -58,20 +58,18 @@ def make_derisk_llm_stream(derisk_stream_fn: Callable) -> Callable:
     return adapted_stream
 
 
-def make_derisk_llm_stream_fn(llm_client, model_alias: str):
+def make_derisk_llm_stream_fn(ai_wrapper, model_alias: str):
     """构造 default_thinking_fn 需要的 llm_stream_fn（dict chunk 格式）。
 
-    包装 LLMClient.generate_stream → yield {"token", "usage", "tool_calls"}.
+    包装 AIWrapper.create(stream_out=True) → yield {"token", "usage", "tool_calls"}.
+    BAIZE 路径同样通过 AIWrapper 解析 LLM provider（self.llm_provider 在生产为 None）。
     """
-    from derisk.core.interface.llm import ModelRequest, ModelRequestContext
-
     async def _stream(messages, model):
-        request = ModelRequest(
-            model=model or model_alias,
+        async for model_output in ai_wrapper.create(
             messages=messages,
-            context=ModelRequestContext(stream=True),
-        )
-        async for model_output in llm_client.generate_stream(request):
+            llm_model=model or model_alias,
+            stream_out=True,
+        ):
             chunk = {}
             text = getattr(model_output, "text", None) or ""
             if text:
