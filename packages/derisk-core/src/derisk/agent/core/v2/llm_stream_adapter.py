@@ -71,11 +71,24 @@ def make_derisk_llm_stream_fn(ai_wrapper, model_alias: str):
             stream_out=True,
         ):
             chunk = {}
-            text = getattr(model_output, "text", None) or ""
-            if text:
-                chunk["token"] = text
-            if getattr(model_output, "usage", None):
-                chunk["usage"] = model_output.usage
+            # AgentLLMOut has .content and .thinking_content, not .text
+            text = getattr(model_output, "content", None) or ""
+            thinking = getattr(model_output, "thinking_content", None) or ""
+            # Combine thinking and content for full text
+            full_text = (thinking + text) if thinking and text else (thinking or text)
+            if full_text:
+                chunk["token"] = full_text
+            if getattr(model_output, "metrics", None):
+                usage_dict = {}
+                metrics = model_output.metrics
+                if hasattr(metrics, "prompt_tokens") and metrics.prompt_tokens:
+                    usage_dict["prompt_tokens"] = metrics.prompt_tokens
+                if hasattr(metrics, "completion_tokens") and metrics.completion_tokens:
+                    usage_dict["completion_tokens"] = metrics.completion_tokens
+                if hasattr(metrics, "total_tokens") and metrics.total_tokens:
+                    usage_dict["total_tokens"] = metrics.total_tokens
+                if usage_dict:
+                    chunk["usage"] = usage_dict
             tool_calls = getattr(model_output, "tool_calls", None)
             if tool_calls:
                 if isinstance(tool_calls, str):

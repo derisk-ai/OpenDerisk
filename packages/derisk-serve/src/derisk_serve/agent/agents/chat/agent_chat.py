@@ -522,6 +522,53 @@ class AgentChat(BaseComponent, ABC):
             sandbox_key = f"{conv_id}_{staff_no}"
             await GlobalSandboxManagerCache.cleanup_and_remove(sandbox_key)
 
+    async def _v2_build_memory_bundle(self, gpts_app: GptsApp):
+        """V2 dispatch 独立构造 MemoryIntegrationBundle（不走 BAIZE _build_agent_by_gpts）。
+
+        镜像 BAIZE 的 memory_resources 解析逻辑：从 app.resource_memory 与
+        app.all_resources 中收集 MemoryResource，用 create_memory_integration_bundle
+        统一构造。失败时返回 None（V2 thinking_fn 降级为无 memory 模式）。
+        """
+        memory_resources: list = []
+        if getattr(gpts_app, "resource_memory", None):
+            memory_resources.extend(gpts_app.resource_memory)
+        if getattr(gpts_app, "all_resources", None):
+            for res in gpts_app.all_resources:
+                res_type = getattr(res, "type", "") or ""
+                if res_type.lower() == "memory" or res_type == "MemoryResource":
+                    if res not in memory_resources:
+                        memory_resources.append(res)
+        if not memory_resources:
+            return None
+
+        try:
+            from derisk.agent.core.memory.longterm_manager import (
+                LongTermMemoryConfig,
+                create_memory_integration_bundle,
+            )
+        except Exception as e:
+            logger.warning(f"[V2 dispatch] memory module unavailable: {e}")
+            return None
+
+        try:
+            memory_resource = memory_resources[0]
+            memory_value = getattr(memory_resource, "value", None)
+            if not memory_value:
+                return None
+            memory_config = LongTermMemoryConfig.from_resource_value(memory_value)
+            if not memory_config or not memory_config.memories:
+                return None
+            bundle = await create_memory_integration_bundle(
+                config=memory_config,
+                system_app=self.system_app,
+            )
+            return bundle
+        except Exception as e:
+            logger.warning(
+                f"[V2 dispatch] create_memory_integration_bundle failed: {e}"
+            )
+            return None
+
     def after_start(self):
         # LLM client is resolved per-request by AIWrapper + ProviderRegistry
         # reading from agent.llm config; no shared llm_provider is needed.
@@ -2596,6 +2643,7 @@ class AgentChat(BaseComponent, ABC):
                     ToolFailureTracker,
                     DoomLoopAdapter,
                     TruncatorAdapter,
+                    extract_resource_map,
                     register_memory_hooks,
                 )
                 from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
@@ -2688,13 +2736,72 @@ class AgentChat(BaseComponent, ABC):
 
                 system_prompt = gpts_app.system_prompt_template or ""
 
-                # cache 可能被 BAIZE 路径（_build_agent_by_gpts）注册过 memory_bundle；
-                # V2 复用同一个 cache，所以能拿到。若未注册（V2 独立运行），为 None。
+                # ===== 资源 / 沙箱 / MCP / Memory 全量接入（BAIZE 对齐）=====
+                # 1. 构造最小 AgentContext，给 _get_or_create_sandbox_manager 用
+                from derisk.agent import AgentContext as _AgentContext
+                v2_context = _AgentContext(
+                    conv_id=conv_uid,
+                    conv_session_id=conv_session_id,
+                    staff_no=staff_no,
+                    gpts_app_code=gpts_app.app_code,
+                    gpts_app_name=gpts_app.app_name,
+                    agent_app_code=gpts_app.app_code,
+                    extra={"dynamic_resources": ext_info.get("dynamic_resources", [])},
+                )
+
+                # 2. 沙箱管理器（与 BAIZE 同款缓存逻辑）
+                sandbox_manager = await self._get_or_create_sandbox_manager(
+                    v2_context, gpts_app, need_sandbox=True
+                )
+                if sandbox_manager is not None:
+                    logger.info(
+                        f"[V2 dispatch] sandbox_manager acquired for conv_uid={conv_uid}"
+                    )
+
+                # 3. depend_resource + resource_map（BAIZE 同款 rm.a_build_resource）
+                rm = get_resource_manager()
+                real_all_resources = list(ext_info.get("dynamic_resources", []))
+                if getattr(gpts_app, "all_resources", None):
+                    real_all_resources.extend(gpts_app.all_resources)
+                depend_resource = None
+                resource_map: dict = {}
+                if real_all_resources:
+                    try:
+                        depend_resource = await rm.a_build_resource(
+                            real_all_resources, ignore_missing=True
+                        )
+                        resource_map = extract_resource_map(depend_resource)
+                        logger.info(
+                            f"[V2 dispatch] depend_resource built: "
+                            f"is_pack={depend_resource.is_pack if depend_resource else False}, "
+                            f"resource_map_keys={list(resource_map.keys())}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[V2 dispatch] rm.a_build_resource failed: {e}; "
+                            "resource-dependent tools (execute_sql/KnowledgeSearch/AgentStart) disabled"
+                        )
+
+                # 4. cache 可能被 BAIZE 路径注册过 memory_bundle；否则尝试独立构造
                 cache = await self.memory.cache(conv_uid)
                 memory_bundle = getattr(cache, "memory_bundle", None)
                 if memory_bundle is None:
+                    # 独立构造 memory_bundle（V2 不走 BAIZE _build_agent_by_gpts）
+                    memory_bundle = await self._v2_build_memory_bundle(gpts_app)
+                    if memory_bundle is not None:
+                        try:
+                            self.memory.register_memory_bundle(conv_uid, memory_bundle)
+                            cache.memory_bundle = memory_bundle
+                            logger.info(
+                                f"[V2 dispatch] memory_bundle built and registered for conv_uid={conv_uid}"
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[V2 dispatch] register_memory_bundle failed: {e}"
+                            )
+                if memory_bundle is None:
                     logger.info(
-                        f"[V2 dispatch] memory_bundle not registered for conv_uid={conv_uid}; "
+                        f"[V2 dispatch] memory_bundle unavailable for conv_uid={conv_uid}; "
                         "memory injection disabled (V2 still works, just no long-term memory recall)"
                     )
 
@@ -2709,22 +2816,57 @@ class AgentChat(BaseComponent, ABC):
                     system_prompt=system_prompt,
                 )
 
-                # 构建 acting_fn：ToolResolver(系统工具) + ToolContextFactory + 适配器
-                # 注：resource_map / sandbox_tools / MCP resource_pack 当前不接入，
-                #     只接 tool_registry 中的系统工具。资源相关工具（execute_sql /
-                #     KnowledgeSearch）需后续接 resource_map 才能用。
+                # 5. 工具源：sandbox_tools + 绑定配置工具 + tool_registry + resource_pack(MCP)
+                sandbox_tools: dict = {}
+                if sandbox_manager is not None:
+                    try:
+                        from derisk.agent.core.sandbox.sandbox_tool_registry import (
+                            sandbox_tool_dict,
+                        )
+                        sandbox_tools = dict(sandbox_tool_dict)
+                        logger.info(
+                            f"[V2 dispatch] sandbox_tools loaded: {len(sandbox_tools)} tools"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"[V2 dispatch] sandbox_tool_dict import failed: {e}"
+                        )
+
+                # 绑定配置工具（per-app tool binding），失败时 tool_registry 兜底
+                system_tools: dict = {}
+                try:
+                    from derisk.agent.tools.tool_manager import tool_manager
+                    runtime_tools = tool_manager.get_runtime_tools(
+                        app_id=gpts_app.app_code,
+                        agent_name=gpts_app.app_name or gpts_app.app_code or "v2_agent",
+                    )
+                    for tool in runtime_tools:
+                        tool_name = getattr(getattr(tool, "metadata", None), "name", None)
+                        if tool_name:
+                            system_tools[tool_name] = tool
+                    logger.info(
+                        f"[V2 dispatch] system_tools from binding config: {len(system_tools)} tools"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[V2 dispatch] tool_manager.get_runtime_tools failed: {e}; "
+                        "falling back to tool_registry only"
+                    )
+
                 tool_resolver = ToolResolver(
-                    system_tools=None,
-                    sandbox_tools=None,
+                    system_tools=system_tools,
+                    sandbox_tools=sandbox_tools,
                     unified_registry=tool_registry,
-                    resource_pack=None,
-                    resource_map={},
-                    sandbox_manager=None,
+                    resource_pack=depend_resource,  # MCP 工具树
+                    resource_map=resource_map,
+                    sandbox_manager=sandbox_manager,
                 )
                 tool_context_factory = ToolContextFactory(
                     agent_id=gpts_app.app_code or "v2_agent",
                     conv_id=conv_uid,
                     user_id=user_code,
+                    resource_map=resource_map,
+                    sandbox_manager=sandbox_manager,
                 )
                 failure_tracker = ToolFailureTracker(max_failures=3)
                 doom_loop_adapter = DoomLoopAdapter(DoomLoopDetector())
@@ -2739,7 +2881,7 @@ class AgentChat(BaseComponent, ABC):
                     hook_manager=None,  # set below if hook_manager built
                 )
 
-                # 构建 HookManager：从 gpts_app.team_context.hook_config 解析
+                # 6. HookManager：从 gpts_app.team_context.hook_config 解析
                 team_context = getattr(gpts_app, "team_context", None)
                 hook_manager = build_hook_manager(team_context)
                 if hook_manager is None:
