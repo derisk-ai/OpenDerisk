@@ -12,8 +12,8 @@ from derisk_serve.agent.agents.chat.agent_chat import AgentChat
 from derisk_serve.building.app.api.schema_app import GptsApp
 
 
-async def _mock_llm_stream(request):
-    """Mock LLMClient.generate_stream — yields two tokens then usage."""
+async def _mock_ai_create(**kwargs):
+    """Mock AIWrapper.create — yields two tokens then usage."""
     from derisk.core.interface.llm import ModelOutput
 
     yield ModelOutput(error_code=0, text="Hello")
@@ -94,8 +94,9 @@ class TestV2Dispatch:
         chat = _ConcreteAgentChat.__new__(_ConcreteAgentChat)
         chat.system_app = system_app
         chat.memory = memory
-        chat.llm_provider = MagicMock()
-        chat.llm_provider.generate_stream = _mock_llm_stream
+        # V2 dispatch constructs AIWrapper internally (BAIZE pattern);
+        # llm_provider is unused on V2 path. See agent_chat.py:2617-2648.
+        chat.llm_provider = None
         chat.agent_manage = MagicMock()
         chat.gpts_conversations = MagicMock()
         chat.gpts_conversations.update = MagicMock()
@@ -127,23 +128,31 @@ class TestV2Dispatch:
         # Mock _build_agent_by_gpts to verify it's NOT called for V2
         agent_chat._build_agent_by_gpts = AsyncMock()
 
-        user_query = HumanMessage(content="Hello V2!")
-        conv_session_id = "test_session"
-        conv_uid = "test_conv_uid"
+        # Patch AIWrapper so V2 dispatch uses our mock stream (agent_chat.py:2620,2644)
+        # Import is local inside _inner_chat, so patch at source module.
+        mock_ai_wrapper = MagicMock()
+        mock_ai_wrapper.create = _mock_ai_create
+        with patch(
+            "derisk.agent.util.llm.llm_client.AIWrapper",
+            return_value=mock_ai_wrapper,
+        ):
+            user_query = HumanMessage(content="Hello V2!")
+            conv_session_id = "test_session"
+            conv_uid = "test_conv_uid"
 
-        agent_memory = AgentMemory(gpts_memory=agent_chat.memory)
+            agent_memory = AgentMemory(gpts_memory=agent_chat.memory)
 
-        # Call _inner_chat with V2 agent
-        result = await agent_chat._inner_chat(
-            user_code="test_user",
-            user_query=user_query,
-            conv_session_id=conv_session_id,
-            conv_uid=conv_uid,
-            gpts_app=app,
-            agent_memory=agent_memory,
-            is_retry_chat=False,
-            stream=True,
-        )
+            # Call _inner_chat with V2 agent
+            result = await agent_chat._inner_chat(
+                user_code="test_user",
+                user_query=user_query,
+                conv_session_id=conv_session_id,
+                conv_uid=conv_uid,
+                gpts_app=app,
+                agent_memory=agent_memory,
+                is_retry_chat=False,
+                stream=True,
+            )
 
         # Verify the conv_uid is returned
         assert result == conv_uid

@@ -2614,10 +2614,37 @@ class AgentChat(BaseComponent, ABC):
                 else:
                     user_prompt = str(user_query.content)
 
-                # 构建真实 thinking_fn：LLMClient + ContextEngine
+                # 构建真实 thinking_fn：AIWrapper + ContextEngine
+                # BAIZE 同款解析：通过 ModelConfigCache + AgentLLMConfig 构造 AIWrapper
+                # （self.llm_provider 在生产为 None，LLM provider 由 AIWrapper 在调用时解析）
+                from derisk.agent.util.llm.llm_client import AIWrapper
+                from derisk.agent.util.llm.model_config_cache import ModelConfigCache
+                from derisk.agent.core.llm_config import AgentLLMConfig
+
+                strategy_context = gpts_app.llm_config.llm_strategy_value
+                model_name = None
+                if isinstance(strategy_context, list):
+                    model_name = strategy_context[0] if strategy_context else None
+                elif isinstance(strategy_context, str):
+                    try:
+                        model_list = json.loads(strategy_context)
+                        model_name = model_list[0] if model_list else strategy_context
+                    except (json.JSONDecodeError, TypeError):
+                        model_name = strategy_context
+
+                agent_llm_config = None
+                if model_name and ModelConfigCache.has_model(model_name):
+                    model_config_dict = ModelConfigCache.get_config(model_name)
+                    if model_config_dict:
+                        try:
+                            agent_llm_config = AgentLLMConfig.from_dict(model_config_dict)
+                        except Exception as e:
+                            logger.warning(f"[V2 dispatch] parse model config failed: {e}")
+
+                ai_wrapper = AIWrapper(llm_config=agent_llm_config)
                 llm_stream_fn = make_derisk_llm_stream_fn(
-                    self.llm_provider,
-                    model_alias=gpts_app.llm_config.llm_strategy_value,
+                    ai_wrapper,
+                    model_alias=model_name or "default",
                 )
 
                 context_engine = ContextEngine()
