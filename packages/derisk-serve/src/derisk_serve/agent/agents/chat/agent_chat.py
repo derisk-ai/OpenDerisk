@@ -2576,6 +2576,84 @@ class AgentChat(BaseComponent, ABC):
 
             cache = await self.memory.cache(conv_uid)
             scheduler: Scheduler = LocalScheduler(cache=cache)
+
+            # V2 dispatch: minimal end-to-end path (no memory/sandbox/hook)
+            if gpts_app.agent_version == "v2":
+                import tempfile
+                import os as _os
+
+                from derisk.agent.core.v2 import (
+                    run_loop,
+                    DbStateStore,
+                    step_event_to_stream_event,
+                    stream_to_sse,
+                )
+
+                # Extract user prompt text from the message
+                if isinstance(user_query.content, str):
+                    user_prompt = user_query.content
+                elif isinstance(user_query.content, list):
+                    user_prompt = ""
+                    for item in user_query.content:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            user_prompt = item.get("object", {}).get("data", "")
+                            break
+                        elif hasattr(item, "type") and item.type == "text":
+                            try:
+                                user_prompt = item.get_text()
+                            except Exception:
+                                user_prompt = (
+                                    str(item.object.data)
+                                    if hasattr(item, "object")
+                                    else ""
+                                )
+                            break
+                else:
+                    user_prompt = str(user_query.content)
+
+                # Minimal mock thinking_fn: single token, no tool calls
+                async def _v2_thinking(input_):
+                    yield {"token": "Hello from V2 agent!"}
+
+                fd, db_path = tempfile.mkstemp(suffix=".db")
+                _os.close(fd)
+                state_store = DbStateStore(db_path)
+
+                try:
+                    async def _v2_event_stream():
+                        async for step_event in run_loop(
+                            agent_id=gpts_app.app_code or "v2_agent",
+                            conv_id=conv_uid,
+                            input_={
+                                "prompt": user_prompt,
+                                "session_id": conv_session_id,
+                            },
+                            state_store=state_store,
+                            thinking_fn=_v2_thinking,
+                            acting_fn=None,
+                            max_steps=1,
+                            user_id=user_code,
+                        ):
+                            yield step_event_to_stream_event(step_event)
+
+                    async for sse_line in stream_to_sse(_v2_event_stream()):
+                        cache = await self.memory.cache(conv_uid)
+                        if cache:
+                            cache.channel.put_nowait(sse_line)
+
+                    # Send DONE signal
+                    cache = await self.memory.cache(conv_uid)
+                    if cache:
+                        cache.channel.put_nowait("[DONE]")
+                finally:
+                    _os.unlink(db_path)
+
+                if await scheduler.running():
+                    await scheduler.schedule()
+                gpts_status = Status.COMPLETE.value
+                self.gpts_conversations.update(conv_uid, gpts_status)
+                return conv_uid
+
             rm = get_resource_manager()
             recipient = await self._build_agent_by_gpts(
                 context,
