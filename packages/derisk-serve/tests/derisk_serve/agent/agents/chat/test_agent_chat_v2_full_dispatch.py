@@ -110,6 +110,8 @@ class TestV2FullDispatch:
         chat.gpts_conversations = MagicMock()
         chat.gpts_conversations.update = MagicMock()
         chat._running_tasks = {}
+        # V2 dispatch calls _get_or_create_sandbox_manager; tests don't need real sandbox
+        chat._get_or_create_sandbox_manager = AsyncMock(return_value=None)
 
         return chat
 
