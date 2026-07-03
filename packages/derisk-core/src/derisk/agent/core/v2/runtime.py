@@ -15,7 +15,7 @@ from derisk.agent.core.v2.step_state import (
 from derisk.agent.core.v2.step_event import StepEvent
 from derisk.agent.core.v2.state_store import StateStore
 from derisk.agent.core.v2.event_stream import EventStream
-from derisk.agent.core.v2.thinking_chunk import ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk
+from derisk.agent.core.v2.thinking_chunk import ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk, AwaitUserChunk
 from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
 from derisk.agent.tools.context import ToolContext
 
@@ -108,6 +108,13 @@ async def _run_thinking_phase(emit, thinking_fn, input_, result_box):
             tool_calls = None
             token = ""
             usage = chunk.usage
+        elif isinstance(chunk, AwaitUserChunk):
+            result_box["await_user"] = True
+            yield await emit(
+                StepState.AWAITING_USER, "interaction_request",
+                input_data={"reason": chunk.reason or "thinking_fn requested user input"},
+            )
+            return
         else:
             continue
 

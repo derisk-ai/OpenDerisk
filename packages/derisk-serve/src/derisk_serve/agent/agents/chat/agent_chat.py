@@ -2579,8 +2579,8 @@ class AgentChat(BaseComponent, ABC):
 
             # V2 dispatch: minimal end-to-end path (no memory/sandbox/hook)
             if gpts_app.agent_version == "v2":
-                import tempfile
-                import os as _os
+                import os
+                from derisk.configs.model_config import DATA_DIR
 
                 from derisk.agent.core.v2 import (
                     run_loop,
@@ -2615,10 +2615,12 @@ class AgentChat(BaseComponent, ABC):
                 async def _v2_thinking(input_):
                     yield {"token": "Hello from V2 agent!"}
 
-                fd, db_path = tempfile.mkstemp(suffix=".db")
-                _os.close(fd)
+                v2_state_dir = os.path.join(DATA_DIR, "v2_conv_state")
+                os.makedirs(v2_state_dir, exist_ok=True)
+                db_path = os.path.join(v2_state_dir, f"{conv_uid}.db")
                 state_store = DbStateStore(db_path)
 
+                cache = await self.memory.cache(conv_uid)
                 try:
                     async def _v2_event_stream():
                         async for step_event in run_loop(
@@ -2637,16 +2639,13 @@ class AgentChat(BaseComponent, ABC):
                             yield step_event_to_stream_event(step_event)
 
                     async for sse_line in stream_to_sse(_v2_event_stream()):
-                        cache = await self.memory.cache(conv_uid)
                         if cache:
                             cache.channel.put_nowait(sse_line)
-
-                    # Send DONE signal
-                    cache = await self.memory.cache(conv_uid)
+                except Exception as e:
+                    logger.exception(f"[V2 dispatch] error: {e}")
+                finally:
                     if cache:
                         cache.channel.put_nowait("[DONE]")
-                finally:
-                    _os.unlink(db_path)
 
                 if await scheduler.running():
                     await scheduler.schedule()

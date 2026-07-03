@@ -12,6 +12,7 @@ from derisk.agent.core.v2.tool_resolver import ToolResolver
 from derisk.agent.core.v2.tool_failure_tracker import ToolFailureTracker
 from derisk.agent.core.v2.tool_context_factory import ToolContextFactory
 from derisk.agent.core.v2.step_state import StepState
+from derisk.agent.core.v2.thinking_chunk import AwaitUserChunk
 
 
 @pytest.fixture
@@ -76,3 +77,29 @@ async def test_default_thinking_fn_with_run_loop_end_to_end(store):
     states = [e.state for e in events]
     assert StepState.THINKING in states
     assert StepState.DONE in states
+
+
+async def test_await_user_chunk_emits_awaiting_user_state(store):
+    """I2: AwaitUserChunk 触发 AWAITING_USER 状态。"""
+    async def thinking_fn(input_):
+        yield AwaitUserChunk(reason="need user confirmation")
+
+    events = []
+    async for e in run_loop(
+        agent_id="a1",
+        conv_id="c1",
+        input_={"prompt": "hi", "session_id": "s1", "conv_id": "c1"},
+        state_store=store,
+        thinking_fn=thinking_fn,
+        acting_fn=None,
+        max_steps=10,
+    ):
+        events.append(e)
+
+    states = [e.state for e in events]
+    assert StepState.AWAITING_USER in states
+    assert any(
+        e.event_type == "interaction_request"
+        and e.input.get("reason") == "need user confirmation"
+        for e in events
+    )

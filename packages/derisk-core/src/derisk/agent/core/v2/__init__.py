@@ -43,8 +43,9 @@ from derisk.agent.core.v2.sse_adapter import stream_to_sse
 from derisk.agent.core.v2.baize_subsystem_adapter import BAIZESubsystemAdapter
 from derisk.agent.core.v2.usage_metric import emit_usage_metric, aggregate_usage
 from derisk.agent.core.v2.thinking_chunk import (
-    ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk,
+    ThinkingChunk, TokenChunk, ToolCallChunk, UsageChunk, AwaitUserChunk,
 )
+from derisk.agent.core.hook.schema import BlockingPolicy, HookDecision
 from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
 from derisk.agent.core.v2.tool_failure_tracker import ToolFailureTracker
 from derisk.agent.core.v2.retrying_thinking import retrying_thinking
@@ -101,6 +102,9 @@ __all__ = [
     "TokenChunk",
     "ToolCallChunk",
     "UsageChunk",
+    "AwaitUserChunk",
+    "BlockingPolicy",
+    "HookDecision",
     "V2ToolCall",
     "V2ToolResult",
     "ToolFailureTracker",

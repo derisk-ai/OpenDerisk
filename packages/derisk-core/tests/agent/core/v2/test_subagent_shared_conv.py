@@ -72,3 +72,29 @@ async def test_independent_conv_creates_new_conv(store):
     # 父 conv 不应有子 agent 的事件
     parent_events = await store.get_events("conv-parent")
     assert len(parent_events) == 0
+
+
+async def test_subagent_events_have_is_subagent_metadata(store):
+    """I3: 子 agent 的事件应标记 is_subagent=True 和 subagent_depth。"""
+    runtime = SubAgentRuntime(state_store=store, max_depth=5)
+    spec = SubAgentSpawnSpec(
+        agent_name="sub",
+        task="子任务",
+        run_in_background=False,
+        parent_step_id="step-parent",
+        parent_conv_id="conv-parent",
+        parent_agent_id="agent-parent",
+        depth=0,
+        thinking_fn=_sub_thinking,
+        acting_fn=_sub_acting,
+        shared_conv=True,
+    )
+    handle = await runtime.spawn(spec)
+    assert handle.status.value == "done"
+
+    events = await store.get_events("conv-parent")
+    sub_events = [e for e in events if e.parent_step_id == "step-parent"]
+    assert len(sub_events) > 0
+    for e in sub_events:
+        assert e.metadata.get("is_subagent") is True
+        assert e.metadata.get("subagent_depth") == 1

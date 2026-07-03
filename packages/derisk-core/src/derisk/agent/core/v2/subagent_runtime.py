@@ -137,6 +137,11 @@ class SubAgentRuntime:
                 parent_step_id=handle.parent_step_id,
                 permission_gate=permission_gate,
             ):
+                event.metadata["is_subagent"] = True
+                event.metadata["subagent_depth"] = spec.depth + 1
+                await self._store.update_event_metadata(
+                    event.event_id, event.metadata,
+                )
                 result["events"].append({
                     "seq": event.seq,
                     "state": event.state.value,
@@ -167,6 +172,11 @@ class SubAgentRuntime:
                 parent_step_id=handle.parent_step_id,
                 permission_gate=permission_gate,
             ):
+                event.metadata["is_subagent"] = True
+                event.metadata["subagent_depth"] = spec.depth + 1
+                await self._store.update_event_metadata(
+                    event.event_id, event.metadata,
+                )
                 latest_seq = max(latest_seq, event.seq)
                 # Persist transcript snapshot every few events
                 await self._store.save_transcript(
