@@ -15,6 +15,7 @@ async def _fake_derisk_stream(model, messages):
     }
 
 
+@pytest.mark.asyncio
 async def test_adapter_yields_tokens():
     stream = make_derisk_llm_stream(_fake_derisk_stream)
     chunks = []
@@ -24,6 +25,7 @@ async def test_adapter_yields_tokens():
     assert "".join(c["token"] for c in tokens) == "hello world"
 
 
+@pytest.mark.asyncio
 async def test_adapter_yields_tool_calls():
     stream = make_derisk_llm_stream(_fake_derisk_stream)
     chunks = []
@@ -35,6 +37,7 @@ async def test_adapter_yields_tool_calls():
     assert tool_call_chunks[0]["tool_calls"][0]["input"] == {"path": "/tmp/x"}
 
 
+@pytest.mark.asyncio
 async def test_adapter_yields_usage():
     stream = make_derisk_llm_stream(_fake_derisk_stream)
     chunks = []
@@ -48,24 +51,30 @@ async def test_adapter_yields_usage():
 # --- make_derisk_llm_stream_fn tests ---
 
 
+@pytest.mark.asyncio
 async def test_stream_fn_yields_tokens():
-    """make_derisk_llm_stream_fn wraps LLMClient.generate_stream → token chunks."""
-    from derisk.core.interface.llm import ModelOutput
+    """make_derisk_llm_stream_fn wraps AIWrapper.create → token chunks."""
+    from derisk.agent.util.llm.llm_client import AgentLLMOut
+    from derisk.core.interface.llm import ModelInferenceMetrics
 
-    llm_client = MagicMock()
+    ai_wrapper = MagicMock()
 
-    async def _fake_stream(request):
-        yield ModelOutput(error_code=0, text="Hello")
-        yield ModelOutput(error_code=0, text=" world")
-        yield ModelOutput(
-            error_code=0,
-            text="",
-            usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+    async def _fake_create(**kwargs):
+        yield AgentLLMOut(content="Hello", thinking_content=None)
+        yield AgentLLMOut(content=" world", thinking_content=None)
+        yield AgentLLMOut(
+            content="",
+            thinking_content=None,
+            metrics=ModelInferenceMetrics(
+                prompt_tokens=5,
+                completion_tokens=2,
+                total_tokens=7,
+            ),
         )
 
-    llm_client.generate_stream = _fake_stream
+    ai_wrapper.create = _fake_create
 
-    stream_fn = make_derisk_llm_stream_fn(llm_client, model_alias="test-model")
+    stream_fn = make_derisk_llm_stream_fn(ai_wrapper, model_alias="test-model")
     chunks = []
     async for c in stream_fn([{"role": "user", "content": "hi"}], "test-model"):
         chunks.append(c)
@@ -74,16 +83,18 @@ async def test_stream_fn_yields_tokens():
     assert "".join(c["token"] for c in tokens) == "Hello world"
 
 
+@pytest.mark.asyncio
 async def test_stream_fn_yields_tool_calls():
-    """make_derisk_llm_stream_fn normalizes tool_calls from ModelOutput."""
-    from derisk.core.interface.llm import ModelOutput
+    """make_derisk_llm_stream_fn normalizes tool_calls from AgentLLMOut."""
+    from derisk.agent.util.llm.llm_client import AgentLLMOut
+    from derisk.core.interface.llm import ModelInferenceMetrics
 
-    llm_client = MagicMock()
+    ai_wrapper = MagicMock()
 
-    async def _fake_stream(request):
-        yield ModelOutput(
-            error_code=0,
-            text="Let me check.",
+    async def _fake_create(**kwargs):
+        yield AgentLLMOut(
+            content="Let me check.",
+            thinking_content=None,
             tool_calls=[
                 {
                     "id": "call_1",
@@ -94,15 +105,19 @@ async def test_stream_fn_yields_tool_calls():
                 }
             ],
         )
-        yield ModelOutput(
-            error_code=0,
-            text="",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        yield AgentLLMOut(
+            content="",
+            thinking_content=None,
+            metrics=ModelInferenceMetrics(
+                prompt_tokens=10,
+                completion_tokens=5,
+                total_tokens=15,
+            ),
         )
 
-    llm_client.generate_stream = _fake_stream
+    ai_wrapper.create = _fake_create
 
-    stream_fn = make_derisk_llm_stream_fn(llm_client, model_alias="test-model")
+    stream_fn = make_derisk_llm_stream_fn(ai_wrapper, model_alias="test-model")
     chunks = []
     async for c in stream_fn([{"role": "user", "content": "hi"}], "test-model"):
         chunks.append(c)
@@ -113,17 +128,18 @@ async def test_stream_fn_yields_tool_calls():
     assert tool_call_chunks[0]["tool_calls"][0]["input"] == {"path": "/tmp/x"}
 
 
+@pytest.mark.asyncio
 async def test_stream_fn_handles_string_tool_calls():
     """make_derisk_llm_stream_fn handles tool_calls as JSON string."""
-    from derisk.core.interface.llm import ModelOutput
+    from derisk.agent.util.llm.llm_client import AgentLLMOut
     import json
 
-    llm_client = MagicMock()
+    ai_wrapper = MagicMock()
 
-    async def _fake_stream(request):
-        yield ModelOutput(
-            error_code=0,
-            text="ok",
+    async def _fake_create(**kwargs):
+        yield AgentLLMOut(
+            content="ok",
+            thinking_content=None,
             tool_calls=json.dumps([
                 {
                     "id": "call_1",
@@ -135,9 +151,9 @@ async def test_stream_fn_handles_string_tool_calls():
             ]),
         )
 
-    llm_client.generate_stream = _fake_stream
+    ai_wrapper.create = _fake_create
 
-    stream_fn = make_derisk_llm_stream_fn(llm_client, model_alias="test-model")
+    stream_fn = make_derisk_llm_stream_fn(ai_wrapper, model_alias="test-model")
     chunks = []
     async for c in stream_fn([{"role": "user", "content": "hi"}], "test-model"):
         chunks.append(c)

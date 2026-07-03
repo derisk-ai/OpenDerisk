@@ -70,16 +70,50 @@ async def test_interaction_request_emits_intervention_triggered():
 
 
 @pytest.mark.asyncio
+async def test_llm_token_emits_string_vis():
+    """BAIZE compat: token emitted as string vis so frontend appends to message text."""
+    events = [StreamEvent(type="llm_token", payload={"token": "Hello"}, seq=0)]
+    out = [s async for s in stream_to_sse(_gen(events))]
+    assert len(out) == 1
+    parsed = json.loads(out[0].replace("data:", "").strip())
+    assert parsed["vis"] == "Hello"  # string, not object
+
+
 @pytest.mark.asyncio
-async def test_step_end_emits_both_step_end_and_done_marker():
+async def test_step_start_is_suppressed():
+    """No BAIZE vis equivalent — suppress to avoid raw-object-as-text rendering."""
+    events = [StreamEvent(type="step_start", payload={"prompt": "hi"}, seq=0)]
+    out = [s async for s in stream_to_sse(_gen(events))]
+    assert len(out) == 0
+
+
+@pytest.mark.asyncio
+async def test_step_end_is_suppressed():
+    """step_end has no BAIZE vis equivalent — suppress; [DONE] emitted by caller."""
     events = [StreamEvent(type="step_end", payload={"conv_id": "c1", "step_id": "s1"}, seq=0)]
     out = [s async for s in stream_to_sse(_gen(events))]
-    assert len(out) == 2
-    assert "step_end" in out[0]
-    assert "[DONE]" in out[1]
+    assert len(out) == 0
 
 
-async def test_workspace_emits_workspace_type():
+@pytest.mark.asyncio
+async def test_tool_call_is_suppressed():
+    """tool_call has no BAIZE vis equivalent — suppress."""
+    events = [StreamEvent(type="tool_call", payload={"tool": "read_file"}, seq=0)]
+    out = [s async for s in stream_to_sse(_gen(events))]
+    assert len(out) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_result_is_suppressed():
+    """tool_result has no BAIZE vis equivalent — suppress."""
+    events = [StreamEvent(type="tool_result", payload={"content": "data"}, seq=0)]
+    out = [s async for s in stream_to_sse(_gen(events))]
+    assert len(out) == 0
+
+
+@pytest.mark.asyncio
+async def test_workspace_is_suppressed():
+    """workspace events without BAIZE equivalent — suppress."""
     events = [StreamEvent(type="workspace", payload={"event_type": "task_created", "x": 1}, seq=0)]
     out = [s async for s in stream_to_sse(_gen(events))]
-    assert "task_created" in out[0]
+    assert len(out) == 0

@@ -13,15 +13,25 @@ from derisk_serve.building.app.api.schema_app import GptsApp
 
 
 async def _mock_ai_create(**kwargs):
-    """Mock AIWrapper.create — yields two tokens then usage."""
-    from derisk.core.interface.llm import ModelOutput
+    """Mock AIWrapper.create — yields two tokens then metrics.
 
-    yield ModelOutput(error_code=0, text="Hello")
-    yield ModelOutput(error_code=0, text=" world")
-    yield ModelOutput(
-        error_code=0,
-        text="",
-        usage={"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
+    Uses AgentLLMOut (production type yielded by AIWrapper.create), not
+    ModelOutput. AgentLLMOut exposes .content/.metrics/.tool_calls — the
+    adapter reads these attributes.
+    """
+    from derisk.agent.util.llm.llm_client import AgentLLMOut
+    from derisk.core.interface.llm import ModelInferenceMetrics
+
+    yield AgentLLMOut(content="Hello", thinking_content=None)
+    yield AgentLLMOut(content=" world", thinking_content=None)
+    yield AgentLLMOut(
+        content="",
+        thinking_content=None,
+        metrics=ModelInferenceMetrics(
+            prompt_tokens=5,
+            completion_tokens=2,
+            total_tokens=7,
+        ),
     )
 
 
@@ -173,35 +183,38 @@ class TestV2Dispatch:
         # Verify V2 events were produced
         assert len(events) > 0, "Expected at least one SSE event"
 
-        # Check for llm_token event (V2 thinking produced a token)
+        # BAIZE compat: first event is metadata (conv_session_id, conv_uid)
+        metadata_events = [
+            e for e in events
+            if isinstance(e, str) and '"type":"metadata"' in e.replace(" ", "")
+        ]
+        assert len(metadata_events) > 0, (
+            f"Expected metadata SSE event, got: {events}"
+        )
+
+        # BAIZE compat: token emitted as string vis: data:{"vis":"Hello"}
+        # (NOT as object — frontend would render object as raw text)
         token_events = [
             e for e in events
-            if isinstance(e, str) and "llm_token" in e
+            if isinstance(e, str) and '"vis":"Hello' in e.replace(" ", "")
         ]
         assert len(token_events) > 0, (
-            f"Expected llm_token events in V2 output, got: {events}"
+            f"Expected string-vis token events in V2 output, got: {events}"
         )
 
-        # Check for step_start event (V2 INIT)
-        step_start_events = [
-            e for e in events
-            if isinstance(e, str) and "step_start" in e
-        ]
-        assert len(step_start_events) > 0, (
-            f"Expected step_start event in V2 output, got: {events}"
-        )
+        # BAIZE compat: internal types (step_start/step_end/tool_call) are suppressed
+        for internal_type in ("step_start", "step_end", "tool_call", "tool_result"):
+            internal_events = [
+                e for e in events
+                if isinstance(e, str) and f'"type":"{internal_type}"' in e.replace(" ", "")
+            ]
+            assert len(internal_events) == 0, (
+                f"Expected no {internal_type} SSE events (suppressed for BAIZE compat), got: {events}"
+            )
 
-        # Check for step_end event (V2 DONE)
-        step_end_events = [
-            e for e in events
-            if isinstance(e, str) and "step_end" in e
-        ]
-        assert len(step_end_events) > 0, (
-            f"Expected step_end event in V2 output, got: {events}"
-        )
-
-        # Check for DONE signal
-        assert "[DONE]" in events, (
+        # Check for DONE signal — _format_vis_msg("[DONE]") yields data:{"vis":"[DONE]"} \n
+        done_events = [e for e in events if isinstance(e, str) and "[DONE]" in e]
+        assert len(done_events) > 0, (
             f"Expected [DONE] signal in V2 output, got: {events}"
         )
 
