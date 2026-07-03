@@ -1,6 +1,6 @@
 """V2 thinking_fn yield 的 typed chunk 类型。"""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 from derisk.agent.core.v2.tool_call_types import V2ToolCall
@@ -25,4 +25,10 @@ class UsageChunk:
     usage: Dict[str, Any]
 
 
-ThinkingChunk = Union[TokenChunk, ToolCallChunk, UsageChunk]
+@dataclass
+class AwaitUserChunk:
+    """LLM 请求用户输入（暂停 turn）。"""
+    reason: str = ""
+
+
+ThinkingChunk = Union[TokenChunk, ToolCallChunk, UsageChunk, AwaitUserChunk]

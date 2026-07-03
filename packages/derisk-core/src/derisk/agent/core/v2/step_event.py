@@ -5,7 +5,7 @@ append-only：一旦写入不可修改。一个 step 产出多个 StepEvent
 """
 from __future__ import annotations
 import json
-from typing import Optional
+from typing import Any, Dict, Optional
 from derisk._private.pydantic import BaseModel, ConfigDict, model_to_dict
 from derisk.agent.core.v2.step_state import StepState
 
@@ -26,6 +26,7 @@ class StepEvent(BaseModel):
     event_type: str
     input: dict = {}
     output: dict = {}
+    metadata: Dict[str, Any] = {}
     seq: int
     timestamp: float
 
@@ -35,6 +36,7 @@ class StepEvent(BaseModel):
         d["state"] = self.state.value
         d["input"] = json.dumps(self.input)
         d["output"] = json.dumps(self.output)
+        d["metadata"] = json.dumps(self.metadata)
         d["parent_step_id"] = self.parent_step_id
         return d
 
@@ -51,6 +53,7 @@ class StepEvent(BaseModel):
             event_type=d["event_type"],
             input=json.loads(d["input"]) if d.get("input") else {},
             output=json.loads(d["output"]) if d.get("output") else {},
+            metadata=json.loads(d["metadata"]) if d.get("metadata") else {},
             seq=d["seq"],
             timestamp=d["timestamp"],
         )

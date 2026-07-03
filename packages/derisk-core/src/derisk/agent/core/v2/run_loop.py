@@ -89,6 +89,10 @@ async def run_loop(
             # 检查 awaiting 状态
             if step_event.state in _AWAITING_STATES:
                 turn_ctx.interrupted = True
+                # turn_complete NOT fired here — an interrupted turn is not "complete".
+                # Memory tier1 (write_turn_lightweight) registered on turn_complete
+                # skips interrupted turns by design. If future design requires recording
+                # interrupted turns, fire turn_complete with interrupted=True here.
                 return
 
             if step_event.state == StepState.FAILED:

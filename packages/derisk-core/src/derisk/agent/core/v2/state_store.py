@@ -73,6 +73,9 @@ class StateStore(ABC):
     @abstractmethod
     async def delete_transcript(self, transcript_id: str) -> None: ...
 
+    @abstractmethod
+    async def update_event_metadata(self, event_id: str, metadata: dict) -> None: ...
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS step_event (
@@ -85,6 +88,7 @@ CREATE TABLE IF NOT EXISTS step_event (
     event_type TEXT NOT NULL,
     input TEXT,
     output TEXT,
+    metadata TEXT DEFAULT '{}',
     seq INTEGER NOT NULL,
     timestamp REAL NOT NULL
 );
@@ -162,11 +166,12 @@ class DbStateStore(StateStore):
                 conn.execute(
                     "INSERT INTO step_event "
                     "(event_id, step_id, conv_id, agent_id, parent_step_id, state, "
-                    " event_type, input, output, seq, timestamp) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " event_type, input, output, metadata, seq, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (d["event_id"], d["step_id"], d["conv_id"], d["agent_id"],
                      d["parent_step_id"], d["state"], d["event_type"],
-                     d["input"], d["output"], d["seq"], d["timestamp"]),
+                     d["input"], d["output"], d.get("metadata", "{}"),
+                     d["seq"], d["timestamp"]),
                 )
                 conn.commit()
             finally:
@@ -414,6 +419,19 @@ class DbStateStore(StateStore):
                 conn.execute(
                     "DELETE FROM agent_transcript WHERE transcript_id = ?",
                     (transcript_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_do)
+
+    async def update_event_metadata(self, event_id: str, metadata: dict) -> None:
+        def _do():
+            conn = self._connect()
+            try:
+                conn.execute(
+                    "UPDATE step_event SET metadata = ? WHERE event_id = ?",
+                    (json.dumps(metadata), event_id),
                 )
                 conn.commit()
             finally:

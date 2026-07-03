@@ -94,7 +94,7 @@ def make_default_thinking_fn(
                 if scrubber is not None:
                     token = scrubber(token)
                 yield TokenChunk(token=token, usage=usage)
-            elif tool_calls_raw:
+            if tool_calls_raw:
                 tcs = [V2ToolCall(name=tc["tool"], args=tc.get("input", {})) for tc in tool_calls_raw]
                 yield ToolCallChunk(tool_calls=tcs)
             elif usage:
