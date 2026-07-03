@@ -14,6 +14,7 @@ from derisk.agent.core.v2.hook_integration import (
     build_pre_tool_use_context,
     build_post_tool_use_context,
 )
+from derisk.agent.core.hook.schema import BlockingPolicy
 from derisk.agent.tools.context import ToolContext
 
 
@@ -46,24 +47,28 @@ def make_default_acting_fn(
         if tool is None:
             return V2ToolResult.fail(error=f"工具 {tool_name} 未注册", tool_name=tool_name)
 
-        # 4. pre_tool_use hook（blocking）
+        # 4. 适配 BAIZE 工具（C4 fix: BAIZE tools return str, V2 expects V2ToolResult）
+        from derisk.agent.core.v2.unified_tool_adapter import UnifiedToolAdapter
+        tool = UnifiedToolAdapter(tool)
+
+        # 5. pre_tool_use hook（blocking）
         if hook_manager is not None:
             decision = await hook_manager.trigger_blocking(
                 "pre_tool_use",
                 build_pre_tool_use_context(tool_call, ctx),
             )
-            action = getattr(decision, "action", "CONTINUE")
-            if action == "DENY":
+            action = getattr(decision, "action", BlockingPolicy.CONTINUE)
+            if action == BlockingPolicy.DENY:
                 reason = getattr(decision, "reason", "no reason")
                 return V2ToolResult.fail(error=f"hook denied: {reason}", tool_name=tool_name)
-            if action == "ABORT":
+            if action == BlockingPolicy.ABORT:
                 return V2ToolResult.fail(error="hook aborted", tool_name=tool_name)
-            if action == "MODIFY":
-                modified = getattr(decision, "modified_args", None)
+            if action == BlockingPolicy.MODIFY:
+                modified = getattr(decision, "modified_input", None)
                 if modified is not None:
                     tool_input = modified
 
-        # 5. 执行
+        # 6. 执行
         try:
             result: V2ToolResult = await tool.execute(tool_input, context=ctx)
         except Exception as e:
@@ -80,14 +85,14 @@ def make_default_acting_fn(
         else:
             failure_tracker.reset(tool_name)
 
-        # 6. post_tool_use hook（fire-and-forget）
+        # 7. post_tool_use hook（fire-and-forget）
         if hook_manager is not None:
             await hook_manager.trigger(
                 "post_tool_use",
                 build_post_tool_use_context(tool_call, ctx, result),
             )
 
-        # 7. 截断（L1）
+        # 8. 截断（L1）
         output_content = str(result.output) if result.output is not None else ""
         trunc_result = await truncator.truncate(output_content, tool_name, tool_input)
         if getattr(trunc_result, "truncated", False):
