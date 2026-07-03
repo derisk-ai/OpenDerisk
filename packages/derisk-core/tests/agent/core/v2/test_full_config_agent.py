@@ -24,7 +24,7 @@ from derisk.agent.core.v2.state_store import DbStateStore
 from derisk.agent.core.v2.step_state import StepState
 from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
 from derisk.agent.core.v2.default_acting import make_default_acting_fn
-from derisk.agent.core.v2.tool_resolver import ToolResolver, _find_tool_in_pack
+from derisk.agent.core.v2.tool_resolver import ToolResolver
 from derisk.agent.core.v2.tool_failure_tracker import ToolFailureTracker
 from derisk.agent.core.v2.tool_context_factory import ToolContextFactory
 from derisk.agent.tools.context import ToolContext
@@ -296,7 +296,7 @@ async def test_full_config_with_hook_manager(store):
     assert len(post_tool_calls) >= 4
 
 
-async def test_conversation_complete_hook_fires(store):
+async def test_conversation_complete_hook_fires():
     """验证 conversation_complete hook 通过 trigger_conversation_complete 触发。"""
     hook_manager = MagicMock()
     hook_manager.trigger = AsyncMock()
@@ -318,7 +318,7 @@ async def test_conversation_complete_hook_fires(store):
     assert context["total_rounds"] == 3
 
 
-async def test_full_config_tool_context_resources(store, mock_tool_context):
+async def test_full_config_tool_context_resources(mock_tool_context):
     """验证满配 ToolContext 中所有资源类型正确设置。"""
     # DB resource
     db_res = mock_tool_context.get_resource("db_resource")
