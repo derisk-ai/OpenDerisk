@@ -24,10 +24,11 @@ from derisk.agent.core.v2.state_store import DbStateStore
 from derisk.agent.core.v2.step_state import StepState
 from derisk.agent.core.v2.tool_call_types import V2ToolCall, V2ToolResult
 from derisk.agent.core.v2.default_acting import make_default_acting_fn
-from derisk.agent.core.v2.tool_resolver import ToolResolver
+from derisk.agent.core.v2.tool_resolver import ToolResolver, _find_tool_in_pack
 from derisk.agent.core.v2.tool_failure_tracker import ToolFailureTracker
 from derisk.agent.core.v2.tool_context_factory import ToolContextFactory
 from derisk.agent.tools.context import ToolContext
+from derisk.agent.core.agent import Agent
 
 
 # =============================================================================
@@ -366,23 +367,97 @@ async def test_tool_resolver_returns_correct_tools():
     assert unknown is None
 
 
+async def test_full_config_with_mcp_resource_pack(mock_tool_context):
+    """验证 ToolResolver 通过 _find_tool_in_pack 递归解析 MCP resource pack 工具。"""
+    # 内层 pack：包含真正的 MCP 工具
+    class InnerPack:
+        is_pack = True
+
+    # 外层 pack：_resources 包含内层 pack
+    class OuterPack:
+        pass
+
+    outer_pack = OuterPack()
+    inner_pack = InnerPack()
+
+    class FakeMCPTool:
+        name = "mcp_weather"
+
+        async def execute(self, args, context=None):
+            return V2ToolResult.ok(
+                output="weather: sunny",
+                tool_name="mcp_weather",
+            )
+
+    inner_pack._resources = {"mcp_weather": FakeMCPTool()}
+    outer_pack._resources = {"weather_pack": inner_pack}
+
+    # 构造 ToolResolver：仅 resource_pack，无 system_tools 包含该工具
+    resolver = ToolResolver(
+        system_tools={
+            "list_skills": FakeSkillTool(),
+        },
+        resource_pack=outer_pack,
+    )
+
+    # 验证 resolve 通过递归查找返回工具
+    tool = resolver.resolve("mcp_weather")
+    assert tool is not None
+    assert isinstance(tool, FakeMCPTool)
+
+    # 验证工具执行
+    result = await tool.execute(args={}, context=mock_tool_context)
+    assert result.output == "weather: sunny"
+    assert result.tool_name == "mcp_weather"
+
+
+async def test_baize_vs_v2_same_prompt_both_run(store):
+    """V2 跑通端到端 + BAIZE 代码路径仍存在；两者是不同内核，不对比行为等价性（spec §1）。"""
+    # V2 端到端：同一 prompt 运行
+    acting_fn = _make_full_config_acting_fn()
+    events = []
+    async for e in run_loop(
+        agent_id="agent-full",
+        conv_id="conv-full",
+        input_={"prompt": "hello", "session_id": "s1"},
+        state_store=store,
+        thinking_fn=_make_thinking_full_config(),
+        acting_fn=acting_fn,
+        max_steps=10,
+    ):
+        events.append(e)
+
+    # V2 路径正常完成
+    states = [e.state for e in events]
+    assert StepState.DONE in states
+
+    # 4 工具都被调用
+    tool_call_events = [e for e in events if e.event_type == "tool_call"]
+    tool_names = [e.input.get("tool") for e in tool_call_events]
+    for expected in ("list_skills", "execute_sql", "knowledge_search", "bash"):
+        assert expected in tool_names
+
+    # BAIZE 代码路径仍存在（结构对比，不跑完整 BAIZE）
+    assert hasattr(Agent, "generate_reply"), "BAIZE entry method generate_reply missing"
+
+
 # =============================================================================
-# Cross-reference: 以下维度由先前 Task 的专项测试覆盖
+# Cross-reference: 以下维度由先前 Task 的专项测试覆盖（路径相对于 packages/derisk-core/）
 # =============================================================================
 #
 # 维度                           | 覆盖测试
-# -------------------------------+------------------------------------------
-# sub-agent shared_conv 模式     | test_subagent_shared_conv.py（Task 14）
-# memory tier1/2/3 hooks 注册    | test_memory_hook_setup.py（Task 11）
-# pre/post_tool_use hooks 详细   | test_default_acting.py（Task 10）
-# turn_complete hook 详细        | test_run_loop.py（Task 15/16）
-# ToolFailureTracker             | test_tool_failure_tracker.py（Task 4）
-# retrying_thinking              | test_retrying_thinking.py（Task 5）
-# ToolResolver                   | test_tool_resolver.py（Task 8）
-# ToolContextFactory             | test_tool_context_factory.py（Task 7）
-# default_thinking_fn            | test_default_thinking.py（Task 12）
-# Skill 工具 V2 签名             | test_skill_tool_v2.py（Task 18）
-# 沙箱工具 V2 迁移               | test_sandbox_tool_v2.py（Task 19）
-# DB/Knowledge/AgentStart V2     | test_db_knowledge_agent_tools_v2.py（Task 20）
-# run_loop 多轮                  | test_run_loop.py（Task 15/16）
-# V2 runtime 兼容 deprecation    | test_v2_runtime_with_deprecation.py（Task 3）
+# -------------------------------+---------------------------------------------------------
+# sub-agent shared_conv 模式     | tests/agent/core/v2/test_subagent_shared_conv.py（Task 14）
+# memory tier1/2/3 hooks 注册    | tests/agent/core/v2/test_memory_hook_setup.py（Task 11）
+# pre/post_tool_use hooks 详细   | tests/agent/core/v2/test_default_acting.py（Task 10）
+# turn_complete hook 详细        | tests/agent/core/v2/test_run_loop.py（Task 15/16）
+# ToolFailureTracker             | tests/agent/core/v2/test_tool_failure_tracker.py（Task 4）
+# retrying_thinking              | tests/agent/core/v2/test_retrying_thinking.py（Task 5）
+# ToolResolver                   | tests/agent/core/v2/test_tool_resolver.py（Task 8）
+# ToolContextFactory             | tests/agent/core/v2/test_tool_context_factory.py（Task 7）
+# default_thinking_fn            | tests/agent/core/v2/test_default_thinking.py（Task 12）
+# Skill 工具 V2 签名             | tests/agent/tools/test_skill_tool_v2.py（Task 18）
+# 沙箱工具 V2 迁移               | tests/agent/tools/test_sandbox_tool_v2.py（Task 19）
+# DB/Knowledge/AgentStart V2     | tests/agent/tools/test_db_knowledge_agent_tools_v2.py（Task 20）
+# run_loop 多轮                  | tests/agent/core/v2/test_run_loop.py（Task 15/16）
+# V2 runtime 兼容 deprecation    | tests/agent/core/v2/test_v2_runtime_with_deprecation.py（Task 3）
