@@ -123,29 +123,11 @@
   min-height: 300px;
 }
 
-.ws-wb__dialog-msg {
-  font-size: 13px;
-  padding: 4px 0;
-  color: var(--ws-text, #111827);
-}
-
-.ws-wb__dialog-msg--user { color: var(--ws-text-secondary, #6b7280); }
-.ws-wb__dialog-expand {
-  font-size: 12px;
-  color: var(--ws-accent, #3b82f6);
-  cursor: pointer;
-  padding: 6px 0;
-}
-
 .ws-wb__artifact-grid {
   padding: 12px 14px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
-}
-
-.ws-wb__artifact-card {
-  /* Card component provides its own styling */
 }
 
 .ws-wb__trace {
