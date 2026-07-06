@@ -211,6 +211,14 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(streaming_config_router, tags=["Streaming Config"])
     logger.info("[Streaming] Config API routes registered at /api/v1/streaming-config")
 
+    # V2 Agent chat API routes (independent of BAIZE)
+    from derisk_serve.agent.agents.chat.v2_chat_endpoint import (
+        router as v2_chat_router,
+    )
+
+    app.include_router(v2_chat_router)
+    logger.info("[V2] Chat API routes registered at /api/v2/chat")
+
     from derisk_app.feature_plugins.bootstrap import (
         register_enabled_feature_plugin_routers,
     )
