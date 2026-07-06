@@ -6,6 +6,7 @@ import { IChatDialogueMessageSchema } from '@/types/chat';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ChatHeader from '../header/chat-header';
 import ChatContent from './chat-content';
+import { TaskCreatedCard, TaskCreatedCardPayload } from '../task-created-card';
 
 interface BasicChatContentProps {
   ctrl: AbortController;
@@ -17,6 +18,19 @@ const MAX_CONTEXT_SIZE = 10_000_000;
 const isMessageTooLarge = (msg: IChatDialogueMessageSchema): boolean => {
   return !!(msg.context && typeof msg.context === 'string' && msg.context.length > MAX_CONTEXT_SIZE);
 };
+
+function getTaskCreatedPayload(item: IChatDialogueMessageSchema): TaskCreatedCardPayload | null {
+  if (item.role !== 'view') return null;
+  try {
+    const ctx = typeof item.context === 'string' ? JSON.parse(item.context) : item.context;
+    if (ctx && ctx.type === 'task_created') {
+      return ctx.payload as TaskCreatedCardPayload;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
   const scrollableRef = useRef<HTMLDivElement>(null);
@@ -57,18 +71,33 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
         {hasMessages && (
           <div className="w-full px-3 py-4">
             <div className="w-full">
-              {showMessages.map((content) => (
-                <div key={content.key} className="mb-4">
-                  <ChatContent
-                    content={content}
-                    onLinkClick={() => {
-                      setJsonModalOpen(true);
-                      setJsonValue(JSON.stringify(content?.context, null, 2));
-                    }}
-                    messages={showMessages}
-                  />
-                </div>
-              ))}
+              {showMessages.map((content) => {
+                const taskPayload = getTaskCreatedPayload(content);
+                if (taskPayload) {
+                  return (
+                    <div key={content.key} className="mb-4">
+                      <TaskCreatedCard
+                        payload={taskPayload}
+                        onViewTask={(taskId) => {
+                          window.dispatchEvent(new CustomEvent('workspace:view-task', { detail: { taskId } }));
+                        }}
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={content.key} className="mb-4">
+                    <ChatContent
+                      content={content}
+                      onLinkClick={() => {
+                        setJsonModalOpen(true);
+                        setJsonValue(JSON.stringify(content?.context, null, 2));
+                      }}
+                      messages={showMessages}
+                    />
+                  </div>
+                );
+              })}
               <div className="h-8" />
             </div>
           </div>
