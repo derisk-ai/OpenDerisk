@@ -25,6 +25,7 @@ export interface LobbyProps {
   convUid: string;
   onSelectTask: (taskId: number) => void;
   onQuickStart: (playbookId: number) => void;
+  onSendFirstMessage?: (text?: string) => void;
 }
 
 export function Lobby({
