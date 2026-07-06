@@ -437,6 +437,49 @@ class SQLAlchemyRelationalStore:
             )
             await s.commit()
 
+    async def verbat_find_by_session(
+        self, space_id: str, conv_session_id: str
+    ) -> Optional[dict]:
+        """Find most recent non-deprecated CONVO verbat for a session.
+
+        不同 DB（MySQL/PostgreSQL/SQLite）的 JSON 查询方言不一致，干脆
+        拉所有 convos verbats 在 Python 里过滤。session 级聚合下，一个
+        space 的 convos verbats 数量 = session 数，不会很大。
+        """
+        async with self._session() as s:
+            r = await s.execute(
+                text(
+                    "SELECT * FROM verbats WHERE space_id=:sid AND extract_mode='convos' "
+                    "AND deprecated=0 ORDER BY filed_at DESC"
+                ),
+                {"sid": space_id},
+            )
+            for row in r.fetchall():
+                d = self._row_to_dict(row)
+                meta = d.get("metadata") or {}
+                if meta.get("conv_session_id") == conv_session_id:
+                    return d
+            return None
+
+    async def verbat_update_content_hash(
+        self, space_id: str, vid: VerbatId, new_hash: str
+    ) -> None:
+        """Update content_hash + filed_at for an append-only CONCO verbat."""
+        async with self._session() as s:
+            await s.execute(
+                text(
+                    "UPDATE verbats SET content_hash=:h, filed_at=:t "
+                    "WHERE id=:id AND space_id=:sid"
+                ),
+                {
+                    "h": new_hash,
+                    "t": datetime.utcnow().isoformat(),
+                    "id": vid,
+                    "sid": space_id,
+                },
+            )
+            await s.commit()
+
     # ==================================================================
     # L1 Document
     # ==================================================================
