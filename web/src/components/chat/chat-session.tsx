@@ -377,7 +377,22 @@ const ChatSession = forwardRef<ChatSessionHandle, ChatSessionProps>(function Cha
             setHistory([...tempHistory]);
             resolve();
           },
-          onWorkspaceEvent: props.onWorkspaceEvent,
+          onWorkspaceEvent: (event: WorkspaceEvent) => {
+            props.onWorkspaceEvent?.(event);
+            if (event.type === 'task_created') {
+              setHistory((prev) => [
+                ...prev,
+                {
+                  role: 'view',
+                  context: JSON.stringify({ type: 'task_created', payload: event.payload }),
+                  order: order.current + 1,
+                  time_stamp: 0,
+                  model_name: '',
+                  thinking: false,
+                },
+              ]);
+            }
+          },
         });
       });
     },
