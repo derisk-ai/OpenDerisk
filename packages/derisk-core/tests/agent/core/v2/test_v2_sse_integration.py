@@ -1,7 +1,6 @@
 # packages/derisk-core/tests/agent/core/v2/test_v2_sse_integration.py
 """V2 SSE集成测试 - 验证完整事件流"""
 import asyncio
-import json
 from derisk.agent.core.v2.v2_event_emitter import V2EventEmitter
 from derisk.agent.core.v2.v2_vis_component import VisOperationType, VisComponentTag
 
