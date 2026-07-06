@@ -167,7 +167,7 @@ class LLMMemoryProcessor(MemoryProcessor):
         req = ModelRequest.build_request(model, messages=model_messages)
         out = await self._llm_client.generate(req)
         if not out.success:
-            raise ValueError(f"LLM call failed: {out.error}")
+            raise ValueError(f"LLM call failed: {out.error_code}")
         return out.text
 
     async def _get_model(self) -> str:

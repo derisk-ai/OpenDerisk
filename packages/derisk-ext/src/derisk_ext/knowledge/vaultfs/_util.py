@@ -32,7 +32,12 @@ PROTECTED_FILES = {
 # Inline content threshold: verbats smaller than this are stored inline,
 # larger ones are stored as blobs (file on disk, S3 object, etc.) and
 # referenced by path.
-INLINE_THRESHOLD = 32 * 1024  # 32 KiB
+#
+# 设为 0 让所有 verbat 都落盘到 raw/{extract_mode}/{id}.txt —— 这样
+# raw/convos/ 目录成为可信的"原始证据"层，UI 的 raw view 直接读文件，
+# SQLite 退回纯索引（content_ref 指向文件）。L1/L2 抽取失败时 raw 仍
+# 可作为兜底重新抽取。
+INLINE_THRESHOLD = 0
 
 
 def normalize_wiki_path(path: str) -> str:

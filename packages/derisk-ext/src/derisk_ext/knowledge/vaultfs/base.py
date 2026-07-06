@@ -218,7 +218,11 @@ class BaseVaultFS(ABC):
             if len(v.content) <= INLINE_THRESHOLD:
                 inline_content = v.content
             else:
-                content_ref = f"raw/{v.extract_mode.value}/{v.id}.txt"
+                # .md 后缀——verbat 内容是 markdown（对话文本 + [交付]
+                # section，含表格/列表）。UI 的 RawEditor 也基于 .md 启用
+                # 编辑按钮。 uploads 仍走 raw/sources/ 并保留原始扩展名，
+                # 不受这里影响。
+                content_ref = f"raw/{v.extract_mode.value}/{v.id}.md"
                 await self._raw_write(content_ref, v.content)
 
             await self._verbat_insert(v, inline_content, content_ref)
@@ -281,6 +285,43 @@ class BaseVaultFS(ABC):
 
     @abstractmethod
     async def _verbat_deprecate_row(self, vid: VerbatId) -> None: ...
+
+    async def verbat_find_by_session(
+        self, conv_session_id: str
+    ) -> Optional[Verbat]:
+        """Find the most recent non-deprecated CONVO verbat for a session.
+
+        Used by tier1 memory writes to co-locate all turns of a session in
+        one verbat (one file on disk). Returns None if no session verbat
+        exists yet.
+        """
+        return await self._verbat_find_by_session(conv_session_id)
+
+    @abstractmethod
+    async def _verbat_find_by_session(
+        self, conv_session_id: str
+    ) -> Optional[Verbat]: ...
+
+    async def verbat_append_content(
+        self, vid: VerbatId, additional: str
+    ) -> None:
+        """Append content to an existing verbat (CONVO session transcripts).
+
+        Relaxes the L0 immutability rule for CONVO mode only: a session
+        transcript grows turn-by-turn. Updates both the file on disk and
+        the DB row (content + content_hash). No-op if vid not found or
+        deprecated.
+        """
+        async with self.write_lock():
+            await self._verbat_append_content(vid, additional)
+        await self.publish_event(
+            ChangeEvent(space_id=self._space_id, layer="L0", op="update", id=vid)
+        )
+
+    @abstractmethod
+    async def _verbat_append_content(
+        self, vid: VerbatId, additional: str
+    ) -> None: ...
 
     # ===================================================================
     # L1 Document — high-level orchestration

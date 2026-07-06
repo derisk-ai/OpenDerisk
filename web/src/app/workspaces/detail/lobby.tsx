@@ -183,6 +183,7 @@ export function Lobby({
             convUid={convUid}
             appCode={appCode}
             workspaceId={workspaceId}
+            hideRightPanel={true}
             onWorkspaceEvent={handleWorkspaceEvent}
             inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
           />

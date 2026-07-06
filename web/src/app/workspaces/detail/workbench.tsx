@@ -173,6 +173,7 @@ export function Workbench({
           appCode={appCode}
           workspaceId={String(workspaceId)}
           taskId={String(taskId)}
+          hideRightPanel={true}
           onWorkspaceEvent={handleWorkspaceEvent}
           inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
         />

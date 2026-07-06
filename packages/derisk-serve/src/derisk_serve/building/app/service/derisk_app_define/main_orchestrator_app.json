@@ -1,10 +1,10 @@
 [
   {
-    "app_code": "main-orchestrator",
-    "app_name": "主调度Agent",
-    "app_describe": "基于ReAct范式的智能调度Agent，负责协调代码专家和信息检索专家协同完成复杂任务。",
+    "app_code": "main",
+    "app_name": "Main Agent",
+    "app_describe": "全局主 Agent，作为场景空间的默认兜底 Agent。具备场景感知、任务调度、资源加载能力，左面板展示对话和执行进展，右面板展示工作产出。适用于数据分析、报告生成、任务执行等场景。",
     "language": "zh",
-    "icon": "/agents/agent5.jpg",
+    "icon": "/agents/agent_main.png",
     "team_mode": "auto_plan",
     "agent": "BAIZE",
     "team_context": {
@@ -18,11 +18,12 @@
     },
     "layout": {
       "chat_layout": {
-        "name": "vis_window3",
+        "name": "vis_manus",
         "incremental": true,
-        "reuse_name": "derisk_vis_window"
+        "reuse_name": "vis_manus"
       }
     },
-    "published": true
+    "published": true,
+    "is_default_orchestrator": true
   }
 ]

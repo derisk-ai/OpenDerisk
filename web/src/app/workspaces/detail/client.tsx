@@ -173,7 +173,7 @@ export default function WorkspaceDetailPage() {
   }, { refreshDeps: [workspaceCode] });
 
   const workspaceId = ws?.id;
-  const appCode = ws?.default_agent_app_code || 'chat_normal';
+  const appCode = ws?.default_agent_app_code || 'main';
 
   // Load or create workspace-level current conversation from backend.
   useRequest(

@@ -265,6 +265,14 @@ class MetaDerisksWorkLogStorage:
         entries = await self._dao.get_by_session_async(conv_id, session_id)
         return [WorkEntry.from_dict(e) for e in entries]
 
+    async def get_work_log(self, conv_id: str) -> List[WorkEntry]:
+        """WorkLogStorage 接口实现：按 conv_id 加载工作日志（session_id 取 conv_id）.
+
+        V1 在 append_async 时存入 session_id=conv_id，故这里也按 conv_id 反查。
+        用于 PR 3 step-level resume：retry 时从 DB 加载历史 work_log。
+        """
+        return await self.get_by_session_async(conv_id, conv_id)
+
     def delete_by_session(self, conv_id: str, session_id: str) -> bool:
         """删除指定会话的所有工作日志."""
         return self._dao.delete_by_session(conv_id, session_id)

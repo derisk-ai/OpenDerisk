@@ -18,6 +18,7 @@ type ShareMode = 'conversation' | 'process' | 'report' | null;
 
 interface ManusChatContentProps {
   ctrl: AbortController;
+  hideRightPanel?: boolean;
 }
 
 // Data size limits to prevent browser crash
@@ -205,7 +206,7 @@ function buildRunningWindowFromStepDetail(data: {
   return '```manus-right-panel\n' + JSON.stringify(payload) + '\n```';
 }
 
-const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
+const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl, hideRightPanel }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
   const shareMode = (searchParams?.get('share_mode') as ShareMode) || null;
@@ -231,6 +232,9 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
 
   // The running window shown in right panel: override (from deliverable click) or latest
   const displayRunningWindow = overrideRunningWindow || latestRunningWindow;
+
+  // When hideRightPanel is true, always hide the right panel (for workspace mode)
+  const effectiveHideRightPanel = hideRightPanel || userClosedPanel;
 
   // Listen for panel open/close events
   useEffect(() => {
@@ -347,7 +351,9 @@ const ManusChatContent: React.FC<ManusChatContentProps> = ({ ctrl }) => {
   // conversation: only left panel (chat-only, read-only)
   // process: both panels (read-only)
   // report: only right panel (deliverable content)
-  const isRightPanelVisible = shareMode === 'conversation' ? false
+  // hideRightPanel: workspace mode - always hide right panel
+  const isRightPanelVisible = hideRightPanel ? false
+    : shareMode === 'conversation' ? false
     : shareMode === 'report' ? true
     : !userClosedPanel;
   const showLeftPanel = shareMode !== 'report';

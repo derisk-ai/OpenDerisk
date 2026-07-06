@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import traceback
 import uuid
 import warnings
@@ -34,6 +35,7 @@ from derisk.agent.core.base_team import ManagerAgent
 from derisk.agent.core.memory.gpts import GptsMessage
 from derisk.agent.core.plan.react.team_react_plan import AutoTeamContext
 from derisk.agent.core.sandbox_manager import SandboxManager
+from derisk.agent.core.step_state_guard import validate_session_transition
 from derisk.agent.core.schema import Status
 from derisk.agent.resource import get_resource_manager, ResourceManager
 from derisk.agent.resource.agent_skills import AgentSkillResource
@@ -390,6 +392,19 @@ class AgentChat(BaseComponent, ABC):
         self.system_app = system_app
         self.agent_manage = get_agent_manager(system_app)
 
+        # 注册全局 SubagentCoordinator 单例，供 SubAgent 工具 async 模式访问
+        try:
+            from derisk_serve.agent.subagent_coordinator import (
+                SubagentCoordinator,
+                set_subagent_coordinator,
+            )
+            set_subagent_coordinator(SubagentCoordinator(agent_chat=self))
+            logger.info("[AgentChat] global SubagentCoordinator registered")
+        except Exception as coord_err:
+            logger.warning(
+                f"[AgentChat] failed to register SubagentCoordinator: {coord_err}"
+            )
+
     def init_app(self, system_app: SystemApp):
         self.system_app = system_app
         # 注册全局模型配置缓存
@@ -522,53 +537,6 @@ class AgentChat(BaseComponent, ABC):
             sandbox_key = f"{conv_id}_{staff_no}"
             await GlobalSandboxManagerCache.cleanup_and_remove(sandbox_key)
 
-    async def _v2_build_memory_bundle(self, gpts_app: GptsApp):
-        """V2 dispatch 独立构造 MemoryIntegrationBundle（不走 BAIZE _build_agent_by_gpts）。
-
-        镜像 BAIZE 的 memory_resources 解析逻辑：从 app.resource_memory 与
-        app.all_resources 中收集 MemoryResource，用 create_memory_integration_bundle
-        统一构造。失败时返回 None（V2 thinking_fn 降级为无 memory 模式）。
-        """
-        memory_resources: list = []
-        if getattr(gpts_app, "resource_memory", None):
-            memory_resources.extend(gpts_app.resource_memory)
-        if getattr(gpts_app, "all_resources", None):
-            for res in gpts_app.all_resources:
-                res_type = getattr(res, "type", "") or ""
-                if res_type.lower() == "memory" or res_type == "MemoryResource":
-                    if res not in memory_resources:
-                        memory_resources.append(res)
-        if not memory_resources:
-            return None
-
-        try:
-            from derisk.agent.core.memory.longterm_manager import (
-                LongTermMemoryConfig,
-                create_memory_integration_bundle,
-            )
-        except Exception as e:
-            logger.warning(f"[V2 dispatch] memory module unavailable: {e}")
-            return None
-
-        try:
-            memory_resource = memory_resources[0]
-            memory_value = getattr(memory_resource, "value", None)
-            if not memory_value:
-                return None
-            memory_config = LongTermMemoryConfig.from_resource_value(memory_value)
-            if not memory_config or not memory_config.memories:
-                return None
-            bundle = await create_memory_integration_bundle(
-                config=memory_config,
-                system_app=self.system_app,
-            )
-            return bundle
-        except Exception as e:
-            logger.warning(
-                f"[V2 dispatch] create_memory_integration_bundle failed: {e}"
-            )
-            return None
-
     def after_start(self):
         # LLM client is resolved per-request by AIWrapper + ProviderRegistry
         # reading from agent.llm config; no shared llm_provider is needed.
@@ -600,8 +568,10 @@ class AgentChat(BaseComponent, ABC):
                     if err_msg:
                         if "中断" in err_msg or "interrupt" in err_msg.lower():
                             new_state = Status.INTERRUPTED.value
+                            validate_session_transition(Status.RUNNING, Status.INTERRUPTED)
                         else:
                             new_state = Status.FAILED.value
+                            validate_session_transition(Status.RUNNING, Status.FAILED)
                         self.gpts_conversations.update(agent_conv_id, new_state)
                         logger.info(
                             f"Updated conversation {agent_conv_id} state to {new_state}"
@@ -1674,15 +1644,75 @@ class AgentChat(BaseComponent, ABC):
                                     from derisk.storage.memory.lifecycle import DefaultLifecycleHooks
                                     from derisk.storage.memory.snapshot import FrozenSnapshotManager
 
-                                    # 为每个 space 建 LLMMemoryProcessor，复用
-                                    # agent 自己的 llm_client（与 agent 同模型），
-                                    # 驱动 tier2 reflect 的 L0→L1 抽取与合并。
+                                    # 为每个 space 建 LLMMemoryProcessor。
+                                    # 优先用 self.llm_provider（chat 自己的 working LLM
+                                    # client）；生产路径下它是 None（controller.py
+                                    # 用 SimpleAgentChat(self.system_app) 实例化时不
+                                    # 注入），此时从 ModelConfigCache 取第一个可用
+                                    # 模型，构造 AIWrapper 让它跑一遍 _init_provider
+                                    # 的 secrets/env/placeholder 解析，再取其 _provider。
+                                    # LLMProvider ABC 与 LLMClient 在 generate(req) /
+                                    # models() 上签名一致，可鸭子类型喂给
+                                    # LLMMemoryProcessor。
                                     processors = {}
-                                    llm_client = getattr(
-                                        getattr(recipient, "llm_config", None),
-                                        "llm_client",
-                                        None,
-                                    )
+                                    llm_client = self.llm_provider
+                                    if llm_client is None:
+                                        try:
+                                            from derisk.agent.util.llm.llm_client import (
+                                                AIWrapper,
+                                            )
+                                            from derisk.agent.util.llm.model_config_cache import (
+                                                ModelConfigCache,
+                                            )
+                                            from derisk.agent.core.llm_config import (
+                                                AgentLLMConfig,
+                                            )
+
+                                            all_models = (
+                                                ModelConfigCache.get_all_models()
+                                            )
+                                            if all_models:
+                                                model_name = all_models[0]
+                                                cfg_dict = (
+                                                    ModelConfigCache.get_config(
+                                                        model_name
+                                                    )
+                                                    or {}
+                                                )
+                                                temp_llm_config = (
+                                                    AgentLLMConfig.from_dict(
+                                                        cfg_dict
+                                                    )
+                                                )
+                                                wrapper = AIWrapper(
+                                                    llm_config=temp_llm_config
+                                                )
+                                                llm_client = wrapper._provider
+                                                if llm_client is not None:
+                                                    logger.info(
+                                                        f"[AgentChat] Built LLMProvider "
+                                                        f"(provider={temp_llm_config.provider}, "
+                                                        f"model={temp_llm_config.model}) "
+                                                        f"via AIWrapper for memory processor"
+                                                    )
+                                                else:
+                                                    logger.warning(
+                                                        "[AgentChat] AIWrapper resolved no "
+                                                        "provider; tier2/tier3 LLM "
+                                                        "extraction will be skipped"
+                                                    )
+                                            else:
+                                                logger.warning(
+                                                    "[AgentChat] ModelConfigCache empty; "
+                                                    "tier2/tier3 LLM extraction will be skipped"
+                                                )
+                                        except Exception as e:
+                                            logger.warning(
+                                                f"[AgentChat] Failed to build LLMProvider "
+                                                f"via AIWrapper: {e}"
+                                            )
+                                            llm_client = None
+
                                     if llm_client is not None:
                                         for mem_id in memory_stores.keys():
                                             try:
@@ -1702,20 +1732,31 @@ class AgentChat(BaseComponent, ABC):
                                         )
                                     else:
                                         logger.warning(
-                                            "[AgentChat] recipient has no llm_client; "
-                                            "tier2 reflect will be skipped"
+                                            "[AgentChat] no llm_provider and no "
+                                            "ModelConfigCache fallback; tier2/tier3 "
+                                            "LLM extraction will be skipped"
                                         )
 
                                     recall_tracker = RecallTracker()
                                     promotion_engine = MemoryPromotionEngine(
                                         recall_tracker=recall_tracker,
                                     )
+                                    lifecycle_hooks = DefaultLifecycleHooks()
+                                    snapshot_manager = FrozenSnapshotManager()
+                                    hybrid_search = HybridSearchEngine()
+                                    # 把全部组件注入 manager —— curate_session 通过
+                                    # getattr(self, "_promotion_engine", None) 等读取，
+                                    # 不注入则 tier3 promotion/snapshot 全是 None 而变成 0ms no-op。
                                     manager = LongTermMemoryManager(
                                         config=memory_config,
                                         memory_stores=memory_stores,
+                                        processors=processors,
                                         strategies=strategies,
                                         recall_tracker=recall_tracker,
-                                        hybrid_search_engine=HybridSearchEngine(),
+                                        hybrid_search_engine=hybrid_search,
+                                        lifecycle_hooks=lifecycle_hooks,
+                                        snapshot_manager=snapshot_manager,
+                                        promotion_engine=promotion_engine,
                                     )
                                     memory_bundle = MemoryIntegrationBundle(
                                         config=memory_config,
@@ -1723,9 +1764,9 @@ class AgentChat(BaseComponent, ABC):
                                         processors=processors,
                                         strategies=strategies,
                                         recall_tracker=recall_tracker,
-                                        hybrid_search=HybridSearchEngine(),
-                                        lifecycle_hooks=DefaultLifecycleHooks(),
-                                        snapshot_manager=FrozenSnapshotManager(),
+                                        hybrid_search=hybrid_search,
+                                        lifecycle_hooks=lifecycle_hooks,
+                                        snapshot_manager=snapshot_manager,
                                         promotion_engine=promotion_engine,
                                     )
                                     logger.info(
@@ -2537,6 +2578,22 @@ class AgentChat(BaseComponent, ABC):
         recipient: Optional[ConversableAgent] = None
         gpts_status = Status.COMPLETE.value
         staff_no = ext_info.get("staff_no") or gpts_app.user_code or "derisk"
+
+        # PR 4: 心跳 — 会话入口处 touch 一次，标识本进程在跑
+        # Tier 3.2: 同时 acquire_lease，多进程部署下确保会话所有权
+        try:
+            from derisk.agent.core.heartbeat_hook import touch_heartbeat
+            from derisk_serve.agent.heartbeat import acquire_lease
+            touch_heartbeat(conv_uid)
+            acquired = await acquire_lease(conv_uid)
+            if not acquired:
+                logger.warning(
+                    f"[agent_chat] _inner_chat conv={conv_uid}: lease held by another worker, "
+                    f"proceeding anyway (may indicate concurrent dispatch)"
+                )
+        except Exception:
+            pass
+
         try:
             if isinstance(user_query.content, List):
                 from derisk_serve.multimodal.service.service import MultimodalService
@@ -2602,6 +2659,11 @@ class AgentChat(BaseComponent, ABC):
                 env_context.update(ext_info.get(ENV_CONTEXT_KEY))
             context: AgentContext = AgentContext(
                 user_id=user_code,
+                # user_name 缺失会让 memory hook 的 verbat metadata.author 为
+                # None（hook_dispatcher.memory_write_turn_function 读
+                # event.user_name）。user_code 是当前唯一可靠的 user 标识，
+                # 同时填到 user_name 让 raw 记忆文件能归属到用户。
+                user_name=user_code,
                 staff_no=staff_no,
                 conv_id=conv_uid,
                 conv_session_id=conv_session_id,
@@ -2623,367 +2685,6 @@ class AgentChat(BaseComponent, ABC):
 
             cache = await self.memory.cache(conv_uid)
             scheduler: Scheduler = LocalScheduler(cache=cache)
-
-            # V2 dispatch: full BAIZE-parity path with tools/memory/hooks
-            logger.info(f"[V2 dispatch check] gpts_app.agent_version={gpts_app.agent_version}")
-            if gpts_app.agent_version == "v2":
-                import os
-                from derisk.configs.model_config import DATA_DIR
-
-                from derisk.agent.core.v2 import (
-                    run_loop,
-                    DbStateStore,
-                    step_event_to_stream_event,
-                    stream_to_sse,
-                    make_default_thinking_fn,
-                    make_default_acting_fn,
-                    make_derisk_llm_stream_fn,
-                    ToolResolver,
-                    ToolContextFactory,
-                    ToolFailureTracker,
-                    DoomLoopAdapter,
-                    TruncatorAdapter,
-                    extract_resource_map,
-                    register_memory_hooks,
-                )
-                from derisk.agent.expand.react_master_agent.context_engine.engine import ContextEngine
-                from derisk.agent.tools.registry import tool_registry
-                from derisk.agent.core.hook.manager import build_hook_manager
-                from derisk.agent.expand.react_master_agent.doom_loop_detector import (
-                    DoomLoopDetector,
-                )
-                from derisk.agent.expand.react_master_agent.truncation import Truncator
-
-                logger.info(f"[V2 dispatch] Entering V2 dispatch for conv_uid={conv_uid}")
-
-                # Extract user prompt text from the message
-                if isinstance(user_query.content, str):
-                    user_prompt = user_query.content
-                elif isinstance(user_query.content, list):
-                    user_prompt = ""
-                    for item in user_query.content:
-                        if isinstance(item, dict) and item.get("type") == "text":
-                            user_prompt = item.get("object", {}).get("data", "")
-                            break
-                        elif hasattr(item, "type") and item.type == "text":
-                            try:
-                                user_prompt = item.get_text()
-                            except Exception:
-                                user_prompt = (
-                                    str(item.object.data)
-                                    if hasattr(item, "object")
-                                    else ""
-                                )
-                            break
-                else:
-                    user_prompt = str(user_query.content)
-
-                # 构建真实 thinking_fn：AIWrapper + ContextEngine
-                # BAIZE 同款解析：通过 ModelConfigCache + AgentLLMConfig 构造 AIWrapper
-                # （self.llm_provider 在生产为 None，LLM provider 由 AIWrapper 在调用时解析）
-                from derisk.agent.util.llm.llm_client import AIWrapper
-                from derisk.agent.util.llm.model_config_cache import ModelConfigCache
-                from derisk.agent.core.llm_config import AgentLLMConfig
-
-                strategy_context = gpts_app.llm_config.llm_strategy_value
-                model_name = None
-                if isinstance(strategy_context, list):
-                    model_name = strategy_context[0] if strategy_context else None
-                elif isinstance(strategy_context, str):
-                    try:
-                        model_list = json.loads(strategy_context)
-                        model_name = model_list[0] if model_list else strategy_context
-                    except (json.JSONDecodeError, TypeError):
-                        model_name = strategy_context
-
-                agent_llm_config = None
-                if model_name and ModelConfigCache.has_model(model_name):
-                    model_config_dict = ModelConfigCache.get_config(model_name)
-                    if model_config_dict:
-                        try:
-                            agent_llm_config = AgentLLMConfig.from_dict(model_config_dict)
-                        except Exception as e:
-                            logger.warning(f"[V2 dispatch] parse model config failed: {e}")
-
-                ai_wrapper = AIWrapper(llm_config=agent_llm_config)
-                llm_stream_fn = make_derisk_llm_stream_fn(
-                    ai_wrapper,
-                    model_alias=model_name or "default",
-                )
-
-                context_engine = ContextEngine()
-
-                async def _get_session_messages(session_id):
-                    msgs = await self.memory.get_session_messages(session_id)
-                    result = []
-                    for m in msgs:
-                        role = getattr(m, "role", None) or getattr(m, "sender", None) or "user"
-                        content = getattr(m, "content", "") or ""
-                        if role in ("human", "user"):
-                            role = "user"
-                        elif role in ("ai", "assistant", "view"):
-                            role = "assistant"
-                        elif role == "system":
-                            role = "system"
-                        result.append({"role": role, "content": content})
-                    return result
-
-                async def _get_work_log(conv_id):
-                    return []
-
-                async def _get_context_window(model):
-                    return 4096
-
-                system_prompt = gpts_app.system_prompt_template or ""
-
-                # ===== 资源 / 沙箱 / MCP / Memory 全量接入（BAIZE 对齐）=====
-                # 1. 构造最小 AgentContext，给 _get_or_create_sandbox_manager 用
-                from derisk.agent import AgentContext as _AgentContext
-                v2_context = _AgentContext(
-                    conv_id=conv_uid,
-                    conv_session_id=conv_session_id,
-                    staff_no=staff_no,
-                    gpts_app_code=gpts_app.app_code,
-                    gpts_app_name=gpts_app.app_name,
-                    agent_app_code=gpts_app.app_code,
-                    extra={"dynamic_resources": ext_info.get("dynamic_resources", [])},
-                )
-
-                # 2. 沙箱管理器（与 BAIZE 同款缓存逻辑）
-                sandbox_manager = await self._get_or_create_sandbox_manager(
-                    v2_context, gpts_app, need_sandbox=True
-                )
-                if sandbox_manager is not None:
-                    logger.info(
-                        f"[V2 dispatch] sandbox_manager acquired for conv_uid={conv_uid}"
-                    )
-
-                # 3. depend_resource + resource_map（BAIZE 同款 rm.a_build_resource）
-                rm = get_resource_manager()
-                real_all_resources = list(ext_info.get("dynamic_resources", []))
-                if getattr(gpts_app, "all_resources", None):
-                    real_all_resources.extend(gpts_app.all_resources)
-                depend_resource = None
-                resource_map: dict = {}
-                if real_all_resources:
-                    try:
-                        depend_resource = await rm.a_build_resource(
-                            real_all_resources, ignore_missing=True
-                        )
-                        resource_map = extract_resource_map(depend_resource)
-                        logger.info(
-                            f"[V2 dispatch] depend_resource built: "
-                            f"is_pack={depend_resource.is_pack if depend_resource else False}, "
-                            f"resource_map_keys={list(resource_map.keys())}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"[V2 dispatch] rm.a_build_resource failed: {e}; "
-                            "resource-dependent tools (execute_sql/KnowledgeSearch/AgentStart) disabled"
-                        )
-
-                # 4. cache 可能被 BAIZE 路径注册过 memory_bundle；否则尝试独立构造
-                cache = await self.memory.cache(conv_uid)
-                memory_bundle = getattr(cache, "memory_bundle", None)
-                if memory_bundle is None:
-                    # 独立构造 memory_bundle（V2 不走 BAIZE _build_agent_by_gpts）
-                    memory_bundle = await self._v2_build_memory_bundle(gpts_app)
-                    if memory_bundle is not None:
-                        try:
-                            self.memory.register_memory_bundle(conv_uid, memory_bundle)
-                            cache.memory_bundle = memory_bundle
-                            logger.info(
-                                f"[V2 dispatch] memory_bundle built and registered for conv_uid={conv_uid}"
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"[V2 dispatch] register_memory_bundle failed: {e}"
-                            )
-                if memory_bundle is None:
-                    logger.info(
-                        f"[V2 dispatch] memory_bundle unavailable for conv_uid={conv_uid}; "
-                        "memory injection disabled (V2 still works, just no long-term memory recall)"
-                    )
-
-                thinking_fn = make_default_thinking_fn(
-                    llm_stream_fn=llm_stream_fn,
-                    model_alias=gpts_app.llm_config.llm_strategy_value,
-                    context_engine=context_engine,
-                    memory_bundle=memory_bundle,
-                    get_session_messages=_get_session_messages,
-                    get_work_log=_get_work_log,
-                    get_context_window=_get_context_window,
-                    system_prompt=system_prompt,
-                )
-
-                # 5. 工具源：sandbox_tools + 绑定配置工具 + tool_registry + resource_pack(MCP)
-                sandbox_tools: dict = {}
-                if sandbox_manager is not None:
-                    try:
-                        from derisk.agent.core.sandbox.sandbox_tool_registry import (
-                            sandbox_tool_dict,
-                        )
-                        sandbox_tools = dict(sandbox_tool_dict)
-                        logger.info(
-                            f"[V2 dispatch] sandbox_tools loaded: {len(sandbox_tools)} tools"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"[V2 dispatch] sandbox_tool_dict import failed: {e}"
-                        )
-
-                # 绑定配置工具（per-app tool binding），失败时 tool_registry 兜底
-                system_tools: dict = {}
-                try:
-                    from derisk.agent.tools.tool_manager import tool_manager
-                    runtime_tools = tool_manager.get_runtime_tools(
-                        app_id=gpts_app.app_code,
-                        agent_name=gpts_app.app_name or gpts_app.app_code or "v2_agent",
-                    )
-                    for tool in runtime_tools:
-                        tool_name = getattr(getattr(tool, "metadata", None), "name", None)
-                        if tool_name:
-                            system_tools[tool_name] = tool
-                    logger.info(
-                        f"[V2 dispatch] system_tools from binding config: {len(system_tools)} tools"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"[V2 dispatch] tool_manager.get_runtime_tools failed: {e}; "
-                        "falling back to tool_registry only"
-                    )
-
-                tool_resolver = ToolResolver(
-                    system_tools=system_tools,
-                    sandbox_tools=sandbox_tools,
-                    unified_registry=tool_registry,
-                    resource_pack=depend_resource,  # MCP 工具树
-                    resource_map=resource_map,
-                    sandbox_manager=sandbox_manager,
-                )
-                tool_context_factory = ToolContextFactory(
-                    agent_id=gpts_app.app_code or "v2_agent",
-                    conv_id=conv_uid,
-                    user_id=user_code,
-                    resource_map=resource_map,
-                    sandbox_manager=sandbox_manager,
-                )
-                failure_tracker = ToolFailureTracker(max_failures=3)
-                doom_loop_adapter = DoomLoopAdapter(DoomLoopDetector())
-                truncator_adapter = TruncatorAdapter(Truncator())
-
-                acting_fn = make_default_acting_fn(
-                    tool_resolver=tool_resolver,
-                    doom_loop_detector=doom_loop_adapter,
-                    failure_tracker=failure_tracker,
-                    truncator=truncator_adapter,
-                    tool_context_factory=tool_context_factory,
-                    hook_manager=None,  # set below if hook_manager built
-                )
-
-                # 6. HookManager：从 gpts_app.team_context.hook_config 解析
-                team_context = getattr(gpts_app, "team_context", None)
-                hook_manager = build_hook_manager(team_context)
-                if hook_manager is None:
-                    logger.info(
-                        f"[V2 dispatch] no hook_config on team_context; hooks disabled"
-                    )
-                else:
-                    # 把 hook_manager 注入 acting_fn（closure 不能改，所以重建 acting_fn）
-                    acting_fn = make_default_acting_fn(
-                        tool_resolver=tool_resolver,
-                        doom_loop_detector=doom_loop_adapter,
-                        failure_tracker=failure_tracker,
-                        truncator=truncator_adapter,
-                        tool_context_factory=tool_context_factory,
-                        hook_manager=hook_manager,
-                    )
-                    # 注册 memory tier0/1/2/3 hooks（仅当 memory_bundle 可用）
-                    if memory_bundle is not None:
-                        try:
-                            register_memory_hooks(
-                                hook_manager=hook_manager,
-                                memory_bundle=memory_bundle,
-                            )
-                            logger.info(
-                                f"[V2 dispatch] memory hooks registered (tier0/1/2/3)"
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"[V2 dispatch] register_memory_hooks failed: {e}"
-                            )
-
-                v2_state_dir = os.path.join(DATA_DIR, "v2_conv_state")
-                os.makedirs(v2_state_dir, exist_ok=True)
-                db_path = os.path.join(v2_state_dir, f"{conv_uid}.db")
-                state_store = DbStateStore(db_path)
-
-                try:
-                    # BAIZE 兼容：先发 metadata，前端 use-chat.ts 依赖它建立会话上下文
-                    metadata_content = orjson.dumps(
-                        {
-                            "vis": {
-                                "type": "metadata",
-                                "conv_session_id": conv_session_id,
-                                "conv_uid": conv_uid,
-                            }
-                        }
-                    ).decode("utf-8")
-                    if cache:
-                        cache.channel.put_nowait(f"data:{metadata_content}\n\n")
-
-                    async def _v2_event_stream():
-                        event_count = 0
-                        async for step_event in run_loop(
-                            agent_id=gpts_app.app_code or "v2_agent",
-                            conv_id=conv_uid,
-                            input_={
-                                "prompt": user_prompt,
-                                "conv_id": conv_uid,
-                                "session_id": conv_session_id,
-                            },
-                            state_store=state_store,
-                            thinking_fn=thinking_fn,
-                            acting_fn=acting_fn,
-                            max_steps=20,
-                            user_id=user_code,
-                            hook_manager=hook_manager,
-                        ):
-                            event_count += 1
-                            stream_event = step_event_to_stream_event(step_event)
-                            logger.debug(f"[V2 dispatch] step_event {event_count}: state={step_event.state}, event_type={step_event.event_type} -> stream_type={stream_event.type}")
-                            yield stream_event
-                        logger.info(f"[V2 dispatch] Total events yielded: {event_count}")
-
-                    sse_line_count = 0
-                    async for sse_line in stream_to_sse(_v2_event_stream()):
-                        sse_line_count += 1
-                        logger.debug(f"[V2 dispatch] SSE line {sse_line_count}: {sse_line[:100]}")
-                        if cache:
-                            cache.channel.put_nowait(sse_line)
-                    logger.info(f"[V2 dispatch] Total SSE lines sent: {sse_line_count}")
-                except Exception as e:
-                    logger.exception(f"[V2 dispatch] error: {e}")
-                    if cache:
-                        error_content = orjson.dumps(
-                            {
-                                "vis": {
-                                    "type": "error",
-                                    "content": f"V2 dispatch error: {str(e)}",
-                                }
-                            }
-                        ).decode("utf-8")
-                        cache.channel.put_nowait(f"data:{error_content}\n\n")
-                finally:
-                    # BAIZE 兼容：_format_vis_msg("[DONE]") 产出 data:{"vis":"[DONE]"} \n
-                    if cache:
-                        cache.channel.put_nowait(_format_vis_msg("[DONE]"))
-
-                if await scheduler.running():
-                    await scheduler.schedule()
-                gpts_status = Status.COMPLETE.value
-                self.gpts_conversations.update(conv_uid, gpts_status)
-                return conv_uid
 
             rm = get_resource_manager()
             recipient = await self._build_agent_by_gpts(
@@ -3174,6 +2875,7 @@ class AgentChat(BaseComponent, ABC):
 
             if is_retry_chat:
                 # retry chat
+                validate_session_transition(Status.WAITING, Status.RUNNING)
                 self.gpts_conversations.update(conv_uid, Status.RUNNING.value)
 
             user_proxy: UserProxyAgent = (
@@ -3207,10 +2909,28 @@ class AgentChat(BaseComponent, ABC):
             if user_proxy.have_ask_user():
                 gpts_status = Status.WAITING.value
 
+            # PR 2: 有 pending 子 agent 时，主会话也 WAITING（等子 agent 完成后 coordinator 触发 resume）
+            if gpts_status != Status.WAITING.value:
+                try:
+                    from derisk_serve.agent.subagent_coordinator import (
+                        get_subagent_coordinator,
+                    )
+                    coordinator = get_subagent_coordinator()
+                    if coordinator is not None:
+                        handles = await coordinator._read_pending(conv_uid)
+                        if handles and any(not h.is_terminal() for h in handles):
+                            gpts_status = Status.WAITING.value
+                except Exception as sub_err:
+                    logger.debug(
+                        f"[AgentChat] pending_subagents check skipped: {sub_err}"
+                    )
+
+            validate_session_transition(Status.RUNNING, Status(gpts_status))
             self.gpts_conversations.update(conv_uid, gpts_status)
         except asyncio.CancelledError:
             logger.info(f"Chat cancelled by user for conv_uid: {conv_uid}")
             gpts_status = Status.INTERRUPTED.value
+            validate_session_transition(Status.RUNNING, Status.INTERRUPTED)
             self.gpts_conversations.update(conv_uid, gpts_status)
 
             # 推送中断消息到消息队列
@@ -3246,6 +2966,7 @@ class AgentChat(BaseComponent, ABC):
                 f"chat abnormal termination！{conv_uid}, error: {str(e)}\n{error_trace}"
             )
             gpts_status = Status.FAILED.value
+            validate_session_transition(Status.RUNNING, Status.FAILED)
             self.gpts_conversations.update(conv_uid, gpts_status)
 
             error_pushed = False
@@ -3284,6 +3005,30 @@ class AgentChat(BaseComponent, ABC):
                 await self.memory.complete(conv_uid)
             except Exception as complete_error:
                 logger.error(f"Failed to complete memory: {complete_error}")
+            # PR 8: 会话结束 log usage 聚合
+            try:
+                from derisk.agent.core.usage_metric import (
+                    format_usage_log,
+                    get_in_memory_usage,
+                    clear_in_memory_usage,
+                )
+                usage = get_in_memory_usage(conv_uid)
+                if usage is not None and usage.total_llm_calls > 0:
+                    logger.info(format_usage_log(usage))
+                clear_in_memory_usage(conv_uid)
+            except Exception as usage_err:  # noqa: BLE001
+                logger.debug(f"[usage] final log skipped: {usage_err}")
+            # Tier 3.2: 释放 lease（会话正常结束），让其他 worker 可立即接管
+            # WAITING 状态不释放（等子 agent / 用户输入期间仍由本 worker 持有）
+            try:
+                from derisk_serve.agent.heartbeat import release_lease
+                from derisk.agent.core.schema import Status as _Status
+                if gpts_status not in (
+                    _Status.WAITING.value, _Status.RETRYING.value
+                ):
+                    await release_lease(conv_uid)
+            except Exception as lease_err:  # noqa: BLE001
+                logger.debug(f"[lease] release skipped: {lease_err}")
             await self._cleanup_sandbox_manager(conv_uid, staff_no)
         return conv_uid
 

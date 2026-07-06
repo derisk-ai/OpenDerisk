@@ -1,7 +1,13 @@
 # V2 Agent 框架继任设计：从内核到完整框架
 
+> **⚠️ 参考设计，不再执行**（2026-07-03 更新）
+>
+> V2 生产入口已关闭（`agent_chat.py` 的 V2 dispatch 分支删除）。经深度审计，V2 的所有优势（状态机 / 崩溃恢复 / 权限 / 子 Agent / Hook 分层）都能在 V1 (BAIZE) 上纯加法实现，参见 `docs/superpowers/plans/wondrous-inventing-crescent.md`（V1 架构治理计划）。
+>
+> V2 代码 `packages/derisk-core/src/derisk/agent/core/v2/` 保留作设计参考和测试资产（220/220 测试通过），不再主动演进。
+
 - 日期：2026-07-02
-- 状态：v2 — 满配承接验证后修订（补 6 项 GAP，推翻决策 #4），待写入实施计划
+- 状态：参考设计（不再执行）— 原 v2 状态：满配承接验证后修订（补 6 项 GAP，推翻决策 #4）
 - 作者：yhjun1026 + Claude
 - 前置 spec：`docs/superpowers/specs/2026-06-30-agent-framework-evolution-design.md`（V2 内核，P2-P4 已完成）
 - 关联文件：

@@ -78,6 +78,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.20",
     "@types/node": "^20",
     "@types/react": "18",
@@ -87,10 +88,12 @@
     "@typescript-eslint/parser": "^8.54.0",
     "eslint": "^9",
     "eslint-config-next": "15.4.2",
+    "jest": "^30.4.2",
     "prettier": "^3.3.3",
     "prettier-plugin-organize-imports": "^4.0.0",
     "prettier-plugin-packagejson": "^2.5.2",
     "tailwindcss": "^4.1.18",
+    "ts-jest": "^29.4.11",
     "typescript": "^5"
   }
 }

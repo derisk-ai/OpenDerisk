@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from derisk._private.config import Config
 from derisk.agent import AgentMessage, ConversableAgent
+from derisk.agent.core.agent import AgentContext
 from derisk.agent.resource.app import AppInfo, AppResource
 from derisk_serve.agent.agents.app_agent_manage import get_app_manager
 
@@ -59,12 +60,32 @@ class GptAppResource(AppResource):
         user_input: str,
         sender: ConversableAgent,
         conv_uid: Optional[str] = None,
+        parent_depth: Optional[int] = None,
     ) -> AgentMessage:
-        """Start App By AppResource."""
+        """Start App By AppResource.
+
+        Args:
+            parent_depth: 父 agent 的 subagent_depth。传入时，子 agent 的
+                AgentContext.extra["subagent_depth"] = parent_depth + 1。
+                None 时不写入（保持默认 0）。
+        """
         conv_uid = str(uuid.uuid4()) if conv_uid is None else conv_uid
         gpts_app = get_app_manager().get_app(self._app_code)
+
+        child_context: Optional[AgentContext] = None
+        if parent_depth is not None:
+            child_context = AgentContext(
+                conv_id=conv_uid,
+                conv_session_id=conv_uid,
+                gpts_app_code=gpts_app.app_code,
+                gpts_app_name=gpts_app.app_name,
+                language=gpts_app.language,
+                enable_vis_message=False,
+                extra={"subagent_depth": parent_depth + 1},
+            )
+
         app_agent = await get_app_manager().create_agent_by_app_code(
-            gpts_app, conv_uid=conv_uid
+            gpts_app, conv_uid=conv_uid, context=child_context
         )
 
         agent_message = AgentMessage(

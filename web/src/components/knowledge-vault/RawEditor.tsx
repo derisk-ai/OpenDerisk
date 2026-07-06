@@ -15,6 +15,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import MarkdownEditor from './MarkdownEditor';
 import { useSpace } from './SpaceContext';
 
+/** 允许在 RawEditor 里编辑的文本类扩展名。
+ *  raw/convos/ 下的 verbat 现在写 .md（含 [交付] section、表格、列表），
+ *  旧的 .txt 也允许编辑，方便历史文件回填。二进制（图片/PDF/zip 等）
+ *  仍走 Empty 占位。 */
+const TEXT_EDITABLE_EXTS = new Set(['.md', '.txt', '.markdown', '.text']);
+
+function isTextEditable(path: string | undefined | null): boolean {
+  if (!path) return false;
+  const lower = path.toLowerCase();
+  return Array.from(TEXT_EDITABLE_EXTS).some((ext) => lower.endsWith(ext));
+}
+
 export default function RawEditor() {
   const { slug, selectedRaw, setSelectedRaw, selectedVerbat, setSelectedVerbat, refresh } = useSpace();
   const [content, setContent] = useState('');
@@ -162,7 +174,7 @@ export default function RawEditor() {
           <Button danger size="small" icon={<DeleteOutlined />} onClick={remove} loading={deleting}>
             删除
           </Button>
-          {selectedRaw?.endsWith('.md') && (
+          {isTextEditable(selectedRaw) && (
             <Button
               type="primary"
               size="small"
@@ -175,8 +187,8 @@ export default function RawEditor() {
             </Button>
           )}
         </div>
-        {!selectedRaw?.endsWith('.md') ? (
-          <Empty description="非 md 文件，暂不支持编辑" className="mt-12" />
+        {!isTextEditable(selectedRaw) ? (
+          <Empty description="该文件类型暂不支持编辑（仅支持 .md / .txt）" className="mt-12" />
         ) : (
           <>
             <div className="text-[11px] text-gray-400 px-4 py-2 bg-white">

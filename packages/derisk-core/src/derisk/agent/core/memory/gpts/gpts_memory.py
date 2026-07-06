@@ -257,6 +257,9 @@ class ConversationCache:
         self.work_log_summaries: List[WorkLogSummary] = []  # 压缩摘要列表
         self.work_entries_by_message: Dict[str, List[WorkEntry]] = {}  # message_id -> [WorkEntry] 索引
 
+        ## Tier 3.1: 事件日志缓存（gpts_events 表的内存镜像，用于审计/重放）
+        self.events: List[Any] = []  # EventLogEntity 列表，按 sequence 升序
+
         ## 看板缓存
         self.kanban: Optional[Kanban] = None  # 当前看板
         self.pre_kanban_logs: List[WorkEntry] = []  # 看板创建前的预研日志
@@ -310,6 +313,9 @@ class ConversationCache:
         # 清理工作日志
         self.work_logs.clear()
         self.work_log_summaries.clear()
+
+        # 清理事件日志
+        self.events.clear()
 
         # 清理看板相关
         self.kanban = None
@@ -616,8 +622,16 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
                 if msg.message_id not in cache.message_ids:
                     cache.message_ids.append(msg.message_id)
 
-    async def load_persistent_memory(self, conv_id: str):
-        """懒加载持久化数据（仅当缓存为空时）"""
+    async def load_persistent_memory(
+        self, conv_id: str, replay_events: bool = False
+    ):
+        """懒加载持久化数据（仅当缓存为空时）
+
+        Args:
+            conv_id: 会话 ID
+            replay_events: True 时同时加载 gpts_events 表到 cache.events，
+                用于审计/重放。默认 False（事件日志按需加载，不影响主流程）。
+        """
         logger.warning(f"load_persistent_memory conv_id:{conv_id}! 从数据库加载消息！")
         cache = await self._get_cache(conv_id)
         if not cache:
@@ -634,6 +648,73 @@ class GptsMemory(FileMetadataStorage, WorkLogStorage, KanbanStorage, TodoStorage
             async with await self._get_conv_lock(conv_id):
                 for p in plans:
                     cache.plans[p.task_uid] = p
+
+        # PR 3: 加载 work_log（step-level resume 必需）
+        # retry 时需要历史工具调用结果，按 (tool_name, args) 匹配复用
+        if not cache.work_logs:
+            try:
+                work_entries = await self._load_work_entries_for_session(
+                    conv_id, [conv_id]
+                )
+                if work_entries:
+                    async with await self._get_conv_lock(conv_id):
+                        cache.work_logs.extend(work_entries)
+                    logger.info(
+                        f"load_persistent_memory: loaded {len(work_entries)} "
+                        f"work_log entries for conv_id={conv_id}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"load_persistent_memory: failed to load work_log for "
+                    f"conv_id={conv_id}: {e}"
+                )
+
+        # Tier 3.1: 加载事件日志（可选，用于审计/重放）
+        if replay_events and not cache.events:
+            try:
+                events = await self._load_event_log(conv_id)
+                if events:
+                    async with await self._get_conv_lock(conv_id):
+                        cache.events.extend(events)
+                    logger.info(
+                        f"load_persistent_memory: loaded {len(events)} "
+                        f"events for conv_id={conv_id}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"load_persistent_memory: failed to load events for "
+                    f"conv_id={conv_id}: {e}"
+                )
+
+    async def _load_event_log(self, conv_id: str) -> list:
+        """加载 gpts_events 表所有事件（按 sequence 升序）。
+
+        Lazy import 避免循环依赖。如果 derisk_serve 不可用（如单元测试），
+        返回空列表。
+        """
+        try:
+            from derisk_serve.agent.db.gpts_events_db import EventLogDao
+        except ImportError:
+            return []
+        dao = EventLogDao()
+        return await blocking_func_to_async(
+            self._executor, dao.get_events, conv_id, 0, 1000
+        )
+
+    async def load_event_log(self, conv_id: str, since_sequence: int = 0):
+        """公开接口：加载事件日志（用于审计/重放）。
+
+        Returns:
+            list of GptsEventEntity，按 sequence 升序。
+        """
+        try:
+            from derisk_serve.agent.db.gpts_events_db import EventLogDao
+        except ImportError:
+            return []
+        dao = EventLogDao()
+        return await blocking_func_to_async(
+            self._executor, dao.get_events, conv_id, since_sequence, 1000
+        )
 
     async def load_full_session_history(
         self,

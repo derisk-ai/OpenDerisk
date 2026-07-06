@@ -28,6 +28,15 @@ from ..interaction.recovery_coordinator import (
     RecoveryCoordinator,
     get_recovery_coordinator,
 )
+from .permission_checkpoint_store import (
+    PermissionCheckpointStore,
+    hash_tool_input,
+)
+from .permission_mode import (
+    PermissionMode,
+    mode_short_circuits_to_allow,
+    parse_permission_mode,
+)
 
 if TYPE_CHECKING:
     from derisk.agent.core import ConversableAgent
@@ -63,11 +72,14 @@ class InteractionAdapter:
         agent: "ConversableAgent",
         gateway: Optional[InteractionGateway] = None,
         recovery_coordinator: Optional[RecoveryCoordinator] = None,
+        checkpoint_store: Optional[PermissionCheckpointStore] = None,
     ):
         self.agent = agent
         self.gateway = gateway or get_interaction_gateway()
         self.recovery = recovery_coordinator or get_recovery_coordinator()
-        
+        # PR 5 Level 5: 权限决策检查点存储（None 时不启用 replay）
+        self._checkpoint_store = checkpoint_store
+
         self._pending_requests: Dict[str, asyncio.Future] = {}
         self._session_auth_cache: Dict[str, bool] = {}
     
@@ -250,16 +262,31 @@ class InteractionAdapter:
     ) -> bool:
         """
         请求工具执行授权
-        
+
         适用场景：
         - 危险命令执行（rm -rf, drop table 等）
         - 敏感数据访问
         - 外部网络请求
+
+        PR 5 5 级链：
+        1. Mode (auto/plan/manual) - 全局短路
+        2. SessionCache - conv_id 命名空间，allow_session 复用
+        3. Ruleset - PermissionRuleset.check
+        4. Tool hook - 在 tool_action._invoke_pre_tool_hook（不在本方法）
+        5. CheckpointStore - replay 历史 ASK 决策 / 新 ASK 后保存
         """
-        cache_key = f"{tool_name}:{hash(frozenset(tool_args.items()))}"
+        # PR 5 Level 2: cache_key 加 session_id 命名空间（避免跨会话泄漏）
+        cache_key = f"{self.session_id}:{tool_name}:{hash(frozenset(tool_args.items()))}"
         if cache_key in self._session_auth_cache:
             return self._session_auth_cache[cache_key]
-        
+
+        # PR 5 Level 1: Mode 短路
+        mode = self._get_permission_mode()
+        tool_category = self._get_tool_category(tool_name)
+        if mode_short_circuits_to_allow(mode, tool_category):
+            return True
+
+        # Level 3: Ruleset
         if hasattr(self.agent, "permission_ruleset") and self.agent.permission_ruleset:
             from derisk.agent.core.agent_info import PermissionAction
             action = self.agent.permission_ruleset.check(tool_name)
@@ -267,11 +294,25 @@ class InteractionAdapter:
                 return True
             if action == PermissionAction.DENY:
                 return False
-        
+
+        # PR 5 Level 5: CheckpointStore replay
+        input_hash = hash_tool_input(tool_args)
+        if self._checkpoint_store is not None:
+            cp = await self._checkpoint_store.load_checkpoint(
+                self.session_id, tool_name, input_hash
+            )
+            if cp is not None:
+                # 复用历史决策
+                logger.info(
+                    f"[perm-cp] replay conv={self.session_id} tool={tool_name} "
+                    f"decision={cp.decision}"
+                )
+                return cp.decision == "allow"
+
         snapshot = await self._create_snapshot()
-        
+
         risk_level = self._assess_risk_level(tool_name, tool_args)
-        
+
         request = InteractionRequest(
             interaction_type=InteractionType.AUTHORIZE,
             priority=InteractionPriority.CRITICAL if risk_level == "high" else InteractionPriority.HIGH,
@@ -291,22 +332,65 @@ class InteractionAdapter:
             state_snapshot=snapshot,
             context={"tool_args": tool_args, "reason": reason, "risk_level": risk_level},
         )
-        
+
         await self.recovery.create_interaction_checkpoint(
             session_id=self.session_id,
             execution_id=self._get_execution_id(),
             interaction_request=request,
             agent=self.agent,
         )
-        
+
         response = await self.gateway.send_and_wait(request)
-        
+
         granted = response.choice in ["allow_once", "allow_session"]
-        
+
         if response.choice == "allow_session":
             self._session_auth_cache[cache_key] = True
-        
+
+        # PR 5 Level 5: 保存到 CheckpointStore（下次相同输入 replay）
+        if self._checkpoint_store is not None:
+            decision = "allow" if granted else "deny"
+            try:
+                await self._checkpoint_store.save_checkpoint(
+                    conv_id=self.session_id,
+                    tool_name=tool_name,
+                    input_hash=input_hash,
+                    decision=decision,
+                    reason=reason,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[perm-cp] failed to save checkpoint "
+                    f"conv={self.session_id} tool={tool_name}: {e}"
+                )
+
         return granted
+
+    def _get_permission_mode(self) -> Optional[PermissionMode]:
+        """从 agent_context.extra 读 PermissionMode。未配置返回 None。"""
+        ctx = getattr(self.agent, "agent_context", None)
+        if ctx is None:
+            return None
+        extra = getattr(ctx, "extra", None) or {}
+        return parse_permission_mode(extra.get("permission_mode"))
+
+    def _get_tool_category(self, tool_name: str):
+        """从 agent 的工具注册表查 tool 的 category。未注册返回 None。"""
+        # 优先从 agent.depend_resource 中的工具找
+        try:
+            from derisk.agent.tools.base import ToolCategory
+        except ImportError:
+            return None
+        # 尝试从 agent 的工具字典查 metadata
+        tools_dict = getattr(self.agent, "tools", None) or {}
+        if isinstance(tools_dict, dict):
+            tool_obj = tools_dict.get(tool_name)
+            if tool_obj is not None:
+                category = getattr(tool_obj, "category", None)
+                if category is not None:
+                    return category
+        # 没找到，返回 None（保守视为未知分类）
+        return None
     
     async def choose_plan(
         self,
