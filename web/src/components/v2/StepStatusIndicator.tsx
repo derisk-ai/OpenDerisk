@@ -2,7 +2,7 @@
 /** Step状态指示器 */
 
 import React from 'react';
-import { VisComponentState, StepState } from '@/utils/v2/types';
+import { VisComponentState } from '@/utils/v2/types';
 
 interface StepStatusIndicatorProps {
   component?: VisComponentState;
