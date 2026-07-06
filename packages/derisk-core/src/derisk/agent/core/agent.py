@@ -254,6 +254,11 @@ class AgentContext:
     stream: bool = True
 
     output_process_message: bool = True
+    # extra: 开放字典，约定字段：
+    #   - subagent_depth (int, 默认 0): 子 agent 嵌套深度。主 agent depth=0，
+    #     每 spawn 一层 +1。超过 MAX_SUBAGENT_DEPTH 时 SubAgent 工具抛
+    #     SubagentDepthExceededError。由 SubAgent.run 在派发前写入
+    #     recipient.agent_context.extra。
     extra: dict[str, Any] = None
     env_context: dict[str, Any] = None
 

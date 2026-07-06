@@ -224,6 +224,10 @@ class HookEvent(BaseModel):
     app_code: Optional[str] = None
     round: Optional[int] = None
 
+    # user identity (used by memory hooks to attribute writes)
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+
     # tool fields
     tool_name: Optional[str] = None
     tool_input: Optional[Dict[str, Any]] = None

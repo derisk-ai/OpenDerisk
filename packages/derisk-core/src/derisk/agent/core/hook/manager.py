@@ -177,6 +177,8 @@ class HookManager:
             agent_role=ctx.pop("agent_role", None),
             app_code=ctx.pop("app_code", None),
             round=ctx.pop("round", None),
+            user_id=ctx.pop("user_id", None),
+            user_name=ctx.pop("user_name", None),
             tool_name=ctx.pop("tool_name", None),
             tool_input=ctx.pop("tool_input", None),
             tool_response=ctx.pop("tool_response", None),

@@ -38,7 +38,7 @@ export default function TaskDetailPage() {
   }, { refreshDeps: [taskId] });
 
   const workspaceId = task?.workspace_id;
-  const appCode = task?.context?.app_code || task?.assigned_agents?.[0] || 'chat_normal';
+  const appCode = task?.context?.app_code || task?.assigned_agents?.[0] || 'main';
 
 
   const { data: artifacts } = useRequest(async () => {

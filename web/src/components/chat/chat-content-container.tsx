@@ -19,9 +19,9 @@ import TaskChatContent from "./content/task-chat-content";
 import ManusChatContent from "./content/manus-chat-content";
 import { ChatContentContext } from '@/contexts';
 
- 
-const ChatContentContainer = (props: { ctrl: AbortController; }, ref: React.ForwardedRef<any>) => {
-  const { ctrl } = props;
+
+const ChatContentContainer = (props: { ctrl: AbortController; hideRightPanel?: boolean; }, ref: React.ForwardedRef<any>) => {
+  const { ctrl, hideRightPanel } = props;
   const { appInfo } = useContext(ChatContentContext);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollButtons, setShowScrollButtons] = useState<boolean>(false);
@@ -48,7 +48,7 @@ const ChatContentContainer = (props: { ctrl: AbortController; }, ref: React.Forw
   return (
     <div ref={containerRef} className="flex flex-1 h-full w-full overflow-hidden">
       {isManusLayout ? (
-        <ManusChatContent ctrl={ctrl} />
+        <ManusChatContent ctrl={ctrl} hideRightPanel={hideRightPanel} />
       ) : isDoubleVis ? (
         <TaskChatContent ctrl={ctrl} />
       ) : (

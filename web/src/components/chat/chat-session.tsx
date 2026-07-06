@@ -27,6 +27,7 @@ export interface ChatSessionProps {
   workspaceId?: number | string;
   taskId?: number | string;
   minimal?: boolean;
+  hideRightPanel?: boolean;
   onWorkspaceEvent?: (event: WorkspaceEvent) => void;
   inputSlot?: (ctrl: AbortController) => React.ReactNode;
 }
@@ -45,6 +46,7 @@ const ChatSession = forwardRef<ChatSessionHandle, ChatSessionProps>(function Cha
   const knowledgeId = props.knowledgeId ?? searchParams?.get('knowledge') ?? '';
   const workspaceId = props.workspaceId !== undefined ? String(props.workspaceId) : (searchParams?.get('workspace_id') ?? '');
   const taskId = props.taskId !== undefined ? String(props.taskId) : (searchParams?.get('task_id') ?? '');
+  const hideRightPanel = props.hideRightPanel ?? false;
   const scrollRef = useRef<HTMLDivElement>(null);
   const order = useRef<number>(1);
   const [history, setHistory] = useState<ChatHistoryResponse>([]);
@@ -543,7 +545,7 @@ if (initMessage.model) {
       }
       return (
         <Content className='flex flex-col h-full min-h-0 overflow-hidden'>
-          <ChatContentContainer ref={scrollRef} ctrl={ctrl} />
+          <ChatContentContainer ref={scrollRef} ctrl={ctrl} hideRightPanel={hideRightPanel} />
         </Content>
       );
   };

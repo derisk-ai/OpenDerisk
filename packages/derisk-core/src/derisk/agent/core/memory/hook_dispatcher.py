@@ -258,16 +258,22 @@ async def memory_write_turn_function(
         )
         return {"action": "continue"}
 
-    # tier1 verbat 写入已被 chat_history_db 覆盖（raw 对话已持久化）。
-    # kv-backed bundle 跳过 tier1，避免冗余；非 kv store（如 SimpleSQLite
-    # fallback）仍走原路径保持向后兼容。
+    # KnowledgeVaultMemoryStore 的 raw verbat 写入由
+    # `LongTermMemoryManager.write_turn_lightweight` 内部 kv 分支处理
+    # （`longterm_manager.py:369-383`，tier=1 → room="convo" → L0 Verbat）。
+    # 之前在这里短路是为了避免与 chat_history_db 重复，但 chat_history_db
+    # 是纯关系表（chat_history / chat_history_message），与 vault filesystem
+    # 没有桥梁，导致 vault 永远收不到 raw 对话。
     manager = bundle.manager
-    stores = getattr(manager, "memory_stores", {}) or {}
-    if stores and all(getattr(s, "vault", None) is not None for s in stores.values()):
-        return {"action": "continue"}
 
     user_msg = event.get("user_prompt") or ""
     ai_msg = event.get("final_answer") or ""
+    # terminate 时 react_master_agent._attach_delivery_files 暂存到
+    # agent_context.extra['delivery_files']，base_agent turn_complete
+    # 透传到 event.extra.delivery_files。这里把它追加到 verbat content，
+    # 跟 user/assistant 文本写在同一个 raw 文件（不另开 verbat）。
+    extra = event.get("extra") or {}
+    delivery_files = extra.get("delivery_files")
     if not (user_msg or ai_msg):
         return {"action": "continue"}
 
@@ -283,12 +289,19 @@ async def memory_write_turn_function(
             agent_response=ai_msg,
             metadata={
                 "conv_id": conv_id,
+                # conv_session_id 是真正的"会话级"ID（一个 session 可含多轮
+                # agent_conv_id 与多轮 turn）。tier1 写 raw verbat 时按
+                # conv_session_id 聚合到同一文件，后续追问会追加到同一文件，
+                # 而不是每轮一个文件。base_agent.build_turn_complete_context
+                # 把 conv_session_id 放进 event["session_id"]。
+                "conv_session_id": event.get("session_id"),
                 "agent_name": event.get("agent_name"),
                 "app_code": app_code,
                 "user_id": event.get("user_id"),
                 "user_name": event.get("user_name"),
                 "round": event.get("round"),
                 "tier": 1,
+                "delivery_files": delivery_files,
             },
         )
     except Exception as e:  # noqa: BLE001

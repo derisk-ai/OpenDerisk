@@ -218,8 +218,13 @@ class AIWrapper:
             return
 
         provider_name = self._llm_config.provider.lower()
-        # 接入协议：优先使用配置中的 protocol，否则根据 provider 推断
-        protocol = getattr(self._llm_config, "protocol", None) or provider_name
+        # 接入协议：优先使用配置中的 protocol，否则根据 provider 推断。
+        # 注意 AgentLLMConfig 没有 protocol 字段（只有 provider），所以
+        # getattr 一直返回 None —— 不能 `or provider_name` 兜底，否则
+        # provider="alibaba" 时 protocol="alibaba"（未注册），_provider
+        # 解析失败。必须走 infer_protocol 把 alibaba→openai 这种映射做掉。
+        # create() 方法里已经是这个逻辑，这里对齐。
+        protocol = getattr(self._llm_config, "protocol", None)
         if not protocol:
             from derisk.agent.util.llm.model_config_cache import infer_protocol
             protocol = infer_protocol(provider_name)

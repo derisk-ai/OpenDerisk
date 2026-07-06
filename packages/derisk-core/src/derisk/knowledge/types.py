@@ -27,7 +27,10 @@ class ExtractMode(str, Enum):
     MINE = "mine"           # project files / code mined actively
     CLIP = "clip"           # browser clip
     UPLOAD = "upload"       # user upload
-    CONVO = "convo"         # agent conversation fragment (replaces mempalace drawer)
+    # 复数，跟 _init_dirs 创建的 raw/convos/ 目录对齐。之前是单数 "convo"，
+    # 让 verbat_add 写到 raw/convo/（单数）而 init 创建 raw/convos/（复数），
+    # 两份目录并存。
+    CONVO = "convos"        # agent conversation fragment (replaces mempalace drawer)
     LEGACY_CHUNK = "legacy_chunk"  # one-time migration from old RAG
 
 

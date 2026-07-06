@@ -51,6 +51,10 @@ class AgentActionInput(BaseModel):
         None,
         description="Additional metadata or contextual data supporting the agent's action.",
     )
+    mode: str = Field(
+        "sync",
+        description='执行模式: "sync" (默认, 等待子 Agent 完成) 或 "async" (后台运行, 全完成后触发主 resume)。',
+    )
 
     def to_dict(self):
         return model_to_dict(self)

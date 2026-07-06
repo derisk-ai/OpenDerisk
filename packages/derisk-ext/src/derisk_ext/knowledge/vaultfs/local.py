@@ -309,6 +309,69 @@ class LocalVaultFS(BaseVaultFS):
         )
         await self._db.commit()
 
+    async def _verbat_find_by_session(
+        self, conv_session_id: str
+    ) -> Optional[Verbat]:
+        """Find the most recent non-deprecated CONVO verbat for a session.
+
+        SQLite 的 json_extract 在 metadata 上查 conv_session_id。如果 metadata
+        没存这个键（旧数据），返回 None。命中后由 _row_to_verbat 读文件
+        还原 content（INLINE_THRESHOLD=0 时 content 列为 NULL）。
+        """
+        rows = await self._db.execute_fetchall(
+            """
+            SELECT * FROM verbats
+            WHERE space_id=? AND extract_mode='convos' AND deprecated=0
+              AND json_extract(metadata, '$.conv_session_id')=?
+            ORDER BY filed_at DESC LIMIT 1
+            """,
+            (self._space_id, conv_session_id),
+        )
+        if not rows:
+            return None
+        return self._row_to_verbat(rows[0])
+
+    async def _verbat_append_content(
+        self, vid: VerbatId, additional: str
+    ) -> None:
+        """Append `additional` to an existing CONVO verbat's content.
+
+        会话级 verbat 是追加式 transcript：每轮 turn 把文本拼到同一文件
+        + 同一行。content_ref 指向 raw/convos/{vid}.md，覆写整个文件。
+        content 列保持 NULL（INLINE_THRESHOLD=0），content_hash 用新内容
+        重算。如果 vid 不存在或已 deprecated，no-op。
+        """
+        rows = await self._db.execute_fetchall(
+            "SELECT content, content_ref, deprecated FROM verbats "
+            "WHERE id=? AND space_id=?",
+            (vid, self._space_id),
+        )
+        if not rows:
+            return
+        row = rows[0]
+        if bool(row["deprecated"]):
+            return
+        # 读现有 content：优先 inline，否则从文件读
+        if row["content"] is not None:
+            old_content = row["content"]
+        elif row["content_ref"]:
+            old_content = await self._raw_read(row["content_ref"])
+        else:
+            old_content = ""
+        new_content = (
+            old_content + "\n\n" + additional if old_content else additional
+        )
+        # 覆写文件
+        if row["content_ref"]:
+            await self._raw_write(row["content_ref"], new_content)
+        # 更新 DB 行（content 列维持 NULL，content_hash 重算）
+        new_hash = sha256_hash(new_content)
+        await self._db.execute(
+            "UPDATE verbats SET content_hash=?, filed_at=? WHERE id=? AND space_id=?",
+            (new_hash, datetime.utcnow().isoformat(), vid, self._space_id),
+        )
+        await self._db.commit()
+
     # ===================================================================
     # L1 Document — SQLite storage
     # ===================================================================

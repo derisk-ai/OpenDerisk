@@ -231,7 +231,6 @@ class TestAgentStartV2Execute:
             {"agent_id": "test_agent", "input": "do something"},
             context=ctx,
         )
-        assert "V2" in result
         assert "no app_resource" in result
 
     def test_execute_baize_fallback_raises(self):

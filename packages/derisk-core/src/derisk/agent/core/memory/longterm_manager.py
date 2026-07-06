@@ -334,17 +334,28 @@ class LongTermMemoryManager:
             return {}
 
         results = {}
-        conversation = f"用户: {user_message.strip()}\n助手: {agent_response.strip()}"
+        # 用 metadata.user_name 替换字面量 "用户:"，让 raw 记忆文件能归属到实际
+        # 提问人。没拿到 user_name 时退回 "用户"。
+        user_label = (metadata or {}).get("user_name") or "用户"
+        conversation = f"{user_label}: {user_message.strip()}\n助手: {agent_response.strip()}"
+        # terminate 时 _attach_delivery_files 暂存的交付文件列表。追加到
+        # 同一 verbat content（不另开文件），让"最终结论 + 交付物"落在同一
+        # 条原始记忆里。文件 bytes 仍只存 OSS，这里只写元数据 + 路径。
+        delivery_files = (metadata or {}).get("delivery_files")
+        if delivery_files:
+            delivery_section = self._format_delivery_section(delivery_files, user_label)
+            conversation = conversation + "\n" + delivery_section
         conv_id = (metadata or {}).get("conv_id")
         round_no = (metadata or {}).get("round")
         logger.info(
             "[LongTermMemory] write_turn_lightweight start conv=%s round=%s "
-            "spaces=%d user_len=%d ai_len=%d",
+            "spaces=%d user_len=%d ai_len=%d delivery_files=%s",
             conv_id,
             round_no,
             len(self._memory_stores),
             len(user_message or ""),
             len(agent_response or ""),
+            len(delivery_files) if delivery_files else 0,
         )
 
         for space_id, store in self._memory_stores.items():
@@ -368,7 +379,11 @@ class LongTermMemoryManager:
                 # reflect, which reads these verbats back via search.
                 if (
                     metadata or {}).get("tier") == 1 and _is_knowledge_vault_store(store):
-                    conv = f"用户: {user_message.strip()}\n助手: {agent_response.strip()}"
+                    conv = f"{user_label}: {user_message.strip()}\n助手: {agent_response.strip()}"
+                    if delivery_files:
+                        conv = conv + "\n" + self._format_delivery_section(
+                            delivery_files, user_label
+                        )
                     await store.awrite_memory(
                         content=conv,
                         wing=self._config.wing,
@@ -488,6 +503,36 @@ class LongTermMemoryManager:
             results,
         )
         return results
+
+    @staticmethod
+    def _format_delivery_section(
+        delivery_files: List[Dict[str, Any]],
+        user_label: str,
+    ) -> str:
+        """把交付文件列表格式化成 verbat content 的一个 section。
+
+        - 文件 bytes 不进 vault（单一信源：OSS）
+        - 这里只写元数据 + OSS 路径，让 LLM 检索时能"看到"交付物的存在
+        - FTS 会索引这段，所以 file_name / description / oss 路径都可搜
+        """
+        lines = [
+            f"[交付] {user_label} 在本轮交付了 {len(delivery_files)} 个文件:"
+        ]
+        for i, f in enumerate(delivery_files, 1):
+            if not isinstance(f, dict):
+                continue
+            name = f.get("file_name") or f.get("file_id") or "unknown"
+            mime = f.get("mime_type") or ""
+            size = f.get("file_size") or 0
+            oss = f.get("oss_url") or f.get("object_path") or ""
+            desc = (f.get("description") or "").strip()
+            line = f"{i}. {name} ({mime}, {size} bytes)"
+            if desc:
+                line += f" — {desc}"
+            lines.append(line)
+            if oss:
+                lines.append(f"   - OSS: {oss}")
+        return "\n".join(lines)
 
     async def reflect_on_last_n_turns(
         self,

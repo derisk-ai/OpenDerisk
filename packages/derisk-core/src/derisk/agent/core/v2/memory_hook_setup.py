@@ -94,9 +94,15 @@ def register_memory_hooks(
 
     # Tier 2: reflect_on_last_n_turns — 每 N 轮跨轮反思
     async def _tier2_reflect(event: dict, _runtime: dict) -> None:
+        # V1 路径在 base_agent.py 把 turns 放在 event["extra"]["turns"]；
+        # V2 的 build_turn_complete_context 暂未支持 extra，turns 为 None
+        # 时 reflect_on_last_n_turns 会早退（longterm_manager.py:519）。
+        # V2 run_loop 补字段之前，tier2 在 V2 路径下仍是 no-op。
+        extra = event.get("extra") or {}
+        turns = extra.get("turns")
         await manager.reflect_on_last_n_turns(
             n=reflection_interval,
-            turns=None,  # manager 内部从存储拉
+            turns=turns,
         )
 
     FunctionRegistry.register("_v2_memory_tier2_reflect", _tier2_reflect)
@@ -116,8 +122,12 @@ def register_memory_hooks(
 
     # Tier 3: curate_session — 会话结束 curation
     async def _tier3_curate(event: dict, _runtime: dict) -> None:
+        # 同 tier2：从 event.extra 读 conversation_history；
+        # V2 build_conversation_complete_context 暂未传该字段，留作后续工作。
+        extra = event.get("extra") or {}
+        history = extra.get("conversation_history")
         await manager.curate_session(
-            conversation_history=None,  # manager 内部拉
+            conversation_history=history,
         )
 
     FunctionRegistry.register("_v2_memory_tier3_curate", _tier3_curate)

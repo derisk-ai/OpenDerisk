@@ -35,6 +35,7 @@ from .action.base import Action, ActionOutput
 from .agent import Agent, AgentContext, AgentMessage
 from .base_parser import AgentParser
 from .file_system.file_tree import TreeNodeData
+from .hook_context_builders import build_turn_complete_context
 from .memory.agent_memory import AgentMemory
 from .memory.gpts.agent_system_message import AgentSystemMessage
 from .memory.gpts.agent_system_message import SystemMessageType, AgentPhase
@@ -54,6 +55,7 @@ from .schema import (
     MessageMetrics,
     ActionInferenceMetrics,
 )
+from .step_state_guard import validate_message_transition
 from .types import AgentReviewInfo, MessageType
 from .variable import VariableManager
 from .. import BlankAction
@@ -330,58 +332,12 @@ class ConversableAgent(Role, Agent):
         return self
 
     async def _tidy_resource(self, resource: Resource) -> dict[str, List[Resource]]:
-        """
-        将资源包按分类整理为各类子资源。
+        """将资源包按分类整理为各类子资源（薄包装，逻辑在 resource_utils.extract_resource_map）。
+
         前提：is_pack 字段可信；非 pack 资源无 sub_resources。
         """
-
-        def _merge_dicts(d1, d2):
-            merged = defaultdict(list)
-            for k, v in d1.items():
-                merged[k].extend(v)
-            for k, v in d2.items():
-                merged[k].extend(v)
-            return dict(merged)
-
-        logger.debug(
-            f"[base_agent._tidy_resource] resource_class={resource.__class__.__name__ if resource else 'None'}, "
-            f"is_pack={resource.is_pack if resource and hasattr(resource, 'is_pack') else 'N/A'}"
-        )
-
-        if not resource:
-            return {}
-
-        resources_map = defaultdict(list)
-
-        if resource.is_pack:
-            # 只有 is_pack=True 时才访问 sub_resources
-            sub_resources = resource.sub_resources
-            logger.debug(
-                f"[base_agent._tidy_resource] is_pack=True, sub_resources_count={len(sub_resources) if sub_resources else 0}"
-            )
-            if sub_resources:  # 允许为空列表
-                for item in sub_resources:
-                    sub_map = await self._tidy_resource(item)
-                    resources_map = _merge_dicts(resources_map, sub_map)
-            # 空包：返回空 dict，合理
-        else:
-            # is_pack=False → 必为叶子节点
-            r_type = resource.type()
-            # 处理 ResourceType 枚举类型
-            if hasattr(r_type, "value"):
-                r_type = r_type.value
-            if not isinstance(r_type, str):
-                raise TypeError(f"Expected resource type to be str, got {type(r_type)}")
-            resources_map[r_type].append(resource)
-            logger.debug(
-                f"[base_agent._tidy_resource] added resource to map: "
-                f"type={r_type}, resource_class={resource.__class__.__name__}"
-            )
-
-        logger.debug(
-            f"[base_agent._tidy_resource] result_keys={list(resources_map.keys())}"
-        )
-        return dict(resources_map)
+        from .resource_utils import extract_resource_map
+        return extract_resource_map(resource)
 
     def update_profile(self, profile: ProfileConfig):
         from copy import deepcopy
@@ -983,6 +939,7 @@ class ConversableAgent(Role, Agent):
         )
         self.received_message_state[received_message.message_id] = Status.TODO
         try:
+            validate_message_transition(Status.TODO, Status.RUNNING)
             self.received_message_state[received_message.message_id] = Status.RUNNING
 
             fail_reason = None
@@ -1013,6 +970,13 @@ class ConversableAgent(Role, Agent):
 
             all_tool_messages: List[Dict] = []
             while not done and self.current_retry_counter < self.max_retry_count:
+                # PR 4: 心跳 — 每轮 think 前 touch，fire-and-forget 不阻塞 loop
+                try:
+                    from derisk.agent.core.heartbeat_hook import touch_heartbeat as _touch_hb
+                    if self.agent_context and self.agent_context.conv_id:
+                        _touch_hb(self.agent_context.conv_id)
+                except Exception:
+                    pass
                 with root_tracer.start_span(
                     "agent.generate_reply.loop",
                     metadata={
@@ -1327,31 +1291,50 @@ class ConversableAgent(Role, Agent):
                     await self.memory.gpts_memory.trigger_hook(
                         self.not_null_agent_context.conv_id,
                         "turn_complete",
-                        {
-                            "agent_name": self.name,
-                            "agent_role": getattr(self, "role", None),
-                            "session_id": getattr(
+                        build_turn_complete_context(
+                            agent_name=self.name,
+                            agent_role=getattr(self, "role", None),
+                            session_id=getattr(
                                 self.not_null_agent_context,
                                 "conv_session_id",
                                 None,
                             ),
-                            "app_code": getattr(
+                            app_code=getattr(
                                 self.not_null_agent_context,
                                 "gpts_app_code",
                                 None,
                             ),
-                            "user_id": getattr(
+                            user_id=getattr(
                                 self.not_null_agent_context, "user_id", None
                             ),
-                            "user_name": getattr(
+                            user_name=getattr(
                                 self.not_null_agent_context, "user_name", None
                             ),
-                            "round": turn_round,
-                            "user_prompt": question,
-                            "final_answer": ai_message,
-                            "success": is_success,
-                            "interrupted": interrupted,
-                        },
+                            round_index=turn_round,
+                            user_prompt=question,
+                            final_answer=ai_message,
+                            interrupted=interrupted,
+                            extra={
+                                "success": is_success,
+                                # tier2 reflect 需要 turns 列表来构造 transcript。
+                                # 不传则 reflect_on_last_n_turns 在 longterm_manager.py:519
+                                # 直接 return，啥也不写。tier3 conversation_complete
+                                # 会做全量 batch reflect，这里只传当前轮即可。
+                                "turns": [
+                                    {"user": question, "assistant": ai_message}
+                                ],
+                                # terminate 时 _attach_delivery_files 把交付文件
+                                # 暂存到这里，tier1 verbat 写入时把它追加到 content，
+                                # 跟 user/assistant 文本落到同一个 raw 文件。
+                                "delivery_files": (
+                                    (self.not_null_agent_context.extra or {}).get(
+                                        "delivery_files"
+                                    )
+                                    if getattr(self.not_null_agent_context, "extra", None)
+                                    else None
+                                ),
+                            },
+                        ),
                     )
                 except Exception as _hook_err:  # noqa: BLE001
                     logger.debug(
@@ -1370,6 +1353,7 @@ class ConversableAgent(Role, Agent):
                 await self.task_id_by_received_message(received_message),
             )
 
+            validate_message_transition(Status.RUNNING, Status.COMPLETE)
             self.received_message_state[received_message.message_id] = Status.COMPLETE
             reply_message.metrics.action_metrics = [
                 ActionInferenceMetrics.create_metrics(act_out.metrics or act_metrics)
@@ -1399,6 +1383,7 @@ class ConversableAgent(Role, Agent):
                 final_status=Status.FAILED,
                 type=SystemMessageType.ERROR,
             )
+            validate_message_transition(Status.RUNNING, Status.FAILED)
             self.received_message_state[received_message.message_id] = Status.FAILED
 
             return err_message
@@ -1718,6 +1703,17 @@ class ConversableAgent(Role, Agent):
                     content_chunk_count = 0
                     agent_llm_out = None
                     start_ms = current_ms()
+                    # Tier 3.1: emit think_start 事件到 event log
+                    try:
+                        from derisk.agent.core.event_log import emit_think_start
+                        emit_think_start(
+                            conv_id=self.not_null_agent_context.conv_id,
+                            message_id=reply_message_id,
+                            model_name=llm_model,
+                            round_index=retry_count,
+                        )
+                    except Exception as _e:  # noqa: BLE001
+                        logger.debug(f"[event-log] think_start emit skipped: {_e}")
                     async for output in self.llm_client.create(
                         context=llm_messages[-1].pop("context", None),
                         messages=llm_messages,
@@ -1785,6 +1781,40 @@ class ConversableAgent(Role, Agent):
                     await self.reset_stream_vis(
                         reply_message_id, agent_llm_out.thinking_content
                     )
+                    # PR 8: emit usage metric 到 in-memory buffer
+                    if agent_llm_out.metrics is not None:
+                        try:
+                            from derisk.agent.core.usage_metric import emit_usage_metric
+                            emit_usage_metric(
+                                conv_id=self.not_null_agent_context.conv_id,
+                                model_name=agent_llm_out.llm_name or "",
+                                prompt_tokens=agent_llm_out.metrics.prompt_tokens or 0,
+                                completion_tokens=agent_llm_out.metrics.completion_tokens or 0,
+                                role="main",
+                            )
+                        except Exception as _e:  # noqa: BLE001
+                            logger.debug(f"[usage] emit skipped: {_e}")
+                    # Tier 3.1: emit think_end 事件到 event log
+                    try:
+                        from derisk.agent.core.event_log import emit_think_end
+                        emit_think_end(
+                            conv_id=self.not_null_agent_context.conv_id,
+                            message_id=reply_message_id,
+                            thinking=agent_llm_out.thinking_content,
+                            content=agent_llm_out.content,
+                            tool_calls=(
+                                agent_llm_out.action_infos
+                                if hasattr(agent_llm_out, "action_infos")
+                                else None
+                            ),
+                            total_tokens=(
+                                agent_llm_out.metrics.total_tokens
+                                if agent_llm_out.metrics is not None
+                                else None
+                            ),
+                        )
+                    except Exception as _e:  # noqa: BLE001
+                        logger.debug(f"[event-log] think_end emit skipped: {_e}")
                     await self.push_context_event(
                         EventType.AfterLLMInvoke,
                         LLMPayload(
@@ -1930,6 +1960,17 @@ class ConversableAgent(Role, Agent):
                 filtered_kwargs = {
                     k: v for k, v in kwargs.items() if k not in explicit_keys
                 }
+                # Tier 3.1: emit act_start 事件到 event log
+                try:
+                    from derisk.agent.core.event_log import emit_act_start
+                    emit_act_start(
+                        conv_id=self.not_null_agent_context.conv_id,
+                        tool_name=action.name,
+                        message_id=message.message_id,
+                        args={},
+                    )
+                except Exception:
+                    pass
                 last_out = await real_action.run(
                     ai_message=message.content if message.content else "",
                     resource=self.resource,
@@ -1946,6 +1987,18 @@ class ConversableAgent(Role, Agent):
                     memory=self.memory,
                     **filtered_kwargs,
                 )
+                # Tier 3.1: emit act_end 事件到 event log
+                try:
+                    from derisk.agent.core.event_log import emit_act_end
+                    emit_act_end(
+                        conv_id=self.not_null_agent_context.conv_id,
+                        tool_name=action.name,
+                        success=(last_out is None) or getattr(last_out, "is_exe_success", True),
+                        message_id=message.message_id,
+                        result_summary=(str(last_out.content)[:200] if last_out and hasattr(last_out, "content") else ""),
+                    )
+                except Exception:
+                    pass
                 if last_out:
                     act_outs.append(last_out)
                 span.metadata["action_name"] = (

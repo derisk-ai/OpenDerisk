@@ -18,6 +18,10 @@ from ... import ConversableAgent, AgentMemory, AgentContext, AgentMessage
 from ...core import sandbox_tool_dict
 from ...core.system_tool_registry import system_tool_dict
 from ...core.action.base import Action, ActionOutput, AskUserType, ToolCall
+from ...core.hook_context_builders import (
+    build_post_tool_use_context,
+    build_pre_tool_use_context,
+)
 from ...core.schema import Status, ActionInferenceMetrics
 
 from ...resource import BaseTool
@@ -398,6 +402,49 @@ class ToolAction(Action[ToolInput]):
                 tool_args=param.args,
                 start_time=start_time,
             )
+        ## PR 5: 5 级权限链（opt-in：仅当 agent_context.extra["permission_mode"] 设置时激活）
+        ## 顺序：Mode → SessionCache → Ruleset → CheckpointStore replay → ASK
+        ## 未配置 permission_mode 时跳过本层，向后兼容 V1 行为（仅走 pre_tool_use hook）
+        try:
+            from ...core.permission_mode import parse_permission_mode
+            extra = (agent_context.extra or {}) if agent_context else {}
+            mode = parse_permission_mode(extra.get("permission_mode"))
+            if mode is not None and hasattr(agent, "adapter"):
+                adapter = agent.adapter
+                # 配置 checkpoint_store（首次创建时注入）
+                if adapter._checkpoint_store is None:
+                    from ...core.permission_checkpoint_store import (
+                        PermissionCheckpointStore,
+                    )
+                    adapter._checkpoint_store = PermissionCheckpointStore()
+                permitted = await adapter.request_tool_permission(
+                    tool_name=tool_info.name,
+                    tool_args=dict(param.args or {}),
+                    reason=f"tool execution for {tool_info.name}",
+                )
+                if not permitted:
+                    metrics.end_time_ms = time.time_ns() // 1_000_000
+                    cost_ms = metrics.end_time_ms - metrics.start_time_ms
+                    metrics.cost_seconds = round(cost_ms / 1000, 2)
+                    return ActionOutput(
+                        action_id=self.action_uid,
+                        name=self.name,
+                        is_exe_success=False,
+                        action=tool_info.name,
+                        action_name=self._get_tool_attr(tool_info, "description"),
+                        action_input=json.dumps(param.args, ensure_ascii=False),
+                        content=f"[Permission] Tool '{tool_info.name}' was denied by user or ruleset.",
+                        state=Status.FAILED.value,
+                        terminate=False,
+                        cost_ms=cost_ms,
+                        metrics=metrics,
+                        start_time=start_time,
+                    )
+        except Exception as _perm_err:  # noqa: BLE001
+            logger.warning(
+                f"[ToolAction] permission chain crashed and was skipped: {_perm_err}"
+            )
+
         ## 统一 Hook: pre_tool_use 阻断点
         try:
             hook_decision = await self._invoke_pre_tool_hook(
@@ -1331,14 +1378,14 @@ class ToolAction(Action[ToolInput]):
             except Exception:  # noqa: BLE001
                 pass
 
-        ctx = {
-            "tool_name": tool_info.name,
-            "tool_input": dict(param.args or {}),
-            "agent_name": agent.name if agent else None,
-            "agent_role": getattr(agent, "role", None) if agent else None,
-            "session_id": agent_context.conv_session_id,
-            "app_code": getattr(agent_context, "gpts_app_code", None),
-        }
+        ctx = build_pre_tool_use_context(
+            tool_name=tool_info.name,
+            tool_input=dict(param.args or {}),
+            agent_name=agent.name if agent else None,
+            agent_role=getattr(agent, "role", None) if agent else None,
+            session_id=agent_context.conv_session_id,
+            app_code=getattr(agent_context, "gpts_app_code", None),
+        )
         decision = await gpts_memory.trigger_hook_blocking(
             agent_context.conv_id, "pre_tool_use", ctx
         )
@@ -1362,16 +1409,16 @@ class ToolAction(Action[ToolInput]):
         gpts_memory = getattr(memory, "gpts_memory", None) if memory else None
         if gpts_memory is None or not hasattr(gpts_memory, "trigger_hook"):
             return
-        ctx = {
-            "tool_name": tool_info.name,
-            "tool_input": dict(param.args or {}),
-            "tool_response": tool_result.get("content"),
-            "success": bool(success),
-            "agent_name": agent.name if agent else None,
-            "agent_role": getattr(agent, "role", None) if agent else None,
-            "session_id": agent_context.conv_session_id,
-            "app_code": getattr(agent_context, "gpts_app_code", None),
-        }
+        ctx = build_post_tool_use_context(
+            tool_name=tool_info.name,
+            tool_input=dict(param.args or {}),
+            tool_response=tool_result.get("content"),
+            success=bool(success),
+            agent_name=agent.name if agent else None,
+            agent_role=getattr(agent, "role", None) if agent else None,
+            session_id=agent_context.conv_session_id,
+            app_code=getattr(agent_context, "gpts_app_code", None),
+        )
         await gpts_memory.trigger_hook(
             agent_context.conv_id, "post_tool_use", ctx
         )

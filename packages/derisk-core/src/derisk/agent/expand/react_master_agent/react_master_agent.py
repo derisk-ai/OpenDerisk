@@ -61,6 +61,10 @@ from ...core.file_system.agent_file_system import AgentFileSystem
 
 # 新增模块导入
 from .work_log import WorkLogManager, create_work_log_manager
+from derisk.agent.core.memory.gpts.file_base import WorkLogStatus
+from derisk.agent.core.hook_context_builders import (
+    build_conversation_complete_context,
+)
 from .phase_manager import PhaseManager, TaskPhase, create_phase_manager
 from .report_generator import ReportGenerator, ReportType, ReportFormat
 from .kanban_manager import (
@@ -216,6 +220,9 @@ class ReActMasterAgent(ConversableAgent):
     # 工具失败追踪：记录每个工具的连续失败次数
     _tool_failure_counts: Dict[str, int] = PrivateAttr(default_factory=lambda: {})
     _max_tool_failure_count: int = PrivateAttr(default=3)  # 同一工具最大失败次数
+    # PR 7: ToolFailureTracker 接入 — 在 V1 内联计数基础上加 cooldown + record_success
+    # _tool_failure_counts 保留作为 snapshot 向后兼容字段，由 tracker 反映
+    _failure_tracker: Optional[Any] = PrivateAttr(default=None)
 
     # Kanban 内部状态
     _kanban_manager: Optional[KanbanManager] = PrivateAttr(default=None)
@@ -2139,6 +2146,30 @@ class ReActMasterAgent(ConversableAgent):
                     act_outs.append(blocked_output)
                     continue
 
+                # PR 3: step-level resume — retry 时复用已成功的 work_log 结果，跳过工具执行
+                if (
+                    self.recovering
+                    and isinstance(real_action, (FunctionTool, ToolAction))
+                    and tool_name_to_check
+                ):
+                    cached_output = await self._lookup_cached_tool_result(
+                        tool_name=tool_name_to_check,
+                        tool_args=getattr(real_action, "execute_params", None) or {},
+                        tool_call_id=getattr(real_action, "action_uid", None),
+                    )
+                    if cached_output is not None:
+                        logger.info(
+                            f"[step-resume] reuse work_log entry for "
+                            f"{tool_name_to_check}, skipping execution"
+                        )
+                        act_outs.append(cached_output)
+                        await self.push_context_event(
+                            EventType.AfterAction,
+                            ActionPayload(action_output=cached_output),
+                            await self.task_id_by_received_message(received_message),
+                        )
+                        continue
+
                 if hasattr(real_action, "prepare_init_msg"):
                     init_report = await real_action.prepare_init_msg(
                         ai_message=message.content if message.content else "",
@@ -2198,9 +2229,65 @@ class ReActMasterAgent(ConversableAgent):
                 )
 
             # 并行执行所有任务
+            # PR 4: act 前 touch 心跳，fire-and-forget
+            try:
+                from derisk.agent.core.heartbeat_hook import touch_heartbeat as _touch_hb
+                if self.not_null_agent_context and self.not_null_agent_context.conv_id:
+                    _touch_hb(self.not_null_agent_context.conv_id)
+            except Exception:
+                pass
+
+            # Tier 3.1: emit act_start 事件到 event log（每个工具一次）
+            try:
+                from derisk.agent.core.event_log import emit_act_start
+                _conv_id = self.not_null_agent_context.conv_id
+                _msg_id = message.message_id
+                for real_action, _ in tasks:
+                    _tool_name = getattr(real_action, "name", None) or "unknown"
+                    _args = getattr(real_action, "execute_params", None) or {}
+                    emit_act_start(
+                        conv_id=_conv_id,
+                        tool_name=_tool_name,
+                        message_id=_msg_id,
+                        args=_args if isinstance(_args, dict) else {},
+                    )
+            except Exception:
+                pass
+
             results = await asyncio.gather(
                 *[task for _, task in tasks], return_exceptions=True
             )
+
+            # PR 4: act 后 touch 心跳，fire-and-forget
+            try:
+                from derisk.agent.core.heartbeat_hook import touch_heartbeat as _touch_hb2
+                if self.not_null_agent_context and self.not_null_agent_context.conv_id:
+                    _touch_hb2(self.not_null_agent_context.conv_id)
+            except Exception:
+                pass
+
+            # Tier 3.1: emit act_end 事件到 event log（每个工具一次）
+            try:
+                from derisk.agent.core.event_log import emit_act_end
+                _conv_id = self.not_null_agent_context.conv_id
+                _msg_id = message.message_id
+                for (real_action, _), result in zip(tasks, results):
+                    _tool_name = getattr(real_action, "name", None) or "unknown"
+                    _success = not isinstance(result, Exception)
+                    _summary = ""
+                    if _success and hasattr(result, "content"):
+                        _summary = str(result.content or "")[:200]
+                    elif isinstance(result, Exception):
+                        _summary = str(result)[:200]
+                    emit_act_end(
+                        conv_id=_conv_id,
+                        tool_name=_tool_name,
+                        success=_success,
+                        message_id=_msg_id,
+                        result_summary=_summary,
+                    )
+            except Exception:
+                pass
 
             # 处理执行结果
             for (real_action, _), result in zip(tasks, results):
@@ -2220,7 +2307,7 @@ class ReActMasterAgent(ConversableAgent):
 
                     # 检查工具失败次数
                     should_stop = self._check_and_record_tool_failure(
-                        tool_name_for_tracking
+                        tool_name_for_tracking, error=str(result)
                     )
 
                     # 创建完整的失败 ActionOutput
@@ -2288,7 +2375,10 @@ class ReActMasterAgent(ConversableAgent):
                             self._reset_tool_failure_count(tool_name)
                         else:
                             # 工具执行失败（非异常），也记录失败次数
-                            should_stop = self._check_and_record_tool_failure(tool_name)
+                            should_stop = self._check_and_record_tool_failure(
+                                tool_name,
+                                error=result.content if hasattr(result, "content") else None,
+                            )
                             if should_stop:
                                 result.content = f"工具 [{tool_name}] 连续失败超过 {self._max_tool_failure_count} 次，已终止执行。\n\n{result.content or ''}"
                                 result.view = f"❌ **工具执行失败**\n\n工具 `{tool_name}` 已连续失败多次，系统已自动终止该工具的执行。\n\n{result.view or result.content or ''}"
@@ -2384,27 +2474,50 @@ class ReActMasterAgent(ConversableAgent):
                                     and self.memory.gpts_memory
                                     and self.not_null_agent_context
                                 ):
+                                    # 拉取对话历史给 tier3 curate_agent。
+                                    # curate_agent 读 extra.conversation_history
+                                    # 重建 turns 做兜底 tier2 reflect，并喂给
+                                    # curate_session；不传则两者都是 0ms no-op。
+                                    conv_id = self.not_null_agent_context.conv_id
+                                    conversation_history: list = []
+                                    try:
+                                        msgs = await self.memory.gpts_memory.get_messages(conv_id)
+                                        for m in msgs:
+                                            content = m.content
+                                            if not isinstance(content, str):
+                                                content = str(content) if content else ""
+                                            conversation_history.append({
+                                                "role": m.role or "",
+                                                "content": content,
+                                            })
+                                    except Exception as hist_e:  # noqa: BLE001
+                                        logger.debug(
+                                            f"[ReActMasterAgent] fetch conversation_history failed: {hist_e}"
+                                        )
                                     await self.memory.gpts_memory.trigger_hook(
-                                        self.not_null_agent_context.conv_id,
+                                        conv_id,
                                         "conversation_complete",
-                                        {
-                                            "agent_name": self.name,
-                                            "agent_role": getattr(self, "role", None),
-                                            "session_id": getattr(
+                                        build_conversation_complete_context(
+                                            agent_name=self.name,
+                                            agent_role=getattr(self, "role", None),
+                                            session_id=getattr(
                                                 self.not_null_agent_context,
                                                 "conv_session_id",
                                                 None,
                                             ),
-                                            "app_code": getattr(
+                                            app_code=getattr(
                                                 self.not_null_agent_context,
                                                 "gpts_app_code",
                                                 None,
                                             ),
-                                            "final_answer": result.view
+                                            final_answer=result.view
                                             or result.content
                                             or "",
-                                            "success": bool(result.is_exe_success),
-                                        },
+                                            success=bool(result.is_exe_success),
+                                            extra={
+                                                "conversation_history": conversation_history,
+                                            },
+                                        ),
                                     )
                             except Exception as _hook_err:  # noqa: BLE001
                                 logger.debug(
@@ -2508,71 +2621,87 @@ class ReActMasterAgent(ConversableAgent):
                 # 附加到ActionOutput
                 action_out.output_files = delivery_files
                 logger.info(f"Attached {len(delivery_files)} files to terminate action")
+                # 暂存到 agent_context.extra，让 base_agent 的 turn_complete
+                # 钩子把交付信息塞进 event.extra.delivery_files —— tier1
+                # memory_write_turn_function 会把它追加到 per-turn verbat
+                # content，跟 user/assistant 文本写在同一个文件里。
+                try:
+                    ctx = self.not_null_agent_context
+                    if ctx.extra is None:
+                        ctx.extra = {}
+                    ctx.extra["delivery_files"] = delivery_files
+                except Exception as stash_e:
+                    logger.warning(
+                        f"Failed to stash delivery_files on agent_context: {stash_e}"
+                    )
 
         except Exception as e:
             logger.error(f"Failed to attach delivery files: {e}")
 
         return action_out
 
-    def _check_and_record_tool_failure(self, tool_name: str) -> bool:
+    def _check_and_record_tool_failure(
+        self, tool_name: str, error: Optional[str] = None
+    ) -> bool:
         """
         记录工具失败并检查是否应停止执行
 
-        Args:
-            tool_name: 工具名称
-
-        Returns:
-            bool: 是否应该停止执行该工具（失败次数超过阈值）
+        PR 7: 委托给 ToolFailureTracker，拿到 cooldown + record_success 能力。
+        返回 True 表示工具已被熔断（连续失败超阈值）。
         """
         if not tool_name:
             return False
-
-        # 增加失败计数
-        self._tool_failure_counts[tool_name] = (
-            self._tool_failure_counts.get(tool_name, 0) + 1
-        )
-        failure_count = self._tool_failure_counts[tool_name]
-
-        logger.warning(
-            f"⚠️ Tool '{tool_name}' failed ({failure_count}/{self._max_tool_failure_count} consecutive failures)"
-        )
-
-        # 检查是否超过阈值
-        if failure_count >= self._max_tool_failure_count:
-            logger.error(
-                f"🚫 Tool '{tool_name}' has failed {failure_count} times consecutively. "
-                f"Blocking further execution of this tool."
-            )
-            return True
-
-        return False
+        tracker = self._get_failure_tracker()
+        tracker.record_failure(tool_name, error or "tool execution failed")
+        # 同步旧字段（向后兼容 snapshot 读取）
+        self._tool_failure_counts[tool_name] = tracker.get_failure_count(tool_name)
+        return tracker.is_disabled(tool_name)
 
     def _is_tool_blocked(self, tool_name: str) -> bool:
         """
-        检查工具是否已被禁止执行（失败次数超过阈值）
+        检查工具是否已被禁止执行（失败次数超过阈值且在 cooldown 期内）。
 
-        Args:
-            tool_name: 工具名称
-
-        Returns:
-            bool: 是否已被禁止
+        PR 7: 委托给 ToolFailureTracker.is_disabled（含 cooldown 过期 lazy 清理）。
         """
         if not tool_name:
             return False
-        failure_count = self._tool_failure_counts.get(tool_name, 0)
-        return failure_count >= self._max_tool_failure_count
+        tracker = self._get_failure_tracker()
+        blocked = tracker.is_disabled(tool_name)
+        if not blocked:
+            # cooldown 过期后 lazy 清理，同步旧字段
+            self._tool_failure_counts.pop(tool_name, None)
+        return blocked
 
     def _reset_tool_failure_count(self, tool_name: str = None):
         """
-        重置工具失败计数
+        重置工具失败计数。
 
-        Args:
-            tool_name: 工具名称，如果为 None 则重置所有工具
+        PR 7: tool_name 指定时调 tracker.record_success（清空 + 解除熔断）；
+        tool_name=None 时调 tracker.reset()（清空所有）。
         """
-        if tool_name:
-            self._tool_failure_counts[tool_name] = 0
-        else:
+        tracker = self._get_failure_tracker()
+        if tool_name is None:
+            tracker.reset()
             self._tool_failure_counts.clear()
+        else:
+            tracker.record_success(tool_name)
+            self._tool_failure_counts.pop(tool_name, None)
+
+    def _get_failure_tracker(self):
+        """lazy 初始化 ToolFailureTracker（per conv_id）。"""
+        if self._failure_tracker is None:
+            from derisk.agent.core.tool_failure_tracker import ToolFailureTracker
+            conv_id = (
+                self.not_null_agent_context.conv_id
+                if self.not_null_agent_context
+                else "default"
+            )
+            self._failure_tracker = ToolFailureTracker(
+                conv_id=conv_id,
+                max_consecutive_failures=self._max_tool_failure_count,
+                cooldown_seconds=300,  # PR 7 新增：5 分钟自动解除熔断
+            )
+        return self._failure_tracker
 
     def get_stats(self) -> Dict[str, Any]:
         """获取 Agent 运行统计信息"""
@@ -2582,6 +2711,10 @@ class ReActMasterAgent(ConversableAgent):
             "prune_count": self._prune_count,
             "tool_failure_counts": dict(self._tool_failure_counts),
         }
+
+        # PR 7: 加 ToolFailureTracker snapshot（含 cooldown 状态）
+        if self._failure_tracker is not None:
+            stats["failure_tracker"] = self._failure_tracker.snapshot()
 
         if self._doom_loop_detector:
             stats["doom_loop"] = self._doom_loop_detector.get_stats()
@@ -2600,6 +2733,10 @@ class ReActMasterAgent(ConversableAgent):
         self._compaction_count = 0
         self._prune_count = 0
         self._tool_failure_counts.clear()
+
+        # PR 7: 同步重置 ToolFailureTracker
+        if self._failure_tracker is not None:
+            self._failure_tracker.reset()
 
         if self._doom_loop_detector:
             self._doom_loop_detector.reset()
@@ -3239,6 +3376,100 @@ class ReActMasterAgent(ConversableAgent):
                 logger.warning(
                     f"[ReActMasterAgent] HookManager init/start trigger failed: {_hook_err}"
                 )
+
+    async def _lookup_cached_tool_result(
+        self,
+        tool_name: str,
+        tool_args: Optional[Dict[str, Any]],
+        tool_call_id: Optional[str] = None,
+    ) -> Optional[ActionOutput]:
+        """PR 3: step-level resume — 查 work_log 缓存复用已成功的工具结果。
+
+        匹配优先级：
+        1. tool_call_id 精确匹配（DB 不持久化此字段，仅内存 cache 命中）
+        2. (tool_name, args) 元组匹配（DB 加载的 entry 走这条）
+
+        命中条件：success=True 且 status=active（done）。失败/running 的 entry 不复用。
+
+        Args:
+            tool_name: 工具名
+            tool_args: 工具参数
+            tool_call_id: LLM 返回的 tool_call id（action_uid）
+
+        Returns:
+            复用的 ActionOutput，或 None 表示未命中需重跑。
+        """
+        if not self.memory or not self.memory.gpts_memory:
+            return None
+        if not self.not_null_agent_context:
+            return None
+        conv_id = self.not_null_agent_context.conv_id
+
+        try:
+            cache = await self.memory.gpts_memory._get_cache(conv_id)
+        except Exception as e:
+            logger.warning(f"[step-resume] failed to get cache for {conv_id}: {e}")
+            return None
+        if not cache:
+            return None
+
+        # 优先按 tool_call_id 精确匹配（仅内存 cache 有此字段）
+        if tool_call_id:
+            for entry in cache.work_logs:
+                if (
+                    entry.tool_call_id
+                    and entry.tool_call_id == tool_call_id
+                    and entry.tool == tool_name
+                    and entry.success
+                    and entry.status == WorkLogStatus.ACTIVE.value
+                ):
+                    return self._build_action_output_from_work_entry(entry, tool_name)
+
+        # 回退：按 (tool_name, args) 匹配，取最后一条（最近一次成功调用）
+        if tool_name:
+            args_normalized = self._normalize_args(tool_args)
+            matched_entry = None
+            for entry in cache.work_logs:
+                if entry.tool != tool_name:
+                    continue
+                if not entry.success:
+                    continue
+                if entry.status != WorkLogStatus.ACTIVE.value:
+                    continue
+                if args_normalized is not None:
+                    entry_args = self._normalize_args(entry.args)
+                    if entry_args != args_normalized:
+                        continue
+                matched_entry = entry  # 覆盖，最终保留最后一条
+            if matched_entry:
+                return self._build_action_output_from_work_entry(matched_entry, tool_name)
+
+        return None
+
+    @staticmethod
+    def _normalize_args(args: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """规范化 args 用于稳定匹配（去掉 None 值，排序 key）。"""
+        if args is None:
+            return None
+        if not isinstance(args, dict):
+            return None
+        return {k: args[k] for k in sorted(args.keys()) if args[k] is not None}
+
+    @staticmethod
+    def _build_action_output_from_work_entry(
+        entry: "WorkEntry", tool_name: str
+    ) -> ActionOutput:
+        """从 WorkEntry 重建 ActionOutput（用于 step-resume 复用）。"""
+        return ActionOutput(
+            content=entry.result or "",
+            name=tool_name,
+            action=tool_name,
+            action_name=tool_name,
+            is_exe_success=True,
+            state=Status.COMPLETE.value,
+            have_retry=False,
+            view=entry.result or "",
+        )
 
     async def _record_action_to_work_log(
         self,
