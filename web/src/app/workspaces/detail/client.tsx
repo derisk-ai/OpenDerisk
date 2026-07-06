@@ -445,12 +445,7 @@ export default function WorkspaceDetailPage() {
             <Lobby
               workspaceId={workspaceId}
               workspaceCode={workspaceCode}
-              workspaceName={ws.name}
-              workspaceType={scenario}
-              appCode={appCode}
-              convUid={convUid || ''}
               onSelectTask={enterWorkbench}
-              onQuickStart={() => {}}
               onSendFirstMessage={enterChat}
             />
           )}
