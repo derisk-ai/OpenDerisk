@@ -21,15 +21,15 @@ const STEP_STATE_LABELS: Record<string, string> = {
 };
 
 const STEP_STATE_COLORS: Record<string, string> = {
-  INIT: '#gray',
-  THINKING: '#blue',
-  ACTING: '#orange',
-  OBSERVING: '#green',
-  AWAITING_USER: '#yellow',
-  AWAITING_TOOL_PERMISSION: '#yellow',
-  AWAITING_SUB_AGENT: '#purple',
-  DONE: '#green',
-  FAILED: '#red',
+  INIT: 'gray',
+  THINKING: 'blue',
+  ACTING: 'orange',
+  OBSERVING: 'green',
+  AWAITING_USER: 'yellow',
+  AWAITING_TOOL_PERMISSION: 'yellow',
+  AWAITING_SUB_AGENT: 'purple',
+  DONE: 'green',
+  FAILED: 'red',
 };
 
 export const StepStatusIndicator: React.FC<StepStatusIndicatorProps> = ({ component }) => {
