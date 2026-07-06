@@ -1,5 +1,5 @@
 """WorkspaceControlAgent wraps FunctionTools; injected into chat via extra_agents."""
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from derisk.agent import ConversableAgent, LLMConfig
 from derisk.agent.core.profile import ProfileConfig
@@ -54,6 +54,7 @@ def build_workspace_toolkit(
     task_id: Optional[int] = None,
     mode: str = "lobby",
     llm_config: Optional[LLMConfig] = None,
+    on_event: Optional[Callable[[str, dict], None]] = None,
 ) -> Optional[WorkspaceControlAgent]:
     """Build the workspace control Agent for the given mode.
 
@@ -72,14 +73,14 @@ def build_workspace_toolkit(
         layer1 = [t for t in all_read if t.name in LAYER1_READ]
         layer2_read = [t for t in all_read if t.name in LAYER2_READ]
         write = build_write_tools(
-            system_app, workspace_id, user_id, conv_uid, task_id=task_id
+            system_app, workspace_id, user_id, conv_uid, task_id=task_id, on_event=on_event
         )
         tools = layer1 + layer2_read + write
     elif mode == "workbench":
         layer1 = [t for t in all_read if t.name in LAYER1_READ]
         layer3_read = [t for t in all_read if t.name in LAYER3_READ]
         playbook_write = build_playbook_tools(
-            system_app, workspace_id, user_id, conv_uid, task_id=task_id
+            system_app, workspace_id, user_id, conv_uid, task_id=task_id, on_event=on_event
         )
         tools = layer1 + layer3_read + playbook_write
     else:

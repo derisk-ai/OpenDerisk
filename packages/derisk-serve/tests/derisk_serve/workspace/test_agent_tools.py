@@ -249,6 +249,7 @@ def test_write_tools_count(fake_system_app):
 
 
 def test_write_tool_creates_intervention_with_null_task(fake_system_app):
+    """start_task now creates a real Task; close_task still creates an intervention."""
     from derisk_serve.intervention.api.schemas import InterventionRequest
     from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
 
@@ -263,8 +264,8 @@ def test_write_tool_creates_intervention_with_null_task(fake_system_app):
             conv_uid="conv-1",
             task_id=None,
         )
-        start_task = _find_tool(tools, "start_task")
-        result = start_task._func(workspace_id=1, playbook_id=10)
+        close_task = _find_tool(tools, "close_task")
+        result = close_task._func(workspace_id=1, task_id=5)
 
     assert result == {"intervention_id": 42, "status": "awaiting_human"}
     request = gis.return_value.create.call_args.kwargs["request"]
@@ -274,12 +275,13 @@ def test_write_tool_creates_intervention_with_null_task(fake_system_app):
     assert request.workspace_id == 1
     assert request.requested_by == "u1"
     assert request.question == {
-        "tool": "start_task",
-        "args": {"workspace_id": 1, "playbook_id": 10},
+        "tool": "close_task",
+        "args": {"workspace_id": 1, "task_id": 5},
     }
 
 
 def test_each_write_tool_uses_its_own_name_in_question(fake_system_app):
+    """Each intervention-based write tool uses its own name. start_task is excluded."""
     from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
 
     with patch(
@@ -294,6 +296,8 @@ def test_each_write_tool_uses_its_own_name_in_question(fake_system_app):
             task_id=None,
         )
         for tool in tools:
+            if tool.name == "start_task":
+                continue  # start_task now creates a real Task, not an intervention
             gis.return_value.create.reset_mock()
             tool._func(workspace_id=2)
             request = gis.return_value.create.call_args.kwargs["request"]

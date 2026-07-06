@@ -1,5 +1,5 @@
 """Layer 3 (剧本能力) write tools — Workbench only. Each creates an intervention, does NOT execute."""
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from derisk.agent.resource.tool.base import FunctionTool
 from derisk_serve.intervention.api.schemas import InterventionRequest
@@ -34,6 +34,7 @@ def build_playbook_tools(
     user_id: Optional[str],
     conv_uid: str,
     task_id: Optional[int] = None,
+    on_event: Optional[Callable[[str, dict], None]] = None,
 ) -> List[FunctionTool]:
     specs = [
         ("launch_playbook", "基于剧本发起新任务"),
