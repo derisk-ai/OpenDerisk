@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { Button, Tag } from 'antd';
+import { Button, Tag, Card } from 'antd';
 import { useRequest } from 'ahooks';
 import {
   apiInterceptors,
@@ -10,7 +10,6 @@ import {
   listArtifacts,
 } from '@/client/api';
 import ChatSession from '@/components/chat/chat-session';
-import UnifiedChatInput from '@/components/chat/input/unified-chat-input';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import './workbench.css';
 
@@ -79,13 +78,6 @@ export function Workbench({
     return steps;
   }, [events, task]);
 
-  const dialogMessages = useMemo(() => {
-    // P0 简化版：从 events 取 asset_referenced / artifact_produced 等
-    return events.filter(
-      (e) => e.type === 'asset_referenced' || e.type === 'artifact_produced'
-    );
-  }, [events]);
-
   return (
     <div className="ws-wb">
       <div className="ws-wb__header">
@@ -98,8 +90,8 @@ export function Workbench({
 
       <div className="ws-wb__body">
         {/* 进展 */}
-        <div className="ws-wb__section">
-          <div className="ws-wb__section-title">进展</div>
+        <section className="ws-wb__section">
+          <h3 className="ws-wb__section-title">📊 进展</h3>
           <div className="ws-wb__progress">
             {progressSteps.length === 0 && (
               <div className="ws-wb__step ws-wb__step--pending">
@@ -117,66 +109,61 @@ export function Workbench({
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* 交付物 */}
-        {artifacts && artifacts.length > 0 && (
-          <div className="ws-wb__section">
-            <div className="ws-wb__section-title">交付物</div>
-            <div className="ws-wb__artifact">
+        <section className="ws-wb__section">
+          <h3 className="ws-wb__section-title">📦 交付物</h3>
+          {artifacts && artifacts.length > 0 ? (
+            <div className="ws-wb__artifact-grid">
               {artifacts.map((a: any) => (
-                <div key={a.id}>
-                  <div className="ws-wb__artifact-title">
-                    {a.title || `artifact_${a.id}`}
-                  </div>
+                <Card key={a.id} size="small" className="ws-wb__artifact-card">
+                  <div className="ws-wb__artifact-title">{a.title || `artifact_${a.id}`}</div>
                   <Tag>{a.type}</Tag>
                   <div className="ws-wb__artifact-actions">
                     <Button size="small">预览</Button>
                     <Button size="small">发送</Button>
                     <Button size="small">沉淀为 Asset</Button>
                   </div>
-                </div>
+                </Card>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="ws-empty">暂无交付物</div>
+          )}
+        </section>
 
         {/* 协作对话（折叠） */}
-        <div className="ws-wb__section">
-          <div className="ws-wb__section-title">协作对话</div>
-          <div className="ws-wb__dialog">
-            {dialogMessages.length === 0 && (
-              <div className="ws-wb__dialog-msg">暂无对话</div>
-            )}
-            {dialogMessages.slice(0, dialogExpanded ? undefined : 3).map((e, i) => (
-              <div key={i} className="ws-wb__dialog-msg">
-                {e.type === 'artifact_produced' ? 'Agent 产出: ' : 'Agent 引用: '}
-                {JSON.stringify(e.payload)}
-              </div>
-            ))}
-            {dialogMessages.length > 3 && (
-              <div
-                className="ws-wb__dialog-expand"
-                onClick={() => setDialogExpanded(!dialogExpanded)}
-              >
-                {dialogExpanded ? '收起' : `展开完整对话 (${dialogMessages.length})`}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+        <section className="ws-wb__section">
+          <h3
+            className="ws-wb__section-title ws-wb__section-title--clickable"
+            onClick={() => setDialogExpanded(!dialogExpanded)}
+          >
+            💬 协作对话 {dialogExpanded ? '收起' : '展开'}
+          </h3>
+          {dialogExpanded && (
+            <div className="ws-wb__dialog">
+              <ChatSession
+                convUid={convUid}
+                appCode={appCode}
+                workspaceId={String(workspaceId)}
+                taskId={String(taskId)}
+                hideRightPanel={true}
+                onWorkspaceEvent={handleWorkspaceEvent}
+              />
+            </div>
+          )}
+        </section>
 
-      {/* 输入框常驻底部 —— 复用首页标准多模态 Agent 输入框 */}
-      <div className="ws-wb__input">
-        <ChatSession
-          convUid={convUid}
-          appCode={appCode}
-          workspaceId={String(workspaceId)}
-          taskId={String(taskId)}
-          hideRightPanel={true}
-          onWorkspaceEvent={handleWorkspaceEvent}
-          inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
-        />
+        {/* 执行轨迹 */}
+        <section className="ws-wb__section">
+          <h3 className="ws-wb__section-title">📜 执行轨迹</h3>
+          <div className="ws-wb__trace">
+            <div className="ws-wb__trace-item">
+              AgentRun · {task?.status} · {task?.updated_at || '—'}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
