@@ -52,6 +52,15 @@ class TestCreateTaskFromTool:
         assert result["playbook_name"] == "容量巡检"
         assert result["triggered_by"] == "manual"
 
+        mock_task_service = system_app.get_component("serve_task_service", MagicMock)
+        request = mock_task_service.create.call_args.args[0]
+        assert request.workspace_id == 1
+        assert request.playbook_id == 7
+        assert request.title == "容量巡检"
+        assert request.type == "adhoc"
+        assert request.triggered_by == "manual"
+        assert request.created_by_user_id == 100
+
     def test_creates_task_with_custom_title(self):
         """When title is given, it overrides the playbook name."""
         mock_task = MagicMock()
@@ -73,6 +82,15 @@ class TestCreateTaskFromTool:
         assert result["task_id"] == 1
         assert result["title"] == "自定义标题"
 
+        mock_task_service = system_app.get_component("serve_task_service", MagicMock)
+        request = mock_task_service.create.call_args.args[0]
+        assert request.workspace_id == 1
+        assert request.title == "自定义标题"
+        assert request.description == "测试描述"
+        assert request.type == "adhoc"
+        assert request.triggered_by == "manual"
+        assert request.created_by_user_id == 100
+
     def test_creates_task_without_playbook(self):
         """When no playbook_id, title defaults to '手动创建任务'."""
         mock_task = MagicMock()
@@ -92,6 +110,16 @@ class TestCreateTaskFromTool:
         assert result["playbook_id"] is None
         assert result["playbook_name"] is None
 
+        mock_task_service = system_app.get_component("serve_task_service", MagicMock)
+        request = mock_task_service.create.call_args.args[0]
+        assert request.workspace_id == 1
+        assert request.playbook_id is None
+        assert request.title == "手动创建任务"
+        assert request.description == ""
+        assert request.type == "adhoc"
+        assert request.triggered_by == "manual"
+        assert request.created_by_user_id == 100
+
     def test_user_id_non_digit(self):
         """When user_id is not a digit, created_by_user_id is None."""
         mock_task = MagicMock()
@@ -108,21 +136,16 @@ class TestCreateTaskFromTool:
         )
         assert result["task_id"] == 1
 
+        mock_task_service = system_app.get_component("serve_task_service", MagicMock)
+        request = mock_task_service.create.call_args.args[0]
+        assert request.created_by_user_id is None
+
 
 class TestWriteToolsStartTask:
     """Tests for write_tools.build_write_tools start_task behavior."""
 
-    def test_start_task_emits_event(self):
-        """start_task should call on_event with task_created."""
-        from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
-
-        mock_task = MagicMock()
-        mock_task.id = 42
-        mock_task.title = "测试任务"
-        mock_task.status = "draft"
-        mock_task.playbook_id = None
-        mock_task.triggered_by = "manual"
-
+    def _build_system_app(self, mock_task):
+        """Build a mock system_app with task and playbook services."""
         mock_task_service = MagicMock()
         mock_task_service.create.return_value = mock_task
 
@@ -138,6 +161,20 @@ class TestWriteToolsStartTask:
             return None
 
         system_app.get_component = get_component
+        return system_app
+
+    def test_start_task_emits_event(self):
+        """start_task should call on_event with task_created."""
+        from derisk_serve.workspace.agent_tools.write_tools import build_write_tools
+
+        mock_task = MagicMock()
+        mock_task.id = 42
+        mock_task.title = "测试任务"
+        mock_task.status = "draft"
+        mock_task.playbook_id = None
+        mock_task.triggered_by = "manual"
+
+        system_app = self._build_system_app(mock_task)
 
         events = []
 
@@ -172,21 +209,7 @@ class TestWriteToolsStartTask:
         mock_task.playbook_id = None
         mock_task.triggered_by = "manual"
 
-        mock_task_service = MagicMock()
-        mock_task_service.create.return_value = mock_task
-
-        mock_playbook_service = MagicMock()
-
-        system_app = MagicMock()
-
-        def get_component(name, cls):
-            if name == "serve_task_service":
-                return mock_task_service
-            if name == "serve_playbook_service":
-                return mock_playbook_service
-            return None
-
-        system_app.get_component = get_component
+        system_app = self._build_system_app(mock_task)
 
         tools = build_write_tools(
             system_app,
@@ -211,18 +234,11 @@ class TestWriteToolsStartTask:
         mock_intervention_service = MagicMock()
         mock_intervention_service.create.return_value = mock_intervention
 
-        mock_task_service = MagicMock()
-        mock_playbook_service = MagicMock()
-
         system_app = MagicMock()
 
         def get_component(name, cls):
             if name == "serve_intervention_service":
                 return mock_intervention_service
-            if name == "serve_task_service":
-                return mock_task_service
-            if name == "serve_playbook_service":
-                return mock_playbook_service
             return None
 
         system_app.get_component = get_component
