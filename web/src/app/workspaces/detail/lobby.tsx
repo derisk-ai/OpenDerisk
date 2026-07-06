@@ -5,14 +5,13 @@ import { useRequest } from 'ahooks';
 import Link from 'next/link';
 import {
   apiInterceptors,
+  createTask,
   listTasks,
   listArtifacts,
   listDeliveries,
   listPlaybooks,
 } from '@/client/api';
-import ChatSession from '@/components/chat/chat-session';
-import UnifiedChatInput from '@/components/chat/input/unified-chat-input';
-import type { WorkspaceEvent } from '@/hooks/use-chat';
+import { LobbyChatInput } from './lobby-chat-input';
 import { GrowthCard } from './growth-card';
 import './lobby.css';
 
@@ -25,7 +24,7 @@ export interface LobbyProps {
   convUid: string;
   onSelectTask: (taskId: number) => void;
   onQuickStart: (playbookId: number) => void;
-  onSendFirstMessage?: (text?: string) => void;
+  onSendFirstMessage: (text: string) => void;
 }
 
 export function Lobby({
@@ -36,10 +35,14 @@ export function Lobby({
   appCode,
   convUid,
   onSelectTask,
-  onQuickStart,
+  onSendFirstMessage,
 }: LobbyProps) {
-  const handleWorkspaceEvent = (_event: WorkspaceEvent) => {
-    // Lobby does not render task progress events; keep callback for ChatSession.
+  const handleQuickStart = async (playbookId: number) => {
+    const [err, task] = await apiInterceptors(
+      createTask({ workspace_id: workspaceId, playbook_id: playbookId })
+    );
+    if (err || !task) return;
+    onSelectTask(task.id);
   };
   const { data: tasksRes } = useRequest(
     async () => apiInterceptors(listTasks({ workspace_id: workspaceId, status: 'running' })),
@@ -74,17 +77,6 @@ export function Lobby({
   return (
     <div className="ws-lobby">
       <div className="ws-lobby__main">
-        {/* 空间身份条 */}
-        <section className="ws-lobby__identity">
-          <div className="ws-lobby__identity-title">
-            <h2>{workspaceName}</h2>
-            <Tag>{workspaceType}</Tag>
-          </div>
-          <p className="ws-lobby__identity-guide">
-            在底部输入框下指令，或从下方快捷发起选一个剧本。
-          </p>
-        </section>
-
         {/* 进行中任务 */}
         <section className="ws-lobby__section">
           <div className="ws-lobby__section-head">
@@ -158,7 +150,7 @@ export function Lobby({
               <Button
                 key={p.id}
                 className="ws-lobby__quick-btn"
-                onClick={() => onQuickStart(p.id)}
+                onClick={() => handleQuickStart(p.id)}
               >
                 <span className="ws-lobby__quick-name">发起: {p.name}</span>
                 {(p.scenario_type || p.task_type) && (
@@ -178,15 +170,11 @@ export function Lobby({
           </div>
         </section>
 
-        {/* 输入框常驻底部 —— 复用首页标准多模态 Agent 输入框 */}
+        {/* 输入框常驻底部 */}
         <div className="ws-lobby__input">
-          <ChatSession
-            convUid={convUid}
-            appCode={appCode}
-            workspaceId={workspaceId}
-            hideRightPanel={true}
-            onWorkspaceEvent={handleWorkspaceEvent}
-            inputSlot={(ctrl) => <UnifiedChatInput ctrl={ctrl} />}
+          <LobbyChatInput
+            placeholder="发起新任务..."
+            onSend={onSendFirstMessage}
           />
         </div>
       </div>

@@ -110,33 +110,6 @@
   color: var(--ws-text-secondary, #6b7280);
 }
 
-.ws-lobby__identity {
-  padding: 16px;
-  border: 1px solid var(--ws-border, #e5e7eb);
-  border-radius: 8px;
-  background: var(--ws-bg, #fff);
-}
-
-.ws-lobby__identity-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.ws-lobby__identity-title h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--ws-text, #111827);
-}
-
-.ws-lobby__identity-guide {
-  margin: 0;
-  font-size: 13px;
-  color: var(--ws-text-secondary, #6b7280);
-}
-
 .ws-lobby__section-head-text {
   display: flex;
   flex-direction: column;
