@@ -114,6 +114,7 @@ def _inject_workspace_context(
     extra_agents: List,
     ext_info: Optional[Dict[str, Any]] = None,
     llm_config: Optional[LLMConfig] = None,
+    event_queue: Optional[asyncio.Queue] = None,
 ) -> None:
     """把 workspace 上下文摘要和 WorkspaceControlAgent 注入对话。
 
@@ -153,6 +154,10 @@ def _inject_workspace_context(
         if summary:
             system_prompt.append(summary)
 
+        def _on_workspace_event(event_type: str, payload: dict):
+            if event_queue is not None:
+                event_queue.put_nowait((event_type, payload))
+
         agent = build_workspace_toolkit(
             system_app=system_app,
             workspace_id=int(workspace_id),
@@ -161,6 +166,7 @@ def _inject_workspace_context(
             task_id=int(task_id) if task_id else None,
             mode=mode,
             llm_config=llm_config,
+            on_event=_on_workspace_event,
         )
         if agent is not None:
             extra_agents.append(agent)
@@ -866,6 +872,7 @@ class AgentChat(BaseComponent, ABC):
         system_prompt_parts = []
         if ext_info.get("system_prompt"):
             system_prompt_parts.append(ext_info["system_prompt"])
+        workspace_event_queue: asyncio.Queue = asyncio.Queue()
         _inject_workspace_context(
             system_app=self.system_app,
             workspace_id=ext_info.get("workspace_id"),
@@ -876,6 +883,7 @@ class AgentChat(BaseComponent, ABC):
             extra_agents=ext_info.setdefault("extra_agents", []),
             ext_info=ext_info,
             llm_config=LLMConfig(llm_client=self.llm_provider),
+            event_queue=workspace_event_queue,
         )
         if system_prompt_parts:
             ext_info["system_prompt"] = "\n\n".join(system_prompt_parts).strip()
@@ -1060,6 +1068,10 @@ class AgentChat(BaseComponent, ABC):
                 yield task, f"data:{metadata_content}\n\n", agent_conv_id
 
                 async for chunk in self._chat_messages(agent_conv_id, task):
+                    # Drain workspace events before yielding each message chunk
+                    while not workspace_event_queue.empty():
+                        event_type, payload = workspace_event_queue.get_nowait()
+                        yield task, format_workspace_event(event_type, payload), agent_conv_id
                     if chunk and len(chunk) > 0:
                         try:
                             content = orjson.dumps({"vis": chunk}).decode("utf-8")
