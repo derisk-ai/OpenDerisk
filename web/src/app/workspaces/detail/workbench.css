@@ -111,10 +111,16 @@
   gap: 8px;
 }
 
+.ws-wb__section-title--clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
 .ws-wb__dialog {
-  padding: 8px 14px;
-  max-height: 200px;
-  overflow-y: auto;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 300px;
 }
 
 .ws-wb__dialog-msg {
@@ -131,22 +137,29 @@
   padding: 6px 0;
 }
 
-.ws-wb__input {
-  border-top: 1px solid var(--ws-border, #e5e7eb);
-  padding: 12px 20px;
-  background: var(--ws-bg, #fff);
+.ws-wb__artifact-grid {
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
 }
 
-.ws-wb__input textarea {
-  width: 100%;
-  resize: none;
-  border: 1px solid var(--ws-border, #e5e7eb);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
-  outline: none;
+.ws-wb__artifact-card {
+  /* Card component provides its own styling */
 }
 
-.ws-wb__input textarea:focus {
-  border-color: var(--ws-accent, #3b82f6);
+.ws-wb__trace {
+  padding: 8px 14px;
+}
+
+.ws-wb__trace-item {
+  font-size: 13px;
+  color: var(--ws-text-secondary, #6b7280);
+  font-family: ui-monospace, monospace;
+}
+
+.ws-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--ws-text-secondary, #6b7280);
 }
