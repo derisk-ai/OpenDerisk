@@ -12,8 +12,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Lobby } from './lobby';
 import { Workbench } from './workbench';
+import ChatSession from '@/components/chat/chat-session';
+import type { ChatSessionHandle } from '@/components/chat/chat-session';
 import { ConversationSwitcher } from './conversation-switcher';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ThunderboltOutlined,
@@ -158,13 +160,18 @@ function statusLabel(s: string) {
   return (s || '').replace(/_/g, ' ');
 }
 
+type ViewMode = 'lobby' | 'chat' | 'workbench';
+
 export default function WorkspaceDetailPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const workspaceCode = searchParams?.get('id') || '';
   const { t } = useTranslation();
   const [convUid, setConvUid] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode>('lobby');
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [pendingMessage, setPendingMessage] = useState<string>('');
+  const chatSessionRef = useRef<ChatSessionHandle>(null);
 
   const { data: ws, loading: wsLoading } = useRequest(async () => {
     if (!workspaceCode) return null;
@@ -205,6 +212,37 @@ export default function WorkspaceDetailPage() {
     { refreshDeps: [selectedTaskId] }
   );
   const taskConvUid = taskRes?.[1]?.conv_session_id || '';
+
+  const enterChat = (text?: string) => {
+    if (text) setPendingMessage(text);
+    setViewMode('chat');
+  };
+  const enterWorkbench = (taskId: number) => {
+    setSelectedTaskId(taskId);
+    setViewMode('workbench');
+  };
+  const backToLobby = () => {
+    setSelectedTaskId(null);
+    setViewMode('lobby');
+  };
+
+  useEffect(() => {
+    if (viewMode === 'chat' && pendingMessage && chatSessionRef.current) {
+      chatSessionRef.current.sendMessage(pendingMessage);
+      setPendingMessage('');
+    }
+  }, [viewMode, pendingMessage]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.taskId) {
+        enterWorkbench(Number(detail.taskId));
+      }
+    };
+    window.addEventListener('workspace:view-task', handler);
+    return () => window.removeEventListener('workspace:view-task', handler);
+  }, []);
 
   const { data: tasks } = useRequest(async () => {
     if (!workspaceId) return [];
@@ -302,7 +340,7 @@ export default function WorkspaceDetailPage() {
             <div className="ws-console-avatar"><TeamOutlined /></div>
             <div style={{ minWidth: 0 }}>
               <h2 className="ws-console-title">{ws.name}</h2>
-              {selectedTaskId === null && (
+              {viewMode !== 'workbench' && (
                 <ConversationSwitcher
                   workspaceId={workspaceId}
                   currentConvUid={convUid}
@@ -403,7 +441,7 @@ export default function WorkspaceDetailPage() {
 
         {/* Console: lobby / workbench */}
         <div className="ws-console">
-          {selectedTaskId === null ? (
+          {viewMode === 'lobby' && (
             <Lobby
               workspaceId={workspaceId}
               workspaceCode={workspaceCode}
@@ -411,21 +449,35 @@ export default function WorkspaceDetailPage() {
               workspaceType={scenario}
               appCode={appCode}
               convUid={convUid || ''}
-              onSelectTask={(tid) => setSelectedTaskId(tid)}
-              onQuickStart={(pid) => {
-                // P0 简化：跳转到 triggers 页或调 createTask
-                router.push(`/workspaces/detail?id=${workspaceCode}&trigger=${pid}`);
-              }}
+              onSelectTask={enterWorkbench}
+              onQuickStart={() => {}}
+              onSendFirstMessage={enterChat}
             />
-          ) : taskConvUid ? (
+          )}
+          {viewMode === 'chat' && (
+            <div className="ws-chat-view">
+              <div className="ws-chat-view__header">
+                <Button type="link" onClick={backToLobby}>← 返回大厅</Button>
+              </div>
+              <ChatSession
+                ref={chatSessionRef}
+                convUid={convUid}
+                appCode={appCode}
+                workspaceId={workspaceId}
+                hideRightPanel={true}
+              />
+            </div>
+          )}
+          {viewMode === 'workbench' && selectedTaskId && taskConvUid && (
             <Workbench
               taskId={selectedTaskId}
               workspaceId={workspaceId}
               appCode={appCode}
               convUid={taskConvUid}
-              onBack={() => setSelectedTaskId(null)}
+              onBack={backToLobby}
             />
-          ) : (
+          )}
+          {viewMode === 'workbench' && selectedTaskId && !taskConvUid && (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '120px 24px' }}>
               <Spin size="large" />
             </div>
