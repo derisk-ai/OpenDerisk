@@ -18,22 +18,13 @@ import './lobby.css';
 export interface LobbyProps {
   workspaceId: number;
   workspaceCode: string;
-  workspaceName: string;
-  workspaceType: string;
-  appCode: string;
-  convUid: string;
   onSelectTask: (taskId: number) => void;
-  onQuickStart: (playbookId: number) => void;
   onSendFirstMessage: (text: string) => void;
 }
 
 export function Lobby({
   workspaceId,
   workspaceCode,
-  workspaceName,
-  workspaceType,
-  appCode,
-  convUid,
   onSelectTask,
   onSendFirstMessage,
 }: LobbyProps) {
