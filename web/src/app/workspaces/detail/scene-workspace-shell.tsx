@@ -1,5 +1,6 @@
 'use client';
 
+import './scene-workspace.css';
 import { useEffect, useState } from 'react';
 import { apiInterceptors, getTaskInfo } from '@/client/api';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
