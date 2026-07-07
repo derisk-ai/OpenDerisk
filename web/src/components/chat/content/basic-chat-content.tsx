@@ -10,6 +10,7 @@ import { TaskCreatedCard, TaskCreatedCardPayload } from '../task-created-card';
 
 interface BasicChatContentProps {
   ctrl: AbortController;
+  workspaceId?: string | number;
 }
 
 const MAX_RENDER_COUNT = 200;
@@ -32,7 +33,7 @@ function getTaskCreatedPayload(item: IChatDialogueMessageSchema): TaskCreatedCar
   return null;
 }
 
-const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
+const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl, workspaceId }) => {
   const scrollableRef = useRef<HTMLDivElement>(null);
   const { history, replyLoading } = useContext(ChatContentContext);
   const [jsonModalOpen, setJsonModalOpen] = useState(false);
@@ -72,7 +73,7 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
           <div className="w-full px-3 py-4">
             <div className="w-full">
               {showMessages.map((content) => {
-                const taskPayload = getTaskCreatedPayload(content);
+                const taskPayload = workspaceId ? getTaskCreatedPayload(content) : null;
                 if (taskPayload) {
                   return (
                     <div key={content.key} className="mb-4">

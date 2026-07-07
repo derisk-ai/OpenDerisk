@@ -236,8 +236,9 @@ export default function WorkspaceDetailPage() {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.taskId) {
-        enterWorkbench(Number(detail.taskId));
+      const tid = Number(detail?.taskId);
+      if (Number.isFinite(tid)) {
+        enterWorkbench(tid);
       }
     };
     window.addEventListener('workspace:view-task', handler);

@@ -197,6 +197,9 @@ class TestWriteToolsStartTask:
         assert events[0][0] == "task_created"
         assert events[0][1]["task_id"] == 42
         assert events[0][1]["workspace_id"] == 1
+        assert events[0][1]["title"] == "测试任务"
+        assert events[0][1]["status"] == "draft"
+        assert events[0][1]["triggered_by"] == "manual"
 
     def test_start_task_without_event_callback(self):
         """start_task should work without on_event (no error)."""

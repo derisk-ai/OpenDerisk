@@ -20,8 +20,8 @@ import ManusChatContent from "./content/manus-chat-content";
 import { ChatContentContext } from '@/contexts';
 
 
-const ChatContentContainer = (props: { ctrl: AbortController; hideRightPanel?: boolean; }, ref: React.ForwardedRef<any>) => {
-  const { ctrl, hideRightPanel } = props;
+const ChatContentContainer = (props: { ctrl: AbortController; hideRightPanel?: boolean; workspaceId?: string | number; }, ref: React.ForwardedRef<any>) => {
+  const { ctrl, hideRightPanel, workspaceId } = props;
   const { appInfo } = useContext(ChatContentContext);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollButtons, setShowScrollButtons] = useState<boolean>(false);
@@ -52,7 +52,7 @@ const ChatContentContainer = (props: { ctrl: AbortController; hideRightPanel?: b
       ) : isDoubleVis ? (
         <TaskChatContent ctrl={ctrl} />
       ) : (
-        <BasicChatContent ctrl={ctrl} />
+        <BasicChatContent ctrl={ctrl} workspaceId={workspaceId} />
       )}
     </div>
   );

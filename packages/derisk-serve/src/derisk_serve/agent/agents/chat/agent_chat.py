@@ -191,9 +191,14 @@ def format_workspace_event(event_type: str, payload: dict) -> str:
     """格式化 workspace 结构化事件为 SSE chunk。
 
     与现有 vis.type=metadata/interrupt/error 同协议，前端 use-chat.ts 白名单 fast-return。
+
+    未知事件类型记录 warning 并返回空串，避免破坏 SSE 流。
     """
     if event_type not in WORKSPACE_EVENT_TYPES:
-        raise ValueError(f"unsupported workspace event type: {event_type}")
+        logger.warning(
+            f"unsupported workspace event type: {event_type}, skipping"
+        )
+        return ""
     body = orjson.dumps({"vis": {"type": event_type, "payload": payload}})
     return f"data:{body.decode()}\n\n"
 
@@ -1071,7 +1076,9 @@ class AgentChat(BaseComponent, ABC):
                     # Drain workspace events before yielding each message chunk
                     while not workspace_event_queue.empty():
                         event_type, payload = workspace_event_queue.get_nowait()
-                        yield task, format_workspace_event(event_type, payload), agent_conv_id
+                        formatted = format_workspace_event(event_type, payload)
+                        if formatted:
+                            yield task, formatted, agent_conv_id
                     if chunk and len(chunk) > 0:
                         try:
                             content = orjson.dumps({"vis": chunk}).decode("utf-8")
@@ -1107,6 +1114,12 @@ class AgentChat(BaseComponent, ABC):
                         logger.warning(
                             f"Task had exception but messages were streamed: {task.exception()}"
                         )
+                # Drain any remaining workspace events before yielding [DONE]
+                while not workspace_event_queue.empty():
+                    event_type, payload = workspace_event_queue.get_nowait()
+                    formatted = format_workspace_event(event_type, payload)
+                    if formatted:
+                        yield task, formatted, agent_conv_id
                 yield task, _format_vis_msg("[DONE]"), agent_conv_id
             else:
                 logger.info("非流式消息输出!")

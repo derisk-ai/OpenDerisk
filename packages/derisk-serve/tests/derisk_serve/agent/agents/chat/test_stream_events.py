@@ -1,6 +1,5 @@
 """Tests for workspace stream event helpers."""
 import json
-import pytest
 from derisk_serve.agent.agents.chat.agent_chat import (
     format_workspace_event,
     WORKSPACE_EVENT_TYPES,
@@ -30,10 +29,10 @@ def test_format_workspace_event_task_created():
     assert payload["vis"]["payload"]["task_id"] == 124
 
 
-def test_format_workspace_event_invalid_type_raises():
-    """非法事件 type 抛 ValueError。"""
-    with pytest.raises(ValueError):
-        format_workspace_event("bogus_type", {})
+def test_format_workspace_event_invalid_type_returns_empty():
+    """非法事件 type 不抛异常，记录 warning 并返回空串。"""
+    chunk = format_workspace_event("bogus_type", {})
+    assert chunk == ""
 
 
 def test_workspace_event_types_contains_expected():
