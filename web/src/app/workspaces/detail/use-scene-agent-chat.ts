@@ -97,7 +97,7 @@ export function useSceneAgentChat({
         onWorkspaceEvent,
       });
     },
-    [convUid, appCode, workspaceId, taskId, chat, appendStep, onWorkspaceEvent],
+    [convUid, workspaceId, taskId, chat, appendStep, onWorkspaceEvent],
   );
 
   const abort = useCallback(() => {
