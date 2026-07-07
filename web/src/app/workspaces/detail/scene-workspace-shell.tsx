@@ -1,7 +1,9 @@
 'use client';
 
 import './scene-workspace.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Button } from 'antd';
+import { CloseOutlined } from '@ant-design/icons';
 import { apiInterceptors, getTaskInfo } from '@/client/api';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import type { AgentStep, DetailContext } from './agent-types';
@@ -15,6 +17,9 @@ interface SceneWorkspaceShellProps {
   interventions: any[];
   workspaceConvUid: string;
   appCode: string;
+  onRefreshLists?: () => void;
+  convLoadError?: string | null;
+  retryLoadConv?: () => void;
 }
 
 export function SceneWorkspaceShell({
@@ -23,23 +28,46 @@ export function SceneWorkspaceShell({
   interventions,
   workspaceConvUid,
   appCode,
+  onRefreshLists,
+  convLoadError,
+  retryLoadConv,
 }: SceneWorkspaceShellProps) {
   const workspaceId = workspace?.id;
   const [previewItem, setPreviewItem] = useState<any>(null);
   const [detailContext, setDetailContext] = useState<DetailContext>('dashboard');
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
+  const [activeTask, setActiveTask] = useState<any>(null);
   const [taskConvUid, setTaskConvUid] = useState<string>('');
   const [focusAgentInput, setFocusAgentInput] = useState(false);
+  const [switchingTask, setSwitchingTask] = useState(false);
+  const prevActiveTaskId = useRef<number | null>(null);
 
   useEffect(() => {
+    if (activeTaskId === prevActiveTaskId.current) return;
+    prevActiveTaskId.current = activeTaskId;
+
     if (!activeTaskId) {
       setTaskConvUid('');
+      setActiveTask(null);
+      setSwitchingTask(false);
       return;
     }
+
+    setSwitchingTask(true);
     let cancelled = false;
-    apiInterceptors(getTaskInfo(activeTaskId)).then(([, res]) => {
-      if (!cancelled) setTaskConvUid(res?.conv_session_id || '');
-    });
+    apiInterceptors(getTaskInfo(activeTaskId))
+      .then(([, res]) => {
+        if (!cancelled) {
+          setTaskConvUid(res?.conv_session_id || '');
+          setActiveTask(res || null);
+          setSwitchingTask(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSwitchingTask(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -78,9 +106,41 @@ export function SceneWorkspaceShell({
   };
 
   const handleWorkspaceEvent = (event: WorkspaceEvent) => {
-    if (event.type === 'artifact_produced' && event.payload?.file_id) {
-      setPreviewItem(event);
-      setDetailContext('file-preview');
+    switch (event.type) {
+      case 'artifact_produced':
+        if (event.payload?.file_id) {
+          setPreviewItem(event);
+          setDetailContext('file-preview');
+        }
+        break;
+      case 'task_created':
+      case 'delivery_sent':
+        onRefreshLists?.();
+        break;
+      case 'asset_referenced':
+        setPreviewItem(event);
+        setDetailContext('entity-card');
+        break;
+      case 'intervention_triggered':
+        if (event.payload?.task_id) {
+          const task = tasks.find((t) => t.id === event.payload.task_id);
+          if (task) {
+            setPreviewItem(task);
+            setDetailContext('task-detail');
+          } else {
+            setPreviewItem(event);
+            setDetailContext('entity-card');
+          }
+        } else {
+          setPreviewItem(event);
+          setDetailContext('entity-card');
+        }
+        break;
+      case 'context_loaded':
+        // no-op: context was loaded
+        break;
+      default:
+        break;
     }
   };
 
@@ -94,6 +154,7 @@ export function SceneWorkspaceShell({
           tasks={tasks}
           interventions={interventions}
           activeTaskId={activeTaskId}
+          disabled={switchingTask}
           onPreview={handlePreview}
           onEnterConversation={handleEnterConversation}
         />
@@ -102,6 +163,7 @@ export function SceneWorkspaceShell({
         <SceneSpace
           context={detailContext}
           previewItem={previewItem}
+          activeTask={activeTask}
           workspaceId={workspaceId}
           workspaceCode={workspace?.workspace_code}
           onBack={handleBackToDashboard}
@@ -116,7 +178,7 @@ export function SceneWorkspaceShell({
         {activeTaskId && (
           <div className="ws-scene-shell__agent-mode">
             <span>任务对话: {activeTaskId}</span>
-            <button onClick={() => setActiveTaskId(null)}>退出任务对话</button>
+            <Button size="small" icon={<CloseOutlined />} onClick={() => setActiveTaskId(null)}>退出任务对话</Button>
           </div>
         )}
         <AgentWorkspace
@@ -128,6 +190,9 @@ export function SceneWorkspaceShell({
           onFocusHandled={() => setFocusAgentInput(false)}
           onStepClick={handleStepClick}
           onWorkspaceEvent={handleWorkspaceEvent}
+          switchingTask={switchingTask}
+          convLoadError={convLoadError}
+          retryLoadConv={retryLoadConv}
         />
       </div>
     </div>

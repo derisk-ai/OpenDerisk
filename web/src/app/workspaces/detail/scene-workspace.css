@@ -52,6 +52,21 @@
   min-height: 0;
 }
 
+.ws-agent-workspace__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.ws-agent-workspace__error-card {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
 .ws-agent-workspace__input {
   border-top: 1px solid var(--ws-border);
   padding: 12px;

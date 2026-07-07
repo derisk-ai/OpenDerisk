@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useRef, useState } from 'react';
 import useChat from '@/hooks/use-chat';
@@ -18,6 +18,7 @@ interface UseSceneAgentChatResult {
   steps: AgentStep[];
   loading: boolean;
   error: string | null;
+  lastInput: string | null;
   send: (text: string) => void;
   abort: () => void;
   clearSteps: () => void;
@@ -35,6 +36,7 @@ export function useSceneAgentChat({
   const [steps, setSteps] = useState<AgentStep[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastInput, setLastInput] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const { chat } = useChat({ app_code: appCode || '' });
 
@@ -55,6 +57,7 @@ export function useSceneAgentChat({
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setLoading(true);
+      setLastInput(text.trim());
       setError(null);
 
       chat({
@@ -71,16 +74,30 @@ export function useSceneAgentChat({
             if (step) appendStep(step);
           }
         },
-        onDone: () => setLoading(false),
-        onClose: () => setLoading(false),
+        onDone: () => {
+          setLoading(false);
+          setLastInput(null);
+        },
+        onClose: () => {
+          setLoading(false);
+          setLastInput(null);
+        },
         onError: (content: string) => {
           setError(content || 'Agent error');
+          appendStep({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            type: 'unknown',
+            title: 'Agent error',
+            status: 'failed',
+            timestamp: Date.now(),
+            payload: { error: content || 'Agent error' },
+          });
           setLoading(false);
         },
         onWorkspaceEvent,
       });
     },
-    [convUid, workspaceId, taskId, chat, appendStep, onWorkspaceEvent],
+    [convUid, appCode, workspaceId, taskId, chat, appendStep, onWorkspaceEvent],
   );
 
   const abort = useCallback(() => {
@@ -88,5 +105,5 @@ export function useSceneAgentChat({
     setLoading(false);
   }, []);
 
-  return { steps, loading, error, send, abort, clearSteps };
+  return { steps, loading, error, lastInput, send, abort, clearSteps };
 }

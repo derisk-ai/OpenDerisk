@@ -2,13 +2,15 @@
 
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { Button, Input } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SendOutlined } from '@ant-design/icons';
 
 export interface AgentChatInputProps {
   placeholder?: string;
   onSend: (text: string) => void;
   loading?: boolean;
   disabled?: boolean;
+  lastInput?: string | null;
+  onRetry?: () => void;
 }
 
 export interface AgentChatInputHandle {
@@ -16,7 +18,7 @@ export interface AgentChatInputHandle {
 }
 
 export const AgentChatInput = forwardRef<AgentChatInputHandle, AgentChatInputProps>(function AgentChatInput(
-  { placeholder = '输入指令给 Agent...', onSend, loading, disabled },
+  { placeholder = '输入指令给 Agent...', onSend, loading, disabled, lastInput, onRetry },
   ref
 ) {
   const [text, setText] = useState('');
@@ -51,6 +53,14 @@ export const AgentChatInput = forwardRef<AgentChatInputHandle, AgentChatInputPro
         autoSize={{ minRows: 1, maxRows: 6 }}
         disabled={disabled || loading}
       />
+      {lastInput && onRetry && !loading && (
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={onRetry}
+          disabled={disabled}
+          title="Retry last input"
+        />
+      )}
       <Button
         type="primary"
         icon={<SendOutlined />}
