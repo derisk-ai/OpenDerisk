@@ -21,7 +21,7 @@ export const listConversations = (data: any) => POST('/api/v1/serve_workspace_se
 export const lookupConversation = (conv_uid: string) => GET(`/api/v1/serve_workspace_service/conversations/lookup?conv_uid=${encodeURIComponent(conv_uid)}`);
 
 export const createConversation = (data: { workspace_id?: number; task_id?: number; app_code?: string }) =>
-  POST('/api/v1/serve_conversation_service/new', data);
+  POST('/api/v1/serve/conversation/new', data);
 
 export const getCurrentConversation = (workspace_id: number) =>
   GET(`/api/v1/serve_workspace_service/workspaces/${workspace_id}/conversations/current`);
