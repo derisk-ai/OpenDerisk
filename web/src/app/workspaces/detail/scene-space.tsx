@@ -3,13 +3,14 @@
 import { Button, Card, Spin, Tag } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { useRequest } from 'ahooks';
-import { apiInterceptors, getTaskInfo, listArtifacts } from '@/client/api';
+import { apiInterceptors, listArtifacts } from '@/client/api';
 import { Lobby } from './lobby';
 import type { DetailContext } from './agent-types';
 
 export interface SceneSpaceProps {
   context: DetailContext;
   previewItem?: any;
+  activeTask?: any;
   workspaceId: number;
   workspaceCode: string;
   onBack: () => void;
@@ -20,6 +21,7 @@ export interface SceneSpaceProps {
 export function SceneSpace({
   context,
   previewItem,
+  activeTask,
   workspaceId,
   workspaceCode,
   onBack,
@@ -27,12 +29,7 @@ export function SceneSpace({
   onSelectTask,
 }: SceneSpaceProps) {
   const taskId = context === 'task-detail' && previewItem?.id ? previewItem.id : undefined;
-
-  const { data: taskRes, loading: taskLoading } = useRequest(
-    async () => (taskId ? apiInterceptors(getTaskInfo(taskId)) : null),
-    { refreshDeps: [taskId] }
-  );
-  const task = taskRes?.[1];
+  const task = activeTask;
 
   const { data: artifactsRes } = useRequest(
     async () => (taskId ? apiInterceptors(listArtifacts({ task_id: taskId })) : null),
@@ -62,8 +59,8 @@ export function SceneSpace({
       </div>
       {context === 'task-detail' && (
         <div className="ws-scene-space__body">
-          {taskLoading && <Spin />}
-          {!taskLoading && task && (
+          {!task && <Spin />}
+          {task && (
             <Card title={task.title || `Task ${task.id}`}>
               <p><Tag>{task.status}</Tag></p>
               <p>触发源: {task.triggered_by || '—'}</p>

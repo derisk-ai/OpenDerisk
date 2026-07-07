@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { CheckCircleOutlined, ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { AgentStep } from './agent-types';
 
@@ -23,13 +24,21 @@ const statusIcon = (status: AgentStep['status']) => {
 };
 
 export function AgentProcessPanel({ steps, loading, onStepClick }: AgentProcessPanelProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [steps.length, loading]);
+
   return (
     <div className="ws-agent-process-panel">
       <div className="ws-agent-process-header">Agent 工作过程</div>
       {steps.length === 0 && !loading && (
         <div className="ws-agent-process-empty">Agent 就绪，输入指令开始工作</div>
       )}
-      <div className="ws-agent-step-list">
+      <div className="ws-agent-step-list" ref={listRef}>
         {steps.map((step) => (
           <div
             key={step.id}

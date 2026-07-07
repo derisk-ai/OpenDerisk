@@ -9,6 +9,7 @@ export interface SceneTaskRailProps {
   tasks: any[];
   interventions: any[];
   activeTaskId?: number | null;
+  disabled?: boolean;
   onPreview: (item: any, kind: 'task' | 'intervention') => void;
   onEnterConversation: (taskId: number) => void;
 }
@@ -35,6 +36,7 @@ export function SceneTaskRail({
   tasks,
   interventions,
   activeTaskId,
+  disabled,
   onPreview,
   onEnterConversation,
 }: SceneTaskRailProps) {
@@ -84,7 +86,16 @@ export function SceneTaskRail({
           <div
             key={`${item.kind}-${item.id}`}
             className={`ws-scene-task-rail__item${activeTaskId === item.id && item.kind === 'task' ? ' ws-scene-task-rail__item--active' : ''}`}
-            onClick={() => onPreview(item.raw, item.kind)}
+            role="button"
+            tabIndex={0}
+            onClick={() => !disabled && onPreview(item.raw, item.kind)}
+            onKeyDown={(e) => {
+              if (disabled) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onPreview(item.raw, item.kind);
+              }
+            }}
           >
             <div className="ws-scene-task-rail__item-top">
               <Tag color={STATUS_COLORS[item.status] || 'default'}>{item.status}</Tag>
@@ -96,6 +107,7 @@ export function SceneTaskRail({
                 size="small"
                 type="link"
                 className="ws-scene-task-rail__enter"
+                disabled={disabled}
                 onClick={(e) => {
                   e.stopPropagation();
                   onEnterConversation(item.id);
