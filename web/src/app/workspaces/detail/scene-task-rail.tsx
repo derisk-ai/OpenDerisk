@@ -86,8 +86,9 @@ export function SceneTaskRail({
           <div
             key={`${item.kind}-${item.id}`}
             className={`ws-scene-task-rail__item${activeTaskId === item.id && item.kind === 'task' ? ' ws-scene-task-rail__item--active' : ''}`}
-            role="button"
-            tabIndex={0}
+            role={disabled ? undefined : 'button'}
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
             onClick={() => !disabled && onPreview(item.raw, item.kind)}
             onKeyDown={(e) => {
               if (disabled) return;

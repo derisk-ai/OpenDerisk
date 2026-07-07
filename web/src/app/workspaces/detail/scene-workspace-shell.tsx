@@ -54,6 +54,7 @@ export function SceneWorkspaceShell({
     }
 
     setSwitchingTask(true);
+    setActiveTask(null);
     let cancelled = false;
     apiInterceptors(getTaskInfo(activeTaskId))
       .then(([, res]) => {

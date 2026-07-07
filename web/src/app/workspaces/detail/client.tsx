@@ -69,13 +69,13 @@ export default function WorkspaceDetailPage() {
     }
   );
 
-  const { data: tasks, run: refreshTasks } = useRequest(async () => {
+  const { data: tasks } = useRequest(async () => {
     if (!workspaceId) return [];
     const [err, res] = await apiInterceptors(listTasks({ workspace_id: workspaceId, limit: 50 }));
     return err ? [] : res || [];
   }, { refreshDeps: [workspaceId, listsRefreshKey] });
 
-  const { data: interventions, run: refreshInterventions } = useRequest(async () => {
+  const { data: interventions } = useRequest(async () => {
     if (!workspaceId) return [];
     const [err, res] = await apiInterceptors(listInterventions({
       workspace_id: workspaceId, status: 'requested', limit: 20,
