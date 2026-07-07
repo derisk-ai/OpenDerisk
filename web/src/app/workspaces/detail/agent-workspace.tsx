@@ -30,7 +30,7 @@ export function AgentWorkspace({
   onWorkspaceEvent,
 }: AgentWorkspaceProps) {
   const inputRef = useRef<AgentChatInputHandle>(null);
-  const { steps, loading, error, send, abort, clearSteps } = useSceneAgentChat({
+  const { steps, loading, error, send, clearSteps } = useSceneAgentChat({
     convUid,
     appCode,
     workspaceId,
