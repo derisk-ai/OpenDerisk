@@ -1,0 +1,249 @@
+.ws-scene-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr 420px;
+  gap: 16px;
+  height: calc(100vh - 140px);
+  min-height: 600px;
+  overflow: hidden;
+}
+
+.ws-scene-shell__rail,
+.ws-scene-shell__space,
+.ws-scene-shell__agent {
+  background: var(--ws-surface);
+  border: 1px solid var(--ws-border);
+  border-radius: var(--ws-radius);
+  box-shadow: var(--ws-shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-scene-shell__space {
+  overflow-y: auto;
+}
+
+.ws-scene-shell__agent {
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-scene-shell__agent-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ws-border);
+  font-size: 12px;
+  color: var(--ws-ink-2);
+}
+
+.ws-agent-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ws-agent-workspace__process {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  min-height: 0;
+}
+
+.ws-agent-workspace__input {
+  border-top: 1px solid var(--ws-border);
+  padding: 12px;
+  flex-shrink: 0;
+}
+
+.ws-agent-chat-input {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ws-agent-chat-input .ant-input {
+  resize: none;
+}
+
+.ws-agent-process-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-agent-process-header {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ws-ink);
+  margin-bottom: 4px;
+}
+
+.ws-agent-process-empty {
+  font-size: 12px;
+  color: var(--ws-ink-3);
+  padding: 24px 0;
+  text-align: center;
+}
+
+.ws-agent-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-agent-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--ws-radius-sm);
+  background: var(--ws-bg);
+  font-size: 12px;
+  color: var(--ws-ink);
+  cursor: default;
+}
+
+.ws-agent-step[role='button'] {
+  cursor: pointer;
+}
+
+.ws-agent-step[role='button']:hover {
+  background: var(--ws-accent-light);
+}
+
+.ws-agent-step--running {
+  background: rgba(var(--ws-accent-rgb), 0.08);
+}
+
+.ws-agent-step-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.ws-agent-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ws-ink-3);
+}
+
+.ws-scene-task-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ws-scene-task-rail__header {
+  padding: 12px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid var(--ws-border);
+}
+
+.ws-scene-task-rail__search {
+  margin: 10px 12px;
+}
+
+.ws-scene-task-rail__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+}
+
+.ws-scene-task-rail__empty {
+  font-size: 12px;
+  color: var(--ws-ink-3);
+  text-align: center;
+  padding: 24px 0;
+}
+
+.ws-scene-task-rail__item {
+  padding: 10px 12px;
+  border-radius: var(--ws-radius-sm);
+  border: 1px solid var(--ws-border);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all var(--ws-transition);
+}
+
+.ws-scene-task-rail__item:hover,
+.ws-scene-task-rail__item--active {
+  border-color: var(--ws-accent);
+  background: var(--ws-accent-light);
+}
+
+.ws-scene-task-rail__item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.ws-scene-task-rail__time {
+  font-size: 11px;
+  color: var(--ws-ink-3);
+}
+
+.ws-scene-task-rail__title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ws-ink);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.ws-scene-task-rail__enter {
+  padding: 0;
+  font-size: 12px;
+}
+
+.ws-scene-space {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ws-scene-space--dashboard {
+  overflow-y: auto;
+}
+
+.ws-scene-space__header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ws-border);
+  position: sticky;
+  top: 0;
+  background: var(--ws-surface);
+  z-index: 1;
+}
+
+.ws-scene-space__body {
+  flex: 1;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1280px) {
+  .ws-scene-shell {
+    grid-template-columns: 240px 1fr 360px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .ws-scene-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .ws-scene-shell__rail {
+    max-height: 240px;
+  }
+  .ws-scene-shell__agent {
+    max-height: 420px;
+  }
+}
