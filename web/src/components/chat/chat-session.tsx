@@ -380,17 +380,19 @@ const ChatSession = forwardRef<ChatSessionHandle, ChatSessionProps>(function Cha
           onWorkspaceEvent: (event: WorkspaceEvent) => {
             props.onWorkspaceEvent?.(event);
             if (event.type === 'task_created') {
-              setHistory((prev) => [
-                ...prev,
-                {
-                  role: 'view',
-                  context: JSON.stringify({ type: 'task_created', payload: event.payload }),
-                  order: order.current + 1,
-                  time_stamp: 0,
-                  model_name: '',
-                  thinking: false,
-                },
-              ]);
+              // Append to the same mutable tempHistory so the next onMessage
+              // chunk (which calls setHistory([...tempHistory])) does not
+              // drop the synthetic task_created card.
+              order.current += 1;
+              tempHistory.push({
+                role: 'view',
+                context: JSON.stringify({ type: 'task_created', payload: event.payload }),
+                order: order.current,
+                time_stamp: 0,
+                model_name: '',
+                thinking: false,
+              });
+              setHistory([...tempHistory]);
             }
           },
         });
@@ -560,7 +562,7 @@ if (initMessage.model) {
       }
       return (
         <Content className='flex flex-col h-full min-h-0 overflow-hidden'>
-          <ChatContentContainer ref={scrollRef} ctrl={ctrl} hideRightPanel={hideRightPanel} />
+          <ChatContentContainer ref={scrollRef} ctrl={ctrl} hideRightPanel={hideRightPanel} workspaceId={workspaceId} />
         </Content>
       );
   };

@@ -1,6 +1,6 @@
 'use client';
 
-import { Card, Button, Tag } from 'antd';
+import { Card, Button, Tag, message } from 'antd';
 import { useRequest } from 'ahooks';
 import Link from 'next/link';
 import {
@@ -32,7 +32,10 @@ export function Lobby({
     const [err, task] = await apiInterceptors(
       createTask({ workspace_id: workspaceId, playbook_id: playbookId })
     );
-    if (err || !task) return;
+    if (err || !task) {
+      message.error('创建任务失败，请重试');
+      return;
+    }
     onSelectTask(task.id);
   };
   const { data: tasksRes } = useRequest(

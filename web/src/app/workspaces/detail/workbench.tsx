@@ -6,7 +6,6 @@ import { useRequest } from 'ahooks';
 import {
   apiInterceptors,
   getTaskInfo,
-  listInterventions,
   listArtifacts,
 } from '@/client/api';
 import ChatSession from '@/components/chat/chat-session';
@@ -28,7 +27,7 @@ export function Workbench({
   convUid,
   onBack,
 }: WorkbenchProps) {
-  const [dialogExpanded, setDialogExpanded] = useState(false);
+  const [dialogExpanded, setDialogExpanded] = useState(true);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
 
   const { data: taskRes } = useRequest(
@@ -42,12 +41,6 @@ export function Workbench({
     { refreshDeps: [taskId] }
   );
   const artifacts = artifactsRes?.[1];
-
-  const { data: interventionsRes } = useRequest(
-    async () => apiInterceptors(listInterventions({ task_id: taskId })),
-    { refreshDeps: [taskId] }
-  );
-  const interventions = interventionsRes?.[1];
 
   const handleWorkspaceEvent = useCallback((event: WorkspaceEvent) => {
     setEvents((prev) => [...prev, event]);
