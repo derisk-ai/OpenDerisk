@@ -279,12 +279,16 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 logger.info(f"Pulling updates from existing repo at {repo_path}")
                 repo = git.Repo(repo_path)
                 repo.git.checkout(branch)
-                repo.remotes.origin.pull(branch)
+                # Add timeout to prevent blocking on network issues
+                repo.remotes.origin.pull(branch, kill_after_timeout=30)
             else:
                 logger.info(f"Cloning repository to {repo_path}")
                 if os.path.exists(repo_path):
                     shutil.rmtree(repo_path)
-                repo = git.Repo.clone_from(repo_url, repo_path, branch=branch)
+                # Add timeout to prevent blocking on network issues
+                repo = git.Repo.clone_from(
+                    repo_url, repo_path, branch=branch, kill_after_timeout=60
+                )
 
             # Get current commit ID
             commit_id = repo.head.commit.hexsha
@@ -1602,11 +1606,15 @@ class Service(BaseService[SkillEntity, SkillRequest, SkillResponse]):
                 )
                 repo = git.Repo(repo_path)
                 repo.git.checkout(branch)
-                repo.remotes.origin.pull(branch)
+                # Add timeout to prevent blocking on network issues
+                repo.remotes.origin.pull(branch, kill_after_timeout=30)
             else:
                 if os.path.exists(repo_path):
                     shutil.rmtree(repo_path)
-                repo = git.Repo.clone_from(repo_url, repo_path, branch=branch)
+                # Add timeout to prevent blocking on network issues
+                repo = git.Repo.clone_from(
+                    repo_url, repo_path, branch=branch, kill_after_timeout=60
+                )
 
             # Get current commit ID
             commit_id = repo.head.commit.hexsha
