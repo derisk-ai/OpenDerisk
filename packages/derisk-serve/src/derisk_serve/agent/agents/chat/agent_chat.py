@@ -104,6 +104,30 @@ def get_app_service() -> AppService:
     return AppService.get_instance(CFG.SYSTEM_APP)
 
 
+def _serialize_extra_for_db(extra: Dict[str, Any]) -> str:
+    """Serialize ext_info for persistence, excluding non-serializable agents.
+
+    extra_agents contains pre-built ConversableAgent instances which cannot be
+    JSON-serialized and are rebuilt on each chat request, so they are omitted.
+    Pydantic models (e.g. AgentResource) and dataclasses are converted to dicts.
+    """
+    from dataclasses import asdict, is_dataclass
+
+    from derisk._private.pydantic import BaseModel, model_to_dict
+
+    def _default(obj: Any) -> Any:
+        if isinstance(obj, BaseModel):
+            return model_to_dict(obj)
+        if is_dataclass(obj) and not isinstance(obj, type):
+            return asdict(obj)
+        return serialize(obj)
+
+    return orjson.dumps(
+        {k: v for k, v in extra.items() if k != "extra_agents"},
+        default=_default,
+    ).decode()
+
+
 def _merge_scene_dynamic_context(gpt_app: GptsApp, ext_info: Dict[str, Any]) -> None:
     """Append runtime workspace context to a custom app system prompt template.
 
@@ -1016,7 +1040,7 @@ class AgentChat(BaseComponent, ABC):
                     workspace_id=int(workspace_id) if workspace_id else None,
                     task_id=int(task_id) if task_id else None,
                     vis_render=vis_render,
-                    extra=orjson.dumps(ext_info).decode(),
+                    extra=_serialize_extra_for_db(ext_info),
                 )
             )
 
