@@ -36,6 +36,7 @@ class WorkspaceContextSnapshot:
     user_id: Optional[str] = None
     workspace_id: Optional[int] = None
     task_id: Optional[int] = None
+    playbooks: List[Any] = field(default_factory=list)
     active_tasks: List[Any] = field(default_factory=list)
 
 
@@ -124,6 +125,18 @@ def build_workspace_context(
         except Exception:
             pass
 
+    playbooks: List[Any] = []
+    if mode == "lobby":
+        try:
+            pb_service = get_playbook_service(system_app)
+            from derisk_serve.playbook.api.schemas import PlaybookListFilter
+
+            playbooks = pb_service.list_playbooks(
+                PlaybookListFilter(workspace_id=workspace_id, is_active=True)
+            ) or []
+        except Exception:
+            pass
+
     return WorkspaceContextSnapshot(
         workspace=workspace,
         materialized_resources=materialized,
@@ -133,6 +146,7 @@ def build_workspace_context(
         workspace_id=workspace_id,
         task_id=task_id,
         active_tasks=active_tasks,
+        playbooks=playbooks,
     )
 
 
@@ -166,6 +180,10 @@ def render_workspace_context_summary(
             f"当前任务：{getattr(ctx.task, 'title', '')} "
             f"(id={getattr(ctx.task, 'id', '')})"
         )
+
+    if ctx.playbooks:
+        pb_names = [getattr(pb, "name", str(pb)) for pb in ctx.playbooks]
+        lines.append(f"可用剧本：{', '.join(pb_names)}")
 
     if ctx.playbook_declaration:
         skills = (ctx.playbook_declaration or {}).get("skills", []) or []
