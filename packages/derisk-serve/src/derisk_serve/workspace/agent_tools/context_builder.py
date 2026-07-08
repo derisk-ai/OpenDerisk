@@ -9,8 +9,8 @@ needs to behave in a workspace-aware way:
 - optional current task
 - optional playbook declaration DSL (when a task is bound to a playbook)
 """
-from dataclasses import dataclass
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
 
 from derisk_serve.workspace.materializer import (
     MaterializedResources,
@@ -36,6 +36,8 @@ class WorkspaceContextSnapshot:
     user_id: Optional[str] = None
     workspace_id: Optional[int] = None
     task_id: Optional[int] = None
+    playbooks: List[Any] = field(default_factory=list)
+    active_tasks: List[Any] = field(default_factory=list)
 
 
 def get_workspace_service(system_app) -> WorkspaceService:
@@ -97,6 +99,7 @@ def build_workspace_context(
 
     task = None
     playbook_declaration = None
+    playbooks: List[Any] = []
     if task_id is not None:
         task_service = get_task_service(system_app)
         task = task_service.get_by_id(task_id)
@@ -105,6 +108,34 @@ def build_workspace_context(
             playbook = pb_service.get_by_id(task.playbook_id)
             if playbook and getattr(playbook, "declaration", None):
                 playbook_declaration = playbook.declaration
+    elif mode == "lobby":
+        try:
+            pb_service = get_playbook_service(system_app)
+            from derisk_serve.playbook.api.schemas import PlaybookListFilter
+
+            playbooks = pb_service.list_playbooks(
+                PlaybookListFilter(workspace_id=workspace_id, is_active=True)
+            ) or []
+        except Exception:
+            pass
+
+    active_tasks: List[Any] = []
+    if mode == "lobby":
+        try:
+            task_service = get_task_service(system_app)
+            from derisk_serve.task.api.schemas import TaskListFilter
+
+            active_tasks = task_service.list_tasks(
+                TaskListFilter(workspace_id=workspace_id)
+            ) or []
+            # Keep only tasks that are not terminal/archived
+            active_tasks = [
+                t
+                for t in active_tasks
+                if getattr(t, "status", None) not in {"done", "archived", "cancelled"}
+            ]
+        except Exception:
+            pass
 
     return WorkspaceContextSnapshot(
         workspace=workspace,
@@ -114,6 +145,8 @@ def build_workspace_context(
         user_id=user_id,
         workspace_id=workspace_id,
         task_id=task_id,
+        playbooks=playbooks,
+        active_tasks=active_tasks,
     )
 
 
@@ -129,6 +162,12 @@ def render_workspace_context_summary(
         else f"workspace_{ctx.workspace_id}"
     )
     lines = [
+        "# 角色设定",
+        "你是当前空间（场景空间）的管理助手，熟悉空间内的任务、交付物、资产、成员和剧本。",
+        "你的职责：",
+        "1. 回答用户关于当前空间状态的问题。",
+        "2. 当用户需求可以匹配到某个剧本时，主动调用 list_playbooks / get_playbook_detail 查询剧本，然后通过 start_task 基于该剧本创建任务。",
+        "3. 创建任务后向用户说明任务已创建，并引导用户进入任务详情跟踪执行。",
         f"# 当前空间：{name} (id={ctx.workspace_id})",
         f"模式：{mode}",
     ]
@@ -147,6 +186,14 @@ def render_workspace_context_summary(
             f"当前任务：{getattr(ctx.task, 'title', '')} "
             f"(id={getattr(ctx.task, 'id', '')})"
         )
+
+    if ctx.playbooks:
+        lines.append("# 可用剧本")
+        for pb in ctx.playbooks:
+            pb_id = getattr(pb, "id", "")
+            pb_name = getattr(pb, "name", "")
+            pb_type = getattr(pb, "scenario_type", "") or getattr(pb, "task_type", "")
+            lines.append(f"- id={pb_id} 名称：{pb_name} 类型：{pb_type}")
 
     if ctx.playbook_declaration:
         skills = (ctx.playbook_declaration or {}).get("skills", []) or []
