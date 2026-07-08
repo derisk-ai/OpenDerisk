@@ -1415,6 +1415,11 @@ simple-framework = [
     { name = "uvicorn" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest-asyncio" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", marker = "extra == 'framework'" },
@@ -1498,7 +1503,7 @@ requires-dist = [
 provides-extras = ["client", "cli", "agent", "simple-framework", "framework", "hf", "code", "proxy-zhipuai", "proxy-tongyi", "proxy-qianfan", "proxy-openai", "proxy-anthropic"]
 
 [package.metadata.requires-dev]
-dev = []
+dev = [{ name = "pytest-asyncio", specifier = ">=0.21.0" }]
 
 [[package]]
 name = "derisk-app"

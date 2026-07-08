@@ -3,6 +3,7 @@ import markdownComponents, {
   preprocessLaTeX,
 } from "@/components/chat/chat-content-components/config";
 import { ChatContentContext } from "@/contexts";
+import { CompactChatContext } from "@/contexts/chat-content-context";
 import { IChatDialogueMessageSchema } from "@/types/chat";
 import { STORAGE_USERINFO_KEY } from "@/utils/constants/storage";
 import {
@@ -127,7 +128,8 @@ const ChatContent: React.FC<{
   };
   onLinkClick?: () => void;
   messages: any[];
-}> = ({ content, onLinkClick, messages }) => {
+  compact?: boolean;
+}> = ({ content, onLinkClick, messages, compact }) => {
   const { t } = useTranslation();
   const { context, role, thinking } = content;
   const isRobot = useMemo(() => role === "view", [role]);
@@ -245,6 +247,16 @@ const ChatContent: React.FC<{
               }
             }
           }
+          // Collapse excessive blank lines that produce empty paragraphs and
+          // make the compact Manus left panel feel too sparse. Skip code blocks
+          // so their internal formatting is preserved.
+          const codeBlocks: string[] = [];
+          pw = pw.replace(/(```[\s\S]*?```)/g, (match) => {
+            codeBlocks.push(match);
+            return '__MANUS_CODE_BLOCK_' + (codeBlocks.length - 1) + '__';
+          });
+          pw = pw.replace(/\n{3,}/g, '\n\n');
+          pw = pw.replace(/__MANUS_CODE_BLOCK_(\d+)__/g, (_, index) => codeBlocks[parseInt(index)]);
           return pw;
         }
         if (parsed?.vis) {
@@ -308,19 +320,48 @@ const ChatContent: React.FC<{
         </div>
       )}
       {isRobot && (
-        <div className='flex flex-1 justify-start items-start pb-4 pt-6' style={{ gap: 12 }}>
+        <div className={classNames('flex flex-1 justify-start items-start', compact ? 'pb-2 pt-3' : 'pb-4 pt-6')} style={{ gap: 12 }}>
           <AgentIcon />
           <div className='flex flex-col flex-1 min-w-0 border-dashed border-r0 overflow-x-auto'>
             {/* @ts-ignore */}
-            <GPTVis
-              components={{
-                ...markdownComponents,
-                ...extraMarkdownComponents,
-              }}
-              {...markdownPlugins}
-            >
-              {preprocessLaTeX(formatMarkdownValForAgent(_context))}
-            </GPTVis>
+            <CompactChatContext.Provider value={!!compact}>
+              {compact && (
+                <style>{`
+                  .compact-vis-wrapper > div > p,
+                  .compact-vis-wrapper > div > h1,
+                  .compact-vis-wrapper > div > h2,
+                  .compact-vis-wrapper > div > h3,
+                  .compact-vis-wrapper > div > h4,
+                  .compact-vis-wrapper > div > h5,
+                  .compact-vis-wrapper > div > h6,
+                  .compact-vis-wrapper > div > ul,
+                  .compact-vis-wrapper > div > ol,
+                  .compact-vis-wrapper > div > blockquote,
+                  .compact-vis-wrapper > div > pre,
+                  .compact-vis-wrapper > div > .VisAgentPlanCardClass {
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    line-height: 1.2 !important;
+                  }
+                  .compact-vis-wrapper > div {
+                    display: flex !important;
+                    flex-direction: column !important;
+                    gap: 0 !important;
+                  }
+                `}</style>
+              )}
+              <div className={compact ? 'compact-vis-wrapper' : undefined}>
+                <GPTVis
+                  components={{
+                    ...markdownComponents,
+                    ...extraMarkdownComponents,
+                  }}
+                  {...markdownPlugins}
+                >
+                  {preprocessLaTeX(formatMarkdownValForAgent(_context))}
+                </GPTVis>
+              </div>
+            </CompactChatContext.Provider>
             {thinking && !context && (
               <div className='flex items-center gap-2'>
                 <span className='flex text-sm text-[#1c2533] dark:text-white'>{t('thinking')}</span>
