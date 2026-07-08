@@ -1,0 +1,28 @@
+[
+  {
+    "app_code": "dataops-agent",
+    "app_name": "DataOps Agent",
+    "app_describe": "数据运营场景专用 Agent，擅长数据分析、报表生成、数据质量检查。适用于数据周报、数据治理等场景。",
+    "language": "zh",
+    "icon": "/agents/default_avatar.png",
+    "team_mode": "auto_plan",
+    "agent": "BAIZE",
+    "team_context": {
+      "teamleader": "BAIZE",
+      "can_ask_user": true,
+      "use_sandbox": true
+    },
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": []
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "vis_manus",
+        "incremental": true,
+        "reuse_name": "vis_manus"
+      }
+    },
+    "published": true
+  }
+]

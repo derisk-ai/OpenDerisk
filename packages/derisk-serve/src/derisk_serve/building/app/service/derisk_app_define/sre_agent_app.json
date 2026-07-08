@@ -1,0 +1,28 @@
+[
+  {
+    "app_code": "sre-agent",
+    "app_name": "SRE Agent",
+    "app_describe": "SRE 运维场景专用 Agent，擅长故障诊断、容量巡检、性能分析。适用于突发事件响应、系统健康检查等场景。",
+    "language": "zh",
+    "icon": "/agents/default_avatar.png",
+    "team_mode": "auto_plan",
+    "agent": "BAIZE",
+    "team_context": {
+      "teamleader": "BAIZE",
+      "can_ask_user": true,
+      "use_sandbox": true
+    },
+    "llm_config": {
+      "llm_strategy": "priority",
+      "llm_strategy_value": []
+    },
+    "layout": {
+      "chat_layout": {
+        "name": "vis_manus",
+        "incremental": true,
+        "reuse_name": "vis_manus"
+      }
+    },
+    "published": true
+  }
+]
