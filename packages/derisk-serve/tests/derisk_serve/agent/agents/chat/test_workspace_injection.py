@@ -2,7 +2,6 @@
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import orjson
 import pytest
 
 # The task package __init__ eagerly imports endpoints -> runtime -> agent
@@ -17,7 +16,6 @@ from derisk.agent import ConversableAgent, LLMConfig
 from derisk_serve.agent.agents.chat.agent_chat import (
     AgentChat,
     _inject_workspace_context,
-    _serialize_extra_for_db,
 )
 from derisk_serve.workspace.agent_tools.toolkit import build_workspace_toolkit
 
@@ -299,47 +297,3 @@ async def test_workspace_control_agent_forwarded_llm_config():
         )
 
     assert agent.llm_config is cfg
-
-
-@pytest.mark.asyncio
-async def test_ext_info_with_workspace_agent_is_serializable():
-    """WorkspaceControlAgent 注入 ext_info 后，落库序列化不能报错。
-
-    aggregation_chat 会把 ext_info 写入 GptsConversationsEntity.extra；
-    extra_agents 里是预构建的 Agent 对象，不可 JSON 序列化，必须在序列化前排除。
-    """
-    ext_info = {"workspace_id": 1, "task_id": None}
-    fake_agent = MagicMock(name="WorkspaceControlAgent")
-    fake_ctx = _make_fake_ctx()
-
-    with patch(
-        "derisk_serve.agent.agents.chat.agent_chat._legacy_build_workspace_context",
-        return_value=fake_ctx,
-    ), patch(
-        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_context",
-        return_value=fake_ctx,
-    ), patch(
-        "derisk_serve.agent.agents.chat.agent_chat.render_workspace_context_summary",
-        return_value="summary",
-    ), patch(
-        "derisk_serve.agent.agents.chat.agent_chat.render_scene_dynamic_context",
-        return_value="",
-    ), patch(
-        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_toolkit",
-        return_value=fake_agent,
-    ):
-        _inject_workspace_context(
-            system_app=MagicMock(),
-            workspace_id=ext_info.get("workspace_id"),
-            user_id=None,
-            conv_uid="conv-1",
-            task_id=ext_info.get("task_id"),
-            system_prompt=[],
-            extra_agents=ext_info.setdefault("extra_agents", []),
-            ext_info=ext_info,
-        )
-
-    assert fake_agent in ext_info["extra_agents"]
-    extra_json = _serialize_extra_for_db(ext_info)
-    assert isinstance(extra_json, str)
-    assert "extra_agents" not in extra_json

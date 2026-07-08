@@ -9,7 +9,10 @@ if "derisk_app.config" not in sys.modules:
     sys.modules["derisk_app.config"] = MagicMock()
 
 from derisk.agent import LLMConfig
-from derisk_serve.agent.agents.chat.agent_chat import _inject_workspace_context
+from derisk_serve.agent.agents.chat.agent_chat import (
+    _inject_workspace_context,
+    _merge_scene_dynamic_context,
+)
 from derisk_serve.building.app.api.schema_app import GptsApp
 
 
@@ -71,19 +74,36 @@ async def test_inject_workspace_context_appends_scene_dynamic_block():
     assert "当前场景上下文" in system_prompt[1]
 
 
-def test_aggregation_chat_merges_system_prompt_into_app_template():
-    """aggregation_chat 把动态上下文合并进 gpt_app.system_prompt_template。"""
+def test_merge_scene_dynamic_context_appends():
+    """_merge_scene_dynamic_context 把动态上下文追加到 app 的 system_prompt_template。"""
     app = GptsApp(
         app_code="scene-workspace-agent",
         system_prompt_template="静态提示",
     )
     ext_info = {"system_prompt": "动态上下文"}
 
-    # The merge logic is a plain inline mutation; assert it behaves as expected.
-    if ext_info.get("system_prompt") and app.system_prompt_template:
-        app.system_prompt_template = (
-            f"{app.system_prompt_template}\n\n{ext_info['system_prompt']}"
-        )
+    _merge_scene_dynamic_context(app, ext_info)
 
     assert "静态提示" in app.system_prompt_template
     assert "动态上下文" in app.system_prompt_template
+
+
+def test_merge_scene_dynamic_context_noop_when_no_system_prompt():
+    """无 system_prompt 时 _merge_scene_dynamic_context 不修改 template。"""
+    app = GptsApp(
+        app_code="scene-workspace-agent",
+        system_prompt_template="静态提示",
+    )
+    original = app.system_prompt_template
+    _merge_scene_dynamic_context(app, {})
+    assert app.system_prompt_template == original
+
+
+def test_merge_scene_dynamic_context_noop_when_no_template():
+    """无 system_prompt_template 时 _merge_scene_dynamic_context 不报错。"""
+    app = GptsApp(
+        app_code="scene-workspace-agent",
+        system_prompt_template=None,
+    )
+    _merge_scene_dynamic_context(app, {"system_prompt": "动态上下文"})
+    assert app.system_prompt_template is None
