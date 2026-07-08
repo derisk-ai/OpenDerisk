@@ -2,6 +2,8 @@ import { ChartData, ChatHistoryResponse, IChatDialogueSchema, UserChatContent } 
 import { IApp } from '@/types/app';
 import { createContext } from 'react';
 
+export const CompactChatContext = createContext<boolean>(false);
+
 export interface SelectedSkill {
   skill_code: string;
   name: string;
