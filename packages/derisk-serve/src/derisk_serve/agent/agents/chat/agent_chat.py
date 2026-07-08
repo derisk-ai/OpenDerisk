@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Type, Union
 
+import httpx
 import orjson
 from fastapi import BackgroundTasks
 
@@ -48,6 +49,7 @@ from derisk_serve.agent.resource import DeriskSkillResource
 from derisk_serve.schedule.local_scheduler import LocalScheduler
 from derisk.core.interface.scheduler import Scheduler
 from derisk.core import HumanMessage, StorageConversation
+from derisk.core.interface.file import FileStorageClient
 from derisk.util.data_util import first
 from derisk.util.date_utils import current_ms
 from derisk.util.executor_utils import ExecutorFactory, execute_no_wait, run_async_tasks
@@ -57,6 +59,7 @@ from derisk.util.logger import digest
 from derisk.util.tracer.tracer_impl import root_tracer, trace
 from derisk.vis import VisProtocolConverter
 from derisk.vis.vis_manage import get_vis_manager
+from derisk_serve.core import blocking_func_to_async
 from derisk_serve.agent.agents.derisks_memory import (
     MetaDerisksPlansMemory,
     MetaDerisksMessageMemory,
@@ -83,6 +86,7 @@ from derisk_serve.workspace.agent_tools.context_builder import (
     render_workspace_context_summary,
 )
 from derisk_serve.workspace.agent_tools.toolkit import build_workspace_toolkit
+from derisk_serve.workspace.agent_prompts import render_scene_dynamic_context
 from derisk_serve.workspace.context_builder import (
     build_workspace_context as _legacy_build_workspace_context,
 )
@@ -101,6 +105,30 @@ CFG = Config()
 
 def get_app_service() -> AppService:
     return AppService.get_instance(CFG.SYSTEM_APP)
+
+
+def _serialize_extra_for_db(extra: Dict[str, Any]) -> str:
+    """Serialize ext_info for persistence, excluding non-serializable agents.
+
+    extra_agents contains pre-built ConversableAgent instances which cannot be
+    JSON-serialized and are rebuilt on each chat request, so they are omitted.
+    Pydantic models (e.g. AgentResource) and dataclasses are converted to dicts.
+    """
+    from dataclasses import asdict, is_dataclass
+
+    from derisk._private.pydantic import BaseModel, model_to_dict
+
+    def _default(obj: Any) -> Any:
+        if isinstance(obj, BaseModel):
+            return model_to_dict(obj)
+        if is_dataclass(obj) and not isinstance(obj, type):
+            return asdict(obj)
+        return serialize(obj)
+
+    return orjson.dumps(
+        {k: v for k, v in extra.items() if k != "extra_agents"},
+        default=_default,
+    ).decode()
 
 
 def _inject_workspace_context(
@@ -153,6 +181,10 @@ def _inject_workspace_context(
         summary = render_workspace_context_summary(ctx, mode=mode)
         if summary:
             system_prompt.append(summary)
+
+        scene_dynamic = render_scene_dynamic_context(ctx, mode=mode)
+        if scene_dynamic:
+            system_prompt.append(scene_dynamic)
 
         def _on_workspace_event(event_type: str, payload: dict):
             if event_queue is not None:
@@ -208,12 +240,16 @@ def _format_vis_msg(msg: str):
     return f"data:{content} \n"
 
 
-def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
+async def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
     """幂等注册 idle memory curator cron job（每天凌晨 3 点）。
 
     job_id 固定为 `memory-curator-{space_slug}`，重复调用时若 job 已存在则跳过。
     cron job 触发时派发 MemoryCurateAgent，message 为 `curate:{space_slug}`，
     agent 在 _run_memory_task 里识别该前缀走 curate_space 全量整理路径。
+
+    注意：`cron.get_job` / `cron.add_job` 都是 async def，必须 await；早年缺 await
+    会让 `get_job` 返回未启动的 coroutine（非 None），命中幂等早退分支，导致定时
+    任务永不注册、且无任何日志（既不成功也不报错）。
     """
     try:
         from derisk_serve.cron.config import SERVE_SERVICE_COMPONENT_NAME
@@ -242,13 +278,16 @@ def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
 
     job_id = f"memory-curator-{space_slug}"
     try:
-        existing = cron.get_job(job_id)
-    except Exception:  # noqa: BLE001
-        existing = None
-    if existing is not None:
-        return
+        existing = await cron.get_job(job_id)
+        if existing is not None:
+            return
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"[AgentChat] curator cron get_job failed for {job_id}, "
+            f"will attempt add: {e}"
+        )
 
-    cron.add_job(
+    await cron.add_job(
         CronJobCreate(
             id=job_id,
             name=f"Memory Curator for {space_slug}",
@@ -356,6 +395,104 @@ class GlobalSandboxManagerCache:
                 logger.exception(
                     f"[Sandbox]清理sandbox_manager失败，key={key}, error={str(e)}"
                 )
+
+
+async def _materialize_sandbox_file_refs(
+    system_app: SystemApp,
+    sandbox_client,
+    sandbox_file_refs: List[Dict[str, Any]],
+) -> List[str]:
+    """将上传文件引用中的文件实际写入沙箱，并返回用于提示的引用列表.
+
+    支持 derisk-fs:// 协议（通过 FileStorageClient 直接读取）以及 http(s) URL。
+    """
+    work_dir = sandbox_client.work_dir
+    uploads_dir = f"{work_dir}/uploads"
+    os.makedirs(uploads_dir, exist_ok=True)
+    updated_refs: List[str] = []
+
+    file_storage_client = None
+    try:
+        file_storage_client = FileStorageClient.get_instance(
+            system_app,
+            default_component=None,
+        )
+    except Exception as e:
+        logger.warning(f"[AgentChat] Failed to get FileStorageClient: {e}")
+
+    for ref in sandbox_file_refs:
+        if not isinstance(ref, dict):
+            logger.warning(f"[AgentChat] Invalid sandbox_file_ref type: {type(ref)}")
+            continue
+
+        file_name = ref.get("file_name", "")
+        file_url = ref.get("url", "") or ""
+        logger.info(
+            f"[AgentChat] Processing ref: file_name={file_name}, "
+            f"url={file_url[:100] if file_url else 'None/Empty'}, "
+            f"has_url={bool(file_url)}, "
+            f"is_http={file_url.startswith('http://') or file_url.startswith('https://') if file_url else False}"
+        )
+        if not file_name:
+            logger.warning("[AgentChat] sandbox_file_ref missing file_name")
+            continue
+
+        new_path = f"{uploads_dir}/{file_name}"
+        ref["sandbox_path"] = new_path
+        updated_refs.append(f"1. `{new_path}`")
+        logger.info(f"[AgentChat] Updated sandbox_path: {new_path}")
+
+        if not file_url:
+            logger.warning(
+                f"[AgentChat] No URL to download file, file_name={file_name}"
+            )
+            continue
+
+        try:
+            content = None
+
+            if file_url.startswith("derisk-fs://"):
+                if file_storage_client:
+                    logger.info(
+                        f"[AgentChat] Downloading derisk-fs:// file to sandbox: {new_path}"
+                    )
+                    await blocking_func_to_async(
+                        system_app,
+                        file_storage_client.download_file,
+                        file_url,
+                        dest_path=new_path,
+                    )
+                    logger.info(f"[AgentChat] Wrote derisk-fs file to sandbox: {new_path}")
+                else:
+                    logger.warning(
+                        "[AgentChat] FileStorageClient not available for derisk-fs:// URL"
+                    )
+            elif file_url.startswith("http://") or file_url.startswith("https://"):
+                logger.info(f"[AgentChat] Downloading file from: {file_url}")
+                async with httpx.AsyncClient(timeout=60) as client:
+                    response = await client.get(file_url)
+                    if response.status_code == 200:
+                        content = response.content
+                        os.makedirs(uploads_dir, exist_ok=True)
+                        with open(new_path, "wb") as f:
+                            f.write(content)
+                        logger.info(
+                            f"[AgentChat] Wrote HTTP file to sandbox: {new_path}, "
+                            f"size={len(content)}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[AgentChat] Failed to download file: HTTP {response.status_code}"
+                        )
+            else:
+                logger.warning(f"[AgentChat] Invalid URL format: {file_url[:50]}")
+        except Exception as e:
+            logger.error(
+                f"[AgentChat] Failed to write file to sandbox: {e}",
+                exc_info=True,
+            )
+
+    return updated_refs
 
 
 class AgentChat(BaseComponent, ABC):
@@ -893,6 +1030,13 @@ class AgentChat(BaseComponent, ABC):
         if system_prompt_parts:
             ext_info["system_prompt"] = "\n\n".join(system_prompt_parts).strip()
 
+        # For apps with a custom system prompt (e.g. scene-workspace-agent),
+        # append the runtime workspace context so the identity layer is complete.
+        if ext_info.get("system_prompt") and gpt_app.system_prompt_template:
+            gpt_app.system_prompt_template = (
+                f"{gpt_app.system_prompt_template}\n\n{ext_info['system_prompt']}"
+            )
+
         # init gpts  memory
         vis_render = ext_info.get("vis_render", None)
         # 如果接口指定使用接口传递，没有指定使用当前应用的布局配置
@@ -989,7 +1133,7 @@ class AgentChat(BaseComponent, ABC):
                     workspace_id=int(workspace_id) if workspace_id else None,
                     task_id=int(task_id) if task_id else None,
                     vis_render=vis_render,
-                    extra=orjson.dumps(ext_info).decode(),
+                    extra=_serialize_extra_for_db(ext_info),
                 )
             )
 
@@ -1624,7 +1768,7 @@ class AgentChat(BaseComponent, ABC):
                                             # 注册 idle curator cron job（幂等：
                                             # job_id 固定，重复注册时 get_job 命中即跳过）
                                             try:
-                                                _register_memory_curator_cron(
+                                                await _register_memory_curator_cron(
                                                     self.system_app, space_slug
                                                 )
                                             except Exception as cron_e:
@@ -2739,112 +2883,11 @@ class AgentChat(BaseComponent, ABC):
                 )
                 if sandbox_manager and sandbox_manager.client:
                     sandbox_client = sandbox_manager.client
-                    work_dir = sandbox_client.work_dir
-                    updated_refs = []
-
-                    # 确保上传目录存在
-                    uploads_dir = f"{work_dir}/uploads"
-
-                    for ref in sandbox_file_refs:
-                        if isinstance(ref, dict):
-                            file_name = ref.get("file_name", "")
-                            file_url = ref.get("url", "") or ""
-                            logger.info(
-                                f"[AgentChat] Processing ref: file_name={file_name}, "
-                                f"url={file_url[:100] if file_url else 'None/Empty'}, "
-                                f"has_url={bool(file_url)}, "
-                                f"is_http={file_url.startswith('http://') or file_url.startswith('https://') if file_url else False}"
-                            )
-                            if file_name:
-                                new_path = f"{uploads_dir}/{file_name}"
-                                ref["sandbox_path"] = new_path
-                                updated_refs.append(f"1. `{new_path}`")
-                                logger.info(
-                                    f"[AgentChat] Updated sandbox_path: {new_path}"
-                                )
-
-                                # 实际写入文件到沙箱
-                                if file_url:
-                                    try:
-                                        import httpx
-                                        import os
-
-                                        content = None
-                                        actual_url = file_url
-
-                                        # 处理 derisk-fs:// URL
-                                        if file_url.startswith("derisk-fs://"):
-                                            try:
-                                                from derisk.core.interface.file import (
-                                                    FileStorageClient,
-                                                )
-
-                                                file_storage_client = (
-                                                    FileStorageClient.get_instance(
-                                                        self.system_app,
-                                                        default_component=None,
-                                                    )
-                                                )
-                                                if file_storage_client:
-                                                    actual_url = file_storage_client.get_public_url(
-                                                        file_url
-                                                    )
-                                                    logger.info(
-                                                        f"[AgentChat] Converted derisk-fs:// to public URL: {actual_url[:80]}..."
-                                                    )
-                                                else:
-                                                    logger.warning(
-                                                        f"[AgentChat] FileStorageClient not available for derisk-fs:// URL"
-                                                    )
-                                            except Exception as e:
-                                                logger.warning(
-                                                    f"[AgentChat] Failed to convert derisk-fs:// URL: {e}"
-                                                )
-
-                                        # 下载文件
-                                        if actual_url and (
-                                            actual_url.startswith("http://")
-                                            or actual_url.startswith("https://")
-                                        ):
-                                            logger.info(
-                                                f"[AgentChat] Downloading file from: {actual_url}"
-                                            )
-                                            async with httpx.AsyncClient(
-                                                timeout=60
-                                            ) as client:
-                                                response = await client.get(actual_url)
-                                                if response.status_code == 200:
-                                                    content = response.content
-                                                else:
-                                                    logger.warning(
-                                                        f"[AgentChat] Failed to download file: HTTP {response.status_code}"
-                                                    )
-                                        elif file_url.startswith("derisk-fs://"):
-                                            logger.warning(
-                                                f"[AgentChat] Could not convert derisk-fs:// URL to HTTP URL"
-                                            )
-                                        else:
-                                            logger.warning(
-                                                f"[AgentChat] Invalid URL format: {file_url[:50]}"
-                                            )
-
-                                        # 写入到沙箱目录
-                                        if content:
-                                            os.makedirs(uploads_dir, exist_ok=True)
-                                            with open(new_path, "wb") as f:
-                                                f.write(content)
-                                            logger.info(
-                                                f"[AgentChat] Wrote file to sandbox: {new_path}, size={len(content)}"
-                                            )
-                                    except Exception as e:
-                                        logger.error(
-                                            f"[AgentChat] Failed to write file to sandbox: {e}",
-                                            exc_info=True,
-                                        )
-                                else:
-                                    logger.warning(
-                                        f"[AgentChat] No URL to download file, file_name={file_name}"
-                                    )
+                    updated_refs = await _materialize_sandbox_file_refs(
+                        system_app=self.system_app,
+                        sandbox_client=sandbox_client,
+                        sandbox_file_refs=sandbox_file_refs,
+                    )
 
                     ext_info["sandbox_file_refs"] = sandbox_file_refs
 
