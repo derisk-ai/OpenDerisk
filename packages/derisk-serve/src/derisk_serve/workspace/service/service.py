@@ -18,6 +18,7 @@ from ..api.schemas import (
     WorkspaceResponse,
 )
 from ..config import ServeConfig
+from ...playbook.service.service import PLAYBOOK_SERVICE_COMPONENT_NAME, PlaybookService
 from ..models.models import (
     WorkspaceConversationLinkDao,
     WorkspaceDao,
@@ -104,6 +105,25 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
             self._member_dao.create(owner_request)
         except Exception as e:
             logger.warning(f"auto add owner member failed: {e}")
+        # auto seed built-in playbooks so new workspaces are not empty
+        try:
+            playbook_service = self._system_app.get_component(
+                PLAYBOOK_SERVICE_COMPONENT_NAME, PlaybookService
+            )
+            playbook_service.seed_builtin_playbooks(response.id)
+        except Exception as e:
+            logger.warning(f"auto seed builtin playbooks failed: {e}")
+        # Auto bind scene workspace agent for new scenario workspaces if not set
+        try:
+            if not response.default_agent_app_code:
+                self._dao.update(
+                    {"workspace_code": response.workspace_code},
+                    {"default_agent_app_code": "scene-workspace-agent"},
+                    force_update=True,
+                )
+                response = self.get_by_id(response.id)
+        except Exception as e:
+            logger.warning(f"auto bind default scene agent failed: {e}")
         return self.get_by_id(response.id)  # reload to get member_count
 
     def update(self, request: WorkspaceRequest) -> WorkspaceResponse:
