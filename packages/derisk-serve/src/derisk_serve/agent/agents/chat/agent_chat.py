@@ -226,12 +226,16 @@ def _format_vis_msg(msg: str):
     return f"data:{content} \n"
 
 
-def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
+async def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
     """幂等注册 idle memory curator cron job（每天凌晨 3 点）。
 
     job_id 固定为 `memory-curator-{space_slug}`，重复调用时若 job 已存在则跳过。
     cron job 触发时派发 MemoryCurateAgent，message 为 `curate:{space_slug}`，
     agent 在 _run_memory_task 里识别该前缀走 curate_space 全量整理路径。
+
+    注意：`cron.get_job` / `cron.add_job` 都是 async def，必须 await；早年缺 await
+    会让 `get_job` 返回未启动的 coroutine（非 None），命中幂等早退分支，导致定时
+    任务永不注册、且无任何日志（既不成功也不报错）。
     """
     try:
         from derisk_serve.cron.config import SERVE_SERVICE_COMPONENT_NAME
@@ -260,13 +264,16 @@ def _register_memory_curator_cron(system_app: Any, space_slug: str) -> None:
 
     job_id = f"memory-curator-{space_slug}"
     try:
-        existing = cron.get_job(job_id)
-    except Exception:  # noqa: BLE001
-        existing = None
-    if existing is not None:
-        return
+        existing = await cron.get_job(job_id)
+        if existing is not None:
+            return
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"[AgentChat] curator cron get_job failed for {job_id}, "
+            f"will attempt add: {e}"
+        )
 
-    cron.add_job(
+    await cron.add_job(
         CronJobCreate(
             id=job_id,
             name=f"Memory Curator for {space_slug}",
@@ -1644,7 +1651,7 @@ class AgentChat(BaseComponent, ABC):
                                             # 注册 idle curator cron job（幂等：
                                             # job_id 固定，重复注册时 get_job 命中即跳过）
                                             try:
-                                                _register_memory_curator_cron(
+                                                await _register_memory_curator_cron(
                                                     self.system_app, space_slug
                                                 )
                                             except Exception as cron_e:
