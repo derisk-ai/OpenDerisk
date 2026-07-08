@@ -1,8 +1,7 @@
-from typing import Any, List
+from typing import List
 
 from derisk_serve.workspace.agent_tools.context_builder import (
     WorkspaceContextSnapshot,
-    render_workspace_context_summary,
 )
 
 SCENE_AGENT_STATIC_PROMPT = """\
@@ -28,12 +27,7 @@ def render_scene_dynamic_context(ctx: WorkspaceContextSnapshot, mode: str = "lob
     """Render the dynamic workspace/playbook/task/tools block for the scene agent."""
     lines: List[str] = []
 
-    # Layer 1: workspace identity and existing summary
-    summary = render_workspace_context_summary(ctx, mode=mode)
-    if summary:
-        lines.append(summary)
-
-    # Layer 2: active tasks (lobby only)
+    # Layer 1: active tasks (lobby only)
     if mode == "lobby" and ctx.active_tasks:
         lines.append("## 进行中任务")
         for t in ctx.active_tasks:
@@ -42,7 +36,7 @@ def render_scene_dynamic_context(ctx: WorkspaceContextSnapshot, mode: str = "lob
             status = getattr(t, "status", "")
             lines.append(f"- id={tid} 标题：{title} 状态：{status}")
 
-    # Layer 3: current task detail (workbench only)
+    # Layer 2: current task detail (workbench only)
     if mode == "workbench" and ctx.task:
         lines.append("## 当前任务详情")
         task = ctx.task
@@ -52,11 +46,11 @@ def render_scene_dynamic_context(ctx: WorkspaceContextSnapshot, mode: str = "lob
         if getattr(task, "status", None):
             lines.append(f"- 状态：{task.status}")
 
-    # Layer 4: available tools
+    # Layer 3: available tools
     tool_names = _LOBBY_TOOLS if mode == "lobby" else _WORKBENCH_TOOLS
     lines.append("## 当前可用工具")
     lines.append(
-        "当前模式下实际挂载的工具：" + ", ".join(f"`{n}`" for n in tool_names)
+        "当前模式下常用的工具参考：" + ", ".join(f"`{n}`" for n in tool_names)
     )
 
     return "\n\n".join(lines)

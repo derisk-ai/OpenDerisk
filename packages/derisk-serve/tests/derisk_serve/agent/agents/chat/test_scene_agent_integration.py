@@ -67,11 +67,126 @@ async def test_inject_workspace_context_appends_scene_dynamic_block():
             extra_agents=ext_info.setdefault("extra_agents", []),
             ext_info=ext_info,
             llm_config=LLMConfig(),
+            app_code="scene-workspace-agent",
         )
 
     assert len(system_prompt) == 2
     assert "当前空间：Test空间" in system_prompt[0]
     assert "当前场景上下文" in system_prompt[1]
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_context_gates_scene_dynamic_on_app_code():
+    """非 scene-workspace-agent 时不追加场景动态上下文。"""
+    agent_chat = _FakeAgentChat()
+    ext_info = {"workspace_id": 1, "task_id": None}
+    system_prompt: list[str] = []
+
+    fake_workspace = MagicMock()
+    fake_workspace.name = "Test空间"
+    fake_ctx = MagicMock(
+        workspace=fake_workspace,
+        materialized_resources=MagicMock(dynamic_resources=[], extra_agents=[]),
+        task=None,
+        playbook_declaration=None,
+        user_id=None,
+        workspace_id=1,
+        task_id=None,
+        playbooks=[],
+        active_tasks=[],
+    )
+
+    with patch(
+        "derisk_serve.agent.agents.chat.agent_chat._legacy_build_workspace_context",
+        return_value={"materialized": {"dynamic_resources": [], "extra_agents": []}},
+    ), patch(
+        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_context",
+        return_value=fake_ctx,
+    ), patch(
+        "derisk_serve.agent.agents.chat.agent_chat.render_workspace_context_summary",
+        return_value="# 当前空间：Test空间",
+    ), patch(
+        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_toolkit",
+        return_value=None,
+    ):
+        _inject_workspace_context(
+            system_app=agent_chat.system_app,
+            workspace_id=ext_info.get("workspace_id"),
+            user_id=None,
+            conv_uid="conv-1",
+            task_id=ext_info.get("task_id"),
+            system_prompt=system_prompt,
+            extra_agents=ext_info.setdefault("extra_agents", []),
+            ext_info=ext_info,
+            llm_config=LLMConfig(),
+            app_code="general-chat",
+        )
+
+    assert len(system_prompt) == 1
+    assert "当前空间：Test空间" in system_prompt[0]
+
+
+@pytest.mark.asyncio
+async def test_real_renderer_produces_one_summary():
+    """真实 renderer 集成测试：系统提示中只包含一份 workspace 摘要。"""
+    from derisk_serve.workspace.agent_tools.context_builder import WorkspaceContextSnapshot
+
+    agent_chat = _FakeAgentChat()
+    ext_info = {"workspace_id": 1, "task_id": None}
+    system_prompt: list[str] = []
+
+    fake_ws = MagicMock()
+    fake_ws.id = 1
+    fake_ws.name = "集成测试空间"
+    fake_ws.description = "测试描述"
+    fake_ws.type = "scenario"
+    fake_ws.scenario_type = "data_ops"
+    fake_ws.workspace_code = "ws_test"
+
+    fake_ctx = WorkspaceContextSnapshot(
+        workspace=fake_ws,
+        materialized_resources=MagicMock(dynamic_resources=[], extra_agents=[]),
+        user_id="u1",
+        workspace_id=1,
+        playbooks=[],
+        active_tasks=[],
+    )
+
+    with patch(
+        "derisk_serve.agent.agents.chat.agent_chat._legacy_build_workspace_context",
+        return_value={"materialized": {"dynamic_resources": [], "extra_agents": []}},
+    ), patch(
+        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_context",
+        return_value=fake_ctx,
+    ), patch(
+        "derisk_serve.agent.agents.chat.agent_chat.build_workspace_toolkit",
+        return_value=None,
+    ):
+        _inject_workspace_context(
+            system_app=agent_chat.system_app,
+            workspace_id=ext_info.get("workspace_id"),
+            user_id=None,
+            conv_uid="conv-1",
+            task_id=ext_info.get("task_id"),
+            system_prompt=system_prompt,
+            extra_agents=ext_info.setdefault("extra_agents", []),
+            ext_info=ext_info,
+            llm_config=LLMConfig(),
+            app_code="scene-workspace-agent",
+        )
+
+    assert len(system_prompt) >= 2, f"Expected at least 2 blocks, got {len(system_prompt)}: {system_prompt}"
+
+    # The workspace summary should appear exactly once
+    full_prompt = "\n\n".join(system_prompt)
+    summary_count = full_prompt.count("集成测试空间")
+    assert summary_count == 1, (
+        f"Workspace summary should appear exactly once, "
+        f"but found {summary_count} occurrences in:\n{full_prompt}"
+    )
+
+    # The dynamic block should contain the tool list
+    assert "当前可用工具" in full_prompt
 
 
 def test_merge_scene_dynamic_context_appends():

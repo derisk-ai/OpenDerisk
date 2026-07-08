@@ -156,6 +156,7 @@ def _inject_workspace_context(
     ext_info: Optional[Dict[str, Any]] = None,
     llm_config: Optional[LLMConfig] = None,
     event_queue: Optional[asyncio.Queue] = None,
+    app_code: Optional[str] = None,
 ) -> None:
     """把 workspace 上下文摘要和 WorkspaceControlAgent 注入对话。
 
@@ -195,9 +196,10 @@ def _inject_workspace_context(
         if summary:
             system_prompt.append(summary)
 
-        scene_dynamic = render_scene_dynamic_context(ctx, mode=mode)
-        if scene_dynamic:
-            system_prompt.append(scene_dynamic)
+        if app_code == "scene-workspace-agent":
+            scene_dynamic = render_scene_dynamic_context(ctx, mode=mode)
+            if scene_dynamic:
+                system_prompt.append(scene_dynamic)
 
         def _on_workspace_event(event_type: str, payload: dict):
             if event_queue is not None:
@@ -1039,6 +1041,7 @@ class AgentChat(BaseComponent, ABC):
             ext_info=ext_info,
             llm_config=LLMConfig(llm_client=self.llm_provider),
             event_queue=workspace_event_queue,
+            app_code=gpt_app.app_code,
         )
         if system_prompt_parts:
             ext_info["system_prompt"] = "\n\n".join(system_prompt_parts).strip()

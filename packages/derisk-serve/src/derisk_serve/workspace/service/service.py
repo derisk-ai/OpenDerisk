@@ -112,7 +112,6 @@ class WorkspaceService(BaseService[WorkspaceEntity, WorkspaceRequest, WorkspaceR
                     {"default_agent_app_code": "scene-workspace-agent"},
                     force_update=True,
                 )
-                response = self.get_by_id(response.id)
         except Exception as e:
             logger.warning(f"auto bind default scene agent failed: {e}")
         return self.get_by_id(response.id)  # reload to get member_count
