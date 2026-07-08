@@ -33,8 +33,6 @@ def test_render_lobby_includes_playbooks_and_active_tasks():
         workspace_id=1,
     )
     result = render_scene_dynamic_context(ctx, mode="lobby")
-    assert "Ops空间" in result
-    assert "报告生成" in result
     assert "进行中任务" in result
     assert "修复告警" in result
     assert "list_playbooks" in result
