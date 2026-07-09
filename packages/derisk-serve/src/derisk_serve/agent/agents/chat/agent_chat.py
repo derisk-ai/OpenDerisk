@@ -201,6 +201,27 @@ def _inject_workspace_context(
             if scene_dynamic:
                 system_prompt.append(scene_dynamic)
 
+        # NEW: RFC-005 剧本资源注入
+        # 如果存在 playbook_resource，调用 declare() 获取 Contribution，
+        # 将 SYSTEM 槽的内容追加到 system_prompt
+        # 剧本内置工具通过 playbook_config 传递给 build_workspace_toolkit
+        playbook_config = None
+        playbook_resource = getattr(ctx, "playbook_resource", None)
+        if playbook_resource is not None:
+            try:
+                from derisk.agent.shared.prompt_assembly.input_bundle import Slot
+                from derisk_serve.playbook.resource import PlaybookResource
+
+                config = playbook_resource._config
+                contributions = PlaybookResource.declare(config)
+                for contrib in contributions:
+                    if contrib.slot == Slot.SYSTEM and contrib.content:
+                        system_prompt.append(str(contrib.content))
+                # 保存 config 用于构建工具
+                playbook_config = config
+            except Exception as e:
+                logger.warning(f"playbook resource injection failed: {e}")
+
         def _on_workspace_event(event_type: str, payload: dict):
             if event_queue is not None:
                 event_queue.put_nowait((event_type, payload))
@@ -214,6 +235,7 @@ def _inject_workspace_context(
             mode=mode,
             llm_config=llm_config,
             on_event=_on_workspace_event,
+            playbook_config=playbook_config,  # NEW: 传递剧本配置
         )
         if agent is not None:
             extra_agents.append(agent)

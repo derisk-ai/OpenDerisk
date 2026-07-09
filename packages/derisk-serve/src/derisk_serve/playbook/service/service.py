@@ -56,7 +56,8 @@ class PlaybookService(BaseService[PlaybookEntity, PlaybookRequest, PlaybookRespo
         """Validate the strategy declaration DSL.
         Returns {valid: bool, errors: [str]}.
 
-        v1 schema (no gates):
+        v2 schema:
+        - text_content: optional dict with workflow/role_definition/goal/behavior_constraints/background
         - skills: list of strings (skill codes or refs)
         - context: {assets_required: [...], resources: [...]}
         - deliverables: list of {type, delivery: [...]}
@@ -65,11 +66,17 @@ class PlaybookService(BaseService[PlaybookEntity, PlaybookRequest, PlaybookRespo
         errors = []
         if not isinstance(declaration, dict):
             return {"valid": False, "errors": ["declaration must be a dict"]}
+
+        # Required blocks
         for key in ["skills", "deliverables", "distill"]:
             if key not in declaration:
                 errors.append(f"missing required block: {key}")
+
+        # Validate skills
         if "skills" in declaration and not isinstance(declaration["skills"], list):
             errors.append("skills must be a list")
+
+        # Validate deliverables
         if "deliverables" in declaration:
             if not isinstance(declaration["deliverables"], list):
                 errors.append("deliverables must be a list")
@@ -77,6 +84,8 @@ class PlaybookService(BaseService[PlaybookEntity, PlaybookRequest, PlaybookRespo
                 for i, d in enumerate(declaration["deliverables"]):
                     if not isinstance(d, dict) or "type" not in d:
                         errors.append(f"deliverables[{i}] must have 'type'")
+
+        # Validate distill
         if "distill" in declaration:
             distill = declaration["distill"]
             if not isinstance(distill, dict):
@@ -85,6 +94,26 @@ class PlaybookService(BaseService[PlaybookEntity, PlaybookRequest, PlaybookRespo
                 errors.append("distill.forced must be bool")
             elif distill.get("forced") is True and not distill.get("produce"):
                 errors.append("distill.forced=true requires non-empty produce list")
+
+        # NEW: Validate text_content (RFC-005 剧本独立文本部分)
+        if "text_content" in declaration:
+            tc = declaration["text_content"]
+            if not isinstance(tc, dict):
+                errors.append("text_content must be a dict")
+            else:
+                valid_keys = {
+                    "workflow",
+                    "role_definition",
+                    "goal",
+                    "behavior_constraints",
+                    "background",
+                }
+                for key, val in tc.items():
+                    if key not in valid_keys:
+                        errors.append(f"text_content has unknown key: {key}")
+                    if not isinstance(val, str):
+                        errors.append(f"text_content.{key} must be string")
+
         return {"valid": len(errors) == 0, "errors": errors}
 
     def create(self, request: PlaybookRequest) -> PlaybookResponse:

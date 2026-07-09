@@ -11,6 +11,7 @@ from derisk.core.interface.llm import (
     ModelMetadata,
 )
 from derisk.agent.util.llm.provider.base import LLMProvider
+from derisk.agent.util.llm.provider._image_url_rewriter import get_replace_url_func
 from derisk.agent.util.llm.provider.tool_call_compat import (
     is_model_without_native_fc,
     inject_tool_prompt_to_messages,
@@ -55,6 +56,7 @@ class ThetaProvider(LLMProvider):
         api_key: str,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        storage_client: Optional[Any] = None,
         **kwargs,
     ):
         from openai import AsyncOpenAI
@@ -62,12 +64,14 @@ class ThetaProvider(LLMProvider):
         real_key = api_key or os.getenv("THETA_API_KEY")
         self._configured_model = model or _DEFAULT_MODEL
         self._api_keys = real_key.split(",") if real_key else []
-        
+
         self.client = AsyncOpenAI(
             api_key=self._api_keys[0] if self._api_keys else "",
             base_url=base_url or os.getenv("THETA_API_BASE") or _DEFAULT_API_BASE,
             **kwargs
         )
+        self._storage_client = storage_client
+        self._replace_url_func = None
 
     def _get_model_name(self, model: Optional[str]) -> str:
         model_name = (model or self._configured_model).strip()
@@ -86,13 +90,17 @@ class ThetaProvider(LLMProvider):
         try:
             model_name = self._get_model_name(request.model)
             api_key = await self._resolve_api_key(model_name)
-            
-            openai_messages = request.to_common_messages(support_system_role=True)
+
+            openai_messages = request.to_common_messages(
+                support_system_role=True,
+                replace_url_func=get_replace_url_func(self),
+            )
             params = {
                 "model": model_name,
                 "messages": openai_messages,
-                "temperature": request.temperature,
             }
+            if request.temperature is not None:
+                params["temperature"] = request.temperature
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = max(32768, request.max_new_tokens)
             else:
@@ -174,14 +182,18 @@ class ThetaProvider(LLMProvider):
         try:
             model_name = self._get_model_name(request.model)
             api_key = await self._resolve_api_key(model_name)
-            
-            openai_messages = request.to_common_messages(support_system_role=True)
+
+            openai_messages = request.to_common_messages(
+                support_system_role=True,
+                replace_url_func=get_replace_url_func(self),
+            )
             params = {
                 "model": model_name,
                 "messages": openai_messages,
-                "temperature": request.temperature,
                 "stream": True,
             }
+            if request.temperature is not None:
+                params["temperature"] = request.temperature
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = max(32768, request.max_new_tokens)
             else:

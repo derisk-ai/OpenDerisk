@@ -49,6 +49,7 @@ class DownloadFileTool(SandboxToolBase):
             display_name="Download File",
             description=_DOWNLOAD_FILE_PROMPT,
             category=ToolCategory.SANDBOX,
+            capability_id="sandbox",
             risk_level=ToolRiskLevel.LOW,
             source=ToolSource.SYSTEM,
             requires_permission=False,

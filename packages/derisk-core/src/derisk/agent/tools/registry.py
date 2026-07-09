@@ -30,6 +30,10 @@ class ToolFilter(BaseModel):
         default_factory=list, description="风险等级过滤"
     )
     tags: List[str] = Field(default_factory=list, description="标签过滤")
+    capability_ids: List[str] = Field(
+        default_factory=list,
+        description="capability_id 过滤(RFC-005);匹配 metadata.capability_id",
+    )
     search_query: Optional[str] = Field(None, description="搜索关键词")
 
     def matches(self, tool: ToolBase) -> bool:
@@ -47,6 +51,10 @@ class ToolFilter(BaseModel):
 
         if self.tags:
             if not any(tag in metadata.tags for tag in self.tags):
+                return False
+
+        if self.capability_ids:
+            if metadata.capability_id not in self.capability_ids:
                 return False
 
         if self.search_query:
@@ -75,6 +83,7 @@ class ToolRegistry:
         self._tools: Dict[str, ToolBase] = {}
         self._categories: Dict[ToolCategory, Set[str]] = defaultdict(set)
         self._sources: Dict[ToolSource, Set[str]] = defaultdict(set)
+        self._capabilities: Dict[str, Set[str]] = defaultdict(set)  # capability_id → tool_names
         self._metadata_index: Dict[str, ToolMetadata] = {}
         self._initialized = False
 
@@ -90,6 +99,10 @@ class ToolRegistry:
         self._tools[tool_name] = tool
         self._categories[tool.metadata.category].add(tool_name)
         self._sources[source].add(tool_name)
+        # capability_id 索引(仅声明了 capability_id 的工具入索引)
+        cap_id = tool.metadata.capability_id
+        if cap_id:
+            self._capabilities[cap_id].add(tool_name)
         self._metadata_index[tool_name] = tool.metadata
 
         if hasattr(tool, "on_register"):
@@ -125,11 +138,22 @@ class ToolRegistry:
 
         self._categories[tool.metadata.category].discard(tool_name)
         self._sources[tool.metadata.source].discard(tool_name)
+        if tool.metadata.capability_id:
+            self._capabilities[tool.metadata.capability_id].discard(tool_name)
         del self._tools[tool_name]
         del self._metadata_index[tool_name]
 
         logger.debug(f"[ToolRegistry] 已注销工具: {tool_name}")
         return True
+
+    def get_by_capability(self, capability_id: str) -> List[ToolBase]:
+        """按 capability_id 查询工具(RFC-005)。"""
+        names = self._capabilities.get(capability_id, set())
+        return [self._tools[n] for n in names if n in self._tools]
+
+    def capability_ids(self) -> List[str]:
+        """已注册的所有 capability_id。"""
+        return list(self._capabilities.keys())
 
     def register_batch(
         self, tools: List[ToolBase], source: ToolSource = ToolSource.SYSTEM

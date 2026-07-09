@@ -51,6 +51,14 @@ class ToolMetadata(BaseModel):
     subcategory: Optional[str] = Field(None, description="子类别")
     source: ToolSource = Field(ToolSource.SYSTEM, description="来源")
     tags: List[str] = Field(default_factory=list, description="标签")
+    capability_id: Optional[str] = Field(
+        None,
+        description=(
+            "归属的 capability_id(RFC-005)。声明此工具属于哪个资源能力,"
+            "由 ResourceFacade 据此归类 TOOLS 槽(如 sandbox 工具='sandbox')。"
+            "None 表示未声明,facade 视为 agent:builtin。"
+        ),
+    )
 
     # === 风险与权限 ===
     risk_level: ToolRiskLevel = Field(ToolRiskLevel.LOW, description="风险等级")

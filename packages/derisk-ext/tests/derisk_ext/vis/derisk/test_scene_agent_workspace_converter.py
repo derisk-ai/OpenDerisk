@@ -1,5 +1,6 @@
 """Unit tests for SceneAgentWorkspaceConverter."""
 import json
+import re
 import pytest
 
 from derisk_ext.vis.derisk.derisk_vis_scene_agent_workspace_converter import (
@@ -40,7 +41,20 @@ async def test_visualization_returns_structured_vis_with_execution_step():
     msg = _make_gpt_msg(action_report=action_report, ai_message="正在搜索")
 
     out = await conv.visualization(messages=[msg], gpt_msg=msg, is_first_chunk=True)
-    # out 是 vis tag 包裹的字符串,内部 JSON 含 render_name + execution
-    assert "scene_agent_workspace" in out
-    assert "execution" in out
-    assert "search_workspace" in out
+    # 解析 vis tag 包裹的结构化 JSON,断言完整 payload 而非子串存在性
+    match = re.search(r"```scene_agent_workspace\n(.*?)\n```", out, re.DOTALL)
+    assert match is not None, f"未找到 scene_agent_workspace vis tag, got: {out!r}"
+    payload = json.loads(match.group(1))
+
+    assert payload["render_name"] == "scene_agent_workspace"
+    assert payload["planning"] is None
+    assert len(payload["execution"]) == 1
+
+    step = payload["execution"][0]
+    assert step["action"] == "search_workspace"
+    # action_report status="complete" 经转换器映射为 "done"
+    assert step["status"] == "done"
+    assert step["action_input"] == {"query": "营收"}
+    assert step["output"] == "找到 3 条记录"
+
+    assert payload["summary"] == "正在搜索"

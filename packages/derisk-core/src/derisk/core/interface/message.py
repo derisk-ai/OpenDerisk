@@ -555,6 +555,7 @@ class ModelMessage(BaseModel):
         support_system_role: bool = True,
         support_media_content: bool = True,
         type_mapping: Optional[Dict[str, str]] = None,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> List[Dict[str, str]]:
         """Cover to common message format.
 
@@ -586,6 +587,7 @@ class ModelMessage(BaseModel):
                         message.content,
                         support_media_content=support_media_content,
                         type_mapping=type_mapping,
+                        replace_url_func=replace_url_func,
                     )
                 )
             elif message.role == ModelMessageRoleType.SYSTEM:
@@ -598,6 +600,7 @@ class ModelMessage(BaseModel):
                         message.content,
                         support_media_content=support_media_content,
                         type_mapping=type_mapping,
+                        replace_url_func=replace_url_func,
                     )
                 )
             elif message.role == ModelMessageRoleType.AI or message.role =="assistant":
@@ -608,6 +611,7 @@ class ModelMessage(BaseModel):
                         tool_calls=message.tool_calls,
                         support_media_content=support_media_content,
                         type_mapping=type_mapping,
+                        replace_url_func=replace_url_func,
                     )
                 )
             elif message.role == ModelMessageRoleType.TOOL:
@@ -619,6 +623,7 @@ class ModelMessage(BaseModel):
                         tool_call_id=message.tool_call_id,
                         support_media_content=support_media_content,
                         type_mapping=type_mapping,
+                        replace_url_func=replace_url_func,
                     )
                 )
             else:

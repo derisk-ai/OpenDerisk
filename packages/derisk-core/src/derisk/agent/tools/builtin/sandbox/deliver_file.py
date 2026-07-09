@@ -84,6 +84,7 @@ class DeliverFileTool(SandboxToolBase):
             display_name="Deliver File",
             description=_DELIVER_FILE_PROMPT,
             category=ToolCategory.SANDBOX,
+            capability_id="sandbox",
             risk_level=ToolRiskLevel.LOW,
             source=ToolSource.SYSTEM,
             requires_permission=False,

@@ -478,7 +478,7 @@ class MediaContent:
                 real_type = type_mapping.get("image_url", "image_url")
                 url_data = content.object.data
                 if replace_url_func:
-                    url_data = replace_url_func(url_data)
+                    url_data = replace_url_func(str(url_data))
 
                 if real_type == "image_url":
                     return {

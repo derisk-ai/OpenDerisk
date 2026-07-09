@@ -322,45 +322,30 @@ const ChatContent: React.FC<{
       {isRobot && (
         <div className={classNames('flex flex-1 justify-start items-start', compact ? 'pb-2 pt-3' : 'pb-4 pt-6')} style={{ gap: 12 }}>
           <AgentIcon />
-          <div className='flex flex-col flex-1 min-w-0 border-dashed border-r0 overflow-x-auto'>
+          <div className='flex flex-col flex-1 min-w-0 border-dashed border-r0 overflow-x-auto compact-markdown-container'>
             {/* @ts-ignore */}
             <CompactChatContext.Provider value={!!compact}>
               {compact && (
-                <style>{`
-                  .compact-vis-wrapper > div > p,
-                  .compact-vis-wrapper > div > h1,
-                  .compact-vis-wrapper > div > h2,
-                  .compact-vis-wrapper > div > h3,
-                  .compact-vis-wrapper > div > h4,
-                  .compact-vis-wrapper > div > h5,
-                  .compact-vis-wrapper > div > h6,
-                  .compact-vis-wrapper > div > ul,
-                  .compact-vis-wrapper > div > ol,
-                  .compact-vis-wrapper > div > blockquote,
-                  .compact-vis-wrapper > div > pre,
-                  .compact-vis-wrapper > div > .VisAgentPlanCardClass {
+                <style dangerouslySetInnerHTML={{ __html: `
+                  .compact-markdown-container > pre {
                     margin: 0 !important;
                     padding: 0 !important;
-                    line-height: 1.2 !important;
                   }
-                  .compact-vis-wrapper > div {
-                    display: flex !important;
-                    flex-direction: column !important;
-                    gap: 0 !important;
+                  .compact-markdown-container .markdown-content-wrap > pre {
+                    margin: 0 !important;
+                    padding: 0 !important;
                   }
-                `}</style>
+                `}} />
               )}
-              <div className={compact ? 'compact-vis-wrapper' : undefined}>
-                <GPTVis
-                  components={{
-                    ...markdownComponents,
-                    ...extraMarkdownComponents,
-                  }}
-                  {...markdownPlugins}
-                >
-                  {preprocessLaTeX(formatMarkdownValForAgent(_context))}
-                </GPTVis>
-              </div>
+              <GPTVis
+                components={{
+                  ...markdownComponents,
+                  ...extraMarkdownComponents,
+                }}
+                {...markdownPlugins}
+              >
+                {preprocessLaTeX(formatMarkdownValForAgent(_context))}
+              </GPTVis>
             </CompactChatContext.Provider>
             {thinking && !context && (
               <div className='flex items-center gap-2'>

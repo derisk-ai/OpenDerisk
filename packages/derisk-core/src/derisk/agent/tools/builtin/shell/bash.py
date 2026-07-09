@@ -47,6 +47,7 @@ class BashTool(SandboxToolBase):
                 "- Supports custom working directory and environment variables"
             ),
             category=ToolCategory.SHELL,
+            capability_id="sandbox",
             risk_level=ToolRiskLevel.HIGH,
             requires_permission=True,
             timeout=120,

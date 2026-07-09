@@ -181,3 +181,39 @@ def _guess_image_mime(
             if isinstance(value, str) and value.startswith("image/"):
                 return value
     return None
+
+
+def resolve_storage_client() -> Optional[object]:
+    """Resolve the system ``FileStorageClient`` without importing derisk-serve.
+
+    Returns ``None`` when no system app / registered client is available so
+    callers can degrade to pass-through rewriting.
+    """
+    try:
+        from derisk.component import SystemApp
+        from derisk.core.interface.file import FileStorageClient
+
+        system_app = SystemApp.get_instance()
+        if system_app is None:
+            return None
+        return FileStorageClient.get_instance(system_app, default_component=None)
+    except Exception:
+        logger.debug(
+            "FileStorageClient unavailable; image URL rewriting disabled",
+            exc_info=True,
+        )
+        return None
+
+
+def get_replace_url_func(provider) -> Callable[[str], str]:
+    """Lazily build and cache the image-URL rewriter on a provider instance.
+
+    Expects the provider to expose ``_storage_client`` and ``_replace_url_func``
+    attributes. The storage client resolved at construction is preferred; on
+    first call it falls back to :func:`resolve_storage_client`.
+    """
+    if provider._replace_url_func is None:
+        storage_client = provider._storage_client or resolve_storage_client()
+        provider._storage_client = storage_client
+        provider._replace_url_func = build_image_url_rewriter(storage_client)
+    return provider._replace_url_func

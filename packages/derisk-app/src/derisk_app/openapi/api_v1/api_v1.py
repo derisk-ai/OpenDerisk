@@ -471,7 +471,9 @@ async def chat_completions(
                                     url_str, fs
                                 )
                                 if not file_name:
-                                    file_name = f"image_{uuid.uuid4().hex[:8]}.jpg"
+                                    # 不伪造 .jpg 扩展名:无扩展名时下游守卫会按
+                                    # "无法确认为图片" 判定,降级走沙箱,而非硬塞模型。
+                                    file_name = f"image_{uuid.uuid4().hex[:8]}"
 
                                 user_inputs.append(
                                     {

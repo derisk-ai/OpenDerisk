@@ -1,8 +1,9 @@
 import json
 import logging
 import time
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Optional
 
+from derisk.agent.util.llm.provider._image_url_rewriter import get_replace_url_func
 from derisk.agent.util.llm.provider.base import LLMProvider
 from derisk.agent.util.llm.provider.provider_registry import ProviderRegistry
 from derisk.core.interface.llm import ModelMetadata, ModelOutput, ModelRequest
@@ -14,17 +15,28 @@ logger = logging.getLogger(__name__)
 class ClaudeProvider(LLMProvider):
     """Anthropic Claude LLM provider."""
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        storage_client: Optional[Any] = None,
+        **kwargs,
+    ):
         from anthropic import AsyncAnthropic
         # Filter out arguments not accepted by AsyncAnthropic
         client_kwargs = {k: v for k, v in kwargs.items() if k in ["timeout", "max_retries", "default_headers"]}
         self.client = AsyncAnthropic(api_key=api_key, base_url=base_url, **client_kwargs)
+        self._storage_client = storage_client
+        self._replace_url_func = None
 
     def _prepare_request(self, request: ModelRequest) -> dict:
         """Prepare common request parameters for Anthropic API."""
         # Get messages in standard format
         # Anthropic API requires system prompt to be passed separately
-        openai_messages = request.to_common_messages(support_system_role=True)
+        openai_messages = request.to_common_messages(
+            support_system_role=True,
+            replace_url_func=get_replace_url_func(self),
+        )
         
         system_prompt = None
         messages = []
@@ -44,8 +56,9 @@ class ClaudeProvider(LLMProvider):
             "model": request.model,
             "messages": messages,
             "max_tokens": request.max_new_tokens or 4096,
-            "temperature": request.temperature,
         }
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
         
         if system_prompt:
             params["system"] = system_prompt

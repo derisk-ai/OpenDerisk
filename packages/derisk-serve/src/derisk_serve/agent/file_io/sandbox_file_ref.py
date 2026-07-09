@@ -163,6 +163,18 @@ def is_image_file(file_name: str) -> bool:
     return ext.lower() in image_extensions
 
 
+def looks_like_image(file_name: str, mime_type: Optional[str]) -> bool:
+    """Confirm a file is an image by extension OR mime type.
+
+    Used to guard the MODEL_DIRECT path: an ``image_url`` that cannot be
+    confirmed as an image is downgraded to SANDBOX_TOOL instead of being
+    sent to the LLM (which would 400 / decode garbage).
+    """
+    if is_image_file(file_name or ""):
+        return True
+    return bool(mime_type and mime_type.startswith("image/"))
+
+
 @dataclass
 class FileProcessResult:
     """Result of file processing"""
@@ -247,7 +259,9 @@ async def process_user_input_file(
         file_url = image_url_data.get("url", "")
         full_url = image_url_data.get("full_url")
         file_id = image_url_data.get("file_id")
-        mime_type = detect_mime_type(file_name) or "image/jpeg"
+        # 不硬编码 image/jpeg:识别失败时保留 None,由下方守卫按
+        # "无法确认为图片" 判定降级沙箱,避免把非图硬塞模型。
+        mime_type = detect_mime_type(file_name)
     elif input_type == "file_url":
         file_url_data = user_input.get("file_url", {})
         file_name = file_url_data.get("file_name", "")
@@ -288,8 +302,9 @@ async def process_user_input_file(
 
     if process_mode == FileProcessMode.MODEL_DIRECT:
         # Model direct consumption: as multimodal message
-        # 只有图片才能直接给模型消费
-        if input_type == "image_url":
+        # 只有图片才能直接给模型消费;image_url 但无法确认为图片 → 降级沙箱,
+        # 由 Agent 工具消费,避免把非图硬塞模型导致 400 / 乱码。
+        if input_type == "image_url" and looks_like_image(file_name, mime_type):
             image_url_data = user_input.get("image_url", {})
             return (
                 {
@@ -300,9 +315,9 @@ async def process_user_input_file(
                 None,
             )
         else:
-            # 其他类型文件不应该走 MODEL_DIRECT，强制走 SANDBOX_TOOL
             logger.warning(
-                f"[FileIO] File {file_name} is not an image, forcing SANDBOX_TOOL mode"
+                f"[FileIO] File {file_name} (mime={mime_type}) not confirmed as "
+                f"image, forcing SANDBOX_TOOL mode"
             )
             process_mode = FileProcessMode.SANDBOX_TOOL
 

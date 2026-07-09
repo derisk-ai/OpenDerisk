@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pytest
 
+from derisk.core.interface.media import MediaContent, MediaObject
 from derisk.core.interface.message import (
     AIMessage,
     BaseMessage,
@@ -476,3 +477,53 @@ def test_to_openai_messages_convert_to_compatible_format(
         {"role": "assistant", "content": ai_model_message.content},
         {"role": "user", "content": human_model_message.content},
     ]
+
+
+def _image_media_content(url: str) -> MediaContent:
+    return MediaContent(
+        type="image",
+        object=MediaObject(data=url, format="url@image/png"),
+    )
+
+
+def test_to_common_messages_replace_url_func_threads_to_image():
+    """replace_url_func must reach the image_url data via ModelMessage layer."""
+    image_url = "/api/v2/serve/file/files/derisk_app_file/abc-123?conv_uid=xxx"
+    msg = ModelMessage(
+        role=ModelMessageRoleType.HUMAN,
+        content=[
+            MediaContent(type="text", object=MediaObject(data="look", format="text")),
+            _image_media_content(image_url),
+        ],
+    )
+
+    def upper(u: str) -> str:
+        return u.upper()
+
+    result = ModelMessage.to_common_messages([msg], replace_url_func=upper)
+    assert result[0]["role"] == "user"
+    content = result[0]["content"]
+    assert any(
+        part.get("type") == "image_url"
+        and part["image_url"]["url"] == image_url.upper()
+        for part in content
+    )
+
+
+def test_to_common_messages_replace_url_func_default_none_preserves_url():
+    """Without replace_url_func, image urls are emitted unchanged (regression)."""
+    image_url = "/api/v2/serve/file/files/derisk_app_file/abc-123"
+    msg = ModelMessage(
+        role=ModelMessageRoleType.HUMAN,
+        content=[
+            MediaContent(type="text", object=MediaObject(data="hi", format="text")),
+            _image_media_content(image_url),
+        ],
+    )
+    result = ModelMessage.to_common_messages([msg])
+    content = result[0]["content"]
+    assert any(
+        part.get("type") == "image_url"
+        and part["image_url"]["url"] == image_url
+        for part in content
+    )
