@@ -36,6 +36,7 @@ class ReadTool(SandboxToolBase):
                 "- Line range slicing via view_range parameter"
             ),
             category=ToolCategory.FILE_SYSTEM,
+            capability_id="sandbox",
             risk_level=ToolRiskLevel.LOW,
             requires_permission=False,
             timeout=60,

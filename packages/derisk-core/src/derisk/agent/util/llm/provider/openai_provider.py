@@ -10,6 +10,7 @@ from derisk.core.interface.llm import (
     ModelMetadata,
     ModelInferenceMetrics,
 )
+from derisk.agent.util.llm.provider._image_url_rewriter import get_replace_url_func
 from derisk.agent.util.llm.provider.base import LLMProvider
 from derisk.agent.util.llm.provider.tool_call_compat import (
     is_model_without_native_fc,
@@ -31,22 +32,29 @@ class OpenAIProvider(LLMProvider):
         api_key: str,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
+        storage_client: Optional[Any] = None,
         **kwargs,
     ):
         from openai import AsyncOpenAI
 
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url, **kwargs)
         self._configured_model = model
+        self._storage_client = storage_client
+        self._replace_url_func = None
 
     async def generate(self, request: ModelRequest) -> ModelOutput:
         """Generate a response from the model."""
         try:
-            openai_messages = request.to_common_messages(support_system_role=True)
+            openai_messages = request.to_common_messages(
+                support_system_role=True,
+                replace_url_func=get_replace_url_func(self),
+            )
             params = {
                 "model": request.model,
                 "messages": openai_messages,
-                "temperature": request.temperature,
             }
+            if request.temperature is not None:
+                params["temperature"] = request.temperature
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = request.max_new_tokens
 
@@ -62,7 +70,7 @@ class OpenAIProvider(LLMProvider):
                     tool_names = [t.get("function", {}).get("name") for t in request.tools]
             else:
                 tool_names = []
-            
+
             if request.tool_choice and not use_compat_fc:
                 params["tool_choice"] = request.tool_choice
             if request.parallel_tool_calls is not None and not use_compat_fc:
@@ -123,13 +131,17 @@ class OpenAIProvider(LLMProvider):
     ) -> AsyncIterator[ModelOutput]:
         """Generate a streaming response from the model."""
         try:
-            openai_messages = request.to_common_messages(support_system_role=True)
+            openai_messages = request.to_common_messages(
+                support_system_role=True,
+                replace_url_func=get_replace_url_func(self),
+            )
             params = {
                 "model": request.model,
                 "messages": openai_messages,
-                "temperature": request.temperature,
                 "stream": True,
             }
+            if request.temperature is not None:
+                params["temperature"] = request.temperature
             if request.max_new_tokens and request.max_new_tokens > 0:
                 params["max_tokens"] = request.max_new_tokens
 

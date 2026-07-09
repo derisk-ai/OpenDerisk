@@ -31,6 +31,27 @@ from .prompt_assembler import (
     PromptAssemblyConfig,
     create_prompt_assembler,
 )
+from .input_bundle import (  # noqa: E402
+    CacheControlPoint,
+    CacheScope,
+    Contribution,
+    FrozenBundle,
+    InputBundle,
+    Lifetime,
+    Slot,
+    SystemBlock,
+)
+from .resource_protocol import (  # noqa: E402
+    LegacyResourceAdapter,
+    ResourceProtocol,
+)
+from .resource_facade import (  # noqa: E402
+    AgentInputsSnapshot,
+    ResourceFacade,
+    compute_config_hash,
+)
+from .sandbox_resource import SandboxResource  # noqa: E402
+from .resource_protocol import ConsumerRegistry, apply_consumption  # noqa: E402
 
 __all__ = [
     # Registry
@@ -47,4 +68,20 @@ __all__ = [
     "PromptAssembler",
     "PromptAssemblyConfig",
     "create_prompt_assembler",
+    # InputBundle (RFC-005)
+    "CacheControlPoint",
+    "CacheScope",
+    "Contribution",
+    "FrozenBundle",
+    "InputBundle",
+    "Lifetime",
+    "Slot",
+    "SystemBlock",
+    # ResourceProtocol (RFC-005 §3.3 / S2)
+    "LegacyResourceAdapter",
+    "ResourceProtocol",
+    # ResourceFacade (RFC-005 §3.6 / S9)
+    "AgentInputsSnapshot",
+    "ResourceFacade",
+    "compute_config_hash",
 ]

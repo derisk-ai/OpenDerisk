@@ -18,6 +18,7 @@
 | [RFC-002](./RFC-002-durable-execution.md) | 持久化执行与检查点机制 | Draft |
 | [RFC-003](./RFC-003-permission-model.md) | 统一权限模型 | Draft |
 | [RFC-004](./RFC-004-scene-profile.md) | Scene/Profile 声明式配置 | Draft |
+| [RFC-005](./RFC-005-resource-protocol.md) | Agent 资源协议框架 | Draft |
 
 ## 标准结构
 

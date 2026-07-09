@@ -98,6 +98,27 @@ from ...shared.prompt_assembly import (
 logger = logging.getLogger(__name__)
 
 
+def separator_join_system_blocks(blocks: Any, separator: str = "\n\n") -> str:
+    """将 SystemBlock 列表按确定序合并为 str(S10 降级用)。
+
+    与现 PromptAssembler 的 section_separator 拼接语义对齐,保向前兼容。
+    真实 cache_control 由 provider 层 S12 直接消费 FrozenBundle(SystemBlock 列表)。
+    """
+    return separator.join(b.text for b in blocks if getattr(b, "text", ""))
+
+
+def _tool_from_entry(entry: Any) -> Any:
+    """从 TOOLS 槽条目取工具句柄(S15):ToolEntry 取 .tool;Contribution 取 .content。
+
+    统一 builtin(ToolEntry,executor_id=agent:builtin)与资源工具(Contribution)
+    的形态差异,供 function_calling_params 转 schema。
+    """
+    tool = getattr(entry, "tool", None)
+    if tool is None:
+        tool = getattr(entry, "content", None)
+    return tool
+
+
 def _get_sandbox_system_info(sandbox_client: SandboxBase) -> str:
     """Get system info description based on sandbox provider type."""
     provider = getattr(sandbox_client, "provider", lambda: "unknown")()
@@ -230,6 +251,10 @@ class ReActMasterAgent(ConversableAgent):
 
     # PromptAssembler 状态（通用 Prompt 组装器）
     _prompt_assembler: Optional[PromptAssembler] = PrivateAttr(default=None)
+    # ResourceFacade 状态（RFC-005 协议层快照门面,S10 接入）
+    _resource_facade: Optional[Any] = PrivateAttr(default=None)
+    # 最近一次 assemble 产出的快照(供 function_calling_params 取 tools 等,S10)
+    _last_snapshot: Optional[Any] = PrivateAttr(default=None)
 
     # AsyncTaskManager 异步任务管理器（在 preload_resource 中按需初始化）
     _async_task_manager: Optional[Any] = PrivateAttr(default=None)
@@ -638,21 +663,40 @@ class ReActMasterAgent(ConversableAgent):
 
         functions = []
 
-        # Log available_system_tools
-        logger.info(
-            f"function_calling_params: available_system_tools count={len(self.available_system_tools)}"
-        )
-        for k, v in self.available_system_tools.items():
-            functions.append(_tool_to_function(v))
-
-        # Log tool_packs
-        tool_packs = ToolPack.from_resource(self.resource)
-        logger.info(f"function_calling_params: tool_packs={tool_packs}")
-        if tool_packs:
-            tool_pack = tool_packs[0]
-            for tool in tool_pack.sub_resources:
-                tool_item: BaseTool = tool
-                functions.append(_tool_to_function(tool_item))
+        snapshot = getattr(self, "_last_snapshot", None)
+        if snapshot is not None and snapshot.all_tools():
+            # S15: builtin + 资源工具统一从快照一处取(all_tools 兼容 ToolEntry/Contribution)
+            for entry in snapshot.all_tools():
+                tool_item = _tool_from_entry(entry)
+                if tool_item is not None:
+                    functions.append(_tool_to_function(tool_item))
+            logger.info(
+                f"function_calling_params: tools from snapshot.all_tools, "
+                f"total={len(functions)} "
+                f"(builtin={len(snapshot.builtin_tools)}, "
+                f"sandbox={len(snapshot.sandbox_tools())}, "
+                f"resource={len(snapshot.tools)})"
+            )
+            if snapshot.sandbox_tools():
+                sb_names = [e.tool_name for e in snapshot.sandbox_tools()]
+                logger.info(
+                    f"function_calling_params: sandbox-delegated tools "
+                    f"(capability_id=sandbox): {sb_names}"
+                )
+        else:
+            # 回退路径(无快照):旧逻辑——builtin + ToolPack.from_resource
+            logger.info(
+                f"function_calling_params(fallback): available_system_tools count="
+                f"{len(self.available_system_tools)}"
+            )
+            for k, v in self.available_system_tools.items():
+                functions.append(_tool_to_function(v))
+            tool_packs = ToolPack.from_resource(self.resource)
+            if tool_packs:
+                tool_pack = tool_packs[0]
+                for tool in tool_pack.sub_resources:
+                    tool_item: BaseTool = tool
+                    functions.append(_tool_to_function(tool_item))
 
         system_tool_count = len(self.available_system_tools)
         resource_tool_count = len(functions) - system_tool_count
@@ -793,6 +837,76 @@ class ReActMasterAgent(ConversableAgent):
             )
 
         return self._prompt_assembler
+
+    def _get_resource_facade(self) -> Any:
+        """获取 ResourceFacade（懒加载,RFC-005 S10 接入)。
+
+        产完整 system 快照(身份/记忆/资源/控制四层 Contribution)+ tools。
+        executor_provider 暂空;沙箱/DB executor 由后续接入层注册(S5 已就绪契约)。
+        """
+        if self._resource_facade is None:
+            from derisk.agent.capabilities import ResourceFacade
+
+            self._resource_facade = ResourceFacade()
+        return self._resource_facade
+
+    def resolve_tool_entry(self, tool_name: str) -> Any:
+        """S19: 按 tool_name 从 _last_snapshot 统一查工具句柄(执行面与声明面同源)。
+
+        返回 ToolEntry/Contribution 的工具句柄(BaseTool);未找到返回 None。
+        ToolAction.run 优先用此方法找句柄,消除"声明面(snapshot) vs 执行面
+        (sandbox_tool_dict/system_tool_dict/unified/resource 多 dict)"两源不一致。
+        init_params 副作用(沙箱 client 等)仍按工具类型在 ToolAction 内设置。
+        """
+        snap = getattr(self, "_last_snapshot", None)
+        if snap is None:
+            return None
+        from derisk.core.interface.executor import ToolDispatcher
+
+        idx = ToolDispatcher.build_index(snap.all_tools())
+        entry = idx.get(tool_name)
+        if entry is None:
+            return None
+        # ToolEntry 取 .tool;Contribution 取 .content
+        return getattr(entry, "tool", None) or getattr(entry, "content", None)
+
+    async def _build_sandbox_capability(self):
+        """S14+S20:沙箱 Capability 输入投影。
+
+        有沙箱时返回 (env_contribs, sandbox_tool_entries, non_sandbox_builtin):
+        - env_contribs: 沙箱 env 信息 SYSTEM Contribution。
+        - sandbox_tool_entries: 委托沙箱的文件/脚本类工具(Bash/Read/Write/Edit/
+          deliver_file/download_file)归 capability_id=sandbox 的 ToolEntry。
+        - non_sandbox_builtin: 其余 builtin 工具(spawn_agent/ask_user/Skill 等不借沙箱的),
+          仍走 builtin。
+
+        无沙箱时返回 ([], [], available_system_tools 全量)——文件/脚本是本地默认工具。
+
+        capability_id 标归属(沙箱沙箱、非沙箱 builtin);executor_id 仍 builtin
+        (工具执行体自处理沙箱/本地切换,选B 务实方案)。
+        """
+        no_sandbox = (not self.sandbox_manager) or (
+            not getattr(self.sandbox_manager, "client", None)
+        )
+        all_tools = dict(self.available_system_tools)
+        if no_sandbox:
+            return [], [], all_tools
+        try:
+            from derisk.agent.capabilities.sandbox import SandboxResource
+
+            work_dir = getattr(self.sandbox_manager, "work_dir", "/workspace") or "/workspace"
+            res = SandboxResource(self.sandbox_manager.client, work_dir=work_dir)
+            env_contribs = res.declare_env()
+            sandbox_tool_entries = res.declare_tools(all_tools)
+            # 沙箱委托类工具从 builtin 移出(由 sandbox_tool_entries 提供),避免重复声明
+            sandbox_names = {e.tool_name for e in sandbox_tool_entries}
+            non_sandbox_builtin = {
+                k: v for k, v in all_tools.items() if k not in sandbox_names
+            }
+            return env_contribs, sandbox_tool_entries, non_sandbox_builtin
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[S14/S20] sandbox capability failed: {e}")
+            return [], [], all_tools
 
     @property
     def interaction(self):
@@ -1406,13 +1520,46 @@ class ReActMasterAgent(ConversableAgent):
                     logger.debug(f"[MemoryRead] static block load skipped: {_static_err}")
 
                 # 分层组装：身份层 + 静态记忆层 + 资源层 + 控制层
-                system_prompt = await assembler.assemble_system_prompt(
-                    user_system_prompt=user_identity,
-                    resource_context=resource_ctx,
-                    memory_static_block=memory_static_block,
-                    **render_vars,
+                # S10: 经 ResourceFacade 产完整 system 快照(四层 Contribution)。
+                # 用现有 PromptAssembler 产身份层/控制层文本(复用渲染,不重写),
+                # 资源层由 facade 经 LegacyResourceAdapter/原生 declare 注入。
+                identity_text = await assembler._assemble_identity(
+                    user_identity, **render_vars
                 )
-                logger.info("PromptAssembler: 分层组装完成（身份层 + 静态记忆层 + 资源层 + 控制层）")
+                control_text = await assembler._assemble_control_flow(**render_vars)
+
+                facade = self._get_resource_facade()
+
+                # S14/S20: 沙箱作为 Capability 投影——env 进 system、
+                # 委托沙箱的文件/脚本类工具(Bash/Read/Write/Edit/deliver_file)归 sandbox 能力。
+                # 有沙箱时这些工具从 builtin 移出、由 SandboxResource.declare_tools 归 sandbox;
+                # 无沙箱时仍是本地默认工具(builtin)。capability_id 标归属,executor_id 仍 builtin
+                # (工具执行体自处理沙箱/本地切换,选B 务实方案)。
+                sandbox_contribs, sandbox_tool_entries, non_sandbox_builtin = (
+                    await self._build_sandbox_capability()
+                )
+
+                snapshot = await facade.assemble(
+                    agent_id=(self.agent_context.agent_app_code if self.agent_context else None) or self.name,
+                    conv_id=self.agent_context.conv_id if self.agent_context else "",
+                    agent=self,
+                    identity=identity_text,
+                    control_block=control_text,
+                    memory_static_block=memory_static_block,
+                    builtin_tools=non_sandbox_builtin,
+                    extra_static_contribs=sandbox_contribs,
+                    extra_tools=sandbox_tool_entries,
+                )
+                # 降级合并 system 块为 str(legacy separator 保向前兼容),
+                # 真实 cache_control 由 provider 层 S12 消费 full_system_blocks()。
+                system_prompt = separator_join_system_blocks(
+                    snapshot.full_system_blocks(),
+                    separator=assembler.config.section_separator,
+                )
+                self._last_snapshot = snapshot
+                logger.info(
+                    "ResourceFacade: system 快照组装完成（身份层+记忆层+资源层+控制层）"
+                )
             except Exception as e:
                 logger.warning(f"PromptAssembler: system_prompt 组装失败，回退到默认 prompt: {e}")
                 import traceback

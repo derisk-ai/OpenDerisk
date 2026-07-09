@@ -346,16 +346,25 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
         覆写后：
         - 检测 BlankAction（无论 terminate 值）→ 用 observations/content 生成 type=ALL 的 DrskContent
         - 每次推送完整替换内容，确保 markdown 可正确渲染（表格、标题等不被拆分）
+        - 流式阶段（stream_msg）不生成 step_thought，避免与 LLM 输出的纯文本重复
         """
         # 提取 action_outs
         action_outs = None
         message_id = None
+        is_streaming = False
+
         if gpt_msg:
             action_outs = gpt_msg.action_report
             message_id = gpt_msg.message_id
         elif stream_msg and isinstance(stream_msg, dict):
             action_outs = stream_msg.get("action_report")
             message_id = stream_msg.get("message_id")
+            is_streaming = stream_msg.get("type") == "incr" or stream_msg.get("is_streaming", False)
+
+        # 流式阶段且没有 action_report：不生成 step_thought，避免与 LLM 输出重复
+        # LLM 的纯文本输出已经通过 listen_thinking_stream 推送到前端
+        if is_streaming and not action_outs:
+            return None
 
         if action_outs:
             for act_out in (action_outs if isinstance(action_outs, list) else [action_outs]):
@@ -373,10 +382,11 @@ class DeriskIncrVisManusConverter(DeriskIncrVisWindow3Converter):
                 if not is_batch and (act_name == BlankAction.name or is_terminate):
                     if conclusion and isinstance(conclusion, str) and conclusion.strip():
                         # 用 type=ALL 完整替换，确保 markdown 表格等结构完整渲染
+                        # 使用与流式推送相同的 uid（{message_id}_'step_thought'），确保最终推送覆盖流式推送
                         text_content = DrskTextContent(
                             dynamic=False,
                             markdown=conclusion,
-                            uid=f"{message_id}_planning_content",
+                            uid=f"{message_id}_'step_thought'",
                             type=UpdateType.ALL.value,
                         )
                         return DrskContent().sync_display(

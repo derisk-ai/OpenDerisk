@@ -55,12 +55,20 @@ def build_workspace_toolkit(
     mode: str = "lobby",
     llm_config: Optional[LLMConfig] = None,
     on_event: Optional[Callable[[str, dict], None]] = None,
+    playbook_config=None,  # NEW: PlaybookConfig for playbook built-in tools
 ) -> Optional[WorkspaceControlAgent]:
     """Build the workspace control Agent for the given mode.
 
     Lobby (mode="lobby"): Layer 1 (5 read) + Layer 2 (2 read + 5 write) = 12 tools.
     Workbench (mode="workbench"): Layer 1 (5 read) + Layer 3 (3 read + 3 write) = 11 tools.
     Layer 2 and Layer 3 do not overlap.
+
+    When playbook_config is provided in workbench mode, also adds playbook built-in tools:
+    - get_playbook_info: Get current playbook basic info
+    - get_playbook_text_content: Get playbook text content
+    - get_playbook_skills: Get playbook skills list
+    - get_playbook_resources: Get playbook resources list
+    - get_playbook_deliverables: Get playbook deliverables list
 
     Returns ``None`` when ``conv_uid`` is missing, because write/playbook tools
     require a conversation context to create interventions.
@@ -83,6 +91,18 @@ def build_workspace_toolkit(
             system_app, workspace_id, user_id, conv_uid, task_id=task_id, on_event=on_event
         )
         tools = layer1 + layer3_read + playbook_write
+
+        # NEW: Add playbook built-in tools if playbook_config is provided
+        if playbook_config is not None:
+            try:
+                from derisk_serve.playbook.resource import build_playbook_tools as build_playbook_builtin_tools
+                playbook_builtin_tools = build_playbook_builtin_tools(playbook_config)
+                tools.extend(playbook_builtin_tools)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to build playbook builtin tools: {e}"
+                )
     else:
         raise ValueError(f"Unknown mode: {mode}")
 

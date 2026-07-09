@@ -6,8 +6,7 @@ import { Datum } from '@antv/ava';
 import { GPTVis, withDefaultChartCode } from '@antv/gpt-vis';
 import { Image, Table, Tabs, TabsProps, Tag } from 'antd';
 import 'katex/dist/katex.min.css';
-import React, { useContext } from 'react';
-import { CompactChatContext } from '@/contexts/chat-content-context';
+import React from 'react';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -328,33 +327,6 @@ const filteredCodeComponents = Object.fromEntries(
   Object.entries(codeComponents).filter(([_, v]) => typeof v === 'function'),
 ) as { [key: string]: (props: any) => React.ReactNode };
 
-const CompactParagraph: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
-  const compact = useContext(CompactChatContext);
-  if (compact) {
-    // Suppress empty paragraphs that markdown inserts around block VIS tags;
-    // they still consume line-height and create unwanted gaps.
-    const isEmpty =
-      !children ||
-      (Array.isArray(children) &&
-        children.every(
-          child =>
-            child === null ||
-            child === undefined ||
-            (typeof child === 'string' && child.trim() === ''),
-        )) ||
-      (typeof children === 'string' && children.trim() === '');
-    if (isEmpty) {
-      return null;
-    }
-    return (
-      <p className='!my-0' style={{ marginTop: 0, marginBottom: 0 }}>
-        {children}
-      </p>
-    );
-  }
-  return <p>{children}</p>;
-};
-
 export const basicComponents: { [key: string]: (props: any) => React.ReactNode } = {
   ...filteredCodeComponents,
   ul({ children }) {
@@ -404,7 +376,12 @@ export const basicComponents: { [key: string]: (props: any) => React.ReactNode }
   h4({ children }) {
     return <h3 className='text-base font-semibold my-1'>{children}</h3>;
   },
-  p: CompactParagraph,
+  p({ children }) {
+    return <p>{children}</p>;
+  },
+  pre({ children }) {
+    return <pre style={{ margin: 0, padding: 0 }}>{children}</pre>;
+  },
   a({ children, href }) {
     return (
       <span className='inline-block text-blue-600 dark:text-blue-400'>

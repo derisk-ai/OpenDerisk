@@ -242,14 +242,19 @@ class ToolAction(Action[ToolInput]):
         tool_info = None
         tool_pack = None
 
-        if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
-            tool_info = sandbox_tool_dict[param.tool_name]
-        elif param.tool_name in system_tool_dict:
-            tool_info = system_tool_dict[param.tool_name]
-        elif self._try_get_unified_tool(param.tool_name):
-            tool_info = self._try_get_unified_tool(param.tool_name)
-        else:
-            tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
+        # S19: 优先从 _last_snapshot 统一查(声明面与执行面同源),回退多源 dict
+        resolve_fn = getattr(agent, "resolve_tool_entry", None)
+        if resolve_fn is not None:
+            tool_info = resolve_fn(param.tool_name)
+        if tool_info is None:
+            if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
+                tool_info = sandbox_tool_dict[param.tool_name]
+            elif param.tool_name in system_tool_dict:
+                tool_info = system_tool_dict[param.tool_name]
+            elif self._try_get_unified_tool(param.tool_name):
+                tool_info = self._try_get_unified_tool(param.tool_name)
+            else:
+                tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
 
         if not tool_info:
             return None
@@ -345,25 +350,33 @@ class ToolAction(Action[ToolInput]):
         tool_pack = None
         env = "local"
 
-        # 优先检查沙箱工具
+        # S19: 优先从 _last_snapshot 统一查工具句柄(声明面与执行面同源)。
+        # 消除 sandbox_tool_dict/system_tool_dict/unified/resource 多 dict 两源隐患。
+        # init_params 副作用(沙箱 client/agent_file_system)仍按工具类型设置。
+        tool_info = None
+        resolve_fn = getattr(agent, "resolve_tool_entry", None)
+        if resolve_fn is not None:
+            tool_info = resolve_fn(param.tool_name)
+        if tool_info is None:
+            # 回退:无 snapshot/agent 未实现 resolve(旧路径兼容)
+            if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
+                tool_info = sandbox_tool_dict[param.tool_name]
+            elif param.tool_name in system_tool_dict:
+                tool_info = system_tool_dict[param.tool_name]
+            elif self._try_get_unified_tool(param.tool_name):
+                tool_info = self._try_get_unified_tool(param.tool_name)
+            else:
+                tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
+
+        # 按工具类型设 init_params(执行语义必需的副作用)
         if agent.sandbox_manager and param.tool_name in sandbox_tool_dict:
-            tool_info = sandbox_tool_dict[param.tool_name]
             if not self.init_params:
                 sandbox_client = agent.sandbox_manager.client
                 self.init_params["client"] = sandbox_client
                 self.init_params["conversation_id"] = agent_context.conv_session_id
-        # 检查系统工具（如 read_file）
         elif param.tool_name in system_tool_dict:
-            tool_info = system_tool_dict[param.tool_name]
-            # 系统工具需要 agent_file_system 参数
             if kwargs.get("agent_file_system"):
                 self.init_params["agent_file_system"] = kwargs.get("agent_file_system")
-        # 检查统一工具框架（如 bash, read, write 等）
-        elif self._try_get_unified_tool(param.tool_name):
-            tool_info = self._try_get_unified_tool(param.tool_name)
-            logger.info(f"[ToolAction] 从统一工具框架获取工具: {param.tool_name}")
-        else:
-            tool_pack, tool_info = await self._get_tool_info(resource, param.tool_name)
         if not tool_info:
             return ActionOutput(
                 action_id=self.action_uid,

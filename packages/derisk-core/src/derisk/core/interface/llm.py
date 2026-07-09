@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from typing import (
     Any,
     AsyncIterator,
+    Callable,
     Coroutine,
     Dict,
     List,
@@ -655,7 +656,9 @@ class ModelRequest:
         )
 
     def to_common_messages(
-        self, support_system_role: bool = True
+        self,
+        support_system_role: bool = True,
+        replace_url_func: Optional[Callable[[str], str]] = None,
     ) -> List[Dict[str, Any]]:
         """Convert the messages to the common format(like OpenAI API).
 
@@ -716,7 +719,9 @@ class ModelRequest:
 
         messages = [_convert_message(m) for m in self.messages]
         return ModelMessage.to_common_messages(
-            messages, support_system_role=support_system_role
+            messages,
+            support_system_role=support_system_role,
+            replace_url_func=replace_url_func,
         )
 
     def messages_to_string(self) -> str:

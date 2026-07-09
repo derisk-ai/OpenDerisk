@@ -34,6 +34,7 @@ class WriteTool(SandboxToolBase):
                 "- d-attach rendering for download links"
             ),
             category=ToolCategory.FILE_SYSTEM,
+            capability_id="sandbox",
             risk_level=ToolRiskLevel.MEDIUM,
             requires_permission=True,
             timeout=60,

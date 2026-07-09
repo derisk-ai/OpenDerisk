@@ -10,7 +10,7 @@ needs to behave in a workspace-aware way:
 - optional playbook declaration DSL (when a task is bound to a playbook)
 """
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from derisk_serve.workspace.materializer import (
     MaterializedResources,
@@ -20,6 +20,9 @@ from derisk_serve.workspace.service.service import (
     WORKSPACE_SERVICE_COMPONENT_NAME,
     WorkspaceService,
 )
+
+if TYPE_CHECKING:
+    from derisk_serve.playbook.resource import PlaybookResource
 
 # Task and playbook services are imported lazily below to avoid pulling in
 # heavy endpoint/runtime dependencies (e.g. derisk_app) at module load time.
@@ -33,6 +36,7 @@ class WorkspaceContextSnapshot:
     materialized_resources: MaterializedResources
     task: Optional[Any] = None
     playbook_declaration: Optional[dict] = None
+    playbook_resource: Optional["PlaybookResource"] = None  # NEW: RFC-005 剧本资源协议
     user_id: Optional[str] = None
     workspace_id: Optional[int] = None
     task_id: Optional[int] = None
@@ -99,6 +103,8 @@ def build_workspace_context(
 
     task = None
     playbook_declaration = None
+    playbook_resource = None  # NEW: RFC-005 剧本资源
+
     if task_id is not None:
         task_service = get_task_service(system_app)
         task = task_service.get_by_id(task_id)
@@ -107,6 +113,22 @@ def build_workspace_context(
             playbook = pb_service.get_by_id(task.playbook_id)
             if playbook and getattr(playbook, "declaration", None):
                 playbook_declaration = playbook.declaration
+
+            # NEW: 创建 PlaybookResource（用于 RFC-005 协议注入）
+            # 注意：PlaybookResource.declare() 是纯函数，不需要异步
+            try:
+                from derisk_serve.playbook.resource import (
+                    PlaybookConfig,
+                    PlaybookResource,
+                )
+                config = PlaybookConfig.from_playbook_response(playbook)
+                playbook_resource = PlaybookResource(config, system_app)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to create PlaybookResource: {e}"
+                )
+
     active_tasks: List[Any] = []
     if mode == "lobby":
         try:
@@ -142,6 +164,7 @@ def build_workspace_context(
         materialized_resources=materialized,
         task=task,
         playbook_declaration=playbook_declaration,
+        playbook_resource=playbook_resource,  # NEW
         user_id=user_id,
         workspace_id=workspace_id,
         task_id=task_id,
