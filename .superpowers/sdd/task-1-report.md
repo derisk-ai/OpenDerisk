@@ -42,3 +42,41 @@ Note: the brief's expected line said "PASS (3 tests)" but the brief's own test f
 
 ## Concerns
 None.
+
+---
+
+## Code-review fix — strengthen vis-tag assertions (review finding)
+
+**Finding:** `test_visualization_returns_structured_vis_with_execution_step` only asserted three substring presences (`"scene_agent_workspace" in out`, `"execution" in out`, `"search_workspace" in out`) — vacuous, a malformed payload would pass.
+
+**What changed:**
+- Added `import re` at the top of `packages/derisk-ext/tests/derisk_ext/vis/derisk/test_scene_agent_workspace_converter.py` (`import json` already present).
+- Replaced the three substring assertions with structured-payload assertions that parse the vis-tag fence via `re.search(r"```scene_agent_workspace\n(.*?)\n```", out, re.DOTALL)` → `json.loads(...)`, then assert:
+  - `payload["render_name"] == "scene_agent_workspace"`
+  - `payload["planning"] is None`
+  - `len(payload["execution"]) == 1`
+  - step: `action == "search_workspace"`, `status == "done"` (input `"complete"` mapped by converter), `action_input == {"query": "营收"}`, `output == "找到 3 条记录"`
+  - `payload["summary"] == "正在搜索"` (the `gpt_msg.ai_message`)
+- Left `test_render_name_is_scene_agent_workspace` unchanged.
+
+**Status-mapping verification:** Read `derisk_vis_scene_agent_workspace_converter.py` `_step_from_action_report` (lines 51–75). The mapping is:
+```python
+status_raw = str(content.get("status", "")).lower()
+status = (
+    "running" if status_raw in ("running", "executing", "pending")
+    else "failed" if status_raw in ("failed", "error", "blocked")
+    else "done"
+)
+```
+Input `"complete"` is not in the `running` or `failed` sets, so it falls through to `"done"`. The `"complete/finished/done/delivered/closed → done"` description in the finding is aspirational — the actual code maps *any* non-running/non-failed status to `"done"` (broader than the explicit list). Assertion `step["status"] == "done"` matches the actual converter behavior; converter was NOT changed.
+
+**Command run:**
+```
+$ cd /Users/tuyang/GitHub/OpenDerisk && python -m pytest packages/derisk-ext/tests/derisk_ext/vis/derisk/test_scene_agent_workspace_converter.py -v
+```
+**Output tail:**
+```
+packages/derisk-ext/tests/derisk_ext/vis/derisk/test_scene_agent_workspace_converter.py::test_render_name_is_scene_agent_workspace PASSED [ 50%]
+packages/derisk-ext/tests/derisk_ext/vis/derisk/test_scene_agent_workspace_converter.py::test_visualization_returns_structured_vis_with_execution_step PASSED [100%]
+======================== 2 passed, 31 warnings in 2.36s ========================
+```
