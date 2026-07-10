@@ -1,4 +1,5 @@
 import { buildSceneAgentSendData, type SceneAgentSendPayload } from '../scene-agent-send-data';
+import { parseSceneAgentWorkspaceString } from '../parse-scene-agent-workspace-string';
 
 describe('buildSceneAgentSendData', () => {
   test('text + resources + model 构造多模态 user_input 与 chat_in_params', () => {
@@ -46,5 +47,69 @@ describe('buildSceneAgentSendData', () => {
     expect(data.model_name).toBeUndefined();
     // ext_info 仍含 vis_render
     expect(data.ext_info).toMatchObject({ vis_render: 'scene_agent_workspace', workspace_id: 9 });
+  });
+});
+
+describe('parseSceneAgentWorkspaceString', () => {
+  test('fenced scene_agent_workspace string → parsed object', () => {
+    const body = '{"render_name":"scene_agent_workspace","planning":null,"execution":[],"summary":null}';
+    const fenced = '```scene_agent_workspace\n' + body + '\n```';
+    const parsed = parseSceneAgentWorkspaceString(fenced);
+    expect(parsed).toEqual({
+      render_name: 'scene_agent_workspace',
+      planning: null,
+      execution: [],
+      summary: null,
+    });
+  });
+
+  test('bare JSON string (no fence) → parsed object (fallback)', () => {
+    const s = '{"render_name":"scene_agent_workspace","execution":[]}';
+    const parsed = parseSceneAgentWorkspaceString(s);
+    expect(parsed).toEqual({ render_name: 'scene_agent_workspace', execution: [] });
+  });
+
+  test('normal markdown string → null', () => {
+    expect(parseSceneAgentWorkspaceString('**hello**')).toBeNull();
+  });
+
+  test('fenced string with malformed JSON body → null (no throw)', () => {
+    const fenced = '```scene_agent_workspace\n{not valid json\n```';
+    expect(() => parseSceneAgentWorkspaceString(fenced)).not.toThrow();
+    expect(parseSceneAgentWorkspaceString(fenced)).toBeNull();
+  });
+
+  test('non-string or empty → null', () => {
+    expect(parseSceneAgentWorkspaceString(null as unknown as string)).toBeNull();
+    expect(parseSceneAgentWorkspaceString(undefined as unknown as string)).toBeNull();
+    expect(parseSceneAgentWorkspaceString(123 as unknown as string)).toBeNull();
+    expect(parseSceneAgentWorkspaceString('')).toBeNull();
+    expect(parseSceneAgentWorkspaceString('   ')).toBeNull();
+  });
+
+  test('execution payload is preserved through fence parse', () => {
+    const obj = {
+      render_name: 'scene_agent_workspace',
+      planning: { goal: 'x' },
+      execution: [{ id: 's1', title: 't', type: 'tool_call', status: 'done' }],
+      summary: 'done',
+    };
+    const fenced = '```scene_agent_workspace\n' + JSON.stringify(obj) + '\n```';
+    const parsed = parseSceneAgentWorkspaceString(fenced);
+    expect(parsed).toEqual(obj);
+  });
+
+  test('fence embedded in surrounding markdown → still parsed (regex is not anchored)', () => {
+    const body = '{"render_name":"scene_agent_workspace","execution":[]}';
+    const md = 'some prefix\n```scene_agent_workspace\n' + body + '\n```\ntail';
+    expect(parseSceneAgentWorkspaceString(md)).toEqual({
+      render_name: 'scene_agent_workspace',
+      execution: [],
+    });
+  });
+
+  test('bare JSON that is not an object (e.g. array or number string) → null for non-object', () => {
+    expect(parseSceneAgentWorkspaceString('[1,2,3]')).toBeNull();
+    expect(parseSceneAgentWorkspaceString('"a string"')).toBeNull();
   });
 });
