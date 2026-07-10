@@ -5,8 +5,9 @@ import { Alert, Button, Spin } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { WorkspaceEvent } from '@/hooks/use-chat';
 import type { AgentStep } from './agent-types';
-import { AgentChatInput, AgentChatInputHandle } from './agent-chat-input';
-import { AgentProcessPanel } from './agent-process-panel';
+import { AgentWorkspaceInput } from './agent-workspace-input';
+import { AgentWorkspaceRenderer } from './agent-workspace-renderer';
+import type { AgentWorkspaceInputHandle } from './agent-workspace-types';
 import { useSceneAgentChat } from './use-scene-agent-chat';
 
 export interface AgentWorkspaceProps {
@@ -21,6 +22,7 @@ export interface AgentWorkspaceProps {
   switchingTask?: boolean;
   convLoadError?: string | null;
   retryLoadConv?: () => void;
+  playbooks?: { playbook_id: number; playbook_name: string }[];
 }
 
 export function AgentWorkspace({
@@ -35,9 +37,10 @@ export function AgentWorkspace({
   switchingTask,
   convLoadError,
   retryLoadConv,
+  playbooks,
 }: AgentWorkspaceProps) {
-  const inputRef = useRef<AgentChatInputHandle>(null);
-  const { steps, loading, error, lastInput, send, clearSteps } = useSceneAgentChat({
+  const inputRef = useRef<AgentWorkspaceInputHandle>(null);
+  const { steps, workspaceView, loading, error, lastInput, send, clearSteps, clearWorkspaceView } = useSceneAgentChat({
     convUid,
     appCode,
     workspaceId,
@@ -47,7 +50,8 @@ export function AgentWorkspace({
 
   useEffect(() => {
     clearSteps();
-  }, [convUid, clearSteps]);
+    clearWorkspaceView();
+  }, [convUid, clearSteps, clearWorkspaceView]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -81,17 +85,29 @@ export function AgentWorkspace({
         ) : !convUid ? (
           <div className="ws-agent-workspace__loading"><Spin /></div>
         ) : (
-          <AgentProcessPanel steps={steps} loading={loading} onStepClick={onStepClick} />
+          <AgentWorkspaceRenderer
+            view={workspaceView}
+            onStepClick={onStepClick ? (s) => onStepClick({
+              id: s.id,
+              type: 'unknown',
+              title: s.title,
+              status: s.status === 'running' ? 'running' : s.status === 'failed' ? 'failed' : 'done',
+              timestamp: Date.now(),
+              payload: { action: s.action },
+            }) : undefined}
+          />
         )}
       </div>
       <div className="ws-agent-workspace__input">
-        <AgentChatInput
+        <AgentWorkspaceInput
           ref={inputRef}
-          onSend={(text) => send({ text })}
+          convUid={convUid}
+          onSend={(p) => send(p)}
           loading={loading}
           disabled={!convUid || switchingTask}
-          lastInput={lastInput?.text ?? null}
+          lastInput={lastInput ? { text: typeof lastInput.text === 'string' ? lastInput.text : '' } : null}
           onRetry={lastInput ? () => send(lastInput) : undefined}
+          playbooks={playbooks}
         />
       </div>
     </div>
