@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { render, fireEvent, screen, act } from '@testing-library/react';
+import { render, fireEvent, screen } from '@testing-library/react';
 import { AgentWorkspaceInput } from '../agent-workspace-input';
 
 jest.mock('@/client/api', () => ({
@@ -38,7 +38,7 @@ describe('AgentWorkspaceInput', () => {
     fireEvent.click(screen.getByText('营收分析'));
     expect(onSend).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.any(String),
+        text: '本月营收',
         playbookCommand: { playbook_id: 1, playbook_name: '营收分析' },
       }),
     );
