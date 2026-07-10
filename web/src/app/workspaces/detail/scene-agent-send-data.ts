@@ -2,7 +2,7 @@ import type { PlaybookCommand } from './agent-workspace-types';
 
 export interface SceneAgentSendPayload {
   text: string;
-  resources?: Record<string, unknown>[];
+  resources?: unknown[];
   model?: string;
   playbookCommand?: PlaybookCommand;
 }
